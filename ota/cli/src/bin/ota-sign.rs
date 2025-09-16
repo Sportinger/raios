@@ -26,7 +26,11 @@ fn main() -> Result<()> {
     let key = load_keymaterial(&args.key)?;
     let cert = load_certificate(&args.cert)?;
     if cert.subject != key.key_id {
-        return Err(anyhow!("certificate subject {} != key id {}", cert.subject, key.key_id));
+        return Err(anyhow!(
+            "certificate subject {} != key id {}",
+            cert.subject,
+            key.key_id
+        ));
     }
     let signed = SignedBlob::sign(&args.input, &key, &cert, None)?;
     let json = serde_json::to_string_pretty(&signed)?;

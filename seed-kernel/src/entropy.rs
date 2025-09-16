@@ -12,41 +12,149 @@ const POOL_SIZE: usize = 64;
 const MIN_READY_BYTES: usize = 32;
 const REFRESH_INTERVAL_TSC: u64 = 25_000_000; // ~8 ms at 3 GHz
 
-static ENTROPY_STATE: Mutex<EntropyState> = Mutex::new(EntropyState {
-    ready: false,
-    pool: [0u8; POOL_SIZE],
-    fill: 0,
-});
+static ENTROPY_STATE: Mutex<EntropyState> = Mutex::new(EntropyState::new());
 
 static VIRTIO_SOURCE: Mutex<Option<VirtioRng>> = Mutex::new(None);
 static LAST_REFRESH_ATTEMPT_TSC: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Clone, Copy, Debug)]
+pub struct EntropyStats {
+    pub ready: bool,
+    pub pool_fill: usize,
+    pub total_collected: u64,
+    pub used_rdrand: bool,
+    pub used_virtio: bool,
+}
+
+#[derive(Clone, Copy)]
+enum EntropySource {
+    Rdrand,
+    Virtio,
+}
+
+#[derive(Clone, Copy)]
+struct SourceFlags {
+    rdrand: bool,
+    virtio: bool,
+}
+
+impl SourceFlags {
+    const fn new() -> Self {
+        Self {
+            rdrand: false,
+            virtio: false,
+        }
+    }
+
+    fn mark(&mut self, src: EntropySource) {
+        match src {
+            EntropySource::Rdrand => self.rdrand = true,
+            EntropySource::Virtio => self.virtio = true,
+        }
+    }
+}
+
 struct EntropyState {
     ready: bool,
     pool: [u8; POOL_SIZE],
+    head: usize,
     fill: usize,
+    total_collected: u64,
+    sources: SourceFlags,
+    low_water_reported: bool,
 }
 
 impl EntropyState {
-    fn reset(&mut self) {
-        self.ready = false;
-        self.fill = 0;
+    const fn new() -> Self {
+        Self {
+            ready: false,
+            pool: [0u8; POOL_SIZE],
+            head: 0,
+            fill: 0,
+            total_collected: 0,
+            sources: SourceFlags::new(),
+            low_water_reported: false,
+        }
     }
 
-    fn ingest(&mut self, data: &[u8]) -> usize {
-        let capacity = POOL_SIZE.saturating_sub(self.fill);
-        let to_copy = cmp::min(capacity, data.len());
-        if to_copy > 0 {
-            let start = self.fill;
-            let end = start + to_copy;
-            self.pool[start..end].copy_from_slice(&data[..to_copy]);
-            self.fill = end;
-            if self.fill >= MIN_READY_BYTES {
-                self.ready = true;
+    fn reset(&mut self) {
+        self.ready = false;
+        self.head = 0;
+        self.fill = 0;
+        self.total_collected = 0;
+        self.sources = SourceFlags::new();
+        self.low_water_reported = false;
+    }
+
+    fn ingest(&mut self, data: &[u8], source: EntropySource) -> usize {
+        let mut stored = 0usize;
+        for &byte in data {
+            if self.fill == POOL_SIZE {
+                break;
+            }
+            let tail_index = (self.head + self.fill) % POOL_SIZE;
+            self.pool[tail_index] = byte;
+            self.fill += 1;
+            stored += 1;
+        }
+        if stored > 0 {
+            self.total_collected = self.total_collected.saturating_add(stored as u64);
+            self.sources.mark(source);
+        }
+        if self.fill >= MIN_READY_BYTES {
+            self.ready = true;
+            self.low_water_reported = false;
+        }
+        stored
+    }
+
+    fn consume(&mut self, dest: &mut [u8]) -> ConsumeReport {
+        if self.fill == 0 {
+            return ConsumeReport {
+                taken: 0,
+                warn_low_now: false,
+            };
+        }
+        let to_take = cmp::min(dest.len(), self.fill);
+        let first_segment = cmp::min(to_take, POOL_SIZE.saturating_sub(self.head));
+        dest[..first_segment].copy_from_slice(&self.pool[self.head..self.head + first_segment]);
+        if to_take > first_segment {
+            let second = to_take - first_segment;
+            dest[first_segment..first_segment + second].copy_from_slice(&self.pool[..second]);
+            self.head = second;
+        } else {
+            self.head = (self.head + to_take) % POOL_SIZE;
+        }
+        self.fill -= to_take;
+        let mut warn_low_now = false;
+        if self.fill >= MIN_READY_BYTES {
+            self.low_water_reported = false;
+        } else if self.ready {
+            if !self.low_water_reported {
+                warn_low_now = true;
+                self.low_water_reported = true;
             }
         }
-        to_copy
+        ConsumeReport {
+            taken: to_take,
+            warn_low_now,
+        }
     }
+
+    fn stats(&self) -> EntropyStats {
+        EntropyStats {
+            ready: self.ready,
+            pool_fill: self.fill,
+            total_collected: self.total_collected,
+            used_rdrand: self.sources.rdrand,
+            used_virtio: self.sources.virtio,
+        }
+    }
+}
+
+struct ConsumeReport {
+    taken: usize,
+    warn_low_now: bool,
 }
 
 pub fn init() {
@@ -70,7 +178,10 @@ pub fn init() {
         let mut state = ENTROPY_STATE.lock();
         state.reset();
         if collected > 0 {
-            state.ingest(&scratch[..collected]);
+            let stored = state.ingest(&scratch[..collected], EntropySource::Rdrand);
+            if stored < collected {
+                serial::write_line("Entropy pool at capacity; some RDRAND output unused");
+            }
         }
         state.ready
     };
@@ -94,7 +205,7 @@ pub fn attach_virtio_rng(mut device: VirtioRng) {
     } else {
         let (stored, ready_now) = {
             let mut state = ENTROPY_STATE.lock();
-            let stored = state.ingest(&scratch[..produced]);
+            let stored = state.ingest(&scratch[..produced], EntropySource::Virtio);
             (stored, state.ready)
         };
         serial::write_fmt(format_args!(
@@ -170,7 +281,7 @@ fn refresh_pool(device: &mut VirtioRng) -> Option<RefreshReport> {
     let mut state = ENTROPY_STATE.lock();
     let before_ready = state.ready;
     let before_fill = state.fill;
-    let stored = state.ingest(&scratch[..produced]);
+    let stored = state.ingest(&scratch[..produced], EntropySource::Virtio);
     let after_ready = state.ready;
     let after_fill = state.fill;
     drop(state);
@@ -193,14 +304,35 @@ pub fn is_ready() -> bool {
     ENTROPY_STATE.lock().ready
 }
 
-#[allow(dead_code)]
-pub fn fill_bytes(buffer: &mut [u8]) -> usize {
-    let state = ENTROPY_STATE.lock();
-    let available = state.fill.min(buffer.len());
-    if available > 0 {
-        buffer[..available].copy_from_slice(&state.pool[..available]);
+pub fn take(buffer: &mut [u8]) {
+    let mut offset = 0usize;
+    while offset < buffer.len() {
+        while !is_ready() {
+            maintain();
+            core::hint::spin_loop();
+        }
+
+        let copied = {
+            let mut state = ENTROPY_STATE.lock();
+            let report = state.consume(&mut buffer[offset..]);
+            if report.warn_low_now {
+                serial::write_line("Entropy pool low; requesting virtio-rng refresh");
+            }
+            report.taken
+        };
+
+        if copied == 0 {
+            maintain();
+            core::hint::spin_loop();
+            continue;
+        }
+
+        offset += copied;
     }
-    available
+}
+
+pub fn stats() -> EntropyStats {
+    ENTROPY_STATE.lock().stats()
 }
 
 fn cpu_has_rdrand() -> bool {

@@ -35,4 +35,3 @@ impl PeriodicTask {
 pub const fn ms_to_tsc(ms: u64, tsc_per_ms: u64) -> u64 {
     ms.saturating_mul(tsc_per_ms)
 }
-

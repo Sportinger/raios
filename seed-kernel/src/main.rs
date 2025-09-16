@@ -12,15 +12,16 @@ use limine::request::FramebufferRequest;
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
 
-mod framebuffer;
 mod entropy;
+mod framebuffer;
+mod input;
+mod net;
 mod pci;
+mod scheduler;
 mod serial;
-mod virtio;
 mod text;
 mod time;
-mod scheduler;
-mod net;
+mod virtio;
 
 #[used]
 #[link_section = ".limine_reqs"]
@@ -71,6 +72,7 @@ fn early_main() -> ! {
 
     if entropy_ready {
         net::init();
+        input::init();
     } else {
         serial::write_line("virtio-net initialization deferred; waiting for entropy");
     }
@@ -88,7 +90,14 @@ fn early_main() -> ! {
         surface.fill(Color::new(20, 24, 28));
         surface.fill_rect(20, 20, 320, 140, Color::new(40, 90, 180));
         surface.fill_rect(30, 40, 300, 36, Color::new(240, 240, 240));
-        text::draw_text(&mut surface, 40, 48, "SEEDOS STAGE-0", Color::new(20, 28, 40), Some(Color::new(240, 240, 240)));
+        text::draw_text(
+            &mut surface,
+            40,
+            48,
+            "SEEDOS STAGE-0",
+            Color::new(20, 28, 40),
+            Some(Color::new(240, 240, 240)),
+        );
         surface.present();
         serial::write_line("Framebuffer hello overlay drawn");
     } else {
@@ -118,15 +127,20 @@ fn now() -> u64 {
 struct PeriodicTasks {
     entropy: scheduler::PeriodicTask,
     net: scheduler::PeriodicTask,
+    input: scheduler::PeriodicTask,
     entropy_ready: bool,
+    input_started: bool,
 }
 
 impl PeriodicTasks {
     fn new(tsc_per_ms: u64) -> Self {
+        let entropy_ready = entropy::is_ready();
         Self {
             entropy: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
             net: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
-            entropy_ready: entropy::is_ready(),
+            input: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
+            entropy_ready,
+            input_started: entropy_ready,
         }
     }
 
@@ -135,11 +149,19 @@ impl PeriodicTasks {
         if !self.entropy_ready && entropy::is_ready() {
             serial::write_line("Entropy ready; starting virtio-net bring-up");
             net::init();
+            input::init();
             self.entropy_ready = true;
+            self.input_started = true;
             return;
         }
         if self.entropy_ready {
             self.net.try_run(now_tsc, || net::poll());
+            if !self.input_started {
+                // ensure virtio-input probed once entropy and bus ready
+                input::init();
+                self.input_started = true;
+            }
+            self.input.try_run(now_tsc, || input::poll());
         }
     }
 }

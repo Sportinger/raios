@@ -21,17 +21,52 @@ impl fmt::Display for PciAddress {
 
 impl PciAddress {
     pub fn new(bus: u8, device: u8, function: u8) -> Self {
-        Self { bus, device, function }
+        Self {
+            bus,
+            device,
+            function,
+        }
     }
 
     pub fn read_u32(&self, offset: u8) -> u32 {
         pci_config_read_u32(self.bus, self.device, self.function, offset)
     }
 
+    pub fn read_u16(&self, offset: u8) -> u16 {
+        let value = self.read_u32(offset & !0x3);
+        let shift = ((offset & 0x2) as u32) * 8;
+        ((value >> shift) & 0xFFFF) as u16
+    }
+
+    pub fn read_u8(&self, offset: u8) -> u8 {
+        let value = self.read_u32(offset & !0x3);
+        let shift = ((offset & 0x3) as u32) * 8;
+        ((value >> shift) & 0xFF) as u8
+    }
+
     pub fn write_u16(&self, offset: u8, value: u16) {
         pci_config_write_u16(self.bus, self.device, self.function, offset, value);
     }
 
+    pub fn write_u8(&self, offset: u8, value: u8) {
+        let aligned = offset & !0x3;
+        let shift = ((offset & 0x3) as u32) * 8;
+        let mask = !(0xFFu32 << shift);
+
+        let _guard = PCI_LOCK.lock();
+        let address = config_address(self.bus, self.device, self.function, aligned);
+        unsafe {
+            outl(CONFIG_ADDRESS, address);
+            let mut current = inl(CONFIG_DATA);
+            current = (current & mask) | ((value as u32) << shift);
+            outl(CONFIG_ADDRESS, address);
+            outl(CONFIG_DATA, current);
+        }
+    }
+
+    pub fn write_u32(&self, offset: u8, value: u32) {
+        pci_config_write_u32(self.bus, self.device, self.function, offset, value);
+    }
 }
 
 pub fn enable_bus_master(address: PciAddress) {
@@ -94,6 +129,15 @@ fn pci_config_write_u16(bus: u8, device: u8, function: u8, offset: u8, value: u1
         current = (current & mask) | ((value as u32) << shift);
         outl(CONFIG_ADDRESS, address);
         outl(CONFIG_DATA, current);
+    }
+}
+
+fn pci_config_write_u32(bus: u8, device: u8, function: u8, offset: u8, value: u32) {
+    let _guard = PCI_LOCK.lock();
+    let address = config_address(bus, device, function, offset);
+    unsafe {
+        outl(CONFIG_ADDRESS, address);
+        outl(CONFIG_DATA, value);
     }
 }
 

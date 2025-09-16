@@ -5,7 +5,10 @@ use clap::Parser;
 use ota_tools::{ensure_dir, store_certificate, KeyMaterial, SignerCertificate};
 
 #[derive(Parser, Debug)]
-#[command(about = "Generate deterministic seed OS signing keys and certificate", version)]
+#[command(
+    about = "Generate deterministic seed OS signing keys and certificate",
+    version
+)]
 struct Args {
     /// Output directory for generated keys and certificates
     #[arg(long, default_value = "keys/dev")] // relative to repo root
@@ -56,7 +59,10 @@ fn main() -> Result<()> {
 
     let online_material = KeyMaterial::from_seed(&args.online_id, &args.context)?;
     online_material.save(&online_key_path)?;
-    std::fs::write(&online_pub_path, format!("{}\n", online_material.public_key))?;
+    std::fs::write(
+        &online_pub_path,
+        format!("{}\n", online_material.public_key),
+    )?;
 
     let cert = SignerCertificate::new(
         &online_material,

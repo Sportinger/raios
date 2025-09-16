@@ -5,7 +5,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use fake_cloud_server::{run_server, ServerConfig};
 use futures::{SinkExt, StreamExt};
-use ota_tools::{public_key_to_hex, KeyMaterial, SignerCertificate, SignedBlob};
+use ota_tools::{public_key_to_hex, KeyMaterial, SignedBlob, SignerCertificate};
 use registry_core::{ListFilter, Registry};
 use serde_json::json;
 use tempfile::tempdir;
@@ -37,7 +37,10 @@ async fn ota_roundtrip_publishes_to_registry() -> anyhow::Result<()> {
     std::fs::write(&manifest_path, &manifest_json)?;
 
     let root_pub_path = temp.path().join("root.pub");
-    std::fs::write(&root_pub_path, format!("{}\n", public_key_to_hex(&root.public_key()?)))?;
+    std::fs::write(
+        &root_pub_path,
+        format!("{}\n", public_key_to_hex(&root.public_key()?)),
+    )?;
 
     let bind = reserve_port();
     let config = ServerConfig {

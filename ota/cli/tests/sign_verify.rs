@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::Write;
 
-use ota_tools::{KeyMaterial, SignerCertificate, SignedBlob};
+use ota_tools::{KeyMaterial, SignedBlob, SignerCertificate};
 
 #[test]
 fn sign_and_verify_roundtrip() -> anyhow::Result<()> {

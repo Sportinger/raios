@@ -89,10 +89,7 @@ impl Registry {
                 .with_context(|| format!("copying blob to {}", blob_dest.display()))?;
         }
 
-        let manifest_dest = self
-            .root
-            .join("manifests")
-            .join(format!("{}.json", hash));
+        let manifest_dest = self.root.join("manifests").join(format!("{}.json", hash));
         if !manifest_dest.exists() {
             fs::write(&manifest_dest, manifest_str)
                 .with_context(|| format!("writing manifest {}", manifest_dest.display()))?;
@@ -227,10 +224,7 @@ pub fn sanitize_component(input: &str) -> String {
 
 fn metadata_string(meta: Option<&Value>, key: &str) -> Option<String> {
     match meta {
-        Some(Value::Object(map)) => map
-            .get(key)
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
+        Some(Value::Object(map)) => map.get(key).and_then(|v| v.as_str()).map(|s| s.to_string()),
         _ => None,
     }
 }
@@ -268,7 +262,10 @@ mod tests {
         fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
 
         let root_pub_path = temp.path().join("root.pub");
-        fs::write(&root_pub_path, format!("{}\n", public_key_to_hex(&root.public_key()?)))?;
+        fs::write(
+            &root_pub_path,
+            format!("{}\n", public_key_to_hex(&root.public_key()?)),
+        )?;
 
         let result = registry.publish(PublishRequest {
             blob: blob_path.clone(),

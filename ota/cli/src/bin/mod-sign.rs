@@ -33,7 +33,11 @@ fn main() -> Result<()> {
     let key = load_keymaterial(&args.key)?;
     let cert = load_certificate(&args.cert)?;
     if cert.subject != key.key_id {
-        return Err(anyhow!("certificate subject {} != key id {}", cert.subject, key.key_id));
+        return Err(anyhow!(
+            "certificate subject {} != key id {}",
+            cert.subject,
+            key.key_id
+        ));
     }
 
     let mut metadata = Map::new();
@@ -52,6 +56,9 @@ fn main() -> Result<()> {
     let signed = SignedBlob::sign(&args.input, &key, &cert, metadata_value)?;
     let json = serde_json::to_string_pretty(&signed)?;
     std::fs::write(&args.output, json)?;
-    println!("wrote module signature manifest to {}", args.output.display());
+    println!(
+        "wrote module signature manifest to {}",
+        args.output.display()
+    );
     Ok(())
 }

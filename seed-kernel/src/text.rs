@@ -8,7 +8,14 @@ const FONT_WIDTH: usize = 8;
 const FONT_HEIGHT: usize = 8;
 const FONT_FIRST: u8 = 32;
 
-pub fn draw_text(surface: &mut FramebufferSurface, x: usize, y: usize, text: &str, fg: Color, bg: Option<Color>) {
+pub fn draw_text(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    text: &str,
+    fg: Color,
+    bg: Option<Color>,
+) {
     let mut cursor_x = x;
     let mut cursor_y = y;
     for ch in text.chars() {
@@ -33,14 +40,23 @@ pub fn draw_text(surface: &mut FramebufferSurface, x: usize, y: usize, text: &st
 
 fn glyph(ch: char) -> Option<&'static [u8; FONT_HEIGHT]> {
     let code = ch as u32;
-    if !(FONT_FIRST as u32..=(FONT_FIRST as u32 + data::FONT8X8_BASIC.len() as u32 - 1)).contains(&code) {
+    if !(FONT_FIRST as u32..=(FONT_FIRST as u32 + data::FONT8X8_BASIC.len() as u32 - 1))
+        .contains(&code)
+    {
         return None;
     }
     let idx = (code - FONT_FIRST as u32) as usize;
     data::FONT8X8_BASIC.get(idx)
 }
 
-fn draw_glyph(surface: &mut FramebufferSurface, x: usize, y: usize, glyph: &[u8; FONT_HEIGHT], fg: Color, bg: Option<Color>) {
+fn draw_glyph(
+    surface: &mut FramebufferSurface,
+    x: usize,
+    y: usize,
+    glyph: &[u8; FONT_HEIGHT],
+    fg: Color,
+    bg: Option<Color>,
+) {
     for (row_idx, row_bits) in glyph.iter().enumerate() {
         if y + row_idx >= surface.info().height as usize {
             break;

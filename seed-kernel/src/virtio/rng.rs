@@ -126,10 +126,16 @@ impl VirtioRng {
             write_status(io_base, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
             let host_features = read_device_features(io_base);
             if host_features != 0 {
-                serial::write_fmt(format_args!("virtio-rng host features 0x{:08x} (ignored)\r\n", host_features));
+                serial::write_fmt(format_args!(
+                    "virtio-rng host features 0x{:08x} (ignored)\r\n",
+                    host_features
+                ));
             }
             write_driver_features(io_base, 0);
-            write_status(io_base, STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK);
+            write_status(
+                io_base,
+                STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK,
+            );
             write_queue_select(io_base, LEGACY_QUEUE_INDEX);
         }
 
@@ -196,7 +202,11 @@ impl VirtioRng {
 }
 
 #[allow(static_mut_refs)]
-unsafe fn queue_parts() -> (&'static mut [VirtqDesc; QUEUE_CAPACITY], &'static mut VirtqAvail, &'static mut VirtqUsed) {
+unsafe fn queue_parts() -> (
+    &'static mut [VirtqDesc; QUEUE_CAPACITY],
+    &'static mut VirtqAvail,
+    &'static mut VirtqUsed,
+) {
     let base = QUEUE_STORAGE.0.as_mut_ptr();
     let desc = &mut *(base.cast::<[VirtqDesc; QUEUE_CAPACITY]>());
     let avail_ptr = base.add(DESC_TABLE_BYTES).cast::<VirtqAvail>();

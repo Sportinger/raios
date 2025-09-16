@@ -6,7 +6,10 @@ use ota_tools::{load_public_key_hex, SignedBlob};
 use serde_json::Value;
 
 #[derive(Parser, Debug)]
-#[command(about = "Verify a signed module manifest against the offline root", version)]
+#[command(
+    about = "Verify a signed module manifest against the offline root",
+    version
+)]
 struct Args {
     /// Module binary path to verify against the manifest
     #[arg(long)]

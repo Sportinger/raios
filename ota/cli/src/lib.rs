@@ -4,7 +4,10 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use blake3::Hasher;
-use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signer, Signature, PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH, SIGNATURE_LENGTH};
+use ed25519_dalek::{
+    Keypair, PublicKey, SecretKey, Signature, Signer, PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH,
+    SIGNATURE_LENGTH,
+};
 use hex::{decode, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -53,10 +56,7 @@ impl KeyMaterial {
     }
 
     pub fn to_keypair(&self) -> Result<Keypair> {
-        let secret_hex = self
-            .secret_key
-            .as_ref()
-            .ok_or(KeyError::MissingSecret)?;
+        let secret_hex = self.secret_key.as_ref().ok_or(KeyError::MissingSecret)?;
         let secret_bytes = decode(secret_hex)?;
         if secret_bytes.len() != SECRET_KEY_LENGTH {
             return Err(KeyError::InvalidKeyLength(format!(
@@ -252,7 +252,6 @@ impl BlobPayload {
             length_bytes: length,
         })
     }
-
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -266,7 +265,12 @@ pub struct SignedBlob {
 }
 
 impl SignedBlob {
-    pub fn sign(path: &Path, signer: &KeyMaterial, cert: &SignerCertificate, metadata: Option<Value>) -> Result<Self> {
+    pub fn sign(
+        path: &Path,
+        signer: &KeyMaterial,
+        cert: &SignerCertificate,
+        metadata: Option<Value>,
+    ) -> Result<Self> {
         let mut file = File::open(path)?;
         let payload = BlobPayload::from_reader(&mut file)?;
         let signer_key = signer.to_keypair()?;
@@ -323,12 +327,19 @@ impl SignedBlob {
         let mut signer_array = [0u8; PUBLIC_KEY_LENGTH];
         signer_array.copy_from_slice(&signer_public_bytes);
         let signer_pk = PublicKey::from_bytes(&signer_array)?;
-        signer_pk.verify_strict(&signing_envelope_bytes(&self.payload, &self.signer_key_id, self.metadata.as_ref())?, &signature)?;
+        signer_pk.verify_strict(
+            &signing_envelope_bytes(&self.payload, &self.signer_key_id, self.metadata.as_ref())?,
+            &signature,
+        )?;
         Ok(())
     }
 }
 
-fn signing_envelope_bytes(payload: &BlobPayload, signer_key_id: &str, metadata: Option<&Value>) -> Result<Vec<u8>> {
+fn signing_envelope_bytes(
+    payload: &BlobPayload,
+    signer_key_id: &str,
+    metadata: Option<&Value>,
+) -> Result<Vec<u8>> {
     #[derive(Serialize)]
     struct Envelope<'a> {
         payload: &'a BlobPayload,
@@ -336,7 +347,11 @@ fn signing_envelope_bytes(payload: &BlobPayload, signer_key_id: &str, metadata: 
         #[serde(skip_serializing_if = "Option::is_none")]
         metadata: Option<&'a Value>,
     }
-    Ok(serde_json::to_vec(&Envelope { payload, signer_key_id, metadata })?)
+    Ok(serde_json::to_vec(&Envelope {
+        payload,
+        signer_key_id,
+        metadata,
+    })?)
 }
 
 fn copy_and_hash(reader: &mut File, hasher: &mut blake3::Hasher) -> Result<u64> {

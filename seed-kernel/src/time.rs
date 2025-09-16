@@ -54,7 +54,8 @@ pub fn calibrate_tsc() {
         }
         last_count = count;
         let elapsed_counts = (PIT_DIVISOR as u64).wrapping_sub(count as u64);
-        if elapsed_counts >= PIT_FREQUENCY_HZ / 200 { // ~5 ms
+        if elapsed_counts >= PIT_FREQUENCY_HZ / 200 {
+            // ~5 ms
             let delta_tsc = rdtsc().wrapping_sub(start_tsc);
             let elapsed_ms = (elapsed_counts * 1_000) / PIT_FREQUENCY_HZ;
             if elapsed_ms > 0 {

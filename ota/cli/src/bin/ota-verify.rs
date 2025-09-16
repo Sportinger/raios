@@ -5,7 +5,7 @@ use clap::Parser;
 use ota_tools::{load_public_key_hex, SignedBlob};
 
 #[derive(Parser, Debug)]
-#[command(about = "Verify a signed OTA/blob against the offline root")] 
+#[command(about = "Verify a signed OTA/blob against the offline root")]
 struct Args {
     /// Original blob content
     #[arg(long)]

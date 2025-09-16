@@ -111,7 +111,11 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
     }
 }
 
-async fn handle_connection(stream: TcpStream, addr: SocketAddr, state: Arc<ServerState>) -> Result<()> {
+async fn handle_connection(
+    stream: TcpStream,
+    addr: SocketAddr,
+    state: Arc<ServerState>,
+) -> Result<()> {
     info!("connection accepted from {}", addr);
     let ws_stream = accept_async(stream).await?;
     let (mut sink, mut stream) = ws_stream.split();
@@ -125,48 +129,47 @@ async fn handle_connection(stream: TcpStream, addr: SocketAddr, state: Arc<Serve
             }
         };
         match msg {
-            Message::Text(text) => {
-                match serde_json::from_str::<Envelope>(&text) {
-                    Ok(env) => match handle_envelope(&env, state.clone()).await {
-                        Ok(Some(resp)) => {
-                            let json = serde_json::to_string(&resp)?;
-                            sink.send(Message::Text(json)).await?;
-                        }
-                        Ok(None) => {}
-                        Err(err) => {
-                            error!("handler error for {}: {}", addr, err);
-                            let body = json!({
-                                "status": "error",
-                                "message": err.to_string(),
-                            });
-                            let resp = ResponseEnvelope {
-                                v: env.v,
-                                message_type: "error".to_string(),
-                                id: env.id.clone(),
-                                ts: now_ms(),
-                                body,
-                            };
-                            let json = serde_json::to_string(&resp)?;
-                            sink.send(Message::Text(json)).await?;
-                        }
-                    },
+            Message::Text(text) => match serde_json::from_str::<Envelope>(&text) {
+                Ok(env) => match handle_envelope(&env, state.clone()).await {
+                    Ok(Some(resp)) => {
+                        let json = serde_json::to_string(&resp)?;
+                        sink.send(Message::Text(json)).await?;
+                    }
+                    Ok(None) => {}
                     Err(err) => {
-                        warn!("invalid envelope from {}: {} -- {}", addr, err, text);
+                        error!("handler error for {}: {}", addr, err);
                         let body = json!({
                             "status": "error",
-                            "message": format!("invalid envelope: {}", err),
+                            "message": err.to_string(),
                         });
                         let resp = ResponseEnvelope {
-                            v: 1,
+                            v: env.v,
                             message_type: "error".to_string(),
-                            id: "error".to_string(),
+                            id: env.id.clone(),
                             ts: now_ms(),
                             body,
                         };
-                        sink.send(Message::Text(serde_json::to_string(&resp)?)).await?;
+                        let json = serde_json::to_string(&resp)?;
+                        sink.send(Message::Text(json)).await?;
                     }
+                },
+                Err(err) => {
+                    warn!("invalid envelope from {}: {} -- {}", addr, err, text);
+                    let body = json!({
+                        "status": "error",
+                        "message": format!("invalid envelope: {}", err),
+                    });
+                    let resp = ResponseEnvelope {
+                        v: 1,
+                        message_type: "error".to_string(),
+                        id: "error".to_string(),
+                        ts: now_ms(),
+                        body,
+                    };
+                    sink.send(Message::Text(serde_json::to_string(&resp)?))
+                        .await?;
                 }
-            }
+            },
             Message::Binary(_) => {
                 warn!("binary payload not supported from {}", addr);
             }
@@ -185,7 +188,10 @@ async fn handle_connection(stream: TcpStream, addr: SocketAddr, state: Arc<Serve
     Ok(())
 }
 
-async fn handle_envelope(env: &Envelope, state: Arc<ServerState>) -> Result<Option<ResponseEnvelope>> {
+async fn handle_envelope(
+    env: &Envelope,
+    state: Arc<ServerState>,
+) -> Result<Option<ResponseEnvelope>> {
     let _ = env.ts;
     match env.message_type.as_str() {
         "hello" => {
@@ -228,8 +234,7 @@ fn handle_ota_begin(body: Value, state: &ServerState) -> Result<OtaAckBody> {
         namespace,
         name,
         version,
-    } = serde_json::from_value(body)
-        .map_err(|err| HandlerError::InvalidBody(err.to_string()))?;
+    } = serde_json::from_value(body).map_err(|err| HandlerError::InvalidBody(err.to_string()))?;
 
     let decoded = BASE64
         .decode(blob_b64.as_bytes())
@@ -246,8 +251,8 @@ fn handle_ota_begin(body: Value, state: &ServerState) -> Result<OtaAckBody> {
         .verify(&blob_path, &state.root_public)
         .map_err(|err| HandlerError::Manifest(err.to_string()))?;
 
-    let manifest_json = serde_json::to_string(&manifest)
-        .map_err(|err| HandlerError::Manifest(err.to_string()))?;
+    let manifest_json =
+        serde_json::to_string(&manifest).map_err(|err| HandlerError::Manifest(err.to_string()))?;
     let mut manifest_file = NamedTempFile::new()
         .map_err(|err| HandlerError::Manifest(format!("create manifest tmp: {}", err)))?;
     manifest_file
