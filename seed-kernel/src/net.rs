@@ -14,7 +14,7 @@ pub fn init() {
 
     match virtio::net::probe() {
         Some(device) => {
-            serial::write_line("virtio-net init stub (waiting for driver implementation)");
+            serial::write_line("virtio-net init stub (queue wiring pending)");
             device.configure();
             *slot = Some(device);
         }
@@ -28,6 +28,7 @@ pub fn poll() {
     // placeholder: real driver will poll queues once implemented
 }
 
+#[allow(dead_code)]
 pub fn status() -> Option<virtio::net::VirtioNet> {
-    NET_DEVICE.lock().copied()
+    *NET_DEVICE.lock()
 }

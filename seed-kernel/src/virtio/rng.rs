@@ -118,7 +118,7 @@ impl VirtioRng {
         }
         let io_base = (bar0 & 0xFFFC) as u16;
 
-        enable_bus_master(address);
+        pci::enable_bus_master(address);
 
         unsafe {
             write_status(io_base, 0);
@@ -193,12 +193,6 @@ impl VirtioRng {
             spin_loop();
         }
     }
-}
-
-fn enable_bus_master(address: PciAddress) {
-    let mut command = (address.read_u32(0x04) & 0xFFFF) as u16;
-    command |= 0x1 | 0x2 | 0x4; // I/O space, memory space, bus master
-    address.write_u16(0x04, command);
 }
 
 #[allow(static_mut_refs)]
