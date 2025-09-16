@@ -8,7 +8,6 @@ use core::alloc::Layout;
 use core::arch::asm;
 use core::panic::PanicInfo;
 use core::ptr;
-
 use limine::request::FramebufferRequest;
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
@@ -20,6 +19,8 @@ mod serial;
 mod virtio;
 mod text;
 mod time;
+mod scheduler;
+mod net;
 
 #[used]
 #[link_section = ".limine_reqs"]
@@ -52,15 +53,26 @@ fn early_main() -> ! {
     serial::init();
     serial::write_line("Seed kernel: early init start");
 
+    time::calibrate_tsc();
+    let tsc_per_ms = time::tsc_per_ms();
+    let mut periodic = PeriodicTasks::new(tsc_per_ms);
+
     entropy::init();
 
     if let Some(rng) = virtio::rng::probe() {
         entropy::attach_virtio_rng(rng);
-        entropy::maintain(time::rdtsc());
+        periodic.run(now());
     }
 
-    if !entropy::is_ready() {
+    let entropy_ready = entropy::is_ready();
+    if !entropy_ready {
         serial::write_line("Entropy unavailable yet; later subsystems will wait");
+    }
+
+    if entropy_ready {
+        net::init();
+    } else {
+        serial::write_line("virtio-net initialization deferred; waiting for entropy");
     }
 
     let fb_surface = init_framebuffer();
@@ -84,8 +96,8 @@ fn early_main() -> ! {
     }
 
     loop {
-        let now = time::rdtsc();
-        entropy::maintain(now);
+        let tsc_now = now();
+        periodic.run(tsc_now);
         unsafe {
             asm!("hlt", options(nomem, nostack, preserves_flags));
         }
@@ -97,6 +109,39 @@ fn init_framebuffer() -> Option<framebuffer::FramebufferSurface> {
     let mut iter = response.framebuffers();
     let fb = iter.next()?;
     framebuffer::FramebufferSurface::from_limine(&fb)
+}
+
+fn now() -> u64 {
+    time::rdtsc()
+}
+
+struct PeriodicTasks {
+    entropy: scheduler::PeriodicTask,
+    net: scheduler::PeriodicTask,
+    entropy_ready: bool,
+}
+
+impl PeriodicTasks {
+    fn new(tsc_per_ms: u64) -> Self {
+        Self {
+            entropy: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
+            net: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
+            entropy_ready: entropy::is_ready(),
+        }
+    }
+
+    fn run(&mut self, now_tsc: u64) {
+        self.entropy.try_run(now_tsc, || entropy::maintain());
+        if !self.entropy_ready && entropy::is_ready() {
+            serial::write_line("Entropy ready; starting virtio-net bring-up");
+            net::init();
+            self.entropy_ready = true;
+            return;
+        }
+        if self.entropy_ready {
+            self.net.try_run(now_tsc, || net::poll());
+        }
+    }
 }
 
 #[alloc_error_handler]

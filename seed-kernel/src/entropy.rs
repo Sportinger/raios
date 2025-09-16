@@ -5,6 +5,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 
 use crate::serial;
+use crate::time;
 use crate::virtio::rng::VirtioRng;
 
 const POOL_SIZE: usize = 64;
@@ -111,19 +112,20 @@ pub fn attach_virtio_rng(mut device: VirtioRng) {
     *VIRTIO_SOURCE.lock() = Some(device);
 }
 
-pub fn maintain(now_tsc: u64) {
+pub fn maintain() {
     let mut device_guard = VIRTIO_SOURCE.lock();
     let device = match device_guard.as_mut() {
         Some(device) => device,
         None => return,
     };
 
+    let now = time::rdtsc();
     let last = LAST_REFRESH_ATTEMPT_TSC.load(Ordering::Relaxed);
-    if now_tsc.wrapping_sub(last) < REFRESH_INTERVAL_TSC {
+    if now.wrapping_sub(last) < REFRESH_INTERVAL_TSC {
         return;
     }
     if LAST_REFRESH_ATTEMPT_TSC
-        .compare_exchange(last, now_tsc, Ordering::Relaxed, Ordering::Relaxed)
+        .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
         .is_err()
     {
         return;

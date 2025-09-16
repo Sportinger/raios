@@ -6,7 +6,7 @@ const CONFIG_DATA: u16 = 0xCFC;
 
 static PCI_LOCK: Mutex<()> = Mutex::new(());
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PciAddress {
     pub bus: u8,
     pub device: u8,
@@ -32,6 +32,12 @@ impl PciAddress {
         pci_config_write_u16(self.bus, self.device, self.function, offset, value);
     }
 
+}
+
+pub fn enable_bus_master(address: PciAddress) {
+    let mut command = (address.read_u32(0x04) & 0xFFFF) as u16;
+    command |= 0x1 | 0x2 | 0x4; // I/O space, memory space, bus master
+    address.write_u16(0x04, command);
 }
 
 pub fn find_device(vendor: u16, device: u16) -> Option<PciAddress> {

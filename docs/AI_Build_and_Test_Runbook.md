@@ -43,7 +43,7 @@
 **Exit:** “hello pixel” overlay visible; serial logs confirm resolution & pitch (achieved by `seed-kernel/src/main.rs` hello banner + serial output).
 
 ### 2.2 Devices & time/entropy
-- [ ] Init **virtio‑rng**; don’t start net until entropy healthy (RDRAND fallback). (_Progress: `seed-kernel/src/entropy.rs` seeds a boot pool via RDRAND, attaches virtio for refills, and now performs TSC-throttled top-ups; `seed-kernel/src/virtio/rng.rs` configures the legacy PCI transport + queue. Remaining work: continuous background service + gating virtio-net bring-up on `entropy::is_ready()`._)
+- [ ] Init **virtio‑rng**; don’t start net until entropy healthy (RDRAND fallback). (_Progress: `seed-kernel/src/entropy.rs` seeds a boot pool via RDRAND, attaches virtio for refills, and now performs TSC-throttled top-ups; `seed-kernel/src/time.rs` calibrates TSC via PIT with bounded retries; `seed-kernel/src/main.rs` gates virtio-net boot until `entropy::is_ready()` while scheduling follow-up work; `seed-kernel/src/virtio/rng.rs` configures the legacy PCI transport + queue; `seed-kernel/src/net.rs` caches the probed virtio-net device pending driver wiring. Remaining work: real virtio-net driver and continuous refresh service._)
 - [ ] Bring up **virtio‑net**; run **DHCPv4**; learn **DNS**.
 - [ ] Init **virtio‑input** (kbd + pointer); timestamp events.
 
