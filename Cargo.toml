@@ -1,6 +1,10 @@
 [workspace]
 members = [
     "ota/cli",
-    "registry/cli"
+    "registry/cli",
+    "registry/core",
+    "fake-cloud/server",
+    "seed-kernel"
 ]
 resolver = "2"
+

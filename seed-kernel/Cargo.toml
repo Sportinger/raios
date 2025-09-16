@@ -1,0 +1,15 @@
+[package]
+name = "seed-kernel"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "seed-kernel"
+path = "src/main.rs"
+
+[dependencies]
+limine = "0.5"
+linked_list_allocator = "0.10"
+spin = "0.9"
+uart_16550 = "0.2"
+

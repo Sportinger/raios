@@ -201,6 +201,31 @@ pub fn load_certificate<P: AsRef<Path>>(path: P) -> Result<SignerCertificate> {
     Ok(cert)
 }
 
+pub fn public_key_from_hex(hex_str: &str) -> Result<PublicKey> {
+    let cleaned = hex_str.trim();
+    let bytes = decode(cleaned)?;
+    if bytes.len() != PUBLIC_KEY_LENGTH {
+        return Err(KeyError::InvalidKeyLength(format!(
+            "public bytes {} != {}",
+            bytes.len(),
+            PUBLIC_KEY_LENGTH
+        ))
+        .into());
+    }
+    let mut array = [0u8; PUBLIC_KEY_LENGTH];
+    array.copy_from_slice(&bytes);
+    Ok(PublicKey::from_bytes(&array)?)
+}
+
+pub fn load_public_key_hex<P: AsRef<Path>>(path: P) -> Result<PublicKey> {
+    let data = std::fs::read_to_string(path)?;
+    public_key_from_hex(&data)
+}
+
+pub fn public_key_to_hex(public: &PublicKey) -> String {
+    encode(public.as_bytes())
+}
+
 pub fn ensure_dir(path: &Path) -> Result<()> {
     if !path.exists() {
         std::fs::create_dir_all(path)?;
@@ -254,6 +279,14 @@ impl SignedBlob {
             certificate: cert.clone(),
             metadata,
         })
+    }
+
+    pub fn payload_hash(&self) -> &str {
+        &self.payload.hash_blake3
+    }
+
+    pub fn payload_len(&self) -> u64 {
+        self.payload.length_bytes
     }
 
     pub fn verify(&self, path: &Path, root_key: &PublicKey) -> Result<()> {

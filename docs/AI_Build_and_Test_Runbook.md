@@ -5,15 +5,15 @@
 ---
 
 ## 0) Invariants (lock once, don’t drift)
-- [ ] Target: **QEMU VM** (x86_64) with **OVMF/UEFI**, devices: **virtio-net**, **virtio-input**, **virtio-rng**.
-- [ ] Boot: **Limine**, handoff to **Rust** kernel.
-- [ ] Display: **GOP framebuffer**, **BGRA8888**, **double buffer**, **immutable atlases**; ops: **fill, blit, present**.
-- [ ] Input: **raw key/mouse** events (down/up/move/scroll, UTF‑8 text), batched every **8–16 ms**.
-- [ ] Network: **DHCP + DNS**, **TLS with SPKI pin**, **WebSocket**, **JSON envelope** `{v,t,id,ts,body}`.
-- [ ] Seed includes **Wasm runtime** (single active module), **full outbound net allowed**, logs mirrored to serial + WS.
-- [ ] OTA: **A/B slots** on ESP, **WS‑streamed OTA** (Ed25519 signed, BLAKE3 chunk hashes), **kexec** fast handoff, rollback safe.
-- [ ] Trust: **offline root → short‑lived online signer**; device auth via **token + device‑key challenge**.
-- [ ] Recovery: **panic switch** to safe mode; **remote lockdown**; deterministic CI via VM harness.
+- [x] Target: **QEMU VM** (x86_64) with **OVMF/UEFI**, devices: **virtio-net**, **virtio-input**, **virtio-rng** (locked in `docs/invariant-choices.md`).
+- [x] Boot: **Limine**, handoff to **Rust** kernel (locked in `docs/invariant-choices.md`).
+- [x] Display: **GOP framebuffer**, **BGRA8888**, **double buffer**, **immutable atlases**; ops: **fill, blit, present** (locked in `docs/invariant-choices.md`).
+- [x] Input: **raw key/mouse** events (down/up/move/scroll, UTF‑8 text), batched every **8–16 ms** (locked in `docs/invariant-choices.md`).
+- [x] Network: **DHCP + DNS**, **TLS with SPKI pin**, **WebSocket**, **JSON envelope** `{v,t,id,ts,body}` (locked in `docs/invariant-choices.md`).
+- [x] Seed includes **Wasm runtime** (single active module), **full outbound net allowed**, logs mirrored to serial + WS (locked in `docs/invariant-choices.md`).
+- [x] OTA: **A/B slots** on ESP, **WS‑streamed OTA** (Ed25519 signed, BLAKE3 chunk hashes), **kexec** fast handoff, rollback safe (locked in `docs/invariant-choices.md`).
+- [x] Trust: **offline root → short‑lived online signer**; device auth via **token + device‑key challenge** (locked in `docs/invariant-choices.md`).
+- [x] Recovery: **panic switch** to safe mode; **remote lockdown**; deterministic CI via VM harness (locked in `docs/invariant-choices.md`).
 
 **Exit:** A one‑page “choices sheet” is stored with the build artifacts.
 
@@ -22,10 +22,10 @@
 ## 1) Keys, registry, and observability (day‑0)
 **Goal:** Set up trust & release rails before touching the VM.
 
-- [ ] Create **offline root key** (air‑gapped) and **online signing key** (rotatable).
-- [ ] Define **signature format** (Ed25519) and **hashes** (BLAKE3 per chunk; SHA‑256 for SPKI pins).
-- [ ] Provision a **content‑addressed registry** for modules & OTA bundles (store manifest, hash, signature, metadata).
-- [ ] Stand up a **WS control service** with log sink. It understands: `hello`, `inventory_request/response`, `module_install/start/stop`, `ota_begin/chunk/commit`, `lockdown`, and log mirroring.
+- [x] Create **offline root key** (air‑gapped) and **online signing key** (rotatable) (`keys/dev/*`).
+- [x] Define **signature format** (Ed25519) and **hashes** (BLAKE3 per chunk; SHA‑256 for SPKI pins) (`ota/cli`, `ota-tools`).
+- [x] Provision a **content‑addressed registry** for modules & OTA bundles (store manifest, hash, signature, metadata) (`registry/core`, CLI + tests).
+- [ ] Stand up a **WS control service** with log sink. It understands: `hello`, `inventory_request/response`, `module_install/start/stop`, `ota_begin/chunk/commit`, `lockdown`, and log mirroring. (_Progress: `fake-cloud/server` serves WebSocket, handles `hello` + `ota_begin`, verifies manifests, and can publish into the registry; remaining commands/log sink pending._)
 
 **Artifacts:** `root.pub`, `online.pub`, signer cert (online signed by root), empty registry, WS service reachable.
 **Exit:** A dummy signed blob verifies end‑to‑end via the WS control plane.
@@ -36,14 +36,14 @@
 **Goal:** Boot → pixel → DHCP/DNS → pinned‑TLS WS → hello → Wasm module can draw & talk → OTA works.
 
 ### 2.1 Boot & frame
-- [ ] Boot via OVMF → **Limine** → kernel.
-- [ ] Claim GOP framebuffer; allocate backbuffer; implement `present()`.
-- [ ] Serial logger + on‑screen **overlay** for warn/error.
+- [x] Boot via OVMF → **Limine** → kernel (`seed-kernel`, `scripts/package-stage0.sh`, Limine vendor build staged under `release/`).
+- [x] Claim GOP framebuffer; allocate backbuffer; implement `present()` (`seed-kernel/src/framebuffer.rs`).
+- [x] Serial logger + on‑screen **overlay** for warn/error (`seed-kernel/src/serial.rs`, `seed-kernel/src/main.rs`, text blitter).
 
-**Exit:** “hello pixel” overlay visible; serial logs confirm resolution & pitch.
+**Exit:** “hello pixel” overlay visible; serial logs confirm resolution & pitch (achieved by `seed-kernel/src/main.rs` hello banner + serial output).
 
 ### 2.2 Devices & time/entropy
-- [ ] Init **virtio‑rng**; don’t start net until entropy healthy (RDRAND fallback).
+- [ ] Init **virtio‑rng**; don’t start net until entropy healthy (RDRAND fallback). (_Progress: `seed-kernel/src/entropy.rs` seeds a boot pool via RDRAND, attaches virtio for refills, and now performs TSC-throttled top-ups; `seed-kernel/src/virtio/rng.rs` configures the legacy PCI transport + queue. Remaining work: continuous background service + gating virtio-net bring-up on `entropy::is_ready()`._)
 - [ ] Bring up **virtio‑net**; run **DHCPv4**; learn **DNS**.
 - [ ] Init **virtio‑input** (kbd + pointer); timestamp events.
 
@@ -85,8 +85,8 @@
 
 ## 3) Cloud control plane (parallel)
 - [ ] Device registry + enrollment UI.
-- [ ] WS server implementing the envelope & commands.
-- [ ] Signing service; **registry** for modules/OTAs (content‑addressed).
+- [ ] WS server implementing the envelope & commands. (_Progress: `fake-cloud/server` WebSocket stub handles `hello` + `ota_begin`, performs manifest verification, and can publish to the registry; remaining commands, logging, and inventory flows pending._)
+- [x] Signing service; **registry** for modules/OTAs (content‑addressed) (`ota/cli` binaries, deterministic keygen, and `registry/*` crates + CLI/tests).
 - [ ] **Canary rollout** & auto‑revert logic.
 - [ ] Basic **AI loop stub** (planner → codegen → sign → stage), even if it only ships the “hello‑ui” module first.
 
@@ -155,6 +155,7 @@
 
 ## 6) Deliverables checklist (what to publish each run)
 - [ ] Seed OS image (ESP + DATA skeleton), versioned.
+- [ ] Seed OS image (ESP + DATA skeleton), versioned. (_Progress: `scripts/package-stage0.sh` produces `release/seedos-stage0.img` with Limine + kernel ESP; DATA partition skeleton pending._)
 - [ ] Keys & signer certs (public parts), SPKI pin.
 - [ ] WS envelope & message type spec (Markdown).
 - [ ] Module Host API spec (Markdown).
