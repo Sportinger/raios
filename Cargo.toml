@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "ota/cli",
+    "registry/cli"
+]
+resolver = "2"
