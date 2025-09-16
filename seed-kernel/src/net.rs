@@ -25,7 +25,7 @@ pub fn init() {
 }
 
 pub fn poll() {
-    // placeholder: real driver will poll queues once implemented
+    virtio::net::poll();
 }
 
 #[allow(dead_code)]

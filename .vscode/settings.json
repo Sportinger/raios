@@ -1,0 +1,20 @@
+{
+  "VSCodeCounter.useGitignore": true,
+  "VSCodeCounter.include": [
+    "seed-kernel/src/**/*.rs"
+  ],
+  "VSCodeCounter.exclude": [
+    "vendor/**",
+    "target/**",
+    ".venv/**",
+    "docs/**",
+    "log.md",
+    "seed-kernel/src/font_data.rs",
+    "release/**",
+    "keys/**",
+    "modules/**",
+    "device-protocol/**",
+    ".VSCodeCounter/**"
+  ],
+  "VSCodeCounter.outputDirectory": ".VSCodeCounter/seed"
+}

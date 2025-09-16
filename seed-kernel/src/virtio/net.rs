@@ -1,4 +1,5 @@
 use core::{mem, ptr};
+use core::sync::atomic::{AtomicU16, Ordering};
 
 use crate::pci::{self, PciAddress};
 use crate::serial;
@@ -7,8 +8,6 @@ use super::{device_id, VIRTIO_VENDOR_ID};
 
 const NET_REG_DEVICE_FEATURES: u16 = 0x00;
 const NET_REG_DRIVER_FEATURES: u16 = 0x04;
-#[allow(dead_code)]
-const NET_REG_QUEUE_ADDRESS: u16 = 0x08;
 #[allow(dead_code)]
 const NET_REG_QUEUE_SIZE: u16 = 0x0C;
 #[allow(dead_code)]
@@ -20,7 +19,14 @@ const NET_REG_DEVICE_STATUS: u16 = 0x12;
 const NET_REG_ISR_STATUS: u16 = 0x13;
 const NET_REG_MAC_LOW: u16 = 0x14;
 const NET_REG_MAC_HIGH: u16 = 0x18;
+const NET_QUEUE_RX: u16 = 0;
+#[allow(dead_code)]
+const NET_QUEUE_TX: u16 = 1;
+const NET_REG_QUEUE_PFN: u16 = 0x08;
 const _NET_REG_UNUSED: u16 = 0;
+const VIRTQ_DESC_F_WRITE: u16 = 1 << 1;
+const RX_BUFFER_COUNT: usize = 32;
+const RX_BUFFER_LEN: usize = 2048;
 #[derive(Debug, Clone, Copy)]
 pub enum VirtioNetKind {
     Legacy,
@@ -192,6 +198,10 @@ struct QueueStorage {
 }
 
 #[allow(dead_code)]
+static LEGACY_IO_BASE: AtomicU16 = AtomicU16::new(0);
+static RX_QUEUE_LAST_USED: AtomicU16 = AtomicU16::new(0);
+static mut RX_BUFFERS: [[u8; RX_BUFFER_LEN]; RX_BUFFER_COUNT] = [[0; RX_BUFFER_LEN]; RX_BUFFER_COUNT];
+
 static mut NET_QUEUE_STORAGE: QueueStorage = QueueStorage {
     desc: [VirtqDesc {
         addr: 0,
@@ -213,6 +223,15 @@ static mut NET_QUEUE_STORAGE: QueueStorage = QueueStorage {
         avail_event: 0,
     },
 };
+
+
+pub fn poll() {
+    let base = LEGACY_IO_BASE.load(Ordering::Relaxed);
+    if base == 0 {
+        return;
+    }
+    poll_rx(base);
+}
 
 fn reset_device(base: u16) {
     // Follow virtio legacy initialization: ACKNOWLEDGE -> DRIVER -> FEATURES_OK -> DRIVER_OK
@@ -236,13 +255,45 @@ fn reset_device(base: u16) {
     write_status(base, 0x01 | 0x02 | 0x08 | 0x04); // DRIVER_OK
 }
 
+
+#[allow(static_mut_refs)]
+fn poll_rx(base: u16) {
+    let used = unsafe { &NET_QUEUE_STORAGE.used };
+    let mut last = RX_QUEUE_LAST_USED.load(Ordering::Acquire);
+    let current = used.idx;
+    while last != current {
+        let slot = (last % QUEUE_CAPACITY as u16) as usize;
+        let elem = used.ring[slot];
+        serial::write_fmt(format_args!("virtio-net received frame len {}
+\n", elem.len));
+        recycle_rx_descriptor(base, elem.id as u16);
+        last = last.wrapping_add(1);
+        RX_QUEUE_LAST_USED.store(last, Ordering::Release);
+    }
+}
+
+fn recycle_rx_descriptor(base: u16, desc_idx: u16) {
+    unsafe {
+        let avail = &mut NET_QUEUE_STORAGE.avail;
+        let slot = (avail.idx % QUEUE_CAPACITY as u16) as usize;
+        avail.ring[slot] = desc_idx;
+        avail.idx = avail.idx.wrapping_add(1);
+    }
+    notify_queue(base, NET_QUEUE_RX);
+}
+
+
+fn notify_queue(base: u16, queue: u16) {
+    unsafe { outw(base + NET_REG_QUEUE_NOTIFY, queue) };
+}
+#[allow(static_mut_refs)]
 fn setup_legacy_queue(base: u16) {
     unsafe {
         let storage_ptr = ptr::addr_of_mut!(NET_QUEUE_STORAGE);
         ptr::write_bytes(storage_ptr.cast::<u8>(), 0, mem::size_of::<QueueStorage>());
     }
 
-    write_queue_select(base, 0);
+    write_queue_select(base, NET_QUEUE_RX);
     let mut queue_size = read_queue_size(base);
     if queue_size == 0 {
         serial::write_line("virtio-net queue size reported as zero");
@@ -257,13 +308,32 @@ fn setup_legacy_queue(base: u16) {
         queue_size = QUEUE_CAPACITY as u16;
     }
 
+    unsafe {
+        let desc = &mut NET_QUEUE_STORAGE.desc;
+        let avail = &mut NET_QUEUE_STORAGE.avail;
+        avail.idx = 0;
+        for i in 0..RX_BUFFER_COUNT {
+            let buf_ptr = RX_BUFFERS[i].as_mut_ptr();
+            desc[i].addr = buf_ptr as u64;
+            desc[i].len = RX_BUFFER_LEN as u32;
+            desc[i].flags = VIRTQ_DESC_F_WRITE;
+            desc[i].next = 0;
+            avail.ring[i] = i as u16;
+            avail.idx = avail.idx.wrapping_add(1);
+        }
+    }
+
+    RX_QUEUE_LAST_USED.store(0, Ordering::Relaxed);
+
     let queue_addr = ptr::addr_of!(NET_QUEUE_STORAGE) as u64;
     let pfn = (queue_addr >> 12) as u32;
-    write_queue_address(base, pfn);
+    write_queue_pfn(base, pfn);
     serial::write_fmt(format_args!(
         "virtio-net queue configured size={} pfn=0x{:x}\r\n",
         queue_size, pfn
     ));
+
+    notify_queue(base, NET_QUEUE_RX);
 }
 
 fn write_queue_select(base: u16, queue: u16) {
@@ -274,6 +344,6 @@ fn read_queue_size(base: u16) -> u16 {
     unsafe { inw(base + NET_REG_QUEUE_SIZE) }
 }
 
-fn write_queue_address(base: u16, pfn: u32) {
-    unsafe { outl(base + NET_REG_QUEUE_ADDRESS, pfn) };
+fn write_queue_pfn(base: u16, pfn: u32) {
+    unsafe { outl(base + NET_REG_QUEUE_PFN, pfn) };
 }
