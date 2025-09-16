@@ -19,6 +19,7 @@
 
 ---
 
+
 ## 1) Keys, registry, and observability (day‑0)
 **Goal:** Set up trust & release rails before touching the VM.
 
@@ -43,32 +44,9 @@
 **Exit:** “hello pixel” overlay visible; serial logs confirm resolution & pitch (achieved by `seed-kernel/src/main.rs` hello banner + serial output).
 
 ### 2.2 Devices & time/entropy
-- [ ] Init **virtio‑rng**; don’t start net until entropy healthy (RDRAND fallback). (_Progress: `seed-kernel/src/entropy.rs` seeds a boot pool via RDRAND, attaches virtio for refills, and now performs TSC-throttled top-ups; `seed-kernel/src/time.rs` calibrates TSC via PIT with bounded retries; `seed-kernel/src/main.rs` gates virtio-net boot until `entropy::is_ready()` while scheduling follow-up work; `seed-kernel/src/virtio/rng.rs` configures the legacy PCI transport + queue; `seed-kernel/src/net.rs` caches the probed virtio-net device (BAR + MAC logged, queue wiring pending). Remaining work: real virtio-net driver and continuous refresh service._)
-- [ ] Bring up **virtio‑net**; run **DHCPv4**; learn **DNS**.
-- [ ] Init **virtio-input** (kbd + pointer); timestamp events.
-
-#### Runbook: bring devices + entropy online
-
-**Entropy gate + virtio-rng service**
-- Boot the VM with `-device virtio-rng-pci` so `seed-kernel/src/virtio/rng.rs` probes successfully, then watch serial logs to confirm the boot pool seeds via RDRAND and is topped up on attach.
-- Extend `seed-kernel/src/entropy.rs` with a public `take(bytes)` helper that drains from the pool (blocking if `!entropy::is_ready()`), and have subsystems (net stack, TLS, input timestamps) consume through that API instead of calling RDRAND directly.
-- Keep `entropy::maintain()` on an 8–10 ms cadence (`scheduler::PeriodicTask` already runs it) and emit throttled warnings when the pool drops under `MIN_READY_BYTES` so CI fixtures can assert on the log message.
-- Add a vm-harness scenario that boots without virtio-rng (`-device virtio-rng-pci` removed) to make sure the kernel logs "waiting for entropy" and never brings up net; the same fixture should go green once the device is present and the pool fills.
-- Persist an `entropy::stats()` snapshot (bytes collected, source flags) into the hello inventory so later stages can prove the gating happened before networking.
-
-**virtio-net + DHCP/DNS**
-- Flesh out `seed-kernel/src/virtio/net.rs`: allocate both RX and TX queues, negotiate basic features (`VIRTIO_F_VERSION_1`, `VIRTIO_NET_F_MAC`, disable mergeable buffers for now), and wire the interrupt/used ring polling so frames land in a ring buffer owned by `seed-kernel/src/net.rs`.
-- Implement a minimal net driver in `seed-kernel/src/net.rs` that wraps the virtio device with a `smoltcp::phy::Device` (or an equivalent in-house shim) to avoid re-implementing ARP/IPv4/UDP/TCP; expose async-ish `poll()` and `send_frame()` helpers that the control channel can call.
-- Stand up a DHCPv4 client task using smoltcp's `dhcp::Dhcpv4Client`, persist the lease (IP/gateway/DNS) into a global `NetConfig`, and emit the acquired config over serial.
-- Resolve DNS through a simple UDP resolver (either smoltcp sockets or a bespoke routine) and keep the resolved cloud hostname cached with an expiry derived from the DNS response TTL.
-- Add vm-harness coverage: one test where a fake DHCP server answers and we assert the serial log contains the lease, another where the server is absent to ensure we retry with the back-off schedule and never mark `NetConfig` ready.
-
-**virtio-input bring-up**
-- Add `seed-kernel/src/virtio/input.rs` that supports the legacy PCI transport, negotiates event device IDs (kbd + mouse), and configures two queues (`event`, `status`).
-- Define an `input` module with a lock-free ring of `InputEvent { ts_ms, kind }`, using `entropy::take()` + `time::rdtsc()` to timestamp batches before enqueuing.
-- Hook the driver into `PeriodicTasks`: poll the queue every 8 ms, coalesce events into batches, and log the batch size so the runbook's batching requirement (8–16 ms windows) is observable.
-- Emit a control-plane telemetry frame that includes the most recent HID descriptor + device capabilities so the fake cloud can validate them during enrollment tests.
-- Write a vm-harness script that sends synthetic key/mouse events via QEMU's `sendkey` + `input-send-event` QMP commands and asserts the kernel logs show correctly timestamped batches.
+- [x] Init **virtio‑rng**; don’t start net until entropy healthy (RDRAND fallback). (_Status: entropy pool now exposes `take()` for consumers, PeriodicTask-driven refills, low-water logging, and the scheduler keeps networking gated until `entropy::is_ready()`; virtio-rng attach is wired through `seed-kernel/src/virtio/rng.rs` and stats are mirrored via serial when thresholds trip._)
+- [x] Bring up **virtio‑net**; run **DHCPv4**; learn **DNS**. (_Status: legacy transport queues are provisioned, a `smoltcp` device shim drives DHCP + DNS, leases are logged and cached in `seed-kernel/src/net.rs`, and resolver results are memoized with TTL-aware expiry. Harness coverage still TBD._)
+- [x] Init **virtio-input** (kbd + pointer); timestamp events. (_Status: modern PCI transport is parsed, the event queue streams into `input.rs` with entropy-jittered timestamps and 8 ms polling, and serial batches confirm activity. Telemetry frame + vm-harness playback remain follow-ups._)
 
 **Exit:** IP acquired; keyboard/mouse events observed in logs with timestamps.
 
