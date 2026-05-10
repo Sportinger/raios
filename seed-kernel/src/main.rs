@@ -23,7 +23,9 @@ mod framebuffer;
 mod input;
 mod memory;
 mod net;
+mod openai;
 mod pci;
+mod provider;
 mod ps2;
 mod scheduler;
 mod serial;
@@ -199,6 +201,7 @@ struct PeriodicTasks {
     entropy: scheduler::PeriodicTask,
     net: scheduler::PeriodicTask,
     input: scheduler::PeriodicTask,
+    provider: scheduler::PeriodicTask,
     ui: scheduler::PeriodicTask,
     entropy_ready: bool,
     net_started: bool,
@@ -211,6 +214,7 @@ impl PeriodicTasks {
             entropy: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
             net: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             input: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
+            provider: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             ui: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(250, tsc_per_ms)),
             entropy_ready,
             net_started: entropy_ready,
@@ -250,6 +254,13 @@ impl PeriodicTasks {
                 self.net_started = true;
             }
             self.net.try_run(now_tsc, || net::poll());
+            self.provider.try_run(now_tsc, || {
+                if let Some(event) = provider::poll() {
+                    let _route = event.route;
+                    console::write_event(format_args!("{}", event.line.as_str()));
+                    status_ui.render_forced(uptime_ms(), *runtime_status);
+                }
+            });
         }
         self.ui.try_run(now_tsc, || {
             status_ui.render(uptime_ms(), *runtime_status);
