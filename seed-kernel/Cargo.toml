@@ -8,8 +8,11 @@ name = "seed-kernel"
 path = "src/main.rs"
 
 [dependencies]
+embedded-io = { version = "=0.6.1", default-features = false }
+embedded-tls = { version = "=0.17.0", default-features = false, features = ["alloc"] }
 limine = "0.5"
 linked_list_allocator = "0.10"
+rand_core = { version = "0.6.4", default-features = false }
 smoltcp = { version = "0.10", default-features = false, features = ["proto-ipv4", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "medium-ethernet", "alloc"] }
 spin = "0.9"
 uart_16550 = "0.2"

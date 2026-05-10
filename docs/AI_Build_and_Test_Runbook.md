@@ -5,7 +5,7 @@
 ---
 
 ## 0) Invariants (lock once, don’t drift)
-- [x] Target: **QEMU VM** (x86_64) with **OVMF/UEFI**, devices: **virtio-net**, **virtio-input**, **virtio-rng** (locked in `docs/invariant-choices.md`).
+- [x] Target: **QEMU VM** (x86_64) with **OVMF/UEFI**, Intel **e1000** networking, **USB-xHCI** keyboard/mouse, and **RDRAND** entropy (locked in `docs/invariant-choices.md`).
 - [x] Boot: **Limine**, handoff to **Rust** kernel (locked in `docs/invariant-choices.md`).
 - [x] Display: **GOP framebuffer**, **BGRA8888**, **double buffer**, **immutable atlases**; ops: **fill, blit, present** (locked in `docs/invariant-choices.md`).
 - [x] Input: **raw key/mouse** events (down/up/move/scroll, UTF‑8 text), batched every **8–16 ms** (locked in `docs/invariant-choices.md`).
@@ -44,16 +44,16 @@
 **Exit:** “hello pixel” overlay visible; serial logs confirm resolution & pitch (achieved by `seed-kernel/src/main.rs` hello banner + serial output).
 
 ### 2.2 Devices & time/entropy
-- [x] Init **virtio‑rng**; don’t start net until entropy healthy (RDRAND fallback). (_Status: entropy pool now exposes `take()` for consumers, PeriodicTask-driven refills, low-water logging, and the scheduler keeps networking gated until `entropy::is_ready()`; virtio-rng attach is wired through `seed-kernel/src/virtio/rng.rs` and stats are mirrored via serial when thresholds trip._)
-- [x] Bring up **virtio‑net**; run **DHCPv4**; learn **DNS**. (_Status: legacy transport queues are provisioned, a `smoltcp` device shim drives DHCP + DNS, leases are logged and cached in `seed-kernel/src/net.rs`, and resolver results are memoized with TTL-aware expiry. Harness coverage still TBD._)
-- [x] Init **virtio-input** (kbd + pointer); timestamp events. (_Status: modern PCI transport is parsed, the event queue streams into `input.rs` with entropy-jittered timestamps and 8 ms polling, and serial batches confirm activity. Telemetry frame + vm-harness playback remain follow-ups._)
+- [x] Init **RDRAND** entropy; don’t start net until entropy healthy. (_Status: entropy pool now exposes `take()` for consumers, PeriodicTask-driven refills, low-water logging, and the scheduler keeps networking gated until `entropy::is_ready()`._)
+- [x] Bring up **e1000**; run **DHCPv4**; learn **DNS**. (_Status: RX/TX rings are provisioned, a `smoltcp` device shim drives DHCP + DNS, leases are logged and cached in `seed-kernel/src/net.rs`, and resolver results are memoized with TTL-aware expiry._)
+- [x] Init **USB-HID** keyboard and mouse; timestamp events. (_Status: xHCI root-port HID boot keyboard/mouse reports stream into `input.rs` with entropy-jittered timestamps and 8 ms polling; PS/2 remains as fallback._)
 
 **Exit:** IP acquired; keyboard/mouse events observed in logs with timestamps.
 
 ### 2.3 Control channel
 - [ ] Open **TLS** to cloud with **SPKI pin**; then **WebSocket**.
 - [ ] Send **`hello` (minimal)** → `{device_id, seed_ver, display{w,h}, input, mac, uptime_ms}`.
-- [ ] Reply to **`inventory_request`** with **rich inventory** (CPU flags, RAM, PCI/virtio features, storage layout).
+- [ ] Reply to **`inventory_request`** with **rich inventory** (CPU flags, RAM, PCI/USB features, storage layout).
 
 **Exit:** Device appears in console; cloud shows minimal info; rich inventory retrievable on demand.
 
@@ -120,7 +120,7 @@
 - [ ] Run QEMU in a **snapshot/ephemeral** mode; no persistent host writes.
 - [ ] Pin CPU model & timers; prefer **TCG** for deterministic CI; allow **KVM** for speed locally.
 - [ ] Use **user‑mode networking** for predictable DNS/ports; fixture owns host‑side port forwards.
-- [ ] Seed the device RNG with **virtio‑rng**; record test seeds in reports.
+- [ ] Seed deterministic test entropy explicitly in the harness; record test seeds in reports.
 
 **Exit:** Re‑running a test yields identical results (timestamps aside).
 

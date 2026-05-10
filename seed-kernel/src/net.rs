@@ -18,10 +18,10 @@ use smoltcp::socket::{dhcpv4, tcp, udp};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 
+use crate::e1000;
 use crate::entropy;
 use crate::serial;
 use crate::time;
-use crate::virtio;
 
 const DHCP_BUFFER_SIZE: usize = 1024;
 const UDP_RX_METADATA: usize = 4;
@@ -47,12 +47,12 @@ static DHCP_DEFERRED_LOGGED: AtomicBool = AtomicBool::new(false);
 pub fn init() {
     let mut state = NET_STATE.lock();
     if state.is_some() {
-        serial::write_line("virtio-net already initialised");
+        serial::write_line("network already initialised");
         return;
     }
 
-    let Some(device_info) = virtio::net::probe() else {
-        serial::write_line("virtio-net probe failed; device absent or unsupported");
+    let Some(device_info) = e1000::probe() else {
+        serial::write_line("network probe failed; e1000 device absent or unsupported");
         return;
     };
 
@@ -62,7 +62,7 @@ pub fn init() {
     entropy::take(&mut seed);
     iface_config.random_seed = u64::from_le_bytes(seed);
 
-    let mut phy = VirtioPhy;
+    let mut phy = E1000Phy;
     let start_instant = Instant::from_millis(0);
     let mut iface = Interface::new(iface_config, &mut phy, start_instant);
     iface.update_ip_addrs(|addrs| addrs.clear());
@@ -108,16 +108,16 @@ pub fn init() {
     });
 
     if DHCP_POLL_ENABLED {
-        serial::write_line("virtio-net initialised; DHCP polling enabled");
+        serial::write_line("e1000 network initialised; DHCP polling enabled");
     } else {
-        serial::write_line("virtio-net initialised; DHCP poll deferred");
+        serial::write_line("e1000 network initialised; DHCP poll deferred");
     }
 }
 
 pub fn poll() {
     if !DHCP_POLL_ENABLED {
         if !DHCP_DEFERRED_LOGGED.swap(true, Ordering::Relaxed) {
-            serial::write_line("virtio-net DHCP poll deferred; hardware path ready");
+            serial::write_line("network DHCP poll deferred; hardware path ready");
         }
         return;
     }
@@ -131,7 +131,7 @@ pub fn poll() {
         None => return,
     };
 
-    let mut phy = VirtioPhy;
+    let mut phy = E1000Phy;
     let _ = state.iface.poll(instant, &mut phy, &mut state.sockets);
 
     state.handle_dhcp_events(now_ms);
@@ -230,6 +230,66 @@ pub fn tcp_connect_ipv4(address: Ipv4Address, port: u16) -> TcpConnectResult {
     }
 }
 
+pub fn tcp_send(data: &[u8]) -> TcpIoResult {
+    if data.is_empty() {
+        return TcpIoResult::Ready(0);
+    }
+
+    let mut guard = NET_STATE.lock();
+    let Some(state) = guard.as_mut() else {
+        return TcpIoResult::Unavailable;
+    };
+
+    let socket = state.sockets.get_mut::<tcp::Socket>(state.tcp_handle);
+    if socket.can_send() {
+        match socket.send_slice(data) {
+            Ok(written) if written > 0 => TcpIoResult::Ready(written),
+            Ok(_) => TcpIoResult::WouldBlock,
+            Err(_) => TcpIoResult::Closed,
+        }
+    } else if socket.may_send() {
+        TcpIoResult::WouldBlock
+    } else {
+        TcpIoResult::Closed
+    }
+}
+
+pub fn tcp_recv(buffer: &mut [u8]) -> TcpIoResult {
+    if buffer.is_empty() {
+        return TcpIoResult::Ready(0);
+    }
+
+    let mut guard = NET_STATE.lock();
+    let Some(state) = guard.as_mut() else {
+        return TcpIoResult::Unavailable;
+    };
+
+    let socket = state.sockets.get_mut::<tcp::Socket>(state.tcp_handle);
+    if socket.can_recv() {
+        match socket.recv_slice(buffer) {
+            Ok(read) if read > 0 => TcpIoResult::Ready(read),
+            Ok(_) => TcpIoResult::WouldBlock,
+            Err(_) => TcpIoResult::Closed,
+        }
+    } else if socket.may_recv() {
+        TcpIoResult::WouldBlock
+    } else {
+        TcpIoResult::Closed
+    }
+}
+
+pub fn tcp_abort() {
+    let mut guard = NET_STATE.lock();
+    let Some(state) = guard.as_mut() else {
+        return;
+    };
+
+    let socket = state.sockets.get_mut::<tcp::Socket>(state.tcp_handle);
+    if socket.is_open() {
+        socket.abort();
+    }
+}
+
 pub fn tcp_snapshot() -> Option<TcpSnapshot> {
     let mut guard = NET_STATE.lock();
     let state = guard.as_mut()?;
@@ -249,6 +309,14 @@ pub enum TcpConnectResult {
     Connecting(&'static str),
     Connected,
     ConnectError,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TcpIoResult {
+    Ready(usize),
+    WouldBlock,
+    Closed,
+    Unavailable,
 }
 
 #[derive(Clone, Copy)]
@@ -308,7 +376,7 @@ impl NetState {
         routes.remove_default_ipv4_route();
         if let Some(gateway) = router {
             if routes.add_default_ipv4_route(gateway).is_err() {
-                serial::write_line("virtio-net: failed to install default route");
+                serial::write_line("network: failed to install default route");
             }
         }
 
@@ -571,88 +639,62 @@ struct DnsQueryState {
     timeout_ms: u64,
 }
 
-struct VirtioPhy;
+struct E1000Phy;
 
-impl Device for VirtioPhy {
+impl Device for E1000Phy {
     type RxToken<'a>
-        = VirtioRxToken
+        = E1000RxToken
     where
         Self: 'a;
     type TxToken<'a>
-        = VirtioTxToken
+        = E1000TxToken
     where
         Self: 'a;
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        virtio::net::poll();
-        let packet = virtio::net::pop_rx_packet()?;
-        let tx = match VirtioTxToken::new() {
-            Some(token) => token,
-            None => {
-                virtio::net::recycle_rx_packet(packet);
-                return None;
-            }
-        };
-        Some((VirtioRxToken { packet }, tx))
+        let packet = e1000::receive()?;
+        Some((E1000RxToken { packet }, E1000TxToken))
     }
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        virtio::net::poll();
-        VirtioTxToken::new()
+        Some(E1000TxToken)
     }
 
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = virtio::net::MAX_FRAME_SIZE;
+        caps.max_transmission_unit = e1000::MAX_FRAME_SIZE;
         caps.max_burst_size = Some(1);
         caps.medium = Medium::Ethernet;
         caps
     }
 }
 
-struct VirtioRxToken {
-    packet: virtio::net::RxPacket,
+struct E1000RxToken {
+    packet: e1000::RxPacket,
 }
 
-impl RxToken for VirtioRxToken {
+impl RxToken for E1000RxToken {
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let packet = self.packet;
-        let result = {
-            let buffer = virtio::net::rx_packet_buffer(&packet);
-            f(buffer)
-        };
-        virtio::net::recycle_rx_packet(packet);
-        result
+        let mut packet = self.packet;
+        f(packet.as_mut_slice())
     }
 }
 
-struct VirtioTxToken {
-    handle: virtio::net::TxPacket,
-    buffer: &'static mut [u8],
-}
+struct E1000TxToken;
 
-impl VirtioTxToken {
-    fn new() -> Option<Self> {
-        let (handle, buffer) = virtio::net::alloc_tx_packet()?;
-        Some(Self { handle, buffer })
-    }
-}
-
-impl TxToken for VirtioTxToken {
+impl TxToken for E1000TxToken {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let actual_len = cmp::min(len, self.buffer.len());
+        let actual_len = cmp::min(len, e1000::MAX_FRAME_SIZE);
         let mut scratch = vec![0u8; actual_len];
         let result = f(&mut scratch[..]);
-        self.buffer[..actual_len].copy_from_slice(&scratch[..]);
-        if !virtio::net::submit_tx_packet(self.handle, actual_len) {
-            virtio::net::release_tx_packet(self.handle);
-            serial::write_line("virtio-net: submit failed; frame dropped");
+        if !e1000::transmit(&scratch[..]) {
+            serial::write_line("e1000: submit failed; frame dropped");
         }
         result
     }

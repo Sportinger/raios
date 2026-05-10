@@ -62,11 +62,11 @@ Run headless with a QEMU xHCI controller plus USB keyboard/mouse attached:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput
 ```
 
-Run the same path without virtio input, plus a QEMU monitor for `sendkey`
-testing:
+Run the bare-metal-style VM profile with USB keyboard/mouse and e1000
+networking:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput -NoVirtioInput -MonitorTcpPort 45454
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-baremetal-vm.ps1 -StopExisting
 ```
 
 The runner uses:
@@ -78,9 +78,9 @@ The runner uses:
 - display: GTK
 - serial log: `%TEMP%\seedos-stage0.serial.txt`
 - `-UsbXhciInput` adds `qemu-xhci`, `usb-kbd`, and `usb-mouse` for USB
-  controller inventory tests. It does not replace the default virtio input.
-- `-NoVirtioInput` omits `virtio-keyboard-pci` and `virtio-tablet-pci` so USB-HID
-  is the only keyboard path.
+  controller inventory tests.
+- default networking is an emulated Intel e1000 device attached to QEMU
+  user-mode networking.
 - `-MonitorTcpPort <port>` exposes the QEMU HMP monitor for commands such as
   `sendkey h`.
 
@@ -111,7 +111,7 @@ import socket, time
 s = socket.create_connection(("127.0.0.1", 4555), timeout=5)
 s.settimeout(0.2)
 time.sleep(1)
-s.sendall(b"help\rstatus\rdevices\rlog\r")
+s.sendall(b"help\rstatus\rdevices\rlog\rprovider\ropenai\r")
 end = time.time() + 3
 out = bytearray()
 while time.time() < end:
@@ -142,65 +142,45 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\write-stage0-usb.ps1
 
 The write command erases the selected USB disk.
 
-## Host Bridge
-
-Run the development bridge while QEMU is running in TCP serial mode:
+## Direct OpenAI Smoke
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1
 ```
 
-Run the same bridge against OpenAI instead of the echo responder:
+This uses `release\seedos-stage0-local-openai.img`, so first package that local
+image with `-UseTempEsp -EmbedOpenAiApiKeyFromEnv`. The image contains the key
+and must not be committed or shared.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555 -Provider openai
-```
-
-This requires `OPENAI_API_KEY` in the host PowerShell environment. The bridge
-uses the Responses API with model `gpt-5.5` by default and returns a short
-single-line answer that fits the current Stage-0 console.
-
-One-shot request/response smoke:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555 -Once -Ask "hello bridge"
-```
-
-Full headless QEMU smoke:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\host-bridge-smoke.ps1
-```
-
-OpenAI provider smoke:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-bridge-smoke.ps1
-```
-
-Expected serial bridge lines:
+Expected direct-provider lines:
 
 ```text
-> ask hello bridge
-SEEDOS_BRIDGE_REQ 1 68656C6C6F20627269646765
-BRIDGE REQUEST 1 SENT
-BRIDGE RESPONSE 1: HOST BRIDGE OK: hello bridge
+> provider
+PROVIDER: OPENAI    API KEY: SET
+ROUTE: OPENAI DIRECT
+> ask direct provider smoke
+OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses
+OPENAI DIRECT REQUEST 1 STARTED
+openai: TLS 1.3 established
+openai: HTTPS request sent
+OPENAI: <provider response text>
 ```
 
-The VM-to-host request is printable for logs. The host-to-VM response is prefixed
-with STX (`0x02`) so the kernel routes it through the bridge parser instead of
-treating it as user console input.
+That confirms the guest is using e1000 networking, TLS, HTTPS, and the OpenAI
+Responses API directly. The MVP TLS path currently disables certificate
+verification, so hardening certificate or provider pin validation is still
+required before serious use.
 
 ## VM Setup Menu
 
 Type `setup` in the VM console to open the provider menu:
 
 ```text
-1 PROVIDER: ECHO    2 API KEY: MISSING
+1 PROVIDER: OPENAI DIRECT    2 API KEY: MISSING
 3 CLEAR API KEY    4 STATUS    Q EXIT
 ```
 
-Press `1` to choose `ECHO` or `OPENAI`, press `2` to enter an API key, and press
+Press `1` to show provider status, press `2` to enter an API key, and press
 Enter to save it. The framebuffer prompt masks API-key input with `*`, and the
 kernel does not echo the key to the serial output. The key is RAM-only; rebooting
 the VM or choosing clear removes it.
@@ -293,40 +273,34 @@ For the live status UI, useful lines now include:
 ```text
 HHDM offset=0xffff800000000000
 status FRAMEBUFFER: READY - 1280x800 PITCH 5120
-status ENTROPY: READY - FILL 64/64 TOTAL 64 SRC VIRTIO-RNG
-status VIRTIO-RNG: READY - ATTACHED AS ENTROPY SOURCE
-status USB-XHCI: MISSING - CONTROLLER ABSENT
-virtio-net legacy transport @ 0x6080, mac 52:54:00:12:34:56, rx_q=256, tx_q=256
-virtio-net initialised; DHCP polling enabled
+status ENTROPY: READY - FILL 64/64 TOTAL 64 SRC RDRAND
+status USB-XHCI: READY - 00:03.0 HCI 0100 PORTS 8 CONNECTED 2 KBD READY MOUSE READY
+e1000: device 00:02.0 id=0x100e mmio=0x81040000 size=131072 mac 52:54:00:12:34:56
+e1000 network initialised; DHCP polling enabled
 DHCP lease acquired: ip 10.0.2.15/24 gw 10.0.2.2 dns ["10.0.2.3"]
-status VIRTIO-NET: CONFIGURED - IP 10.0.2.15/24 GW 10.0.2.2
-virtio-input: modern device @ 00:04.0 initialised
-status INPUT: READY - VIRTIO INPUT QUEUE ACTIVE
+status NETWORK: CONFIGURED - IP 10.0.2.15/24 GW 10.0.2.2
+status INPUT: READY - USB HID KEYBOARD + POINTER
 ```
 
-For USB-HID keyboard smoke with `-NoVirtioInput`, useful lines include:
+For USB-HID keyboard/mouse smoke, useful lines include:
 
 ```text
 usb-xhci: hci 0x0100, ports 8, connected 2
 usb-hid: device class 00 subclass 00 protocol 00
 usb-hid: boot keyboard interface 0
 usb-hid: boot keyboard ready on slot 1 endpoint 0x81
-status USB-XHCI: READY - 00:04.0 HCI 0100 PORTS 8 CONNECTED 2 HID READY
-status INPUT: READY - USB HID BOOT KEYBOARD
+usb-hid: boot mouse ready on slot 2 endpoint 0x81
+status USB-XHCI: READY - 00:03.0 HCI 0100 PORTS 8 CONNECTED 2 KBD READY MOUSE READY
+status INPUT: READY - USB HID KEYBOARD + POINTER
 usb input batch: 1 events
 > help
-COMMANDS: help status devices log bridge setup ask <text>
+COMMANDS: help status devices log provider openai setup ask <text>
 ```
 
-On bare metal, `USB-XHCI ... HID NONE` means the xHCI controller was usable but
-the current direct root-port scan did not find a USB HID boot keyboard. In that
-case the connected device may be the boot stick, a hub/dock, or a keyboard that
-does not expose boot protocol HID on the root port.
-
-Modern virtio-input depends on the Limine HHDM response and the kernel MMIO
-window in `seed-kernel/src/memory.rs`. If input falls back to missing, check that
-Limine reports request count 4, that the HHDM offset line appears, and that PCI
-BAR sizing did not reject the virtio common, notify, ISR, or device capability.
+On bare metal, `KBD NONE` or `MOUSE NONE` means the xHCI controller was usable
+but the current direct root-port scan did not find that USB HID boot device. In
+that case the connected device may be the boot stick, a hub/dock, or a keyboard
+or mouse that does not expose boot protocol HID on the root port.
 
 ### Kernel hits #UD during first DHCP transmit
 

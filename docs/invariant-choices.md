@@ -2,7 +2,7 @@
 
 This sheet captures any clarifications or default assumptions made while locking the hard invariants for the seed OS build.
 
-- **VM platform**: QEMU x86_64 with OVMF/UEFI firmware, virtio-net/input/rng devices explicitly attached. Timer source pinned to TCG for CI; KVM allowed locally for speed.
+- **VM platform**: QEMU x86_64 with OVMF/UEFI firmware, Intel e1000 networking, USB-xHCI keyboard/mouse, and RDRAND entropy. Timer source pinned to TCG for CI; KVM allowed locally for speed.
 - **Framebuffer**: GOP-provided BGRA8888 surface; a dedicated backbuffer will be allocated at boot and presented atomically. All blit sources come from immutable atlases.
 - **Input batching**: Event batching window defaults to 12 ms (midpoint of 8–16 ms range) with jitter-bound timers ensuring compliance.
 - **Networking**: DHCPv4 for address, DNS from DHCP, TLS sessions pinned via SHA-256 SPKI hash of the online signer cert, WebSocket overlay for all control traffic.

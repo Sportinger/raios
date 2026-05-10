@@ -1,22 +1,15 @@
 use core::arch::asm;
 use core::arch::x86_64::__cpuid;
 use core::cmp;
-use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 
 use crate::serial;
-use crate::time;
-use crate::virtio::rng::VirtioRng;
 
 const POOL_SIZE: usize = 64;
 const MIN_READY_BYTES: usize = 32;
-const REFRESH_INTERVAL_TSC: u64 = 25_000_000; // ~8 ms at 3 GHz
 pub const POOL_CAPACITY: usize = POOL_SIZE;
 
 static ENTROPY_STATE: Mutex<EntropyState> = Mutex::new(EntropyState::new());
-
-static VIRTIO_SOURCE: Mutex<Option<VirtioRng>> = Mutex::new(None);
-static LAST_REFRESH_ATTEMPT_TSC: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug)]
 pub struct EntropyStats {
@@ -24,33 +17,26 @@ pub struct EntropyStats {
     pub pool_fill: usize,
     pub total_collected: u64,
     pub used_rdrand: bool,
-    pub used_virtio: bool,
 }
 
 #[derive(Clone, Copy)]
 enum EntropySource {
     Rdrand,
-    Virtio,
 }
 
 #[derive(Clone, Copy)]
 struct SourceFlags {
     rdrand: bool,
-    virtio: bool,
 }
 
 impl SourceFlags {
     const fn new() -> Self {
-        Self {
-            rdrand: false,
-            virtio: false,
-        }
+        Self { rdrand: false }
     }
 
     fn mark(&mut self, src: EntropySource) {
         match src {
             EntropySource::Rdrand => self.rdrand = true,
-            EntropySource::Virtio => self.virtio = true,
         }
     }
 }
@@ -148,7 +134,6 @@ impl EntropyState {
             pool_fill: self.fill,
             total_collected: self.total_collected,
             used_rdrand: self.sources.rdrand,
-            used_virtio: self.sources.virtio,
         }
     }
 }
@@ -192,80 +177,24 @@ pub fn init() {
     } else if has_rdrand {
         serial::write_line("Warning: RDRAND present but insufficient samples gathered");
     } else {
-        serial::write_line("Warning: RDRAND unsupported; virtio-rng required for entropy");
+        serial::write_line("Warning: RDRAND unsupported; external entropy source required");
     }
-}
-
-pub fn attach_virtio_rng(mut device: VirtioRng) {
-    serial::write_line("virtio-rng attached; requesting entropy refill");
-    let mut scratch = [0u8; POOL_SIZE];
-    let produced = device.fill_bytes(&mut scratch);
-
-    if produced == 0 {
-        serial::write_line("virtio-rng produced no data during attach");
-    } else {
-        let (stored, ready_now) = {
-            let mut state = ENTROPY_STATE.lock();
-            let stored = state.ingest(&scratch[..produced], EntropySource::Virtio);
-            (stored, state.ready)
-        };
-        serial::write_fmt(format_args!(
-            "virtio-rng delivered {} bytes (stored {})\r\n",
-            produced, stored
-        ));
-        if ready_now {
-            serial::write_line("Entropy pool healthy after virtio-rng refill");
-        }
-        if stored < produced {
-            serial::write_line("Entropy pool at capacity; some virtio-rng output unused");
-        }
-    }
-
-    *VIRTIO_SOURCE.lock() = Some(device);
 }
 
 pub fn maintain() {
-    let mut device_guard = VIRTIO_SOURCE.lock();
-    let device = match device_guard.as_mut() {
-        Some(device) => device,
-        None => return,
-    };
-
-    let now = time::rdtsc();
-    let last = LAST_REFRESH_ATTEMPT_TSC.load(Ordering::Relaxed);
-    if now.wrapping_sub(last) < REFRESH_INTERVAL_TSC {
-        return;
-    }
-    if LAST_REFRESH_ATTEMPT_TSC
-        .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
-        .is_err()
-    {
-        return;
-    }
-
-    if let Some(report) = refresh_pool(device) {
+    if let Some(report) = refresh_rdrand_pool() {
         if !report.before_ready && report.after_ready {
-            serial::write_line("Entropy pool healthy after virtio-rng refresh");
-        }
-        if report.after_fill == POOL_SIZE && report.before_fill != POOL_SIZE {
-            serial::write_line("Entropy pool filled to capacity via virtio-rng");
-        }
-        if report.stored < report.produced {
-            serial::write_line("Entropy pool at capacity; some virtio-rng output unused");
+            serial::write_line("Entropy pool healthy after RDRAND refresh");
         }
     }
 }
 
 struct RefreshReport {
-    produced: usize,
-    stored: usize,
     before_ready: bool,
     after_ready: bool,
-    before_fill: usize,
-    after_fill: usize,
 }
 
-fn refresh_pool(device: &mut VirtioRng) -> Option<RefreshReport> {
+fn refresh_rdrand_pool() -> Option<RefreshReport> {
     {
         let state = ENTROPY_STATE.lock();
         if state.fill == POOL_SIZE {
@@ -273,18 +202,27 @@ fn refresh_pool(device: &mut VirtioRng) -> Option<RefreshReport> {
         }
     }
 
+    if !cpu_has_rdrand() {
+        return None;
+    }
+
     let mut scratch = [0u8; POOL_SIZE];
-    let produced = device.fill_bytes(&mut scratch);
+    let mut produced = 0usize;
+    for chunk in scratch.chunks_exact_mut(8) {
+        let Some(value) = rdrand64() else {
+            break;
+        };
+        chunk.copy_from_slice(&value.to_le_bytes());
+        produced += 8;
+    }
     if produced == 0 {
         return None;
     }
 
     let mut state = ENTROPY_STATE.lock();
     let before_ready = state.ready;
-    let before_fill = state.fill;
-    let stored = state.ingest(&scratch[..produced], EntropySource::Virtio);
+    let stored = state.ingest(&scratch[..produced], EntropySource::Rdrand);
     let after_ready = state.ready;
-    let after_fill = state.fill;
     drop(state);
 
     if stored == 0 {
@@ -292,21 +230,13 @@ fn refresh_pool(device: &mut VirtioRng) -> Option<RefreshReport> {
     }
 
     Some(RefreshReport {
-        produced,
-        stored,
         before_ready,
         after_ready,
-        before_fill,
-        after_fill,
     })
 }
 
 pub fn is_ready() -> bool {
     ENTROPY_STATE.lock().ready
-}
-
-pub fn virtio_source_attached() -> bool {
-    VIRTIO_SOURCE.lock().is_some()
 }
 
 pub fn take(buffer: &mut [u8]) {
@@ -321,7 +251,7 @@ pub fn take(buffer: &mut [u8]) {
             let mut state = ENTROPY_STATE.lock();
             let report = state.consume(&mut buffer[offset..]);
             if report.warn_low_now {
-                serial::write_line("Entropy pool low; requesting virtio-rng refresh");
+                serial::write_line("Entropy pool low; requesting entropy refresh");
             }
             report.taken
         };

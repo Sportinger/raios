@@ -2,20 +2,18 @@ use core::fmt::{self, Write};
 use core::str;
 
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
-use crate::{console, entropy, input, net, serial, text, usb, virtio};
+use crate::{console, entropy, input, net, serial, text, usb};
 
 #[derive(Clone, Copy)]
 pub struct RuntimeStatus {
-    pub virtio_rng_probe_complete: bool,
-    pub virtio_net_probe_complete: bool,
+    pub net_probe_complete: bool,
     pub input_probe_complete: bool,
 }
 
 impl RuntimeStatus {
     pub const fn new() -> Self {
         Self {
-            virtio_rng_probe_complete: false,
-            virtio_net_probe_complete: false,
+            net_probe_complete: false,
             input_probe_complete: false,
         }
     }
@@ -71,9 +69,8 @@ impl StatusUi {
 
         log_transition(previous.map(|prev| prev.framebuffer), &snapshot.framebuffer);
         log_transition(previous.map(|prev| prev.entropy), &snapshot.entropy);
-        log_transition(previous.map(|prev| prev.virtio_rng), &snapshot.virtio_rng);
         log_transition(previous.map(|prev| prev.usb_xhci), &snapshot.usb_xhci);
-        log_transition(previous.map(|prev| prev.virtio_net), &snapshot.virtio_net);
+        log_transition(previous.map(|prev| prev.network), &snapshot.network);
         log_transition(previous.map(|prev| prev.input), &snapshot.input);
 
         self.last_states = Some(states);
@@ -83,9 +80,8 @@ impl StatusUi {
 struct Snapshot {
     framebuffer: StatusLine,
     entropy: StatusLine,
-    virtio_rng: StatusLine,
     usb_xhci: StatusLine,
-    virtio_net: StatusLine,
+    network: StatusLine,
     input: StatusLine,
     mouse: input::MouseSnapshot,
 }
@@ -94,17 +90,15 @@ impl Snapshot {
     fn collect(framebuffer: Option<FramebufferInfo>, runtime: RuntimeStatus) -> Self {
         let framebuffer = framebuffer_line(framebuffer);
         let entropy = entropy_line();
-        let virtio_rng = virtio_rng_line(runtime);
         let usb_xhci = usb_xhci_line();
-        let virtio_net = virtio_net_line(runtime);
+        let network = network_line(runtime);
         let input = input_line(runtime);
         let mouse = input::mouse_snapshot();
         Self {
             framebuffer,
             entropy,
-            virtio_rng,
             usb_xhci,
-            virtio_net,
+            network,
             input,
             mouse,
         }
@@ -114,9 +108,8 @@ impl Snapshot {
         SnapshotStates {
             framebuffer: self.framebuffer.state,
             entropy: self.entropy.state,
-            virtio_rng: self.virtio_rng.state,
             usb_xhci: self.usb_xhci.state,
-            virtio_net: self.virtio_net.state,
+            network: self.network.state,
             input: self.input.state,
             mouse_sequence: if self.mouse.seen {
                 self.mouse.sequence
@@ -131,9 +124,8 @@ impl Snapshot {
 struct SnapshotStates {
     framebuffer: RowState,
     entropy: RowState,
-    virtio_rng: RowState,
     usb_xhci: RowState,
-    virtio_net: RowState,
+    network: RowState,
     input: RowState,
     mouse_sequence: u64,
 }
@@ -220,38 +212,6 @@ fn entropy_line() -> StatusLine {
     StatusLine::new("ENTROPY", state, line)
 }
 
-fn virtio_rng_line(runtime: RuntimeStatus) -> StatusLine {
-    if entropy::stats().used_virtio {
-        return StatusLine::new(
-            "VIRTIO-RNG",
-            RowState::Ready,
-            detail(format_args!("ATTACHED AS ENTROPY SOURCE")),
-        );
-    }
-
-    if entropy::virtio_source_attached() {
-        return StatusLine::new(
-            "VIRTIO-RNG",
-            RowState::Degraded,
-            detail(format_args!("ATTACHED, WAITING FOR DATA")),
-        );
-    }
-
-    if runtime.virtio_rng_probe_complete {
-        StatusLine::new(
-            "VIRTIO-RNG",
-            RowState::Missing,
-            detail(format_args!("DEVICE ABSENT OR UNSUPPORTED")),
-        )
-    } else {
-        StatusLine::new(
-            "VIRTIO-RNG",
-            RowState::Waiting,
-            detail(format_args!("PROBING PCI BUS")),
-        )
-    }
-}
-
 fn usb_xhci_line() -> StatusLine {
     let snapshot = usb::snapshot();
     match snapshot.state {
@@ -278,17 +238,19 @@ fn usb_xhci_line() -> StatusLine {
                 Some(address) => detail(format_args!("{}", address)),
                 None => detail(format_args!("UNKNOWN")),
             };
-            let hid = usb_keyboard_status(snapshot.keyboard_status);
+            let keyboard = usb_keyboard_status(snapshot.keyboard_status);
+            let mouse = usb_mouse_status(snapshot.mouse_status);
             StatusLine::new(
                 "USB-XHCI",
                 RowState::Ready,
                 detail(format_args!(
-                    "{} HCI {:04X} PORTS {} CONNECTED {} HID {}",
+                    "{} HCI {:04X} PORTS {} CONNECTED {} KBD {} MOUSE {}",
                     address.as_str(),
                     snapshot.hci_version,
                     snapshot.max_ports,
                     snapshot.connected_ports,
-                    hid
+                    keyboard,
+                    mouse
                 )),
             )
         }
@@ -304,7 +266,16 @@ fn usb_keyboard_status(status: usb::UsbKeyboardStatus) -> &'static str {
     }
 }
 
-fn virtio_net_line(runtime: RuntimeStatus) -> StatusLine {
+fn usb_mouse_status(status: usb::UsbMouseStatus) -> &'static str {
+    match status {
+        usb::UsbMouseStatus::NotProbed => "PENDING",
+        usb::UsbMouseStatus::Ready => "READY",
+        usb::UsbMouseStatus::NotFound => "NONE",
+        usb::UsbMouseStatus::Error => "ERROR",
+    }
+}
+
+fn network_line(runtime: RuntimeStatus) -> StatusLine {
     if let Some(config) = net::ui_snapshot() {
         if let Some(ip) = config.ip {
             let gateway = match config.gateway {
@@ -312,7 +283,7 @@ fn virtio_net_line(runtime: RuntimeStatus) -> StatusLine {
                 None => detail(format_args!("NONE")),
             };
             return StatusLine::new(
-                "VIRTIO-NET",
+                "NETWORK",
                 RowState::Configured,
                 detail(format_args!(
                     "IP {}/{} GW {}",
@@ -324,7 +295,7 @@ fn virtio_net_line(runtime: RuntimeStatus) -> StatusLine {
         }
 
         return StatusLine::new(
-            "VIRTIO-NET",
+            "NETWORK",
             RowState::Waiting,
             if net::dhcp_poll_enabled() {
                 detail(format_args!("MAC {} AWAITING DHCP", Mac(config.mac)))
@@ -334,29 +305,21 @@ fn virtio_net_line(runtime: RuntimeStatus) -> StatusLine {
         );
     }
 
-    if let Some(info) = virtio::net::info() {
-        return StatusLine::new(
-            "VIRTIO-NET",
-            RowState::Waiting,
-            detail(format_args!("MAC {} DEVICE READY", Mac(info.mac))),
-        );
-    }
-
-    if runtime.virtio_net_probe_complete {
+    if runtime.net_probe_complete {
         StatusLine::new(
-            "VIRTIO-NET",
+            "NETWORK",
             RowState::Missing,
-            detail(format_args!("DEVICE ABSENT OR UNSUPPORTED")),
+            detail(format_args!("E1000 DEVICE ABSENT OR UNSUPPORTED")),
         )
     } else if entropy::is_ready() {
         StatusLine::new(
-            "VIRTIO-NET",
+            "NETWORK",
             RowState::Waiting,
             detail(format_args!("PROBE PENDING")),
         )
     } else {
         StatusLine::new(
-            "VIRTIO-NET",
+            "NETWORK",
             RowState::Waiting,
             detail(format_args!("WAITING ENTROPY")),
         )
@@ -397,13 +360,6 @@ fn append_entropy_sources(buffer: &mut TextBuf<128>, stats: entropy::EntropyStat
     let mut wrote = false;
     if stats.used_rdrand {
         buffer.push_str("RDRAND");
-        wrote = true;
-    }
-    if stats.used_virtio {
-        if wrote {
-            buffer.push_str("+");
-        }
-        buffer.push_str("VIRTIO-RNG");
         wrote = true;
     }
     if !wrote {
@@ -469,11 +425,9 @@ fn draw(surface: &mut FramebufferSurface, uptime_ms: u64, snapshot: &Snapshot) {
     y += 46;
     draw_row(surface, y, &snapshot.entropy);
     y += 46;
-    draw_row(surface, y, &snapshot.virtio_rng);
-    y += 46;
     draw_row(surface, y, &snapshot.usb_xhci);
     y += 46;
-    draw_row(surface, y, &snapshot.virtio_net);
+    draw_row(surface, y, &snapshot.network);
     y += 46;
     draw_row(surface, y, &snapshot.input);
 

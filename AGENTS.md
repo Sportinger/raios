@@ -38,17 +38,26 @@ reference/workstation tool, not the hard dependency inside the kernel.
 - Kernel currently draws a live framebuffer status UI:
   - `SEEDOS STAGE-0`
   - `AGENT HOST: LIVE STATUS`
-  - status rows for framebuffer, entropy, virtio-rng, virtio-net, input
+  - status rows for framebuffer, entropy, USB-xHCI, network, input
 - Serial command input exists when QEMU is run with `-SerialMode tcp`:
   - `help`
   - `status`
   - `devices`
   - `log`
+  - `provider`
+  - `openai`
+  - `setup`
+  - `ask <text>`
 - Serial log confirms:
   - Limine loaded base revision 3
   - framebuffer response revision 1
-  - virtio-rng legacy device detected
-- virtio-rng entropy delivery currently times out and is shown as degraded.
+  - USB-HID keyboard and mouse enumerate through xHCI in the bare-metal VM profile
+  - Intel e1000 DHCP configures in QEMU without Virtio devices
+- `ask <text>` uses the in-guest OpenAI direct transport. The old host-side
+  serial relay is no longer part of the runtime path; DNS, TCP 443, TLS 1.3,
+  HTTPS, and first `output_text` parsing work in the bare-metal VM profile.
+- The current TLS path is MVP-only: certificate verification is bypassed and
+  must be hardened with verification or provider pinning before serious use.
 - Detailed current status is in `docs/PROJECT_STATUS.md`.
 
 ## Important Technical Notes
@@ -80,6 +89,12 @@ Run the current stage-0 VM on Windows:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting
 ```
 
+Run the bare-metal-style VM profile on Windows:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-baremetal-vm.ps1 -StopExisting
+```
+
 Run workspace tests:
 
 ```powershell
@@ -92,15 +107,21 @@ Format check:
 cargo fmt --all -- --check
 ```
 
+Run the direct OpenAI VM smoke after packaging a local key image:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1
+```
+
 Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Fix or bypass the virtio-rng entropy timeout so net/input can progress.
-2. Finish virtio-net/DHCP visibility in the UI.
+1. Harden the direct OpenAI TLS path with certificate verification or provider
+   pinning.
+2. Improve response rendering and provider error display in the framebuffer UI.
 3. Define the first native agent protocol messages outside the kernel boundary.
-4. Add a host-side bridge that can talk to Codex/OpenAI APIs from the VM during
-   development, before attempting any direct in-OS provider integration.
+4. Continue bare-metal input/network bring-up while preserving the VM test path.
 
 The current exact next task is maintained in `docs/PROJECT_STATUS.md`.
 

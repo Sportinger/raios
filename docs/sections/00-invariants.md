@@ -4,7 +4,7 @@
 Recognition of build invariants and repo layout commitments per AI_Build_and_Test_Runbook.md.
 
 ## Hard invariants acknowledged
-- Target VM: QEMU x86_64 with OVMF/UEFI, virtio-net, virtio-input, virtio-rng.
+- Target VM: QEMU x86_64 with OVMF/UEFI, Intel e1000 networking, USB-xHCI keyboard/mouse, and RDRAND entropy.
 - Boot path: Limine bootloader handing off to a Rust kernel.
 - Display path: GOP framebuffer using BGRA8888 format, double-buffered with immutable atlases; drawing ops limited to fill/blit/present.
 - Input pipeline: Raw keyboard and pointer events (down/up/move/scroll, UTF-8 text) batched every 8–16 ms.

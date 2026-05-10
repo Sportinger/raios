@@ -22,16 +22,15 @@ trap cleanup EXIT
 qemu-system-x86_64 \
   -machine q35 \
   -m 512M \
-  -cpu ${QEMU_CPU_MODEL:-qemu64} \
+  -cpu ${QEMU_CPU_MODEL:-max} \
   -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
   -drive if=pflash,format=raw,file="$VARS_COPY" \
-  -drive if=none,id=disk0,format=raw,file="$IMG" \
-  -device virtio-blk-pci,drive=disk0 \
+  -drive format=raw,if=ide,file="$IMG" \
   -netdev user,id=net0 \
-  -device virtio-net-pci,netdev=net0,disable-modern=on,disable-legacy=off \
-  -device virtio-rng-pci,disable-modern=on,disable-legacy=off \
-  -device virtio-keyboard-pci \
-  -device virtio-tablet-pci \
+  -device e1000,netdev=net0,mac=52:54:00:12:34:56 \
+  -device qemu-xhci,id=xhci \
+  -device usb-kbd,bus=xhci.0 \
+  -device usb-mouse,bus=xhci.0 \
   -serial stdio \
   -display none \
   -no-reboot \

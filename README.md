@@ -36,13 +36,13 @@ release/seedos-stage0.img
 ```
 
 It has been visually verified in QEMU on Windows. It boots through Limine, reaches
-the Rust kernel, negotiates a framebuffer, draws a live Stage-0 status UI, uses
-virtio-rng to seed entropy, configures virtio-net through DHCP, and accepts
-console commands from serial and the QEMU virtio keyboard. It also has a first
-serial host-bridge path: `ask <text>` emits a protocol request to a host script,
-and the response is rendered back into the Stage-0 console. The VM console also
-has a `setup` menu for choosing the current provider and entering an API key into
-RAM without echoing the key back to the serial log.
+the Rust kernel, negotiates a framebuffer, draws a live Stage-0 status UI, seeds
+entropy from RDRAND, configures an Intel e1000 NIC through DHCP, and accepts
+console commands from serial, USB-HID keyboard, and the PS/2 fallback path. It
+also has a first direct provider path: `ask <text>` uses in-OS DNS, TCP, TLS,
+HTTPS, and the OpenAI Responses API for `api.openai.com:443`. The VM console has
+a `setup` menu for entering an API key into RAM without echoing the key back to
+the serial log.
 
 Expected first screen:
 
@@ -51,8 +51,8 @@ SEEDOS STAGE-0
 AGENT HOST: LIVE STATUS
 FRAMEBUFFER  READY
 ENTROPY      READY
-VIRTIO-RNG   READY
-VIRTIO-NET   CONFIGURED
+USB-XHCI     READY
+NETWORK      CONFIGURED
 INPUT        READY
 ```
 
@@ -68,6 +68,12 @@ Run the VM:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting
+```
+
+Run the bare-metal-style VM profile with USB input and e1000 networking:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-baremetal-vm.ps1 -StopExisting
 ```
 
 Rebuild and repackage the boot image on Windows:
@@ -89,34 +95,13 @@ Run with an interactive serial console on TCP port 4555:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555
 ```
 
-Run the development host bridge against that serial port:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555
-```
-
-Run the host bridge against OpenAI from the host environment:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555 -Provider openai
-```
-
-This requires `OPENAI_API_KEY` in the host PowerShell environment. The current
-bridge does not read the VM-stored key back out of the guest.
-
-Inside the VM, type `setup` to open the provider/API-key menu. Keys are stored in
+Inside the VM, type `setup` to open the OpenAI/API-key menu. Keys are stored in
 guest RAM only for now and are cleared by reboot or the menu's clear command.
 
-Run the headless host-bridge smoke test:
+Run the headless direct-provider smoke test:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\host-bridge-smoke.ps1
-```
-
-Run the OpenAI host-bridge smoke test:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-bridge-smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1
 ```
 
 Prepare for bare-metal USB testing:

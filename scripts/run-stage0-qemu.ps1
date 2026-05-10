@@ -5,13 +5,30 @@ param(
     [string]$SerialMode = "file",
     [int]$SerialTcpPort = 4555,
     [int]$MonitorTcpPort = 0,
+    [string]$Cpu = "",
+    [ValidateSet("", "none", "e1000")]
+    [string]$Nic = "",
+    [switch]$BareMetalVm,
     [switch]$Headless,
     [switch]$UsbXhciInput,
-    [switch]$NoVirtioInput,
     [switch]$StopExisting
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($BareMetalVm) {
+    $UsbXhciInput = $true
+    if (-not $Nic) {
+        $Nic = "e1000"
+    }
+    if (-not $Cpu) {
+        $Cpu = "max"
+    }
+}
+
+if (-not $Nic) {
+    $Nic = "e1000"
+}
 
 if ($StopExisting) {
     Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -33,16 +50,17 @@ $qemuArgs = @(
     "-m", "512M",
     "-drive", "if=pflash,format=raw,readonly=on,file=$Code",
     "-drive", "if=pflash,format=raw,file=$Vars",
-    "-drive", "file=$((Resolve-Path $Image).Path),format=raw,if=ide",
-    "-netdev", "user,id=net0",
-    "-device", "virtio-net-pci,netdev=net0",
-    "-device", "virtio-rng-pci"
+    "-drive", "file=$((Resolve-Path $Image).Path),format=raw,if=ide"
 )
 
-if (-not $NoVirtioInput) {
+if ($Cpu) {
+    $qemuArgs += @("-cpu", $Cpu)
+}
+
+if ($Nic -eq "e1000") {
     $qemuArgs += @(
-        "-device", "virtio-keyboard-pci",
-        "-device", "virtio-tablet-pci"
+        "-netdev", "user,id=net0",
+        "-device", "e1000,netdev=net0,mac=52:54:00:12:34:56"
     )
 }
 

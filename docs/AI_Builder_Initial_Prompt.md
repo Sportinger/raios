@@ -34,7 +34,7 @@ Create a monorepo with these top-level packages/folders (names can be adjusted, 
 Each package must include reproducible builds (container or Nix/lockfile), a README, and tests.
 
 ## Hard invariants (do not deviate)
-- **Target VM:** QEMU x86_64 + OVMF/UEFI; devices: virtio-net, virtio-input, virtio-rng.
+- **Target VM:** QEMU x86_64 + OVMF/UEFI; Intel e1000 networking, USB-xHCI keyboard/mouse, and RDRAND entropy.
 - **Boot:** Limine → Rust kernel; GOP framebuffer (BGRA8888), double buffer; ops: fill/blit/present; immutable atlases.
 - **Input:** raw key/mouse (down/up/move/scroll, UTF-8 text) batched every **8–16 ms**.
 - **Network:** DHCP + DNS; TLS with **SPKI pin**; **WebSocket**; strict minimal JSON envelope `{v,t,id,ts,body}`.
@@ -52,7 +52,7 @@ Each package must include reproducible builds (container or Nix/lockfile), a REA
    - Write Markdown spec for the WS envelope & message types.
    - Provide a validator tool for messages used by fake-cloud and harness.
 3. **Seed-Kernel & Boot Image**
-   - Limine config + ESP layout; Rust kernel with serial logging, framebuffer init (double buffer), virtio-rng gate, virtio-net (DHCP/DNS), virtio-input, TLS(pin), WS.
+   - Limine config + ESP layout; Rust kernel with serial logging, framebuffer init (double buffer), RDRAND entropy gate, e1000 (DHCP/DNS), USB-HID input, TLS(pin), WS.
    - Enrollment (first-boot) + token challenge handshake.
    - DATA (FAT) skeleton with `config.json` placeholders.
 4. **Seed-Runtime (Wasm)**

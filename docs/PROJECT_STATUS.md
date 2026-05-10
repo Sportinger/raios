@@ -29,28 +29,21 @@ For a QEMU xHCI inventory run, add `-UsbXhciInput`:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput
 ```
 
-For a USB-HID keyboard-only input smoke, omit virtio input and use the QEMU
-monitor to inject keys:
+For the bare-metal-style VM profile with USB keyboard, USB mouse, RDRAND, and
+e1000 networking, run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput -NoVirtioInput -MonitorTcpPort 45454
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-baremetal-vm.ps1 -StopExisting
 ```
 
 Expected xHCI inventory lines in that mode:
 
 ```text
-usb-xhci: controller @ 00:06.0 detected
+usb-xhci: controller @ 00:03.0 detected
 usb-xhci: hci 0x0100, ports 8, connected 2
-USB-XHCI: READY 00:06.0 HCI 0100 PORTS 8 CONNECTED 2 HID READY
-```
-
-Expected USB-HID lines in `-NoVirtioInput` mode:
-
-```text
 usb-hid: boot keyboard ready on slot 1 endpoint 0x81
-status INPUT: READY - USB HID BOOT KEYBOARD
-> help
-COMMANDS: help status devices log bridge setup ask <text>
+usb-hid: boot mouse ready on slot 2 endpoint 0x81
+status USB-XHCI: READY - 00:03.0 HCI 0100 PORTS 8 CONNECTED 2 KBD READY MOUSE READY
 ```
 
 Expected visible framebuffer UI:
@@ -60,9 +53,8 @@ SEEDOS STAGE-0
 AGENT HOST: LIVE STATUS
 FRAMEBUFFER  READY
 ENTROPY      READY
-VIRTIO-RNG   READY
-USB-XHCI     MISSING
-VIRTIO-NET   CONFIGURED
+USB-XHCI     READY
+NETWORK      CONFIGURED
 INPUT        READY
 ```
 
@@ -75,53 +67,46 @@ HHDM offset=0xffff800000000000
 Framebuffer response revision: 1
 Framebuffer negotiated via Limine
 status FRAMEBUFFER: READY - 1280x800 PITCH 5120
-status ENTROPY: READY - FILL 64/64 TOTAL 64 SRC VIRTIO-RNG
-status USB-XHCI: MISSING - CONTROLLER ABSENT
-virtio-rng (legacy) @ 00:03.0 detected
-virtio-rng delivered 64 bytes (stored 64)
-Entropy pool healthy after virtio-rng refill
-virtio-net legacy transport @ 0x6080, mac 52:54:00:12:34:56, rx_q=256, tx_q=256
-virtio-net initialised; DHCP polling enabled
+status ENTROPY: READY - FILL 64/64 TOTAL 64 SRC RDRAND
+status USB-XHCI: READY - 00:03.0 HCI 0100 PORTS 8 CONNECTED 2 KBD READY MOUSE READY
+e1000: device 00:02.0 id=0x100e mmio=0x81040000 size=131072 mac 52:54:00:12:34:56
+e1000 network initialised; DHCP polling enabled
 DHCP lease acquired: ip 10.0.2.15/24 gw 10.0.2.2 dns ["10.0.2.3"]
-status VIRTIO-NET: CONFIGURED - IP 10.0.2.15/24 GW 10.0.2.2
-virtio-input: modern device @ 00:04.0 initialised
-status INPUT: READY - VIRTIO INPUT QUEUE ACTIVE
+status NETWORK: CONFIGURED - IP 10.0.2.15/24 GW 10.0.2.2
+status INPUT: READY - USB HID KEYBOARD + POINTER
 ```
 
-Console commands verified over TCP serial and QEMU virtio keyboard injection:
+Console commands verified over TCP serial and USB-HID keyboard input:
 
 ```text
 help
 status
 devices
 log
-bridge
+provider
+openai
 setup
 ask <text>
 ```
 
-`setup` opens an in-VM menu. It can select `ECHO` or `OPENAI`, enter an API key
-with masked framebuffer input, clear the key, and show provider status. The key
-is held only in guest RAM and is not printed into the console or serial output.
-For local-only testing, the build scripts can also embed `OPENAI_API_KEY` into a
+`setup` opens an in-VM OpenAI/API-key menu. It can enter an API key with masked
+framebuffer input, clear the key, and show provider status. The key is held only
+in guest RAM and is not printed into the console or serial output. For
+local-only testing, the build scripts can also embed `OPENAI_API_KEY` into a
 separate non-default image with `-EmbedOpenAiApiKeyFromEnv`.
 
-Host bridge smoke verified over TCP serial:
+Direct OpenAI transport smoke over TCP serial:
 
 ```text
-> ask ping from vm harness
-SEEDOS_BRIDGE_REQ 1 70696E672066726F6D20766D206861726E657373
-BRIDGE REQUEST 1 SENT
-BRIDGE RESPONSE 1: HOST BRIDGE OK: ping from vm harness
-```
-
-OpenAI host bridge smoke verified over TCP serial:
-
-```text
-> ask hi
-SEEDOS_BRIDGE_REQ 1 6869
-BRIDGE REQUEST 1 SENT
-BRIDGE RESPONSE 1: SeedOS console ready.
+> provider
+PROVIDER: OPENAI    API KEY: SET
+ROUTE: OPENAI DIRECT
+> ask direct provider smoke
+OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses
+OPENAI DIRECT REQUEST 1 STARTED
+openai: TLS 1.3 established
+openai: HTTPS request sent
+OPENAI: <provider response text>
 ```
 
 ## Current Architecture Decision
@@ -132,44 +117,42 @@ Stage-0 should grow a small native agent host:
 
 - framebuffer UI
 - serial/keyboard input
-- virtio device inventory
+- USB/input and PCI device inventory
 - network status
 - explicit capability-gated agent tools
 
-Codex/OpenAI integrations should first run through a host-side bridge or normal
-HTTPS/provider adapter. The OS boundary should stay small and auditable.
+Codex/OpenAI integrations should use a small native provider boundary. The OS
+boundary should stay small and auditable; a full host CLI is not part of
+Stage-0.
 
 See `docs/architecture-decisions/0001-seedos-agent-protocol.md`.
 
 ## Exact Next Task
 
-Evolve the first host bridge/protocol path:
+Harden and polish the direct provider path:
 
-- virtio-rng entropy now works through physical DMA address translation and
-  dynamic legacy virtqueue layout.
-- legacy virtio-net now configures RX/TX queues, negotiates DHCP through
-  smoltcp, and shows IP/gateway state in the framebuffer UI and serial console.
-- modern virtio-input now uses explicit kernel MMIO mappings, queues keyboard
-  events, and feeds a minimal US keymap into the same command console as serial.
+- Virtio has been removed from the Stage-0 kernel runtime and VM runner path.
+- RDRAND seeds entropy in the bare-metal-style VM profile.
+- Intel e1000 configures RX/TX rings, negotiates DHCP through smoltcp, and shows
+  IP/gateway state in the framebuffer UI and serial console.
 - a PS/2/i8042 polling fallback is present for first bare-metal keyboard tests
   on machines that expose legacy keyboard compatibility. It is only reported as
   ready after an acknowledge from the keyboard or real scancode input.
 - a polled xHCI path now inventories USB controllers, resets directly attached
-  root-port devices, enumerates HID boot keyboards, and feeds 8-byte boot
-  keyboard reports into the same input queue as virtio/PS/2.
-- the USB-XHCI row now includes `HID READY`, `HID NONE`, or `HID ERROR` so
-  bare-metal photos distinguish a working keyboard from a connected non-keyboard
-  device such as the boot stick or a hub.
-- a tiny serial host bridge now accepts `ask <text>`, emits
-  `SEEDOS_BRIDGE_REQ`, receives an STX-framed `SEEDOS_BRIDGE_RESP`, and renders
-  the answer in the VM console.
-- a VM-local `setup` menu now records provider selection and a RAM-only API key
-  without echoing the key back into the serial log.
-- the Windows host bridge can run as an echo responder or as an OpenAI Responses
-  API adapter with `-Provider openai`; the OpenAI adapter reads the host
-  `OPENAI_API_KEY`, not the VM-stored key.
-- the next milestone is turning the echo bridge into a capability-shaped agent
-  protocol with a real host/provider adapter that can use the selected provider.
+  root-port devices, enumerates HID boot keyboards and mice, and feeds reports
+  into the same input queue as PS/2.
+- the USB-XHCI row now includes keyboard and mouse readiness.
+- a VM-local `setup` menu now records a RAM-only OpenAI API key without echoing
+  the key back into the serial log.
+- `ask <text>` now stays inside the guest: it requires the VM API key state,
+  resolves `api.openai.com`, opens TCP 443 through e1000, performs TLS 1.3,
+  sends an HTTPS Responses API request, parses `output_text`, and prints the
+  provider response.
+- the development serial relay and old host-framing path have been removed from
+  the runtime path.
+- the next milestone is replacing MVP certificate bypass with provider pinning
+  or certificate verification, then rendering responses better in the
+  framebuffer UI.
 
 ## Known Gaps
 
@@ -182,22 +165,21 @@ Evolve the first host bridge/protocol path:
 - Keyboard input uses a minimal US/Linux keycode mapping; no layout selection,
   modifier completeness, or text editing beyond Backspace exists yet.
 - Bare-metal support is experimental. Minimal direct xHCI USB-HID boot keyboard
-  handling exists, but USB hubs, non-boot HID report parsing, hotplug, and real
-  NIC drivers do not exist yet, so real hardware may still boot to the UI but
-  lack input/network.
+  and mouse handling exists, but USB hubs, non-boot HID report parsing, hotplug,
+  and broad NIC coverage do not exist yet, so real hardware may still boot to the
+  UI but lack input/network unless it matches the implemented paths.
 - Bare-metal USB preparation scripts exist, but writing a USB disk is destructive
   and must be done with an explicit disk number and confirmation string.
-- The host bridge is a development echo responder only; it is not a provider
-  adapter and does not carry auth, tools, or policy yet.
-- Provider selection and API key entry exist in the VM, but the key is RAM-only,
-  not persisted in the default image, and not yet wired to a real provider
-  request path. A local test image can embed the key explicitly, but must not be
-  committed or shared.
-- The OpenAI provider adapter currently runs on the Windows host bridge. Stage-0
-  still has no direct HTTPS/TLS provider client inside the OS.
-- QEMU TCP serial is single-client in practice; do not run the serial smoke
-  client and host bridge against the same port at the same time.
-- No HTTPS, TLS, or provider API client exists inside the OS yet.
+- API key entry exists in the VM, but the key is RAM-only and not persisted in
+  the default image. A local test image can embed the key explicitly, but must
+  not be committed or shared.
+- Stage-0 uses DNS/TCP/TLS/HTTPS for `api.openai.com:443`, but the MVP TLS path
+  currently disables certificate verification and should be hardened before any
+  serious use.
+- The OpenAI JSON response parser is intentionally minimal and only extracts the
+  first `output_text` string.
+- QEMU TCP serial is single-client in practice; do not run two serial clients
+  against the same port at the same time.
 - No signed module runtime exists yet.
 
 ## Do Not Regress

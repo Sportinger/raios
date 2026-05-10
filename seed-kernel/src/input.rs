@@ -1,4 +1,4 @@
-use core::cell::UnsafeCell;
+use core::cell::{Cell, UnsafeCell};
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -9,7 +9,6 @@ use crate::ps2;
 use crate::serial;
 use crate::time;
 use crate::usb;
-use crate::virtio;
 
 const INPUT_RING_CAPACITY: usize = 256;
 const POINTER_DEFAULT_WIDTH: i32 = 1280;
@@ -26,28 +25,19 @@ static SHIFT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub fn init() {
     INIT_ONCE.call_once(|| {
-        virtio::input::probe();
-        if !virtio::input::device_present() && !usb::keyboard_active() {
+        if !usb::keyboard_active() && !usb::mouse_active() {
             ps2::init_keyboard_polling();
         }
     });
 }
 
 pub fn device_present() -> bool {
-    virtio::input::device_present() || usb::keyboard_active() || ps2::active()
+    usb::keyboard_active() || usb::mouse_active() || ps2::active()
 }
 
 pub fn device_detail() -> &'static str {
-    if virtio::input::device_present() {
-        if mouse_snapshot().seen {
-            "VIRTIO KEYBOARD + POINTER"
-        } else if virtio::input::device_count() > 1 {
-            "VIRTIO INPUT QUEUES ACTIVE"
-        } else {
-            "VIRTIO INPUT QUEUE ACTIVE"
-        }
-    } else if usb::keyboard_active() {
-        usb::keyboard_detail()
+    if usb::keyboard_active() || usb::mouse_active() {
+        usb::input_detail()
     } else if ps2::active() {
         "PS/2 KEYBOARD POLLING"
     } else {
@@ -57,41 +47,8 @@ pub fn device_detail() -> &'static str {
 
 pub fn poll() -> bool {
     let mut pointer_changed = false;
-    if virtio::input::device_present() {
-        pointer_changed |= poll_virtio();
-    }
-
-    poll_usb();
+    pointer_changed |= poll_usb();
     poll_ps2();
-    pointer_changed
-}
-
-fn poll_virtio() -> bool {
-    let raw_events = virtio::input::poll();
-    if raw_events.is_empty() {
-        return false;
-    }
-
-    let ts_ms = timestamp_ms();
-
-    let mut inserted = 0usize;
-    let mut pointer_changed = false;
-
-    for raw in raw_events {
-        if let Some(kind) = translate_event(&raw) {
-            pointer_changed |= update_mouse(kind);
-            let event = InputEvent { ts_ms, kind };
-            RING.push(event);
-            inserted += 1;
-        }
-    }
-
-    if inserted > 0 {
-        serial::write_fmt(format_args!(
-            "input batch: {} events @ {} ms\r\n",
-            inserted, ts_ms
-        ));
-    }
     pointer_changed
 }
 
@@ -118,32 +75,90 @@ fn poll_ps2() {
     }
 }
 
-fn poll_usb() {
-    if !usb::keyboard_active() {
-        return;
+fn poll_usb() -> bool {
+    if !usb::keyboard_active() && !usb::mouse_active() {
+        return false;
     }
 
-    let mut ts_ms = 0u64;
-    let mut has_timestamp = false;
-    let mut inserted = 0usize;
-    usb::poll_keyboard(|code, pressed| {
-        if !has_timestamp {
-            ts_ms = timestamp_ms();
-            has_timestamp = true;
-        }
-        RING.push(InputEvent {
-            ts_ms,
-            kind: InputEventKind::Key { code, pressed },
-        });
-        inserted += 1;
-    });
+    let ts_ms = Cell::new(0u64);
+    let has_timestamp = Cell::new(false);
+    let inserted = Cell::new(0usize);
+    let pointer_changed = Cell::new(false);
+    usb::poll_input(
+        |code, pressed| {
+            if !has_timestamp.get() {
+                ts_ms.set(timestamp_ms());
+                has_timestamp.set(true);
+            }
+            RING.push(InputEvent {
+                ts_ms: ts_ms.get(),
+                kind: InputEventKind::Key { code, pressed },
+            });
+            inserted.set(inserted.get() + 1);
+        },
+        |report| {
+            if !has_timestamp.get() {
+                ts_ms.set(timestamp_ms());
+                has_timestamp.set(true);
+            }
+            if report.dx != 0 {
+                let kind = InputEventKind::Relative(RelativeAxis::X, report.dx as i32);
+                pointer_changed.set(update_mouse(kind) || pointer_changed.get());
+                RING.push(InputEvent {
+                    ts_ms: ts_ms.get(),
+                    kind,
+                });
+                inserted.set(inserted.get() + 1);
+            }
+            if report.dy != 0 {
+                let kind = InputEventKind::Relative(RelativeAxis::Y, report.dy as i32);
+                pointer_changed.set(update_mouse(kind) || pointer_changed.get());
+                RING.push(InputEvent {
+                    ts_ms: ts_ms.get(),
+                    kind,
+                });
+                inserted.set(inserted.get() + 1);
+            }
+            if report.wheel != 0 {
+                let kind = InputEventKind::Relative(RelativeAxis::Wheel, report.wheel as i32);
+                pointer_changed.set(update_mouse(kind) || pointer_changed.get());
+                RING.push(InputEvent {
+                    ts_ms: ts_ms.get(),
+                    kind,
+                });
+                inserted.set(inserted.get() + 1);
+            }
+            for (code, mask) in [(272, MOUSE_LEFT), (273, MOUSE_RIGHT), (274, MOUSE_MIDDLE)] {
+                let pressed = report.buttons & mask != 0;
+                let kind = InputEventKind::Key { code, pressed };
+                if update_mouse(kind) {
+                    RING.push(InputEvent {
+                        ts_ms: ts_ms.get(),
+                        kind,
+                    });
+                    inserted.set(inserted.get() + 1);
+                    pointer_changed.set(true);
+                }
+            }
+        },
+    );
 
-    if inserted > 0 {
+    if inserted.get() > 0 {
         serial::write_fmt(format_args!(
             "usb input batch: {} events @ {} ms\r\n",
-            inserted, ts_ms
+            inserted.get(),
+            ts_ms.get()
         ));
     }
+    if pointer_changed.get() {
+        serial::write_fmt(format_args!(
+            "usb pointer: {},{} buttons {}\r\n",
+            mouse_snapshot().x,
+            mouse_snapshot().y,
+            mouse_snapshot().buttons
+        ));
+    }
+    pointer_changed.get()
 }
 
 fn timestamp_ms() -> u64 {
@@ -215,34 +230,6 @@ pub enum RelativeAxis {
     Y,
     Wheel,
     Other(u16),
-}
-
-fn translate_event(event: &virtio::input::VirtioInputEvent) -> Option<InputEventKind> {
-    match event.type_ {
-        0 => None, // EV_SYN
-        1 => Some(InputEventKind::Key {
-            code: event.code,
-            pressed: event.value != 0,
-        }),
-        2 => Some(InputEventKind::Relative(
-            match event.code {
-                0 => RelativeAxis::X,
-                1 => RelativeAxis::Y,
-                8 => RelativeAxis::Wheel,
-                other => RelativeAxis::Other(other),
-            },
-            event.value,
-        )),
-        3 => Some(InputEventKind::Absolute {
-            code: event.code,
-            value: event.value,
-        }),
-        _ => Some(InputEventKind::Raw {
-            type_: event.type_,
-            code: event.code,
-            value: event.value,
-        }),
-    }
 }
 
 fn update_mouse(kind: InputEventKind) -> bool {

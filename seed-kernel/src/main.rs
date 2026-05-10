@@ -16,8 +16,8 @@ use limine::request::{
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
 
-mod bridge;
 mod console;
+mod e1000;
 mod entropy;
 mod framebuffer;
 mod input;
@@ -26,14 +26,15 @@ mod net;
 mod openai;
 mod pci;
 mod provider;
+mod provider_config;
 mod ps2;
 mod scheduler;
 mod serial;
 mod text;
 mod time;
+mod tls_io;
 mod ui;
 mod usb;
-mod virtio;
 
 #[used]
 #[link_section = ".limine_requests_start"]
@@ -129,8 +130,8 @@ fn early_main() -> ! {
 
     let mut runtime_status = ui::RuntimeStatus::new();
     let mut status_ui = ui::StatusUi::new(framebuffer_surface);
-    if bridge::init_default_config() {
-        serial::write_line("Bridge default provider loaded: OPENAI API key set");
+    if provider_config::init_default_config() {
+        serial::write_line("Default provider loaded: OPENAI API key set");
     }
     console::init();
     usb::init();
@@ -141,10 +142,6 @@ fn early_main() -> ! {
 
     entropy::init();
 
-    if let Some(rng) = virtio::rng::probe() {
-        entropy::attach_virtio_rng(rng);
-    }
-    runtime_status.virtio_rng_probe_complete = true;
     input::init();
     runtime_status.input_probe_complete = true;
     status_ui.render(uptime_ms(), runtime_status);
@@ -156,9 +153,9 @@ fn early_main() -> ! {
 
     if entropy_ready {
         net::init();
-        runtime_status.virtio_net_probe_complete = true;
+        runtime_status.net_probe_complete = true;
     } else {
-        serial::write_line("virtio-net initialization deferred; waiting for entropy");
+        serial::write_line("network initialization deferred; waiting for entropy");
     }
     status_ui.render(uptime_ms(), runtime_status);
 
@@ -234,9 +231,9 @@ impl PeriodicTasks {
         });
         self.entropy.try_run(now_tsc, || entropy::maintain());
         if !self.entropy_ready && entropy::is_ready() {
-            serial::write_line("Entropy ready; starting virtio-net bring-up");
+            serial::write_line("Entropy ready; starting network bring-up");
             net::init();
-            runtime_status.virtio_net_probe_complete = true;
+            runtime_status.net_probe_complete = true;
             self.entropy_ready = true;
             self.net_started = true;
             status_ui.render(uptime_ms(), *runtime_status);
@@ -250,7 +247,7 @@ impl PeriodicTasks {
         if self.entropy_ready {
             if !self.net_started {
                 net::init();
-                runtime_status.virtio_net_probe_complete = true;
+                runtime_status.net_probe_complete = true;
                 self.net_started = true;
             }
             self.net.try_run(now_tsc, || net::poll());

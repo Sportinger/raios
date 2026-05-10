@@ -1,20 +1,18 @@
 use core::fmt::{self, Write};
 use core::str;
 
-use crate::{bridge, net, openai};
+use crate::{net, openai, provider_config};
 
 const LINE_CAPACITY: usize = 104;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Route {
-    HostBridge,
     OpenAiDirect,
 }
 
 impl Route {
     pub fn as_str(self) -> &'static str {
         match self {
-            Route::HostBridge => "HOST BRIDGE",
             Route::OpenAiDirect => "OPENAI DIRECT",
         }
     }
@@ -100,13 +98,6 @@ pub struct Snapshot {
     pub provider_name: &'static str,
     pub api_key_set: bool,
     pub route: Route,
-    pub bridge_pending_id: Option<u32>,
-    pub bridge_last_request_id: Option<u32>,
-    pub bridge_last_response_id: Option<u32>,
-    pub bridge_error_count: u32,
-    pub bridge_last_prompt: FixedLine,
-    pub bridge_last_response: FixedLine,
-    pub bridge_last_error: FixedLine,
     pub direct_phase: &'static str,
     pub direct_pending_id: Option<u32>,
     pub direct_last_request_id: Option<u32>,
@@ -130,34 +121,20 @@ pub fn submit(request: AgentRequest<'_>) -> Result<Submitted, SubmitError> {
         return Err(SubmitError::Empty);
     }
 
-    match active_route() {
-        Route::OpenAiDirect => {
-            if !bridge::snapshot().api_key_set {
-                return Err(SubmitError::MissingApiKey);
-            }
-            match openai::submit_request(prompt) {
-                Ok(id) => Ok(Submitted {
-                    route: Route::OpenAiDirect,
-                    id,
-                }),
-                Err(openai::SubmitError::Empty) => Err(SubmitError::Empty),
-                Err(openai::SubmitError::Busy(id)) => Err(SubmitError::Busy {
-                    route: Route::OpenAiDirect,
-                    id,
-                }),
-            }
-        }
-        Route::HostBridge => match bridge::submit_request(prompt) {
-            Ok(id) => Ok(Submitted {
-                route: Route::HostBridge,
-                id,
-            }),
-            Err(bridge::SubmitError::Empty) => Err(SubmitError::Empty),
-            Err(bridge::SubmitError::Busy(id)) => Err(SubmitError::Busy {
-                route: Route::HostBridge,
-                id,
-            }),
-        },
+    if !provider_config::api_key_set() {
+        return Err(SubmitError::MissingApiKey);
+    }
+
+    match openai::submit_request(prompt) {
+        Ok(id) => Ok(Submitted {
+            route: Route::OpenAiDirect,
+            id,
+        }),
+        Err(openai::SubmitError::Empty) => Err(SubmitError::Empty),
+        Err(openai::SubmitError::Busy(id)) => Err(SubmitError::Busy {
+            route: Route::OpenAiDirect,
+            id,
+        }),
     }
 }
 
@@ -173,33 +150,20 @@ pub fn poll() -> Option<Event> {
 }
 
 pub fn snapshot() -> Snapshot {
-    let bridge = bridge::snapshot();
+    let config = provider_config::snapshot();
     let direct = openai::snapshot();
-    let mut bridge_last_prompt = FixedLine::empty();
-    let mut bridge_last_response = FixedLine::empty();
-    let mut bridge_last_error = FixedLine::empty();
     let mut direct_last_prompt = FixedLine::empty();
     let mut direct_last_event = FixedLine::empty();
     let mut direct_last_error = FixedLine::empty();
 
-    bridge_last_prompt.set_from_str(bridge.last_prompt.as_str());
-    bridge_last_response.set_from_str(bridge.last_response.as_str());
-    bridge_last_error.set_from_str(bridge.last_error.as_str());
     direct_last_prompt.set_from_str(direct.last_prompt.as_str());
     direct_last_event.set_from_str(direct.last_event.as_str());
     direct_last_error.set_from_str(direct.last_error.as_str());
 
     Snapshot {
-        provider_name: bridge.provider.as_str(),
-        api_key_set: bridge.api_key_set,
-        route: route_for_provider(bridge.provider),
-        bridge_pending_id: bridge.pending_id,
-        bridge_last_request_id: bridge.last_request_id,
-        bridge_last_response_id: bridge.last_response_id,
-        bridge_error_count: bridge.error_count,
-        bridge_last_prompt,
-        bridge_last_response,
-        bridge_last_error,
+        provider_name: config.provider_name,
+        api_key_set: config.api_key_set,
+        route: Route::OpenAiDirect,
         direct_phase: direct.phase,
         direct_pending_id: direct.pending_id,
         direct_last_request_id: direct.last_request_id,
@@ -209,16 +173,5 @@ pub fn snapshot() -> Snapshot {
         direct_endpoint: direct.endpoint,
         direct_model: direct.model,
         tcp: net::tcp_snapshot(),
-    }
-}
-
-pub fn active_route() -> Route {
-    route_for_provider(bridge::snapshot().provider)
-}
-
-fn route_for_provider(provider: bridge::Provider) -> Route {
-    match provider {
-        bridge::Provider::Echo => Route::HostBridge,
-        bridge::Provider::OpenAi => Route::OpenAiDirect,
     }
 }

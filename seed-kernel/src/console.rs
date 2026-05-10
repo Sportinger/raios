@@ -3,7 +3,7 @@ use core::str;
 
 use spin::Mutex;
 
-use crate::{bridge, entropy, input, net, provider, serial, ui, usb, virtio};
+use crate::{entropy, input, net, provider, provider_config, serial, ui, usb};
 
 const COMMAND_WIDTH: usize = 256;
 const OUTPUT_WIDTH: usize = 104;
@@ -93,7 +93,6 @@ pub struct ConsoleSnapshot {
 enum ConsoleMode {
     Command,
     SetupMenu,
-    ProviderMenu,
     ApiKeyEntry,
 }
 
@@ -145,9 +144,6 @@ impl ConsoleState {
             ConsoleMode::SetupMenu => {
                 let _ = write!(input, "setup> {}", self.input.as_str());
             }
-            ConsoleMode::ProviderMenu => {
-                let _ = write!(input, "provider> {}", self.input.as_str());
-            }
             ConsoleMode::ApiKeyEntry => {
                 let _ = write!(input, "api key> ");
                 let mut idx = 0usize;
@@ -165,7 +161,6 @@ impl ConsoleState {
         match self.mode {
             ConsoleMode::Command => self.handle_command_byte(byte),
             ConsoleMode::SetupMenu => self.handle_setup_menu_byte(byte),
-            ConsoleMode::ProviderMenu => self.handle_provider_menu_byte(byte),
             ConsoleMode::ApiKeyEntry => self.handle_api_key_byte(byte),
         }
     }
@@ -206,18 +201,14 @@ impl ConsoleState {
 
     fn handle_setup_menu_byte(&mut self, byte: u8) -> ByteAction {
         match byte.to_ascii_lowercase() {
-            b'1' => {
-                self.mode = ConsoleMode::ProviderMenu;
-                self.input.clear();
-                ByteAction::ShowProviderMenu
-            }
+            b'1' => ByteAction::ShowProviderStatus,
             b'2' => {
                 self.mode = ConsoleMode::ApiKeyEntry;
                 self.input.clear();
                 ByteAction::ShowApiKeyEntry
             }
             b'3' => {
-                bridge::clear_api_key();
+                provider_config::clear_api_key();
                 ByteAction::ShowSetupMessage(SetupMessage::ApiKeyCleared)
             }
             b'4' => ByteAction::ShowProviderStatus,
@@ -231,45 +222,21 @@ impl ConsoleState {
         }
     }
 
-    fn handle_provider_menu_byte(&mut self, byte: u8) -> ByteAction {
-        match byte.to_ascii_lowercase() {
-            b'1' => {
-                bridge::set_provider(bridge::Provider::Echo);
-                self.mode = ConsoleMode::SetupMenu;
-                self.input.clear();
-                ByteAction::ShowSetupMessage(SetupMessage::ProviderSet(bridge::Provider::Echo))
-            }
-            b'2' => {
-                bridge::set_provider(bridge::Provider::OpenAi);
-                self.mode = ConsoleMode::SetupMenu;
-                self.input.clear();
-                ByteAction::ShowSetupMessage(SetupMessage::ProviderSet(bridge::Provider::OpenAi))
-            }
-            b'q' | 0x1b => {
-                self.mode = ConsoleMode::SetupMenu;
-                self.input.clear();
-                ByteAction::ShowSetupMenu
-            }
-            b'\r' | b'\n' => ByteAction::Noop,
-            _ => ByteAction::Bell,
-        }
-    }
-
     fn handle_api_key_byte(&mut self, byte: u8) -> ByteAction {
         match byte {
             b'\r' | b'\n' => {
-                let result = bridge::set_api_key(self.input.as_bytes());
+                let result = provider_config::set_api_key(self.input.as_bytes());
                 self.input.clear();
                 self.mode = ConsoleMode::SetupMenu;
                 match result {
                     Ok(()) => ByteAction::ShowSetupMessage(SetupMessage::ApiKeySet),
-                    Err(bridge::ApiKeyError::Empty) => {
+                    Err(provider_config::ApiKeyError::Empty) => {
                         ByteAction::ShowSetupMessage(SetupMessage::ApiKeyEmpty)
                     }
-                    Err(bridge::ApiKeyError::TooLong) => {
+                    Err(provider_config::ApiKeyError::TooLong) => {
                         ByteAction::ShowSetupMessage(SetupMessage::ApiKeyTooLong)
                     }
-                    Err(bridge::ApiKeyError::InvalidByte) => {
+                    Err(provider_config::ApiKeyError::InvalidByte) => {
                         ByteAction::ShowSetupMessage(SetupMessage::ApiKeyInvalid)
                     }
                 }
@@ -305,8 +272,6 @@ enum ByteAction {
     Bell,
     Execute(ConsoleLine),
     Redraw,
-    ShowSetupMenu,
-    ShowProviderMenu,
     ShowApiKeyEntry,
     ShowProviderStatus,
     ShowSetupMessage(SetupMessage),
@@ -314,7 +279,6 @@ enum ByteAction {
 }
 
 enum SetupMessage {
-    ProviderSet(bridge::Provider),
     ApiKeySet,
     ApiKeyCleared,
     ApiKeyEmpty,
@@ -474,14 +438,6 @@ fn process_byte(byte: u8, runtime: ui::RuntimeStatus) -> bool {
             true
         }
         ByteAction::Redraw => true,
-        ByteAction::ShowSetupMenu => {
-            show_setup_menu();
-            true
-        }
-        ByteAction::ShowProviderMenu => {
-            show_provider_menu();
-            true
-        }
         ByteAction::ShowApiKeyEntry => {
             show_api_key_entry();
             true
@@ -503,18 +459,7 @@ fn process_byte(byte: u8, runtime: ui::RuntimeStatus) -> bool {
 }
 
 fn process_serial_byte(byte: u8, runtime: ui::RuntimeStatus) -> bool {
-    match bridge::ingest_serial_byte(byte) {
-        bridge::SerialIngest::Console(byte) => process_byte(byte, runtime),
-        bridge::SerialIngest::Consumed => false,
-        bridge::SerialIngest::Response => {
-            command_bridge_response();
-            true
-        }
-        bridge::SerialIngest::Error => {
-            command_bridge_error();
-            true
-        }
-    }
+    process_byte(byte, runtime)
 }
 
 fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
@@ -530,7 +475,7 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
         "status" => command_status(runtime),
         "devices" => command_devices(runtime),
         "log" => command_log(),
-        "bridge" => command_bridge_status(),
+        "provider" => command_provider_status(),
         "openai" => command_openai_status(),
         "setup" => command_setup_enter(),
         "ask" => command_ask(command_line.arguments_after_command()),
@@ -543,7 +488,7 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
 
 fn command_help() {
     write_output(format_args!(
-        "COMMANDS: help status devices log bridge openai setup ask <text>"
+        "COMMANDS: help status devices log provider openai setup ask <text>"
     ));
 }
 
@@ -560,7 +505,7 @@ fn command_status(runtime: ui::RuntimeStatus) {
         entropy::POOL_CAPACITY
     ));
     write_output(format_args!(
-        "VIRTIO-RNG: {}    USB-XHCI: {}    VIRTIO-NET: {}    INPUT: {}",
+        "RNG: {}    USB-XHCI: {}    NETWORK: {}    INPUT: {}",
         rng_state(runtime),
         usb_state(),
         net_state(runtime),
@@ -570,13 +515,13 @@ fn command_status(runtime: ui::RuntimeStatus) {
 
 fn command_devices(runtime: ui::RuntimeStatus) {
     write_output(format_args!("FRAMEBUFFER: READY"));
-    write_output(format_args!("VIRTIO-RNG: {}", rng_state(runtime)));
+    write_output(format_args!("RNG: {}", rng_state(runtime)));
     write_usb_device_line();
 
-    if let Some(info) = virtio::net::info() {
-        write_output(format_args!("VIRTIO-NET: DEVICE MAC {}", Mac(info.mac)));
+    if let Some(config) = net::ui_snapshot() {
+        write_output(format_args!("NETWORK: DEVICE MAC {}", Mac(config.mac)));
     } else {
-        write_output(format_args!("VIRTIO-NET: {}", net_state(runtime)));
+        write_output(format_args!("NETWORK: {}", net_state(runtime)));
     }
 
     write_output(format_args!("INPUT: {}", input_state(runtime)));
@@ -592,25 +537,36 @@ fn write_usb_device_line() {
             snapshot.last_error.unwrap_or("PROBE ERROR")
         )),
         usb::UsbStatus::Ready => {
-            let hid = usb_keyboard_status(snapshot.keyboard_status);
+            let keyboard = usb_keyboard_status(snapshot.keyboard_status);
+            let mouse = usb_mouse_status(snapshot.mouse_status);
             if let Some(address) = snapshot.address {
                 write_output(format_args!(
-                    "USB-XHCI: READY {} HCI {:04X} PORTS {} CONNECTED {} HID {}",
+                    "USB-XHCI: READY {} HCI {:04X} PORTS {} CONNECTED {} KBD {} MOUSE {}",
                     address,
                     snapshot.hci_version,
                     snapshot.max_ports,
                     snapshot.connected_ports,
-                    hid
+                    keyboard,
+                    mouse
                 ));
             } else {
                 write_output(format_args!(
-                    "USB-XHCI: READY UNKNOWN HCI {:04X} PORTS {} CONNECTED {} HID {}",
-                    snapshot.hci_version, snapshot.max_ports, snapshot.connected_ports, hid
+                    "USB-XHCI: READY UNKNOWN HCI {:04X} PORTS {} CONNECTED {} KBD {} MOUSE {}",
+                    snapshot.hci_version,
+                    snapshot.max_ports,
+                    snapshot.connected_ports,
+                    keyboard,
+                    mouse
                 ));
             }
 
             if let Some(detail) = snapshot.keyboard_detail {
                 if snapshot.keyboard_status != usb::UsbKeyboardStatus::Ready {
+                    write_output(format_args!("USB-HID: {}", detail));
+                }
+            }
+            if let Some(detail) = snapshot.mouse_detail {
+                if snapshot.mouse_status != usb::UsbMouseStatus::Ready {
                     write_output(format_args!("USB-HID: {}", detail));
                 }
             }
@@ -624,6 +580,15 @@ fn usb_keyboard_status(status: usb::UsbKeyboardStatus) -> &'static str {
         usb::UsbKeyboardStatus::Ready => "READY",
         usb::UsbKeyboardStatus::NotFound => "NONE",
         usb::UsbKeyboardStatus::Error => "ERROR",
+    }
+}
+
+fn usb_mouse_status(status: usb::UsbMouseStatus) -> &'static str {
+    match status {
+        usb::UsbMouseStatus::NotProbed => "PENDING",
+        usb::UsbMouseStatus::Ready => "READY",
+        usb::UsbMouseStatus::NotFound => "NONE",
+        usb::UsbMouseStatus::Error => "ERROR",
     }
 }
 
@@ -652,18 +617,13 @@ fn command_setup_enter() {
 }
 
 fn show_setup_menu() {
-    let snapshot = bridge::snapshot();
+    let snapshot = provider_config::snapshot();
     write_output(format_args!(
-        "1 PROVIDER: {}    2 API KEY: {}",
-        snapshot.provider.as_str(),
+        "1 PROVIDER: {} DIRECT    2 API KEY: {}",
+        snapshot.provider_name,
         api_key_status(snapshot.api_key_set)
     ));
     write_output(format_args!("3 CLEAR API KEY    4 STATUS    Q EXIT"));
-}
-
-fn show_provider_menu() {
-    write_output(format_args!("PROVIDER"));
-    write_output(format_args!("1 ECHO BRIDGE    2 OPENAI DIRECT    Q BACK"));
 }
 
 fn show_api_key_entry() {
@@ -672,27 +632,24 @@ fn show_api_key_entry() {
 }
 
 fn show_provider_status() {
-    let snapshot = bridge::snapshot();
+    let snapshot = provider::snapshot();
     write_output(format_args!(
-        "PROVIDER: {}    API KEY: {}",
-        snapshot.provider.as_str(),
-        api_key_status(snapshot.api_key_set)
+        "PROVIDER: {}    ROUTE: {}",
+        snapshot.provider_name,
+        snapshot.route.as_str()
     ));
-    if snapshot.provider == bridge::Provider::OpenAi && !snapshot.api_key_set {
+    write_output(format_args!(
+        "API KEY: {}    ENDPOINT: {}",
+        api_key_status(snapshot.api_key_set),
+        snapshot.direct_endpoint
+    ));
+    if !snapshot.api_key_set {
         write_output(format_args!("OPENAI REQUIRES API KEY"));
-    } else if snapshot.provider == bridge::Provider::OpenAi {
-        write_output(format_args!(
-            "OPENAI DIRECT: {}",
-            provider::snapshot().direct_endpoint
-        ));
     }
 }
 
 fn show_setup_message(message: SetupMessage) {
     match message {
-        SetupMessage::ProviderSet(provider) => {
-            write_output(format_args!("PROVIDER SET: {}", provider.as_str()))
-        }
         SetupMessage::ApiKeySet => write_output(format_args!("API KEY SET (RAM ONLY)")),
         SetupMessage::ApiKeyCleared => write_output(format_args!("API KEY CLEARED")),
         SetupMessage::ApiKeyEmpty => write_output(format_args!("API KEY NOT CHANGED: EMPTY")),
@@ -704,7 +661,7 @@ fn show_setup_message(message: SetupMessage) {
     }
 }
 
-fn command_bridge_status() {
+fn command_provider_status() {
     let snapshot = provider::snapshot();
     write_output(format_args!(
         "PROVIDER: {}    API KEY: {}",
@@ -712,39 +669,8 @@ fn command_bridge_status() {
         api_key_status(snapshot.api_key_set)
     ));
 
-    if snapshot.route == provider::Route::OpenAiDirect {
-        write_output(format_args!("HOST BRIDGE: BYPASSED FOR OPENAI ASK"));
-        command_openai_status();
-        return;
-    }
-
-    if let Some(id) = snapshot.bridge_pending_id {
-        write_output(format_args!("BRIDGE: PENDING REQUEST {}", id));
-    } else {
-        write_output(format_args!("BRIDGE: READY"));
-    }
-
-    if let Some(id) = snapshot.bridge_last_request_id {
-        write_output(format_args!(
-            "LAST REQUEST {}: {}",
-            id,
-            snapshot.bridge_last_prompt.as_str()
-        ));
-    }
-    if let Some(id) = snapshot.bridge_last_response_id {
-        write_output(format_args!(
-            "LAST RESPONSE {}: {}",
-            id,
-            snapshot.bridge_last_response.as_str()
-        ));
-    }
-    if snapshot.bridge_error_count > 0 {
-        write_output(format_args!(
-            "BRIDGE ERRORS: {} LAST {}",
-            snapshot.bridge_error_count,
-            snapshot.bridge_last_error.as_str()
-        ));
-    }
+    write_output(format_args!("ROUTE: {}", snapshot.route.as_str()));
+    command_openai_status();
 }
 
 fn command_openai_status() {
@@ -796,15 +722,13 @@ fn api_key_status(set: bool) -> &'static str {
 
 fn command_ask(prompt: &str) {
     match provider::submit_text(prompt) {
-        Ok(submitted) => match submitted.route {
-            provider::Route::OpenAiDirect => write_output(format_args!(
+        Ok(submitted) => {
+            let _route = submitted.route;
+            write_output(format_args!(
                 "OPENAI DIRECT REQUEST {} STARTED",
                 submitted.id
-            )),
-            provider::Route::HostBridge => {
-                write_output(format_args!("BRIDGE REQUEST {} SENT", submitted.id))
-            }
-        },
+            ))
+        }
         Err(provider::SubmitError::Empty) => write_output(format_args!("ASK REQUIRES TEXT")),
         Err(provider::SubmitError::MissingApiKey) => {
             write_output(format_args!("OPENAI REQUIRES API KEY"))
@@ -817,32 +741,12 @@ fn command_ask(prompt: &str) {
     }
 }
 
-fn command_bridge_response() {
-    let snapshot = bridge::snapshot();
-    if let Some(id) = snapshot.last_response_id {
-        write_output(format_args!(
-            "BRIDGE RESPONSE {}: {}",
-            id,
-            snapshot.last_response.as_str()
-        ));
-    }
-}
-
-fn command_bridge_error() {
-    let snapshot = bridge::snapshot();
-    write_output(format_args!(
-        "BRIDGE ERROR {}: {}",
-        snapshot.error_count,
-        snapshot.last_error.as_str()
-    ));
-}
-
 fn rng_state(_runtime: ui::RuntimeStatus) -> &'static str {
     let stats = entropy::stats();
-    if stats.used_virtio {
+    if stats.used_rdrand {
+        "RDRAND"
+    } else if stats.ready {
         "READY"
-    } else if entropy::virtio_source_attached() {
-        "DEGRADED"
     } else {
         "WAITING"
     }
@@ -866,9 +770,7 @@ fn net_state(runtime: ui::RuntimeStatus) -> &'static str {
         } else {
             "DEVICE"
         }
-    } else if virtio::net::info().is_some() {
-        "DEVICE"
-    } else if runtime.virtio_net_probe_complete {
+    } else if runtime.net_probe_complete {
         "MISSING"
     } else {
         "WAITING"

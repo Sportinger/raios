@@ -107,12 +107,12 @@ be one of several levels:
 
 | Kind | Runs where | Artifact format | Allowed first | Required gate |
 | --- | --- | --- | --- | --- |
-| host-side capability | host bridge | script/binary plus manifest | yes | host policy + audit |
+| workstation-side capability | dev workstation | script/binary plus manifest | yes | local policy + audit |
 | guest diagnostic | SeedOS sandbox | small guest artifact plus manifest | later | VM smoke + read-only caps |
 | ram-only driver | SeedOS kernel/runtime | low-level artifact plus manifest | later | matching VM report + approval |
 | persistent driver | boot image/config | low-level artifact plus manifest | last | matching VM report + rollback |
 
-The first live-built artifact type should be a host-side capability module. The
+The first live-built artifact type should be a workstation-side capability module. The
 second should be a read-only guest diagnostic or helper. Low-level guest modules
 need a separate ABI/isolation decision before implementation.
 
@@ -153,9 +153,9 @@ identity can be added later, but it is not the root trust mechanism for the MVP.
 The protocol should carry development cycles, not only chat messages.
 
 ADR 0002 defines the logical protocol independent of transport. V0 should reuse
-the existing `device-protocol` JSON envelope and carry it over the current serial
-bridge using the existing hex/STX framing as needed. The same logical envelope
-can later move to WebSocket or another transport:
+the existing `device-protocol` JSON envelope and carry it through the direct
+provider/tool boundary. The same logical envelope can later move to WebSocket or
+another transport:
 
 ```json
 {
@@ -239,10 +239,10 @@ The smallest useful `system.snapshot.v0` should expose current facts only:
   "status": {
     "framebuffer": "ready",
     "entropy": "ready",
-    "virtio_rng": "ready",
-    "virtio_net": "configured",
+    "rng": "rdrand",
+    "network": "configured",
     "input": "ready",
-    "usb_xhci": "detected_no_hid"
+    "usb_xhci": "keyboard_mouse_ready"
   },
   "network": {
     "ip": "10.0.2.15",
@@ -257,7 +257,7 @@ The smallest useful `system.snapshot.v0` should expose current facts only:
     {
       "id": "usb_hid.missing",
       "severity": "info",
-      "summary": "xHCI inventory exists, USB HID keyboard driver missing"
+      "summary": "xHCI inventory exists, USB HID keyboard and mouse are ready"
     }
   ],
   "capabilities": [
@@ -269,16 +269,16 @@ The smallest useful `system.snapshot.v0` should expose current facts only:
 ```
 
 Fields that leave the machine through a provider adapter need classification:
-`public`, `local_only`, or `secret`. The bridge must redact `local_only` and
-`secret` fields unless local policy explicitly allows them.
+`public`, `local_only`, or `secret`. The provider boundary must redact
+`local_only` and `secret` fields unless local policy explicitly allows them.
 
 Example flow:
 
 ```text
 Agent -> SeedOS: system.snapshot
-SeedOS -> Agent: xHCI ready, USB HID missing, virtio input ready
+SeedOS -> Agent: xHCI ready, USB HID keyboard and mouse ready
 
-Agent -> SeedOS: module.propose usb-hid-keyboard
+Agent -> SeedOS: module.propose richer-usb-hid
 SeedOS -> Agent: allowed for VM-test only, needs usb.xhci.read_events
 
 Agent/Host: builds artifact
@@ -313,7 +313,7 @@ A V0 test report should be machine-readable:
   "candidate_manifest_hash": "blake3:...",
   "qemu_version": "...",
   "qemu_args_hash": "blake3:...",
-  "hardware_profile": "qemu-virtio-usb-xhci-v0",
+  "hardware_profile": "qemu-e1000-usb-xhci-v0",
   "commands": ["status", "devices", "ask protocol-smoke"],
   "predicates": [
     "serial_contains:status INPUT: READY",
@@ -388,13 +388,13 @@ capability denial semantics, `system.snapshot.v0`, `module_manifest.v0`, and
 `vm_test_report.v0`.
 
 ### Phase B: Read-Only Self-Description
-Expose current Stage-0 facts through the bridge:
+Expose current Stage-0 facts through the native provider/tool context:
 
 ```text
 framebuffer state
 entropy state
-virtio-rng state
-virtio-net/DHCP state
+RDRAND entropy state
+e1000/DHCP state
 input state
 USB/xHCI inventory
 provider/setup state
@@ -404,14 +404,14 @@ available capabilities
 ```
 
 ### Phase C: Agent Context Injection
-Make the host bridge attach a compact `system.snapshot` to provider requests so
-the agent answers with current SeedOS context instead of blind chat.
+Make the direct provider adapter attach a compact `system.snapshot` to provider
+requests so the agent answers with current SeedOS context instead of blind chat.
 
 ### Phase D: Proposal And Test Loop
 Add protocol support for module proposals and VM test results before implementing
 dynamic guest loading.
 
-The first implementation target is a host-side capability module, not a kernel
+The first implementation target is a workstation-side capability module, not a kernel
 driver. `module.propose` produces a manifest/proposal only. Loading remains
 denied until a matching test report and local attestation record exist.
 

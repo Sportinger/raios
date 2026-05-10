@@ -4,7 +4,8 @@
 
 SeedOS/RaiOS2 should be a tiny bootable environment whose primary interface is an
 AI agent host. The OS should be small enough to understand, boot quickly in a VM,
-and expose narrow, auditable capabilities to an AI provider or local bridge.
+and expose narrow, auditable capabilities to an AI provider through native
+provider adapters.
 
 This is not a Linux distribution and not a place to run the full Codex CLI in the
 kernel. Codex is useful as a development tool and as a product reference; the OS
@@ -28,9 +29,8 @@ Done:
 - Limine framebuffer request working.
 - Direct framebuffer drawing working.
 - Serial diagnostics working.
-- virtio-rng detected.
-- virtio-rng entropy refill working.
-- Live status rows for framebuffer, entropy, virtio-rng, virtio-net, and input.
+- RDRAND entropy path working in the bare-metal-style VM profile.
+- Live status rows for framebuffer, entropy, USB-xHCI, network, and input.
 - Minimal Windows image packaging path.
 
 ## Phase 1: Minimal Agent Host UI
@@ -55,21 +55,22 @@ Definition of done:
 - Serial input can request status.
 - State transitions are mirrored in serial logs.
 
-Current status: framebuffer UI, serial commands, entropy, virtio-net bring-up,
-DHCP configuration, and virtio-keyboard command input are implemented. The
-remaining work here is mostly UI polish and richer command behavior.
+Current status: framebuffer UI, serial commands, entropy, e1000 network
+bring-up, DHCP configuration, USB keyboard input, and USB mouse input are
+implemented. The remaining work here is mostly UI polish and richer command
+behavior.
 
 ## Phase 2: Network Visibility
 
 Goal:
 
 ```text
-virtio-net visible -> DHCP attempt -> IP/DNS/gateway state shown
+e1000 visible -> DHCP attempt -> IP/DNS/gateway state shown
 ```
 
 Scope:
 
-- virtio-net status in UI
+- network status in UI
 - DHCP progress and timeout states
 - packet counters
 - DNS stub visibility if already present in code
@@ -83,32 +84,34 @@ Current status: QEMU user-mode DHCP configures `10.0.2.15/24`, gateway
 `10.0.2.2`, and DNS `10.0.2.3` locally. Packet counters, failure/timeout states,
 and DNS command visibility remain.
 
-## Phase 3: Host Bridge
+## Phase 3: Direct Provider Transport
 
 Goal:
 
 ```text
-VM agent protocol -> host bridge -> provider/API/CLI on host
+VM agent protocol -> in-OS DNS/TCP/TLS/HTTPS -> provider API
 ```
 
 Scope:
 
-- tiny message protocol over serial, virtio-console, or user-mode TCP
-- host process translates requests to development-time tools
-- no secrets stored in the kernel
+- tiny provider request state machine inside Stage-0
+- DNS/TCP visibility for provider endpoints
+- TLS/HTTPS client small enough to audit
+- API key entry in RAM first, stronger storage later
 - every agent action maps to an explicit tool/capability
 
 Definition of done:
 
-- VM can ask the host bridge for a simple response.
-- The bridge can be swapped later for direct HTTPS/provider adapters.
+- VM can submit a prompt to the provider without a host-side helper.
+- The framebuffer and serial console show missing-auth, network, TLS, and
+  provider errors clearly.
 
-Current status: a minimal serial bridge is implemented. The VM command
-`ask <text>` emits a hex-encoded `SEEDOS_BRIDGE_REQ`; the Windows host script
-responds with an STX-framed `SEEDOS_BRIDGE_RESP`, and the VM renders the answer
-in the framebuffer/serial console. The VM also has a `setup` menu for provider
-selection and RAM-only API key entry. Real provider calls, tool schemas, and
-capability policy remain.
+Current status: the host relay has been removed from the runtime path. The VM
+command `ask <text>` uses RAM-only OpenAI API key state, resolves
+`api.openai.com`, opens TCP 443 through e1000, performs a TLS 1.3 handshake,
+sends an HTTPS OpenAI Responses API request, and prints the first `output_text`
+response. Certificate verification is still bypassed in this MVP path; HTTPS
+hardening, tool schemas, and capability policy remain.
 
 ## Phase 4: Provider Integration
 
