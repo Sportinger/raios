@@ -62,7 +62,7 @@ Run headless with a QEMU xHCI controller plus USB keyboard/mouse attached:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput
 ```
 
-Run the bare-metal-style VM profile with USB keyboard/mouse and e1000
+Run the bare-metal-style VM profile with USB keyboard/pointer and e1000
 networking:
 
 ```powershell
@@ -75,10 +75,15 @@ The runner uses:
 - firmware code: `C:\Program Files\qemu\share\edk2-x86_64-code.fd`
 - firmware vars copy from `release\ovmf_vars.fd`
 - image: `release\seedos-stage0.img`
-- display: GTK
+- display: GTK with the host cursor hidden over the guest area by default, but
+  without automatic mouse grab, so SeedOS shows one pointer and the QEMU window
+  can still be moved or closed. Add `-MouseGrab` for grab-on-hover while SeedOS
+  draws its own pointer. Press `Ctrl+Alt+G` to release a grabbed QEMU mouse.
 - serial log: `%TEMP%\seedos-stage0.serial.txt`
-- `-UsbXhciInput` adds `qemu-xhci`, `usb-kbd`, and `usb-mouse` for USB
-  controller inventory tests.
+- `-UsbXhciInput` adds `qemu-xhci`, `usb-kbd`, and `usb-tablet` by default.
+  The tablet is still USB HID, but it reports absolute pointer coordinates, so
+  the SeedOS cursor stays aligned with the QEMU window after focus changes. Add
+  `-RelativeMouse` to use QEMU's relative `usb-mouse` boot device instead.
 - default networking is an emulated Intel e1000 device attached to QEMU
   user-mode networking.
 - `-MonitorTcpPort <port>` exposes the QEMU HMP monitor for commands such as
@@ -300,7 +305,11 @@ COMMANDS: help status devices log provider openai setup ask <text>
 On bare metal, `KBD NONE` or `MOUSE NONE` means the xHCI controller was usable
 but the current direct root-port scan did not find that USB HID boot device. In
 that case the connected device may be the boot stick, a hub/dock, or a keyboard
-or mouse that does not expose boot protocol HID on the root port.
+or mouse that does not expose boot protocol HID on the root port. If no USB
+input is active, Stage-0 periodically logs `usb-hotplug: rescanning xHCI input
+devices` and re-probes xHCI, so removing a boot stick and then plugging a USB
+keyboard directly can be tested without rebooting. This is still a limited
+no-input recovery path, not full USB detach/reconfigure support.
 
 ### Kernel hits #UD during first DHCP transmit
 

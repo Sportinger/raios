@@ -4,6 +4,8 @@ param(
     [string]$ConfirmErase = "",
     [ValidateSet("debug", "release")]
     [string]$Profile = "release",
+    [ValidateSet("GPT", "MBR")]
+    [string]$PartitionStyle = "GPT",
     [int]$BootPartitionSizeMB = 512,
     [switch]$EmbedOpenAiApiKeyFromEnv,
     [string]$OpenAiApiKeyEnvVar = "OPENAI_API_KEY",
@@ -16,6 +18,46 @@ function Test-Admin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
     $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Get-FreeDriveLetter {
+    foreach ($letter in @("S", "T", "U", "V", "W", "X", "Y", "Z", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R")) {
+        if (-not (Get-Volume -DriveLetter $letter -ErrorAction SilentlyContinue)) {
+            return $letter
+        }
+    }
+    throw "Could not find a free drive letter for the USB boot partition."
+}
+
+function New-GptFat32BootPartition {
+    param(
+        [int]$DiskNumber,
+        [int]$SizeMB,
+        [string]$DriveLetter
+    )
+
+    $diskpartScript = Join-Path $env:TEMP "seedos-usb-gpt-$PID.diskpart"
+    @"
+select disk $DiskNumber
+clean
+convert gpt noerr
+create partition primary size=$SizeMB
+select partition 1
+format quick fs=fat32 label=SEEDOS
+assign letter=$DriveLetter
+set id=c12a7328-f81f-11d2-ba4b-00a0c93ec93b override
+exit
+"@ | Set-Content -LiteralPath $diskpartScript -Encoding ASCII
+
+    try {
+        & diskpart /s $diskpartScript
+        if ($LASTEXITCODE -ne 0) {
+            throw "diskpart failed while preparing GPT/FAT32 USB partition."
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $diskpartScript -Force -ErrorAction SilentlyContinue
+    }
 }
 
 if (-not (Test-Admin)) {
@@ -45,8 +87,12 @@ $SourceEspDir = $BaseEspDir
 $KernelProfileDir = if ($Profile -eq "release") { "release" } else { "debug" }
 $Kernel = Join-Path $RepoRoot "target\x86_64-seed\$KernelProfileDir\seed-kernel"
 $LimineConfig = Join-Path $RepoRoot "seed-kernel\limine\limine.conf"
+$PushedRepoRoot = $false
 
 try {
+    Push-Location -LiteralPath $RepoRoot
+    $PushedRepoRoot = $true
+
     if ($EmbedOpenAiApiKeyFromEnv) {
         $apiKey = [Environment]::GetEnvironmentVariable($OpenAiApiKeyEnvVar, "Process")
         if ([string]::IsNullOrWhiteSpace($apiKey)) {
@@ -100,22 +146,32 @@ try {
     Write-Host "About to erase USB disk ${DiskNumber}: $($disk.FriendlyName) ($([math]::Round($disk.Size / 1GB, 2)) GB)"
     Set-Disk -Number $DiskNumber -IsOffline $false
     Set-Disk -Number $DiskNumber -IsReadOnly $false
-    Clear-Disk -Number $DiskNumber -RemoveData -RemoveOEM -Confirm:$false
-    Initialize-Disk -Number $DiskNumber -PartitionStyle MBR
 
-    $partition = New-Partition `
-        -DiskNumber $DiskNumber `
-        -Size ($BootPartitionSizeMB * 1MB) `
-        -AssignDriveLetter `
-        -IsActive
-    $volume = Format-Volume `
-        -Partition $partition `
-        -FileSystem FAT32 `
-        -NewFileSystemLabel "SEEDOS" `
-        -Confirm:$false
-    $driveLetter = $volume.DriveLetter
-    if ([string]::IsNullOrWhiteSpace($driveLetter)) {
-        $driveLetter = (Get-Partition -DiskNumber $DiskNumber | Where-Object DriveLetter | Select-Object -First 1).DriveLetter
+    if ($PartitionStyle -eq "GPT") {
+        $driveLetter = Get-FreeDriveLetter
+        New-GptFat32BootPartition `
+            -DiskNumber $DiskNumber `
+            -SizeMB $BootPartitionSizeMB `
+            -DriveLetter $driveLetter
+    }
+    else {
+        Clear-Disk -Number $DiskNumber -RemoveData -RemoveOEM -Confirm:$false
+        Initialize-Disk -Number $DiskNumber -PartitionStyle MBR
+        $partition = New-Partition `
+            -DiskNumber $DiskNumber `
+            -Size ($BootPartitionSizeMB * 1MB) `
+            -AssignDriveLetter `
+            -IsActive
+
+        $volume = Format-Volume `
+            -Partition $partition `
+            -FileSystem FAT32 `
+            -NewFileSystemLabel "SEEDOS" `
+            -Confirm:$false
+        $driveLetter = $volume.DriveLetter
+        if ([string]::IsNullOrWhiteSpace($driveLetter)) {
+            $driveLetter = (Get-Partition -DiskNumber $DiskNumber | Where-Object DriveLetter | Select-Object -First 1).DriveLetter
+        }
     }
     if ([string]::IsNullOrWhiteSpace($driveLetter)) {
         throw "Could not determine the assigned USB drive letter."
@@ -129,6 +185,9 @@ try {
     Write-Host "Kernel path: kernel\kernel.elf"
 }
 finally {
+    if ($PushedRepoRoot) {
+        Pop-Location
+    }
     if ($TempEspDir) {
         Remove-Item -LiteralPath $TempEspDir -Recurse -Force -ErrorAction SilentlyContinue
     }

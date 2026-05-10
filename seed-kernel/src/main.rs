@@ -30,11 +30,13 @@ mod provider_config;
 mod ps2;
 mod scheduler;
 mod serial;
+mod system_status;
 mod text;
 mod time;
 mod tls_io;
 mod ui;
 mod usb;
+mod wifi;
 
 #[used]
 #[link_section = ".limine_requests_start"]
@@ -67,7 +69,7 @@ static LIMINE_REQUESTS_END: RequestsEndMarker = RequestsEndMarker::new();
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
-const HEAP_SIZE: usize = 16 * 1024 * 1024;
+const HEAP_SIZE: usize = 64 * 1024 * 1024;
 
 #[repr(align(4096))]
 struct KernelHeap([u8; HEAP_SIZE]);
@@ -135,6 +137,7 @@ fn early_main() -> ! {
     }
     console::init();
     usb::init();
+    wifi::probe();
     status_ui.render(0, runtime_status);
 
     time::calibrate_tsc();
@@ -198,6 +201,7 @@ struct PeriodicTasks {
     entropy: scheduler::PeriodicTask,
     net: scheduler::PeriodicTask,
     input: scheduler::PeriodicTask,
+    usb_rescan: scheduler::PeriodicTask,
     provider: scheduler::PeriodicTask,
     ui: scheduler::PeriodicTask,
     entropy_ready: bool,
@@ -211,6 +215,7 @@ impl PeriodicTasks {
             entropy: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
             net: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             input: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
+            usb_rescan: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(1000, tsc_per_ms)),
             provider: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             ui: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(250, tsc_per_ms)),
             entropy_ready,
@@ -239,9 +244,19 @@ impl PeriodicTasks {
             status_ui.render(uptime_ms(), *runtime_status);
             return;
         }
-        self.input.try_run(now_tsc, || {
-            if input::poll() {
+        self.usb_rescan.try_run(now_tsc, || {
+            if !usb::input_active() && usb::rescan_if_input_missing() {
+                runtime_status.input_probe_complete = true;
                 status_ui.render_forced(uptime_ms(), *runtime_status);
+            }
+        });
+        self.input.try_run(now_tsc, || {
+            let pointer_changed = input::poll();
+            let ui_changed = status_ui.handle_pointer_interaction();
+            if ui_changed {
+                status_ui.render_forced(uptime_ms(), *runtime_status);
+            } else if pointer_changed {
+                status_ui.render_pointer();
             }
         });
         if self.entropy_ready {

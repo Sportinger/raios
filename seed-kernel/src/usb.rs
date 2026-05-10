@@ -44,7 +44,7 @@ const PORTSC_PP: u32 = 1 << 9;
 const PORTSC_SPEED_SHIFT: u32 = 10;
 const PORTSC_SPEED_MASK: u32 = 0xF << PORTSC_SPEED_SHIFT;
 const PORTSC_CHANGE_BITS: u32 =
-    (1 << 17) | (1 << 18) | (1 << 20) | (1 << 21) | (1 << 22) | (1 << 23) | (1 << 24);
+    (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20) | (1 << 21) | (1 << 22) | (1 << 23) | (1 << 24);
 const PORTSC_PRESERVE_MASK: u32 = (0xF << 5) | PORTSC_PP | (0x3 << 14) | (0x7 << 25);
 
 const RUNTIME_IR0: usize = 0x20;
@@ -63,6 +63,7 @@ const TRB_TYPE_LINK: u32 = 6;
 const TRB_TYPE_ENABLE_SLOT: u32 = 9;
 const TRB_TYPE_ADDRESS_DEVICE: u32 = 11;
 const TRB_TYPE_CONFIGURE_ENDPOINT: u32 = 12;
+const TRB_TYPE_EVALUATE_CONTEXT: u32 = 13;
 const TRB_TYPE_TRANSFER_EVENT: u32 = 32;
 const TRB_TYPE_COMMAND_COMPLETION_EVENT: u32 = 33;
 
@@ -85,24 +86,48 @@ const EP_TYPE_INTERRUPT_IN: u32 = 7;
 const CONTEXT_ENTRIES_EP0: u8 = 1;
 
 const USB_REQ_GET_DESCRIPTOR: u8 = 6;
+const USB_REQ_CLEAR_FEATURE: u8 = 1;
+const USB_REQ_GET_STATUS: u8 = 0;
+const USB_REQ_SET_FEATURE: u8 = 3;
 const USB_REQ_SET_CONFIGURATION: u8 = 9;
 const HID_REQ_SET_IDLE: u8 = 10;
 const HID_REQ_SET_PROTOCOL: u8 = 11;
 const DESC_DEVICE: u8 = 1;
 const DESC_CONFIGURATION: u8 = 2;
+const DESC_HUB: u8 = 0x29;
+const DESC_SUPERSPEED_HUB: u8 = 0x2A;
+const USB_CLASS_HUB: u8 = 0x09;
+const HUB_PORT_CONNECTION: u16 = 1 << 0;
+const HUB_PORT_ENABLED: u16 = 1 << 1;
+const HUB_PORT_RESET: u16 = 1 << 4;
+const HUB_PORT_LOW_SPEED: u16 = 1 << 9;
+const HUB_PORT_HIGH_SPEED: u16 = 1 << 10;
+const HUB_FEATURE_PORT_RESET: u16 = 4;
+const HUB_FEATURE_PORT_POWER: u16 = 8;
+const HUB_FEATURE_C_PORT_CONNECTION: u16 = 16;
+const HUB_FEATURE_C_PORT_ENABLE: u16 = 17;
+const HUB_FEATURE_C_PORT_RESET: u16 = 20;
+const HUB_CHANGE_C_PORT_CONNECTION: u16 = 1 << 0;
+const HUB_CHANGE_C_PORT_RESET: u16 = 1 << 4;
 
 const COMMAND_RING_LEN: usize = 64;
 const EVENT_RING_LEN: usize = 64;
 const EP0_RING_LEN: usize = 64;
 const INTR_RING_LEN: usize = 16;
-const MAX_HID_DEVICES: usize = 4;
+const MAX_HID_DEVICES: usize = 16;
 const MAX_SLOTS: usize = 32;
 const MAX_SCRATCHPADS: usize = 64;
 const CONTEXT_BYTES: usize = 4096;
 const CONTROL_BUFFER_LEN: usize = 256;
 const KEYBOARD_REPORT_LEN: usize = 8;
 const MOUSE_REPORT_LEN: usize = 4;
+const TABLET_REPORT_LEN: usize = 8;
+const POINTER_REPORT_BUFFER_LEN: usize = TABLET_REPORT_LEN;
+const TABLET_AXIS_MAX: u16 = 0x7fff;
 const WAIT_ITERS: usize = 5_000_000;
+const ROOT_PORT_POWER_SETTLE_ITERS: usize = WAIT_ITERS;
+const HUB_PORT_RESET_POLLS: usize = 64;
+const HUB_PORT_RESET_POLL_DELAY_ITERS: usize = WAIT_ITERS / 100;
 
 static STATE: Mutex<UsbState> = Mutex::new(UsbState::new());
 
@@ -112,7 +137,16 @@ pub struct UsbSnapshot {
     pub address: Option<PciAddress>,
     pub hci_version: u16,
     pub max_ports: u8,
+    pub powered_ports: u8,
     pub connected_ports: u8,
+    pub hub_count: u8,
+    pub hub_ports: u8,
+    pub hub_connected_ports: u8,
+    pub hub_reset_ports: u8,
+    pub hub_configured_devices: u8,
+    pub hub_last_error: Option<&'static str>,
+    pub last_command_type: u8,
+    pub last_completion_code: u8,
     pub keyboard_status: UsbKeyboardStatus,
     pub keyboard_detail: Option<&'static str>,
     pub mouse_status: UsbMouseStatus,
@@ -150,6 +184,11 @@ pub struct UsbMouseReport {
     pub dx: i8,
     pub dy: i8,
     pub wheel: i8,
+    pub absolute: bool,
+    pub x: u16,
+    pub y: u16,
+    pub max_x: u16,
+    pub max_y: u16,
 }
 
 struct UsbState {
@@ -165,7 +204,16 @@ impl UsbState {
                 address: None,
                 hci_version: 0,
                 max_ports: 0,
+                powered_ports: 0,
                 connected_ports: 0,
+                hub_count: 0,
+                hub_ports: 0,
+                hub_connected_ports: 0,
+                hub_reset_ports: 0,
+                hub_configured_devices: 0,
+                hub_last_error: None,
+                last_command_type: 0,
+                last_completion_code: 0,
                 keyboard_status: UsbKeyboardStatus::NotProbed,
                 keyboard_detail: None,
                 mouse_status: UsbMouseStatus::NotProbed,
@@ -183,6 +231,26 @@ pub fn init() {
         snapshot,
         controller,
     };
+}
+
+pub fn rescan_if_input_missing() -> bool {
+    if keyboard_active() || mouse_active() {
+        return false;
+    }
+
+    serial::write_line("usb-hotplug: rescanning xHCI input devices");
+    let (snapshot, controller) = unsafe { probe_xhci() };
+    let input_ready = controller
+        .as_ref()
+        .is_some_and(|controller| controller.keyboard.is_some() || controller.mouse.is_some());
+    *STATE.lock() = UsbState {
+        snapshot,
+        controller,
+    };
+    if input_ready {
+        serial::write_line("usb-hotplug: input device configured");
+    }
+    true
 }
 
 pub fn snapshot() -> UsbSnapshot {
@@ -203,6 +271,10 @@ pub fn mouse_active() -> bool {
         .controller
         .as_ref()
         .is_some_and(|controller| controller.mouse.is_some())
+}
+
+pub fn input_active() -> bool {
+    keyboard_active() || mouse_active()
 }
 
 pub fn input_detail() -> &'static str {
@@ -238,7 +310,16 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 address: None,
                 hci_version: 0,
                 max_ports: 0,
+                powered_ports: 0,
                 connected_ports: 0,
+                hub_count: 0,
+                hub_ports: 0,
+                hub_connected_ports: 0,
+                hub_reset_ports: 0,
+                hub_configured_devices: 0,
+                hub_last_error: None,
+                last_command_type: 0,
+                last_completion_code: 0,
                 keyboard_status: UsbKeyboardStatus::NotProbed,
                 keyboard_detail: None,
                 mouse_status: UsbMouseStatus::NotProbed,
@@ -275,16 +356,21 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
 
     match XhciController::new(address, mapping) {
         Ok(mut controller) => {
-            let connected_ports = controller.count_connected_ports();
+            controller.power_root_ports();
+            let mut connected_ports = controller.count_connected_ports();
             serial::write_fmt(format_args!(
-                "usb-xhci: hci 0x{:04x}, ports {}, connected {}\r\n",
-                controller.hci_version, controller.max_ports, connected_ports
+                "usb-xhci: hci 0x{:04x}, ports {}, powered {}, connected {}\r\n",
+                controller.hci_version,
+                controller.max_ports,
+                controller.powered_ports,
+                connected_ports
             ));
 
             let hid_result = controller.initialise_hid_devices();
             if let Err(err) = hid_result {
                 serial::write_fmt(format_args!("usb-hid: {}\r\n", err));
             }
+            connected_ports = controller.count_connected_ports();
             let keyboard_status = if controller.keyboard.is_some() {
                 UsbKeyboardStatus::Ready
             } else {
@@ -303,7 +389,7 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
             let mouse_detail = if controller.mouse.is_some() {
                 Some("USB HID BOOT MOUSE")
             } else {
-                Some("no USB boot mouse found")
+                Some("no USB pointer found")
             };
 
             let snapshot = UsbSnapshot {
@@ -311,7 +397,16 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 address: Some(address),
                 hci_version: controller.hci_version,
                 max_ports: controller.max_ports,
+                powered_ports: controller.powered_ports,
                 connected_ports,
+                hub_count: controller.hub_count,
+                hub_ports: controller.hub_ports,
+                hub_connected_ports: controller.hub_connected_ports,
+                hub_reset_ports: controller.hub_reset_ports,
+                hub_configured_devices: controller.hub_configured_devices,
+                hub_last_error: controller.hub_last_error,
+                last_command_type: controller.last_command_type,
+                last_completion_code: controller.last_completion_code,
                 keyboard_status,
                 keyboard_detail,
                 mouse_status,
@@ -332,7 +427,16 @@ fn error_snapshot(address: PciAddress, error: &'static str) -> UsbSnapshot {
         address: Some(address),
         hci_version: 0,
         max_ports: 0,
+        powered_ports: 0,
         connected_ports: 0,
+        hub_count: 0,
+        hub_ports: 0,
+        hub_connected_ports: 0,
+        hub_reset_ports: 0,
+        hub_configured_devices: 0,
+        hub_last_error: None,
+        last_command_type: 0,
+        last_completion_code: 0,
         keyboard_status: UsbKeyboardStatus::Error,
         keyboard_detail: Some(error),
         mouse_status: UsbMouseStatus::Error,
@@ -429,7 +533,8 @@ static mut DEVICE_CONTEXTS: [AlignedBytes<CONTEXT_BYTES>; MAX_HID_DEVICES] =
 static mut CONTROL_BUFFER: AlignedBytes<CONTROL_BUFFER_LEN> = AlignedBytes([0; CONTROL_BUFFER_LEN]);
 static mut KEYBOARD_REPORT: AlignedBytes<KEYBOARD_REPORT_LEN> =
     AlignedBytes([0; KEYBOARD_REPORT_LEN]);
-static mut MOUSE_REPORT: AlignedBytes<MOUSE_REPORT_LEN> = AlignedBytes([0; MOUSE_REPORT_LEN]);
+static mut MOUSE_REPORT: AlignedBytes<POINTER_REPORT_BUFFER_LEN> =
+    AlignedBytes([0; POINTER_REPORT_BUFFER_LEN]);
 
 struct XhciController {
     _address: PciAddress,
@@ -439,6 +544,7 @@ struct XhciController {
     hci_version: u16,
     _max_slots: u8,
     max_ports: u8,
+    powered_ports: u8,
     context_size: usize,
     op_offset: usize,
     runtime_offset: usize,
@@ -456,6 +562,14 @@ struct XhciController {
     current_slot_id: u8,
     keyboard: Option<KeyboardDevice>,
     mouse: Option<MouseDevice>,
+    hub_count: u8,
+    hub_ports: u8,
+    hub_connected_ports: u8,
+    hub_reset_ports: u8,
+    hub_configured_devices: u8,
+    hub_last_error: Option<&'static str>,
+    last_command_type: u8,
+    last_completion_code: u8,
 }
 
 unsafe impl Send for XhciController {}
@@ -474,12 +588,65 @@ struct MouseDevice {
     slot_id: u8,
     dci: u8,
     ring_index: usize,
+    kind: HidKind,
 }
 
 #[derive(Clone, Copy)]
 struct PortInfo {
-    port_number: u8,
+    root_port_number: u8,
+    route_string: u32,
     speed: u8,
+    parent_hub_slot_id: u8,
+    parent_hub_port_number: u8,
+    is_hub: bool,
+    hub_port_count: u8,
+}
+
+impl PortInfo {
+    fn root(port_number: u8, speed: u8) -> Self {
+        Self {
+            root_port_number: port_number,
+            route_string: 0,
+            speed,
+            parent_hub_slot_id: 0,
+            parent_hub_port_number: 0,
+            is_hub: false,
+            hub_port_count: 0,
+        }
+    }
+
+    fn hub_context(mut self, hub_port_count: u8) -> Self {
+        self.is_hub = true;
+        self.hub_port_count = hub_port_count;
+        self
+    }
+
+    fn child(self, hub_slot_id: u8, hub_port_number: u8, speed: u8) -> Self {
+        Self {
+            root_port_number: self.root_port_number,
+            route_string: child_route_string(self.route_string, hub_port_number),
+            speed,
+            parent_hub_slot_id: hub_slot_id,
+            parent_hub_port_number: hub_port_number,
+            is_hub: false,
+            hub_port_count: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum EnumeratedKind {
+    Hid(HidKind),
+    Hub,
+}
+
+impl EnumeratedKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            EnumeratedKind::Hid(kind) => kind.as_str(),
+            EnumeratedKind::Hub => "hub",
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -493,25 +660,54 @@ struct HidEndpoint {
     interval: u8,
 }
 
+#[derive(Clone, Copy)]
+struct HubDescriptor {
+    port_count: u8,
+    power_on_delay_ms: u16,
+}
+
+#[derive(Clone, Copy)]
+struct HubPortStatus {
+    status: u16,
+    change: u16,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HidKind {
     Keyboard,
+    GenericKeyboard,
     Mouse,
+    Tablet,
 }
 
 impl HidKind {
     fn as_str(self) -> &'static str {
         match self {
             HidKind::Keyboard => "keyboard",
+            HidKind::GenericKeyboard => "generic keyboard",
             HidKind::Mouse => "mouse",
+            HidKind::Tablet => "tablet",
         }
     }
 
     fn report_len(self) -> usize {
         match self {
-            HidKind::Keyboard => KEYBOARD_REPORT_LEN,
+            HidKind::Keyboard | HidKind::GenericKeyboard => KEYBOARD_REPORT_LEN,
             HidKind::Mouse => MOUSE_REPORT_LEN,
+            HidKind::Tablet => TABLET_REPORT_LEN,
         }
+    }
+
+    fn is_keyboard(self) -> bool {
+        matches!(self, HidKind::Keyboard | HidKind::GenericKeyboard)
+    }
+
+    fn is_pointer(self) -> bool {
+        matches!(self, HidKind::Mouse | HidKind::Tablet)
+    }
+
+    fn uses_boot_protocol(self) -> bool {
+        matches!(self, HidKind::Keyboard | HidKind::Mouse)
     }
 }
 
@@ -593,6 +789,7 @@ impl XhciController {
             hci_version,
             _max_slots: max_slots,
             max_ports,
+            powered_ports: 0,
             context_size,
             op_offset,
             runtime_offset,
@@ -610,7 +807,52 @@ impl XhciController {
             current_slot_id: 0,
             keyboard: None,
             mouse: None,
+            hub_count: 0,
+            hub_ports: 0,
+            hub_connected_ports: 0,
+            hub_reset_ports: 0,
+            hub_configured_devices: 0,
+            hub_last_error: None,
+            last_command_type: 0,
+            last_completion_code: 0,
         })
+    }
+
+    unsafe fn power_root_ports(&mut self) {
+        let mut requested = 0u8;
+        let mut port = 1u8;
+        while port <= self.max_ports {
+            let offset = self.portsc_offset(port);
+            let status = read32(self.base, offset);
+            if status & PORTSC_PP == 0 {
+                self.write_portsc(offset, PORTSC_PP);
+                requested = requested.saturating_add(1);
+            }
+            port += 1;
+        }
+
+        if requested > 0 {
+            spin_delay(ROOT_PORT_POWER_SETTLE_ITERS);
+        }
+
+        let mut powered = 0u8;
+        port = 1;
+        while port <= self.max_ports {
+            let offset = self.portsc_offset(port);
+            let status = read32(self.base, offset);
+            if status & PORTSC_PP != 0 {
+                powered = powered.saturating_add(1);
+            }
+            if status & PORTSC_CHANGE_BITS != 0 {
+                self.write_portsc(offset, PORTSC_CHANGE_BITS | (status & PORTSC_PP));
+            }
+            port += 1;
+        }
+        self.powered_ports = powered;
+        serial::write_fmt(format_args!(
+            "usb-xhci: root ports powered {}/{} requested {}\r\n",
+            powered, self.max_ports, requested
+        ));
     }
 
     unsafe fn count_connected_ports(&self) -> u8 {
@@ -626,6 +868,13 @@ impl XhciController {
     }
 
     unsafe fn initialise_hid_devices(&mut self) -> Result<(), &'static str> {
+        self.power_root_ports();
+        let mut wait_round = 0usize;
+        while self.count_connected_ports() == 0 && wait_round < 3 {
+            spin_delay(ROOT_PORT_POWER_SETTLE_ITERS);
+            wait_round += 1;
+        }
+
         let mut next_device_index = 0usize;
         let mut port = 1u8;
         while port <= self.max_ports {
@@ -640,9 +889,8 @@ impl XhciController {
             }
 
             match self.reset_port(port) {
-                Ok(port_info) => match self.enumerate_hid(port_info, next_device_index) {
+                Ok(port_info) => match self.enumerate_device(port_info, &mut next_device_index) {
                     Ok(kind) => {
-                        next_device_index += 1;
                         serial::write_fmt(format_args!(
                             "usb-hid: port {} configured as {}\r\n",
                             port,
@@ -665,7 +913,7 @@ impl XhciController {
         }
 
         if self.keyboard.is_none() && self.mouse.is_none() {
-            return Err("no USB boot HID devices found");
+            return Err("no USB HID input devices found");
         }
         let _ = self.queue_keyboard_report();
         let _ = self.queue_mouse_report();
@@ -698,14 +946,20 @@ impl XhciController {
             "usb-xhci: port {} reset complete speed {}\r\n",
             port_number, speed
         ));
-        Ok(PortInfo { port_number, speed })
+        Ok(PortInfo::root(port_number, speed))
     }
 
-    unsafe fn enumerate_hid(
+    unsafe fn enumerate_device(
         &mut self,
         port: PortInfo,
-        device_index: usize,
-    ) -> Result<HidKind, &'static str> {
+        next_device_index: &mut usize,
+    ) -> Result<EnumeratedKind, &'static str> {
+        if *next_device_index >= MAX_HID_DEVICES {
+            return Err("device storage exhausted");
+        }
+        let device_index = *next_device_index;
+        *next_device_index += 1;
+
         let slot_id = self.enable_slot()?;
         self.current_device_index = device_index;
         self.current_slot_id = slot_id;
@@ -728,12 +982,17 @@ impl XhciController {
             ));
         }
 
+        if device_desc[4] == USB_CLASS_HUB || self.configuration_has_hub_interface()? {
+            self.configure_hub(port, slot_id, device_index, next_device_index)?;
+            return Ok(EnumeratedKind::Hub);
+        }
+
         let endpoint = self.find_boot_hid_endpoint()?;
-        if endpoint.kind == HidKind::Keyboard && self.keyboard.is_some() {
+        if endpoint.kind.is_keyboard() && self.keyboard.is_some() {
             return Err("duplicate USB boot keyboard");
         }
-        if endpoint.kind == HidKind::Mouse && self.mouse.is_some() {
-            return Err("duplicate USB boot mouse");
+        if endpoint.kind.is_pointer() && self.mouse.is_some() {
+            return Err("duplicate USB pointer");
         }
         self.control_no_data(
             0x00,
@@ -741,22 +1000,24 @@ impl XhciController {
             endpoint.configuration_value as u16,
             0,
         )?;
-        self.control_no_data(
-            0x21,
-            HID_REQ_SET_PROTOCOL,
-            0,
-            endpoint.interface_number as u16,
-        )?;
+        if endpoint.kind.uses_boot_protocol() {
+            self.control_no_data(
+                0x21,
+                HID_REQ_SET_PROTOCOL,
+                0,
+                endpoint.interface_number as u16,
+            )?;
+        }
         self.control_no_data(0x21, HID_REQ_SET_IDLE, 0, endpoint.interface_number as u16)?;
 
         self.configure_interrupt_endpoint(device_index, slot_id, port, endpoint)?;
         serial::write_fmt(format_args!(
-            "usb-hid: boot {} ready on slot {} endpoint 0x{:02x}\r\n",
+            "usb-hid: {} ready on slot {} endpoint 0x{:02x}\r\n",
             endpoint.kind.as_str(),
             slot_id,
             endpoint.endpoint_address
         ));
-        Ok(endpoint.kind)
+        Ok(EnumeratedKind::Hid(endpoint.kind))
     }
 
     unsafe fn enable_slot(&mut self) -> Result<u8, &'static str> {
@@ -825,6 +1086,301 @@ impl XhciController {
         Ok(out)
     }
 
+    unsafe fn configuration_value(&mut self) -> Result<u8, &'static str> {
+        let header_len = self.control_in(
+            0x80,
+            USB_REQ_GET_DESCRIPTOR,
+            (DESC_CONFIGURATION as u16) << 8,
+            0,
+            9,
+        )?;
+        if header_len < 9 || CONTROL_BUFFER.0[1] != DESC_CONFIGURATION {
+            return Err("configuration header unavailable");
+        }
+        Ok(CONTROL_BUFFER.0[5])
+    }
+
+    unsafe fn configuration_has_hub_interface(&mut self) -> Result<bool, &'static str> {
+        let header_len = self.control_in(
+            0x80,
+            USB_REQ_GET_DESCRIPTOR,
+            (DESC_CONFIGURATION as u16) << 8,
+            0,
+            9,
+        )?;
+        if header_len < 9 || CONTROL_BUFFER.0[1] != DESC_CONFIGURATION {
+            return Err("configuration header unavailable");
+        }
+        let total_len = u16::from_le_bytes([CONTROL_BUFFER.0[2], CONTROL_BUFFER.0[3]]) as usize;
+        let config_len = usize::min(total_len, CONTROL_BUFFER_LEN);
+        let actual_len = self.control_in(
+            0x80,
+            USB_REQ_GET_DESCRIPTOR,
+            (DESC_CONFIGURATION as u16) << 8,
+            0,
+            config_len,
+        )?;
+
+        let mut offset = 0usize;
+        while offset + 2 <= actual_len {
+            let len = CONTROL_BUFFER.0[offset] as usize;
+            let dtype = CONTROL_BUFFER.0[offset + 1];
+            if len < 2 || offset + len > actual_len {
+                break;
+            }
+            if dtype == 4 && len >= 9 && CONTROL_BUFFER.0[offset + 5] == USB_CLASS_HUB {
+                return Ok(true);
+            }
+            offset += len;
+        }
+        Ok(false)
+    }
+
+    unsafe fn configure_hub(
+        &mut self,
+        port: PortInfo,
+        slot_id: u8,
+        hub_device_index: usize,
+        next_device_index: &mut usize,
+    ) -> Result<(), &'static str> {
+        let config_value = match self.configuration_value() {
+            Ok(value) => value,
+            Err(err) => {
+                self.hub_last_error = Some(err);
+                return Err(err);
+            }
+        };
+        if let Err(err) =
+            self.control_no_data(0x00, USB_REQ_SET_CONFIGURATION, config_value as u16, 0)
+        {
+            self.hub_last_error = Some(err);
+            return Err(err);
+        }
+        let descriptor = match self.hub_descriptor() {
+            Ok(descriptor) => descriptor,
+            Err(err) => {
+                self.hub_last_error = Some(err);
+                return Err(err);
+            }
+        };
+        self.hub_count = self.hub_count.saturating_add(1);
+        self.hub_ports = self.hub_ports.saturating_add(descriptor.port_count);
+
+        serial::write_fmt(format_args!(
+            "usb-hub: slot {} ports {} pwr-good {}ms\r\n",
+            slot_id, descriptor.port_count, descriptor.power_on_delay_ms
+        ));
+
+        if let Err(err) = self.evaluate_hub_slot(port, slot_id, descriptor.port_count) {
+            self.hub_last_error = Some(err);
+            return Err(err);
+        }
+
+        let mut hub_port = 1u8;
+        while hub_port <= descriptor.port_count {
+            self.current_slot_id = slot_id;
+            self.current_device_index = hub_device_index;
+            let _ = self.hub_set_feature(hub_port, HUB_FEATURE_PORT_POWER);
+            spin_delay(usize::max(
+                WAIT_ITERS / 50,
+                descriptor.power_on_delay_ms as usize * 1000,
+            ));
+
+            let status = self.hub_port_status(hub_port)?;
+            if status.change & HUB_CHANGE_C_PORT_CONNECTION != 0 {
+                let _ = self.hub_clear_feature(hub_port, HUB_FEATURE_C_PORT_CONNECTION);
+            }
+            if status.status & HUB_PORT_CONNECTION == 0 {
+                serial::write_fmt(format_args!("usb-hub: port {} empty\r\n", hub_port));
+                hub_port += 1;
+                continue;
+            }
+            self.hub_connected_ports = self.hub_connected_ports.saturating_add(1);
+            if *next_device_index >= MAX_HID_DEVICES {
+                serial::write_line("usb-hub: device storage exhausted");
+                self.hub_last_error = Some("usb-hub: device storage exhausted");
+                break;
+            }
+
+            match self.reset_hub_port(hub_port) {
+                Ok(port_status) => {
+                    self.hub_reset_ports = self.hub_reset_ports.saturating_add(1);
+                    let primary_speed = hub_port_speed(port_status.status, port.speed);
+                    let (speeds, speed_count) = child_speed_candidates(primary_speed);
+                    let mut speed_index = 0usize;
+                    let mut configured = false;
+                    let mut last_err = None;
+
+                    while speed_index < speed_count {
+                        let child_speed = speeds[speed_index];
+                        let child_port = port.child(slot_id, hub_port, child_speed);
+                        serial::write_fmt(format_args!(
+                            "usb-hub: port {} reset complete speed {} try {}\r\n",
+                            hub_port,
+                            child_speed,
+                            speed_index + 1
+                        ));
+                        match self.enumerate_device(child_port, next_device_index) {
+                            Ok(kind) => {
+                                configured = true;
+                                self.hub_configured_devices =
+                                    self.hub_configured_devices.saturating_add(1);
+                                serial::write_fmt(format_args!(
+                                    "usb-hub: port {} configured as {}\r\n",
+                                    hub_port,
+                                    kind.as_str()
+                                ));
+                                break;
+                            }
+                            Err(err) => {
+                                last_err = Some(err);
+                                if !self.should_retry_child_enumeration(err) {
+                                    break;
+                                }
+                                serial::write_fmt(format_args!(
+                                    "usb-hub: port {} speed {} retry after {}\r\n",
+                                    hub_port, child_speed, err
+                                ));
+                            }
+                        }
+
+                        speed_index += 1;
+                    }
+
+                    if !configured {
+                        if let Some(err) = last_err {
+                            self.hub_last_error = Some(err);
+                            serial::write_fmt(format_args!(
+                                "usb-hub: port {} skipped: {}\r\n",
+                                hub_port, err
+                            ));
+                        }
+                    }
+                }
+                Err(err) => {
+                    self.hub_last_error = Some(err);
+                    serial::write_fmt(format_args!(
+                        "usb-hub: port {} reset: {}\r\n",
+                        hub_port, err
+                    ));
+                }
+            }
+
+            hub_port += 1;
+        }
+
+        Ok(())
+    }
+
+    fn should_retry_child_enumeration(&self, err: &'static str) -> bool {
+        err == "xHCI command failed"
+            && self.last_command_type == TRB_TYPE_ADDRESS_DEVICE as u8
+            && self.last_completion_code == 4
+    }
+
+    unsafe fn evaluate_hub_slot(
+        &mut self,
+        port: PortInfo,
+        slot_id: u8,
+        hub_port_count: u8,
+    ) -> Result<(), &'static str> {
+        clear_input_context();
+        input_control_add_flags(1 << 0);
+        write_slot_context(
+            port.hub_context(hub_port_count),
+            CONTEXT_ENTRIES_EP0,
+            self.context_size,
+        );
+        let input_phys = phys_of(ptr::addr_of!(INPUT_CONTEXT.0[0]), "hub input context phys")?;
+        self.execute_command(Trb {
+            parameter: input_phys,
+            status: 0,
+            control: trb_type(TRB_TYPE_EVALUATE_CONTEXT) | ((slot_id as u32) << 24),
+        })?;
+        Ok(())
+    }
+
+    unsafe fn hub_descriptor(&mut self) -> Result<HubDescriptor, &'static str> {
+        match self.hub_descriptor_of_type(DESC_HUB) {
+            Ok(descriptor) => Ok(descriptor),
+            Err(_) => self.hub_descriptor_of_type(DESC_SUPERSPEED_HUB),
+        }
+    }
+
+    unsafe fn hub_descriptor_of_type(
+        &mut self,
+        descriptor_type: u8,
+    ) -> Result<HubDescriptor, &'static str> {
+        let len = self.control_in(
+            0xA0,
+            USB_REQ_GET_DESCRIPTOR,
+            (descriptor_type as u16) << 8,
+            0,
+            12,
+        )?;
+        if len < 7 || CONTROL_BUFFER.0[1] != descriptor_type {
+            return Err("hub descriptor unavailable");
+        }
+        let port_count = CONTROL_BUFFER.0[2];
+        if port_count == 0 {
+            return Err("hub reports zero ports");
+        }
+        Ok(HubDescriptor {
+            port_count: u8::min(port_count, 8),
+            power_on_delay_ms: (CONTROL_BUFFER.0[5] as u16).saturating_mul(2),
+        })
+    }
+
+    unsafe fn hub_set_feature(&mut self, port: u8, feature: u16) -> Result<(), &'static str> {
+        self.control_no_data(0x23, USB_REQ_SET_FEATURE, feature, port as u16)
+    }
+
+    unsafe fn hub_clear_feature(&mut self, port: u8, feature: u16) -> Result<(), &'static str> {
+        self.control_no_data(0x23, USB_REQ_CLEAR_FEATURE, feature, port as u16)
+    }
+
+    unsafe fn hub_port_status(&mut self, port: u8) -> Result<HubPortStatus, &'static str> {
+        let len = self.control_in(0xA3, USB_REQ_GET_STATUS, 0, port as u16, 4)?;
+        if len < 4 {
+            return Err("short hub port status");
+        }
+        Ok(HubPortStatus {
+            status: u16::from_le_bytes([CONTROL_BUFFER.0[0], CONTROL_BUFFER.0[1]]),
+            change: u16::from_le_bytes([CONTROL_BUFFER.0[2], CONTROL_BUFFER.0[3]]),
+        })
+    }
+
+    unsafe fn reset_hub_port(&mut self, port: u8) -> Result<HubPortStatus, &'static str> {
+        self.hub_set_feature(port, HUB_FEATURE_PORT_RESET)?;
+        let mut polls = 0usize;
+        let mut last_status = None;
+        while polls < HUB_PORT_RESET_POLLS {
+            spin_delay(HUB_PORT_RESET_POLL_DELAY_ITERS);
+            let status = self.hub_port_status(port)?;
+            last_status = Some(status);
+            if status.change & HUB_CHANGE_C_PORT_RESET != 0
+                || (status.status & HUB_PORT_RESET == 0 && polls >= 4)
+            {
+                let _ = self.hub_clear_feature(port, HUB_FEATURE_C_PORT_RESET);
+                let _ = self.hub_clear_feature(port, HUB_FEATURE_C_PORT_ENABLE);
+                if status.status & HUB_PORT_ENABLED == 0 {
+                    return Err("hub port not enabled after reset");
+                }
+                return Ok(status);
+            }
+            polls += 1;
+        }
+
+        if let Some(status) = last_status {
+            if status.status & HUB_PORT_ENABLED != 0 {
+                let _ = self.hub_clear_feature(port, HUB_FEATURE_C_PORT_RESET);
+                let _ = self.hub_clear_feature(port, HUB_FEATURE_C_PORT_ENABLE);
+                return Ok(status);
+            }
+        }
+        Err("hub port reset timeout")
+    }
+
     unsafe fn find_boot_hid_endpoint(&mut self) -> Result<HidEndpoint, &'static str> {
         let header_len = self.control_in(
             0x80,
@@ -845,7 +1401,7 @@ impl XhciController {
             0,
             config_len,
         )?;
-        parse_boot_hid_endpoint(&CONTROL_BUFFER.0[..actual_len])
+        parse_boot_hid_endpoint(&CONTROL_BUFFER.0[..actual_len], self.keyboard.is_none())
     }
 
     unsafe fn configure_interrupt_endpoint(
@@ -882,7 +1438,7 @@ impl XhciController {
         })?;
 
         match endpoint.kind {
-            HidKind::Keyboard => {
+            HidKind::Keyboard | HidKind::GenericKeyboard => {
                 self.keyboard = Some(KeyboardDevice {
                     slot_id,
                     dci: endpoint.dci,
@@ -895,6 +1451,15 @@ impl XhciController {
                     slot_id,
                     dci: endpoint.dci,
                     ring_index: device_index,
+                    kind: endpoint.kind,
+                });
+            }
+            HidKind::Tablet => {
+                self.mouse = Some(MouseDevice {
+                    slot_id,
+                    dci: endpoint.dci,
+                    ring_index: device_index,
+                    kind: endpoint.kind,
                 });
             }
         }
@@ -1018,6 +1583,8 @@ impl XhciController {
                         "usb-xhci: command type {} completion code {}\r\n",
                         command_type, cc
                     ));
+                    self.last_command_type = command_type as u8;
+                    self.last_completion_code = cc as u8;
                     return Err("xHCI command failed");
                 }
             }
@@ -1073,9 +1640,27 @@ impl XhciController {
         if ring_index >= MAX_HID_DEVICES {
             return Err("ep0 ring index out of range");
         }
-        if self.ep0_enqueue[ring_index] >= EP0_RING_LEN {
-            return Err("ep0 ring exhausted");
+        if self.ep0_enqueue[ring_index] == EP0_RING_LEN - 1 {
+            let link_phys = phys_of(
+                ptr::addr_of!(EP0_RINGS[ring_index].0[0]),
+                "ep0 ring link phys",
+            )?;
+            let mut link = Trb {
+                parameter: link_phys,
+                status: 0,
+                control: TRB_LINK_TOGGLE_CYCLE | trb_type(TRB_TYPE_LINK),
+            };
+            if self.ep0_cycle[ring_index] {
+                link.control |= TRB_CYCLE;
+            }
+            ptr::write_volatile(
+                ptr::addr_of_mut!(EP0_RINGS[ring_index].0[self.ep0_enqueue[ring_index]]),
+                link,
+            );
+            self.ep0_enqueue[ring_index] = 0;
+            self.ep0_cycle[ring_index] = !self.ep0_cycle[ring_index];
         }
+
         if self.ep0_cycle[ring_index] {
             trb.control |= TRB_CYCLE;
         } else {
@@ -1111,12 +1696,12 @@ impl XhciController {
         let Some(mouse) = self.mouse else {
             return Err("mouse not configured");
         };
-        ptr::write_bytes(MOUSE_REPORT.0.as_mut_ptr(), 0, MOUSE_REPORT_LEN);
+        ptr::write_bytes(MOUSE_REPORT.0.as_mut_ptr(), 0, POINTER_REPORT_BUFFER_LEN);
         self.push_interrupt_trb(
             mouse.ring_index,
             Trb {
                 parameter: phys_of(ptr::addr_of!(MOUSE_REPORT.0[0]), "mouse report phys")?,
-                status: MOUSE_REPORT_LEN as u32,
+                status: mouse.kind.report_len() as u32,
                 control: TRB_IOC | trb_type(TRB_TYPE_NORMAL),
             },
         )?;
@@ -1220,12 +1805,7 @@ impl XhciController {
                 let cc = event.completion_code();
                 if cc == CC_SUCCESS || cc == CC_SHORT_PACKET {
                     let report = MOUSE_REPORT.0;
-                    mouse_fn(UsbMouseReport {
-                        buttons: report[0] & 0x07,
-                        dx: report[1] as i8,
-                        dy: report[2] as i8,
-                        wheel: report[3] as i8,
-                    });
+                    mouse_fn(decode_pointer_report(mouse.kind, &report));
                 } else {
                     serial::write_fmt(format_args!(
                         "usb-hid: mouse interrupt completion {}\r\n",
@@ -1312,7 +1892,7 @@ unsafe fn zero_static_storage() {
     zero_contexts();
     ptr::write_bytes(CONTROL_BUFFER.0.as_mut_ptr(), 0, CONTROL_BUFFER_LEN);
     ptr::write_bytes(KEYBOARD_REPORT.0.as_mut_ptr(), 0, KEYBOARD_REPORT_LEN);
-    ptr::write_bytes(MOUSE_REPORT.0.as_mut_ptr(), 0, MOUSE_REPORT_LEN);
+    ptr::write_bytes(MOUSE_REPORT.0.as_mut_ptr(), 0, POINTER_REPORT_BUFFER_LEN);
 }
 
 unsafe fn setup_scratchpads(count: usize) -> Result<(), &'static str> {
@@ -1366,12 +1946,77 @@ unsafe fn input_control_add_flags(flags: u32) {
     ctx_write_raw(ptr::addr_of_mut!(INPUT_CONTEXT.0[0]), 1, flags);
 }
 
+fn child_route_string(parent_route: u32, port_number: u8) -> u32 {
+    let mut shift = 0u32;
+    while shift < 20 {
+        if ((parent_route >> shift) & 0xF) == 0 {
+            return parent_route | (((port_number as u32) & 0xF) << shift);
+        }
+        shift += 4;
+    }
+    parent_route
+}
+
+fn hub_port_speed(status: u16, parent_hub_speed: u8) -> u8 {
+    if status & HUB_PORT_LOW_SPEED != 0 {
+        2
+    } else if status & HUB_PORT_HIGH_SPEED != 0 {
+        3
+    } else if parent_hub_speed >= 4 {
+        parent_hub_speed
+    } else {
+        1
+    }
+}
+
+fn child_speed_candidates(primary: u8) -> ([u8; 5], usize) {
+    let mut speeds = [0u8; 5];
+    let mut count = 0usize;
+    push_unique_speed(&mut speeds, &mut count, primary);
+    push_unique_speed(&mut speeds, &mut count, 3);
+    push_unique_speed(&mut speeds, &mut count, 1);
+    push_unique_speed(&mut speeds, &mut count, 4);
+    push_unique_speed(&mut speeds, &mut count, 2);
+    (speeds, count)
+}
+
+fn push_unique_speed(speeds: &mut [u8; 5], count: &mut usize, speed: u8) {
+    if speed == 0 || *count >= speeds.len() {
+        return;
+    }
+
+    let mut index = 0usize;
+    while index < *count {
+        if speeds[index] == speed {
+            return;
+        }
+        index += 1;
+    }
+
+    speeds[*count] = speed;
+    *count += 1;
+}
+
+fn spin_delay(iterations: usize) {
+    let mut waited = 0usize;
+    while waited < iterations {
+        spin_loop();
+        waited += 1;
+    }
+}
+
 unsafe fn write_slot_context(port: PortInfo, context_entries: u8, context_size: usize) {
     let slot = input_context_ptr(context_size, 0);
-    let dword0 = ((port.speed as u32) << 20) | ((context_entries as u32) << 27);
-    let dword1 = (port.port_number as u32) << 16;
+    let hub_bit = if port.is_hub { 1 << 26 } else { 0 };
+    let dword0 = port.route_string
+        | ((port.speed as u32) << 20)
+        | hub_bit
+        | ((context_entries as u32) << 27);
+    let dword1 = ((port.root_port_number as u32) << 16) | ((port.hub_port_count as u32) << 24);
+    let dword2 = (port.parent_hub_slot_id as u32) | ((port.parent_hub_port_number as u32) << 8);
     ctx_write_raw(slot, 0, dword0);
     ctx_write_raw(slot, 1, dword1);
+    ctx_write_raw(slot, 2, dword2);
 }
 
 unsafe fn write_endpoint_context(
@@ -1406,7 +2051,10 @@ unsafe fn ctx_write_raw(base: *mut u8, dword: usize, value: u32) {
     ptr::write_volatile(base.add(dword * 4).cast::<u32>(), value);
 }
 
-unsafe fn parse_boot_hid_endpoint(config: &[u8]) -> Result<HidEndpoint, &'static str> {
+unsafe fn parse_boot_hid_endpoint(
+    config: &[u8],
+    prefer_generic_keyboard: bool,
+) -> Result<HidEndpoint, &'static str> {
     if config.len() < 9 {
         return Err("configuration descriptor too short");
     }
@@ -1435,11 +2083,13 @@ unsafe fn parse_boot_hid_endpoint(config: &[u8]) -> Result<HidEndpoint, &'static
                 current_hid_kind = match (class, subclass, protocol) {
                     (0x03, 0x01, 0x01) => Some(HidKind::Keyboard),
                     (0x03, 0x01, 0x02) => Some(HidKind::Mouse),
+                    (0x03, 0x00, 0x00) if prefer_generic_keyboard => Some(HidKind::GenericKeyboard),
+                    (0x03, 0x00, 0x00) => Some(HidKind::Tablet),
                     _ => None,
                 };
                 if let Some(kind) = current_hid_kind {
                     serial::write_fmt(format_args!(
-                        "usb-hid: boot {} interface {}\r\n",
+                        "usb-hid: {} interface {}\r\n",
                         kind.as_str(),
                         current_interface,
                     ));
@@ -1471,7 +2121,37 @@ unsafe fn parse_boot_hid_endpoint(config: &[u8]) -> Result<HidEndpoint, &'static
         offset += len;
     }
 
-    Err("boot HID interrupt endpoint not found")
+    Err("HID interrupt endpoint not found")
+}
+
+fn decode_pointer_report(
+    kind: HidKind,
+    report: &[u8; POINTER_REPORT_BUFFER_LEN],
+) -> UsbMouseReport {
+    match kind {
+        HidKind::Tablet => UsbMouseReport {
+            buttons: report[0] & 0x07,
+            dx: 0,
+            dy: 0,
+            wheel: report[5] as i8,
+            absolute: true,
+            x: u16::from_le_bytes([report[1], report[2]]),
+            y: u16::from_le_bytes([report[3], report[4]]),
+            max_x: TABLET_AXIS_MAX,
+            max_y: TABLET_AXIS_MAX,
+        },
+        _ => UsbMouseReport {
+            buttons: report[0] & 0x07,
+            dx: report[1] as i8,
+            dy: report[2] as i8,
+            wheel: report[3] as i8,
+            absolute: false,
+            x: 0,
+            y: 0,
+            max_x: 0,
+            max_y: 0,
+        },
+    }
 }
 
 fn emit_keyboard_report_changes<F: FnMut(u16, bool)>(
@@ -1583,6 +2263,10 @@ fn hid_usage_to_keycode(usage: u8) -> Option<u16> {
         0x36 => 51,
         0x37 => 52,
         0x38 => 53,
+        0x4F => 106,
+        0x50 => 105,
+        0x51 => 108,
+        0x52 => 103,
         _ => return None,
     };
     Some(code)

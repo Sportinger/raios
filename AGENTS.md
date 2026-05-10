@@ -35,10 +35,11 @@ reference/workstation tool, not the hard dependency inside the kernel.
 - Limine config uses `limine.conf`, not `limine.cfg`
 - Bootable image: `release/seedos-stage0.img`
 - QEMU visual boot has been verified on Windows with GTK display
-- Kernel currently draws a live framebuffer status UI:
-  - `SEEDOS STAGE-0`
-  - `AGENT HOST: LIVE STATUS`
-  - status rows for framebuffer, entropy, USB-xHCI, network, input
+- Kernel currently draws a double-buffered framebuffer UI:
+  - chat-first `AI` mode
+  - `CONSOLE` mode for debug output
+  - `SET` mode for provider/API-key setup
+  - compact status strip for network, input, USB-xHCI, and entropy
 - Serial command input exists when QEMU is run with `-SerialMode tcp`:
   - `help`
   - `status`
@@ -73,7 +74,10 @@ reference/workstation tool, not the hard dependency inside the kernel.
   - `.limine_requests`
   - `.limine_requests_end`
 - The kernel enables SSE early before Rust/allocator-heavy code paths.
-- The framebuffer renderer writes directly to the Limine framebuffer address.
+- The framebuffer renderer draws into a heap backbuffer and presents to the
+  Limine framebuffer, avoiding visible clear/redraw flicker during mouse moves.
+- The visible QEMU GTK profile uses `grab-on-hover=on,show-cursor=off`; SeedOS
+  draws its own cursor and the host pointer should not escape the VM as easily.
 
 ## Useful Commands
 
@@ -119,7 +123,8 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 1. Harden the direct OpenAI TLS path with certificate verification or provider
    pinning.
-2. Improve response rendering and provider error display in the framebuffer UI.
+2. Improve response wrapping, scrolling, and clickable settings controls in the
+   framebuffer UI.
 3. Define the first native agent protocol messages outside the kernel boundary.
 4. Continue bare-metal input/network bring-up while preserving the VM test path.
 

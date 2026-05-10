@@ -10,6 +10,8 @@ param(
     [string]$Nic = "",
     [switch]$BareMetalVm,
     [switch]$Headless,
+    [switch]$MouseGrab,
+    [switch]$RelativeMouse,
     [switch]$UsbXhciInput,
     [switch]$StopExisting
 )
@@ -67,9 +69,14 @@ if ($Nic -eq "e1000") {
 if ($UsbXhciInput) {
     $qemuArgs += @(
         "-device", "qemu-xhci,id=xhci",
-        "-device", "usb-kbd,bus=xhci.0",
-        "-device", "usb-mouse,bus=xhci.0"
+        "-device", "usb-kbd,bus=xhci.0"
     )
+    if ($RelativeMouse -or $MouseGrab) {
+        $qemuArgs += @("-device", "usb-mouse,bus=xhci.0")
+    }
+    else {
+        $qemuArgs += @("-device", "usb-tablet,bus=xhci.0")
+    }
 }
 
 if ($SerialMode -eq "tcp") {
@@ -85,8 +92,11 @@ else {
 if ($Headless) {
     $qemuArgs += @("-display", "none")
 }
+elseif ($MouseGrab) {
+    $qemuArgs += @("-display", "gtk,grab-on-hover=on,show-cursor=off")
+}
 else {
-    $qemuArgs += @("-display", "gtk")
+    $qemuArgs += @("-display", "gtk,show-cursor=off")
 }
 
 if ($MonitorTcpPort -gt 0) {

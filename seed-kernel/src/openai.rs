@@ -58,31 +58,30 @@ impl FixedLine {
 
     fn set_from_bytes(&mut self, bytes: &[u8]) {
         self.clear();
-        for &byte in bytes.iter().take(LINE_CAPACITY) {
-            self.push_sanitized(byte);
-        }
+        let value = str::from_utf8(bytes).unwrap_or("?");
+        self.set_from_str(value);
     }
 
-    fn push_sanitized(&mut self, byte: u8) {
-        if self.len == self.bytes.len() {
-            return;
+    fn set_from_str(&mut self, value: &str) {
+        self.clear();
+        push_str_truncated(&mut self.bytes, &mut self.len, value);
+    }
+}
+
+fn push_str_truncated(bytes: &mut [u8], len: &mut usize, value: &str) {
+    for ch in value.chars() {
+        let char_len = ch.len_utf8();
+        if (*len).saturating_add(char_len) > bytes.len() {
+            break;
         }
-        self.bytes[self.len] = if byte.is_ascii_graphic() || byte == b' ' {
-            byte
-        } else {
-            b'?'
-        };
-        self.len += 1;
+        ch.encode_utf8(&mut bytes[*len..*len + char_len]);
+        *len += char_len;
     }
 }
 
 impl Write for FixedLine {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        let remaining = self.bytes.len().saturating_sub(self.len);
-        let bytes = s.as_bytes();
-        let take = usize::min(remaining, bytes.len());
-        self.bytes[self.len..self.len + take].copy_from_slice(&bytes[..take]);
-        self.len += take;
+        push_str_truncated(&mut self.bytes, &mut self.len, s);
         Ok(())
     }
 }
@@ -172,7 +171,7 @@ pub fn submit_request(prompt: &str) -> Result<u32, SubmitError> {
         phase_started_ms: now_ms(),
     });
     state.last_request_id = Some(id);
-    state.last_prompt.set_from_bytes(prompt.as_bytes());
+    state.last_prompt.set_from_str(prompt);
     state
         .last_event
         .set_from_bytes(b"OPENAI DIRECT: RESOLVING api.openai.com");
@@ -450,8 +449,7 @@ fn push_json_string(out: &mut String, value: &str) {
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
             c if c.is_control() => out.push(' '),
-            c if c.is_ascii() => out.push(c),
-            _ => out.push(' '),
+            c => out.push(c),
         }
     }
 }
@@ -611,21 +609,62 @@ fn extract_json_string_after(body: &[u8], start: usize, key: &str) -> Option<Str
                     b'n' => out.push('\n'),
                     b'r' => out.push('\r'),
                     b't' => out.push('\t'),
-                    b'u' => {
-                        if index + 4 > body.len() {
-                            return None;
-                        }
-                        out.push('?');
-                        index += 4;
-                    }
+                    b'u' => index = push_json_unicode_escape(body, index, &mut out)?,
                     _ => out.push('?'),
                 }
             }
             b if b.is_ascii() => out.push(b as char),
-            _ => out.push('?'),
+            _ => {
+                let start = index - 1;
+                let tail = str::from_utf8(&body[start..]).ok()?;
+                let ch = tail.chars().next()?;
+                out.push(ch);
+                index = start + ch.len_utf8();
+            }
         }
     }
     None
+}
+
+fn push_json_unicode_escape(body: &[u8], index: usize, out: &mut String) -> Option<usize> {
+    let code = read_json_u16(body, index)?;
+    let mut next = index + 4;
+
+    let scalar = if (0xD800..=0xDBFF).contains(&code) {
+        if body.get(next) == Some(&b'\\') && body.get(next + 1) == Some(&b'u') {
+            let low = read_json_u16(body, next + 2)?;
+            next += 6;
+            if (0xDC00..=0xDFFF).contains(&low) {
+                0x10000 + (((u32::from(code) - 0xD800) << 10) | (u32::from(low) - 0xDC00))
+            } else {
+                u32::from(b'?')
+            }
+        } else {
+            u32::from(b'?')
+        }
+    } else {
+        u32::from(code)
+    };
+
+    out.push(core::char::from_u32(scalar).unwrap_or('?'));
+    Some(next)
+}
+
+fn read_json_u16(body: &[u8], index: usize) -> Option<u16> {
+    if index + 4 > body.len() {
+        return None;
+    }
+    let mut value = 0u16;
+    for &byte in &body[index..index + 4] {
+        let digit = match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            b'A'..=b'F' => byte - b'A' + 10,
+            _ => return None,
+        };
+        value = value.checked_mul(16)?.checked_add(u16::from(digit))?;
+    }
+    Some(value)
 }
 
 fn split_header(line: &[u8]) -> Option<(&[u8], &[u8])> {

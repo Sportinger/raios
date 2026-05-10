@@ -6,7 +6,7 @@ is a minimal AI agent host, not a normal desktop or Linux distribution.
 The first MVP goal is:
 
 ```text
-Boot in VM -> framebuffer + serial log -> network device visible -> minimal agent/status screen
+Boot in VM -> framebuffer chat UI + serial log -> network device visible -> direct AI response
 ```
 
 The larger product idea is a small OS that can connect to known AI providers
@@ -35,25 +35,31 @@ The current bootable MVP artifact is:
 release/seedos-stage0.img
 ```
 
-It has been visually verified in QEMU on Windows. It boots through Limine, reaches
-the Rust kernel, negotiates a framebuffer, draws a live Stage-0 status UI, seeds
-entropy from RDRAND, configures an Intel e1000 NIC through DHCP, and accepts
-console commands from serial, USB-HID keyboard, and the PS/2 fallback path. It
-also has a first direct provider path: `ask <text>` uses in-OS DNS, TCP, TLS,
-HTTPS, and the OpenAI Responses API for `api.openai.com:443`. The VM console has
-a `setup` menu for entering an API key into RAM without echoing the key back to
-the serial log.
+It has been visually verified in QEMU on Windows. It boots through Limine,
+reaches the Rust kernel, negotiates a double-buffered framebuffer, draws a
+chat-first Stage-0 UI with `AI`, `CONSOLE`, and `SET` modes, seeds entropy from
+RDRAND, configures an Intel e1000 NIC through DHCP, and accepts input from
+serial, USB-HID keyboard, USB-HID relative mouse, QEMU USB-HID tablet, and the
+PS/2 fallback path. `ask <text>` and the AI chat mode use in-OS DNS, TCP, TLS,
+HTTPS, and the OpenAI Responses API for `api.openai.com:443`. The `SET` mode and
+`setup` command can enter an API key into RAM without echoing the key back to the
+serial log. Pointer movement uses a small framebuffer cursor overlay instead of
+redrawing the full UI for every mouse delta. Tab, arrow keys, Enter, and Esc
+also drive a BIOS-style focus ring for keyboard-only navigation. Stage-0 also
+detects the Surface Pro 4 Marvell AVASTAR 88W8897 Wi-Fi target on PCI. The
+settings UI can record a RAM-only SSID and WPA passphrase for that target, but
+firmware upload, association, WPA, and Wi-Fi packet transport are not implemented
+yet.
 
 Expected first screen:
 
 ```text
-SEEDOS STAGE-0
-AGENT HOST: LIVE STATUS
-FRAMEBUFFER  READY
-ENTROPY      READY
-USB-XHCI     READY
-NETWORK      CONFIGURED
-INPUT        READY
+AI  CONSOLE                                      SET
+SEEDOS
+DIRECT AI HOST
+NET CONFIGURED   INPUT READY   USB READY   RNG READY
+CHAT
+TYPE MESSAGE AND PRESS ENTER
 ```
 
 ## Windows Quick Commands

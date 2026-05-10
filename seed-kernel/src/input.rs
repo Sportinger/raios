@@ -98,6 +98,17 @@ fn poll_usb() -> bool {
                 ts_ms.set(timestamp_ms());
                 has_timestamp.set(true);
             }
+            if report.absolute {
+                let kind = InputEventKind::Absolute {
+                    x: report.x,
+                    y: report.y,
+                    max_x: report.max_x,
+                    max_y: report.max_y,
+                };
+                pointer_changed.set(update_mouse(kind) || pointer_changed.get());
+                RING.push(InputEvent { kind });
+                inserted.set(inserted.get() + 1);
+            }
             if report.dx != 0 {
                 let kind = InputEventKind::Relative(RelativeAxis::X, report.dx as i32);
                 pointer_changed.set(update_mouse(kind) || pointer_changed.get());
@@ -128,19 +139,11 @@ fn poll_usb() -> bool {
         },
     );
 
-    if inserted.get() > 0 {
+    if inserted.get() > 0 && !pointer_changed.get() {
         serial::write_fmt(format_args!(
             "usb input batch: {} events @ {} ms\r\n",
             inserted.get(),
             ts_ms.get()
-        ));
-    }
-    if pointer_changed.get() {
-        serial::write_fmt(format_args!(
-            "usb pointer: {},{} buttons {}\r\n",
-            mouse_snapshot().x,
-            mouse_snapshot().y,
-            mouse_snapshot().buttons
         ));
     }
     pointer_changed.get()
@@ -166,10 +169,10 @@ pub fn drain<F: FnMut(InputEvent)>(mut f: F) {
     }
 }
 
-pub fn drain_console_bytes<F: FnMut(u8)>(mut f: F) {
+pub fn drain_console_input<F: FnMut(ConsoleInput)>(mut f: F) {
     drain(|event| {
-        if let Some(byte) = event_to_console_byte(event) {
-            f(byte);
+        if let Some(input) = event_to_console_input(event) {
+            f(input);
         }
     });
 }
@@ -188,7 +191,6 @@ pub struct MouseSnapshot {
     pub y: usize,
     pub buttons: u8,
     pub seen: bool,
-    pub sequence: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -198,8 +200,17 @@ pub struct InputEvent {
 
 #[derive(Clone, Copy)]
 pub enum InputEventKind {
-    Key { code: u16, pressed: bool },
+    Key {
+        code: u16,
+        pressed: bool,
+    },
     Relative(RelativeAxis, i32),
+    Absolute {
+        x: u16,
+        y: u16,
+        max_x: u16,
+        max_y: u16,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -209,10 +220,29 @@ pub enum RelativeAxis {
     Wheel,
 }
 
+#[derive(Clone, Copy)]
+pub enum ConsoleInput {
+    Byte(u8),
+    Special(SpecialKey),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SpecialKey {
+    Enter,
+    Escape,
+    Tab,
+    BackTab,
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
 fn update_mouse(kind: InputEventKind) -> bool {
     let mut mouse = MOUSE.lock();
     match kind {
         InputEventKind::Relative(axis, value) => mouse.apply_relative(axis, value),
+        InputEventKind::Absolute { x, y, max_x, max_y } => mouse.apply_absolute(x, y, max_x, max_y),
         InputEventKind::Key { code, pressed } => match mouse_button_mask(code) {
             Some(mask) => mouse.apply_button(mask, pressed),
             None => false,
@@ -236,7 +266,6 @@ struct MouseState {
     max_y: i32,
     buttons: u8,
     seen: bool,
-    sequence: u64,
 }
 
 impl MouseState {
@@ -248,7 +277,6 @@ impl MouseState {
             max_y: POINTER_DEFAULT_HEIGHT - 1,
             buttons: 0,
             seen: false,
-            sequence: 0,
         }
     }
 
@@ -278,6 +306,14 @@ impl MouseState {
         }
     }
 
+    fn apply_absolute(&mut self, x: u16, y: u16, max_x: u16, max_y: u16) -> bool {
+        let source_max_x = u64::from(max_x.max(1));
+        let source_max_y = u64::from(max_y.max(1));
+        let target_x = ((u64::from(x) * self.max_x.max(0) as u64) / source_max_x) as i32;
+        let target_y = ((u64::from(y) * self.max_y.max(0) as u64) / source_max_y) as i32;
+        self.set_position(target_x, target_y)
+    }
+
     fn apply_button(&mut self, mask: u8, pressed: bool) -> bool {
         let previous = self.buttons;
         if pressed {
@@ -286,11 +322,7 @@ impl MouseState {
             self.buttons &= !mask;
         }
         self.mark_seen();
-        if self.buttons == previous {
-            return false;
-        }
-        self.bump();
-        true
+        self.buttons != previous
     }
 
     fn move_by(&mut self, dx: i32, dy: i32) -> bool {
@@ -304,18 +336,11 @@ impl MouseState {
         self.x = x;
         self.y = y;
         self.mark_seen();
-        if changed {
-            self.bump();
-        }
         changed
     }
 
     fn mark_seen(&mut self) {
         self.seen = true;
-    }
-
-    fn bump(&mut self) {
-        self.sequence = self.sequence.wrapping_add(1);
     }
 
     fn snapshot(&self) -> MouseSnapshot {
@@ -324,7 +349,6 @@ impl MouseState {
             y: self.y as usize,
             buttons: self.buttons,
             seen: self.seen,
-            sequence: self.sequence,
         }
     }
 }
@@ -347,7 +371,7 @@ fn clamp_i32(value: i32, min: i32, max: i32) -> i32 {
     }
 }
 
-fn event_to_console_byte(event: InputEvent) -> Option<u8> {
+fn event_to_console_input(event: InputEvent) -> Option<ConsoleInput> {
     let InputEventKind::Key { code, pressed } = event.kind else {
         return None;
     };
@@ -358,14 +382,23 @@ fn event_to_console_byte(event: InputEvent) -> Option<u8> {
             return None;
         }
         _ if !pressed => return None,
-        14 => return Some(0x08),
-        28 => return Some(b'\r'),
-        57 => return Some(b' '),
+        1 => return Some(ConsoleInput::Special(SpecialKey::Escape)),
+        14 => return Some(ConsoleInput::Byte(0x08)),
+        15 if SHIFT_ACTIVE.load(Ordering::Relaxed) => {
+            return Some(ConsoleInput::Special(SpecialKey::BackTab));
+        }
+        15 => return Some(ConsoleInput::Special(SpecialKey::Tab)),
+        28 => return Some(ConsoleInput::Special(SpecialKey::Enter)),
+        57 => return Some(ConsoleInput::Byte(b' ')),
+        103 => return Some(ConsoleInput::Special(SpecialKey::Up)),
+        105 => return Some(ConsoleInput::Special(SpecialKey::Left)),
+        106 => return Some(ConsoleInput::Special(SpecialKey::Right)),
+        108 => return Some(ConsoleInput::Special(SpecialKey::Down)),
         _ => {}
     }
 
     let shifted = SHIFT_ACTIVE.load(Ordering::Relaxed);
-    keycode_to_ascii(code, shifted)
+    keycode_to_ascii(code, shifted).map(ConsoleInput::Byte)
 }
 
 fn keycode_to_ascii(code: u16, shifted: bool) -> Option<u8> {

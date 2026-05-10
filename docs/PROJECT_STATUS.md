@@ -49,13 +49,12 @@ status USB-XHCI: READY - 00:03.0 HCI 0100 PORTS 8 CONNECTED 2 KBD READY MOUSE RE
 Expected visible framebuffer UI:
 
 ```text
-SEEDOS STAGE-0
-AGENT HOST: LIVE STATUS
-FRAMEBUFFER  READY
-ENTROPY      READY
-USB-XHCI     READY
-NETWORK      CONFIGURED
-INPUT        READY
+AI  CONSOLE                                      SET
+SEEDOS
+DIRECT AI HOST
+NET CONFIGURED   INPUT READY   USB READY   RNG READY
+CHAT
+TYPE MESSAGE AND PRESS ENTER
 ```
 
 Expected useful serial lines:
@@ -89,11 +88,12 @@ setup
 ask <text>
 ```
 
-`setup` opens an in-VM OpenAI/API-key menu. It can enter an API key with masked
-framebuffer input, clear the key, and show provider status. The key is held only
-in guest RAM and is not printed into the console or serial output. For
-local-only testing, the build scripts can also embed `OPENAI_API_KEY` into a
-separate non-default image with `-EmbedOpenAiApiKeyFromEnv`.
+The framebuffer UI defaults to an AI chat mode. The `CONSOLE` tab keeps the
+debug console visible, and the `SET` tab opens provider settings. `setup` also
+opens the in-VM OpenAI/API-key menu. API-key entry is masked, held only in guest
+RAM, and not printed into the console or serial output. For local-only testing,
+the build scripts can also embed `OPENAI_API_KEY` into a separate non-default
+image with `-EmbedOpenAiApiKeyFromEnv`.
 
 Direct OpenAI transport smoke over TCP serial:
 
@@ -116,7 +116,7 @@ Do not run or port the Codex CLI inside Stage-0.
 Stage-0 should grow a small native agent host:
 
 - framebuffer UI
-- serial/keyboard input
+- serial/keyboard/mouse input
 - USB/input and PCI device inventory
 - network status
 - explicit capability-gated agent tools
@@ -139,9 +139,31 @@ Harden and polish the direct provider path:
   on machines that expose legacy keyboard compatibility. It is only reported as
   ready after an acknowledge from the keyboard or real scancode input.
 - a polled xHCI path now inventories USB controllers, resets directly attached
-  root-port devices, enumerates HID boot keyboards and mice, and feeds reports
-  into the same input queue as PS/2.
+  root-port devices, enumerates HID boot keyboards, relative boot mice, and QEMU
+  HID tablets, and feeds reports into the same input queue as PS/2.
+- if no USB keyboard or pointer is active, the event loop periodically re-probes
+  xHCI so a keyboard plugged in after boot can be picked up without rebooting.
 - the USB-XHCI row now includes keyboard and mouse readiness.
+- the framebuffer renderer is double-buffered to avoid visible full-screen
+  redraw flicker, and pointer movement now updates only a small cursor overlay
+  instead of forcing a full UI redraw.
+- the visible QEMU GTK profile uses `usb-tablet` absolute pointer input by
+  default and hides the host cursor over the guest area without automatic mouse
+  grab, so only the SeedOS pointer is visible and remains aligned after focus
+  changes; `-RelativeMouse` or `-MouseGrab` switches back to relative
+  `usb-mouse` for stricter boot-mouse testing.
+- the visible UI now defaults to a chat-first surface with `AI`, `CONSOLE`, and
+  `SET` modes. Serial commands continue to use the command interpreter so VM
+  harnesses remain deterministic.
+- USB/PS2 keyboard input now carries special keys into the UI: Tab and arrow
+  keys move a visible focus ring through the top navigation, chat/console input,
+  and settings actions; Enter activates the focused item and Esc backs out of
+  settings/API-key entry.
+- the Surface Pro 4 internal WLAN target has been selected as Marvell AVASTAR
+  88W8897 (`11ab:2b38`, Linux reference driver family `mwifiex_pcie`). Stage-0
+  now probes PCI for that device and exposes it as a Wi-Fi status chip/log line,
+  and the settings menu can record a RAM-only SSID and WPA passphrase. Firmware
+  upload, WPA, and packet transport are not implemented yet.
 - a VM-local `setup` menu now records a RAM-only OpenAI API key without echoing
   the key back into the serial log.
 - `ask <text>` now stays inside the guest: it requires the VM API key state,
@@ -164,10 +186,15 @@ Harden and polish the direct provider path:
 - Network failure/timeout states and packet counters are still minimal.
 - Keyboard input uses a minimal US/Linux keycode mapping; no layout selection,
   modifier completeness, or text editing beyond Backspace exists yet.
-- Bare-metal support is experimental. Minimal direct xHCI USB-HID boot keyboard
-  and mouse handling exists, but USB hubs, non-boot HID report parsing, hotplug,
-  and broad NIC coverage do not exist yet, so real hardware may still boot to the
-  UI but lack input/network unless it matches the implemented paths.
+- Bare-metal support is experimental. Minimal direct xHCI USB-HID boot keyboard,
+  mouse, hub traversal, and a limited no-input USB hotplug rescan exist, but full
+  detach/reconfigure handling and broad NIC coverage do not exist yet, so real
+  hardware may still boot to the UI but lack input/network unless it matches the
+  implemented paths.
+- Wi-Fi support currently detects the Surface Pro 4 Marvell AVASTAR 88W8897
+  target and stores RAM-only SSID/WPA configuration for the current boot. The
+  next implementation step is a Marvell PCIe firmware-upload path before 802.11
+  association or WPA2 can work.
 - Bare-metal USB preparation scripts exist, but writing a USB disk is destructive
   and must be done with an explicit disk number and confirmation string.
 - API key entry exists in the VM, but the key is RAM-only and not persisted in

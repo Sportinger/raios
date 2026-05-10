@@ -30,7 +30,8 @@ Done:
 - Direct framebuffer drawing working.
 - Serial diagnostics working.
 - RDRAND entropy path working in the bare-metal-style VM profile.
-- Live status rows for framebuffer, entropy, USB-xHCI, network, and input.
+- Chat-first double-buffered framebuffer UI with compact status for entropy,
+  USB-xHCI, network, and input.
 - Minimal Windows image packaging path.
 
 ## Phase 1: Minimal Agent Host UI

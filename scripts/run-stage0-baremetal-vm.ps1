@@ -6,6 +6,8 @@ param(
     [int]$SerialTcpPort = 4555,
     [int]$MonitorTcpPort = 0,
     [switch]$Headless,
+    [switch]$MouseGrab,
+    [switch]$RelativeMouse,
     [switch]$StopExisting
 )
 
@@ -26,6 +28,12 @@ if ($MonitorTcpPort -gt 0) {
 }
 if ($Headless) {
     $args += "-Headless"
+}
+if ($MouseGrab) {
+    $args += "-MouseGrab"
+}
+if ($RelativeMouse) {
+    $args += "-RelativeMouse"
 }
 if ($StopExisting) {
     $args += "-StopExisting"

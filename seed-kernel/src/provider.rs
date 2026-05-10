@@ -74,22 +74,25 @@ impl FixedLine {
 
     fn set_from_str(&mut self, value: &str) {
         self.len = 0;
-        let remaining = self.bytes.len();
-        let bytes = value.as_bytes();
-        let take = usize::min(remaining, bytes.len());
-        self.bytes[..take].copy_from_slice(&bytes[..take]);
-        self.len = take;
+        push_str_truncated(&mut self.bytes, &mut self.len, value);
     }
 }
 
 impl Write for FixedLine {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        let remaining = self.bytes.len().saturating_sub(self.len);
-        let bytes = s.as_bytes();
-        let take = usize::min(remaining, bytes.len());
-        self.bytes[self.len..self.len + take].copy_from_slice(&bytes[..take]);
-        self.len += take;
+        push_str_truncated(&mut self.bytes, &mut self.len, s);
         Ok(())
+    }
+}
+
+fn push_str_truncated(bytes: &mut [u8], len: &mut usize, value: &str) {
+    for ch in value.chars() {
+        let char_len = ch.len_utf8();
+        if (*len).saturating_add(char_len) > bytes.len() {
+            break;
+        }
+        ch.encode_utf8(&mut bytes[*len..*len + char_len]);
+        *len += char_len;
     }
 }
 
