@@ -143,6 +143,8 @@ Harden and polish the direct provider path:
   HID tablets, and feeds reports into the same input queue as PS/2.
 - if no USB keyboard or pointer is active, the event loop periodically re-probes
   xHCI so a keyboard plugged in after boot can be picked up without rebooting.
+- the USB status line includes `EV`, `ERR`, and `TCC` counters for HID input
+  reports and interrupt transfer diagnostics on bare metal.
 - the USB-XHCI row now includes keyboard and mouse readiness.
 - the framebuffer renderer is double-buffered to avoid visible full-screen
   redraw flicker, and pointer movement now updates only a small cursor overlay

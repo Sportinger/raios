@@ -11,6 +11,42 @@ This is not a Linux distribution and not a place to run the full Codex CLI in th
 kernel. Codex is useful as a development tool and as a product reference; the OS
 should implement its own minimal protocol surface.
 
+## North Star Architecture
+
+The long-term target is stronger than a small OS with a provider client. SeedOS
+should become an always-on core plus a live-rebuildable world:
+
+```text
+permanent core -> recovery agent lifeline -> live service graph
+-> agent workspace -> shadow VM/test world -> persistence/rollback
+```
+
+The permanent core should only contain the survival mechanisms: minimal
+scheduling, memory/object ownership, IPC, capabilities, service loading, crash
+detection, rollback supervision, root system snapshots, and a tiny recovery
+control path.
+
+The normal OS surface should be replaceable services: UI, console, input, USB,
+networking, Wi-Fi, provider adapters, diagnostics, agent tools, builder service,
+and eventually driver experiments. The provider/OpenAI path is therefore a
+service, not the core identity of the OS.
+
+For the final system, most evolution should happen without a visible reboot:
+
+```text
+load service v2 next to v1
+migrate state
+switch handles
+watch health
+rollback to v1 if needed
+persist only after tests and approval
+```
+
+If the live world crashes, the core should still be able to report a snapshot,
+disable bad modules, restart last-good services, roll back persistent state, and
+use a protected recovery agent lifeline. See
+`docs/architecture-decisions/0003-always-on-core-and-live-rebuildable-world.md`.
+
 ## Phase 0: Bootable Visual MVP
 
 Status: done for the current VM MVP.
@@ -135,23 +171,134 @@ Definition of done:
 - User can boot the VM and get one AI response rendered in the OS.
 - Failure modes are visible: missing auth, network unavailable, provider error.
 
-## Phase 5: Capability And Module System
+## Phase 5: Core/World Boundary And Service Inventory
 
 Goal:
 
 ```text
-AI proposes action -> capability check -> signed module/config -> test -> apply
+running kernel facts -> service graph -> machine-readable system model
 ```
 
 Scope:
 
-- narrow tool catalog
-- signed module download/install
-- module test harness
-- audit log
-- rollback path
+- define which code belongs to the permanent core and which belongs to services
+- expose `system.snapshot.v0`
+- expose service inventory, health state, and last error per service
+- make UI/console/provider/network status consume the same structured model
+- add capability names for observation and service lifecycle operations
 
 Definition of done:
 
-- AI can request a bounded change.
-- The OS can deny, test, apply, and log it without arbitrary execution.
+- The agent can ask what is running, what is degraded, and which capabilities
+  exist without scraping human logs.
+- The codebase has an explicit boundary between survival-core responsibilities
+  and replaceable service responsibilities.
+
+## Phase 6: Ephemeral Live Services
+
+Goal:
+
+```text
+AI proposes artifact -> capability check -> load for current boot -> drop/kill
+```
+
+Scope:
+
+- module/service manifest v0
+- ram-only service slot
+- service registry
+- capability grants are computed by local policy, not self-declared by modules
+- health checks and crash records
+- audit log for load, start, kill, and unload
+
+Definition of done:
+
+- A low-risk service can be loaded without reboot, expose one new console command
+  or UI panel, then be removed without corrupting the rest of the system.
+
+## Phase 7: Hot-Swap And State Migration
+
+Goal:
+
+```text
+service v1 keeps running -> service v2 loads -> state migrates -> handles switch
+```
+
+Scope:
+
+- versioned service state objects
+- first state migrator
+- handle indirection for service clients
+- atomic switch and rollback
+- watchdog during the probation period after a switch
+
+Definition of done:
+
+- A simple service can be upgraded live while preserving its state.
+- A failed upgrade rolls back to the previous service version without a full
+  system restart.
+
+## Phase 8: Recovery Agent Lifeline
+
+Goal:
+
+```text
+live world down -> core still reports state -> AI can trigger recovery actions
+```
+
+Scope:
+
+- tiny recovery control protocol
+- separate from the normal rich provider service
+- restart last-good service set
+- disable bad module ids
+- load recovery artifact by hash
+- optional pinned minimal provider route or local physical link
+
+Definition of done:
+
+- If UI, provider service, or another non-core service crashes, the core can
+  still expose a snapshot and accept bounded recovery commands.
+
+## Phase 9: Shadow VM Acceptance
+
+Goal:
+
+```text
+candidate artifact -> shadow boot/test -> report hash -> live/persist decision
+```
+
+Scope:
+
+- machine-readable VM test report
+- image hash, artifact hash, hardware profile, and snapshot precondition binding
+- serial/protocol/screenshot predicates
+- acceptance policy by risk level
+
+Definition of done:
+
+- Risky service changes and all persistent changes require a matching test
+  report before activation.
+
+## Phase 10: Persistence, Rollback, And Core Handoff
+
+Goal:
+
+```text
+tested service set -> persist -> boot-success mark -> rollback or core generation handoff
+```
+
+Scope:
+
+- persistent service set
+- last-good pointer
+- safe mode that disables non-core modules and persistent writes
+- boot-success marker
+- rollback on crash or missing success mark
+- experimental core-generation handoff for deep core updates
+
+Definition of done:
+
+- SeedOS can persist a tested live change, recover from a bad persistent change,
+  and eventually replace even core generations without a normal user-visible
+  reinstall cycle.

@@ -3,6 +3,12 @@
 ## Status
 Draft for the next protocol/design pass.
 
+ADR 0003 defines the long-term target: an always-on core with a
+live-rebuildable service world. This ADR remains the V0 safety and protocol pass
+for self-description, local attestation, manifests, and test reports. Where this
+document starts with workstation-side or VM-tested artifacts, that is an
+implementation ramp, not the final product boundary.
+
 ## Context
 SeedOS/RaiOS2 is meant to be a small bootable agent host, not a Linux
 distribution with AI tools preinstalled. The useful distinction is not that the

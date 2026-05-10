@@ -64,6 +64,8 @@ const TRB_TYPE_ENABLE_SLOT: u32 = 9;
 const TRB_TYPE_ADDRESS_DEVICE: u32 = 11;
 const TRB_TYPE_CONFIGURE_ENDPOINT: u32 = 12;
 const TRB_TYPE_EVALUATE_CONTEXT: u32 = 13;
+const TRB_TYPE_RESET_ENDPOINT: u32 = 14;
+const TRB_TYPE_SET_TR_DEQUEUE_POINTER: u32 = 16;
 const TRB_TYPE_TRANSFER_EVENT: u32 = 32;
 const TRB_TYPE_COMMAND_COMPLETION_EVENT: u32 = 33;
 
@@ -147,6 +149,9 @@ pub struct UsbSnapshot {
     pub hub_last_error: Option<&'static str>,
     pub last_command_type: u8,
     pub last_completion_code: u8,
+    pub last_transfer_completion_code: u8,
+    pub input_report_count: u32,
+    pub input_error_count: u32,
     pub keyboard_status: UsbKeyboardStatus,
     pub keyboard_detail: Option<&'static str>,
     pub mouse_status: UsbMouseStatus,
@@ -214,6 +219,9 @@ impl UsbState {
                 hub_last_error: None,
                 last_command_type: 0,
                 last_completion_code: 0,
+                last_transfer_completion_code: 0,
+                input_report_count: 0,
+                input_error_count: 0,
                 keyboard_status: UsbKeyboardStatus::NotProbed,
                 keyboard_detail: None,
                 mouse_status: UsbMouseStatus::NotProbed,
@@ -254,7 +262,18 @@ pub fn rescan_if_input_missing() -> bool {
 }
 
 pub fn snapshot() -> UsbSnapshot {
-    STATE.lock().snapshot
+    let state = STATE.lock();
+    let mut snapshot = state.snapshot;
+    if let Some(controller) = state.controller.as_ref() {
+        snapshot.last_command_type = controller.last_command_type;
+        snapshot.last_completion_code = controller.last_completion_code;
+        snapshot.last_transfer_completion_code = controller.last_transfer_completion_code;
+        snapshot.input_report_count = controller
+            .keyboard_report_count
+            .saturating_add(controller.mouse_report_count);
+        snapshot.input_error_count = controller.transfer_error_count;
+    }
+    snapshot
 }
 
 pub fn keyboard_active() -> bool {
@@ -320,6 +339,9 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 hub_last_error: None,
                 last_command_type: 0,
                 last_completion_code: 0,
+                last_transfer_completion_code: 0,
+                input_report_count: 0,
+                input_error_count: 0,
                 keyboard_status: UsbKeyboardStatus::NotProbed,
                 keyboard_detail: None,
                 mouse_status: UsbMouseStatus::NotProbed,
@@ -407,6 +429,11 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 hub_last_error: controller.hub_last_error,
                 last_command_type: controller.last_command_type,
                 last_completion_code: controller.last_completion_code,
+                last_transfer_completion_code: controller.last_transfer_completion_code,
+                input_report_count: controller
+                    .keyboard_report_count
+                    .saturating_add(controller.mouse_report_count),
+                input_error_count: controller.transfer_error_count,
                 keyboard_status,
                 keyboard_detail,
                 mouse_status,
@@ -437,6 +464,9 @@ fn error_snapshot(address: PciAddress, error: &'static str) -> UsbSnapshot {
         hub_last_error: None,
         last_command_type: 0,
         last_completion_code: 0,
+        last_transfer_completion_code: 0,
+        input_report_count: 0,
+        input_error_count: 0,
         keyboard_status: UsbKeyboardStatus::Error,
         keyboard_detail: Some(error),
         mouse_status: UsbMouseStatus::Error,
@@ -570,6 +600,10 @@ struct XhciController {
     hub_last_error: Option<&'static str>,
     last_command_type: u8,
     last_completion_code: u8,
+    last_transfer_completion_code: u8,
+    keyboard_report_count: u32,
+    mouse_report_count: u32,
+    transfer_error_count: u32,
 }
 
 unsafe impl Send for XhciController {}
@@ -815,6 +849,10 @@ impl XhciController {
             hub_last_error: None,
             last_command_type: 0,
             last_completion_code: 0,
+            last_transfer_completion_code: 0,
+            keyboard_report_count: 0,
+            mouse_report_count: 0,
+            transfer_error_count: 0,
         })
     }
 
@@ -1411,7 +1449,7 @@ impl XhciController {
         port: PortInfo,
         endpoint: HidEndpoint,
     ) -> Result<(), &'static str> {
-        self.reset_interrupt_ring();
+        self.reset_interrupt_ring_at(device_index);
         clear_input_context();
         input_control_add_flags((1 << 0) | (1 << endpoint.dci));
         write_slot_context(port, endpoint.dci, self.context_size);
@@ -1767,6 +1805,9 @@ impl XhciController {
             }
             processed += 1;
         }
+        if processed == 0 {
+            self.kick_input_endpoints();
+        }
     }
 
     unsafe fn handle_hid_transfer_event<K, M>(
@@ -1782,6 +1823,8 @@ impl XhciController {
             if event.slot_id() == keyboard.slot_id && event.endpoint_id() == keyboard.dci {
                 let cc = event.completion_code();
                 if cc == CC_SUCCESS || cc == CC_SHORT_PACKET {
+                    self.last_transfer_completion_code = cc as u8;
+                    self.keyboard_report_count = self.keyboard_report_count.saturating_add(1);
                     let report = KEYBOARD_REPORT.0;
                     emit_keyboard_report_changes(
                         &mut keyboard.previous_report,
@@ -1793,6 +1836,13 @@ impl XhciController {
                         "usb-hid: keyboard interrupt completion {}\r\n",
                         cc
                     ));
+                    self.last_transfer_completion_code = cc as u8;
+                    self.transfer_error_count = self.transfer_error_count.saturating_add(1);
+                    let _ = self.recover_interrupt_endpoint(
+                        keyboard.slot_id,
+                        keyboard.dci,
+                        keyboard.ring_index,
+                    );
                 }
                 self.keyboard = Some(keyboard);
                 let _ = self.queue_keyboard_report();
@@ -1804,6 +1854,8 @@ impl XhciController {
             if event.slot_id() == mouse.slot_id && event.endpoint_id() == mouse.dci {
                 let cc = event.completion_code();
                 if cc == CC_SUCCESS || cc == CC_SHORT_PACKET {
+                    self.last_transfer_completion_code = cc as u8;
+                    self.mouse_report_count = self.mouse_report_count.saturating_add(1);
                     let report = MOUSE_REPORT.0;
                     mouse_fn(decode_pointer_report(mouse.kind, &report));
                 } else {
@@ -1811,9 +1863,22 @@ impl XhciController {
                         "usb-hid: mouse interrupt completion {}\r\n",
                         cc
                     ));
+                    self.last_transfer_completion_code = cc as u8;
+                    self.transfer_error_count = self.transfer_error_count.saturating_add(1);
+                    let _ =
+                        self.recover_interrupt_endpoint(mouse.slot_id, mouse.dci, mouse.ring_index);
                 }
                 let _ = self.queue_mouse_report();
             }
+        }
+    }
+
+    unsafe fn kick_input_endpoints(&self) {
+        if let Some(keyboard) = self.keyboard {
+            self.ring_doorbell(keyboard.slot_id, keyboard.dci);
+        }
+        if let Some(mouse) = self.mouse {
+            self.ring_doorbell(mouse.slot_id, mouse.dci);
         }
     }
 
@@ -1846,8 +1911,7 @@ impl XhciController {
         self.ep0_cycle[ring_index] = true;
     }
 
-    unsafe fn reset_interrupt_ring(&mut self) {
-        let ring_index = self.current_device_index;
+    unsafe fn reset_interrupt_ring_at(&mut self, ring_index: usize) {
         ptr::write_bytes(
             ptr::addr_of_mut!(INTR_RINGS[ring_index].0[0]).cast::<u8>(),
             0,
@@ -1855,6 +1919,38 @@ impl XhciController {
         );
         self.intr_enqueue[ring_index] = 0;
         self.intr_cycle[ring_index] = true;
+    }
+
+    unsafe fn recover_interrupt_endpoint(
+        &mut self,
+        slot_id: u8,
+        dci: u8,
+        ring_index: usize,
+    ) -> Result<(), &'static str> {
+        serial::write_fmt(format_args!(
+            "usb-hid: recovering slot {} endpoint {}\r\n",
+            slot_id, dci
+        ));
+        self.execute_command(Trb {
+            parameter: 0,
+            status: 0,
+            control: trb_type(TRB_TYPE_RESET_ENDPOINT)
+                | ((dci as u32) << 16)
+                | ((slot_id as u32) << 24),
+        })?;
+        self.reset_interrupt_ring_at(ring_index);
+        let dequeue = phys_of(
+            ptr::addr_of!(INTR_RINGS[ring_index].0[0]),
+            "interrupt dequeue phys",
+        )? | 1;
+        self.execute_command(Trb {
+            parameter: dequeue,
+            status: 0,
+            control: trb_type(TRB_TYPE_SET_TR_DEQUEUE_POINTER)
+                | ((dci as u32) << 16)
+                | ((slot_id as u32) << 24),
+        })?;
+        Ok(())
     }
 }
 

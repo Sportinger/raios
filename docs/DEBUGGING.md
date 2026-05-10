@@ -311,6 +311,11 @@ devices` and re-probes xHCI, so removing a boot stick and then plugging a USB
 keyboard directly can be tested without rebooting. This is still a limited
 no-input recovery path, not full USB detach/reconfigure support.
 
+For HID input debugging, the USB status line includes `EV` for successful input
+reports, `ERR` for interrupt transfer errors, and `TCC` for the last transfer
+completion code. If a keyboard is `READY` but typing does not change `EV`, the
+device enumerated but reports are not reaching the input queue yet.
+
 ### Kernel hits #UD during first DHCP transmit
 
 Likely cause: the custom target enabled CPU features that QEMU's default CPU did
