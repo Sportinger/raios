@@ -361,8 +361,10 @@ fn net_state(runtime: ui::RuntimeStatus) -> &'static str {
     if let Some(config) = net::ui_snapshot() {
         if config.ip.is_some() {
             "CONFIGURED"
-        } else {
+        } else if net::dhcp_poll_enabled() {
             "DHCP"
+        } else {
+            "DEVICE"
         }
     } else if virtio::net::info().is_some() {
         "DEVICE"

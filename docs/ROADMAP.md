@@ -28,6 +28,7 @@ Done:
 - Direct framebuffer drawing working.
 - Serial diagnostics working.
 - virtio-rng detected.
+- virtio-rng entropy refill working.
 - Live status rows for framebuffer, entropy, virtio-rng, virtio-net, and input.
 - Minimal Windows image packaging path.
 
@@ -53,8 +54,9 @@ Definition of done:
 - Serial input can request status.
 - State transitions are mirrored in serial logs.
 
-Current status: framebuffer UI and serial commands are implemented. Keyboard
-input and entropy-unblocked net/input bring-up remain.
+Current status: framebuffer UI, serial commands, entropy, and hardware-visible
+virtio-net bring-up are implemented. Keyboard input, modern virtio-input MMIO,
+and DHCP polling remain.
 
 ## Phase 2: Network Visibility
 

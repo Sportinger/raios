@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 
 use core::cmp;
 use core::str;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use spin::Mutex;
 
@@ -30,12 +31,14 @@ const UDP_DNS_SOURCE_PORT: u16 = 49_152;
 const DNS_QUERY_TIMEOUT_MS: u64 = 4_000;
 const DNS_DEFAULT_TTL_SECS: u32 = 300;
 const DNS_PORT: u16 = 53;
+const DHCP_POLL_ENABLED: bool = false;
 
 const DHCP_OPT_IP_LEASE_TIME: u8 = 51;
 const DHCP_OPT_RENEWAL_TIME: u8 = 58;
 const DHCP_OPT_REBIND_TIME: u8 = 59;
 
 static NET_STATE: Mutex<Option<NetState>> = Mutex::new(None);
+static DHCP_DEFERRED_LOGGED: AtomicBool = AtomicBool::new(false);
 
 pub fn init() {
     let mut state = NET_STATE.lock();
@@ -93,10 +96,17 @@ pub fn init() {
         lease_times: LeaseTimes::default(),
     });
 
-    serial::write_line("virtio-net initialised; awaiting DHCP lease");
+    serial::write_line("virtio-net initialised; DHCP poll deferred");
 }
 
 pub fn poll() {
+    if !DHCP_POLL_ENABLED {
+        if !DHCP_DEFERRED_LOGGED.swap(true, Ordering::Relaxed) {
+            serial::write_line("virtio-net DHCP poll deferred; hardware path ready");
+        }
+        return;
+    }
+
     let now_ms = now_ms();
     let instant = Instant::from_millis(now_ms.min(i64::MAX as u64) as i64);
 
@@ -130,6 +140,10 @@ pub fn ui_snapshot() -> Option<NetUiSnapshot> {
         ip: state.config.ip,
         gateway: state.config.gateway,
     })
+}
+
+pub fn dhcp_poll_enabled() -> bool {
+    DHCP_POLL_ENABLED
 }
 
 #[derive(Clone, Copy)]
@@ -556,7 +570,9 @@ impl TxToken for VirtioTxToken {
     {
         if let (Some(handle), Some(buffer)) = (self.handle.take(), self.buffer.take()) {
             let actual_len = cmp::min(len, buffer.len());
-            let result = f(&mut buffer[..actual_len]);
+            let mut scratch = vec![0u8; actual_len];
+            let result = f(&mut scratch[..]);
+            buffer[..actual_len].copy_from_slice(&scratch[..]);
             if !virtio::net::submit_tx_packet(handle, actual_len) {
                 virtio::net::release_tx_packet(handle);
                 serial::write_line("virtio-net: submit failed; frame dropped");

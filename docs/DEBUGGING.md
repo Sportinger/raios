@@ -169,8 +169,10 @@ For the live status UI, useful lines now include:
 
 ```text
 status FRAMEBUFFER: READY - 1280x800 PITCH 5120
-status ENTROPY: WAITING - FILL 0/64 TOTAL 0 SRC NONE
-status VIRTIO-RNG: DEGRADED - ATTACHED, WAITING FOR DATA
+status ENTROPY: READY - FILL 64/64 TOTAL 64 SRC VIRTIO-RNG
+status VIRTIO-RNG: READY - ATTACHED AS ENTROPY SOURCE
+virtio-net legacy transport @ 0x6080, mac 52:54:00:12:34:56, rx_q=256, tx_q=256
+virtio-net DHCP poll deferred; hardware path ready
 ```
 
 ### Workspace tests try to build the kernel target

@@ -239,7 +239,11 @@ fn virtio_net_line(runtime: RuntimeStatus) -> StatusLine {
         return StatusLine::new(
             "VIRTIO-NET",
             RowState::Waiting,
-            detail(format_args!("MAC {} AWAITING DHCP", Mac(config.mac))),
+            if net::dhcp_poll_enabled() {
+                detail(format_args!("MAC {} AWAITING DHCP", Mac(config.mac)))
+            } else {
+                detail(format_args!("MAC {} DHCP DEFERRED", Mac(config.mac)))
+            },
         );
     }
 

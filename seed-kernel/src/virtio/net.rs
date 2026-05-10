@@ -11,6 +11,7 @@ use core::sync::atomic::{fence, AtomicU16, Ordering};
 
 use spin::Mutex;
 
+use crate::memory;
 use crate::pci::{self, PciAddress};
 use crate::serial;
 
@@ -42,8 +43,10 @@ const RX_BUFFER_COUNT: usize = 32;
 const RX_BUFFER_LEN: usize = 2048;
 const TX_BUFFER_COUNT: usize = 16;
 const TX_BUFFER_LEN: usize = 2048;
+const QUEUE_ALIGN: usize = 4096;
+const NET_HDR_LEN: usize = 10;
 
-pub const MAX_FRAME_SIZE: usize = TX_BUFFER_LEN;
+pub const MAX_FRAME_SIZE: usize = TX_BUFFER_LEN - NET_HDR_LEN;
 const VIRTQ_DESC_F_WRITE: u16 = 1 << 1;
 
 const QUEUE_CAPACITY: usize = 256;
@@ -75,14 +78,14 @@ pub struct TxPacket {
 }
 
 struct TxState {
-    free: [bool; TX_BUFFER_COUNT],
+    free_mask: u16,
     usable: usize,
 }
 
 impl TxState {
     const fn new() -> Self {
         Self {
-            free: [true; TX_BUFFER_COUNT],
+            free_mask: 0,
             usable: 0,
         }
     }
@@ -90,17 +93,18 @@ impl TxState {
     fn reset(&mut self, usable: usize) {
         let capped = cmp::min(usable, TX_BUFFER_COUNT);
         self.usable = capped;
-        let mut i = 0;
-        while i < TX_BUFFER_COUNT {
-            self.free[i] = i < capped;
-            i += 1;
-        }
+        self.free_mask = if capped == TX_BUFFER_COUNT {
+            u16::MAX >> (u16::BITS as usize - TX_BUFFER_COUNT)
+        } else {
+            (1u16 << capped) - 1
+        };
     }
 
     fn acquire(&mut self) -> Option<u16> {
         for i in 0..self.usable {
-            if self.free[i] {
-                self.free[i] = false;
+            let bit = 1u16 << i;
+            if self.free_mask & bit != 0 {
+                self.free_mask &= !bit;
                 return Some(i as u16);
             }
         }
@@ -110,7 +114,7 @@ impl TxState {
     fn release(&mut self, idx: u16) {
         let index = idx as usize;
         if index < self.usable {
-            self.free[index] = true;
+            self.free_mask |= 1u16 << index;
         }
     }
 }
@@ -147,57 +151,35 @@ struct VirtqUsed {
     avail_event: u16,
 }
 
-#[repr(align(4096))]
-struct QueueStorage {
-    desc: [VirtqDesc; QUEUE_CAPACITY],
-    avail: VirtqAvail,
-    used_padding: [u8; 4096],
-    used: VirtqUsed,
+const fn align_up(value: usize, align: usize) -> usize {
+    (value + align - 1) & !(align - 1)
 }
 
-static mut RX_QUEUE_STORAGE: QueueStorage = QueueStorage {
-    desc: [VirtqDesc {
-        addr: 0,
-        len: 0,
-        flags: 0,
-        next: 0,
-    }; QUEUE_CAPACITY],
-    avail: VirtqAvail {
-        flags: 0,
-        idx: 0,
-        ring: [0; QUEUE_CAPACITY],
-        used_event: 0,
-    },
-    used_padding: [0; 4096],
-    used: VirtqUsed {
-        flags: 0,
-        idx: 0,
-        ring: [VirtqUsedElem { id: 0, len: 0 }; QUEUE_CAPACITY],
-        avail_event: 0,
-    },
-};
+const fn desc_table_bytes(queue_size: u16) -> usize {
+    mem::size_of::<VirtqDesc>() * queue_size as usize
+}
 
-static mut TX_QUEUE_STORAGE: QueueStorage = QueueStorage {
-    desc: [VirtqDesc {
-        addr: 0,
-        len: 0,
-        flags: 0,
-        next: 0,
-    }; QUEUE_CAPACITY],
-    avail: VirtqAvail {
-        flags: 0,
-        idx: 0,
-        ring: [0; QUEUE_CAPACITY],
-        used_event: 0,
-    },
-    used_padding: [0; 4096],
-    used: VirtqUsed {
-        flags: 0,
-        idx: 0,
-        ring: [VirtqUsedElem { id: 0, len: 0 }; QUEUE_CAPACITY],
-        avail_event: 0,
-    },
-};
+const fn avail_bytes(queue_size: u16) -> usize {
+    2 + 2 + (2 * queue_size as usize) + 2
+}
+
+const fn used_offset(queue_size: u16) -> usize {
+    align_up(
+        desc_table_bytes(queue_size) + avail_bytes(queue_size),
+        QUEUE_ALIGN,
+    )
+}
+
+const MAX_DESC_TABLE_BYTES: usize = mem::size_of::<[VirtqDesc; QUEUE_CAPACITY]>();
+const MAX_AVAIL_BYTES: usize = mem::size_of::<VirtqAvail>();
+const USED_OFFSET: usize = align_up(MAX_DESC_TABLE_BYTES + MAX_AVAIL_BYTES, QUEUE_ALIGN);
+const QUEUE_BYTES: usize = USED_OFFSET + mem::size_of::<VirtqUsed>();
+
+#[repr(align(4096))]
+struct QueueStorage([u8; QUEUE_BYTES]);
+
+static mut RX_QUEUE_STORAGE: QueueStorage = QueueStorage([0; QUEUE_BYTES]);
+static mut TX_QUEUE_STORAGE: QueueStorage = QueueStorage([0; QUEUE_BYTES]);
 
 static mut RX_BUFFERS: [[u8; RX_BUFFER_LEN]; RX_BUFFER_COUNT] =
     [[0; RX_BUFFER_LEN]; RX_BUFFER_COUNT];
@@ -251,7 +233,9 @@ pub fn pop_rx_packet() -> Option<RxPacket> {
 }
 
 pub fn rx_packet_buffer(packet: &RxPacket) -> &'static mut [u8] {
-    unsafe { &mut RX_BUFFERS[packet.desc_idx as usize][..packet.len] }
+    let len = packet.len.saturating_sub(NET_HDR_LEN);
+    let frame_len = cmp::min(len, RX_BUFFER_LEN - NET_HDR_LEN);
+    unsafe { &mut RX_BUFFERS[packet.desc_idx as usize][NET_HDR_LEN..NET_HDR_LEN + frame_len] }
 }
 
 pub fn recycle_rx_packet(packet: RxPacket) {
@@ -273,7 +257,8 @@ pub fn alloc_tx_packet() -> Option<(TxPacket, &'static mut [u8])> {
         state.acquire()?
     };
     let buffer = unsafe { &mut TX_BUFFERS[desc_idx as usize] };
-    Some((TxPacket { desc_idx }, &mut buffer[..]))
+    buffer[..NET_HDR_LEN].fill(0);
+    Some((TxPacket { desc_idx }, &mut buffer[NET_HDR_LEN..]))
 }
 
 pub fn submit_tx_packet(packet: TxPacket, len: usize) -> bool {
@@ -281,18 +266,22 @@ pub fn submit_tx_packet(packet: TxPacket, len: usize) -> bool {
     if base == 0 {
         return false;
     }
-    if len > TX_BUFFER_LEN {
+    let queue_size = TX_QUEUE_SIZE.load(Ordering::Relaxed);
+    if queue_size == 0 {
+        return false;
+    }
+    if len > MAX_FRAME_SIZE {
         serial::write_line("virtio-net TX frame larger than buffer");
         return false;
     }
 
     unsafe {
-        let desc = &mut TX_QUEUE_STORAGE.desc[packet.desc_idx as usize];
-        desc.len = len as u32;
+        let (desc_table, avail, _) = queue_parts(&mut TX_QUEUE_STORAGE, queue_size);
+        let desc = &mut desc_table[packet.desc_idx as usize];
+        desc.len = (len + NET_HDR_LEN) as u32;
         desc.flags = 0;
         desc.next = 0;
-        let avail = &mut TX_QUEUE_STORAGE.avail;
-        let slot = (avail.idx % QUEUE_CAPACITY as u16) as usize;
+        let slot = (avail.idx % queue_size) as usize;
         avail.ring[slot] = packet.desc_idx;
         fence(Ordering::Release);
         avail.idx = avail.idx.wrapping_add(1);
@@ -309,8 +298,13 @@ pub fn release_tx_packet(packet: TxPacket) {
         state.release(packet.desc_idx);
     }
     if base != 0 {
+        let queue_size = TX_QUEUE_SIZE.load(Ordering::Relaxed);
+        if queue_size == 0 {
+            return;
+        }
         unsafe {
-            TX_QUEUE_STORAGE.desc[packet.desc_idx as usize].len = 0;
+            let (desc, _, _) = queue_parts(&mut TX_QUEUE_STORAGE, queue_size);
+            desc[packet.desc_idx as usize].len = 0;
         }
     }
 }
@@ -355,13 +349,6 @@ fn configure_legacy(address: PciAddress) -> Option<VirtioNet> {
     let rx_queue_size = unsafe { setup_rx_queue(io_base)? };
     let tx_queue_size = unsafe { setup_tx_queue(io_base)? };
 
-    unsafe {
-        write_status(
-            io_base,
-            STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_FEATURES_OK | STATUS_DRIVER_OK,
-        );
-    }
-
     let mac_low = read_io_u32(io_base, NET_REG_MAC_LOW) as u64;
     let mac_high = read_io_u32(io_base, NET_REG_MAC_HIGH) as u64;
     let mac = [
@@ -383,6 +370,14 @@ fn configure_legacy(address: PciAddress) -> Option<VirtioNet> {
         let mut state = TX_STATE.lock();
         state.reset(tx_queue_size as usize);
     }
+
+    unsafe {
+        write_status(
+            io_base,
+            STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_FEATURES_OK | STATUS_DRIVER_OK,
+        );
+    }
+    notify_queue(io_base, RX_QUEUE_INDEX);
 
     serial::write_fmt(format_args!(
         "virtio-net legacy transport @ 0x{:x}, mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, rx_q={}, tx_q={}\r\n",
@@ -409,14 +404,18 @@ fn configure_legacy(address: PciAddress) -> Option<VirtioNet> {
 }
 
 fn poll_rx(base: u16) {
+    let queue_size = RX_QUEUE_SIZE.load(Ordering::Relaxed);
+    if queue_size == 0 {
+        return;
+    }
     unsafe {
-        let used = &RX_QUEUE_STORAGE.used;
+        let (_, _, used) = queue_parts(&mut RX_QUEUE_STORAGE, queue_size);
         let mut last = RX_QUEUE_LAST_USED.load(Ordering::Acquire);
         let current = used.idx;
         if last != current {
             let mut queue = RX_READY.lock();
             while last != current {
-                let slot = (last % QUEUE_CAPACITY as u16) as usize;
+                let slot = (last % queue_size) as usize;
                 let elem = used.ring[slot];
                 let desc_idx = elem.id as u16;
                 let len = elem.len as usize;
@@ -430,19 +429,23 @@ fn poll_rx(base: u16) {
 }
 
 fn process_tx_used(base: u16) {
+    let queue_size = TX_QUEUE_SIZE.load(Ordering::Relaxed);
+    if queue_size == 0 {
+        return;
+    }
     unsafe {
-        let used = &TX_QUEUE_STORAGE.used;
+        let (desc, _, used) = queue_parts(&mut TX_QUEUE_STORAGE, queue_size);
         let mut last = TX_QUEUE_LAST_USED.load(Ordering::Acquire);
         let current = used.idx;
         while last != current {
-            let slot = (last % QUEUE_CAPACITY as u16) as usize;
+            let slot = (last % queue_size) as usize;
             let elem = used.ring[slot];
             let desc_idx = elem.id as u16;
             {
                 let mut state = TX_STATE.lock();
                 state.release(desc_idx);
             }
-            TX_QUEUE_STORAGE.desc[desc_idx as usize].len = 0;
+            desc[desc_idx as usize].len = 0;
             last = last.wrapping_add(1);
             let _ = read_isr_status(base);
         }
@@ -464,16 +467,16 @@ unsafe fn setup_rx_queue(base: u16) -> Option<u16> {
         ));
         queue_size = QUEUE_CAPACITY as u16;
     }
-
     zero_queue_storage(&mut RX_QUEUE_STORAGE);
-    write_queue_address(base, queue_storage_phys(&RX_QUEUE_STORAGE) >> 12);
+    let queue_phys = queue_storage_phys(&RX_QUEUE_STORAGE)?;
+    let queue_pfn = legacy_queue_pfn(queue_phys, "virtio-net RX queue")?;
+    write_queue_address(base, queue_pfn);
 
-    let desc = &mut RX_QUEUE_STORAGE.desc;
-    let avail = &mut RX_QUEUE_STORAGE.avail;
+    let (desc, avail, _) = queue_parts(&mut RX_QUEUE_STORAGE, queue_size);
     avail.idx = 0;
     let buffers = cmp::min(queue_size as usize, RX_BUFFER_COUNT);
     for i in 0..buffers {
-        desc[i].addr = RX_BUFFERS[i].as_mut_ptr() as u64;
+        desc[i].addr = dma_addr(RX_BUFFERS[i].as_mut_ptr(), "virtio-net RX buffer")?;
         desc[i].len = RX_BUFFER_LEN as u32;
         desc[i].flags = VIRTQ_DESC_F_WRITE;
         desc[i].next = 0;
@@ -481,7 +484,6 @@ unsafe fn setup_rx_queue(base: u16) -> Option<u16> {
         avail.idx = avail.idx.wrapping_add(1);
     }
     fence(Ordering::Release);
-    notify_queue(base, RX_QUEUE_INDEX);
     Some(queue_size)
 }
 
@@ -499,14 +501,15 @@ unsafe fn setup_tx_queue(base: u16) -> Option<u16> {
         ));
         queue_size = QUEUE_CAPACITY as u16;
     }
-
     zero_queue_storage(&mut TX_QUEUE_STORAGE);
-    write_queue_address(base, queue_storage_phys(&TX_QUEUE_STORAGE) >> 12);
+    let queue_phys = queue_storage_phys(&TX_QUEUE_STORAGE)?;
+    let queue_pfn = legacy_queue_pfn(queue_phys, "virtio-net TX queue")?;
+    write_queue_address(base, queue_pfn);
 
-    let desc = &mut TX_QUEUE_STORAGE.desc;
+    let (desc, _, _) = queue_parts(&mut TX_QUEUE_STORAGE, queue_size);
     let limit = cmp::min(queue_size as usize, TX_BUFFER_COUNT);
     for i in 0..limit {
-        desc[i].addr = TX_BUFFERS[i].as_mut_ptr() as u64;
+        desc[i].addr = dma_addr(TX_BUFFERS[i].as_mut_ptr(), "virtio-net TX buffer")?;
         desc[i].len = 0;
         desc[i].flags = 0;
         desc[i].next = 0;
@@ -515,12 +518,16 @@ unsafe fn setup_tx_queue(base: u16) -> Option<u16> {
 }
 
 fn recycle_rx_descriptor(base: u16, desc_idx: u16) {
+    let queue_size = RX_QUEUE_SIZE.load(Ordering::Relaxed);
+    if queue_size == 0 {
+        return;
+    }
     unsafe {
-        let desc = &mut RX_QUEUE_STORAGE.desc[desc_idx as usize];
+        let (desc_table, avail, _) = queue_parts(&mut RX_QUEUE_STORAGE, queue_size);
+        let desc = &mut desc_table[desc_idx as usize];
         desc.len = RX_BUFFER_LEN as u32;
         desc.flags = VIRTQ_DESC_F_WRITE;
-        let avail = &mut RX_QUEUE_STORAGE.avail;
-        let slot = (avail.idx % QUEUE_CAPACITY as u16) as usize;
+        let slot = (avail.idx % queue_size) as usize;
         avail.ring[slot] = desc_idx;
         fence(Ordering::Release);
         avail.idx = avail.idx.wrapping_add(1);
@@ -565,15 +572,46 @@ unsafe fn read_isr_status(base: u16) -> u8 {
 }
 
 unsafe fn zero_queue_storage(storage: &mut QueueStorage) {
-    ptr::write_bytes(
-        storage as *mut QueueStorage as *mut u8,
-        0,
-        mem::size_of::<QueueStorage>(),
-    );
+    ptr::write_bytes(storage.0.as_mut_ptr(), 0, QUEUE_BYTES);
 }
 
-unsafe fn queue_storage_phys(storage: &QueueStorage) -> u64 {
-    storage as *const QueueStorage as u64
+unsafe fn queue_storage_phys(storage: &QueueStorage) -> Option<u64> {
+    memory::virt_to_phys(storage.0.as_ptr())
+}
+
+unsafe fn queue_parts(
+    storage: &mut QueueStorage,
+    queue_size: u16,
+) -> (
+    &mut [VirtqDesc; QUEUE_CAPACITY],
+    &mut VirtqAvail,
+    &mut VirtqUsed,
+) {
+    let base = storage.0.as_mut_ptr();
+    let desc = &mut *(base.cast::<[VirtqDesc; QUEUE_CAPACITY]>());
+    let avail = &mut *(base.add(desc_table_bytes(queue_size)).cast::<VirtqAvail>());
+    let used = &mut *(base.add(used_offset(queue_size)).cast::<VirtqUsed>());
+    (desc, avail, used)
+}
+
+fn dma_addr<T>(ptr: *const T, label: &'static str) -> Option<u64> {
+    let Some(phys) = memory::virt_to_phys(ptr) else {
+        serial::write_fmt(format_args!("{} address is not translatable\r\n", label));
+        return None;
+    };
+    Some(phys)
+}
+
+fn legacy_queue_pfn(phys: u64, label: &'static str) -> Option<u64> {
+    let pfn = phys >> 12;
+    if pfn > u32::MAX as u64 {
+        serial::write_fmt(format_args!(
+            "{} physical address 0x{:x} is above legacy PFN range\r\n",
+            label, phys
+        ));
+        return None;
+    }
+    Some(pfn)
 }
 
 unsafe fn outb(port: u16, value: u8) {

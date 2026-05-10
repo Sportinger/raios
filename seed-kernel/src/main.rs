@@ -9,7 +9,10 @@ use core::arch::asm;
 use core::hint::spin_loop;
 use core::panic::PanicInfo;
 use core::ptr;
-use limine::request::{FramebufferRequest, RequestsEndMarker, RequestsStartMarker};
+use limine::request::{
+    ExecutableAddressRequest, FramebufferRequest, RequestsEndMarker, RequestsStartMarker,
+    StackSizeRequest,
+};
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
 
@@ -17,6 +20,7 @@ mod console;
 mod entropy;
 mod framebuffer;
 mod input;
+mod memory;
 mod net;
 mod pci;
 mod scheduler;
@@ -33,6 +37,14 @@ static LIMINE_REQUESTS_START: RequestsStartMarker = RequestsStartMarker::new();
 #[used]
 #[link_section = ".limine_requests"]
 static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
+
+#[used]
+#[link_section = ".limine_requests"]
+static KERNEL_ADDRESS_REQUEST: ExecutableAddressRequest = ExecutableAddressRequest::new();
+
+#[used]
+#[link_section = ".limine_requests"]
+static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(1024 * 1024);
 
 #[used]
 #[link_section = ".limine_requests"]
@@ -89,6 +101,7 @@ fn early_main() -> ! {
     if !BASE_REVISION.is_supported() {
         serial::write_line("Limine base revision request was not satisfied");
     }
+    memory::init(KERNEL_ADDRESS_REQUEST.get_response());
 
     let framebuffer_surface = init_framebuffer();
     if let Some(surface) = framebuffer_surface.as_ref() {

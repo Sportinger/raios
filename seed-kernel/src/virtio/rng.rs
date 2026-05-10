@@ -6,6 +6,7 @@ use core::sync::atomic::{fence, Ordering};
 
 use spin::Mutex;
 
+use crate::memory;
 use crate::pci::{self, PciAddress};
 use crate::serial;
 
@@ -29,6 +30,7 @@ const VIRTQ_DESC_F_WRITE: u16 = 1 << 1;
 const LEGACY_QUEUE_INDEX: u16 = 0;
 const QUEUE_CAPACITY: usize = 64;
 const QUEUE_ALIGN: usize = 4096;
+const DMA_BUFFER_LEN: usize = 256;
 const FILL_SPIN_LIMIT: usize = 1_000_000;
 
 #[derive(Debug, Clone, Copy)]
@@ -81,16 +83,17 @@ struct VirtqUsed {
     avail_event: u16,
 }
 
-const DESC_TABLE_BYTES: usize = size_of::<[VirtqDesc; QUEUE_CAPACITY]>();
-const AVAIL_BYTES: usize = size_of::<VirtqAvail>();
 const USED_BYTES: usize = size_of::<VirtqUsed>();
-const USED_OFFSET: usize = align_up(DESC_TABLE_BYTES + AVAIL_BYTES, QUEUE_ALIGN);
+const MAX_DESC_TABLE_BYTES: usize = size_of::<[VirtqDesc; QUEUE_CAPACITY]>();
+const MAX_AVAIL_BYTES: usize = size_of::<VirtqAvail>();
+const USED_OFFSET: usize = align_up(MAX_DESC_TABLE_BYTES + MAX_AVAIL_BYTES, QUEUE_ALIGN);
 const QUEUE_BYTES: usize = USED_OFFSET + USED_BYTES;
 
 #[repr(align(4096))]
 struct QueueStorage([u8; QUEUE_BYTES]);
 
 static mut QUEUE_STORAGE: QueueStorage = QueueStorage([0; QUEUE_BYTES]);
+static mut DMA_BUFFER: [u8; DMA_BUFFER_LEN] = [0; DMA_BUFFER_LEN];
 static QUEUE_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn probe() -> Option<VirtioRng> {
@@ -134,10 +137,6 @@ impl VirtioRng {
                 ));
             }
             write_driver_features(io_base, 0);
-            write_status(
-                io_base,
-                STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK,
-            );
             write_queue_select(io_base, LEGACY_QUEUE_INDEX);
         }
 
@@ -148,9 +147,16 @@ impl VirtioRng {
         }
         let queue_size = cmp::min(raw_queue_size, QUEUE_CAPACITY as u16);
 
+        let queue_phys = unsafe { queue_storage_phys() }?;
+        let queue_pfn = legacy_queue_pfn(queue_phys, "virtio-rng queue")?;
+
         unsafe {
             zero_queue_storage();
-            write_queue_address(io_base, queue_storage_phys() >> 12);
+            write_queue_address(io_base, queue_pfn);
+            write_status(
+                io_base,
+                STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK,
+            );
         }
 
         serial::write_fmt(format_args!(
@@ -174,10 +180,20 @@ impl VirtioRng {
         }
 
         let _guard = QUEUE_LOCK.lock();
-        let (descs, avail, used) = unsafe { queue_parts() };
+        let (descs, avail, used) = unsafe { queue_parts(self.queue_size) };
+        let request_len = cmp::min(buffer.len(), DMA_BUFFER_LEN);
+        let Some(dma_addr) = dma_buffer_phys() else {
+            self.timed_out = true;
+            serial::write_line("virtio-rng DMA buffer address is not translatable");
+            return 0;
+        };
 
-        descs[0].addr = buffer.as_mut_ptr() as u64;
-        descs[0].len = buffer.len() as u32;
+        unsafe {
+            ptr::write_bytes(dma_buffer_ptr(), 0, request_len);
+        }
+
+        descs[0].addr = dma_addr;
+        descs[0].len = request_len as u32;
         descs[0].flags = VIRTQ_DESC_F_WRITE;
         descs[0].next = 0;
 
@@ -198,7 +214,11 @@ impl VirtioRng {
                 let elem = used.ring[used_slot];
                 self.last_used_idx = self.last_used_idx.wrapping_add(1);
                 let _ = unsafe { read_isr_status(self.io_base) };
-                return cmp::min(elem.len as usize, buffer.len());
+                let actual = cmp::min(elem.len as usize, request_len);
+                unsafe {
+                    ptr::copy_nonoverlapping(dma_buffer_ptr(), buffer.as_mut_ptr(), actual);
+                }
+                return actual;
             }
             if spins >= FILL_SPIN_LIMIT {
                 self.timed_out = true;
@@ -212,18 +232,35 @@ impl VirtioRng {
 }
 
 #[allow(static_mut_refs)]
-unsafe fn queue_parts() -> (
+unsafe fn queue_parts(
+    queue_size: u16,
+) -> (
     &'static mut [VirtqDesc; QUEUE_CAPACITY],
     &'static mut VirtqAvail,
     &'static mut VirtqUsed,
 ) {
     let base = QUEUE_STORAGE.0.as_mut_ptr();
     let desc = &mut *(base.cast::<[VirtqDesc; QUEUE_CAPACITY]>());
-    let avail_ptr = base.add(DESC_TABLE_BYTES).cast::<VirtqAvail>();
+    let avail_ptr = base.add(desc_table_bytes(queue_size)).cast::<VirtqAvail>();
     let avail = &mut *avail_ptr;
-    let used_ptr = base.add(USED_OFFSET).cast::<VirtqUsed>();
+    let used_ptr = base.add(used_offset(queue_size)).cast::<VirtqUsed>();
     let used = &mut *used_ptr;
     (desc, avail, used)
+}
+
+const fn desc_table_bytes(queue_size: u16) -> usize {
+    size_of::<VirtqDesc>() * queue_size as usize
+}
+
+const fn avail_bytes(queue_size: u16) -> usize {
+    2 + 2 + (2 * queue_size as usize) + 2
+}
+
+const fn used_offset(queue_size: u16) -> usize {
+    align_up(
+        desc_table_bytes(queue_size) + avail_bytes(queue_size),
+        QUEUE_ALIGN,
+    )
 }
 
 #[allow(static_mut_refs)]
@@ -232,9 +269,29 @@ unsafe fn zero_queue_storage() {
 }
 
 #[allow(static_mut_refs)]
-unsafe fn queue_storage_phys() -> u64 {
-    // Kernel is identity mapped at boot; revisit when higher-half move happens.
-    QUEUE_STORAGE.0.as_ptr() as u64
+unsafe fn queue_storage_phys() -> Option<u64> {
+    memory::virt_to_phys(QUEUE_STORAGE.0.as_ptr())
+}
+
+#[allow(static_mut_refs)]
+fn dma_buffer_phys() -> Option<u64> {
+    memory::virt_to_phys(ptr::addr_of!(DMA_BUFFER).cast::<u8>())
+}
+
+unsafe fn dma_buffer_ptr() -> *mut u8 {
+    ptr::addr_of_mut!(DMA_BUFFER).cast::<u8>()
+}
+
+fn legacy_queue_pfn(phys: u64, label: &'static str) -> Option<u64> {
+    let pfn = phys >> 12;
+    if pfn > u32::MAX as u64 {
+        serial::write_fmt(format_args!(
+            "{} physical address 0x{:x} is above legacy PFN range\r\n",
+            label, phys
+        ));
+        return None;
+    }
+    Some(pfn)
 }
 
 unsafe fn write_status(io_base: u16, value: u8) {

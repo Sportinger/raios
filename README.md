@@ -37,7 +37,8 @@ release/seedos-stage0.img
 
 It has been visually verified in QEMU on Windows. It boots through Limine, reaches
 the Rust kernel, negotiates a framebuffer, draws a live Stage-0 status UI, and
-detects virtio-rng.
+uses virtio-rng to seed entropy. It also brings up the legacy virtio-net device
+far enough to show the MAC address; DHCP polling is currently deferred.
 
 Expected first screen:
 
@@ -45,10 +46,10 @@ Expected first screen:
 SEEDOS STAGE-0
 AGENT HOST: LIVE STATUS
 FRAMEBUFFER  READY
-ENTROPY      WAITING
-VIRTIO-RNG   DEGRADED
+ENTROPY      READY
+VIRTIO-RNG   READY
 VIRTIO-NET   WAITING
-INPUT        WAITING
+INPUT        MISSING
 ```
 
 ## Windows Quick Commands

@@ -5,6 +5,7 @@ use core::sync::atomic::{fence, AtomicU16, Ordering};
 
 use spin::Mutex;
 
+use crate::memory;
 use crate::pci::{self, PciAddress};
 use crate::serial;
 
@@ -154,6 +155,14 @@ pub fn probe() {
         return;
     };
 
+    if !mmio_transport_enabled() {
+        serial::write_fmt(format_args!(
+            "virtio-input: modern device @ {} detected; MMIO transport deferred\r\n",
+            address
+        ));
+        return;
+    }
+
     match unsafe { init_device(address) } {
         Ok(device) => {
             serial::write_fmt(format_args!(
@@ -302,7 +311,7 @@ unsafe fn setup_event_queue(common_cfg: *mut VirtioPciCommonCfg) -> Result<u16, 
         return Err("virtio-input: queue smaller than expected");
     }
 
-    initialise_event_storage();
+    initialise_event_storage()?;
 
     core::ptr::write_volatile(addr_of_mut!((*common_cfg).queue_msix_vector), 0xFFFF);
     core::ptr::write_volatile(
@@ -311,15 +320,21 @@ unsafe fn setup_event_queue(common_cfg: *mut VirtioPciCommonCfg) -> Result<u16, 
     );
     core::ptr::write_volatile(
         addr_of_mut!((*common_cfg).queue_desc),
-        addr_of!(EVENT_QUEUE_STORAGE.desc) as u64,
+        dma_addr(
+            addr_of!(EVENT_QUEUE_STORAGE.desc),
+            "virtio-input desc table",
+        )?,
     );
     core::ptr::write_volatile(
         addr_of_mut!((*common_cfg).queue_avail),
-        addr_of!(EVENT_QUEUE_STORAGE.avail) as u64,
+        dma_addr(
+            addr_of!(EVENT_QUEUE_STORAGE.avail),
+            "virtio-input avail ring",
+        )?,
     );
     core::ptr::write_volatile(
         addr_of_mut!((*common_cfg).queue_used),
-        addr_of!(EVENT_QUEUE_STORAGE.used) as u64,
+        dma_addr(addr_of!(EVENT_QUEUE_STORAGE.used), "virtio-input used ring")?,
     );
     core::ptr::write_volatile(addr_of_mut!((*common_cfg).queue_enable), 1);
 
@@ -328,10 +343,13 @@ unsafe fn setup_event_queue(common_cfg: *mut VirtioPciCommonCfg) -> Result<u16, 
 }
 
 #[allow(static_mut_refs)]
-unsafe fn initialise_event_storage() {
+unsafe fn initialise_event_storage() -> Result<(), &'static str> {
     let storage = &mut EVENT_QUEUE_STORAGE;
     for (index, desc) in storage.desc.iter_mut().enumerate().take(EVENT_QUEUE_SIZE) {
-        desc.addr = addr_of!(EVENT_BUFFERS[index][0]) as u64;
+        desc.addr = dma_addr(
+            addr_of!(EVENT_BUFFERS[index][0]),
+            "virtio-input event buffer",
+        )?;
         desc.len = EVENT_BUFFER_LEN as u32;
         desc.flags = VIRTQ_DESC_F_WRITE;
         desc.next = 0;
@@ -339,6 +357,7 @@ unsafe fn initialise_event_storage() {
     }
     storage.avail.idx = EVENT_QUEUE_SIZE as u16;
     EVENT_QUEUE_LAST_USED.store(0, Ordering::Relaxed);
+    Ok(())
 }
 
 #[allow(static_mut_refs)]
@@ -380,6 +399,10 @@ unsafe fn write_driver_features(common_cfg: *mut VirtioPciCommonCfg, features: u
         addr_of_mut!((*common_cfg).driver_feature),
         (features >> 32) as u32,
     );
+}
+
+fn dma_addr<T>(ptr: *const T, label: &'static str) -> Result<u64, &'static str> {
+    memory::virt_to_phys(ptr).ok_or(label)
 }
 
 struct VirtioCapabilitySet {
@@ -489,4 +512,8 @@ unsafe fn read_bar(address: PciAddress, bar_index: u8) -> Result<u64, &'static s
 
 pub fn device_present() -> bool {
     DEVICE.lock().is_some()
+}
+
+fn mmio_transport_enabled() -> bool {
+    false
 }
