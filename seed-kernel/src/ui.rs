@@ -281,7 +281,7 @@ fn input_line(runtime: RuntimeStatus) -> StatusLine {
         return StatusLine::new(
             "INPUT",
             RowState::Ready,
-            detail(format_args!("VIRTIO INPUT QUEUE ACTIVE")),
+            detail(format_args!("{}", input::device_detail())),
         );
     }
 

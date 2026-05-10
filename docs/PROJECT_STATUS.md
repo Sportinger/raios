@@ -119,6 +119,8 @@ Evolve the first host bridge/protocol path:
   smoltcp, and shows IP/gateway state in the framebuffer UI and serial console.
 - modern virtio-input now uses explicit kernel MMIO mappings, queues keyboard
   events, and feeds a minimal US keymap into the same command console as serial.
+- a PS/2/i8042 polling fallback is present for first bare-metal keyboard tests
+  on machines that expose legacy keyboard compatibility.
 - a tiny serial host bridge now accepts `ask <text>`, emits
   `SEEDOS_BRIDGE_REQ`, receives an STX-framed `SEEDOS_BRIDGE_RESP`, and renders
   the answer in the VM console.
@@ -140,6 +142,10 @@ Evolve the first host bridge/protocol path:
 - Network failure/timeout states and packet counters are still minimal.
 - Keyboard input uses a minimal US/Linux keycode mapping; no layout selection,
   modifier completeness, or text editing beyond Backspace exists yet.
+- Bare-metal support is experimental. USB xHCI/HID and real NIC drivers do not
+  exist yet, so real hardware may boot to the UI but lack input/network.
+- Bare-metal USB preparation scripts exist, but writing a USB disk is destructive
+  and must be done with an explicit disk number and confirmation string.
 - The host bridge is a development echo responder only; it is not a provider
   adapter and does not carry auth, tools, or policy yet.
 - Provider selection and API key entry exist in the VM, but the key is RAM-only,

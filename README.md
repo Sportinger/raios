@@ -119,6 +119,15 @@ Run the OpenAI host-bridge smoke test:
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-bridge-smoke.ps1
 ```
 
+Prepare for bare-metal USB testing:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\list-usb-disks.ps1
+```
+
+See `docs/BARE_METAL.md` before writing a USB stick. The write script is
+destructive and requires an explicit disk number plus confirmation string.
+
 Run workspace tests:
 
 ```powershell

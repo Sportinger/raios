@@ -24,6 +24,7 @@ mod input;
 mod memory;
 mod net;
 mod pci;
+mod ps2;
 mod scheduler;
 mod serial;
 mod text;
@@ -140,6 +141,8 @@ fn early_main() -> ! {
         entropy::attach_virtio_rng(rng);
     }
     runtime_status.virtio_rng_probe_complete = true;
+    input::init();
+    runtime_status.input_probe_complete = true;
     status_ui.render(uptime_ms(), runtime_status);
 
     let entropy_ready = entropy::is_ready();
@@ -150,8 +153,6 @@ fn early_main() -> ! {
     if entropy_ready {
         net::init();
         runtime_status.virtio_net_probe_complete = true;
-        input::init();
-        runtime_status.input_probe_complete = true;
     } else {
         serial::write_line("virtio-net initialization deferred; waiting for entropy");
     }
@@ -198,7 +199,6 @@ struct PeriodicTasks {
     input: scheduler::PeriodicTask,
     ui: scheduler::PeriodicTask,
     entropy_ready: bool,
-    input_started: bool,
     net_started: bool,
 }
 
@@ -211,7 +211,6 @@ impl PeriodicTasks {
             input: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
             ui: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(250, tsc_per_ms)),
             entropy_ready,
-            input_started: entropy_ready,
             net_started: entropy_ready,
         }
     }
@@ -232,14 +231,12 @@ impl PeriodicTasks {
             serial::write_line("Entropy ready; starting virtio-net bring-up");
             net::init();
             runtime_status.virtio_net_probe_complete = true;
-            input::init();
-            runtime_status.input_probe_complete = true;
             self.entropy_ready = true;
             self.net_started = true;
-            self.input_started = true;
             status_ui.render(uptime_ms(), *runtime_status);
             return;
         }
+        self.input.try_run(now_tsc, || input::poll());
         if self.entropy_ready {
             if !self.net_started {
                 net::init();
@@ -247,13 +244,6 @@ impl PeriodicTasks {
                 self.net_started = true;
             }
             self.net.try_run(now_tsc, || net::poll());
-            if !self.input_started {
-                // ensure virtio-input probed once entropy and bus ready
-                input::init();
-                runtime_status.input_probe_complete = true;
-                self.input_started = true;
-            }
-            self.input.try_run(now_tsc, || input::poll());
         }
         self.ui.try_run(now_tsc, || {
             status_ui.render(uptime_ms(), *runtime_status);

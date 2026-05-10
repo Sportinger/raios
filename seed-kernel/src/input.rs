@@ -5,6 +5,7 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use spin::Once;
 
 use crate::entropy;
+use crate::ps2;
 use crate::serial;
 use crate::time;
 use crate::virtio;
@@ -18,30 +19,42 @@ static SHIFT_ACTIVE: AtomicBool = AtomicBool::new(false);
 pub fn init() {
     INIT_ONCE.call_once(|| {
         virtio::input::probe();
+        if !virtio::input::device_present() {
+            ps2::init_keyboard_polling();
+        }
     });
 }
 
 pub fn device_present() -> bool {
-    virtio::input::device_present()
+    virtio::input::device_present() || ps2::active()
+}
+
+pub fn device_detail() -> &'static str {
+    if virtio::input::device_present() {
+        "VIRTIO INPUT QUEUE ACTIVE"
+    } else if ps2::active() {
+        "PS/2 KEYBOARD POLLING"
+    } else {
+        "DEVICE ABSENT OR UNSUPPORTED"
+    }
 }
 
 pub fn poll() {
-    if !virtio::input::device_present() {
+    if virtio::input::device_present() {
+        poll_virtio();
         return;
     }
 
+    poll_ps2();
+}
+
+fn poll_virtio() {
     let raw_events = virtio::input::poll();
     if raw_events.is_empty() {
         return;
     }
 
-    let mut entropy_bytes = [0u8; 8];
-    entropy::take(&mut entropy_bytes);
-    let jitter = u64::from_le_bytes(entropy_bytes) & 0x3;
-
-    let tsc_per_ms = time::tsc_per_ms().max(1);
-    let now_tsc = time::rdtsc();
-    let ts_ms = now_tsc / tsc_per_ms + jitter;
+    let ts_ms = timestamp_ms();
 
     let mut inserted = 0usize;
 
@@ -59,6 +72,43 @@ pub fn poll() {
             inserted, ts_ms
         ));
     }
+}
+
+fn poll_ps2() {
+    if !ps2::active() {
+        return;
+    }
+
+    let ts_ms = timestamp_ms();
+    let mut inserted = 0usize;
+    ps2::poll(|code, pressed| {
+        RING.push(InputEvent {
+            ts_ms,
+            kind: InputEventKind::Key { code, pressed },
+        });
+        inserted += 1;
+    });
+
+    if inserted > 0 {
+        serial::write_fmt(format_args!(
+            "ps/2 input batch: {} events @ {} ms\r\n",
+            inserted, ts_ms
+        ));
+    }
+}
+
+fn timestamp_ms() -> u64 {
+    let tsc_per_ms = time::tsc_per_ms().max(1);
+    let now_tsc = time::rdtsc();
+    let jitter = if entropy::is_ready() {
+        let mut entropy_bytes = [0u8; 8];
+        entropy::take(&mut entropy_bytes);
+        u64::from_le_bytes(entropy_bytes) & 0x3
+    } else {
+        0
+    };
+
+    now_tsc / tsc_per_ms + jitter
 }
 
 #[allow(dead_code)]

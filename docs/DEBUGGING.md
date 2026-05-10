@@ -105,6 +105,24 @@ s.close()
 '@ | python -
 ```
 
+## Bare-Metal USB
+
+Bare-metal support is experimental. Start with `docs/BARE_METAL.md`.
+
+List removable USB disks:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\list-usb-disks.ps1
+```
+
+Write a SeedOS boot USB from an elevated Administrator PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\write-stage0-usb.ps1 -DiskNumber <N> -ConfirmErase "ERASE DISK <N>"
+```
+
+The write command erases the selected USB disk.
+
 ## Host Bridge
 
 Run the development bridge while QEMU is running in TCP serial mode:
