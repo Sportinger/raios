@@ -10,6 +10,7 @@ const TEXT_CAPACITY: usize = 96;
 const API_KEY_CAPACITY: usize = 256;
 const REQUEST_PREFIX: &str = "SEEDOS_BRIDGE_REQ";
 const RESPONSE_PREFIX: &str = "SEEDOS_BRIDGE_RESP ";
+const DEFAULT_OPENAI_API_KEY: Option<&str> = option_env!("SEEDOS_DEFAULT_OPENAI_API_KEY");
 
 static STATE: Mutex<BridgeState> = Mutex::new(BridgeState::new());
 
@@ -267,6 +268,19 @@ pub fn ingest_serial_byte(byte: u8) -> SerialIngest {
 
 pub fn snapshot() -> Snapshot {
     STATE.lock().snapshot()
+}
+
+pub fn init_default_config() -> bool {
+    let Some(key) = DEFAULT_OPENAI_API_KEY else {
+        return false;
+    };
+
+    if set_api_key(key.as_bytes()).is_err() {
+        return false;
+    }
+
+    set_provider(Provider::OpenAi);
+    true
 }
 
 fn process_frame(state: &mut BridgeState) -> SerialIngest {

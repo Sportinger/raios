@@ -1,6 +1,8 @@
 param(
     [ValidateSet("debug", "release")]
-    [string]$Profile = "debug"
+    [string]$Profile = "debug",
+    [switch]$EmbedOpenAiApiKeyFromEnv,
+    [string]$OpenAiApiKeyEnvVar = "OPENAI_API_KEY"
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +17,7 @@ if (-not ((rustup toolchain list) -match [regex]::Escape($Toolchain))) {
 }
 
 $oldRustFlags = $env:RUSTFLAGS
+$oldDefaultOpenAiApiKey = $env:SEEDOS_DEFAULT_OPENAI_API_KEY
 $kernelRustFlags = @(
     "-C", "link-arg=-T$LinkerScript",
     "-C", "relocation-model=static",
@@ -24,6 +27,17 @@ $kernelRustFlags = @(
 ) -join " "
 
 try {
+    if ($EmbedOpenAiApiKeyFromEnv) {
+        $apiKey = [Environment]::GetEnvironmentVariable($OpenAiApiKeyEnvVar, "Process")
+        if ([string]::IsNullOrWhiteSpace($apiKey)) {
+            throw "Environment variable '$OpenAiApiKeyEnvVar' is not set."
+        }
+        $env:SEEDOS_DEFAULT_OPENAI_API_KEY = $apiKey
+    }
+    else {
+        Remove-Item Env:\SEEDOS_DEFAULT_OPENAI_API_KEY -ErrorAction SilentlyContinue
+    }
+
     $env:RUSTFLAGS = "$kernelRustFlags $oldRustFlags".Trim()
     $cargoArgs = @(
         "+$Toolchain",
@@ -43,6 +57,12 @@ try {
 }
 finally {
     $env:RUSTFLAGS = $oldRustFlags
+    if ($null -eq $oldDefaultOpenAiApiKey) {
+        Remove-Item Env:\SEEDOS_DEFAULT_OPENAI_API_KEY -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:SEEDOS_DEFAULT_OPENAI_API_KEY = $oldDefaultOpenAiApiKey
+    }
 }
 
 $profileDir = if ($Profile -eq "release") { "release" } else { "debug" }

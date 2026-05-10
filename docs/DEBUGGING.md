@@ -28,6 +28,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -
 This stages `target\x86_64-seed\release\seed-kernel` into
 `release\esp\kernel\kernel.elf` and writes `release\seedos-stage0.img`.
 
+For local-only provider testing, a default OpenAI key can be embedded from the
+current process environment without touching the tracked ESP staging directory:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
+```
+
+This requires `OPENAI_API_KEY` to be set. The resulting image contains the key,
+so do not commit or share that local image.
+
 ## Run VM On Windows
 
 ```powershell
@@ -141,6 +151,10 @@ Press `1` to choose `ECHO` or `OPENAI`, press `2` to enter an API key, and press
 Enter to save it. The framebuffer prompt masks API-key input with `*`, and the
 kernel does not echo the key to the serial output. The key is RAM-only; rebooting
 the VM or choosing clear removes it.
+
+If the kernel was built with `-EmbedOpenAiApiKeyFromEnv`, `setup` starts with
+`OPENAI` selected and `API KEY: SET`. The key is embedded in that local kernel
+binary/image, not printed to serial output.
 
 ## Test Workspace
 

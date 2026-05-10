@@ -71,6 +71,8 @@ ask <text>
 `setup` opens an in-VM menu. It can select `ECHO` or `OPENAI`, enter an API key
 with masked framebuffer input, clear the key, and show provider status. The key
 is held only in guest RAM and is not printed into the console or serial output.
+For local-only testing, the build scripts can also embed `OPENAI_API_KEY` into a
+separate non-default image with `-EmbedOpenAiApiKeyFromEnv`.
 
 Host bridge smoke verified over TCP serial:
 
@@ -129,7 +131,9 @@ Evolve the first host bridge/protocol path:
 - The host bridge is a development echo responder only; it is not a provider
   adapter and does not carry auth, tools, or policy yet.
 - Provider selection and API key entry exist in the VM, but the key is RAM-only,
-  not persisted in the image, and not yet wired to a real provider request path.
+  not persisted in the default image, and not yet wired to a real provider
+  request path. A local test image can embed the key explicitly, but must not be
+  committed or shared.
 - QEMU TCP serial is single-client in practice; do not run the serial smoke
   client and host bridge against the same port at the same time.
 - No HTTPS, TLS, or provider API client exists inside the OS yet.

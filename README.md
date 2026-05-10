@@ -76,6 +76,13 @@ Rebuild and repackage the boot image on Windows:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release
 ```
 
+Build a local OpenAI-default image from `OPENAI_API_KEY` without touching the
+tracked ESP staging directory:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
+```
+
 Run with an interactive serial console on TCP port 4555:
 
 ```powershell

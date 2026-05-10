@@ -125,6 +125,9 @@ fn early_main() -> ! {
 
     let mut runtime_status = ui::RuntimeStatus::new();
     let mut status_ui = ui::StatusUi::new(framebuffer_surface);
+    if bridge::init_default_config() {
+        serial::write_line("Bridge default provider loaded: OPENAI API key set");
+    }
     console::init();
     status_ui.render(0, runtime_status);
 
