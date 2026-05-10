@@ -14,9 +14,9 @@ use spin::Mutex;
 
 use smoltcp::iface::{Config as IfaceConfig, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
-use smoltcp::socket::{dhcpv4, udp};
+use smoltcp::socket::{dhcpv4, tcp, udp};
 use smoltcp::time::Instant;
-use smoltcp::wire::{EthernetAddress, HardwareAddress, IpCidr, Ipv4Address, Ipv4Cidr};
+use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 
 use crate::entropy;
 use crate::serial;
@@ -27,7 +27,11 @@ const DHCP_BUFFER_SIZE: usize = 1024;
 const UDP_RX_METADATA: usize = 4;
 const UDP_TX_METADATA: usize = 4;
 const UDP_BUFFER_LEN: usize = 512;
+const TCP_RX_BUFFER_LEN: usize = 4096;
+const TCP_TX_BUFFER_LEN: usize = 4096;
 const UDP_DNS_SOURCE_PORT: u16 = 49_152;
+const TCP_SOURCE_PORT_START: u16 = 49_200;
+const TCP_SOURCE_PORT_END: u16 = 65_535;
 const DNS_QUERY_TIMEOUT_MS: u64 = 4_000;
 const DNS_DEFAULT_TTL_SECS: u32 = 300;
 const DNS_PORT: u16 = 53;
@@ -84,15 +88,22 @@ pub fn init() {
         .expect("bind DNS UDP socket");
     let dns_udp_handle = sockets.add(dns_udp);
 
+    let tcp_rx = tcp::SocketBuffer::new(vec![0u8; TCP_RX_BUFFER_LEN]);
+    let tcp_tx = tcp::SocketBuffer::new(vec![0u8; TCP_TX_BUFFER_LEN]);
+    let tcp_socket = tcp::Socket::new(tcp_rx, tcp_tx);
+    let tcp_handle = sockets.add(tcp_socket);
+
     *state = Some(NetState {
         iface,
         sockets,
         dhcp_handle,
         dns_udp_handle,
+        tcp_handle,
         config: NetConfig::new(device_info.mac),
         dns_cache: None,
         pending_dns: None,
         next_dns_id: 1,
+        next_tcp_port: TCP_SOURCE_PORT_START,
         lease_times: LeaseTimes::default(),
     });
 
@@ -183,15 +194,81 @@ pub fn resolve_hostname(hostname: &str) -> Option<Ipv4Address> {
     None
 }
 
+pub fn tcp_connect_ipv4(address: Ipv4Address, port: u16) -> TcpConnectResult {
+    let mut guard = NET_STATE.lock();
+    let Some(state) = guard.as_mut() else {
+        return TcpConnectResult::NetworkUnavailable;
+    };
+
+    if state.config.ip.is_none() || state.config.gateway.is_none() {
+        return TcpConnectResult::NetworkUnconfigured;
+    }
+
+    let tcp_handle = state.tcp_handle;
+    let socket = state.sockets.get_mut::<tcp::Socket>(tcp_handle);
+    if socket.may_send() {
+        return TcpConnectResult::Connected;
+    }
+    if socket.is_active() {
+        return TcpConnectResult::Connecting(tcp_state_name(socket.state()));
+    }
+    if socket.is_open() {
+        socket.abort();
+    }
+
+    let local_port = state.next_tcp_port;
+    state.next_tcp_port = if state.next_tcp_port == TCP_SOURCE_PORT_END {
+        TCP_SOURCE_PORT_START
+    } else {
+        state.next_tcp_port + 1
+    };
+
+    let cx = state.iface.context();
+    match socket.connect(cx, (IpAddress::Ipv4(address), port), local_port) {
+        Ok(()) => TcpConnectResult::Started,
+        Err(_) => TcpConnectResult::ConnectError,
+    }
+}
+
+pub fn tcp_snapshot() -> Option<TcpSnapshot> {
+    let mut guard = NET_STATE.lock();
+    let state = guard.as_mut()?;
+    let socket = state.sockets.get_mut::<tcp::Socket>(state.tcp_handle);
+    Some(TcpSnapshot {
+        state: tcp_state_name(socket.state()),
+        may_send: socket.may_send(),
+        may_recv: socket.may_recv(),
+    })
+}
+
+#[derive(Clone, Copy)]
+pub enum TcpConnectResult {
+    NetworkUnavailable,
+    NetworkUnconfigured,
+    Started,
+    Connecting(&'static str),
+    Connected,
+    ConnectError,
+}
+
+#[derive(Clone, Copy)]
+pub struct TcpSnapshot {
+    pub state: &'static str,
+    pub may_send: bool,
+    pub may_recv: bool,
+}
+
 struct NetState {
     iface: Interface,
     sockets: SocketSet<'static>,
     dhcp_handle: SocketHandle,
     dns_udp_handle: SocketHandle,
+    tcp_handle: SocketHandle,
     config: NetConfig,
     dns_cache: Option<DnsCacheEntry>,
     pending_dns: Option<DnsQueryState>,
     next_dns_id: u16,
+    next_tcp_port: u16,
     lease_times: LeaseTimes,
 }
 
@@ -747,4 +824,20 @@ fn read_dns_name(payload: &[u8], start: usize) -> Option<(String, usize)> {
 fn now_ms() -> u64 {
     let per_ms = time::tsc_per_ms().max(1);
     time::rdtsc() / per_ms
+}
+
+fn tcp_state_name(state: tcp::State) -> &'static str {
+    match state {
+        tcp::State::Closed => "CLOSED",
+        tcp::State::Listen => "LISTEN",
+        tcp::State::SynSent => "SYN-SENT",
+        tcp::State::SynReceived => "SYN-RECEIVED",
+        tcp::State::Established => "ESTABLISHED",
+        tcp::State::FinWait1 => "FIN-WAIT-1",
+        tcp::State::FinWait2 => "FIN-WAIT-2",
+        tcp::State::CloseWait => "CLOSE-WAIT",
+        tcp::State::Closing => "CLOSING",
+        tcp::State::LastAck => "LAST-ACK",
+        tcp::State::TimeWait => "TIME-WAIT",
+    }
 }

@@ -3,7 +3,7 @@ use core::str;
 
 use spin::Mutex;
 
-use crate::{bridge, entropy, input, net, serial, ui, usb, virtio};
+use crate::{bridge, entropy, input, net, provider, serial, ui, usb, virtio};
 
 const COMMAND_WIDTH: usize = 256;
 const OUTPUT_WIDTH: usize = 104;
@@ -444,6 +444,10 @@ pub fn record_event(args: fmt::Arguments<'_>) {
     CONSOLE.lock().push_line(line);
 }
 
+pub fn write_event(args: fmt::Arguments<'_>) {
+    write_output(args);
+}
+
 fn process_byte(byte: u8, runtime: ui::RuntimeStatus) -> bool {
     let action = {
         let mut state = CONSOLE.lock();
@@ -527,6 +531,7 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
         "devices" => command_devices(runtime),
         "log" => command_log(),
         "bridge" => command_bridge_status(),
+        "openai" => command_openai_status(),
         "setup" => command_setup_enter(),
         "ask" => command_ask(command_line.arguments_after_command()),
         _ => write_output(format_args!(
@@ -538,7 +543,7 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
 
 fn command_help() {
     write_output(format_args!(
-        "COMMANDS: help status devices log bridge setup ask <text>"
+        "COMMANDS: help status devices log bridge openai setup ask <text>"
     ));
 }
 
@@ -658,7 +663,7 @@ fn show_setup_menu() {
 
 fn show_provider_menu() {
     write_output(format_args!("PROVIDER"));
-    write_output(format_args!("1 ECHO    2 OPENAI    Q BACK"));
+    write_output(format_args!("1 ECHO BRIDGE    2 OPENAI DIRECT    Q BACK"));
 }
 
 fn show_api_key_entry() {
@@ -675,6 +680,11 @@ fn show_provider_status() {
     ));
     if snapshot.provider == bridge::Provider::OpenAi && !snapshot.api_key_set {
         write_output(format_args!("OPENAI REQUIRES API KEY"));
+    } else if snapshot.provider == bridge::Provider::OpenAi {
+        write_output(format_args!(
+            "OPENAI DIRECT: {}",
+            provider::snapshot().direct_endpoint
+        ));
     }
 }
 
@@ -695,38 +705,83 @@ fn show_setup_message(message: SetupMessage) {
 }
 
 fn command_bridge_status() {
-    let snapshot = bridge::snapshot();
+    let snapshot = provider::snapshot();
     write_output(format_args!(
         "PROVIDER: {}    API KEY: {}",
-        snapshot.provider.as_str(),
+        snapshot.provider_name,
         api_key_status(snapshot.api_key_set)
     ));
 
-    if let Some(id) = snapshot.pending_id {
+    if snapshot.route == provider::Route::OpenAiDirect {
+        write_output(format_args!("HOST BRIDGE: BYPASSED FOR OPENAI ASK"));
+        command_openai_status();
+        return;
+    }
+
+    if let Some(id) = snapshot.bridge_pending_id {
         write_output(format_args!("BRIDGE: PENDING REQUEST {}", id));
     } else {
         write_output(format_args!("BRIDGE: READY"));
     }
 
-    if let Some(id) = snapshot.last_request_id {
+    if let Some(id) = snapshot.bridge_last_request_id {
         write_output(format_args!(
             "LAST REQUEST {}: {}",
             id,
-            snapshot.last_prompt.as_str()
+            snapshot.bridge_last_prompt.as_str()
         ));
     }
-    if let Some(id) = snapshot.last_response_id {
+    if let Some(id) = snapshot.bridge_last_response_id {
         write_output(format_args!(
             "LAST RESPONSE {}: {}",
             id,
-            snapshot.last_response.as_str()
+            snapshot.bridge_last_response.as_str()
         ));
     }
-    if snapshot.error_count > 0 {
+    if snapshot.bridge_error_count > 0 {
         write_output(format_args!(
             "BRIDGE ERRORS: {} LAST {}",
-            snapshot.error_count,
-            snapshot.last_error.as_str()
+            snapshot.bridge_error_count,
+            snapshot.bridge_last_error.as_str()
+        ));
+    }
+}
+
+fn command_openai_status() {
+    let snapshot = provider::snapshot();
+    write_output(format_args!(
+        "OPENAI DIRECT: {}    MODEL: {}",
+        snapshot.direct_phase, snapshot.direct_model
+    ));
+    write_output(format_args!("ENDPOINT: {}", snapshot.direct_endpoint));
+    if let Some(id) = snapshot.direct_pending_id {
+        write_output(format_args!("OPENAI REQUEST {} PENDING", id));
+    }
+    if let Some(id) = snapshot.direct_last_request_id {
+        write_output(format_args!(
+            "LAST OPENAI REQUEST {}: {}",
+            id,
+            snapshot.direct_last_prompt.as_str()
+        ));
+    }
+    if !snapshot.direct_last_event.as_str().is_empty() {
+        write_output(format_args!(
+            "OPENAI EVENT: {}",
+            snapshot.direct_last_event.as_str()
+        ));
+    }
+    if !snapshot.direct_last_error.as_str().is_empty() {
+        write_output(format_args!(
+            "OPENAI ERROR: {}",
+            snapshot.direct_last_error.as_str()
+        ));
+    }
+    if let Some(tcp) = snapshot.tcp {
+        write_output(format_args!(
+            "TCP: {} SEND {} RECV {}",
+            tcp.state,
+            yes_no(tcp.may_send),
+            yes_no(tcp.may_recv)
         ));
     }
 }
@@ -740,12 +795,25 @@ fn api_key_status(set: bool) -> &'static str {
 }
 
 fn command_ask(prompt: &str) {
-    match bridge::submit_request(prompt) {
-        Ok(id) => write_output(format_args!("BRIDGE REQUEST {} SENT", id)),
-        Err(bridge::SubmitError::Empty) => write_output(format_args!("ASK REQUIRES TEXT")),
-        Err(bridge::SubmitError::Busy(id)) => {
-            write_output(format_args!("BRIDGE BUSY: REQUEST {} PENDING", id))
+    match provider::submit_text(prompt) {
+        Ok(submitted) => match submitted.route {
+            provider::Route::OpenAiDirect => write_output(format_args!(
+                "OPENAI DIRECT REQUEST {} STARTED",
+                submitted.id
+            )),
+            provider::Route::HostBridge => {
+                write_output(format_args!("BRIDGE REQUEST {} SENT", submitted.id))
+            }
+        },
+        Err(provider::SubmitError::Empty) => write_output(format_args!("ASK REQUIRES TEXT")),
+        Err(provider::SubmitError::MissingApiKey) => {
+            write_output(format_args!("OPENAI REQUIRES API KEY"))
         }
+        Err(provider::SubmitError::Busy { route, id }) => write_output(format_args!(
+            "{} BUSY: REQUEST {} PENDING",
+            route.as_str(),
+            id
+        )),
     }
 }
 
@@ -814,6 +882,14 @@ fn input_state(runtime: ui::RuntimeStatus) -> &'static str {
         "MISSING"
     } else {
         "WAITING"
+    }
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value {
+        "YES"
+    } else {
+        "NO"
     }
 }
 
