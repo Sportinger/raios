@@ -113,6 +113,16 @@ Run the development bridge while QEMU is running in TCP serial mode:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555
 ```
 
+Run the same bridge against OpenAI instead of the echo responder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555 -Provider openai
+```
+
+This requires `OPENAI_API_KEY` in the host PowerShell environment. The bridge
+uses the Responses API with model `gpt-5.5` by default and returns a short
+single-line answer that fits the current Stage-0 console.
+
 One-shot request/response smoke:
 
 ```powershell
@@ -123,6 +133,12 @@ Full headless QEMU smoke:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\host-bridge-smoke.ps1
+```
+
+OpenAI provider smoke:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-bridge-smoke.ps1
 ```
 
 Expected serial bridge lines:

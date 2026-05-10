@@ -83,6 +83,15 @@ BRIDGE REQUEST 1 SENT
 BRIDGE RESPONSE 1: HOST BRIDGE OK: ping from vm harness
 ```
 
+OpenAI host bridge smoke verified over TCP serial:
+
+```text
+> ask hi
+SEEDOS_BRIDGE_REQ 1 6869
+BRIDGE REQUEST 1 SENT
+BRIDGE RESPONSE 1: SeedOS console ready.
+```
+
 ## Current Architecture Decision
 
 Do not run or port the Codex CLI inside Stage-0.
@@ -115,6 +124,9 @@ Evolve the first host bridge/protocol path:
   the answer in the VM console.
 - a VM-local `setup` menu now records provider selection and a RAM-only API key
   without echoing the key back into the serial log.
+- the Windows host bridge can run as an echo responder or as an OpenAI Responses
+  API adapter with `-Provider openai`; the OpenAI adapter reads the host
+  `OPENAI_API_KEY`, not the VM-stored key.
 - the next milestone is turning the echo bridge into a capability-shaped agent
   protocol with a real host/provider adapter that can use the selected provider.
 
@@ -134,6 +146,8 @@ Evolve the first host bridge/protocol path:
   not persisted in the default image, and not yet wired to a real provider
   request path. A local test image can embed the key explicitly, but must not be
   committed or shared.
+- The OpenAI provider adapter currently runs on the Windows host bridge. Stage-0
+  still has no direct HTTPS/TLS provider client inside the OS.
 - QEMU TCP serial is single-client in practice; do not run the serial smoke
   client and host bridge against the same port at the same time.
 - No HTTPS, TLS, or provider API client exists inside the OS yet.

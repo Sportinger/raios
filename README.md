@@ -95,6 +95,15 @@ Run the development host bridge against that serial port:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555
 ```
 
+Run the host bridge against OpenAI from the host environment:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555 -Provider openai
+```
+
+This requires `OPENAI_API_KEY` in the host PowerShell environment. The current
+bridge does not read the VM-stored key back out of the guest.
+
 Inside the VM, type `setup` to open the provider/API-key menu. Keys are stored in
 guest RAM only for now and are cleared by reboot or the menu's clear command.
 
@@ -102,6 +111,12 @@ Run the headless host-bridge smoke test:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\host-bridge-smoke.ps1
+```
+
+Run the OpenAI host-bridge smoke test:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-bridge-smoke.ps1
 ```
 
 Run workspace tests:
