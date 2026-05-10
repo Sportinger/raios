@@ -31,7 +31,7 @@ const UDP_DNS_SOURCE_PORT: u16 = 49_152;
 const DNS_QUERY_TIMEOUT_MS: u64 = 4_000;
 const DNS_DEFAULT_TTL_SECS: u32 = 300;
 const DNS_PORT: u16 = 53;
-const DHCP_POLL_ENABLED: bool = false;
+const DHCP_POLL_ENABLED: bool = true;
 
 const DHCP_OPT_IP_LEASE_TIME: u8 = 51;
 const DHCP_OPT_RENEWAL_TIME: u8 = 58;
@@ -96,7 +96,11 @@ pub fn init() {
         lease_times: LeaseTimes::default(),
     });
 
-    serial::write_line("virtio-net initialised; DHCP poll deferred");
+    if DHCP_POLL_ENABLED {
+        serial::write_line("virtio-net initialised; DHCP polling enabled");
+    } else {
+        serial::write_line("virtio-net initialised; DHCP poll deferred");
+    }
 }
 
 pub fn poll() {
@@ -115,8 +119,6 @@ pub fn poll() {
         Some(state) => state,
         None => return,
     };
-
-    virtio::net::poll();
 
     let mut phy = VirtioPhy;
     let _ = state.iface.poll(instant, &mut phy, &mut state.sockets);
@@ -507,12 +509,19 @@ impl Device for VirtioPhy {
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         virtio::net::poll();
         let packet = virtio::net::pop_rx_packet()?;
-        Some((VirtioRxToken { packet }, VirtioTxToken::new()))
+        let tx = match VirtioTxToken::new() {
+            Some(token) => token,
+            None => {
+                virtio::net::recycle_rx_packet(packet);
+                return None;
+            }
+        };
+        Some((VirtioRxToken { packet }, tx))
     }
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
         virtio::net::poll();
-        Some(VirtioTxToken::new())
+        VirtioTxToken::new()
     }
 
     fn capabilities(&self) -> DeviceCapabilities {
@@ -544,46 +553,31 @@ impl RxToken for VirtioRxToken {
 }
 
 struct VirtioTxToken {
-    handle: Option<virtio::net::TxPacket>,
-    buffer: Option<&'static mut [u8]>,
+    handle: virtio::net::TxPacket,
+    buffer: &'static mut [u8],
 }
 
 impl VirtioTxToken {
-    fn new() -> Self {
-        match virtio::net::alloc_tx_packet() {
-            Some((handle, buffer)) => Self {
-                handle: Some(handle),
-                buffer: Some(buffer),
-            },
-            None => Self {
-                handle: None,
-                buffer: None,
-            },
-        }
+    fn new() -> Option<Self> {
+        let (handle, buffer) = virtio::net::alloc_tx_packet()?;
+        Some(Self { handle, buffer })
     }
 }
 
 impl TxToken for VirtioTxToken {
-    fn consume<R, F>(mut self, len: usize, f: F) -> R
+    fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        if let (Some(handle), Some(buffer)) = (self.handle.take(), self.buffer.take()) {
-            let actual_len = cmp::min(len, buffer.len());
-            let mut scratch = vec![0u8; actual_len];
-            let result = f(&mut scratch[..]);
-            buffer[..actual_len].copy_from_slice(&scratch[..]);
-            if !virtio::net::submit_tx_packet(handle, actual_len) {
-                virtio::net::release_tx_packet(handle);
-                serial::write_line("virtio-net: submit failed; frame dropped");
-            }
-            result
-        } else {
-            let mut scratch = vec![0u8; len];
-            let result = f(&mut scratch[..]);
-            serial::write_line("virtio-net: TX buffers exhausted; dropping frame");
-            result
+        let actual_len = cmp::min(len, self.buffer.len());
+        let mut scratch = vec![0u8; actual_len];
+        let result = f(&mut scratch[..]);
+        self.buffer[..actual_len].copy_from_slice(&scratch[..]);
+        if !virtio::net::submit_tx_packet(self.handle, actual_len) {
+            virtio::net::release_tx_packet(self.handle);
+            serial::write_line("virtio-net: submit failed; frame dropped");
         }
+        result
     }
 }
 

@@ -172,8 +172,20 @@ status FRAMEBUFFER: READY - 1280x800 PITCH 5120
 status ENTROPY: READY - FILL 64/64 TOTAL 64 SRC VIRTIO-RNG
 status VIRTIO-RNG: READY - ATTACHED AS ENTROPY SOURCE
 virtio-net legacy transport @ 0x6080, mac 52:54:00:12:34:56, rx_q=256, tx_q=256
-virtio-net DHCP poll deferred; hardware path ready
+virtio-net initialised; DHCP polling enabled
+DHCP lease acquired: ip 10.0.2.15/24 gw 10.0.2.2 dns ["10.0.2.3"]
+status VIRTIO-NET: CONFIGURED - IP 10.0.2.15/24 GW 10.0.2.2
 ```
+
+### Kernel hits #UD during first DHCP transmit
+
+Likely cause: the custom target enabled CPU features that QEMU's default CPU did
+not expose. One verified failure was smoltcp emitting `pshufb` in
+`smoltcp::wire::ip::checksum::data` because the target allowed SSSE3.
+
+Fix: keep `seed-kernel/x86_64-seed.json` limited to `+sse,+sse2,+fxsr` unless
+the kernel grows CPUID feature gates or the QEMU runner is pinned to a matching
+CPU model.
 
 ### Workspace tests try to build the kernel target
 

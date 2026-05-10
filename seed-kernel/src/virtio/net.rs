@@ -35,6 +35,7 @@ const STATUS_FEATURES_OK: u8 = 0x08;
 
 const VIRTIO_NET_F_MAC: u32 = 1 << 5;
 const VIRTIO_NET_F_STATUS: u32 = 1 << 16;
+const VIRTIO_F_ANY_LAYOUT: u32 = 1 << 27;
 
 const RX_QUEUE_INDEX: u16 = 0;
 const TX_QUEUE_INDEX: u16 = 1;
@@ -331,7 +332,8 @@ fn configure_legacy(address: PciAddress) -> Option<VirtioNet> {
         host_features
     ));
 
-    let desired_features = host_features & (VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS);
+    let desired_features =
+        host_features & (VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS | VIRTIO_F_ANY_LAYOUT);
     unsafe {
         write_driver_features(io_base, desired_features);
         write_status(

@@ -31,7 +31,7 @@ AGENT HOST: LIVE STATUS
 FRAMEBUFFER  READY
 ENTROPY      READY
 VIRTIO-RNG   READY
-VIRTIO-NET   WAITING
+VIRTIO-NET   CONFIGURED
 INPUT        MISSING
 ```
 
@@ -48,7 +48,9 @@ virtio-rng (legacy) @ 00:03.0 detected
 virtio-rng delivered 64 bytes (stored 64)
 Entropy pool healthy after virtio-rng refill
 virtio-net legacy transport @ 0x6080, mac 52:54:00:12:34:56, rx_q=256, tx_q=256
-virtio-net initialised; DHCP poll deferred
+virtio-net initialised; DHCP polling enabled
+DHCP lease acquired: ip 10.0.2.15/24 gw 10.0.2.2 dns ["10.0.2.3"]
+status VIRTIO-NET: CONFIGURED - IP 10.0.2.15/24 GW 10.0.2.2
 virtio-input: modern device @ 00:04.0 detected; MMIO transport deferred
 ```
 
@@ -80,14 +82,12 @@ See `docs/architecture-decisions/0001-seedos-agent-protocol.md`.
 
 ## Exact Next Task
 
-Finish the network polling path safely:
+Add the first safe input path:
 
 - virtio-rng entropy now works through physical DMA address translation and
   dynamic legacy virtqueue layout.
-- legacy virtio-net now configures RX/TX queues and exposes the QEMU MAC address.
-- DHCP/smoltcp polling is deliberately deferred because the first DHCP TX path
-  still aborts in the kernel; keep the hardware-visible state stable while
-  fixing that path.
+- legacy virtio-net now configures RX/TX queues, negotiates DHCP through
+  smoltcp, and shows IP/gateway state in the framebuffer UI and serial console.
 - modern virtio-input is detected, but its MMIO transport is deferred until the
   kernel has an explicit MMIO mapping path.
 
@@ -98,8 +98,7 @@ Finish the network polling path safely:
   `release\esp`.
 - `scripts/package-stage0.sh` is Linux/WSL-oriented and expects `mkfs.fat`,
   `mmd`, and `mcopy`.
-- DHCP polling is currently disabled after virtio-net hardware initialization to
-  avoid the known first-TX abort.
+- Network failure/timeout states and packet counters are still minimal.
 - virtio-input modern PCI devices are detected, but MMIO transport is deferred.
 - No provider auth, HTTPS, TLS, or API client exists inside the OS yet.
 - No signed module runtime exists yet.

@@ -54,9 +54,9 @@ Definition of done:
 - Serial input can request status.
 - State transitions are mirrored in serial logs.
 
-Current status: framebuffer UI, serial commands, entropy, and hardware-visible
-virtio-net bring-up are implemented. Keyboard input, modern virtio-input MMIO,
-and DHCP polling remain.
+Current status: framebuffer UI, serial commands, entropy, virtio-net bring-up,
+and DHCP configuration are implemented. Keyboard input and modern virtio-input
+MMIO remain.
 
 ## Phase 2: Network Visibility
 
@@ -77,6 +77,10 @@ Definition of done:
 
 - UI shows whether network is unavailable, probing, configured, or failed.
 - Serial log gives enough data to debug without a graphical screenshot.
+
+Current status: QEMU user-mode DHCP configures `10.0.2.15/24`, gateway
+`10.0.2.2`, and DNS `10.0.2.3` locally. Packet counters, failure/timeout states,
+and DNS command visibility remain.
 
 ## Phase 3: Host Bridge
 
