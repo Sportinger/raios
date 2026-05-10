@@ -4,6 +4,8 @@ use core::ptr;
 
 use limine::framebuffer::Framebuffer;
 
+use crate::serial;
+
 #[derive(Debug, Clone, Copy)]
 pub struct FramebufferInfo {
     pub width: u64,
@@ -39,7 +41,9 @@ pub struct FramebufferSurface {
 }
 
 impl FramebufferSurface {
+    #[inline(never)]
     pub fn from_limine(fb: &Framebuffer<'_>) -> Option<Self> {
+        serial::write_line("Framebuffer surface: validating Limine mode");
         if fb.bpp() < 32 {
             return None;
         }
@@ -59,6 +63,7 @@ impl FramebufferSurface {
             return None;
         }
         let _framebuffer_len = (info.pitch as usize).checked_mul(info.height as usize)?;
+        serial::write_line("Framebuffer surface: ready");
         Some(Self { info, front })
     }
 

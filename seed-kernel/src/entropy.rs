@@ -11,6 +11,7 @@ use crate::virtio::rng::VirtioRng;
 const POOL_SIZE: usize = 64;
 const MIN_READY_BYTES: usize = 32;
 const REFRESH_INTERVAL_TSC: u64 = 25_000_000; // ~8 ms at 3 GHz
+pub const POOL_CAPACITY: usize = POOL_SIZE;
 
 static ENTROPY_STATE: Mutex<EntropyState> = Mutex::new(EntropyState::new());
 
@@ -302,6 +303,10 @@ fn refresh_pool(device: &mut VirtioRng) -> Option<RefreshReport> {
 
 pub fn is_ready() -> bool {
     ENTROPY_STATE.lock().ready
+}
+
+pub fn virtio_source_attached() -> bool {
+    VIRTIO_SOURCE.lock().is_some()
 }
 
 pub fn take(buffer: &mut [u8]) {

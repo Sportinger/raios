@@ -12,7 +12,7 @@ should implement its own minimal protocol surface.
 
 ## Phase 0: Bootable Visual MVP
 
-Status: mostly done.
+Status: done for the current VM MVP.
 
 Goal:
 
@@ -28,11 +28,8 @@ Done:
 - Direct framebuffer drawing working.
 - Serial diagnostics working.
 - virtio-rng detected.
-
-Remaining:
-
-- Replace static overlay with live status rows.
-- Add stable image packaging on Windows.
+- Live status rows for framebuffer, entropy, virtio-rng, virtio-net, and input.
+- Minimal Windows image packaging path.
 
 ## Phase 1: Minimal Agent Host UI
 

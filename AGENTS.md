@@ -35,14 +35,15 @@ reference/workstation tool, not the hard dependency inside the kernel.
 - Limine config uses `limine.conf`, not `limine.cfg`
 - Bootable image: `release/seedos-stage0.img`
 - QEMU visual boot has been verified on Windows with GTK display
-- Kernel currently draws a simple framebuffer overlay:
+- Kernel currently draws a live framebuffer status UI:
   - `SEEDOS STAGE-0`
-  - `AGENT HOST: STUB`
-  - `VM MVP: BOOT + FRAME + DEVICE POLL`
+  - `AGENT HOST: LIVE STATUS`
+  - status rows for framebuffer, entropy, virtio-rng, virtio-net, input
 - Serial log confirms:
   - Limine loaded base revision 3
   - framebuffer response revision 1
   - virtio-rng legacy device detected
+- virtio-rng entropy delivery currently times out and is shown as degraded.
 - Detailed current status is in `docs/PROJECT_STATUS.md`.
 
 ## Important Technical Notes
@@ -90,8 +91,8 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Replace the static framebuffer overlay with a tiny status UI loop.
-2. Add a capability-gated command/input path, initially serial or keyboard.
+1. Add a capability-gated command/input path, initially serial or keyboard.
+2. Fix or bypass the virtio-rng entropy timeout so net/input can progress.
 3. Finish virtio-net/DHCP visibility in the UI.
 4. Define the first native agent protocol messages outside the kernel boundary.
 5. Add a host-side bridge that can talk to Codex/OpenAI APIs from the VM during

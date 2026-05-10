@@ -36,15 +36,19 @@ release/seedos-stage0.img
 ```
 
 It has been visually verified in QEMU on Windows. It boots through Limine, reaches
-the Rust kernel, negotiates a framebuffer, draws a small Stage-0 overlay, and
+the Rust kernel, negotiates a framebuffer, draws a live Stage-0 status UI, and
 detects virtio-rng.
 
 Expected first screen:
 
 ```text
 SEEDOS STAGE-0
-AGENT HOST: STUB
-VM MVP: BOOT + FRAME + DEVICE POLL
+AGENT HOST: LIVE STATUS
+FRAMEBUFFER  READY
+ENTROPY      WAITING
+VIRTIO-RNG   DEGRADED
+VIRTIO-NET   WAITING
+INPUT        WAITING
 ```
 
 ## Windows Quick Commands
@@ -59,6 +63,12 @@ Run the VM:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting
+```
+
+Rebuild and repackage the boot image on Windows:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release
 ```
 
 Run workspace tests:

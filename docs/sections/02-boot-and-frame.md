@@ -3,7 +3,7 @@
 ## Scope
 Initial kernel bootstrap for runbook section 2.1 covering Limine-facing artifacts, Rust `no_std` crate scaffolding, early-boot logging, and framebuffer bring-up.
 
-Status update: the boot path now reaches a visible framebuffer overlay in QEMU.
+Status update: the boot path now reaches a visible framebuffer status UI in QEMU.
 The current operational snapshot lives in `docs/PROJECT_STATUS.md`.
 
 ## Artifacts
@@ -15,8 +15,8 @@ The current operational snapshot lives in `docs/PROJECT_STATUS.md`.
 ## Exit criteria snapshot
 - Kernel crate builds successfully via `scripts/build-seed-kernel.ps1` on Windows or `scripts/build-seed-kernel.sh` in Linux/WSL.
 - Serial logging available for panic paths (writes to COM1).
-- Framebuffer draws the Stage-0 overlay in QEMU.
+- Framebuffer draws the Stage-0 live status UI in QEMU.
 
 ## Follow-up
-- Replace static overlay with a live status UI.
+- Add serial command input for `help`, `status`, `devices`, and `log`.
 - Add CI harness step to invoke `scripts/build-seed-kernel.sh` and archive `seed-kernel.elf` artifact.

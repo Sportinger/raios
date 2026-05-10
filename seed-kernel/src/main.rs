@@ -22,6 +22,7 @@ mod scheduler;
 mod serial;
 mod text;
 mod time;
+mod ui;
 mod virtio;
 
 #[used]
@@ -44,7 +45,11 @@ static LIMINE_REQUESTS_END: RequestsEndMarker = RequestsEndMarker::new();
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 const HEAP_SIZE: usize = 16 * 1024 * 1024;
-static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
+
+#[repr(align(4096))]
+struct KernelHeap([u8; HEAP_SIZE]);
+
+static mut HEAP: KernelHeap = KernelHeap([0; HEAP_SIZE]);
 
 #[no_mangle]
 #[link_section = ".text.entry"]
@@ -69,7 +74,7 @@ pub extern "C" fn _start() -> ! {
 
 fn early_main() -> ! {
     unsafe {
-        let heap_start = ptr::addr_of_mut!(HEAP).cast::<u8>();
+        let heap_start = ptr::addr_of_mut!(HEAP.0).cast::<u8>();
         ALLOCATOR.lock().init(heap_start, HEAP_SIZE);
     }
     serial::init();
@@ -83,18 +88,33 @@ fn early_main() -> ! {
     if !BASE_REVISION.is_supported() {
         serial::write_line("Limine base revision request was not satisfied");
     }
-    draw_boot_overlay();
+
+    let framebuffer_surface = init_framebuffer();
+    if let Some(surface) = framebuffer_surface.as_ref() {
+        serial::write_line("Framebuffer negotiated via Limine");
+        let info = surface.info();
+        serial::write_fmt(format_args!(
+            "  resolution={}x{} pitch={}\r\n",
+            info.width, info.height, info.pitch
+        ));
+    } else {
+        serial::write_line("No framebuffer response from Limine");
+    }
+
+    let mut runtime_status = ui::RuntimeStatus::new();
+    let mut status_ui = ui::StatusUi::new(framebuffer_surface);
+    status_ui.render(0, runtime_status);
 
     time::calibrate_tsc();
     let tsc_per_ms = time::tsc_per_ms();
-    let mut periodic = PeriodicTasks::new(tsc_per_ms);
 
     entropy::init();
 
     if let Some(rng) = virtio::rng::probe() {
         entropy::attach_virtio_rng(rng);
-        periodic.run(now());
     }
+    runtime_status.virtio_rng_probe_complete = true;
+    status_ui.render(uptime_ms(), runtime_status);
 
     let entropy_ready = entropy::is_ready();
     if !entropy_ready {
@@ -103,14 +123,19 @@ fn early_main() -> ! {
 
     if entropy_ready {
         net::init();
+        runtime_status.virtio_net_probe_complete = true;
         input::init();
+        runtime_status.input_probe_complete = true;
     } else {
         serial::write_line("virtio-net initialization deferred; waiting for entropy");
     }
+    status_ui.render(uptime_ms(), runtime_status);
+
+    let mut periodic = PeriodicTasks::new(tsc_per_ms, entropy_ready);
 
     loop {
         let tsc_now = now();
-        periodic.run(tsc_now);
+        periodic.run(tsc_now, &mut status_ui, &mut runtime_status);
         for _ in 0..100_000 {
             spin_loop();
         }
@@ -132,92 +157,74 @@ fn init_framebuffer() -> Option<framebuffer::FramebufferSurface> {
     framebuffer::FramebufferSurface::from_limine(&fb)
 }
 
-fn draw_boot_overlay() {
-    if let Some(mut surface) = init_framebuffer() {
-        serial::write_line("Framebuffer negotiated via Limine");
-        let info = surface.info();
-        serial::write_fmt(format_args!(
-            "  resolution={}x{} pitch={}",
-            info.width, info.height, info.pitch
-        ));
-        use framebuffer::Color;
-        surface.fill(Color::new(20, 24, 28));
-        surface.fill_rect(20, 20, 320, 140, Color::new(40, 90, 180));
-        surface.fill_rect(30, 40, 300, 36, Color::new(240, 240, 240));
-        text::draw_text(
-            &mut surface,
-            40,
-            48,
-            "SEEDOS STAGE-0",
-            Color::new(20, 28, 40),
-            Some(Color::new(240, 240, 240)),
-        );
-        text::draw_text(
-            &mut surface,
-            40,
-            92,
-            "AGENT HOST: STUB",
-            Color::new(220, 235, 255),
-            None,
-        );
-        text::draw_text(
-            &mut surface,
-            40,
-            116,
-            "VM MVP: BOOT + FRAME + DEVICE POLL",
-            Color::new(220, 235, 255),
-            None,
-        );
-        surface.present();
-        serial::write_line("Framebuffer hello overlay drawn");
-    } else {
-        serial::write_line("No framebuffer response from Limine");
-    }
-}
-
 fn now() -> u64 {
     time::rdtsc()
+}
+
+fn uptime_ms() -> u64 {
+    now() / time::tsc_per_ms().max(1)
 }
 
 struct PeriodicTasks {
     entropy: scheduler::PeriodicTask,
     net: scheduler::PeriodicTask,
     input: scheduler::PeriodicTask,
+    ui: scheduler::PeriodicTask,
     entropy_ready: bool,
     input_started: bool,
+    net_started: bool,
 }
 
 impl PeriodicTasks {
-    fn new(tsc_per_ms: u64) -> Self {
-        let entropy_ready = entropy::is_ready();
+    fn new(tsc_per_ms: u64, entropy_ready: bool) -> Self {
         Self {
             entropy: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
             net: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             input: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
+            ui: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(250, tsc_per_ms)),
             entropy_ready,
             input_started: entropy_ready,
+            net_started: entropy_ready,
         }
     }
 
-    fn run(&mut self, now_tsc: u64) {
+    fn run(
+        &mut self,
+        now_tsc: u64,
+        status_ui: &mut ui::StatusUi,
+        runtime_status: &mut ui::RuntimeStatus,
+    ) {
         self.entropy.try_run(now_tsc, || entropy::maintain());
         if !self.entropy_ready && entropy::is_ready() {
             serial::write_line("Entropy ready; starting virtio-net bring-up");
             net::init();
+            runtime_status.virtio_net_probe_complete = true;
             input::init();
+            runtime_status.input_probe_complete = true;
             self.entropy_ready = true;
+            self.net_started = true;
             self.input_started = true;
+            status_ui.render(uptime_ms(), *runtime_status);
             return;
         }
         if self.entropy_ready {
+            if !self.net_started {
+                net::init();
+                runtime_status.virtio_net_probe_complete = true;
+                self.net_started = true;
+            }
             self.net.try_run(now_tsc, || net::poll());
             if !self.input_started {
                 // ensure virtio-input probed once entropy and bus ready
                 input::init();
+                runtime_status.input_probe_complete = true;
                 self.input_started = true;
             }
             self.input.try_run(now_tsc, || input::poll());
         }
+        self.ui.try_run(now_tsc, || {
+            status_ui.render(uptime_ms(), *runtime_status);
+        });
     }
 }
 
@@ -229,27 +236,50 @@ fn alloc_error(layout: Layout) -> ! {
 
 #[no_mangle]
 pub unsafe extern "C" fn memset(dest: *mut u8, value: i32, count: usize) -> *mut u8 {
-    core::ptr::write_bytes(dest, value as u8, count);
+    let mut index = 0usize;
+    while index < count {
+        ptr::write_volatile(dest.add(index), value as u8);
+        index += 1;
+    }
     dest
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn memcpy(dest: *mut u8, src: *const u8, count: usize) -> *mut u8 {
-    core::ptr::copy_nonoverlapping(src, dest, count);
+    let mut index = 0usize;
+    while index < count {
+        let value = ptr::read_volatile(src.add(index));
+        ptr::write_volatile(dest.add(index), value);
+        index += 1;
+    }
     dest
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn memmove(dest: *mut u8, src: *const u8, count: usize) -> *mut u8 {
-    core::ptr::copy(src, dest, count);
+    if (dest as usize) <= (src as usize) {
+        let mut index = 0usize;
+        while index < count {
+            let value = ptr::read_volatile(src.add(index));
+            ptr::write_volatile(dest.add(index), value);
+            index += 1;
+        }
+    } else {
+        let mut index = count;
+        while index > 0 {
+            index -= 1;
+            let value = ptr::read_volatile(src.add(index));
+            ptr::write_volatile(dest.add(index), value);
+        }
+    }
     dest
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn memcmp(a: *const u8, b: *const u8, count: usize) -> i32 {
     for i in 0..count {
-        let lhs = *a.add(i);
-        let rhs = *b.add(i);
+        let lhs = ptr::read_volatile(a.add(i));
+        let rhs = ptr::read_volatile(b.add(i));
         if lhs != rhs {
             return lhs as i32 - rhs as i32;
         }

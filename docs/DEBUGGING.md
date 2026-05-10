@@ -19,6 +19,15 @@ target\x86_64-seed\release\seed-kernel
 
 The script injects the required kernel linker flags through `RUSTFLAGS`.
 
+## Package Image On Windows
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release
+```
+
+This stages `target\x86_64-seed\release\seed-kernel` into
+`release\esp\kernel\kernel.elf` and writes `release\seedos-stage0.img`.
+
 ## Run VM On Windows
 
 ```powershell
@@ -119,11 +128,19 @@ Check the serial log for framebuffer lines:
 Framebuffer request: checking response
 Framebuffer response revision: 1
 Framebuffer negotiated via Limine
-Framebuffer hello overlay drawn
+status FRAMEBUFFER: READY - 1280x800 PITCH 5120
 ```
 
 If those lines are missing, debug Limine requests. If they are present, debug
 pixel format, text rendering, or whether the displayed image is stale.
+
+For the live status UI, useful lines now include:
+
+```text
+status FRAMEBUFFER: READY - 1280x800 PITCH 5120
+status ENTROPY: WAITING - FILL 0/64 TOTAL 0 SRC NONE
+status VIRTIO-RNG: DEGRADED - ATTACHED, WAITING FOR DATA
+```
 
 ### Workspace tests try to build the kernel target
 
@@ -135,10 +152,16 @@ inside build scripts, not at the workspace root.
 
 ## Image Packaging Notes
 
-The tested image is already present at:
+The tested image is present at:
 
 ```text
 release/seedos-stage0.img
+```
+
+Windows packaging path:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release
 ```
 
 Linux/WSL packaging path:
@@ -148,7 +171,3 @@ bash scripts/package-stage0.sh
 ```
 
 That path expects `mkfs.fat`, `mmd`, and `mcopy`.
-
-Windows currently needs a proper packaging script. Until that exists, treat the
-checked-in image as the known-good artifact and only replace it after a visual
-QEMU boot and serial log verification.

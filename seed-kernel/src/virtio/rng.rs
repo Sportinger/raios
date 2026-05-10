@@ -29,6 +29,7 @@ const VIRTQ_DESC_F_WRITE: u16 = 1 << 1;
 const LEGACY_QUEUE_INDEX: u16 = 0;
 const QUEUE_CAPACITY: usize = 64;
 const QUEUE_ALIGN: usize = 4096;
+const FILL_SPIN_LIMIT: usize = 1_000_000;
 
 #[derive(Debug, Clone, Copy)]
 pub enum VirtioRngKind {
@@ -42,6 +43,7 @@ pub struct VirtioRng {
     io_base: u16,
     queue_size: u16,
     last_used_idx: u16,
+    timed_out: bool,
 }
 
 const fn align_up(value: usize, align: usize) -> usize {
@@ -162,11 +164,12 @@ impl VirtioRng {
             io_base,
             queue_size,
             last_used_idx: 0,
+            timed_out: false,
         })
     }
 
     pub fn fill_bytes(&mut self, buffer: &mut [u8]) -> usize {
-        if buffer.is_empty() {
+        if buffer.is_empty() || self.timed_out {
             return 0;
         }
 
@@ -187,6 +190,7 @@ impl VirtioRng {
             write_queue_notify(self.io_base, LEGACY_QUEUE_INDEX);
         }
 
+        let mut spins = 0usize;
         loop {
             fence(Ordering::Acquire);
             if used.idx != self.last_used_idx {
@@ -196,6 +200,12 @@ impl VirtioRng {
                 let _ = unsafe { read_isr_status(self.io_base) };
                 return cmp::min(elem.len as usize, buffer.len());
             }
+            if spins >= FILL_SPIN_LIMIT {
+                self.timed_out = true;
+                serial::write_line("virtio-rng request timed out; entropy source disabled");
+                return 0;
+            }
+            spins += 1;
             spin_loop();
         }
     }

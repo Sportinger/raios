@@ -115,10 +115,28 @@ pub fn poll() {
     state.poll_dns(now_ms);
 }
 
+#[allow(dead_code)]
 pub fn config_snapshot() -> Option<NetConfigSnapshot> {
     let guard = NET_STATE.lock();
     let state = guard.as_ref()?;
     Some(state.config.snapshot())
+}
+
+pub fn ui_snapshot() -> Option<NetUiSnapshot> {
+    let guard = NET_STATE.lock();
+    let state = guard.as_ref()?;
+    Some(NetUiSnapshot {
+        mac: state.config.mac,
+        ip: state.config.ip,
+        gateway: state.config.gateway,
+    })
+}
+
+#[derive(Clone, Copy)]
+pub struct NetUiSnapshot {
+    pub mac: [u8; 6],
+    pub ip: Option<Ipv4Cidr>,
+    pub gateway: Option<Ipv4Address>,
 }
 
 pub fn resolve_hostname(hostname: &str) -> Option<Ipv4Address> {
@@ -373,6 +391,7 @@ impl DhcpOwnedConfig {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct NetConfigSnapshot {
     pub mac: [u8; 6],
@@ -408,6 +427,7 @@ impl NetConfig {
         self.lease_expires_ms = None;
     }
 
+    #[allow(dead_code)]
     fn snapshot(&self) -> NetConfigSnapshot {
         NetConfigSnapshot {
             mac: self.mac,

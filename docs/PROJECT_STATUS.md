@@ -17,12 +17,16 @@ The image boots in QEMU using the Windows PowerShell runner:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting
 ```
 
-Expected visible framebuffer overlay:
+Expected visible framebuffer UI:
 
 ```text
 SEEDOS STAGE-0
-AGENT HOST: STUB
-VM MVP: BOOT + FRAME + DEVICE POLL
+AGENT HOST: LIVE STATUS
+FRAMEBUFFER  READY
+ENTROPY      WAITING
+VIRTIO-RNG   DEGRADED
+VIRTIO-NET   WAITING
+INPUT        WAITING
 ```
 
 Expected useful serial lines:
@@ -32,8 +36,11 @@ Seed kernel: early init start
 Limine loaded base revision: 3
 Framebuffer response revision: 1
 Framebuffer negotiated via Limine
-Framebuffer hello overlay drawn
+status FRAMEBUFFER: READY - 1280x800 PITCH 5120
+status ENTROPY: WAITING - FILL 0/64 TOTAL 0 SRC NONE
 virtio-rng (legacy) @ 00:03.0 detected
+virtio-rng request timed out; entropy source disabled
+status VIRTIO-RNG: DEGRADED - ATTACHED, WAITING FOR DATA
 ```
 
 ## Current Architecture Decision
@@ -55,25 +62,23 @@ See `docs/architecture-decisions/0001-seedos-agent-protocol.md`.
 
 ## Exact Next Task
 
-Replace the static framebuffer overlay with a tiny live status UI:
-
-- left/top title: `SEEDOS STAGE-0`
-- status rows for framebuffer, entropy, virtio-rng, virtio-net, input
-- serial log mirror of each state transition
-- no dependency on DHCP/TLS yet
-
-The first useful milestone after that is a command/input path:
+Add the first command/input path:
 
 - serial command input first, or keyboard if easier
 - minimal commands: `help`, `status`, `devices`, `log`
 - responses drawn to framebuffer and serial
+- do not gate serial input behind entropy readiness
 
 ## Known Gaps
 
-- Windows has a kernel build script and QEMU runner, but no polished Windows
-  image repackaging script yet. The current image is already updated and tested.
+- Windows now has a minimal image repackaging path:
+  `scripts\package-stage0.ps1` creates `release\seedos-stage0.img` from
+  `release\esp`.
 - `scripts/package-stage0.sh` is Linux/WSL-oriented and expects `mkfs.fat`,
   `mmd`, and `mcopy`.
+- virtio-rng is detected, but the entropy request currently times out. The UI
+  shows this as `VIRTIO-RNG DEGRADED`; net/input bring-up remains deferred until
+  entropy can become ready or those paths stop depending on it.
 - virtio-net probing exists, but the UI does not yet show link/DHCP state.
 - No provider auth, HTTPS, TLS, or API client exists inside the OS yet.
 - No signed module runtime exists yet.

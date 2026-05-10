@@ -20,6 +20,10 @@ pub fn init() {
     });
 }
 
+pub fn device_present() -> bool {
+    virtio::input::device_present()
+}
+
 pub fn poll() {
     if !virtio::input::device_present() {
         return;
