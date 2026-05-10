@@ -42,7 +42,7 @@ $qemuArgs = @(
 if (-not $NoVirtioInput) {
     $qemuArgs += @(
         "-device", "virtio-keyboard-pci",
-        "-device", "virtio-mouse-pci"
+        "-device", "virtio-tablet-pci"
     )
 }
 

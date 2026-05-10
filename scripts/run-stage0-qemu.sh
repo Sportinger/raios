@@ -31,7 +31,7 @@ qemu-system-x86_64 \
   -device virtio-net-pci,netdev=net0,disable-modern=on,disable-legacy=off \
   -device virtio-rng-pci,disable-modern=on,disable-legacy=off \
   -device virtio-keyboard-pci \
-  -device virtio-mouse-pci \
+  -device virtio-tablet-pci \
   -serial stdio \
   -display none \
   -no-reboot \
