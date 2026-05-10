@@ -8,6 +8,7 @@ use crate::entropy;
 use crate::ps2;
 use crate::serial;
 use crate::time;
+use crate::usb;
 use crate::virtio;
 
 const INPUT_RING_CAPACITY: usize = 256;
@@ -19,19 +20,21 @@ static SHIFT_ACTIVE: AtomicBool = AtomicBool::new(false);
 pub fn init() {
     INIT_ONCE.call_once(|| {
         virtio::input::probe();
-        if !virtio::input::device_present() {
+        if !virtio::input::device_present() && !usb::keyboard_active() {
             ps2::init_keyboard_polling();
         }
     });
 }
 
 pub fn device_present() -> bool {
-    virtio::input::device_present() || ps2::active()
+    virtio::input::device_present() || usb::keyboard_active() || ps2::active()
 }
 
 pub fn device_detail() -> &'static str {
     if virtio::input::device_present() {
         "VIRTIO INPUT QUEUE ACTIVE"
+    } else if usb::keyboard_active() {
+        usb::keyboard_detail()
     } else if ps2::active() {
         "PS/2 KEYBOARD POLLING"
     } else {
@@ -42,9 +45,9 @@ pub fn device_detail() -> &'static str {
 pub fn poll() {
     if virtio::input::device_present() {
         poll_virtio();
-        return;
     }
 
+    poll_usb();
     poll_ps2();
 }
 
@@ -92,6 +95,34 @@ fn poll_ps2() {
     if inserted > 0 {
         serial::write_fmt(format_args!(
             "ps/2 input batch: {} events @ {} ms\r\n",
+            inserted, ts_ms
+        ));
+    }
+}
+
+fn poll_usb() {
+    if !usb::keyboard_active() {
+        return;
+    }
+
+    let mut ts_ms = 0u64;
+    let mut has_timestamp = false;
+    let mut inserted = 0usize;
+    usb::poll_keyboard(|code, pressed| {
+        if !has_timestamp {
+            ts_ms = timestamp_ms();
+            has_timestamp = true;
+        }
+        RING.push(InputEvent {
+            ts_ms,
+            kind: InputEventKind::Key { code, pressed },
+        });
+        inserted += 1;
+    });
+
+    if inserted > 0 {
+        serial::write_fmt(format_args!(
+            "usb input batch: {} events @ {} ms\r\n",
             inserted, ts_ms
         ));
     }

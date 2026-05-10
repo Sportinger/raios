@@ -4,8 +4,10 @@ param(
     [ValidateSet("file", "tcp")]
     [string]$SerialMode = "file",
     [int]$SerialTcpPort = 4555,
+    [int]$MonitorTcpPort = 0,
     [switch]$Headless,
     [switch]$UsbXhciInput,
+    [switch]$NoVirtioInput,
     [switch]$StopExisting
 )
 
@@ -34,10 +36,15 @@ $qemuArgs = @(
     "-drive", "file=$((Resolve-Path $Image).Path),format=raw,if=ide",
     "-netdev", "user,id=net0",
     "-device", "virtio-net-pci,netdev=net0",
-    "-device", "virtio-rng-pci",
-    "-device", "virtio-keyboard-pci",
-    "-device", "virtio-mouse-pci"
+    "-device", "virtio-rng-pci"
 )
+
+if (-not $NoVirtioInput) {
+    $qemuArgs += @(
+        "-device", "virtio-keyboard-pci",
+        "-device", "virtio-mouse-pci"
+    )
+}
 
 if ($UsbXhciInput) {
     $qemuArgs += @(
@@ -64,6 +71,10 @@ else {
     $qemuArgs += @("-display", "gtk")
 }
 
+if ($MonitorTcpPort -gt 0) {
+    $qemuArgs += @("-monitor", "tcp:127.0.0.1:$MonitorTcpPort,server,nowait")
+}
+
 $qemuArgs += @("-no-reboot")
 
 $process = Start-Process -FilePath $Qemu -ArgumentList $qemuArgs -PassThru -RedirectStandardError $ErrLog
@@ -71,4 +82,7 @@ Write-Output "qemu pid: $($process.Id)"
 Write-Output "serial log: $SerialLog"
 if ($SerialMode -eq "tcp") {
     Write-Output "serial tcp: 127.0.0.1:$SerialTcpPort"
+}
+if ($MonitorTcpPort -gt 0) {
+    Write-Output "monitor tcp: 127.0.0.1:$MonitorTcpPort"
 }

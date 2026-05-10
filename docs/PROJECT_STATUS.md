@@ -29,12 +29,28 @@ For a QEMU xHCI inventory run, add `-UsbXhciInput`:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput
 ```
 
+For a USB-HID keyboard-only input smoke, omit virtio input and use the QEMU
+monitor to inject keys:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput -NoVirtioInput -MonitorTcpPort 45454
+```
+
 Expected xHCI inventory lines in that mode:
 
 ```text
 usb-xhci: controller @ 00:06.0 detected
 usb-xhci: hci 0x0100, ports 8, connected 2
 USB-XHCI: READY 00:06.0 HCI 0100 PORTS 8 CONNECTED 2
+```
+
+Expected USB-HID lines in `-NoVirtioInput` mode:
+
+```text
+usb-hid: boot keyboard ready on slot 1 endpoint 0x81
+status INPUT: READY - USB HID BOOT KEYBOARD
+> help
+COMMANDS: help status devices log bridge setup ask <text>
 ```
 
 Expected visible framebuffer UI:
@@ -137,9 +153,9 @@ Evolve the first host bridge/protocol path:
   events, and feeds a minimal US keymap into the same command console as serial.
 - a PS/2/i8042 polling fallback is present for first bare-metal keyboard tests
   on machines that expose legacy keyboard compatibility.
-- a bare-metal xHCI detector now inventories USB controllers and connected
-  ports in the framebuffer UI and `devices`, but it is not a HID keyboard
-  driver yet.
+- a polled xHCI path now inventories USB controllers, resets directly attached
+  root-port devices, enumerates HID boot keyboards, and feeds 8-byte boot
+  keyboard reports into the same input queue as virtio/PS/2.
 - a tiny serial host bridge now accepts `ask <text>`, emits
   `SEEDOS_BRIDGE_REQ`, receives an STX-framed `SEEDOS_BRIDGE_RESP`, and renders
   the answer in the VM console.
@@ -161,9 +177,10 @@ Evolve the first host bridge/protocol path:
 - Network failure/timeout states and packet counters are still minimal.
 - Keyboard input uses a minimal US/Linux keycode mapping; no layout selection,
   modifier completeness, or text editing beyond Backspace exists yet.
-- Bare-metal support is experimental. xHCI controller detection exists, but
-  USB-HID keyboard handling and real NIC drivers do not exist yet, so real
-  hardware may boot to the UI but lack input/network.
+- Bare-metal support is experimental. Minimal direct xHCI USB-HID boot keyboard
+  handling exists, but USB hubs, non-boot HID report parsing, hotplug, and real
+  NIC drivers do not exist yet, so real hardware may still boot to the UI but
+  lack input/network.
 - Bare-metal USB preparation scripts exist, but writing a USB disk is destructive
   and must be done with an explicit disk number and confirmation string.
 - The host bridge is a development echo responder only; it is not a provider

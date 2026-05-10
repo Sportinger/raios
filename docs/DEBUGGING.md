@@ -62,6 +62,13 @@ Run headless with a QEMU xHCI controller plus USB keyboard/mouse attached:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput
 ```
 
+Run the same path without virtio input, plus a QEMU monitor for `sendkey`
+testing:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput -NoVirtioInput -MonitorTcpPort 45454
+```
+
 The runner uses:
 
 - QEMU: `C:\Program Files\qemu\qemu-system-x86_64.exe`
@@ -72,6 +79,10 @@ The runner uses:
 - serial log: `%TEMP%\seedos-stage0.serial.txt`
 - `-UsbXhciInput` adds `qemu-xhci`, `usb-kbd`, and `usb-mouse` for USB
   controller inventory tests. It does not replace the default virtio input.
+- `-NoVirtioInput` omits `virtio-keyboard-pci` and `virtio-mouse-pci` so USB-HID
+  is the only keyboard path.
+- `-MonitorTcpPort <port>` exposes the QEMU HMP monitor for commands such as
+  `sendkey h`.
 
 With `-SerialMode tcp`, the serial device is exposed at
 `127.0.0.1:<SerialTcpPort>` and still writes a QEMU chardev log to the serial
@@ -291,6 +302,19 @@ DHCP lease acquired: ip 10.0.2.15/24 gw 10.0.2.2 dns ["10.0.2.3"]
 status VIRTIO-NET: CONFIGURED - IP 10.0.2.15/24 GW 10.0.2.2
 virtio-input: modern device @ 00:04.0 initialised
 status INPUT: READY - VIRTIO INPUT QUEUE ACTIVE
+```
+
+For USB-HID keyboard smoke with `-NoVirtioInput`, useful lines include:
+
+```text
+usb-xhci: hci 0x0100, ports 8, connected 2
+usb-hid: device class 00 subclass 00 protocol 00
+usb-hid: boot keyboard interface 0
+usb-hid: boot keyboard ready on slot 1 endpoint 0x81
+status INPUT: READY - USB HID BOOT KEYBOARD
+usb input batch: 1 events
+> help
+COMMANDS: help status devices log bridge setup ask <text>
 ```
 
 Modern virtio-input depends on the Limine HHDM response and the kernel MMIO
