@@ -238,7 +238,11 @@ impl PeriodicTasks {
             status_ui.render(uptime_ms(), *runtime_status);
             return;
         }
-        self.input.try_run(now_tsc, || input::poll());
+        self.input.try_run(now_tsc, || {
+            if input::poll() {
+                status_ui.render_forced(uptime_ms(), *runtime_status);
+            }
+        });
         if self.entropy_ready {
             if !self.net_started {
                 net::init();

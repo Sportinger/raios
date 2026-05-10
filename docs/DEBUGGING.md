@@ -79,7 +79,7 @@ The runner uses:
 - serial log: `%TEMP%\seedos-stage0.serial.txt`
 - `-UsbXhciInput` adds `qemu-xhci`, `usb-kbd`, and `usb-mouse` for USB
   controller inventory tests. It does not replace the default virtio input.
-- `-NoVirtioInput` omits `virtio-keyboard-pci` and `virtio-mouse-pci` so USB-HID
+- `-NoVirtioInput` omits `virtio-keyboard-pci` and `virtio-tablet-pci` so USB-HID
   is the only keyboard path.
 - `-MonitorTcpPort <port>` exposes the QEMU HMP monitor for commands such as
   `sendkey h`.

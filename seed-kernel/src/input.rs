@@ -2,7 +2,7 @@ use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use spin::Once;
+use spin::{Mutex, Once};
 
 use crate::entropy;
 use crate::ps2;
@@ -12,8 +12,15 @@ use crate::usb;
 use crate::virtio;
 
 const INPUT_RING_CAPACITY: usize = 256;
+const POINTER_DEFAULT_WIDTH: i32 = 1280;
+const POINTER_DEFAULT_HEIGHT: i32 = 800;
+const POINTER_ABSOLUTE_MAX: i32 = 0x7FFF;
+const MOUSE_LEFT: u8 = 1 << 0;
+const MOUSE_RIGHT: u8 = 1 << 1;
+const MOUSE_MIDDLE: u8 = 1 << 2;
 
 static RING: InputRing = InputRing::new();
+static MOUSE: Mutex<MouseState> = Mutex::new(MouseState::new());
 static INIT_ONCE: Once<()> = Once::new();
 static SHIFT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -32,7 +39,13 @@ pub fn device_present() -> bool {
 
 pub fn device_detail() -> &'static str {
     if virtio::input::device_present() {
-        "VIRTIO INPUT QUEUE ACTIVE"
+        if mouse_snapshot().seen {
+            "VIRTIO KEYBOARD + POINTER"
+        } else if virtio::input::device_count() > 1 {
+            "VIRTIO INPUT QUEUES ACTIVE"
+        } else {
+            "VIRTIO INPUT QUEUE ACTIVE"
+        }
     } else if usb::keyboard_active() {
         usb::keyboard_detail()
     } else if ps2::active() {
@@ -42,27 +55,31 @@ pub fn device_detail() -> &'static str {
     }
 }
 
-pub fn poll() {
+pub fn poll() -> bool {
+    let mut pointer_changed = false;
     if virtio::input::device_present() {
-        poll_virtio();
+        pointer_changed |= poll_virtio();
     }
 
     poll_usb();
     poll_ps2();
+    pointer_changed
 }
 
-fn poll_virtio() {
+fn poll_virtio() -> bool {
     let raw_events = virtio::input::poll();
     if raw_events.is_empty() {
-        return;
+        return false;
     }
 
     let ts_ms = timestamp_ms();
 
     let mut inserted = 0usize;
+    let mut pointer_changed = false;
 
     for raw in raw_events {
         if let Some(kind) = translate_event(&raw) {
+            pointer_changed |= update_mouse(kind);
             let event = InputEvent { ts_ms, kind };
             RING.push(event);
             inserted += 1;
@@ -75,6 +92,7 @@ fn poll_virtio() {
             inserted, ts_ms
         ));
     }
+    pointer_changed
 }
 
 fn poll_ps2() {
@@ -157,6 +175,23 @@ pub fn drain_console_bytes<F: FnMut(u8)>(mut f: F) {
     });
 }
 
+pub fn set_pointer_bounds(width: usize, height: usize) {
+    MOUSE.lock().set_bounds(width, height);
+}
+
+pub fn mouse_snapshot() -> MouseSnapshot {
+    MOUSE.lock().snapshot()
+}
+
+#[derive(Clone, Copy)]
+pub struct MouseSnapshot {
+    pub x: usize,
+    pub y: usize,
+    pub buttons: u8,
+    pub seen: bool,
+    pub sequence: u64,
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub struct InputEvent {
@@ -207,6 +242,165 @@ fn translate_event(event: &virtio::input::VirtioInputEvent) -> Option<InputEvent
             code: event.code,
             value: event.value,
         }),
+    }
+}
+
+fn update_mouse(kind: InputEventKind) -> bool {
+    let mut mouse = MOUSE.lock();
+    match kind {
+        InputEventKind::Relative(axis, value) => mouse.apply_relative(axis, value),
+        InputEventKind::Absolute { code, value } => mouse.apply_absolute(code, value),
+        InputEventKind::Key { code, pressed } => match mouse_button_mask(code) {
+            Some(mask) => mouse.apply_button(mask, pressed),
+            None => false,
+        },
+        InputEventKind::Raw { .. } => false,
+    }
+}
+
+fn mouse_button_mask(code: u16) -> Option<u8> {
+    match code {
+        272 => Some(MOUSE_LEFT),
+        273 => Some(MOUSE_RIGHT),
+        274 => Some(MOUSE_MIDDLE),
+        _ => None,
+    }
+}
+
+struct MouseState {
+    x: i32,
+    y: i32,
+    max_x: i32,
+    max_y: i32,
+    buttons: u8,
+    seen: bool,
+    sequence: u64,
+}
+
+impl MouseState {
+    const fn new() -> Self {
+        Self {
+            x: POINTER_DEFAULT_WIDTH / 2,
+            y: POINTER_DEFAULT_HEIGHT / 2,
+            max_x: POINTER_DEFAULT_WIDTH - 1,
+            max_y: POINTER_DEFAULT_HEIGHT - 1,
+            buttons: 0,
+            seen: false,
+            sequence: 0,
+        }
+    }
+
+    fn set_bounds(&mut self, width: usize, height: usize) {
+        self.max_x = usize_to_i32(width.saturating_sub(1));
+        self.max_y = usize_to_i32(height.saturating_sub(1));
+        if !self.seen {
+            self.x = self.max_x / 2;
+            self.y = self.max_y / 2;
+            return;
+        }
+        self.x = clamp_i32(self.x, 0, self.max_x);
+        self.y = clamp_i32(self.y, 0, self.max_y);
+    }
+
+    fn apply_relative(&mut self, axis: RelativeAxis, value: i32) -> bool {
+        if value == 0 {
+            return false;
+        }
+        match axis {
+            RelativeAxis::X => self.move_by(value, 0),
+            RelativeAxis::Y => self.move_by(0, value),
+            RelativeAxis::Wheel | RelativeAxis::Other(_) => {
+                self.mark_seen();
+                false
+            }
+        }
+    }
+
+    fn apply_absolute(&mut self, code: u16, value: i32) -> bool {
+        match code {
+            0 => {
+                let x = scale_absolute(value, self.max_x);
+                self.set_position(x, self.y)
+            }
+            1 => {
+                let y = scale_absolute(value, self.max_y);
+                self.set_position(self.x, y)
+            }
+            _ => false,
+        }
+    }
+
+    fn apply_button(&mut self, mask: u8, pressed: bool) -> bool {
+        let previous = self.buttons;
+        if pressed {
+            self.buttons |= mask;
+        } else {
+            self.buttons &= !mask;
+        }
+        self.mark_seen();
+        if self.buttons == previous {
+            return false;
+        }
+        self.bump();
+        true
+    }
+
+    fn move_by(&mut self, dx: i32, dy: i32) -> bool {
+        self.set_position(self.x.saturating_add(dx), self.y.saturating_add(dy))
+    }
+
+    fn set_position(&mut self, x: i32, y: i32) -> bool {
+        let x = clamp_i32(x, 0, self.max_x);
+        let y = clamp_i32(y, 0, self.max_y);
+        let changed = x != self.x || y != self.y || !self.seen;
+        self.x = x;
+        self.y = y;
+        self.mark_seen();
+        if changed {
+            self.bump();
+        }
+        changed
+    }
+
+    fn mark_seen(&mut self) {
+        self.seen = true;
+    }
+
+    fn bump(&mut self) {
+        self.sequence = self.sequence.wrapping_add(1);
+    }
+
+    fn snapshot(&self) -> MouseSnapshot {
+        MouseSnapshot {
+            x: self.x as usize,
+            y: self.y as usize,
+            buttons: self.buttons,
+            seen: self.seen,
+            sequence: self.sequence,
+        }
+    }
+}
+
+fn scale_absolute(value: i32, max: i32) -> i32 {
+    let value = clamp_i32(value, 0, POINTER_ABSOLUTE_MAX) as i64;
+    ((value * max as i64) / POINTER_ABSOLUTE_MAX as i64) as i32
+}
+
+fn usize_to_i32(value: usize) -> i32 {
+    if value > i32::MAX as usize {
+        i32::MAX
+    } else {
+        value as i32
+    }
+}
+
+fn clamp_i32(value: i32, min: i32, max: i32) -> i32 {
+    if value < min {
+        min
+    } else if value > max {
+        max
+    } else {
+        value
     }
 }
 

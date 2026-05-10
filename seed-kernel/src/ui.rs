@@ -29,6 +29,10 @@ pub struct StatusUi {
 
 impl StatusUi {
     pub fn new(surface: Option<FramebufferSurface>) -> Self {
+        if let Some(surface) = surface.as_ref() {
+            let info = surface.info();
+            input::set_pointer_bounds(info.width as usize, info.height as usize);
+        }
         Self {
             surface,
             last_states: None,
@@ -83,6 +87,7 @@ struct Snapshot {
     usb_xhci: StatusLine,
     virtio_net: StatusLine,
     input: StatusLine,
+    mouse: input::MouseSnapshot,
 }
 
 impl Snapshot {
@@ -93,6 +98,7 @@ impl Snapshot {
         let usb_xhci = usb_xhci_line();
         let virtio_net = virtio_net_line(runtime);
         let input = input_line(runtime);
+        let mouse = input::mouse_snapshot();
         Self {
             framebuffer,
             entropy,
@@ -100,6 +106,7 @@ impl Snapshot {
             usb_xhci,
             virtio_net,
             input,
+            mouse,
         }
     }
 
@@ -111,6 +118,11 @@ impl Snapshot {
             usb_xhci: self.usb_xhci.state,
             virtio_net: self.virtio_net.state,
             input: self.input.state,
+            mouse_sequence: if self.mouse.seen {
+                self.mouse.sequence
+            } else {
+                0
+            },
         }
     }
 }
@@ -123,6 +135,7 @@ struct SnapshotStates {
     usb_xhci: RowState,
     virtio_net: RowState,
     input: RowState,
+    mouse_sequence: u64,
 }
 
 struct StatusLine {
@@ -465,6 +478,7 @@ fn draw(surface: &mut FramebufferSurface, uptime_ms: u64, snapshot: &Snapshot) {
     draw_row(surface, y, &snapshot.input);
 
     draw_console(surface, 380);
+    draw_mouse_cursor(surface, snapshot.mouse);
 }
 
 fn draw_row(surface: &mut FramebufferSurface, y: usize, line: &StatusLine) {
@@ -535,6 +549,49 @@ fn draw_console(surface: &mut FramebufferSurface, y: usize) {
         Color::new(245, 248, 250),
         None,
     );
+}
+
+fn draw_mouse_cursor(surface: &mut FramebufferSurface, mouse: input::MouseSnapshot) {
+    if !mouse.seen {
+        return;
+    }
+
+    let fill = if mouse.buttons & 1 != 0 {
+        Color::new(92, 204, 255)
+    } else {
+        Color::new(245, 248, 250)
+    };
+    let outline = Color::new(4, 8, 12);
+    let x = mouse.x;
+    let y = mouse.y;
+    let shape = [
+        "X",
+        "XX",
+        "XOX",
+        "XOOX",
+        "XOOOX",
+        "XOOOOX",
+        "XOOOOOX",
+        "XOOOOOOX",
+        "XOOOOOOOX",
+        "XOOOOX",
+        "XOOXOX",
+        "XOXXOX",
+        "XX  XOX",
+        "X    XOX",
+        "     XOX",
+        "      X",
+    ];
+
+    for (row, pattern) in shape.iter().enumerate() {
+        for (col, byte) in pattern.as_bytes().iter().copied().enumerate() {
+            match byte {
+                b'X' => surface.set_pixel(x + col, y + row, outline),
+                b'O' => surface.set_pixel(x + col, y + row, fill),
+                _ => {}
+            }
+        }
+    }
 }
 
 fn detail(args: fmt::Arguments<'_>) -> TextBuf<128> {

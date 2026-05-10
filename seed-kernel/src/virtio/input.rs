@@ -24,6 +24,7 @@ const DEVICE_STATUS_FEATURES_OK: u8 = 0x08;
 
 const FEATURE_VERSION_1: u64 = 1u64 << 32;
 
+const MAX_INPUT_DEVICES: usize = 4;
 const EVENT_QUEUE_SIZE: usize = 64;
 const EVENT_BUFFER_LEN: usize = core::mem::size_of::<VirtioInputEvent>();
 const VIRTQ_DESC_F_WRITE: u16 = 1 << 1;
@@ -108,6 +109,32 @@ struct QueueStorage {
     used: VirtqUsed,
 }
 
+impl QueueStorage {
+    const fn new() -> Self {
+        Self {
+            desc: [VirtqDesc {
+                addr: 0,
+                len: 0,
+                flags: 0,
+                next: 0,
+            }; EVENT_QUEUE_SIZE],
+            avail: VirtqAvail {
+                flags: 0,
+                idx: 0,
+                ring: [0; EVENT_QUEUE_SIZE],
+                used_event: 0,
+            },
+            used_padding: [0; 4096],
+            used: VirtqUsed {
+                flags: 0,
+                idx: 0,
+                ring: [VirtqUsedElem { id: 0, len: 0 }; EVENT_QUEUE_SIZE],
+                avail_event: 0,
+            },
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct VirtioInputEvent {
@@ -116,77 +143,90 @@ pub struct VirtioInputEvent {
     pub value: i32,
 }
 
-static mut EVENT_QUEUE_STORAGE: QueueStorage = QueueStorage {
-    desc: [VirtqDesc {
-        addr: 0,
-        len: 0,
-        flags: 0,
-        next: 0,
-    }; EVENT_QUEUE_SIZE],
-    avail: VirtqAvail {
-        flags: 0,
-        idx: 0,
-        ring: [0; EVENT_QUEUE_SIZE],
-        used_event: 0,
-    },
-    used_padding: [0; 4096],
-    used: VirtqUsed {
-        flags: 0,
-        idx: 0,
-        ring: [VirtqUsedElem { id: 0, len: 0 }; EVENT_QUEUE_SIZE],
-        avail_event: 0,
-    },
-};
+type EventBuffers = [[MaybeUninit<VirtioInputEvent>; 1]; EVENT_QUEUE_SIZE];
 
-static mut EVENT_BUFFERS: [[MaybeUninit<VirtioInputEvent>; 1]; EVENT_QUEUE_SIZE] =
-    [[MaybeUninit::uninit(); 1]; EVENT_QUEUE_SIZE];
-static EVENT_QUEUE_LAST_USED: AtomicU16 = AtomicU16::new(0);
+const fn empty_event_buffers() -> EventBuffers {
+    [[MaybeUninit::uninit(); 1]; EVENT_QUEUE_SIZE]
+}
 
-static DEVICE: Mutex<Option<InputDevice>> = Mutex::new(None);
+static mut EVENT_QUEUE_STORAGE: [QueueStorage; MAX_INPUT_DEVICES] = [
+    QueueStorage::new(),
+    QueueStorage::new(),
+    QueueStorage::new(),
+    QueueStorage::new(),
+];
+
+static mut EVENT_BUFFERS: [EventBuffers; MAX_INPUT_DEVICES] = [
+    empty_event_buffers(),
+    empty_event_buffers(),
+    empty_event_buffers(),
+    empty_event_buffers(),
+];
+
+static EVENT_QUEUE_LAST_USED: [AtomicU16; MAX_INPUT_DEVICES] = [
+    AtomicU16::new(0),
+    AtomicU16::new(0),
+    AtomicU16::new(0),
+    AtomicU16::new(0),
+];
+
+static DEVICES: Mutex<InputDevices> = Mutex::new(InputDevices::new());
 
 pub fn probe() {
-    let mut guard = DEVICE.lock();
-    if guard.is_some() {
+    let mut guard = DEVICES.lock();
+    if !guard.is_empty() {
         return;
     }
 
-    let Some(address) = pci::find_device(VIRTIO_VENDOR_ID, device_id::MODERN_INPUT) else {
+    let mut addresses = [PciAddress::new(0, 0, 0); MAX_INPUT_DEVICES];
+    let address_count = find_input_addresses(&mut addresses);
+    if address_count == 0 {
         serial::write_line("virtio-input: device not present");
         return;
-    };
+    }
 
     if !mmio_transport_enabled() {
-        serial::write_fmt(format_args!(
-            "virtio-input: modern device @ {} detected; MMIO transport deferred\r\n",
-            address
-        ));
+        for address in addresses.iter().take(address_count) {
+            serial::write_fmt(format_args!(
+                "virtio-input: modern device @ {} detected; MMIO transport deferred\r\n",
+                address
+            ));
+        }
         return;
     }
 
-    match unsafe { init_device(address) } {
-        Ok(device) => {
-            serial::write_fmt(format_args!(
-                "virtio-input: modern device @ {} initialised\r\n",
-                address
-            ));
-            device.notify_queue(0);
-            *guard = Some(device);
-        }
-        Err(err) => {
-            serial::write_fmt(format_args!("virtio-input init failed: {}\r\n", err));
+    for (slot, address) in addresses.iter().copied().take(address_count).enumerate() {
+        match unsafe { init_device(address, slot) } {
+            Ok(device) => {
+                serial::write_fmt(format_args!(
+                    "virtio-input: modern device @ {} initialised\r\n",
+                    address
+                ));
+                device.notify_queue(0);
+                guard.push(device);
+            }
+            Err(err) => {
+                serial::write_fmt(format_args!("virtio-input init failed: {}\r\n", err));
+            }
         }
     }
 }
 
 pub fn poll() -> Vec<VirtioInputEvent> {
-    let mut guard = DEVICE.lock();
-    let Some(device) = guard.as_mut() else {
-        return Vec::new();
-    };
-    unsafe { device.poll_events() }
+    let mut guard = DEVICES.lock();
+    let mut events = Vec::new();
+    unsafe {
+        guard.poll_into(&mut events);
+    }
+    events
+}
+
+pub fn device_count() -> usize {
+    DEVICES.lock().count()
 }
 
 struct InputDevice {
+    slot: usize,
     common_cfg: *mut VirtioPciCommonCfg,
     notify_base: *mut u8,
     notify_off_multiplier: u32,
@@ -200,7 +240,56 @@ struct InputDevice {
 unsafe impl Send for InputDevice {}
 unsafe impl Sync for InputDevice {}
 
-unsafe fn init_device(address: PciAddress) -> Result<InputDevice, &'static str> {
+struct InputDevices {
+    devices: [Option<InputDevice>; MAX_INPUT_DEVICES],
+}
+
+impl InputDevices {
+    const fn new() -> Self {
+        Self {
+            devices: [None, None, None, None],
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.count() == 0
+    }
+
+    fn count(&self) -> usize {
+        let mut count = 0usize;
+        let mut index = 0usize;
+        while index < MAX_INPUT_DEVICES {
+            if self.devices[index].is_some() {
+                count += 1;
+            }
+            index += 1;
+        }
+        count
+    }
+
+    fn push(&mut self, device: InputDevice) {
+        let mut index = 0usize;
+        while index < MAX_INPUT_DEVICES {
+            if self.devices[index].is_none() {
+                self.devices[index] = Some(device);
+                return;
+            }
+            index += 1;
+        }
+    }
+
+    unsafe fn poll_into(&mut self, events: &mut Vec<VirtioInputEvent>) {
+        let mut index = 0usize;
+        while index < MAX_INPUT_DEVICES {
+            if let Some(device) = self.devices[index].as_mut() {
+                device.poll_events(events);
+            }
+            index += 1;
+        }
+    }
+}
+
+unsafe fn init_device(address: PciAddress, slot: usize) -> Result<InputDevice, &'static str> {
     let caps = VirtioCapabilitySet::discover(address)?;
     let common = caps
         .common_cfg
@@ -238,7 +327,7 @@ unsafe fn init_device(address: PciAddress) -> Result<InputDevice, &'static str> 
         return Err("virtio-input: device rejected negotiated features");
     }
 
-    let queue_notify_offset = setup_event_queue(common_cfg)?;
+    let queue_notify_offset = setup_event_queue(common_cfg, slot)?;
     let notify_byte_offset = queue_notify_offset as usize * notify_off_multiplier as usize;
     if notify_byte_offset + size_of::<u16>() > notify_mapping.mapping.len() {
         return Err("virtio-input: queue notify offset outside notify BAR capability");
@@ -253,6 +342,7 @@ unsafe fn init_device(address: PciAddress) -> Result<InputDevice, &'static str> 
     );
 
     Ok(InputDevice {
+        slot,
         common_cfg,
         notify_base,
         notify_off_multiplier,
@@ -266,25 +356,26 @@ unsafe fn init_device(address: PciAddress) -> Result<InputDevice, &'static str> 
 
 impl InputDevice {
     #[allow(static_mut_refs)]
-    unsafe fn poll_events(&mut self) -> Vec<VirtioInputEvent> {
-        let used = &EVENT_QUEUE_STORAGE.used;
-        let mut last = EVENT_QUEUE_LAST_USED.load(Ordering::Acquire);
+    unsafe fn poll_events(&mut self, events: &mut Vec<VirtioInputEvent>) {
+        let used = &EVENT_QUEUE_STORAGE[self.slot].used;
+        let mut last = EVENT_QUEUE_LAST_USED[self.slot].load(Ordering::Acquire);
         let current = core::ptr::read_volatile(addr_of!((*used).idx));
         if last == current {
-            return Vec::new();
+            return;
         }
 
-        let mut events = Vec::new();
         while last != current {
             let slot = (last % EVENT_QUEUE_SIZE as u16) as usize;
             let elem = core::ptr::read_volatile(addr_of!((*used).ring[slot]));
             let desc_idx = elem.id as usize;
-            let buffer = &EVENT_BUFFERS[desc_idx][0];
-            events.push(buffer.assume_init_read());
-            recycle_descriptor(desc_idx);
+            if desc_idx < EVENT_QUEUE_SIZE {
+                let buffer = &EVENT_BUFFERS[self.slot][desc_idx][0];
+                events.push(buffer.assume_init_read());
+                recycle_descriptor(self.slot, desc_idx);
+            }
             last = last.wrapping_add(1);
         }
-        EVENT_QUEUE_LAST_USED.store(last, Ordering::Release);
+        EVENT_QUEUE_LAST_USED[self.slot].store(last, Ordering::Release);
 
         // acknowledge interrupt
         let _ = core::ptr::read_volatile(self.isr_status);
@@ -292,8 +383,6 @@ impl InputDevice {
         if !events.is_empty() {
             self.notify_queue(0);
         }
-
-        events
     }
 
     fn notify_queue(&self, queue: u16) {
@@ -317,7 +406,10 @@ unsafe fn driver_ready(common_cfg: *mut VirtioPciCommonCfg) {
     set_status(common_cfg, DEVICE_STATUS_ACKNOWLEDGE | DEVICE_STATUS_DRIVER);
 }
 
-unsafe fn setup_event_queue(common_cfg: *mut VirtioPciCommonCfg) -> Result<u16, &'static str> {
+unsafe fn setup_event_queue(
+    common_cfg: *mut VirtioPciCommonCfg,
+    slot: usize,
+) -> Result<u16, &'static str> {
     select_queue(common_cfg, 0);
     let reported = core::ptr::read_volatile(addr_of!((*common_cfg).queue_size));
     if reported == 0 {
@@ -327,7 +419,7 @@ unsafe fn setup_event_queue(common_cfg: *mut VirtioPciCommonCfg) -> Result<u16, 
         return Err("virtio-input: queue smaller than expected");
     }
 
-    initialise_event_storage()?;
+    initialise_event_storage(slot)?;
 
     core::ptr::write_volatile(addr_of_mut!((*common_cfg).queue_msix_vector), 0xFFFF);
     core::ptr::write_volatile(
@@ -337,20 +429,23 @@ unsafe fn setup_event_queue(common_cfg: *mut VirtioPciCommonCfg) -> Result<u16, 
     core::ptr::write_volatile(
         addr_of_mut!((*common_cfg).queue_desc),
         dma_addr(
-            addr_of!(EVENT_QUEUE_STORAGE.desc),
+            addr_of!(EVENT_QUEUE_STORAGE[slot].desc),
             "virtio-input desc table",
         )?,
     );
     core::ptr::write_volatile(
         addr_of_mut!((*common_cfg).queue_avail),
         dma_addr(
-            addr_of!(EVENT_QUEUE_STORAGE.avail),
+            addr_of!(EVENT_QUEUE_STORAGE[slot].avail),
             "virtio-input avail ring",
         )?,
     );
     core::ptr::write_volatile(
         addr_of_mut!((*common_cfg).queue_used),
-        dma_addr(addr_of!(EVENT_QUEUE_STORAGE.used), "virtio-input used ring")?,
+        dma_addr(
+            addr_of!(EVENT_QUEUE_STORAGE[slot].used),
+            "virtio-input used ring",
+        )?,
     );
     core::ptr::write_volatile(addr_of_mut!((*common_cfg).queue_enable), 1);
 
@@ -359,11 +454,11 @@ unsafe fn setup_event_queue(common_cfg: *mut VirtioPciCommonCfg) -> Result<u16, 
 }
 
 #[allow(static_mut_refs)]
-unsafe fn initialise_event_storage() -> Result<(), &'static str> {
-    let storage = &mut EVENT_QUEUE_STORAGE;
+unsafe fn initialise_event_storage(slot: usize) -> Result<(), &'static str> {
+    let storage = &mut EVENT_QUEUE_STORAGE[slot];
     for (index, desc) in storage.desc.iter_mut().enumerate().take(EVENT_QUEUE_SIZE) {
         desc.addr = dma_addr(
-            addr_of!(EVENT_BUFFERS[index][0]),
+            addr_of!(EVENT_BUFFERS[slot][index][0]),
             "virtio-input event buffer",
         )?;
         desc.len = EVENT_BUFFER_LEN as u32;
@@ -372,13 +467,13 @@ unsafe fn initialise_event_storage() -> Result<(), &'static str> {
         storage.avail.ring[index] = index as u16;
     }
     storage.avail.idx = EVENT_QUEUE_SIZE as u16;
-    EVENT_QUEUE_LAST_USED.store(0, Ordering::Relaxed);
+    EVENT_QUEUE_LAST_USED[slot].store(0, Ordering::Relaxed);
     Ok(())
 }
 
 #[allow(static_mut_refs)]
-unsafe fn recycle_descriptor(index: usize) {
-    let avail = &mut EVENT_QUEUE_STORAGE.avail;
+unsafe fn recycle_descriptor(device_slot: usize, index: usize) {
+    let avail = &mut EVENT_QUEUE_STORAGE[device_slot].avail;
     let slot = (avail.idx % EVENT_QUEUE_SIZE as u16) as usize;
     avail.ring[slot] = index as u16;
     fence(Ordering::Release);
@@ -539,9 +634,50 @@ fn read_notify_cap(address: PciAddress, offset: u8) -> VirtioNotifyCapability {
 }
 
 pub fn device_present() -> bool {
-    DEVICE.lock().is_some()
+    !DEVICES.lock().is_empty()
 }
 
 fn mmio_transport_enabled() -> bool {
     memory::mmio_ready()
+}
+
+fn find_input_addresses(out: &mut [PciAddress; MAX_INPUT_DEVICES]) -> usize {
+    let mut count = 0usize;
+    for bus in 0..=255 {
+        for dev in 0..32 {
+            for func in 0..8 {
+                let addr = PciAddress::new(bus, dev, func);
+                let vendor = pci_vendor(&addr);
+                if vendor == 0xFFFF {
+                    if func == 0 {
+                        break;
+                    }
+                    continue;
+                }
+                if vendor == VIRTIO_VENDOR_ID
+                    && pci_device(&addr) == device_id::MODERN_INPUT
+                    && count < MAX_INPUT_DEVICES
+                {
+                    out[count] = addr;
+                    count += 1;
+                }
+                if func == 0 && !pci_multifunction(&addr) {
+                    break;
+                }
+            }
+        }
+    }
+    count
+}
+
+fn pci_vendor(addr: &PciAddress) -> u16 {
+    (addr.read_u32(0) & 0xFFFF) as u16
+}
+
+fn pci_device(addr: &PciAddress) -> u16 {
+    ((addr.read_u32(0) >> 16) & 0xFFFF) as u16
+}
+
+fn pci_multifunction(addr: &PciAddress) -> bool {
+    (addr.read_u32(0x0C) & (1 << 23)) != 0
 }
