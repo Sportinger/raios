@@ -3,7 +3,7 @@ ENTRY(_start)
 
 SECTIONS
 {
-    . = 1M;
+    . = 0xffffffff80000000;
 
     .text ALIGN(4K) :
     {
@@ -13,6 +13,10 @@ SECTIONS
 
     .rodata ALIGN(4K) :
     {
+        KEEP(*(.limine_requests_start))
+        KEEP(*(.limine_requests))
+        KEEP(*(.limine_reqs))
+        KEEP(*(.limine_requests_end))
         *(.rodata .rodata.*)
     }
 

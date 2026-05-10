@@ -3,17 +3,20 @@
 ## Scope
 Initial kernel bootstrap for runbook section 2.1 covering Limine-facing artifacts, Rust `no_std` crate scaffolding, early-boot logging, and framebuffer bring-up.
 
+Status update: the boot path now reaches a visible framebuffer overlay in QEMU.
+The current operational snapshot lives in `docs/PROJECT_STATUS.md`.
+
 ## Artifacts
 - `seed-kernel/` Rust crate targeting custom `x86_64-seed` spec with linker script and Limine config.
 - Serial logger (`seed-kernel/src/serial.rs`) used for early boot diagnostics and panic mirroring.
-- Framebuffer negotiation + double-buffer utilities (`seed-kernel/src/framebuffer.rs`) with color fills/present.
+- Framebuffer negotiation + direct framebuffer drawing utilities (`seed-kernel/src/framebuffer.rs`) with color fills/text rendering.
 - Build helper: `./scripts/build-seed-kernel.sh` invoking the pinned nightly toolchain with `-Zbuild-std`.
 
 ## Exit criteria snapshot
-- Kernel crate builds successfully via `cargo +nightly-2024-10-15 -Zbuild-std=core,compiler_builtins,alloc check --target seed-kernel/x86_64-seed.json -p seed-kernel`.
+- Kernel crate builds successfully via `scripts/build-seed-kernel.ps1` on Windows or `scripts/build-seed-kernel.sh` in Linux/WSL.
 - Serial logging available for panic paths (writes to COM1).
-- Framebuffer double buffer fills and presents a placeholder overlay rectangle.
+- Framebuffer draws the Stage-0 overlay in QEMU.
 
 ## Follow-up
-- Layer font rendering / hello text atlas on top of the present pipeline.
+- Replace static overlay with a live status UI.
 - Add CI harness step to invoke `scripts/build-seed-kernel.sh` and archive `seed-kernel.elf` artifact.

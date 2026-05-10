@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use alloc::boxed::Box;
-use alloc::vec;
 use core::ptr;
 
 use limine::framebuffer::Framebuffer;
@@ -38,7 +36,6 @@ impl PixelFormat {
 pub struct FramebufferSurface {
     info: FramebufferInfo,
     front: *mut u8,
-    back: &'static mut [u8],
 }
 
 impl FramebufferSurface {
@@ -46,80 +43,79 @@ impl FramebufferSurface {
         if fb.bpp() < 32 {
             return None;
         }
+        let front = fb.addr();
+        if front.is_null() {
+            return None;
+        }
         let info = FramebufferInfo {
             width: fb.width(),
             height: fb.height(),
             pitch: fb.pitch(),
             format: PixelFormat::infer(fb),
-            address: fb.addr() as u64,
+            address: front as u64,
         };
-        let back_len = (info.pitch as usize).saturating_mul(info.height as usize);
-        let buffer = vec![0u8; back_len].into_boxed_slice();
-        let back_slice: &'static mut [u8] = Box::leak(buffer);
-        Some(Self {
-            info,
-            front: fb.addr(),
-            back: back_slice,
-        })
+        let row_bytes = info.width.checked_mul(4)?;
+        if info.width == 0 || info.height == 0 || info.pitch < row_bytes {
+            return None;
+        }
+        let _framebuffer_len = (info.pitch as usize).checked_mul(info.height as usize)?;
+        Some(Self { info, front })
     }
 
     pub fn info(&self) -> FramebufferInfo {
         self.info
     }
 
-    pub fn back_buffer(&mut self) -> &mut [u8] {
-        self.back
-    }
-
     pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
         if let Some(offset) = self.pixel_offset(x, y) {
             let bytes = color.to_bytes(self.info.format);
-            self.back[offset..offset + 4].copy_from_slice(&bytes);
+            self.write_pixel_bytes(offset, bytes);
         }
     }
 
     pub fn fill(&mut self, color: Color) {
-        let pitch = self.info.pitch as usize;
-        let row_bytes = self.info.width as usize * 4;
-        let bytes = color.to_bytes(self.info.format);
-        for y in 0..self.info.height as usize {
-            let row = &mut self.back[y * pitch..y * pitch + row_bytes];
-            for px in row.chunks_exact_mut(4) {
-                px.copy_from_slice(&bytes);
-            }
-        }
+        self.fill_rect(
+            0,
+            0,
+            self.info.width as usize,
+            self.info.height as usize,
+            color,
+        );
     }
 
     pub fn fill_rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: Color) {
         let pitch = self.info.pitch as usize;
-        let row_bytes = self.info.width as usize * 4;
         let bytes = color.to_bytes(self.info.format);
         let max_y = usize::min(y + h, self.info.height as usize);
         let max_x = usize::min(x + w, self.info.width as usize);
         for row in y..max_y {
-            let start = row * pitch;
-            let row_slice = &mut self.back[start..start + row_bytes];
             if x >= max_x {
                 continue;
             }
-            for px in row_slice[x * 4..max_x * 4].chunks_exact_mut(4) {
-                px.copy_from_slice(&bytes);
+            for col in x..max_x {
+                self.write_pixel_bytes(row * pitch + col * 4, bytes);
             }
         }
     }
 
-    pub fn present(&mut self) {
-        let len = self.back.len();
-        unsafe {
-            ptr::copy_nonoverlapping(self.back.as_ptr(), self.front, len);
-        }
-    }
+    pub fn present(&mut self) {}
+
     fn pixel_offset(&self, x: usize, y: usize) -> Option<usize> {
         if x >= self.info.width as usize || y >= self.info.height as usize {
             return None;
         }
         let pitch = self.info.pitch as usize;
         Some(y * pitch + x * 4)
+    }
+
+    fn write_pixel_bytes(&mut self, offset: usize, bytes: [u8; 4]) {
+        unsafe {
+            let px = self.front.add(offset);
+            ptr::write_volatile(px, bytes[0]);
+            ptr::write_volatile(px.add(1), bytes[1]);
+            ptr::write_volatile(px.add(2), bytes[2]);
+            ptr::write_volatile(px.add(3), bytes[3]);
+        }
     }
 }
 

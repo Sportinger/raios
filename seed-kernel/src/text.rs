@@ -62,7 +62,7 @@ fn draw_glyph(
             break;
         }
         for col in 0..FONT_WIDTH {
-            let bit = (row_bits >> (7 - col)) & 1;
+            let bit = (row_bits >> col) & 1;
             let color = if bit == 1 { Some(fg) } else { bg };
             if let Some(color) = color {
                 surface.set_pixel(x + col, y + row_idx, color);

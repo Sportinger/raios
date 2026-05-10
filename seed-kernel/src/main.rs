@@ -6,9 +6,10 @@ extern crate alloc;
 
 use core::alloc::Layout;
 use core::arch::asm;
+use core::hint::spin_loop;
 use core::panic::PanicInfo;
 use core::ptr;
-use limine::request::FramebufferRequest;
+use limine::request::{FramebufferRequest, RequestsEndMarker, RequestsStartMarker};
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
 
@@ -24,12 +25,20 @@ mod time;
 mod virtio;
 
 #[used]
-#[link_section = ".limine_reqs"]
+#[link_section = ".limine_requests_start"]
+static LIMINE_REQUESTS_START: RequestsStartMarker = RequestsStartMarker::new();
+
+#[used]
+#[link_section = ".limine_requests"]
 static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
 
 #[used]
-#[link_section = ".limine_reqs"]
+#[link_section = ".limine_requests"]
 pub static BASE_REVISION: BaseRevision = BaseRevision::new();
+
+#[used]
+#[link_section = ".limine_requests_end"]
+static LIMINE_REQUESTS_END: RequestsEndMarker = RequestsEndMarker::new();
 
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
@@ -42,6 +51,18 @@ static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 pub extern "C" fn _start() -> ! {
     unsafe {
         asm!("cli", options(nomem, nostack, preserves_flags));
+        asm!(
+            "mov rax, cr0",
+            "btr rax, 2",
+            "bts rax, 1",
+            "mov cr0, rax",
+            "mov rax, cr4",
+            "bts rax, 9",
+            "bts rax, 10",
+            "mov cr4, rax",
+            out("rax") _,
+            options(nostack)
+        );
     }
     early_main()
 }
@@ -53,6 +74,16 @@ fn early_main() -> ! {
     }
     serial::init();
     serial::write_line("Seed kernel: early init start");
+    if let Some(revision) = BASE_REVISION.loaded_revision() {
+        serial::write_fmt(format_args!("Limine loaded base revision: {}", revision));
+        serial::write_line("");
+    } else {
+        serial::write_line("Limine loaded base revision not reported");
+    }
+    if !BASE_REVISION.is_supported() {
+        serial::write_line("Limine base revision request was not satisfied");
+    }
+    draw_boot_overlay();
 
     time::calibrate_tsc();
     let tsc_per_ms = time::tsc_per_ms();
@@ -77,9 +108,32 @@ fn early_main() -> ! {
         serial::write_line("virtio-net initialization deferred; waiting for entropy");
     }
 
-    let fb_surface = init_framebuffer();
+    loop {
+        let tsc_now = now();
+        periodic.run(tsc_now);
+        for _ in 0..100_000 {
+            spin_loop();
+        }
+    }
+}
 
-    if let Some(mut surface) = fb_surface {
+fn init_framebuffer() -> Option<framebuffer::FramebufferSurface> {
+    serial::write_line("Framebuffer request: checking response");
+    let response = FRAMEBUFFER_REQUEST.get_response()?;
+    serial::write_fmt(format_args!(
+        "Framebuffer response revision: {}",
+        response.revision()
+    ));
+    serial::write_line("");
+    let mut iter = response.framebuffers();
+    serial::write_line("Framebuffer response: iterating framebuffers");
+    let fb = iter.next()?;
+    serial::write_line("Framebuffer response: first framebuffer found");
+    framebuffer::FramebufferSurface::from_limine(&fb)
+}
+
+fn draw_boot_overlay() {
+    if let Some(mut surface) = init_framebuffer() {
         serial::write_line("Framebuffer negotiated via Limine");
         let info = surface.info();
         serial::write_fmt(format_args!(
@@ -98,26 +152,27 @@ fn early_main() -> ! {
             Color::new(20, 28, 40),
             Some(Color::new(240, 240, 240)),
         );
+        text::draw_text(
+            &mut surface,
+            40,
+            92,
+            "AGENT HOST: STUB",
+            Color::new(220, 235, 255),
+            None,
+        );
+        text::draw_text(
+            &mut surface,
+            40,
+            116,
+            "VM MVP: BOOT + FRAME + DEVICE POLL",
+            Color::new(220, 235, 255),
+            None,
+        );
         surface.present();
         serial::write_line("Framebuffer hello overlay drawn");
     } else {
         serial::write_line("No framebuffer response from Limine");
     }
-
-    loop {
-        let tsc_now = now();
-        periodic.run(tsc_now);
-        unsafe {
-            asm!("hlt", options(nomem, nostack, preserves_flags));
-        }
-    }
-}
-
-fn init_framebuffer() -> Option<framebuffer::FramebufferSurface> {
-    let response = FRAMEBUFFER_REQUEST.get_response()?;
-    let mut iter = response.framebuffers();
-    let fb = iter.next()?;
-    framebuffer::FramebufferSurface::from_limine(&fb)
 }
 
 fn now() -> u64 {

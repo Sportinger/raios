@@ -12,8 +12,12 @@ then
   exit 1
 fi
 
-VARS_COPY="$REPO_ROOT/release/ovmf_vars.fd"
+VARS_COPY=$(mktemp "$REPO_ROOT/release/ovmf_vars.XXXXXX.fd")
 cp "$OVMF_VARS" "$VARS_COPY"
+cleanup() {
+  rm -f "$VARS_COPY"
+}
+trap cleanup EXIT
 
 qemu-system-x86_64 \
   -machine q35 \
@@ -23,6 +27,12 @@ qemu-system-x86_64 \
   -drive if=pflash,format=raw,file="$VARS_COPY" \
   -drive if=none,id=disk0,format=raw,file="$IMG" \
   -device virtio-blk-pci,drive=disk0 \
+  -netdev user,id=net0 \
+  -device virtio-net-pci,netdev=net0,disable-modern=on,disable-legacy=off \
+  -device virtio-rng-pci,disable-modern=on,disable-legacy=off \
+  -device virtio-keyboard-pci \
+  -device virtio-mouse-pci \
   -serial stdio \
   -display none \
+  -no-reboot \
   -smp 2
