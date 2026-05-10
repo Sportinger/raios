@@ -1,6 +1,9 @@
 param(
     [string]$Image = "$PSScriptRoot\..\release\seedos-stage0.img",
     [string]$SerialLog = "$env:TEMP\seedos-stage0.serial.txt",
+    [ValidateSet("file", "tcp")]
+    [string]$SerialMode = "file",
+    [int]$SerialTcpPort = 4555,
     [switch]$StopExisting
 )
 
@@ -31,8 +34,20 @@ $qemuArgs = @(
     "-device", "virtio-net-pci,netdev=net0",
     "-device", "virtio-rng-pci",
     "-device", "virtio-keyboard-pci",
-    "-device", "virtio-mouse-pci",
-    "-serial", "file:$SerialLog",
+    "-device", "virtio-mouse-pci"
+)
+
+if ($SerialMode -eq "tcp") {
+    $qemuArgs += @(
+        "-chardev", "socket,id=seedserial,host=127.0.0.1,port=$SerialTcpPort,server=on,wait=off,logfile=$SerialLog,logappend=off",
+        "-serial", "chardev:seedserial"
+    )
+}
+else {
+    $qemuArgs += @("-serial", "file:$SerialLog")
+}
+
+$qemuArgs += @(
     "-display", "gtk",
     "-no-reboot"
 )
@@ -40,3 +55,6 @@ $qemuArgs = @(
 $process = Start-Process -FilePath $Qemu -ArgumentList $qemuArgs -PassThru -RedirectStandardError $ErrLog
 Write-Output "qemu pid: $($process.Id)"
 Write-Output "serial log: $SerialLog"
+if ($SerialMode -eq "tcp") {
+    Write-Output "serial tcp: 127.0.0.1:$SerialTcpPort"
+}

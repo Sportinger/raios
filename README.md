@@ -71,6 +71,12 @@ Rebuild and repackage the boot image on Windows:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release
 ```
 
+Run with an interactive serial console on TCP port 4555:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555
+```
+
 Run workspace tests:
 
 ```powershell

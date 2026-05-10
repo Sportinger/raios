@@ -17,6 +17,12 @@ The image boots in QEMU using the Windows PowerShell runner:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting
 ```
 
+For interactive serial commands, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555
+```
+
 Expected visible framebuffer UI:
 
 ```text
@@ -43,6 +49,15 @@ virtio-rng request timed out; entropy source disabled
 status VIRTIO-RNG: DEGRADED - ATTACHED, WAITING FOR DATA
 ```
 
+Serial commands verified over TCP serial:
+
+```text
+help
+status
+devices
+log
+```
+
 ## Current Architecture Decision
 
 Do not run or port the Codex CLI inside Stage-0.
@@ -62,12 +77,14 @@ See `docs/architecture-decisions/0001-seedos-agent-protocol.md`.
 
 ## Exact Next Task
 
-Add the first command/input path:
+Fix or bypass the current virtio-rng entropy timeout:
 
-- serial command input first, or keyboard if easier
-- minimal commands: `help`, `status`, `devices`, `log`
-- responses drawn to framebuffer and serial
-- do not gate serial input behind entropy readiness
+- virtio-rng is detected and configured, but no entropy is returned before the
+  timeout.
+- net/input bring-up remains deferred until entropy becomes ready or those paths
+  are made safe to probe without entropy.
+- after entropy is unblocked, verify virtio-net/DHCP status rows and serial
+  `devices` output.
 
 ## Known Gaps
 

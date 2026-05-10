@@ -18,5 +18,5 @@ The current operational snapshot lives in `docs/PROJECT_STATUS.md`.
 - Framebuffer draws the Stage-0 live status UI in QEMU.
 
 ## Follow-up
-- Add serial command input for `help`, `status`, `devices`, and `log`.
+- Fix or bypass the virtio-rng entropy timeout so net/input can progress.
 - Add CI harness step to invoke `scripts/build-seed-kernel.sh` and archive `seed-kernel.elf` artifact.

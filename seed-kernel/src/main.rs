@@ -13,6 +13,7 @@ use limine::request::{FramebufferRequest, RequestsEndMarker, RequestsStartMarker
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
 
+mod console;
 mod entropy;
 mod framebuffer;
 mod input;
@@ -103,6 +104,7 @@ fn early_main() -> ! {
 
     let mut runtime_status = ui::RuntimeStatus::new();
     let mut status_ui = ui::StatusUi::new(framebuffer_surface);
+    console::init();
     status_ui.render(0, runtime_status);
 
     time::calibrate_tsc();
@@ -166,6 +168,7 @@ fn uptime_ms() -> u64 {
 }
 
 struct PeriodicTasks {
+    console: scheduler::PeriodicTask,
     entropy: scheduler::PeriodicTask,
     net: scheduler::PeriodicTask,
     input: scheduler::PeriodicTask,
@@ -178,6 +181,7 @@ struct PeriodicTasks {
 impl PeriodicTasks {
     fn new(tsc_per_ms: u64, entropy_ready: bool) -> Self {
         Self {
+            console: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
             entropy: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
             net: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(50, tsc_per_ms)),
             input: scheduler::PeriodicTask::new(scheduler::ms_to_tsc(8, tsc_per_ms)),
@@ -194,6 +198,11 @@ impl PeriodicTasks {
         status_ui: &mut ui::StatusUi,
         runtime_status: &mut ui::RuntimeStatus,
     ) {
+        self.console.try_run(now_tsc, || {
+            if console::poll(*runtime_status) {
+                status_ui.render(uptime_ms(), *runtime_status);
+            }
+        });
         self.entropy.try_run(now_tsc, || entropy::maintain());
         if !self.entropy_ready && entropy::is_ready() {
             serial::write_line("Entropy ready; starting virtio-net bring-up");

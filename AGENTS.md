@@ -39,6 +39,11 @@ reference/workstation tool, not the hard dependency inside the kernel.
   - `SEEDOS STAGE-0`
   - `AGENT HOST: LIVE STATUS`
   - status rows for framebuffer, entropy, virtio-rng, virtio-net, input
+- Serial command input exists when QEMU is run with `-SerialMode tcp`:
+  - `help`
+  - `status`
+  - `devices`
+  - `log`
 - Serial log confirms:
   - Limine loaded base revision 3
   - framebuffer response revision 1
@@ -91,11 +96,10 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Add a capability-gated command/input path, initially serial or keyboard.
-2. Fix or bypass the virtio-rng entropy timeout so net/input can progress.
-3. Finish virtio-net/DHCP visibility in the UI.
-4. Define the first native agent protocol messages outside the kernel boundary.
-5. Add a host-side bridge that can talk to Codex/OpenAI APIs from the VM during
+1. Fix or bypass the virtio-rng entropy timeout so net/input can progress.
+2. Finish virtio-net/DHCP visibility in the UI.
+3. Define the first native agent protocol messages outside the kernel boundary.
+4. Add a host-side bridge that can talk to Codex/OpenAI APIs from the VM during
    development, before attempting any direct in-OS provider integration.
 
 The current exact next task is maintained in `docs/PROJECT_STATUS.md`.

@@ -34,6 +34,12 @@ This stages `target\x86_64-seed\release\seed-kernel` into
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting
 ```
 
+Run with interactive serial commands on TCP port 4555:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555
+```
+
 The runner uses:
 
 - QEMU: `C:\Program Files\qemu\qemu-system-x86_64.exe`
@@ -42,6 +48,10 @@ The runner uses:
 - image: `release\seedos-stage0.img`
 - display: GTK
 - serial log: `%TEMP%\seedos-stage0.serial.txt`
+
+With `-SerialMode tcp`, the serial device is exposed at
+`127.0.0.1:<SerialTcpPort>` and still writes a QEMU chardev log to the serial
+log path.
 
 Tail the serial log:
 
@@ -53,6 +63,27 @@ Stop QEMU:
 
 ```powershell
 Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue | Stop-Process -Force
+```
+
+Smoke-test serial commands with Python while QEMU is running in TCP mode:
+
+```powershell
+@'
+import socket, time
+s = socket.create_connection(("127.0.0.1", 4555), timeout=5)
+s.settimeout(0.2)
+time.sleep(1)
+s.sendall(b"help\rstatus\rdevices\rlog\r")
+end = time.time() + 3
+out = bytearray()
+while time.time() < end:
+    try:
+        out.extend(s.recv(4096))
+    except TimeoutError:
+        time.sleep(0.1)
+print(out.decode("ascii", "replace"))
+s.close()
+'@ | python -
 ```
 
 ## Test Workspace

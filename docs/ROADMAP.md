@@ -42,7 +42,7 @@ Boot -> status UI -> command input -> visible responses
 Scope:
 
 - framebuffer text UI
-- serial command input
+- serial command input (`help`, `status`, `devices`, `log`)
 - optional keyboard input
 - device/status model in memory
 - commands: `help`, `status`, `devices`, `log`
@@ -52,6 +52,9 @@ Definition of done:
 - QEMU window shows live state, not only a fixed splash.
 - Serial input can request status.
 - State transitions are mirrored in serial logs.
+
+Current status: framebuffer UI and serial commands are implemented. Keyboard
+input and entropy-unblocked net/input bring-up remain.
 
 ## Phase 2: Network Visibility
 

@@ -2,7 +2,7 @@ use core::fmt::{self, Write};
 use core::str;
 
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
-use crate::{entropy, input, net, serial, text, virtio};
+use crate::{console, entropy, input, net, serial, text, virtio};
 
 #[derive(Clone, Copy)]
 pub struct RuntimeStatus {
@@ -331,6 +331,11 @@ fn log_transition(previous: Option<RowState>, line: &StatusLine) {
         line.state.as_str(),
         line.detail.as_str()
     ));
+    console::record_event(format_args!(
+        "STATUS {} {}",
+        line.label,
+        line.state.as_str()
+    ));
 }
 
 fn draw(surface: &mut FramebufferSurface, uptime_ms: u64, snapshot: &Snapshot) {
@@ -378,6 +383,8 @@ fn draw(surface: &mut FramebufferSurface, uptime_ms: u64, snapshot: &Snapshot) {
     draw_row(surface, y, &snapshot.virtio_net);
     y += 46;
     draw_row(surface, y, &snapshot.input);
+
+    draw_console(surface, 380);
 }
 
 fn draw_row(surface: &mut FramebufferSurface, y: usize, line: &StatusLine) {
@@ -408,6 +415,44 @@ fn draw_row(surface: &mut FramebufferSurface, y: usize, line: &StatusLine) {
         y,
         line.detail.as_str(),
         Color::new(188, 202, 212),
+        None,
+    );
+}
+
+fn draw_console(surface: &mut FramebufferSurface, y: usize) {
+    let width = surface.info().width as usize;
+    let panel_width = width.saturating_sub(48);
+    let snapshot = console::snapshot();
+
+    surface.fill_rect(24, y, panel_width, 188, Color::new(18, 23, 28));
+    surface.fill_rect(24, y, panel_width, 2, Color::new(66, 92, 112));
+
+    text::draw_text(
+        surface,
+        40,
+        y + 18,
+        "SERIAL CONSOLE",
+        Color::new(178, 205, 224),
+        None,
+    );
+
+    let mut line_y = y + 44;
+    let mut idx = 0usize;
+    while idx < snapshot.lines.len() {
+        let line = snapshot.lines[idx].as_str();
+        if !line.is_empty() {
+            text::draw_text(surface, 40, line_y, line, Color::new(188, 202, 212), None);
+        }
+        line_y += 16;
+        idx += 1;
+    }
+
+    text::draw_text(
+        surface,
+        40,
+        y + 172,
+        snapshot.input.as_str(),
+        Color::new(245, 248, 250),
         None,
     );
 }
