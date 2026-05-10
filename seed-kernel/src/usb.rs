@@ -13,7 +13,6 @@ const XHCI_BAR: u8 = 0;
 
 const CAPLENGTH: usize = 0x00;
 const HCSPARAMS1: usize = 0x04;
-const HCIVERSION: usize = 0x02;
 const PORTSC_BASE: usize = 0x400;
 const PORT_REGISTER_STRIDE: usize = 0x10;
 const PORTSC_CCS: u32 = 1 << 0;
@@ -93,6 +92,11 @@ fn probe_xhci() -> UsbSnapshot {
         return error_snapshot(address, "usb-xhci: BAR0 is not MMIO");
     }
 
+    serial::write_fmt(format_args!(
+        "usb-xhci: BAR{} base 0x{:x} size 0x{:x}\r\n",
+        bar.index, bar.base, bar.size
+    ));
+
     pci::enable_bus_master(address);
 
     let map_len = usize::min(bar.size as usize, 0x10000).max(0x1000);
@@ -101,8 +105,9 @@ fn probe_xhci() -> UsbSnapshot {
     };
 
     let base = mapping.as_ptr::<u8>();
-    let hci_version = unsafe { read_u16(base, HCIVERSION) };
-    let cap_length = unsafe { read_u8(base, CAPLENGTH) } as usize;
+    let cap_header = unsafe { read_u32(base, CAPLENGTH) };
+    let cap_length = (cap_header & 0xFF) as usize;
+    let hci_version = ((cap_header >> 16) & 0xFFFF) as u16;
     let hcsparams1 = unsafe { read_u32(base, HCSPARAMS1) };
     let max_ports = ((hcsparams1 >> 24) & 0xFF) as u8;
     let connected_ports = count_connected_ports(base, cap_length, max_ports, mapping.len());
@@ -151,20 +156,6 @@ fn count_connected_ports(base: *mut u8, cap_length: usize, max_ports: u8, map_le
     count
 }
 
-unsafe fn read_u8(base: *mut u8, offset: usize) -> u8 {
-    ptr::read_volatile(base.add(offset))
-}
-
-unsafe fn read_u16(base: *mut u8, offset: usize) -> u16 {
-    let low = read_u8(base, offset) as u16;
-    let high = read_u8(base, offset + 1) as u16;
-    low | (high << 8)
-}
-
 unsafe fn read_u32(base: *mut u8, offset: usize) -> u32 {
-    let b0 = read_u8(base, offset) as u32;
-    let b1 = read_u8(base, offset + 1) as u32;
-    let b2 = read_u8(base, offset + 2) as u32;
-    let b3 = read_u8(base, offset + 3) as u32;
-    b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+    ptr::read_volatile(base.add(offset).cast::<u32>())
 }

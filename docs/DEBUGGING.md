@@ -56,6 +56,12 @@ Run headless with the same serial TCP port:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless
 ```
 
+Run headless with a QEMU xHCI controller plus USB keyboard/mouse attached:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput
+```
+
 The runner uses:
 
 - QEMU: `C:\Program Files\qemu\qemu-system-x86_64.exe`
@@ -64,6 +70,8 @@ The runner uses:
 - image: `release\seedos-stage0.img`
 - display: GTK
 - serial log: `%TEMP%\seedos-stage0.serial.txt`
+- `-UsbXhciInput` adds `qemu-xhci`, `usb-kbd`, and `usb-mouse` for USB
+  controller inventory tests. It does not replace the default virtio input.
 
 With `-SerialMode tcp`, the serial device is exposed at
 `127.0.0.1:<SerialTcpPort>` and still writes a QEMU chardev log to the serial

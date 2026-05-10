@@ -23,6 +23,20 @@ For interactive serial commands, run:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555
 ```
 
+For a QEMU xHCI inventory run, add `-UsbXhciInput`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless -UsbXhciInput
+```
+
+Expected xHCI inventory lines in that mode:
+
+```text
+usb-xhci: controller @ 00:06.0 detected
+usb-xhci: hci 0x0100, ports 8, connected 2
+USB-XHCI: READY 00:06.0 HCI 0100 PORTS 8 CONNECTED 2
+```
+
 Expected visible framebuffer UI:
 
 ```text

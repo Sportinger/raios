@@ -5,6 +5,7 @@ param(
     [string]$SerialMode = "file",
     [int]$SerialTcpPort = 4555,
     [switch]$Headless,
+    [switch]$UsbXhciInput,
     [switch]$StopExisting
 )
 
@@ -37,6 +38,14 @@ $qemuArgs = @(
     "-device", "virtio-keyboard-pci",
     "-device", "virtio-mouse-pci"
 )
+
+if ($UsbXhciInput) {
+    $qemuArgs += @(
+        "-device", "qemu-xhci,id=xhci",
+        "-device", "usb-kbd,bus=xhci.0",
+        "-device", "usb-mouse,bus=xhci.0"
+    )
+}
 
 if ($SerialMode -eq "tcp") {
     $qemuArgs += @(
