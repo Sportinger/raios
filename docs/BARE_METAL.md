@@ -16,12 +16,17 @@ Likely to work on a UEFI x86_64 machine:
 - xHCI controller detection in the `USB-XHCI` status row.
 - Keyboard input from virtio in QEMU, PS/2/i8042 fallback where present, or a
   directly attached USB HID boot keyboard on xHCI.
+- The `USB-XHCI` row shows `HID READY`, `HID NONE`, or `HID ERROR`. `HID NONE`
+  means the controller was detected, but no directly attached boot keyboard was
+  enumerated.
 
 Expected gaps:
 
 - USB-HID support is minimal: direct root-port boot keyboards only. USB hubs,
   non-boot HID report descriptors, hotplug, and layout selection are not
   implemented yet.
+- PS/2/i8042 fallback is conservative: it no longer marks input ready merely
+  because an i8042-compatible status port exists.
 - No real NIC drivers yet; only virtio-net exists.
 - No in-OS HTTPS/TLS/OpenAI client yet.
 - No persistence or secure secret store yet.

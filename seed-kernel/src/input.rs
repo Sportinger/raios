@@ -78,7 +78,7 @@ fn poll_virtio() {
 }
 
 fn poll_ps2() {
-    if !ps2::active() {
+    if !ps2::present() {
         return;
     }
 

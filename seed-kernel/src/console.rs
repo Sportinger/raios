@@ -587,18 +587,38 @@ fn write_usb_device_line() {
             snapshot.last_error.unwrap_or("PROBE ERROR")
         )),
         usb::UsbStatus::Ready => {
+            let hid = usb_keyboard_status(snapshot.keyboard_status);
             if let Some(address) = snapshot.address {
                 write_output(format_args!(
-                    "USB-XHCI: READY {} HCI {:04X} PORTS {} CONNECTED {}",
-                    address, snapshot.hci_version, snapshot.max_ports, snapshot.connected_ports
+                    "USB-XHCI: READY {} HCI {:04X} PORTS {} CONNECTED {} HID {}",
+                    address,
+                    snapshot.hci_version,
+                    snapshot.max_ports,
+                    snapshot.connected_ports,
+                    hid
                 ));
             } else {
                 write_output(format_args!(
-                    "USB-XHCI: READY UNKNOWN HCI {:04X} PORTS {} CONNECTED {}",
-                    snapshot.hci_version, snapshot.max_ports, snapshot.connected_ports
+                    "USB-XHCI: READY UNKNOWN HCI {:04X} PORTS {} CONNECTED {} HID {}",
+                    snapshot.hci_version, snapshot.max_ports, snapshot.connected_ports, hid
                 ));
             }
+
+            if let Some(detail) = snapshot.keyboard_detail {
+                if snapshot.keyboard_status != usb::UsbKeyboardStatus::Ready {
+                    write_output(format_args!("USB-HID: {}", detail));
+                }
+            }
         }
+    }
+}
+
+fn usb_keyboard_status(status: usb::UsbKeyboardStatus) -> &'static str {
+    match status {
+        usb::UsbKeyboardStatus::NotProbed => "PENDING",
+        usb::UsbKeyboardStatus::Ready => "READY",
+        usb::UsbKeyboardStatus::NotFound => "NONE",
+        usb::UsbKeyboardStatus::Error => "ERROR",
     }
 }
 

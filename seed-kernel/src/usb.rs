@@ -111,6 +111,8 @@ pub struct UsbSnapshot {
     pub hci_version: u16,
     pub max_ports: u8,
     pub connected_ports: u8,
+    pub keyboard_status: UsbKeyboardStatus,
+    pub keyboard_detail: Option<&'static str>,
     pub last_error: Option<&'static str>,
 }
 
@@ -119,6 +121,14 @@ pub enum UsbStatus {
     NotProbed,
     Missing,
     Ready,
+    Error,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum UsbKeyboardStatus {
+    NotProbed,
+    Ready,
+    NotFound,
     Error,
 }
 
@@ -136,6 +146,8 @@ impl UsbState {
                 hci_version: 0,
                 max_ports: 0,
                 connected_ports: 0,
+                keyboard_status: UsbKeyboardStatus::NotProbed,
+                keyboard_detail: None,
                 last_error: None,
             },
             controller: None,
@@ -192,6 +204,8 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
                 hci_version: 0,
                 max_ports: 0,
                 connected_ports: 0,
+                keyboard_status: UsbKeyboardStatus::NotProbed,
+                keyboard_detail: None,
                 last_error: None,
             },
             None,
@@ -225,22 +239,29 @@ unsafe fn probe_xhci() -> (UsbSnapshot, Option<XhciController>) {
     match XhciController::new(address, mapping) {
         Ok(mut controller) => {
             let connected_ports = controller.count_connected_ports();
+            serial::write_fmt(format_args!(
+                "usb-xhci: hci 0x{:04x}, ports {}, connected {}\r\n",
+                controller.hci_version, controller.max_ports, connected_ports
+            ));
+
+            let (keyboard_status, keyboard_detail) = match controller.initialise_keyboard() {
+                Ok(()) => (UsbKeyboardStatus::Ready, Some("USB HID BOOT KEYBOARD")),
+                Err(err) => {
+                    serial::write_fmt(format_args!("usb-hid: {}\r\n", err));
+                    (UsbKeyboardStatus::NotFound, Some(err))
+                }
+            };
+
             let snapshot = UsbSnapshot {
                 state: UsbStatus::Ready,
                 address: Some(address),
                 hci_version: controller.hci_version,
                 max_ports: controller.max_ports,
                 connected_ports,
+                keyboard_status,
+                keyboard_detail,
                 last_error: None,
             };
-            serial::write_fmt(format_args!(
-                "usb-xhci: hci 0x{:04x}, ports {}, connected {}\r\n",
-                snapshot.hci_version, snapshot.max_ports, snapshot.connected_ports
-            ));
-
-            if let Err(err) = controller.initialise_keyboard() {
-                serial::write_fmt(format_args!("usb-hid: {}\r\n", err));
-            }
 
             (snapshot, Some(controller))
         }
@@ -256,6 +277,8 @@ fn error_snapshot(address: PciAddress, error: &'static str) -> UsbSnapshot {
         hci_version: 0,
         max_ports: 0,
         connected_ports: 0,
+        keyboard_status: UsbKeyboardStatus::Error,
+        keyboard_detail: Some(error),
         last_error: Some(error),
     }
 }

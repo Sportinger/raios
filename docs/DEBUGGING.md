@@ -311,11 +311,17 @@ usb-xhci: hci 0x0100, ports 8, connected 2
 usb-hid: device class 00 subclass 00 protocol 00
 usb-hid: boot keyboard interface 0
 usb-hid: boot keyboard ready on slot 1 endpoint 0x81
+status USB-XHCI: READY - 00:04.0 HCI 0100 PORTS 8 CONNECTED 2 HID READY
 status INPUT: READY - USB HID BOOT KEYBOARD
 usb input batch: 1 events
 > help
 COMMANDS: help status devices log bridge setup ask <text>
 ```
+
+On bare metal, `USB-XHCI ... HID NONE` means the xHCI controller was usable but
+the current direct root-port scan did not find a USB HID boot keyboard. In that
+case the connected device may be the boot stick, a hub/dock, or a keyboard that
+does not expose boot protocol HID on the root port.
 
 Modern virtio-input depends on the Limine HHDM response and the kernel MMIO
 window in `seed-kernel/src/memory.rs`. If input falls back to missing, check that

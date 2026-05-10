@@ -265,18 +265,29 @@ fn usb_xhci_line() -> StatusLine {
                 Some(address) => detail(format_args!("{}", address)),
                 None => detail(format_args!("UNKNOWN")),
             };
+            let hid = usb_keyboard_status(snapshot.keyboard_status);
             StatusLine::new(
                 "USB-XHCI",
                 RowState::Ready,
                 detail(format_args!(
-                    "{} HCI {:04X} PORTS {} CONNECTED {}",
+                    "{} HCI {:04X} PORTS {} CONNECTED {} HID {}",
                     address.as_str(),
                     snapshot.hci_version,
                     snapshot.max_ports,
-                    snapshot.connected_ports
+                    snapshot.connected_ports,
+                    hid
                 )),
             )
         }
+    }
+}
+
+fn usb_keyboard_status(status: usb::UsbKeyboardStatus) -> &'static str {
+    match status {
+        usb::UsbKeyboardStatus::NotProbed => "PENDING",
+        usb::UsbKeyboardStatus::Ready => "READY",
+        usb::UsbKeyboardStatus::NotFound => "NONE",
+        usb::UsbKeyboardStatus::Error => "ERROR",
     }
 }
 
