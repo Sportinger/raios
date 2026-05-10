@@ -32,7 +32,7 @@ FRAMEBUFFER  READY
 ENTROPY      READY
 VIRTIO-RNG   READY
 VIRTIO-NET   CONFIGURED
-INPUT        MISSING
+INPUT        READY
 ```
 
 Expected useful serial lines:
@@ -40,6 +40,7 @@ Expected useful serial lines:
 ```text
 Seed kernel: early init start
 Limine loaded base revision: 3
+HHDM offset=0xffff800000000000
 Framebuffer response revision: 1
 Framebuffer negotiated via Limine
 status FRAMEBUFFER: READY - 1280x800 PITCH 5120
@@ -51,10 +52,11 @@ virtio-net legacy transport @ 0x6080, mac 52:54:00:12:34:56, rx_q=256, tx_q=256
 virtio-net initialised; DHCP polling enabled
 DHCP lease acquired: ip 10.0.2.15/24 gw 10.0.2.2 dns ["10.0.2.3"]
 status VIRTIO-NET: CONFIGURED - IP 10.0.2.15/24 GW 10.0.2.2
-virtio-input: modern device @ 00:04.0 detected; MMIO transport deferred
+virtio-input: modern device @ 00:04.0 initialised
+status INPUT: READY - VIRTIO INPUT QUEUE ACTIVE
 ```
 
-Serial commands verified over TCP serial:
+Console commands verified over TCP serial and QEMU virtio keyboard injection:
 
 ```text
 help
@@ -82,14 +84,16 @@ See `docs/architecture-decisions/0001-seedos-agent-protocol.md`.
 
 ## Exact Next Task
 
-Add the first safe input path:
+Add the first host bridge/protocol path:
 
 - virtio-rng entropy now works through physical DMA address translation and
   dynamic legacy virtqueue layout.
 - legacy virtio-net now configures RX/TX queues, negotiates DHCP through
   smoltcp, and shows IP/gateway state in the framebuffer UI and serial console.
-- modern virtio-input is detected, but its MMIO transport is deferred until the
-  kernel has an explicit MMIO mapping path.
+- modern virtio-input now uses explicit kernel MMIO mappings, queues keyboard
+  events, and feeds a minimal US keymap into the same command console as serial.
+- the next milestone is a tiny host-side bridge over an explicit message
+  protocol, starting outside the kernel so provider credentials stay on the host.
 
 ## Known Gaps
 
@@ -99,7 +103,8 @@ Add the first safe input path:
 - `scripts/package-stage0.sh` is Linux/WSL-oriented and expects `mkfs.fat`,
   `mmd`, and `mcopy`.
 - Network failure/timeout states and packet counters are still minimal.
-- virtio-input modern PCI devices are detected, but MMIO transport is deferred.
+- Keyboard input uses a minimal US/Linux keycode mapping; no layout selection,
+  modifier completeness, or text editing beyond Backspace exists yet.
 - No provider auth, HTTPS, TLS, or API client exists inside the OS yet.
 - No signed module runtime exists yet.
 

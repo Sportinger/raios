@@ -10,8 +10,8 @@ use core::hint::spin_loop;
 use core::panic::PanicInfo;
 use core::ptr;
 use limine::request::{
-    ExecutableAddressRequest, FramebufferRequest, RequestsEndMarker, RequestsStartMarker,
-    StackSizeRequest,
+    ExecutableAddressRequest, FramebufferRequest, HhdmRequest, RequestsEndMarker,
+    RequestsStartMarker, StackSizeRequest,
 };
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
@@ -41,6 +41,10 @@ static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
 #[used]
 #[link_section = ".limine_requests"]
 static KERNEL_ADDRESS_REQUEST: ExecutableAddressRequest = ExecutableAddressRequest::new();
+
+#[used]
+#[link_section = ".limine_requests"]
+static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
 
 #[used]
 #[link_section = ".limine_requests"]
@@ -101,7 +105,10 @@ fn early_main() -> ! {
     if !BASE_REVISION.is_supported() {
         serial::write_line("Limine base revision request was not satisfied");
     }
-    memory::init(KERNEL_ADDRESS_REQUEST.get_response());
+    memory::init(
+        KERNEL_ADDRESS_REQUEST.get_response(),
+        HHDM_REQUEST.get_response(),
+    );
 
     let framebuffer_surface = init_framebuffer();
     if let Some(surface) = framebuffer_surface.as_ref() {

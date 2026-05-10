@@ -1196,6 +1196,7 @@ dependencies = [
  "smoltcp",
  "spin",
  "uart_16550",
+ "x86_64",
 ]
 
 [[package]]

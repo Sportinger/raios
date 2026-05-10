@@ -237,33 +237,13 @@ pub fn poll(runtime: ui::RuntimeStatus) -> bool {
             break;
         };
 
-        let action = {
-            let mut state = CONSOLE.lock();
-            state.handle_byte(byte)
-        };
-
-        match action {
-            ByteAction::Noop => {}
-            ByteAction::Echo(byte) => {
-                serial::write_byte(byte);
-                changed = true;
-            }
-            ByteAction::Backspace => {
-                serial::write_fmt(format_args!("\x08 \x08"));
-                changed = true;
-            }
-            ByteAction::Bell => {
-                serial::write_byte(0x07);
-            }
-            ByteAction::Execute(command) => {
-                serial::write_line("");
-                execute(command, runtime);
-                changed = true;
-            }
-        }
-
+        changed |= process_byte(byte, runtime);
         processed += 1;
     }
+
+    input::drain_console_bytes(|byte| {
+        changed |= process_byte(byte, runtime);
+    });
 
     changed
 }
@@ -276,6 +256,34 @@ pub fn record_event(args: fmt::Arguments<'_>) {
     let mut line = ConsoleLine::empty();
     let _ = line.write_fmt(args);
     CONSOLE.lock().push_line(line);
+}
+
+fn process_byte(byte: u8, runtime: ui::RuntimeStatus) -> bool {
+    let action = {
+        let mut state = CONSOLE.lock();
+        state.handle_byte(byte)
+    };
+
+    match action {
+        ByteAction::Noop => false,
+        ByteAction::Echo(byte) => {
+            serial::write_byte(byte);
+            true
+        }
+        ByteAction::Backspace => {
+            serial::write_fmt(format_args!("\x08 \x08"));
+            true
+        }
+        ByteAction::Bell => {
+            serial::write_byte(0x07);
+            false
+        }
+        ByteAction::Execute(command) => {
+            serial::write_line("");
+            execute(command, runtime);
+            true
+        }
+    }
 }
 
 fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {

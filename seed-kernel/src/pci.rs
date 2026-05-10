@@ -13,6 +13,28 @@ pub struct PciAddress {
     pub function: u8,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PciBarKind {
+    Io,
+    Memory32,
+    Memory64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PciBar {
+    pub index: u8,
+    pub kind: PciBarKind,
+    pub base: u64,
+    pub size: u64,
+    pub prefetchable: bool,
+}
+
+impl PciBar {
+    pub fn is_memory(&self) -> bool {
+        self.kind != PciBarKind::Io
+    }
+}
+
 impl fmt::Display for PciAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:02x}:{:02x}.{}", self.bus, self.device, self.function)
@@ -73,6 +95,94 @@ pub fn enable_bus_master(address: PciAddress) {
     let mut command = (address.read_u32(0x04) & 0xFFFF) as u16;
     command |= 0x1 | 0x2 | 0x4; // I/O space, memory space, bus master
     address.write_u16(0x04, command);
+}
+
+pub fn read_bar_info(address: PciAddress, index: u8) -> Option<PciBar> {
+    if index >= 6 {
+        return None;
+    }
+
+    let offset = 0x10 + index * 4;
+    let low = address.read_u32(offset);
+    if low == 0 {
+        return None;
+    }
+
+    let command = address.read_u16(0x04);
+    address.write_u16(0x04, command & !0x3);
+
+    let result = if low & 0x1 != 0 {
+        address.write_u32(offset, u32::MAX);
+        let mask = address.read_u32(offset) & !0x3;
+        address.write_u32(offset, low);
+
+        let size = (!mask).wrapping_add(1) as u64;
+        let base = (low & !0x3) as u64;
+        if base == 0 || size == 0 {
+            None
+        } else {
+            Some(PciBar {
+                index,
+                kind: PciBarKind::Io,
+                base,
+                size,
+                prefetchable: false,
+            })
+        }
+    } else {
+        let bar_type = (low >> 1) & 0x3;
+        let prefetchable = low & (1 << 3) != 0;
+        match bar_type {
+            0x0 => {
+                address.write_u32(offset, u32::MAX);
+                let mask = address.read_u32(offset) & !0xF;
+                address.write_u32(offset, low);
+
+                let size = (!mask).wrapping_add(1) as u64;
+                let base = (low & !0xF) as u64;
+                if base == 0 || size == 0 {
+                    None
+                } else {
+                    Some(PciBar {
+                        index,
+                        kind: PciBarKind::Memory32,
+                        base,
+                        size,
+                        prefetchable,
+                    })
+                }
+            }
+            0x2 if index < 5 => {
+                let high_offset = offset + 4;
+                let high = address.read_u32(high_offset);
+                address.write_u32(offset, u32::MAX);
+                address.write_u32(high_offset, u32::MAX);
+                let sized_low = address.read_u32(offset);
+                let sized_high = address.read_u32(high_offset);
+                address.write_u32(high_offset, high);
+                address.write_u32(offset, low);
+
+                let mask = ((sized_high as u64) << 32) | ((sized_low & !0xF) as u64);
+                let size = (!mask).wrapping_add(1);
+                let base = ((high as u64) << 32) | ((low & !0xF) as u64);
+                if base == 0 || size == 0 {
+                    None
+                } else {
+                    Some(PciBar {
+                        index,
+                        kind: PciBarKind::Memory64,
+                        base,
+                        size,
+                        prefetchable,
+                    })
+                }
+            }
+            _ => None,
+        }
+    };
+
+    address.write_u16(0x04, command);
+    result
 }
 
 pub fn find_device(vendor: u16, device: u16) -> Option<PciAddress> {

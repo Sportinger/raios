@@ -192,6 +192,9 @@ struct InputDevice {
     notify_off_multiplier: u32,
     isr_status: *mut u8,
     queue_notify_offset: u16,
+    _common_mapping: memory::MmioMapping,
+    _notify_mapping: memory::MmioMapping,
+    _isr_mapping: memory::MmioMapping,
 }
 
 unsafe impl Send for InputDevice {}
@@ -205,9 +208,15 @@ unsafe fn init_device(address: PciAddress) -> Result<InputDevice, &'static str> 
     let notify = caps.notify.ok_or("virtio-input: missing notify config")?;
     let isr = caps.isr.ok_or("virtio-input: missing isr config")?;
 
-    let common_cfg = common.ptr::<VirtioPciCommonCfg>(address)?;
-    let notify_base = notify.ptr::<u8>(address)?;
-    let isr_status = isr.ptr::<u8>(address)?;
+    pci::enable_bus_master(address);
+
+    let common_mapping = common.map::<VirtioPciCommonCfg>(address)?;
+    let notify_mapping = notify.map::<u8>(address)?;
+    let isr_mapping = isr.map::<u8>(address)?;
+
+    let common_cfg = common_mapping.ptr;
+    let notify_base = notify_mapping.ptr;
+    let isr_status = isr_mapping.ptr;
     let notify_off_multiplier = notify.notify_off_multiplier;
 
     reset_device(common_cfg);
@@ -230,6 +239,10 @@ unsafe fn init_device(address: PciAddress) -> Result<InputDevice, &'static str> 
     }
 
     let queue_notify_offset = setup_event_queue(common_cfg)?;
+    let notify_byte_offset = queue_notify_offset as usize * notify_off_multiplier as usize;
+    if notify_byte_offset + size_of::<u16>() > notify_mapping.mapping.len() {
+        return Err("virtio-input: queue notify offset outside notify BAR capability");
+    }
 
     set_status(
         common_cfg,
@@ -245,6 +258,9 @@ unsafe fn init_device(address: PciAddress) -> Result<InputDevice, &'static str> 
         notify_off_multiplier,
         isr_status,
         queue_notify_offset,
+        _common_mapping: common_mapping.mapping,
+        _notify_mapping: notify_mapping.mapping,
+        _isr_mapping: isr_mapping.mapping,
     })
 }
 
@@ -455,9 +471,34 @@ struct VirtioCapability {
 }
 
 impl VirtioCapability {
-    unsafe fn ptr<T>(&self, address: PciAddress) -> Result<*mut T, &'static str> {
-        let base = read_bar(address, self.header.bar)?;
-        Ok((base + self.header.offset as u64) as *mut T)
+    fn map<T>(&self, address: PciAddress) -> Result<MappedMmio<T>, &'static str> {
+        let bar = pci::read_bar_info(address, self.header.bar)
+            .ok_or("virtio-input: capability BAR unavailable")?;
+        if !bar.is_memory() {
+            return Err("virtio-input: capability uses unsupported I/O BAR");
+        }
+
+        let offset = self.header.offset as u64;
+        let length = self.header.length as u64;
+        if length < size_of::<T>() as u64 {
+            return Err("virtio-input: capability shorter than expected");
+        }
+        let end = offset
+            .checked_add(length)
+            .ok_or("virtio-input: capability range overflow")?;
+        if end > bar.size {
+            return Err("virtio-input: capability outside BAR bounds");
+        }
+
+        let phys = bar
+            .base
+            .checked_add(offset)
+            .ok_or("virtio-input: capability physical address overflow")?;
+        let mapping = memory::map_mmio(phys, self.header.length as usize)?;
+        Ok(MappedMmio {
+            ptr: mapping.as_ptr::<T>(),
+            mapping,
+        })
     }
 }
 
@@ -467,9 +508,14 @@ struct VirtioNotifyCapability {
 }
 
 impl VirtioNotifyCapability {
-    unsafe fn ptr<T>(&self, address: PciAddress) -> Result<*mut T, &'static str> {
-        self.base.ptr(address)
+    fn map<T>(&self, address: PciAddress) -> Result<MappedMmio<T>, &'static str> {
+        self.base.map(address)
     }
+}
+
+struct MappedMmio<T> {
+    ptr: *mut T,
+    mapping: memory::MmioMapping,
 }
 
 fn read_cap_header(address: PciAddress, offset: u8) -> VirtioPciCap {
@@ -492,28 +538,10 @@ fn read_notify_cap(address: PciAddress, offset: u8) -> VirtioNotifyCapability {
     }
 }
 
-unsafe fn read_bar(address: PciAddress, bar_index: u8) -> Result<u64, &'static str> {
-    if bar_index >= 6 {
-        return Err("virtio-input: invalid BAR index");
-    }
-    let offset = 0x10 + bar_index * 4;
-    let low = address.read_u32(offset);
-    if low & 0x1 != 0 {
-        return Err("virtio-input: I/O BAR unsupported");
-    }
-    let ty = (low >> 1) & 0x3;
-    let mut base = (low & !0xFu32) as u64;
-    if ty == 0x2 {
-        let high = address.read_u32(offset + 4) as u64;
-        base |= high << 32;
-    }
-    Ok(base)
-}
-
 pub fn device_present() -> bool {
     DEVICE.lock().is_some()
 }
 
 fn mmio_transport_enabled() -> bool {
-    false
+    memory::mmio_ready()
 }

@@ -24,6 +24,7 @@ Done:
 
 - Limine UEFI boot path working.
 - Higher-half kernel linking fixed.
+- Limine HHDM request available for kernel mappings.
 - Limine framebuffer request working.
 - Direct framebuffer drawing working.
 - Serial diagnostics working.
@@ -55,8 +56,8 @@ Definition of done:
 - State transitions are mirrored in serial logs.
 
 Current status: framebuffer UI, serial commands, entropy, virtio-net bring-up,
-and DHCP configuration are implemented. Keyboard input and modern virtio-input
-MMIO remain.
+DHCP configuration, and virtio-keyboard command input are implemented. The
+remaining work here is mostly UI polish and richer command behavior.
 
 ## Phase 2: Network Visibility
 

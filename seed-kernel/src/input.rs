@@ -1,6 +1,6 @@
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use spin::Once;
 
@@ -13,6 +13,7 @@ const INPUT_RING_CAPACITY: usize = 256;
 
 static RING: InputRing = InputRing::new();
 static INIT_ONCE: Once<()> = Once::new();
+static SHIFT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub fn init() {
     INIT_ONCE.call_once(|| {
@@ -67,6 +68,14 @@ pub fn drain<F: FnMut(InputEvent)>(mut f: F) {
     }
 }
 
+pub fn drain_console_bytes<F: FnMut(u8)>(mut f: F) {
+    drain(|event| {
+        if let Some(byte) = event_to_console_byte(event) {
+            f(byte);
+        }
+    });
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub struct InputEvent {
@@ -117,6 +126,97 @@ fn translate_event(event: &virtio::input::VirtioInputEvent) -> Option<InputEvent
             code: event.code,
             value: event.value,
         }),
+    }
+}
+
+fn event_to_console_byte(event: InputEvent) -> Option<u8> {
+    let InputEventKind::Key { code, pressed } = event.kind else {
+        return None;
+    };
+
+    match code {
+        42 | 54 => {
+            SHIFT_ACTIVE.store(pressed, Ordering::Relaxed);
+            return None;
+        }
+        _ if !pressed => return None,
+        14 => return Some(0x08),
+        28 => return Some(b'\r'),
+        57 => return Some(b' '),
+        _ => {}
+    }
+
+    let shifted = SHIFT_ACTIVE.load(Ordering::Relaxed);
+    keycode_to_ascii(code, shifted)
+}
+
+fn keycode_to_ascii(code: u16, shifted: bool) -> Option<u8> {
+    let byte = match code {
+        2 => digit_ascii(b'1', b'!', shifted),
+        3 => digit_ascii(b'2', b'@', shifted),
+        4 => digit_ascii(b'3', b'#', shifted),
+        5 => digit_ascii(b'4', b'$', shifted),
+        6 => digit_ascii(b'5', b'%', shifted),
+        7 => digit_ascii(b'6', b'^', shifted),
+        8 => digit_ascii(b'7', b'&', shifted),
+        9 => digit_ascii(b'8', b'*', shifted),
+        10 => digit_ascii(b'9', b'(', shifted),
+        11 => digit_ascii(b'0', b')', shifted),
+        12 => digit_ascii(b'-', b'_', shifted),
+        13 => digit_ascii(b'=', b'+', shifted),
+        16 => letter_ascii(b'q', shifted),
+        17 => letter_ascii(b'w', shifted),
+        18 => letter_ascii(b'e', shifted),
+        19 => letter_ascii(b'r', shifted),
+        20 => letter_ascii(b't', shifted),
+        21 => letter_ascii(b'y', shifted),
+        22 => letter_ascii(b'u', shifted),
+        23 => letter_ascii(b'i', shifted),
+        24 => letter_ascii(b'o', shifted),
+        25 => letter_ascii(b'p', shifted),
+        26 => digit_ascii(b'[', b'{', shifted),
+        27 => digit_ascii(b']', b'}', shifted),
+        30 => letter_ascii(b'a', shifted),
+        31 => letter_ascii(b's', shifted),
+        32 => letter_ascii(b'd', shifted),
+        33 => letter_ascii(b'f', shifted),
+        34 => letter_ascii(b'g', shifted),
+        35 => letter_ascii(b'h', shifted),
+        36 => letter_ascii(b'j', shifted),
+        37 => letter_ascii(b'k', shifted),
+        38 => letter_ascii(b'l', shifted),
+        39 => digit_ascii(b';', b':', shifted),
+        40 => digit_ascii(b'\'', b'"', shifted),
+        41 => digit_ascii(b'`', b'~', shifted),
+        43 => digit_ascii(b'\\', b'|', shifted),
+        44 => letter_ascii(b'z', shifted),
+        45 => letter_ascii(b'x', shifted),
+        46 => letter_ascii(b'c', shifted),
+        47 => letter_ascii(b'v', shifted),
+        48 => letter_ascii(b'b', shifted),
+        49 => letter_ascii(b'n', shifted),
+        50 => letter_ascii(b'm', shifted),
+        51 => digit_ascii(b',', b'<', shifted),
+        52 => digit_ascii(b'.', b'>', shifted),
+        53 => digit_ascii(b'/', b'?', shifted),
+        _ => return None,
+    };
+    Some(byte)
+}
+
+fn letter_ascii(lower: u8, shifted: bool) -> u8 {
+    if shifted {
+        lower.to_ascii_uppercase()
+    } else {
+        lower
+    }
+}
+
+fn digit_ascii(normal: u8, shifted: u8, is_shifted: bool) -> u8 {
+    if is_shifted {
+        shifted
+    } else {
+        normal
     }
 }
 
