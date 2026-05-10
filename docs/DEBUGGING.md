@@ -128,6 +128,20 @@ The VM-to-host request is printable for logs. The host-to-VM response is prefixe
 with STX (`0x02`) so the kernel routes it through the bridge parser instead of
 treating it as user console input.
 
+## VM Setup Menu
+
+Type `setup` in the VM console to open the provider menu:
+
+```text
+1 PROVIDER: ECHO    2 API KEY: MISSING
+3 CLEAR API KEY    4 STATUS    Q EXIT
+```
+
+Press `1` to choose `ECHO` or `OPENAI`, press `2` to enter an API key, and press
+Enter to save it. The framebuffer prompt masks API-key input with `*`, and the
+kernel does not echo the key to the serial output. The key is RAM-only; rebooting
+the VM or choosing clear removes it.
+
 ## Test Workspace
 
 ```powershell

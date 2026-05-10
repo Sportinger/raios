@@ -106,7 +106,8 @@ Definition of done:
 Current status: a minimal serial bridge is implemented. The VM command
 `ask <text>` emits a hex-encoded `SEEDOS_BRIDGE_REQ`; the Windows host script
 responds with an STX-framed `SEEDOS_BRIDGE_RESP`, and the VM renders the answer
-in the framebuffer/serial console. Provider calls, auth, tool schemas, and
+in the framebuffer/serial console. The VM also has a `setup` menu for provider
+selection and RAM-only API key entry. Real provider calls, tool schemas, and
 capability policy remain.
 
 ## Phase 4: Provider Integration
@@ -121,7 +122,8 @@ Scope:
 
 - provider config flow
 - OpenAI/ChatGPT/Codex-style adapter first
-- API key/pairing handled outside the kernel at first
+- API key/pairing handled through a visible VM flow first, with persistence and
+  stronger secret storage later
 - rendered response in framebuffer UI
 
 Definition of done:

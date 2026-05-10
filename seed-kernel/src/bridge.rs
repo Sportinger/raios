@@ -7,10 +7,26 @@ use crate::serial;
 const FRAME_START: u8 = 0x02;
 const FRAME_CAPACITY: usize = 224;
 const TEXT_CAPACITY: usize = 96;
+const API_KEY_CAPACITY: usize = 256;
 const REQUEST_PREFIX: &str = "SEEDOS_BRIDGE_REQ";
 const RESPONSE_PREFIX: &str = "SEEDOS_BRIDGE_RESP ";
 
 static STATE: Mutex<BridgeState> = Mutex::new(BridgeState::new());
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Provider {
+    Echo,
+    OpenAi,
+}
+
+impl Provider {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Provider::Echo => "ECHO",
+            Provider::OpenAi => "OPENAI",
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum SerialIngest {
@@ -24,6 +40,13 @@ pub enum SerialIngest {
 pub enum SubmitError {
     Empty,
     Busy(u32),
+}
+
+#[derive(Clone, Copy)]
+pub enum ApiKeyError {
+    Empty,
+    TooLong,
+    InvalidByte,
 }
 
 #[derive(Clone, Copy)]
@@ -70,6 +93,8 @@ impl FixedText {
 
 #[derive(Clone, Copy)]
 pub struct Snapshot {
+    pub provider: Provider,
+    pub api_key_set: bool,
     pub pending_id: Option<u32>,
     pub last_request_id: Option<u32>,
     pub last_response_id: Option<u32>,
@@ -80,6 +105,9 @@ pub struct Snapshot {
 }
 
 struct BridgeState {
+    provider: Provider,
+    api_key: [u8; API_KEY_CAPACITY],
+    api_key_len: usize,
     next_id: u32,
     pending_id: Option<u32>,
     last_request_id: Option<u32>,
@@ -96,6 +124,9 @@ struct BridgeState {
 impl BridgeState {
     const fn new() -> Self {
         Self {
+            provider: Provider::Echo,
+            api_key: [0; API_KEY_CAPACITY],
+            api_key_len: 0,
             next_id: 1,
             pending_id: None,
             last_request_id: None,
@@ -112,6 +143,8 @@ impl BridgeState {
 
     fn snapshot(&self) -> Snapshot {
         Snapshot {
+            provider: self.provider,
+            api_key_set: self.api_key_len > 0 && self.api_key[0] != 0,
             pending_id: self.pending_id,
             last_request_id: self.last_request_id,
             last_response_id: self.last_response_id,
@@ -153,6 +186,45 @@ pub fn submit_request(prompt: &str) -> Result<u32, SubmitError> {
     serial::write_line("");
 
     Ok(id)
+}
+
+pub fn set_provider(provider: Provider) {
+    STATE.lock().provider = provider;
+}
+
+pub fn clear_api_key() {
+    let mut state = STATE.lock();
+    state.api_key.fill(0);
+    state.api_key_len = 0;
+}
+
+pub fn set_api_key(input: &[u8]) -> Result<(), ApiKeyError> {
+    let start = input
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(input.len());
+    let end = input
+        .iter()
+        .rposition(|byte| !byte.is_ascii_whitespace())
+        .map(|index| index + 1)
+        .unwrap_or(start);
+    let key = &input[start..end];
+
+    if key.is_empty() {
+        return Err(ApiKeyError::Empty);
+    }
+    if key.len() > API_KEY_CAPACITY {
+        return Err(ApiKeyError::TooLong);
+    }
+    if key.iter().any(|byte| !byte.is_ascii_graphic()) {
+        return Err(ApiKeyError::InvalidByte);
+    }
+
+    let mut state = STATE.lock();
+    state.api_key.fill(0);
+    state.api_key[..key.len()].copy_from_slice(key);
+    state.api_key_len = key.len();
+    Ok(())
 }
 
 pub fn ingest_serial_byte(byte: u8) -> SerialIngest {

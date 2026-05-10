@@ -64,8 +64,13 @@ status
 devices
 log
 bridge
+setup
 ask <text>
 ```
+
+`setup` opens an in-VM menu. It can select `ECHO` or `OPENAI`, enter an API key
+with masked framebuffer input, clear the key, and show provider status. The key
+is held only in guest RAM and is not printed into the console or serial output.
 
 Host bridge smoke verified over TCP serial:
 
@@ -106,8 +111,10 @@ Evolve the first host bridge/protocol path:
 - a tiny serial host bridge now accepts `ask <text>`, emits
   `SEEDOS_BRIDGE_REQ`, receives an STX-framed `SEEDOS_BRIDGE_RESP`, and renders
   the answer in the VM console.
+- a VM-local `setup` menu now records provider selection and a RAM-only API key
+  without echoing the key back into the serial log.
 - the next milestone is turning the echo bridge into a capability-shaped agent
-  protocol with a real host/provider adapter.
+  protocol with a real host/provider adapter that can use the selected provider.
 
 ## Known Gaps
 
@@ -121,9 +128,11 @@ Evolve the first host bridge/protocol path:
   modifier completeness, or text editing beyond Backspace exists yet.
 - The host bridge is a development echo responder only; it is not a provider
   adapter and does not carry auth, tools, or policy yet.
+- Provider selection and API key entry exist in the VM, but the key is RAM-only,
+  not persisted in the image, and not yet wired to a real provider request path.
 - QEMU TCP serial is single-client in practice; do not run the serial smoke
   client and host bridge against the same port at the same time.
-- No provider auth, HTTPS, TLS, or API client exists inside the OS yet.
+- No HTTPS, TLS, or provider API client exists inside the OS yet.
 - No signed module runtime exists yet.
 
 ## Do Not Regress

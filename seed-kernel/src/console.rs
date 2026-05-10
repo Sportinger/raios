@@ -5,7 +5,7 @@ use spin::Mutex;
 
 use crate::{bridge, entropy, input, net, serial, ui, virtio};
 
-const COMMAND_WIDTH: usize = 80;
+const COMMAND_WIDTH: usize = 256;
 const OUTPUT_WIDTH: usize = 104;
 const OUTPUT_LINES: usize = 8;
 const MAX_BYTES_PER_POLL: usize = 64;
@@ -89,7 +89,16 @@ pub struct ConsoleSnapshot {
     pub input: ConsoleLine,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConsoleMode {
+    Command,
+    SetupMenu,
+    ProviderMenu,
+    ApiKeyEntry,
+}
+
 struct ConsoleState {
+    mode: ConsoleMode,
     input: CommandLine,
     lines: [ConsoleLine; OUTPUT_LINES],
     next_line: usize,
@@ -99,6 +108,7 @@ struct ConsoleState {
 impl ConsoleState {
     const fn new() -> Self {
         Self {
+            mode: ConsoleMode::Command,
             input: CommandLine::new(),
             lines: [ConsoleLine::empty(); OUTPUT_LINES],
             next_line: 0,
@@ -128,12 +138,44 @@ impl ConsoleState {
         }
 
         let mut input = ConsoleLine::empty();
-        let _ = write!(input, "> {}", self.input.as_str());
+        match self.mode {
+            ConsoleMode::Command => {
+                let _ = write!(input, "> {}", self.input.as_str());
+            }
+            ConsoleMode::SetupMenu => {
+                let _ = write!(input, "setup> {}", self.input.as_str());
+            }
+            ConsoleMode::ProviderMenu => {
+                let _ = write!(input, "provider> {}", self.input.as_str());
+            }
+            ConsoleMode::ApiKeyEntry => {
+                let _ = write!(input, "api key> ");
+                let mut idx = 0usize;
+                while idx < self.input.len() {
+                    let _ = input.write_str("*");
+                    idx += 1;
+                }
+            }
+        }
 
         ConsoleSnapshot { lines, input }
     }
 
     fn handle_byte(&mut self, byte: u8) -> ByteAction {
+        match self.mode {
+            ConsoleMode::Command => self.handle_command_byte(byte),
+            ConsoleMode::SetupMenu => self.handle_setup_menu_byte(byte),
+            ConsoleMode::ProviderMenu => self.handle_provider_menu_byte(byte),
+            ConsoleMode::ApiKeyEntry => self.handle_api_key_byte(byte),
+        }
+    }
+
+    fn enter_setup_menu(&mut self) {
+        self.mode = ConsoleMode::SetupMenu;
+        self.input.clear();
+    }
+
+    fn handle_command_byte(&mut self, byte: u8) -> ByteAction {
         match byte {
             b'\r' | b'\n' => {
                 if self.input.is_empty() {
@@ -161,6 +203,99 @@ impl ConsoleState {
             _ => ByteAction::Noop,
         }
     }
+
+    fn handle_setup_menu_byte(&mut self, byte: u8) -> ByteAction {
+        match byte.to_ascii_lowercase() {
+            b'1' => {
+                self.mode = ConsoleMode::ProviderMenu;
+                self.input.clear();
+                ByteAction::ShowProviderMenu
+            }
+            b'2' => {
+                self.mode = ConsoleMode::ApiKeyEntry;
+                self.input.clear();
+                ByteAction::ShowApiKeyEntry
+            }
+            b'3' => {
+                bridge::clear_api_key();
+                ByteAction::ShowSetupMessage(SetupMessage::ApiKeyCleared)
+            }
+            b'4' => ByteAction::ShowProviderStatus,
+            b'q' | 0x1b => {
+                self.mode = ConsoleMode::Command;
+                self.input.clear();
+                ByteAction::SetupClosed
+            }
+            b'\r' | b'\n' => ByteAction::Noop,
+            _ => ByteAction::Bell,
+        }
+    }
+
+    fn handle_provider_menu_byte(&mut self, byte: u8) -> ByteAction {
+        match byte.to_ascii_lowercase() {
+            b'1' => {
+                bridge::set_provider(bridge::Provider::Echo);
+                self.mode = ConsoleMode::SetupMenu;
+                self.input.clear();
+                ByteAction::ShowSetupMessage(SetupMessage::ProviderSet(bridge::Provider::Echo))
+            }
+            b'2' => {
+                bridge::set_provider(bridge::Provider::OpenAi);
+                self.mode = ConsoleMode::SetupMenu;
+                self.input.clear();
+                ByteAction::ShowSetupMessage(SetupMessage::ProviderSet(bridge::Provider::OpenAi))
+            }
+            b'q' | 0x1b => {
+                self.mode = ConsoleMode::SetupMenu;
+                self.input.clear();
+                ByteAction::ShowSetupMenu
+            }
+            b'\r' | b'\n' => ByteAction::Noop,
+            _ => ByteAction::Bell,
+        }
+    }
+
+    fn handle_api_key_byte(&mut self, byte: u8) -> ByteAction {
+        match byte {
+            b'\r' | b'\n' => {
+                let result = bridge::set_api_key(self.input.as_bytes());
+                self.input.clear();
+                self.mode = ConsoleMode::SetupMenu;
+                match result {
+                    Ok(()) => ByteAction::ShowSetupMessage(SetupMessage::ApiKeySet),
+                    Err(bridge::ApiKeyError::Empty) => {
+                        ByteAction::ShowSetupMessage(SetupMessage::ApiKeyEmpty)
+                    }
+                    Err(bridge::ApiKeyError::TooLong) => {
+                        ByteAction::ShowSetupMessage(SetupMessage::ApiKeyTooLong)
+                    }
+                    Err(bridge::ApiKeyError::InvalidByte) => {
+                        ByteAction::ShowSetupMessage(SetupMessage::ApiKeyInvalid)
+                    }
+                }
+            }
+            0x1b => {
+                self.input.clear();
+                self.mode = ConsoleMode::SetupMenu;
+                ByteAction::ShowSetupMessage(SetupMessage::ApiKeyCancelled)
+            }
+            0x08 | 0x7f => {
+                if self.input.pop_byte() {
+                    ByteAction::Redraw
+                } else {
+                    ByteAction::Noop
+                }
+            }
+            b if b.is_ascii_graphic() => {
+                if self.input.push_byte(b) {
+                    ByteAction::Redraw
+                } else {
+                    ByteAction::Bell
+                }
+            }
+            _ => ByteAction::Noop,
+        }
+    }
 }
 
 enum ByteAction {
@@ -169,6 +304,23 @@ enum ByteAction {
     Backspace,
     Bell,
     Execute(ConsoleLine),
+    Redraw,
+    ShowSetupMenu,
+    ShowProviderMenu,
+    ShowApiKeyEntry,
+    ShowProviderStatus,
+    ShowSetupMessage(SetupMessage),
+    SetupClosed,
+}
+
+enum SetupMessage {
+    ProviderSet(bridge::Provider),
+    ApiKeySet,
+    ApiKeyCleared,
+    ApiKeyEmpty,
+    ApiKeyTooLong,
+    ApiKeyInvalid,
+    ApiKeyCancelled,
 }
 
 struct CommandLine {
@@ -188,6 +340,14 @@ impl CommandLine {
         unsafe { str::from_utf8_unchecked(&self.bytes[..self.len]) }
     }
 
+    fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
     fn as_line(&self) -> ConsoleLine {
         let mut line = ConsoleLine::empty();
         let take = usize::min(self.len, OUTPUT_WIDTH);
@@ -197,6 +357,7 @@ impl CommandLine {
     }
 
     fn clear(&mut self) {
+        self.bytes[..self.len].fill(0);
         self.len = 0;
     }
 
@@ -218,6 +379,7 @@ impl CommandLine {
             return false;
         }
         self.len -= 1;
+        self.bytes[self.len] = 0;
         true
     }
 }
@@ -307,6 +469,32 @@ fn process_byte(byte: u8, runtime: ui::RuntimeStatus) -> bool {
             execute(command, runtime);
             true
         }
+        ByteAction::Redraw => true,
+        ByteAction::ShowSetupMenu => {
+            show_setup_menu();
+            true
+        }
+        ByteAction::ShowProviderMenu => {
+            show_provider_menu();
+            true
+        }
+        ByteAction::ShowApiKeyEntry => {
+            show_api_key_entry();
+            true
+        }
+        ByteAction::ShowProviderStatus => {
+            show_provider_status();
+            true
+        }
+        ByteAction::ShowSetupMessage(message) => {
+            show_setup_message(message);
+            show_setup_menu();
+            true
+        }
+        ByteAction::SetupClosed => {
+            write_output(format_args!("SETUP CLOSED"));
+            true
+        }
     }
 }
 
@@ -339,6 +527,7 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
         "devices" => command_devices(runtime),
         "log" => command_log(),
         "bridge" => command_bridge_status(),
+        "setup" => command_setup_enter(),
         "ask" => command_ask(command_line.arguments_after_command()),
         _ => write_output(format_args!(
             "UNKNOWN COMMAND: {}",
@@ -349,7 +538,7 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
 
 fn command_help() {
     write_output(format_args!(
-        "COMMANDS: help status devices log bridge ask <text>"
+        "COMMANDS: help status devices log bridge setup ask <text>"
     ));
 }
 
@@ -400,8 +589,72 @@ fn command_log() {
     record_event(format_args!("RECENT LOG WRITTEN TO SERIAL"));
 }
 
+fn command_setup_enter() {
+    {
+        let mut state = CONSOLE.lock();
+        state.enter_setup_menu();
+    }
+
+    write_output(format_args!("SETUP"));
+    show_setup_menu();
+}
+
+fn show_setup_menu() {
+    let snapshot = bridge::snapshot();
+    write_output(format_args!(
+        "1 PROVIDER: {}    2 API KEY: {}",
+        snapshot.provider.as_str(),
+        api_key_status(snapshot.api_key_set)
+    ));
+    write_output(format_args!("3 CLEAR API KEY    4 STATUS    Q EXIT"));
+}
+
+fn show_provider_menu() {
+    write_output(format_args!("PROVIDER"));
+    write_output(format_args!("1 ECHO    2 OPENAI    Q BACK"));
+}
+
+fn show_api_key_entry() {
+    write_output(format_args!("API KEY ENTRY"));
+    write_output(format_args!("TYPE KEY, ENTER TO SAVE, ESC TO CANCEL"));
+}
+
+fn show_provider_status() {
+    let snapshot = bridge::snapshot();
+    write_output(format_args!(
+        "PROVIDER: {}    API KEY: {}",
+        snapshot.provider.as_str(),
+        api_key_status(snapshot.api_key_set)
+    ));
+    if snapshot.provider == bridge::Provider::OpenAi && !snapshot.api_key_set {
+        write_output(format_args!("OPENAI REQUIRES API KEY"));
+    }
+}
+
+fn show_setup_message(message: SetupMessage) {
+    match message {
+        SetupMessage::ProviderSet(provider) => {
+            write_output(format_args!("PROVIDER SET: {}", provider.as_str()))
+        }
+        SetupMessage::ApiKeySet => write_output(format_args!("API KEY SET (RAM ONLY)")),
+        SetupMessage::ApiKeyCleared => write_output(format_args!("API KEY CLEARED")),
+        SetupMessage::ApiKeyEmpty => write_output(format_args!("API KEY NOT CHANGED: EMPTY")),
+        SetupMessage::ApiKeyTooLong => write_output(format_args!("API KEY NOT CHANGED: TOO LONG")),
+        SetupMessage::ApiKeyInvalid => {
+            write_output(format_args!("API KEY NOT CHANGED: INVALID BYTE"))
+        }
+        SetupMessage::ApiKeyCancelled => write_output(format_args!("API KEY ENTRY CANCELLED")),
+    }
+}
+
 fn command_bridge_status() {
     let snapshot = bridge::snapshot();
+    write_output(format_args!(
+        "PROVIDER: {}    API KEY: {}",
+        snapshot.provider.as_str(),
+        api_key_status(snapshot.api_key_set)
+    ));
+
     if let Some(id) = snapshot.pending_id {
         write_output(format_args!("BRIDGE: PENDING REQUEST {}", id));
     } else {
@@ -428,6 +681,14 @@ fn command_bridge_status() {
             snapshot.error_count,
             snapshot.last_error.as_str()
         ));
+    }
+}
+
+fn api_key_status(set: bool) -> &'static str {
+    if set {
+        "SET"
+    } else {
+        "MISSING"
     }
 }
 

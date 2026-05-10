@@ -40,7 +40,9 @@ the Rust kernel, negotiates a framebuffer, draws a live Stage-0 status UI, uses
 virtio-rng to seed entropy, configures virtio-net through DHCP, and accepts
 console commands from serial and the QEMU virtio keyboard. It also has a first
 serial host-bridge path: `ask <text>` emits a protocol request to a host script,
-and the response is rendered back into the Stage-0 console.
+and the response is rendered back into the Stage-0 console. The VM console also
+has a `setup` menu for choosing the current provider and entering an API key into
+RAM without echoing the key back to the serial log.
 
 Expected first screen:
 
@@ -85,6 +87,9 @@ Run the development host bridge against that serial port:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555
 ```
+
+Inside the VM, type `setup` to open the provider/API-key menu. Keys are stored in
+guest RAM only for now and are cleared by reboot or the menu's clear command.
 
 Run the headless host-bridge smoke test:
 
