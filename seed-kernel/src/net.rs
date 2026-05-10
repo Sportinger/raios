@@ -8,7 +8,6 @@ use alloc::vec::Vec;
 
 use core::cmp;
 use core::str;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 use spin::Mutex;
 
@@ -35,14 +34,7 @@ const TCP_SOURCE_PORT_END: u16 = 65_535;
 const DNS_QUERY_TIMEOUT_MS: u64 = 4_000;
 const DNS_DEFAULT_TTL_SECS: u32 = 300;
 const DNS_PORT: u16 = 53;
-const DHCP_POLL_ENABLED: bool = true;
-
-const DHCP_OPT_IP_LEASE_TIME: u8 = 51;
-const DHCP_OPT_RENEWAL_TIME: u8 = 58;
-const DHCP_OPT_REBIND_TIME: u8 = 59;
-
 static NET_STATE: Mutex<Option<NetState>> = Mutex::new(None);
-static DHCP_DEFERRED_LOGGED: AtomicBool = AtomicBool::new(false);
 
 pub fn init() {
     let mut state = NET_STATE.lock();
@@ -104,24 +96,12 @@ pub fn init() {
         pending_dns: None,
         next_dns_id: 1,
         next_tcp_port: TCP_SOURCE_PORT_START,
-        lease_times: LeaseTimes::default(),
     });
 
-    if DHCP_POLL_ENABLED {
-        serial::write_line("e1000 network initialised; DHCP polling enabled");
-    } else {
-        serial::write_line("e1000 network initialised; DHCP poll deferred");
-    }
+    serial::write_line("e1000 network initialised; DHCP polling enabled");
 }
 
 pub fn poll() {
-    if !DHCP_POLL_ENABLED {
-        if !DHCP_DEFERRED_LOGGED.swap(true, Ordering::Relaxed) {
-            serial::write_line("network DHCP poll deferred; hardware path ready");
-        }
-        return;
-    }
-
     let now_ms = now_ms();
     let instant = Instant::from_millis(now_ms.min(i64::MAX as u64) as i64);
 
@@ -134,15 +114,8 @@ pub fn poll() {
     let mut phy = E1000Phy;
     let _ = state.iface.poll(instant, &mut phy, &mut state.sockets);
 
-    state.handle_dhcp_events(now_ms);
+    state.handle_dhcp_events();
     state.poll_dns(now_ms);
-}
-
-#[allow(dead_code)]
-pub fn config_snapshot() -> Option<NetConfigSnapshot> {
-    let guard = NET_STATE.lock();
-    let state = guard.as_ref()?;
-    Some(state.config.snapshot())
 }
 
 pub fn ui_snapshot() -> Option<NetUiSnapshot> {
@@ -156,7 +129,7 @@ pub fn ui_snapshot() -> Option<NetUiSnapshot> {
 }
 
 pub fn dhcp_poll_enabled() -> bool {
-    DHCP_POLL_ENABLED
+    true
 }
 
 #[derive(Clone, Copy)]
@@ -337,11 +310,10 @@ struct NetState {
     pending_dns: Option<DnsQueryState>,
     next_dns_id: u16,
     next_tcp_port: u16,
-    lease_times: LeaseTimes,
 }
 
 impl NetState {
-    fn handle_dhcp_events(&mut self, now_ms: u64) {
+    fn handle_dhcp_events(&mut self) {
         let event_owned = {
             let socket = self.sockets.get_mut::<dhcpv4::Socket>(self.dhcp_handle);
             match socket.poll() {
@@ -356,13 +328,13 @@ impl NetState {
 
         if let Some(event) = event_owned {
             match event {
-                DhcpEventOwned::Configured(cfg) => self.apply_dhcp_config(cfg, now_ms),
+                DhcpEventOwned::Configured(cfg) => self.apply_dhcp_config(cfg),
                 DhcpEventOwned::Deconfigured => self.clear_config(),
             }
         }
     }
 
-    fn apply_dhcp_config(&mut self, cfg: DhcpOwnedConfig, now_ms: u64) {
+    fn apply_dhcp_config(&mut self, cfg: DhcpOwnedConfig) {
         let address = cfg.address;
         let router = cfg.router;
         let dns_servers = cfg.dns_servers.clone();
@@ -383,13 +355,6 @@ impl NetState {
         self.config.ip = Some(address);
         self.config.gateway = router;
         self.config.dns_servers = cfg.dns_servers;
-        self.lease_times = LeaseTimes::from_options(
-            cfg.lease_seconds,
-            cfg.renew_seconds,
-            cfg.rebind_seconds,
-            now_ms,
-        );
-        self.config.lease_expires_ms = cfg.lease_seconds.map(|secs| now_ms + secs as u64 * 1000);
 
         serial::write_fmt(format_args!(
             "DHCP lease acquired: ip {}/{} gw {} dns {:?}\r\n",
@@ -409,7 +374,6 @@ impl NetState {
         self.iface.update_ip_addrs(|addrs| addrs.clear());
         self.iface.routes_mut().remove_default_ipv4_route();
         self.config.clear();
-        self.lease_times = LeaseTimes::default();
         self.dns_cache = None;
         self.pending_dns = None;
         serial::write_line("DHCP lease lost; interface deconfigured");
@@ -435,7 +399,6 @@ impl NetState {
                 self.dns_cache = Some(DnsCacheEntry {
                     hostname: query.hostname.clone(),
                     address: result.address,
-                    ttl,
                     expires_ms: expires,
                 });
                 self.pending_dns = None;
@@ -483,7 +446,6 @@ impl NetState {
 
         self.pending_dns = Some(DnsQueryState {
             hostname: hostname.into(),
-            server,
             tx_id,
             timeout_ms: now_ms + DNS_QUERY_TIMEOUT_MS,
         });
@@ -499,67 +461,17 @@ struct DhcpOwnedConfig {
     address: Ipv4Cidr,
     router: Option<Ipv4Address>,
     dns_servers: Vec<Ipv4Address>,
-    lease_seconds: Option<u32>,
-    renew_seconds: Option<u32>,
-    rebind_seconds: Option<u32>,
 }
 
 impl DhcpOwnedConfig {
     fn from_config(cfg: &dhcpv4::Config<'_>) -> Self {
         let dns_servers = cfg.dns_servers.iter().copied().collect();
-        let mut lease = None;
-        let mut renew = None;
-        let mut rebind = None;
-        if let Some(packet) = cfg.packet {
-            for opt in packet.options() {
-                match (opt.kind, opt.data.len()) {
-                    (DHCP_OPT_IP_LEASE_TIME, 4) => {
-                        lease = Some(u32::from_be_bytes([
-                            opt.data[0],
-                            opt.data[1],
-                            opt.data[2],
-                            opt.data[3],
-                        ]));
-                    }
-                    (DHCP_OPT_RENEWAL_TIME, 4) => {
-                        renew = Some(u32::from_be_bytes([
-                            opt.data[0],
-                            opt.data[1],
-                            opt.data[2],
-                            opt.data[3],
-                        ]));
-                    }
-                    (DHCP_OPT_REBIND_TIME, 4) => {
-                        rebind = Some(u32::from_be_bytes([
-                            opt.data[0],
-                            opt.data[1],
-                            opt.data[2],
-                            opt.data[3],
-                        ]));
-                    }
-                    _ => {}
-                }
-            }
-        }
         Self {
             address: cfg.address,
             router: cfg.router,
             dns_servers,
-            lease_seconds: lease,
-            renew_seconds: renew,
-            rebind_seconds: rebind,
         }
     }
-}
-
-#[allow(dead_code)]
-#[derive(Clone)]
-pub struct NetConfigSnapshot {
-    pub mac: [u8; 6],
-    pub ip: Option<Ipv4Cidr>,
-    pub gateway: Option<Ipv4Address>,
-    pub dns_servers: Vec<Ipv4Address>,
-    pub lease_expires_ms: Option<u64>,
 }
 
 struct NetConfig {
@@ -567,7 +479,6 @@ struct NetConfig {
     ip: Option<Ipv4Cidr>,
     gateway: Option<Ipv4Address>,
     dns_servers: Vec<Ipv4Address>,
-    lease_expires_ms: Option<u64>,
 }
 
 impl NetConfig {
@@ -577,7 +488,6 @@ impl NetConfig {
             ip: None,
             gateway: None,
             dns_servers: Vec::new(),
-            lease_expires_ms: None,
         }
     }
 
@@ -585,56 +495,17 @@ impl NetConfig {
         self.ip = None;
         self.gateway = None;
         self.dns_servers.clear();
-        self.lease_expires_ms = None;
-    }
-
-    #[allow(dead_code)]
-    fn snapshot(&self) -> NetConfigSnapshot {
-        NetConfigSnapshot {
-            mac: self.mac,
-            ip: self.ip,
-            gateway: self.gateway,
-            dns_servers: self.dns_servers.clone(),
-            lease_expires_ms: self.lease_expires_ms,
-        }
-    }
-}
-
-#[derive(Default, Clone, Copy)]
-struct LeaseTimes {
-    renew_at_ms: Option<u64>,
-    rebind_at_ms: Option<u64>,
-    expires_at_ms: Option<u64>,
-}
-
-impl LeaseTimes {
-    fn from_options(
-        lease: Option<u32>,
-        renew: Option<u32>,
-        rebind: Option<u32>,
-        now_ms: u64,
-    ) -> Self {
-        let lease_ms = lease.map(|secs| now_ms + secs as u64 * 1000);
-        let renew_ms = renew.map(|secs| now_ms + secs as u64 * 1000);
-        let rebind_ms = rebind.map(|secs| now_ms + secs as u64 * 1000);
-        Self {
-            renew_at_ms: renew_ms,
-            rebind_at_ms: rebind_ms,
-            expires_at_ms: lease_ms,
-        }
     }
 }
 
 struct DnsCacheEntry {
     hostname: String,
     address: Ipv4Address,
-    ttl: u32,
     expires_ms: u64,
 }
 
 struct DnsQueryState {
     hostname: String,
-    server: Ipv4Address,
     tx_id: u16,
     timeout_ms: u64,
 }

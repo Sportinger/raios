@@ -2,6 +2,7 @@
 /keys/
 /.cargo/
 **/*.log
+/log.md
 .DS_Store
 .venv/
 release/esp/NvVars

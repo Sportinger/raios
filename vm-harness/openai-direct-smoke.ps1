@@ -22,7 +22,7 @@ function Wait-ForLogText {
     do {
         if (Test-Path -LiteralPath $Path) {
             $content = Get-Content -Raw -LiteralPath $Path -ErrorAction SilentlyContinue
-            if ($content -like "*$Needle*") {
+            if ($content -clike "*$Needle*") {
                 return
             }
         }

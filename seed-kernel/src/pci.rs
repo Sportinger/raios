@@ -26,7 +26,6 @@ pub struct PciBar {
     pub kind: PciBarKind,
     pub base: u64,
     pub size: u64,
-    pub prefetchable: bool,
 }
 
 impl PciBar {
@@ -70,22 +69,6 @@ impl PciAddress {
         pci_config_write_u16(self.bus, self.device, self.function, offset, value);
     }
 
-    pub fn write_u8(&self, offset: u8, value: u8) {
-        let aligned = offset & !0x3;
-        let shift = ((offset & 0x3) as u32) * 8;
-        let mask = !(0xFFu32 << shift);
-
-        let _guard = PCI_LOCK.lock();
-        let address = config_address(self.bus, self.device, self.function, aligned);
-        unsafe {
-            outl(CONFIG_ADDRESS, address);
-            let mut current = inl(CONFIG_DATA);
-            current = (current & mask) | ((value as u32) << shift);
-            outl(CONFIG_ADDRESS, address);
-            outl(CONFIG_DATA, current);
-        }
-    }
-
     pub fn write_u32(&self, offset: u8, value: u32) {
         pci_config_write_u32(self.bus, self.device, self.function, offset, value);
     }
@@ -126,12 +109,10 @@ pub fn read_bar_info(address: PciAddress, index: u8) -> Option<PciBar> {
                 kind: PciBarKind::Io,
                 base,
                 size,
-                prefetchable: false,
             })
         }
     } else {
         let bar_type = (low >> 1) & 0x3;
-        let prefetchable = low & (1 << 3) != 0;
         match bar_type {
             0x0 => {
                 address.write_u32(offset, u32::MAX);
@@ -148,7 +129,6 @@ pub fn read_bar_info(address: PciAddress, index: u8) -> Option<PciBar> {
                         kind: PciBarKind::Memory32,
                         base,
                         size,
-                        prefetchable,
                     })
                 }
             }
@@ -173,7 +153,6 @@ pub fn read_bar_info(address: PciAddress, index: u8) -> Option<PciBar> {
                         kind: PciBarKind::Memory64,
                         base,
                         size,
-                        prefetchable,
                     })
                 }
             }

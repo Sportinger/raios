@@ -13,7 +13,6 @@ use crate::usb;
 const INPUT_RING_CAPACITY: usize = 256;
 const POINTER_DEFAULT_WIDTH: i32 = 1280;
 const POINTER_DEFAULT_HEIGHT: i32 = 800;
-const POINTER_ABSOLUTE_MAX: i32 = 0x7FFF;
 const MOUSE_LEFT: u8 = 1 << 0;
 const MOUSE_RIGHT: u8 = 1 << 1;
 const MOUSE_MIDDLE: u8 = 1 << 2;
@@ -61,7 +60,6 @@ fn poll_ps2() {
     let mut inserted = 0usize;
     ps2::poll(|code, pressed| {
         RING.push(InputEvent {
-            ts_ms,
             kind: InputEventKind::Key { code, pressed },
         });
         inserted += 1;
@@ -91,7 +89,6 @@ fn poll_usb() -> bool {
                 has_timestamp.set(true);
             }
             RING.push(InputEvent {
-                ts_ms: ts_ms.get(),
                 kind: InputEventKind::Key { code, pressed },
             });
             inserted.set(inserted.get() + 1);
@@ -104,38 +101,26 @@ fn poll_usb() -> bool {
             if report.dx != 0 {
                 let kind = InputEventKind::Relative(RelativeAxis::X, report.dx as i32);
                 pointer_changed.set(update_mouse(kind) || pointer_changed.get());
-                RING.push(InputEvent {
-                    ts_ms: ts_ms.get(),
-                    kind,
-                });
+                RING.push(InputEvent { kind });
                 inserted.set(inserted.get() + 1);
             }
             if report.dy != 0 {
                 let kind = InputEventKind::Relative(RelativeAxis::Y, report.dy as i32);
                 pointer_changed.set(update_mouse(kind) || pointer_changed.get());
-                RING.push(InputEvent {
-                    ts_ms: ts_ms.get(),
-                    kind,
-                });
+                RING.push(InputEvent { kind });
                 inserted.set(inserted.get() + 1);
             }
             if report.wheel != 0 {
                 let kind = InputEventKind::Relative(RelativeAxis::Wheel, report.wheel as i32);
                 pointer_changed.set(update_mouse(kind) || pointer_changed.get());
-                RING.push(InputEvent {
-                    ts_ms: ts_ms.get(),
-                    kind,
-                });
+                RING.push(InputEvent { kind });
                 inserted.set(inserted.get() + 1);
             }
             for (code, mask) in [(272, MOUSE_LEFT), (273, MOUSE_RIGHT), (274, MOUSE_MIDDLE)] {
                 let pressed = report.buttons & mask != 0;
                 let kind = InputEventKind::Key { code, pressed };
                 if update_mouse(kind) {
-                    RING.push(InputEvent {
-                        ts_ms: ts_ms.get(),
-                        kind,
-                    });
+                    RING.push(InputEvent { kind });
                     inserted.set(inserted.get() + 1);
                     pointer_changed.set(true);
                 }
@@ -175,7 +160,6 @@ fn timestamp_ms() -> u64 {
     now_tsc / tsc_per_ms + jitter
 }
 
-#[allow(dead_code)]
 pub fn drain<F: FnMut(InputEvent)>(mut f: F) {
     while let Some(event) = RING.pop() {
         f(event);
@@ -207,41 +191,32 @@ pub struct MouseSnapshot {
     pub sequence: u64,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub struct InputEvent {
-    pub ts_ms: u64,
     pub kind: InputEventKind,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub enum InputEventKind {
     Key { code: u16, pressed: bool },
     Relative(RelativeAxis, i32),
-    Absolute { code: u16, value: i32 },
-    Raw { type_: u16, code: u16, value: i32 },
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub enum RelativeAxis {
     X,
     Y,
     Wheel,
-    Other(u16),
 }
 
 fn update_mouse(kind: InputEventKind) -> bool {
     let mut mouse = MOUSE.lock();
     match kind {
         InputEventKind::Relative(axis, value) => mouse.apply_relative(axis, value),
-        InputEventKind::Absolute { code, value } => mouse.apply_absolute(code, value),
         InputEventKind::Key { code, pressed } => match mouse_button_mask(code) {
             Some(mask) => mouse.apply_button(mask, pressed),
             None => false,
         },
-        InputEventKind::Raw { .. } => false,
     }
 }
 
@@ -296,24 +271,10 @@ impl MouseState {
         match axis {
             RelativeAxis::X => self.move_by(value, 0),
             RelativeAxis::Y => self.move_by(0, value),
-            RelativeAxis::Wheel | RelativeAxis::Other(_) => {
+            RelativeAxis::Wheel => {
                 self.mark_seen();
                 false
             }
-        }
-    }
-
-    fn apply_absolute(&mut self, code: u16, value: i32) -> bool {
-        match code {
-            0 => {
-                let x = scale_absolute(value, self.max_x);
-                self.set_position(x, self.y)
-            }
-            1 => {
-                let y = scale_absolute(value, self.max_y);
-                self.set_position(self.x, y)
-            }
-            _ => false,
         }
     }
 
@@ -366,11 +327,6 @@ impl MouseState {
             sequence: self.sequence,
         }
     }
-}
-
-fn scale_absolute(value: i32, max: i32) -> i32 {
-    let value = clamp_i32(value, 0, POINTER_ABSOLUTE_MAX) as i64;
-    ((value * max as i64) / POINTER_ABSOLUTE_MAX as i64) as i32
 }
 
 fn usize_to_i32(value: usize) -> i32 {

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use core::ptr;
 
 use limine::framebuffer::Framebuffer;
@@ -12,7 +10,6 @@ pub struct FramebufferInfo {
     pub height: u64,
     pub pitch: u64,
     pub format: PixelFormat,
-    pub address: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,7 +53,6 @@ impl FramebufferSurface {
             height: fb.height(),
             pitch: fb.pitch(),
             format: PixelFormat::infer(fb),
-            address: front as u64,
         };
         let row_bytes = info.width.checked_mul(4)?;
         if info.width == 0 || info.height == 0 || info.pitch < row_bytes {
