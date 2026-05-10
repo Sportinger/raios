@@ -3,7 +3,7 @@ use core::str;
 
 use spin::Mutex;
 
-use crate::{entropy, input, net, serial, ui, virtio};
+use crate::{bridge, entropy, input, net, serial, ui, virtio};
 
 const COMMAND_WIDTH: usize = 80;
 const OUTPUT_WIDTH: usize = 104;
@@ -30,7 +30,7 @@ impl ConsoleLine {
         unsafe { str::from_utf8_unchecked(&self.bytes[..self.len]) }
     }
 
-    fn trimmed_command(&self) -> CommandText {
+    fn trimmed_bounds(&self) -> (usize, usize) {
         let mut start = 0usize;
         let mut end = self.len;
         while start < end && self.bytes[start].is_ascii_whitespace() {
@@ -40,11 +40,35 @@ impl ConsoleLine {
             end -= 1;
         }
 
+        (start, end)
+    }
+
+    fn trimmed_str(&self) -> &str {
+        let (start, end) = self.trimmed_bounds();
+        unsafe { str::from_utf8_unchecked(&self.bytes[start..end]) }
+    }
+
+    fn command_word(&self) -> CommandText {
+        let (start, end) = self.trimmed_bounds();
         let mut text = CommandText::new();
-        for &byte in &self.bytes[start..end] {
+        let mut idx = start;
+        while idx < end && !self.bytes[idx].is_ascii_whitespace() {
+            let byte = self.bytes[idx];
             text.push_byte(byte.to_ascii_lowercase());
+            idx += 1;
         }
         text
+    }
+
+    fn arguments_after_command(&self) -> &str {
+        let (mut idx, end) = self.trimmed_bounds();
+        while idx < end && !self.bytes[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+        while idx < end && self.bytes[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+        unsafe { str::from_utf8_unchecked(&self.bytes[idx..end]) }
     }
 }
 
@@ -237,7 +261,7 @@ pub fn poll(runtime: ui::RuntimeStatus) -> bool {
             break;
         };
 
-        changed |= process_byte(byte, runtime);
+        changed |= process_serial_byte(byte, runtime);
         processed += 1;
     }
 
@@ -286,25 +310,47 @@ fn process_byte(byte: u8, runtime: ui::RuntimeStatus) -> bool {
     }
 }
 
+fn process_serial_byte(byte: u8, runtime: ui::RuntimeStatus) -> bool {
+    match bridge::ingest_serial_byte(byte) {
+        bridge::SerialIngest::Console(byte) => process_byte(byte, runtime),
+        bridge::SerialIngest::Consumed => false,
+        bridge::SerialIngest::Response => {
+            command_bridge_response();
+            true
+        }
+        bridge::SerialIngest::Error => {
+            command_bridge_error();
+            true
+        }
+    }
+}
+
 fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
-    let command = command_line.trimmed_command();
+    let command = command_line.command_word();
     if command.as_str().is_empty() {
         return;
     }
 
-    write_output(format_args!("> {}", command_line.as_str()));
+    write_output(format_args!("> {}", command_line.trimmed_str()));
 
     match command.as_str() {
         "help" => command_help(),
         "status" => command_status(runtime),
         "devices" => command_devices(runtime),
         "log" => command_log(),
-        _ => write_output(format_args!("UNKNOWN COMMAND: {}", command_line.as_str())),
+        "bridge" => command_bridge_status(),
+        "ask" => command_ask(command_line.arguments_after_command()),
+        _ => write_output(format_args!(
+            "UNKNOWN COMMAND: {}",
+            command_line.trimmed_str()
+        )),
     }
 }
 
 fn command_help() {
-    write_output(format_args!("COMMANDS: help status devices log"));
+    write_output(format_args!(
+        "COMMANDS: help status devices log bridge ask <text>"
+    ));
 }
 
 fn command_status(runtime: ui::RuntimeStatus) {
@@ -352,6 +398,67 @@ fn command_log() {
         idx += 1;
     }
     record_event(format_args!("RECENT LOG WRITTEN TO SERIAL"));
+}
+
+fn command_bridge_status() {
+    let snapshot = bridge::snapshot();
+    if let Some(id) = snapshot.pending_id {
+        write_output(format_args!("BRIDGE: PENDING REQUEST {}", id));
+    } else {
+        write_output(format_args!("BRIDGE: READY"));
+    }
+
+    if let Some(id) = snapshot.last_request_id {
+        write_output(format_args!(
+            "LAST REQUEST {}: {}",
+            id,
+            snapshot.last_prompt.as_str()
+        ));
+    }
+    if let Some(id) = snapshot.last_response_id {
+        write_output(format_args!(
+            "LAST RESPONSE {}: {}",
+            id,
+            snapshot.last_response.as_str()
+        ));
+    }
+    if snapshot.error_count > 0 {
+        write_output(format_args!(
+            "BRIDGE ERRORS: {} LAST {}",
+            snapshot.error_count,
+            snapshot.last_error.as_str()
+        ));
+    }
+}
+
+fn command_ask(prompt: &str) {
+    match bridge::submit_request(prompt) {
+        Ok(id) => write_output(format_args!("BRIDGE REQUEST {} SENT", id)),
+        Err(bridge::SubmitError::Empty) => write_output(format_args!("ASK REQUIRES TEXT")),
+        Err(bridge::SubmitError::Busy(id)) => {
+            write_output(format_args!("BRIDGE BUSY: REQUEST {} PENDING", id))
+        }
+    }
+}
+
+fn command_bridge_response() {
+    let snapshot = bridge::snapshot();
+    if let Some(id) = snapshot.last_response_id {
+        write_output(format_args!(
+            "BRIDGE RESPONSE {}: {}",
+            id,
+            snapshot.last_response.as_str()
+        ));
+    }
+}
+
+fn command_bridge_error() {
+    let snapshot = bridge::snapshot();
+    write_output(format_args!(
+        "BRIDGE ERROR {}: {}",
+        snapshot.error_count,
+        snapshot.last_error.as_str()
+    ));
 }
 
 fn rng_state(_runtime: ui::RuntimeStatus) -> &'static str {

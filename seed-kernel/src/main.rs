@@ -16,6 +16,7 @@ use limine::request::{
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
 
+mod bridge;
 mod console;
 mod entropy;
 mod framebuffer;

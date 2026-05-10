@@ -40,6 +40,12 @@ Run with interactive serial commands on TCP port 4555:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555
 ```
 
+Run headless with the same serial TCP port:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555 -Headless
+```
+
 The runner uses:
 
 - QEMU: `C:\Program Files\qemu\qemu-system-x86_64.exe`
@@ -52,6 +58,9 @@ The runner uses:
 With `-SerialMode tcp`, the serial device is exposed at
 `127.0.0.1:<SerialTcpPort>` and still writes a QEMU chardev log to the serial
 log path.
+
+With `-Headless`, the runner uses `-display none` instead of GTK. This is useful
+for serial-only harness tests.
 
 Tail the serial log:
 
@@ -85,6 +94,39 @@ print(out.decode("ascii", "replace"))
 s.close()
 '@ | python -
 ```
+
+## Host Bridge
+
+Run the development bridge while QEMU is running in TCP serial mode:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555
+```
+
+One-shot request/response smoke:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555 -Once -Ask "hello bridge"
+```
+
+Full headless QEMU smoke:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\host-bridge-smoke.ps1
+```
+
+Expected serial bridge lines:
+
+```text
+> ask hello bridge
+SEEDOS_BRIDGE_REQ 1 68656C6C6F20627269646765
+BRIDGE REQUEST 1 SENT
+BRIDGE RESPONSE 1: HOST BRIDGE OK: hello bridge
+```
+
+The VM-to-host request is printable for logs. The host-to-VM response is prefixed
+with STX (`0x02`) so the kernel routes it through the bridge parser instead of
+treating it as user console input.
 
 ## Test Workspace
 

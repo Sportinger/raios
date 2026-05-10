@@ -4,6 +4,7 @@ param(
     [ValidateSet("file", "tcp")]
     [string]$SerialMode = "file",
     [int]$SerialTcpPort = 4555,
+    [switch]$Headless,
     [switch]$StopExisting
 )
 
@@ -47,10 +48,14 @@ else {
     $qemuArgs += @("-serial", "file:$SerialLog")
 }
 
-$qemuArgs += @(
-    "-display", "gtk",
-    "-no-reboot"
-)
+if ($Headless) {
+    $qemuArgs += @("-display", "none")
+}
+else {
+    $qemuArgs += @("-display", "gtk")
+}
+
+$qemuArgs += @("-no-reboot")
 
 $process = Start-Process -FilePath $Qemu -ArgumentList $qemuArgs -PassThru -RedirectStandardError $ErrLog
 Write-Output "qemu pid: $($process.Id)"

@@ -63,6 +63,17 @@ help
 status
 devices
 log
+bridge
+ask <text>
+```
+
+Host bridge smoke verified over TCP serial:
+
+```text
+> ask ping from vm harness
+SEEDOS_BRIDGE_REQ 1 70696E672066726F6D20766D206861726E657373
+BRIDGE REQUEST 1 SENT
+BRIDGE RESPONSE 1: HOST BRIDGE OK: ping from vm harness
 ```
 
 ## Current Architecture Decision
@@ -84,7 +95,7 @@ See `docs/architecture-decisions/0001-seedos-agent-protocol.md`.
 
 ## Exact Next Task
 
-Add the first host bridge/protocol path:
+Evolve the first host bridge/protocol path:
 
 - virtio-rng entropy now works through physical DMA address translation and
   dynamic legacy virtqueue layout.
@@ -92,8 +103,11 @@ Add the first host bridge/protocol path:
   smoltcp, and shows IP/gateway state in the framebuffer UI and serial console.
 - modern virtio-input now uses explicit kernel MMIO mappings, queues keyboard
   events, and feeds a minimal US keymap into the same command console as serial.
-- the next milestone is a tiny host-side bridge over an explicit message
-  protocol, starting outside the kernel so provider credentials stay on the host.
+- a tiny serial host bridge now accepts `ask <text>`, emits
+  `SEEDOS_BRIDGE_REQ`, receives an STX-framed `SEEDOS_BRIDGE_RESP`, and renders
+  the answer in the VM console.
+- the next milestone is turning the echo bridge into a capability-shaped agent
+  protocol with a real host/provider adapter.
 
 ## Known Gaps
 
@@ -105,6 +119,10 @@ Add the first host bridge/protocol path:
 - Network failure/timeout states and packet counters are still minimal.
 - Keyboard input uses a minimal US/Linux keycode mapping; no layout selection,
   modifier completeness, or text editing beyond Backspace exists yet.
+- The host bridge is a development echo responder only; it is not a provider
+  adapter and does not carry auth, tools, or policy yet.
+- QEMU TCP serial is single-client in practice; do not run the serial smoke
+  client and host bridge against the same port at the same time.
 - No provider auth, HTTPS, TLS, or API client exists inside the OS yet.
 - No signed module runtime exists yet.
 

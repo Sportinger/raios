@@ -103,6 +103,12 @@ Definition of done:
 - VM can ask the host bridge for a simple response.
 - The bridge can be swapped later for direct HTTPS/provider adapters.
 
+Current status: a minimal serial bridge is implemented. The VM command
+`ask <text>` emits a hex-encoded `SEEDOS_BRIDGE_REQ`; the Windows host script
+responds with an STX-framed `SEEDOS_BRIDGE_RESP`, and the VM renders the answer
+in the framebuffer/serial console. Provider calls, auth, tool schemas, and
+capability policy remain.
+
 ## Phase 4: Provider Integration
 
 Goal:

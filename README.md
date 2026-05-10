@@ -38,7 +38,9 @@ release/seedos-stage0.img
 It has been visually verified in QEMU on Windows. It boots through Limine, reaches
 the Rust kernel, negotiates a framebuffer, draws a live Stage-0 status UI, uses
 virtio-rng to seed entropy, configures virtio-net through DHCP, and accepts
-console commands from serial and the QEMU virtio keyboard.
+console commands from serial and the QEMU virtio keyboard. It also has a first
+serial host-bridge path: `ask <text>` emits a protocol request to a host script,
+and the response is rendered back into the Stage-0 console.
 
 Expected first screen:
 
@@ -76,6 +78,18 @@ Run with an interactive serial console on TCP port 4555:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555
+```
+
+Run the development host bridge against that serial port:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\host-bridge.ps1 -Port 4555
+```
+
+Run the headless host-bridge smoke test:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\host-bridge-smoke.ps1
 ```
 
 Run workspace tests:
