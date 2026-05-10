@@ -30,6 +30,7 @@ mod serial;
 mod text;
 mod time;
 mod ui;
+mod usb;
 mod virtio;
 
 #[used]
@@ -130,6 +131,7 @@ fn early_main() -> ! {
         serial::write_line("Bridge default provider loaded: OPENAI API key set");
     }
     console::init();
+    usb::init();
     status_ui.render(0, runtime_status);
 
     time::calibrate_tsc();
@@ -223,7 +225,7 @@ impl PeriodicTasks {
     ) {
         self.console.try_run(now_tsc, || {
             if console::poll(*runtime_status) {
-                status_ui.render(uptime_ms(), *runtime_status);
+                status_ui.render_forced(uptime_ms(), *runtime_status);
             }
         });
         self.entropy.try_run(now_tsc, || entropy::maintain());

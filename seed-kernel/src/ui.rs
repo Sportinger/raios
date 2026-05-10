@@ -2,7 +2,7 @@ use core::fmt::{self, Write};
 use core::str;
 
 use crate::framebuffer::{Color, FramebufferInfo, FramebufferSurface};
-use crate::{console, entropy, input, net, serial, text, virtio};
+use crate::{console, entropy, input, net, serial, text, usb, virtio};
 
 #[derive(Clone, Copy)]
 pub struct RuntimeStatus {
@@ -24,6 +24,7 @@ impl RuntimeStatus {
 pub struct StatusUi {
     surface: Option<FramebufferSurface>,
     last_states: Option<SnapshotStates>,
+    last_draw_states: Option<SnapshotStates>,
 }
 
 impl StatusUi {
@@ -31,17 +32,32 @@ impl StatusUi {
         Self {
             surface,
             last_states: None,
+            last_draw_states: None,
         }
     }
 
     pub fn render(&mut self, uptime_ms: u64, runtime: RuntimeStatus) {
+        self.render_inner(uptime_ms, runtime, false);
+    }
+
+    pub fn render_forced(&mut self, uptime_ms: u64, runtime: RuntimeStatus) {
+        self.render_inner(uptime_ms, runtime, true);
+    }
+
+    fn render_inner(&mut self, uptime_ms: u64, runtime: RuntimeStatus, force_draw: bool) {
         let framebuffer = self.surface.as_ref().map(|surface| surface.info());
         let snapshot = Snapshot::collect(framebuffer, runtime);
         self.log_transitions(&snapshot);
 
-        if let Some(surface) = self.surface.as_mut() {
-            draw(surface, uptime_ms, &snapshot);
-            surface.present();
+        let states = snapshot.states();
+        let should_draw = force_draw || self.last_draw_states != Some(states);
+
+        if should_draw {
+            if let Some(surface) = self.surface.as_mut() {
+                draw(surface, uptime_ms, &snapshot);
+                surface.present();
+                self.last_draw_states = Some(states);
+            }
         }
     }
 
@@ -52,6 +68,7 @@ impl StatusUi {
         log_transition(previous.map(|prev| prev.framebuffer), &snapshot.framebuffer);
         log_transition(previous.map(|prev| prev.entropy), &snapshot.entropy);
         log_transition(previous.map(|prev| prev.virtio_rng), &snapshot.virtio_rng);
+        log_transition(previous.map(|prev| prev.usb_xhci), &snapshot.usb_xhci);
         log_transition(previous.map(|prev| prev.virtio_net), &snapshot.virtio_net);
         log_transition(previous.map(|prev| prev.input), &snapshot.input);
 
@@ -63,6 +80,7 @@ struct Snapshot {
     framebuffer: StatusLine,
     entropy: StatusLine,
     virtio_rng: StatusLine,
+    usb_xhci: StatusLine,
     virtio_net: StatusLine,
     input: StatusLine,
 }
@@ -72,12 +90,14 @@ impl Snapshot {
         let framebuffer = framebuffer_line(framebuffer);
         let entropy = entropy_line();
         let virtio_rng = virtio_rng_line(runtime);
+        let usb_xhci = usb_xhci_line();
         let virtio_net = virtio_net_line(runtime);
         let input = input_line(runtime);
         Self {
             framebuffer,
             entropy,
             virtio_rng,
+            usb_xhci,
             virtio_net,
             input,
         }
@@ -88,17 +108,19 @@ impl Snapshot {
             framebuffer: self.framebuffer.state,
             entropy: self.entropy.state,
             virtio_rng: self.virtio_rng.state,
+            usb_xhci: self.usb_xhci.state,
             virtio_net: self.virtio_net.state,
             input: self.input.state,
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct SnapshotStates {
     framebuffer: RowState,
     entropy: RowState,
     virtio_rng: RowState,
+    usb_xhci: RowState,
     virtio_net: RowState,
     input: RowState,
 }
@@ -214,6 +236,47 @@ fn virtio_rng_line(runtime: RuntimeStatus) -> StatusLine {
             RowState::Waiting,
             detail(format_args!("PROBING PCI BUS")),
         )
+    }
+}
+
+fn usb_xhci_line() -> StatusLine {
+    let snapshot = usb::snapshot();
+    match snapshot.state {
+        usb::UsbStatus::NotProbed => StatusLine::new(
+            "USB-XHCI",
+            RowState::Waiting,
+            detail(format_args!("PROBE PENDING")),
+        ),
+        usb::UsbStatus::Missing => StatusLine::new(
+            "USB-XHCI",
+            RowState::Missing,
+            detail(format_args!("CONTROLLER ABSENT")),
+        ),
+        usb::UsbStatus::Error => StatusLine::new(
+            "USB-XHCI",
+            RowState::Degraded,
+            detail(format_args!(
+                "{}",
+                snapshot.last_error.unwrap_or("PROBE ERROR")
+            )),
+        ),
+        usb::UsbStatus::Ready => {
+            let address = match snapshot.address {
+                Some(address) => detail(format_args!("{}", address)),
+                None => detail(format_args!("UNKNOWN")),
+            };
+            StatusLine::new(
+                "USB-XHCI",
+                RowState::Ready,
+                detail(format_args!(
+                    "{} HCI {:04X} PORTS {} CONNECTED {}",
+                    address.as_str(),
+                    snapshot.hci_version,
+                    snapshot.max_ports,
+                    snapshot.connected_ports
+                )),
+            )
+        }
     }
 }
 
@@ -383,6 +446,8 @@ fn draw(surface: &mut FramebufferSurface, uptime_ms: u64, snapshot: &Snapshot) {
     draw_row(surface, y, &snapshot.entropy);
     y += 46;
     draw_row(surface, y, &snapshot.virtio_rng);
+    y += 46;
+    draw_row(surface, y, &snapshot.usb_xhci);
     y += 46;
     draw_row(surface, y, &snapshot.virtio_net);
     y += 46;

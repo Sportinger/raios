@@ -205,6 +205,32 @@ pub fn find_device(vendor: u16, device: u16) -> Option<PciAddress> {
     None
 }
 
+pub fn find_by_class(class: u8, subclass: u8, prog_if: u8) -> Option<PciAddress> {
+    for bus in 0..=255 {
+        for dev in 0..32 {
+            for func in 0..8 {
+                let addr = PciAddress::new(bus, dev, func);
+                if read_vendor(&addr) == 0xFFFF {
+                    if func == 0 {
+                        break;
+                    }
+                    continue;
+                }
+                if addr.read_u8(0x0B) == class
+                    && addr.read_u8(0x0A) == subclass
+                    && addr.read_u8(0x09) == prog_if
+                {
+                    return Some(addr);
+                }
+                if func == 0 && !has_multiple_functions(&addr) {
+                    break;
+                }
+            }
+        }
+    }
+    None
+}
+
 fn read_vendor(addr: &PciAddress) -> u16 {
     (addr.read_u32(0) & 0xFFFF) as u16
 }

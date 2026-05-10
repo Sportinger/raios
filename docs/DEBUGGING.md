@@ -276,6 +276,7 @@ HHDM offset=0xffff800000000000
 status FRAMEBUFFER: READY - 1280x800 PITCH 5120
 status ENTROPY: READY - FILL 64/64 TOTAL 64 SRC VIRTIO-RNG
 status VIRTIO-RNG: READY - ATTACHED AS ENTROPY SOURCE
+status USB-XHCI: MISSING - CONTROLLER ABSENT
 virtio-net legacy transport @ 0x6080, mac 52:54:00:12:34:56, rx_q=256, tx_q=256
 virtio-net initialised; DHCP polling enabled
 DHCP lease acquired: ip 10.0.2.15/24 gw 10.0.2.2 dns ["10.0.2.3"]

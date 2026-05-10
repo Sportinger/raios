@@ -3,7 +3,7 @@ use core::str;
 
 use spin::Mutex;
 
-use crate::{bridge, entropy, input, net, serial, ui, virtio};
+use crate::{bridge, entropy, input, net, serial, ui, usb, virtio};
 
 const COMMAND_WIDTH: usize = 256;
 const OUTPUT_WIDTH: usize = 104;
@@ -555,8 +555,9 @@ fn command_status(runtime: ui::RuntimeStatus) {
         entropy::POOL_CAPACITY
     ));
     write_output(format_args!(
-        "VIRTIO-RNG: {}    VIRTIO-NET: {}    INPUT: {}",
+        "VIRTIO-RNG: {}    USB-XHCI: {}    VIRTIO-NET: {}    INPUT: {}",
         rng_state(runtime),
+        usb_state(),
         net_state(runtime),
         input_state(runtime)
     ));
@@ -565,6 +566,7 @@ fn command_status(runtime: ui::RuntimeStatus) {
 fn command_devices(runtime: ui::RuntimeStatus) {
     write_output(format_args!("FRAMEBUFFER: READY"));
     write_output(format_args!("VIRTIO-RNG: {}", rng_state(runtime)));
+    write_usb_device_line();
 
     if let Some(info) = virtio::net::info() {
         write_output(format_args!("VIRTIO-NET: DEVICE MAC {}", Mac(info.mac)));
@@ -573,6 +575,31 @@ fn command_devices(runtime: ui::RuntimeStatus) {
     }
 
     write_output(format_args!("INPUT: {}", input_state(runtime)));
+}
+
+fn write_usb_device_line() {
+    let snapshot = usb::snapshot();
+    match snapshot.state {
+        usb::UsbStatus::NotProbed => write_output(format_args!("USB-XHCI: WAITING")),
+        usb::UsbStatus::Missing => write_output(format_args!("USB-XHCI: MISSING")),
+        usb::UsbStatus::Error => write_output(format_args!(
+            "USB-XHCI: DEGRADED {}",
+            snapshot.last_error.unwrap_or("PROBE ERROR")
+        )),
+        usb::UsbStatus::Ready => {
+            if let Some(address) = snapshot.address {
+                write_output(format_args!(
+                    "USB-XHCI: READY {} HCI {:04X} PORTS {} CONNECTED {}",
+                    address, snapshot.hci_version, snapshot.max_ports, snapshot.connected_ports
+                ));
+            } else {
+                write_output(format_args!(
+                    "USB-XHCI: READY UNKNOWN HCI {:04X} PORTS {} CONNECTED {}",
+                    snapshot.hci_version, snapshot.max_ports, snapshot.connected_ports
+                ));
+            }
+        }
+    }
 }
 
 fn command_log() {
@@ -730,6 +757,15 @@ fn rng_state(_runtime: ui::RuntimeStatus) -> &'static str {
         "DEGRADED"
     } else {
         "WAITING"
+    }
+}
+
+fn usb_state() -> &'static str {
+    match usb::snapshot().state {
+        usb::UsbStatus::NotProbed => "WAITING",
+        usb::UsbStatus::Missing => "MISSING",
+        usb::UsbStatus::Ready => "READY",
+        usb::UsbStatus::Error => "DEGRADED",
     }
 }
 
