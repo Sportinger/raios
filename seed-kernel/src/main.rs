@@ -16,6 +16,7 @@ use limine::request::{
 use limine::BaseRevision;
 use linked_list_allocator::LockedHeap;
 
+mod agent_protocol;
 mod console;
 mod e1000;
 mod entropy;
@@ -30,6 +31,7 @@ mod provider_config;
 mod ps2;
 mod scheduler;
 mod serial;
+mod service_inventory;
 mod system_status;
 mod text;
 mod time;
@@ -130,7 +132,9 @@ fn early_main() -> ! {
         serial::write_line("No framebuffer response from Limine");
     }
 
+    let framebuffer_info = framebuffer_surface.as_ref().map(|surface| surface.info());
     let mut runtime_status = ui::RuntimeStatus::new();
+    runtime_status.framebuffer = framebuffer_info;
     let mut status_ui = ui::StatusUi::new(framebuffer_surface);
     if provider_config::init_default_config() {
         serial::write_line("Default provider loaded: OPENAI API key set");

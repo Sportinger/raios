@@ -6,6 +6,7 @@ use crate::{entropy, input, net, usb, wifi};
 
 #[derive(Clone, Copy)]
 pub struct RuntimeStatus {
+    pub framebuffer: Option<FramebufferInfo>,
     pub net_probe_complete: bool,
     pub input_probe_complete: bool,
 }
@@ -13,6 +14,7 @@ pub struct RuntimeStatus {
 impl RuntimeStatus {
     pub const fn new() -> Self {
         Self {
+            framebuffer: None,
             net_probe_complete: false,
             input_probe_complete: false,
         }
@@ -30,6 +32,10 @@ pub struct SystemSnapshot {
 
 impl SystemSnapshot {
     pub fn collect(framebuffer: Option<FramebufferInfo>, runtime: RuntimeStatus) -> Self {
+        let framebuffer = match framebuffer {
+            Some(info) => Some(info),
+            None => runtime.framebuffer,
+        };
         Self {
             framebuffer: framebuffer_line(framebuffer),
             entropy: entropy_line(),
@@ -97,6 +103,17 @@ impl RowState {
             RowState::Detected => "DETECTED",
             RowState::Degraded => "DEGRADED",
             RowState::Missing => "MISSING",
+        }
+    }
+
+    pub fn as_protocol(self) -> &'static str {
+        match self {
+            RowState::Ready => "ready",
+            RowState::Waiting => "waiting",
+            RowState::Configured => "configured",
+            RowState::Detected => "detected",
+            RowState::Degraded => "degraded",
+            RowState::Missing => "missing",
         }
     }
 }

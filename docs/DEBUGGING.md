@@ -36,7 +36,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -
 ```
 
 This requires `OPENAI_API_KEY` to be set. The resulting image contains the key,
-so do not commit or share that local image.
+so do not commit or share that local image. The packaging script refuses to
+embed a provider key into `release\esp` or the default `release\seedos-stage0.img`;
+see `docs\SECRETS.md`.
 
 ## Run VM On Windows
 

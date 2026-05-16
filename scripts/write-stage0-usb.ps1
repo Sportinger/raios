@@ -14,6 +14,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if ($EmbedOpenAiApiKeyFromEnv -and $SkipBuild) {
+    throw "Refusing -SkipBuild with -EmbedOpenAiApiKeyFromEnv because the key must be compiled into a fresh local kernel before writing the USB stick."
+}
+
 function Test-Admin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)

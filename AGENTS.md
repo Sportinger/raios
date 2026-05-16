@@ -28,6 +28,37 @@ The core idea is not to port the full Codex CLI into stage-0. The OS should grow
 native, capability-gated agent protocol and UI. CLI tools such as Codex can be a
 reference/workstation tool, not the hard dependency inside the kernel.
 
+## Full-Vision Engineering Rule
+
+Do not deliberately build throwaway MVPs, mocks, fake services, fake security, or
+silent fallback paths. The project can move fast through agents, so default to
+keeping the full RaiOS vision in scope instead of traditional staged-down
+prototypes.
+
+When a narrow step is needed, make it a real vertical slice on the final
+architecture path:
+
+- real boot/test behavior, not mocked success
+- real protocol/schema boundaries, not ad-hoc placeholders
+- fail-closed or explicit `capability_denied` when evidence is missing
+- no fake provider, driver, sandbox, module loader, trust, or persistence layer
+  that pretends to be complete
+- temporary harnesses are allowed only when they test the real path and are
+  clearly labeled as test infrastructure
+
+If the full feature cannot be completed in one pass, implement the durable
+foundation first and expose unfinished parts as explicit denials, TODO status, or
+known gaps. Do not hide missing functionality behind a fallback that could later
+be mistaken for the intended system.
+
+Agents should approach new problems and features from the final system shape
+first. Start by identifying the full target architecture, invariants, protocols,
+trust boundaries, and evidence needed for the real RaiOS design. Then implement
+the smallest durable slice that moves that architecture forward. Avoid spending
+time optimizing intermediate product shapes, demo-only flows, compatibility
+shims, or "good enough for now" branches unless they are explicitly part of the
+final architecture or test the real path.
+
 ## Current Verified State
 
 - Repo path: `C:\Users\admin\Documents\raios2`
@@ -78,6 +109,21 @@ reference/workstation tool, not the hard dependency inside the kernel.
   Limine framebuffer, avoiding visible clear/redraw flicker during mouse moves.
 - The visible QEMU GTK profile uses `grab-on-hover=on,show-cursor=off`; SeedOS
   draws its own cursor and the host pointer should not escape the VM as easily.
+
+## Secret Handling Rule
+
+- Never commit OpenAI/provider keys or key-bearing boot artifacts.
+- Provider keys may enter a VM image or boot USB only from the local process
+  environment, through the documented `-EmbedOpenAiApiKeyFromEnv` path.
+- Key embedding must use a temporary ESP staging tree and must not write into
+  tracked `release\esp` or the default `release\seedos-stage0.img`.
+- Local provider images such as `release\seedos-stage0-local-openai.img` are
+  ignored artifacts and should be deleted after testing when not needed.
+- Before committing or pushing, run `scripts\scan-secrets.ps1`; when checking
+  GitHub/remote safety, fetch remote refs and run
+  `scripts\scan-secrets.ps1 -GitHistory`.
+- If a real provider key was ever pushed or shared, rotate it. Removing it from
+  the current tree is not enough.
 
 ## Useful Commands
 

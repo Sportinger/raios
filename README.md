@@ -26,6 +26,7 @@ project memory, then read the rest in this order:
 5. `docs/DEBUGGING.md` - how to build, run, inspect, and debug the VM.
 6. `docs/architecture-decisions/0001-seedos-agent-protocol.md` - core AI agent
    architecture decision.
+7. `docs/SECRETS.md` - local provider-key and key-bearing artifact handling.
 
 ## Current State
 
@@ -62,6 +63,25 @@ CHAT
 TYPE MESSAGE AND PRESS ENTER
 ```
 
+## Screenshots
+
+These screenshots are captured from the running QEMU VM through the VM harness,
+not recreated as mockups.
+
+![SeedOS AI home screen](docs/assets/screenshots/seedos-home.png)
+
+![SeedOS console status view](docs/assets/screenshots/seedos-console-status.png)
+
+![SeedOS provider and Wi-Fi settings](docs/assets/screenshots/seedos-settings.png)
+
+![SeedOS direct OpenAI chat](docs/assets/screenshots/seedos-openai-chat.png)
+
+Regenerate them locally with a process-local `OPENAI_API_KEY`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\capture-readme-screenshots.ps1
+```
+
 ## Windows Quick Commands
 
 Build the kernel:
@@ -93,6 +113,12 @@ tracked ESP staging directory:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
+```
+
+Check for accidental provider-key material before committing:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\scan-secrets.ps1
 ```
 
 Run with an interactive serial console on TCP port 4555:

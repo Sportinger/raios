@@ -70,6 +70,31 @@ always-on core
   -> persistence/rollback layer
 ```
 
+## Stage-0 Ramp
+The current codebase is still a statically linked Stage-0 kernel. That is fine
+for the ramp. The first step toward this decision is not dynamic loading; it is
+to describe the current static components as if they were services:
+
+```text
+core.boot
+core.memory
+core.serial
+core.scheduler
+core.snapshot_root
+svc.ui.framebuffer
+svc.console
+svc.input
+drv.usb.xhci
+drv.net.e1000
+svc.net.ipv4
+drv.wifi.avastar_probe
+svc.provider.openai_direct
+```
+
+Each entry should have a stable service id, kind, health, last error,
+capabilities, `replaceable`, and `core_owned`. This static inventory is the
+bridge between today's monolith and tomorrow's live service graph.
+
 ## Core And AI Control
 The core should not depend on the normal UI, normal network stack, or normal
 provider adapter to recover the system. If those services crash, the core must
@@ -106,6 +131,12 @@ The core itself should still avoid becoming a large HTTP application. The
 lifeline is a protected recovery component with a tiny protocol surface, guarded
 by the core and restartable from a known-good image.
 
+The current direct OpenAI implementation is a normal agent-service candidate,
+not the recovery lifeline. It depends on the ordinary network/provider path and
+currently performs synchronous HTTPS work. Until a separate minimal recovery
+protocol and trust state exist, it must not be treated as the trusted recovery
+base.
+
 ## Live Rebuild Model
 Live evolution depends on separating code from state.
 
@@ -136,6 +167,12 @@ rollback_handle
 kill_service
 persist_service_set
 ```
+
+V0 live loading is not allowed merely because these primitives are named. Before
+`load_service_ephemeral` can succeed, SeedOS needs at least a service id,
+manifest, computed capability grants, VM test report, local attestation record,
+health check, and audit record. Missing evidence should produce a structured
+denial rather than a partial load.
 
 ## Agent Workspace
 SeedOS should eventually contain its own agent workspace rather than only being
@@ -205,6 +242,12 @@ resume services
 retain generation N for rollback until stable
 ```
 
+Blocking service work is a design risk for this model. If a provider request,
+TLS handshake, driver poll, or filesystem write can monopolize the cooperative
+loop, it is not recovery-safe. Such paths should be moved behind service health
+state, timeouts, and eventually preemptible or restartable service boundaries
+before being used for recovery or persistence.
+
 Some hardware and firmware boundaries may still require a real reset, such as
 changing the CPU boot mode, firmware state, or early memory map assumptions. The
 design goal is to make that rare by keeping the permanent core extremely small.
@@ -250,4 +293,3 @@ This decision does not mean:
 - Removing tests because live loading exists.
 - Requiring a public signed module ecosystem.
 - Pretending every firmware or hardware transition can be made live.
-

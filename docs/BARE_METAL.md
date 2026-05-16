@@ -65,7 +65,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\write-stage0-usb.ps1
 ```
 
 That embeds `OPENAI_API_KEY` into the local kernel copied to the USB. Do not
-share that USB or its image.
+share that USB or its image. The USB script refuses `-SkipBuild` in this mode so
+the key cannot silently be omitted or copied from stale staging state.
 
 ## First Boot Checklist
 

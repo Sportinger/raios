@@ -6,3 +6,8 @@
 .DS_Store
 .venv/
 release/esp/NvVars
+/release/seedos-stage0-local*.img
+/release/*openai*.img
+/release/*secret*.img
+/release/vm-reports/
+/release/attestations/

@@ -3,7 +3,7 @@ use core::str;
 
 use spin::Mutex;
 
-use crate::{input, provider, provider_config, serial, system_status, ui, wifi};
+use crate::{agent_protocol, input, provider, provider_config, serial, system_status, ui, wifi};
 
 const COMMAND_WIDTH: usize = 256;
 const OUTPUT_WIDTH: usize = 104;
@@ -1069,6 +1069,31 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
         "status" => command_status(runtime),
         "devices" => command_devices(runtime),
         "log" => command_log(),
+        "describe" | "system.describe" => command_agent_protocol("system.describe", runtime),
+        "snapshot" | "system.snapshot" => command_agent_protocol("system.snapshot", runtime),
+        "caps" | "capabilities" | "system.capabilities" => {
+            command_agent_protocol("system.capabilities", runtime)
+        }
+        "bootlog" | "system.bootlog" | "system.boot_log" => {
+            command_agent_protocol("system.boot_log", runtime)
+        }
+        "devicegraph" | "device.graph" => command_agent_protocol("device.graph", runtime),
+        "problems" | "problem.list" => command_agent_protocol("problem.list", runtime),
+        "services" | "service.inventory" => command_agent_protocol("service.inventory", runtime),
+        "agent" => command_agent_protocol(command_line.arguments_after_command(), runtime),
+        "module.propose"
+        | "module.build_result"
+        | "module.test_request"
+        | "module.test_result"
+        | "module.load_ephemeral"
+        | "module.persist"
+        | "module.rollback"
+        | "service.load_ephemeral"
+        | "service.restart"
+        | "service.start"
+        | "service.stop"
+        | "config.apply"
+        | "apply_config" => command_agent_protocol(command.as_str(), runtime),
         "provider" => command_provider_status(),
         "openai" => command_openai_status(),
         "wifi" => command_wifi_status(),
@@ -1084,6 +1109,12 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
 fn command_help() {
     write_output(format_args!(
         "COMMANDS: help status devices log provider openai wifi setup ask <text>"
+    ));
+    write_output(format_args!(
+        "AGENT: describe snapshot caps bootlog services problems device.graph"
+    ));
+    write_output(format_args!(
+        "AGENT RAW: system.snapshot service.inventory module.load_ephemeral"
     ));
 }
 
@@ -1134,6 +1165,22 @@ fn command_log() {
         idx += 1;
     }
     record_event(format_args!("RECENT LOG WRITTEN TO SERIAL"));
+}
+
+fn command_agent_protocol(method: &str, runtime: ui::RuntimeStatus) {
+    match agent_protocol::dispatch(method, runtime) {
+        agent_protocol::DispatchOutcome::Response(method) => {
+            record_event(format_args!("AGENT {} WRITTEN TO SERIAL", method));
+            serial::write_line("AGENT RESPONSE WRITTEN TO SERIAL");
+        }
+        agent_protocol::DispatchOutcome::Denied(method) => {
+            record_event(format_args!("AGENT {} DENIED", method));
+            serial::write_line("AGENT CAPABILITY DENIED WRITTEN TO SERIAL");
+        }
+        agent_protocol::DispatchOutcome::Unknown => {
+            write_output(format_args!("UNKNOWN AGENT METHOD: {}", method.trim()));
+        }
+    }
 }
 
 fn command_setup_enter() {

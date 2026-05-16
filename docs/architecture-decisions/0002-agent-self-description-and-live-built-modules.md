@@ -9,6 +9,14 @@ for self-description, local attestation, manifests, and test reports. Where this
 document starts with workstation-side or VM-tested artifacts, that is an
 implementation ramp, not the final product boundary.
 
+The first implementation of this ADR should be read-only. `system.snapshot`,
+`system.capabilities`, `system.boot_log`, `device.graph`, `problem.list`, and
+`service.inventory` can be exposed through console or an agent dispatcher before
+any live-loading exists. Mutating methods such as `module.load_ephemeral`,
+`module.persist`, and `module.rollback` should be present in the protocol as
+denied-by-default until a matching VM test report and local attestation record
+exist.
+
 ## Context
 SeedOS/RaiOS2 is meant to be a small bootable agent host, not a Linux
 distribution with AI tools preinstalled. The useful distinction is not that the
@@ -106,6 +114,10 @@ grant should be shaped like this:
   "audit_level": "full"
 }
 ```
+
+`granted_caps` must never be trusted from the manifest itself. The manifest may
+request capabilities; only local policy and acceptance evidence compute the
+effective grants.
 
 ## Live-Built Module Meaning
 In this architecture, "module" means any agent-built extension artifact. It can
@@ -215,6 +227,12 @@ module.persist
 module.rollback
 ```
 
+For V0 these mutating methods may be implemented as explicit denials. A useful
+first response is a structured `capability_denied` that names the missing
+manifest hash, VM test report hash, local attestation hash, approval record, or
+capability grant. This lets the agent learn the workflow without receiving
+write access too early.
+
 The first stable V0 capabilities should be:
 
 ```text
@@ -277,6 +295,13 @@ The smallest useful `system.snapshot.v0` should expose current facts only:
 Fields that leave the machine through a provider adapter need classification:
 `public`, `local_only`, or `secret`. The provider boundary must redact
 `local_only` and `secret` fields unless local policy explicitly allows them.
+Without classification, a field may be displayed locally but must not be
+automatically attached to provider requests.
+
+Provider context injection is gated by transport trust. The current direct
+provider adapter must fail closed with certificate verification or provider/SPKI
+pinning before `system.snapshot.v0` is sent outside the machine. Until then,
+provider requests may remain plain prompts.
 
 Example flow:
 

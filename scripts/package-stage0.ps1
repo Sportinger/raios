@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+$DefaultImage = Join-Path $RepoRoot "release\seedos-stage0.img"
 $BaseEspDir = Join-Path $RepoRoot "release\esp"
 $TempEspDir = $null
 $EspDir = $BaseEspDir
@@ -20,6 +21,17 @@ $BootConfig = Join-Path $EspDir "EFI\BOOT\limine.conf"
 $ImageTool = Join-Path $RepoRoot "scripts\make-fat32-image.py"
 
 try {
+    if ($EmbedOpenAiApiKeyFromEnv) {
+        if (-not $UseTempEsp) {
+            throw "Refusing to embed a provider key into the tracked release\esp staging tree. Re-run with -UseTempEsp."
+        }
+        $imageFullPath = [IO.Path]::GetFullPath($Image)
+        $defaultImageFullPath = [IO.Path]::GetFullPath($DefaultImage)
+        if ($imageFullPath -eq $defaultImageFullPath) {
+            throw "Refusing to write a provider-key image to release\seedos-stage0.img. Use an ignored local image path such as release\seedos-stage0-local-openai.img."
+        }
+    }
+
     if ($UseTempEsp) {
         $TempEspDir = Join-Path $env:TEMP "seedos-stage0-esp-$PID"
         Remove-Item -LiteralPath $TempEspDir -Recurse -Force -ErrorAction SilentlyContinue
