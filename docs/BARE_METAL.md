@@ -31,9 +31,9 @@ Expected gaps:
   because an i8042-compatible status port exists.
 - Intel e1000 exists and is used in the bare-metal-style VM. Broader real
   hardware NIC coverage is still missing.
-- In-OS provider work currently reaches OpenAI over DNS/TCP/TLS/HTTPS in QEMU.
-  The MVP TLS path still needs certificate verification or provider pinning
-  before serious use.
+- In-OS provider transport has reached OpenAI over DNS/TCP/TLS/HTTPS in QEMU
+  behind an explicit unverified development override. The normal build now
+  fails closed until certificate verification or provider pinning exists.
 - No persistence or secure secret store yet.
 
 ## List USB Disks
@@ -65,8 +65,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\write-stage0-usb.ps1
 ```
 
 That embeds `OPENAI_API_KEY` into the local kernel copied to the USB. Do not
-share that USB or its image. The USB script refuses `-SkipBuild` in this mode so
-the key cannot silently be omitted or copied from stale staging state.
+share that USB or its image. The normal provider path still fails closed at TLS
+trust. Add `-AllowUnverifiedOpenAiTls` only for a local development smoke USB.
+The USB script refuses `-SkipBuild` with provider key/trust build flags so they
+cannot silently be omitted or copied from stale staging state.
 
 ## First Boot Checklist
 

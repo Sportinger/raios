@@ -27,6 +27,7 @@ $Failures = New-Object System.Collections.Generic.List[string]
 $Predicates = New-Object System.Collections.Generic.List[object]
 $StartedAt = [DateTime]::UtcNow
 $QemuArgList = @()
+$HardwareProfile = $null
 $ResolvedImage = $null
 $ResolvedArtifact = $null
 $ResolvedManifest = $null
@@ -64,6 +65,65 @@ function Get-TextSha256 {
     }
     finally {
         $sha.Dispose()
+    }
+}
+
+function ConvertTo-ReportJson {
+    param([object]$Value)
+    return ($Value | ConvertTo-Json -Depth 20 -Compress)
+}
+
+function Get-NullablePath {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+    return $Path
+}
+
+function Get-SerialLogTail {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return "serial log not created"
+    }
+
+    $content = Get-Content -Raw -LiteralPath $Path -ErrorAction SilentlyContinue
+    if ($null -eq $content) {
+        return "serial log unreadable"
+    }
+
+    $limit = 1600
+    if ($content.Length -le $limit) {
+        return $content
+    }
+    return $content.Substring($content.Length - $limit)
+}
+
+function New-HardwareProfile {
+    param([string]$Nic)
+
+    $networkDevice = if ($Nic -eq "e1000") {
+        "e1000_user"
+    }
+    else {
+        "none"
+    }
+
+    return [ordered]@{
+        profile = "seedos.shadow_vm.q35_xhci.v0"
+        machine = "q35"
+        memory = "512M"
+        cpu = "max"
+        firmware = "edk2-x86_64"
+        boot_drive = "ide_raw_image"
+        display = "none"
+        serial = "tcp_chardev_with_log"
+        input = @(
+            "qemu-xhci",
+            "usb-kbd",
+            "usb-tablet"
+        )
+        network = $networkDevice
     }
 }
 
@@ -116,7 +176,8 @@ function Assert-LogContains {
     )
 
     $passed = Wait-ForLogText -Path $SerialLog -Needle $Needle -TimeoutSeconds $TimeoutSeconds
-    Add-Predicate -Name $Name -Expected "serial_contains:$Needle" -Passed $passed
+    $actual = if ($passed) { "found" } else { Get-SerialLogTail -Path $SerialLog }
+    Add-Predicate -Name $Name -Expected "serial_contains:$Needle" -Passed $passed -Actual $actual
     if (-not $passed) {
         throw "Timed out waiting for '$Needle' in $SerialLog"
     }
@@ -170,6 +231,7 @@ function Write-Report {
         [string]$ResolvedArtifact,
         [string]$ResolvedManifest,
         [string[]]$QemuArgList,
+        [object]$HardwareProfile,
         [DateTime]$StartedAt
     )
 
@@ -177,13 +239,14 @@ function Write-Report {
 
     $serialHash = Get-FileSha256OrNull -Path $SerialLog
     $errLog = [System.IO.Path]::ChangeExtension($SerialLog, ".err.txt")
-    $qemuArgsText = ($QemuArgList -join " ")
     $endedAt = [DateTime]::UtcNow
     $networkMode = if ($Network) { "e1000_user_enabled" } else { "disabled" }
     $baseImageSha256 = Get-FileSha256OrNull -Path $ResolvedImage
     $artifactSha256 = Get-FileSha256OrNull -Path $ResolvedArtifact
     $manifestSha256 = Get-FileSha256OrNull -Path $ResolvedManifest
-    $qemuArgsSha256 = Get-TextSha256 -Text $qemuArgsText
+    $qemuArgsCanonical = ConvertTo-ReportJson -Value @($QemuArgList)
+    $qemuArgsSha256 = Get-TextSha256 -Text $qemuArgsCanonical
+    $hardwareProfileSha256 = Get-TextSha256 -Text (ConvertTo-ReportJson -Value $HardwareProfile)
 
     $report = [ordered]@{
         schema = "seedos.vm_test_report.v0"
@@ -202,22 +265,24 @@ function Write-Report {
             qemu_killed_after_run = $true
         }
         base_image = [ordered]@{
-            path = $ResolvedImage
+            path = (Get-NullablePath -Path $ResolvedImage)
             sha256 = $baseImageSha256
             temporary = $TempImage
         }
         candidate_artifact = [ordered]@{
-            path = $ResolvedArtifact
+            path = (Get-NullablePath -Path $ResolvedArtifact)
             sha256 = $artifactSha256
         }
         candidate_manifest = [ordered]@{
-            path = $ResolvedManifest
+            path = (Get-NullablePath -Path $ResolvedManifest)
             sha256 = $manifestSha256
             validation = $ManifestValidation
         }
+        hardware_profile = $HardwareProfile
         qemu = [ordered]@{
             script = $RunScript
             args = @($QemuArgList)
+            args_canonical_json = $qemuArgsCanonical
             args_sha256 = $qemuArgsSha256
             serial_tcp_port = $SerialTcpPort
             pid = $QemuPid
@@ -226,9 +291,12 @@ function Write-Report {
             base_image_sha256 = $baseImageSha256
             candidate_artifact_sha256 = $artifactSha256
             candidate_manifest_sha256 = $manifestSha256
+            hardware_profile_sha256 = $hardwareProfileSha256
             qemu_args_sha256 = $qemuArgsSha256
             serial_log_sha256 = $serialHash
             predicate_count = $Predicates.Count
+            predicate_passed_count = @($Predicates.ToArray() | Where-Object { $_.passed }).Count
+            predicate_failed_count = @($Predicates.ToArray() | Where-Object { -not $_.passed }).Count
             result = $FinalResult
         }
         commands = @(
@@ -250,7 +318,7 @@ function Write-Report {
         failures = @($Failures.ToArray())
     }
 
-    $json = $report | ConvertTo-Json -Depth 12
+    $json = $report | ConvertTo-Json -Depth 20
     Set-Content -LiteralPath $ReportPath -Value $json -Encoding UTF8
     $reportHash = Get-FileSha256OrNull -Path $ReportPath
     Set-Content -LiteralPath $ReportHashPath -Value "$reportHash  $ReportPath" -Encoding ASCII
@@ -292,6 +360,7 @@ try {
     }
 
     $Nic = if ($Network) { "e1000" } else { "none" }
+    $HardwareProfile = New-HardwareProfile -Nic $Nic
     $QemuArgList = @(
         "-StopExisting",
         "-Image", $ResolvedImage,
@@ -334,7 +403,7 @@ try {
 
     Send-AgentCommand -Command "snapshot" -ExpectedMarker "SEEDOS_AGENT_END system.snapshot"
     Assert-LogContains -Name "protocol:snapshot_schema" -Needle '"schema": "system.snapshot.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_trust_problem" -Needle "provider.tls_unverified" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_trust_problem" -Needle "provider.tls_pin_config_missing" -TimeoutSeconds 1
 
     Send-AgentCommand -Command "services" -ExpectedMarker "SEEDOS_AGENT_END service.inventory"
     Assert-LogContains -Name "protocol:service_inventory_schema" -Needle '"schema": "service.inventory.v0"' -TimeoutSeconds 1
@@ -364,6 +433,7 @@ finally {
         -ResolvedArtifact $ResolvedArtifact `
         -ResolvedManifest $ResolvedManifest `
         -QemuArgList $QemuArgList `
+        -HardwareProfile $HardwareProfile `
         -StartedAt $StartedAt
 
     if ($TempImage -and -not $KeepImage) {

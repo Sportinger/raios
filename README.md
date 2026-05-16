@@ -1,18 +1,69 @@
 # SeedOS / RaiOS2
 
-SeedOS/RaiOS2 is an ultra-small bootable OS experiment whose first useful screen
-is a minimal AI agent host, not a normal desktop or Linux distribution.
+<p align="center">
+  <img src="docs/assets/screenshots/seedos-home.png" alt="SeedOS Stage-0 AI home screen running in QEMU" width="920">
+</p>
 
-The first MVP goal is:
+<p align="center">
+  <strong>AI-native bootable OS seed:</strong> a tiny always-on core, a local
+  agent host, and a path toward live-rebuildable services.
+</p>
+
+SeedOS/RaiOS2 is meant to become an AI-native, live-rebuildable operating
+system: a tiny always-on recovery core plus replaceable services that an AI can
+inspect, test, extend, and roll back through a native capability protocol.
+
+The current repository is the bootable seed of that idea: an ultra-small
+UEFI/Limine/Rust kernel environment that boots directly into a local agent host.
+Stage-0 proves the machine can boot, show itself, accept input, bring up a
+network path, and talk to an AI provider. The long-term product is the next
+layer: typed self-description, static service inventory, capability policy,
+Shadow-VM evidence, local attestation, persistence, rollback, and eventually
+live service replacement.
+
+## What It Is
+
+| SeedOS is | SeedOS is not |
+| --- | --- |
+| A real bootable OS workspace, not a hosted web app or a Linux skin. | A Linux distribution or desktop environment. |
+| A Stage-0 kernel with framebuffer UI, serial diagnostics, input, e1000 DHCP, RAM-only provider setup, direct OpenAI transport code, and a fail-closed provider trust gate. | A port of the Codex CLI into the kernel. |
+| The foundation for a native SeedOS agent protocol where every future AI action is observable, capability-gated, testable, and reversible. | A fake cloud agent, mock provider path, or host-side serial relay. |
+| A fail-closed provider host in the normal build until TLS trust is verified. | A complete signed-module, recovery-agent, persistence, or live-update runtime yet. |
+
+First MVP goal:
 
 ```text
 Boot in VM -> framebuffer chat UI + serial log -> network device visible -> direct AI response
 ```
 
+Long-term direction:
+
+```text
+permanent core -> recovery lifeline -> replaceable services
+-> agent workspace -> shadow VM evidence -> persistence and rollback
+```
+
+```mermaid
+flowchart LR
+    core[Permanent core]
+    recovery[Recovery lifeline]
+    services[Replaceable services]
+    agent[Agent workspace]
+    vm[Shadow VM evidence]
+    persist[Persistence and rollback]
+
+    core --> recovery
+    core --> services
+    services --> agent
+    agent --> vm
+    vm --> persist
+    persist --> services
+```
+
 The larger product idea is a small OS that can connect to known AI providers
-without requiring a custom dedicated cloud server. The OS should eventually expose
-small capability-gated tools to an AI agent, instead of trying to run a full host
-CLI such as Codex inside the kernel.
+without requiring a custom dedicated cloud server. The OS should eventually
+expose small capability-gated tools to an AI agent, instead of trying to run a
+full host CLI such as Codex inside the kernel.
 
 ## Start Here
 
@@ -41,18 +92,20 @@ reaches the Rust kernel, negotiates a double-buffered framebuffer, draws a
 chat-first Stage-0 UI with `AI`, `CONSOLE`, and `SET` modes, seeds entropy from
 RDRAND, configures an Intel e1000 NIC through DHCP, and accepts input from
 serial, USB-HID keyboard, USB-HID relative mouse, QEMU USB-HID tablet, and the
-PS/2 fallback path. `ask <text>` and the AI chat mode use in-OS DNS, TCP, TLS,
-HTTPS, and the OpenAI Responses API for `api.openai.com:443`. The `SET` mode and
-`setup` command can enter an API key into RAM without echoing the key back to the
-serial log. Pointer movement uses a small framebuffer cursor overlay instead of
-redrawing the full UI for every mouse delta. Tab, arrow keys, Enter, and Esc
-also drive a BIOS-style focus ring for keyboard-only navigation. Stage-0 also
-detects the Surface Pro 4 Marvell AVASTAR 88W8897 Wi-Fi target on PCI. The
-settings UI can record a RAM-only SSID and WPA passphrase for that target, but
-firmware upload, association, WPA, and Wi-Fi packet transport are not implemented
-yet.
+PS/2 fallback path. The direct OpenAI transport exists in the guest and has
+verified DNS, TCP, TLS, HTTPS, and Responses API behavior in the VM path, but the
+normal build now fails closed at the TLS trust gate until provider pinning or
+certificate verification is implemented. A named development override can still
+exercise the old unverified smoke path. The `SET` mode and `setup` command can
+enter an API key into RAM without echoing the key back to the serial log.
+Pointer movement uses a small framebuffer cursor overlay instead of redrawing
+the full UI for every mouse delta. Tab, arrow keys, Enter, and Esc also drive a
+BIOS-style focus ring for keyboard-only navigation. Stage-0 also detects the
+Surface Pro 4 Marvell AVASTAR 88W8897 Wi-Fi target on PCI. The settings UI can
+record a RAM-only SSID and WPA passphrase for that target, but firmware upload,
+association, WPA, and Wi-Fi packet transport are not implemented yet.
 
-Expected first screen:
+Expected first screen text:
 
 ```text
 AI  CONSOLE                                      SET
@@ -63,20 +116,22 @@ CHAT
 TYPE MESSAGE AND PRESS ENTER
 ```
 
-## Screenshots
+## Visual Tour
 
-These screenshots are captured from the running QEMU VM through the VM harness,
-not recreated as mockups.
+These screenshots are captured from the running QEMU VM through the VM harness.
+They are not mockups.
 
-![SeedOS AI home screen](docs/assets/screenshots/seedos-home.png)
+| Console status | Provider and Wi-Fi settings |
+| --- | --- |
+| <img src="docs/assets/screenshots/seedos-console-status.png" alt="SeedOS console status mode with boot, device, and network diagnostics" width="100%"> | <img src="docs/assets/screenshots/seedos-settings.png" alt="SeedOS settings mode showing provider key state and Wi-Fi setup controls" width="100%"> |
 
-![SeedOS console status view](docs/assets/screenshots/seedos-console-status.png)
+| Direct AI chat, development override | Stage-0 home screen |
+| --- | --- |
+| <img src="docs/assets/screenshots/seedos-openai-chat.png" alt="SeedOS AI chat mode showing a direct provider response from a development override image" width="100%"> | <img src="docs/assets/screenshots/seedos-home.png" alt="SeedOS AI home screen with network, input, USB, and RNG status" width="100%"> |
 
-![SeedOS provider and Wi-Fi settings](docs/assets/screenshots/seedos-settings.png)
-
-![SeedOS direct OpenAI chat](docs/assets/screenshots/seedos-openai-chat.png)
-
-Regenerate them locally with a process-local `OPENAI_API_KEY`:
+Regenerate them locally with a process-local `OPENAI_API_KEY`. The screenshot
+harness uses the explicit unverified TLS development override for the chat
+capture:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\capture-readme-screenshots.ps1

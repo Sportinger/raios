@@ -11,14 +11,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\create-local-atte
   -ManifestPath .\candidate.manifest.json `
   -ArtifactPath .\candidate.bin `
   -VmReportPath .\release\vm-reports\shadow-....json `
-  -Approval "APPROVE RAM_ONLY <artifact-hash-prefix>"
+  -Approval "APPROVE RAM_ONLY <approval-tuple-prefix>"
 ```
 
-The approval phrase must match the artifact hash prefix printed by the tool's
-error message, for example:
+The approval phrase must match the tuple hash prefix printed by the tool's error
+message. The tuple binds manifest hash, artifact hash, VM report hash, base
+image hash, and load mode. Example:
 
 ```text
-APPROVE RAM_ONLY 012345abcdef
+APPROVE RAM_ONLY 0123456789abcdef
 ```
 
 The attestation binds:
@@ -31,6 +32,7 @@ base image sha256
 QEMU args sha256
 load mode
 approval phrase hash
+approval tuple sha256
 rollback plan
 ```
 

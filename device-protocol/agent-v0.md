@@ -3,7 +3,8 @@
 Stage-0 exposes the first native agent protocol over the existing serial
 console. This is intentionally read-only except for explicit denial responses.
 Provider context injection remains disabled until the OpenAI direct TLS path has
-fail-closed certificate verification or pinning.
+fail-closed certificate verification or pinning and the selected snapshot
+projection passes `system.snapshot.v0` redaction rules.
 
 ## Serial Commands
 
@@ -56,7 +57,10 @@ service.inventory
 
 `system.snapshot` reports `system.snapshot.v0` facts for framebuffer, entropy,
 USB-xHCI, Wi-Fi target probe, e1000/IPv4 network state, input, provider state,
-capabilities, and known problems.
+capabilities, and known problems. The current serial command emits a local
+inspection profile. Provider adapters must not attach this raw local profile to
+requests; they must use the field classification and redaction rules in
+`system-snapshot-v0.md`.
 
 `service.inventory` reports a static `service.inventory.v0` view over the
 currently monolithic Stage-0 kernel. Entries already use stable ids such as

@@ -48,8 +48,12 @@ Rules:
 - `granted_caps` must be empty. Local policy computes effective grants.
 - `artifact_hash` must match the bytes passed as `-ArtifactPath`.
 - `manifest_hash` is normally null because the hash is computed externally.
-- `base_image_hash` and `test_report_hash` become required for later load gates,
-  but may be null before the Shadow-VM run.
+- `base_image_hash`, when present, must match the Shadow-VM report's
+  `base_image.sha256` and may also be checked directly with `-BaseImagePath`.
+- `test_report_hash` may be checked directly with `-TestReportPath`, but it
+  must remain null for the current local-attestation flow. The attestation binds
+  the VM report hash externally to avoid a self-referential cycle where the
+  report hashes the manifest and the manifest hashes the report.
 - `load_mode` values are `proposal_only`, `vm_test_only`, `ram_only`, or
   `persistent`.
 - `risk` values are `observe`, `diagnose`, `simulate`, `modify_ram`, `persist`,
@@ -59,6 +63,13 @@ Validate a manifest:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\validate-module-manifest.ps1 -ManifestPath .\candidate.manifest.json -ArtifactPath .\candidate.bin
+```
+
+When concrete evidence files already exist, the validator can also verify the
+declared base-image and report hashes:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\validate-module-manifest.ps1 -ManifestPath .\candidate.manifest.json -ArtifactPath .\candidate.bin -BaseImagePath .\seedos-stage0-shadow.img -TestReportPath .\shadow-report.json
 ```
 
 The validator emits `seedos.module_manifest_validation.v0`. Invalid manifests

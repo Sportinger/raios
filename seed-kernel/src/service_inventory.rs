@@ -181,13 +181,45 @@ pub fn service_health<'a>(
                     state: "degraded",
                     last_error: Some(provider.direct_last_error.as_str()),
                 }
-            } else {
+            } else if !provider.api_key_set {
+                ServiceHealth {
+                    state: "missing",
+                    last_error: Some("OPENAI API key missing"),
+                }
+            } else if provider.direct_pending_id.is_some() {
+                ServiceHealth {
+                    state: "starting",
+                    last_error: None,
+                }
+            } else if let Some(error) = openai_trust_error(provider.trust_state) {
                 ServiceHealth {
                     state: "degraded",
-                    last_error: Some("TLS certificate verification is bypassed"),
+                    last_error: Some(error),
+                }
+            } else {
+                ServiceHealth {
+                    state: "healthy",
+                    last_error: None,
                 }
             }
         }
+    }
+}
+
+fn openai_trust_error(trust_state: &str) -> Option<&'static str> {
+    match trust_state {
+        "unknown" => Some("TLS provider trust has not been established"),
+        "tls_certificate_verification_bypassed" => {
+            Some("TLS certificate verification is bypassed by development override")
+        }
+        "pin_config_missing" => Some("TLS provider pin is missing"),
+        "pin_config_invalid" => Some("TLS provider pin is invalid"),
+        "pin_verifier_unavailable" => {
+            Some("TLS provider pin verifier is not implemented for the active TLS crate")
+        }
+        "pin_mismatch" => Some("TLS provider pin mismatch"),
+        "pinned_cert_verified" | "pinned_spki_verified" | "webpki_verified" => None,
+        _ => Some("TLS provider trust state is unknown"),
     }
 }
 

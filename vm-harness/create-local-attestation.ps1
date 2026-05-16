@@ -75,6 +75,11 @@ $reportManifestHash = Normalize-HashRef -Value $report.candidate_manifest.sha256
 $reportArtifactHash = Normalize-HashRef -Value $report.candidate_artifact.sha256
 $reportBaseImageHash = Normalize-HashRef -Value $report.base_image.sha256
 $reportQemuArgsHash = Normalize-HashRef -Value $report.qemu.args_sha256
+$bindingManifestHash = Normalize-HashRef -Value $report.evidence_binding.candidate_manifest_sha256
+$bindingArtifactHash = Normalize-HashRef -Value $report.evidence_binding.candidate_artifact_sha256
+$bindingBaseImageHash = Normalize-HashRef -Value $report.evidence_binding.base_image_sha256
+$bindingQemuArgsHash = Normalize-HashRef -Value $report.evidence_binding.qemu_args_sha256
+$bindingResult = $report.evidence_binding.result
 
 if (-not $reportManifestHash) {
     throw "VM report is not bound to a candidate manifest"
@@ -88,8 +93,46 @@ if ($reportManifestHash -ne $manifestHash) {
 if ($reportArtifactHash -ne $artifactHash) {
     throw "VM report artifact hash does not match ArtifactPath"
 }
+if (-not $reportBaseImageHash) {
+    throw "VM report is not bound to a base image"
+}
+if (-not $reportQemuArgsHash) {
+    throw "VM report is not bound to QEMU args"
+}
+if ($bindingManifestHash -ne $reportManifestHash) {
+    throw "VM report evidence_binding candidate_manifest_sha256 does not match candidate_manifest.sha256"
+}
+if ($bindingArtifactHash -ne $reportArtifactHash) {
+    throw "VM report evidence_binding candidate_artifact_sha256 does not match candidate_artifact.sha256"
+}
+if ($bindingBaseImageHash -ne $reportBaseImageHash) {
+    throw "VM report evidence_binding base_image_sha256 does not match base_image.sha256"
+}
+if ($bindingQemuArgsHash -ne $reportQemuArgsHash) {
+    throw "VM report evidence_binding qemu_args_sha256 does not match qemu.args_sha256"
+}
+if ($bindingResult -ne $report.result) {
+    throw "VM report evidence_binding result does not match report result"
+}
 
-$expectedApproval = "APPROVE $($LoadMode.ToUpperInvariant()) $($artifactHash.Substring(0, 12))"
+$manifestBaseImageHash = Normalize-HashRef -Value $validation.declared.base_image_sha256
+$manifestTestReportHash = Normalize-HashRef -Value $validation.declared.test_report_sha256
+if ($manifestBaseImageHash -and $manifestBaseImageHash -ne $reportBaseImageHash) {
+    throw "Manifest base_image_hash does not match VM report base image"
+}
+if ($manifestTestReportHash) {
+    throw "Manifest test_report_hash must remain null in v0; the report is bound by the local attestation to avoid a self-referential hash cycle"
+}
+
+$approvalTuple = @(
+    "manifest=$manifestHash",
+    "artifact=$artifactHash",
+    "report=$reportHash",
+    "base=$reportBaseImageHash",
+    "mode=$LoadMode"
+) -join ";"
+$approvalTupleHash = Get-TextSha256 -Text $approvalTuple
+$expectedApproval = "APPROVE $($LoadMode.ToUpperInvariant()) $($approvalTupleHash.Substring(0, 16))"
 if ($Approval -cne $expectedApproval) {
     throw "Approval must be exactly: $expectedApproval"
 }
@@ -131,6 +174,14 @@ $attestation = [ordered]@{
         source = "local_user_cli"
         phrase_sha256 = (Get-TextSha256 -Text $Approval)
         expected_phrase = $expectedApproval
+        tuple_sha256 = $approvalTupleHash
+        tuple_fields = @(
+            "manifest_sha256",
+            "artifact_sha256",
+            "vm_report_sha256",
+            "base_image_sha256",
+            "load_mode"
+        )
         recorded_at_utc = ([DateTime]::UtcNow.ToString("o"))
     }
     evidence_binding = [ordered]@{

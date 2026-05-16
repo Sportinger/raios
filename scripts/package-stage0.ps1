@@ -4,6 +4,9 @@ param(
     [string]$Image = "$PSScriptRoot\..\release\seedos-stage0.img",
     [switch]$EmbedOpenAiApiKeyFromEnv,
     [string]$OpenAiApiKeyEnvVar = "OPENAI_API_KEY",
+    [switch]$EmbedOpenAiCertPinFromEnv,
+    [string]$OpenAiCertPinEnvVar = "OPENAI_CERT_SHA256",
+    [switch]$AllowUnverifiedOpenAiTls,
     [switch]$UseTempEsp
 )
 
@@ -48,6 +51,12 @@ try {
     )
     if ($EmbedOpenAiApiKeyFromEnv) {
         $buildArgs += @("-EmbedOpenAiApiKeyFromEnv", "-OpenAiApiKeyEnvVar", $OpenAiApiKeyEnvVar)
+    }
+    if ($EmbedOpenAiCertPinFromEnv) {
+        $buildArgs += @("-EmbedOpenAiCertPinFromEnv", "-OpenAiCertPinEnvVar", $OpenAiCertPinEnvVar)
+    }
+    if ($AllowUnverifiedOpenAiTls) {
+        $buildArgs += "-AllowUnverifiedOpenAiTls"
     }
     powershell @buildArgs
     if ($LASTEXITCODE -ne 0) {

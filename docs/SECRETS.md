@@ -14,6 +14,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -
 
 `package-stage0.ps1` refuses to embed a provider key into `release\esp` or the
 default `release\seedos-stage0.img`. Local OpenAI images are ignored by Git.
+The normal image still fails closed at the TLS trust gate. Add
+`-AllowUnverifiedOpenAiTls` only for a local development smoke image that must
+exercise the old unverified provider-response path.
 
 ## Local OpenAI Boot Stick
 
@@ -25,7 +28,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\write-stage0-usb.ps1
 ```
 
 The USB script builds a fresh local kernel, copies it through a temporary ESP
-tree, and refuses `-SkipBuild` when key embedding is requested.
+tree, and refuses `-SkipBuild` when provider key/trust build flags are
+requested.
 
 ## Scan Before Commit
 

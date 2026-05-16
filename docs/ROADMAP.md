@@ -170,11 +170,14 @@ Definition of done:
   provider errors clearly.
 
 Current status: the host relay has been removed from the runtime path. The VM
-command `ask <text>` uses RAM-only OpenAI API key state, resolves
-`api.openai.com`, opens TCP 443 through e1000, performs a TLS 1.3 handshake,
-sends an HTTPS OpenAI Responses API request, and prints the first `output_text`
-response. Certificate verification is still bypassed in this MVP path; HTTPS
-hardening is the next gate before provider context injection, tool schemas, or
+command `ask <text>` stays in the guest and now fails closed in the normal build
+when provider trust is not positively verified. The default visible trust state
+is `pin_config_missing`, and the Shadow VM smoke checks that problem. A local
+development image built with `-AllowUnverifiedOpenAiTls` can still exercise the
+old unverified path: RAM-only OpenAI API key state, DNS for `api.openai.com`,
+TCP 443 through e1000, TLS 1.3 with `NoVerify`, HTTPS Responses API request, and
+first `output_text` rendering. Positive certificate verification or provider
+pinning is the next gate before provider context injection, tool schemas, or
 capability policy can be treated as safe.
 
 ## Phase 4: Provider Integration And Redacted Context

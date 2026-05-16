@@ -16,6 +16,13 @@ protocol commands over TCP serial, verifies mutating module load remains
 `capability_denied`, kills QEMU, and writes a `seedos.vm_test_report.v0` JSON
 report under `release\vm-reports`.
 
+The current Shadow-VM profile is fixed and recorded in each report as
+`hardware_profile`: Q35, 512M RAM, EDK2 firmware, raw IDE boot image, headless
+display, TCP serial logging, qemu-xhci with USB keyboard/tablet, and either no
+network by default or QEMU user-mode e1000 when `-Network` is passed. The report
+binds that profile by hash alongside the image hash, candidate hashes, QEMU args
+hash, predicate counts, and serial log hash.
+
 Optional candidate evidence can be attached to the report without mounting or
 executing it in the guest yet. The manifest is validated first, and the artifact
 hash in the manifest must match the provided bytes:
@@ -33,10 +40,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\validate-module-m
 Record local attestation after a passing Shadow-VM report:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\create-local-attestation.ps1 -ManifestPath .\candidate.json -ArtifactPath .\candidate.bin -VmReportPath .\release\vm-reports\shadow-....json -Approval "APPROVE RAM_ONLY <artifact-hash-prefix>"
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\create-local-attestation.ps1 -ManifestPath .\candidate.json -ArtifactPath .\candidate.bin -VmReportPath .\release\vm-reports\shadow-....json -Approval "APPROVE RAM_ONLY <approval-tuple-prefix>"
 ```
 
-This starts QEMU headless with TCP serial, sends one `ask <text>` command, and
-verifies that Stage-0 resolves `api.openai.com`, opens TCP 443 directly from the
-guest, completes TLS/HTTPS, and prints an OpenAI Responses API answer. It uses
-the local OpenAI-default image at `release\seedos-stage0-local-openai.img`.
+The expected approval phrase is printed by the tool on mismatch. It is derived
+from the tuple of manifest hash, artifact hash, VM report hash, base image hash,
+and load mode, not from the artifact hash alone.
+
+`openai-direct-smoke.ps1` starts QEMU headless with TCP serial against the local
+OpenAI-default image at `release\seedos-stage0-local-openai.img`. By default it
+sends one `ask <text>` command and verifies the current trust gate denies the
+request with `pin_config_missing` before any HTTPS write. With
+`-ExpectProviderResponse`, it expects a development image built with
+`-AllowUnverifiedOpenAiTls` and verifies the old unverified DNS/TCP/TLS/HTTPS
+provider-response path.

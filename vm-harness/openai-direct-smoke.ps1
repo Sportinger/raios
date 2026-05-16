@@ -2,7 +2,8 @@ param(
     [int]$SerialTcpPort = 4555,
     [string]$Prompt = "direct provider smoke",
     [string]$Image = "$PSScriptRoot\..\release\seedos-stage0-local-openai.img",
-    [int]$TimeoutSeconds = 90
+    [int]$TimeoutSeconds = 90,
+    [switch]$ExpectProviderResponse
 )
 
 $ErrorActionPreference = "Stop"
@@ -84,13 +85,24 @@ try {
     Send-SerialText -Port $SerialTcpPort -TimeoutSeconds $TimeoutSeconds -Text "provider`rask $safePrompt`r"
 
     Wait-ForLogText -Path $SerialLog -Needle "PROVIDER: OPENAI    API KEY: SET" -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT REQUEST 1 STARTED" -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 established" -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
-    Wait-ForLogText -Path $SerialLog -Needle "OPENAI:" -TimeoutSeconds $TimeoutSeconds
+    if ($ExpectProviderResponse) {
+        Wait-ForLogText -Path $SerialLog -Needle "TLS TRUST: tls_certificate_verification_bypassed" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT REQUEST 1 STARTED" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 established" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: TLS provider trust state: tls_certificate_verification_bypassed" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI:" -TimeoutSeconds $TimeoutSeconds
+    }
+    else {
+        Wait-ForLogText -Path $SerialLog -Needle "TLS TRUST: pin_config_missing" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI TLS TRUST DENIED: pin_config_missing" -TimeoutSeconds $TimeoutSeconds
+    }
 
     $serial = Get-Content -Raw -LiteralPath $SerialLog
+    if ((-not $ExpectProviderResponse) -and ($serial -like "*OPENAI_DIRECT_REQ*")) {
+        throw "Trust-gate smoke saw an OpenAI request start before provider trust was verified in $SerialLog"
+    }
     $oldRelayName = -join ([char[]](66, 82, 73, 68, 71, 69))
     $removedTokens = @(
         ("SEEDOS_" + $oldRelayName),
@@ -104,7 +116,12 @@ try {
         }
     }
 
-    Write-Host "openai direct smoke passed"
+    if ($ExpectProviderResponse) {
+        Write-Host "openai direct development smoke passed"
+    }
+    else {
+        Write-Host "openai direct trust-gate smoke passed"
+    }
     Write-Host "serial log: $SerialLog"
 }
 finally {

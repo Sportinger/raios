@@ -263,7 +263,8 @@ try {
         -Profile release `
         -Image $TempImage `
         -UseTempEsp `
-        -EmbedOpenAiApiKeyFromEnv
+        -EmbedOpenAiApiKeyFromEnv `
+        -AllowUnverifiedOpenAiTls
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

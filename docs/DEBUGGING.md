@@ -29,7 +29,8 @@ This stages `target\x86_64-seed\release\seed-kernel` into
 `release\esp\kernel\kernel.elf` and writes `release\seedos-stage0.img`.
 
 For local-only provider testing, a default OpenAI key can be embedded from the
-current process environment without touching the tracked ESP staging directory:
+current process environment without touching the tracked ESP staging directory.
+The normal build still fails closed at the TLS trust gate:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
@@ -39,6 +40,13 @@ This requires `OPENAI_API_KEY` to be set. The resulting image contains the key,
 so do not commit or share that local image. The packaging script refuses to
 embed a provider key into `release\esp` or the default `release\seedos-stage0.img`;
 see `docs\SECRETS.md`.
+
+To exercise the old unverified provider-response smoke path, build a local image
+with the explicit development override:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -AllowUnverifiedOpenAiTls
+```
 
 ## Run VM On Windows
 
@@ -157,26 +165,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smo
 
 This uses `release\seedos-stage0-local-openai.img`, so first package that local
 image with `-UseTempEsp -EmbedOpenAiApiKeyFromEnv`. The image contains the key
-and must not be committed or shared.
+and must not be committed or shared. By default this smoke checks that the
+provider path is denied by the TLS trust gate.
 
-Expected direct-provider lines:
+Expected trust-gate lines:
 
 ```text
 > provider
 PROVIDER: OPENAI    API KEY: SET
 ROUTE: OPENAI DIRECT
+TLS TRUST: pin_config_missing
 > ask direct provider smoke
-OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses
-OPENAI DIRECT REQUEST 1 STARTED
-openai: TLS 1.3 established
-openai: HTTPS request sent
-OPENAI: <provider response text>
+OPENAI TLS TRUST DENIED: pin_config_missing
+```
+
+To require a real provider response from a development image built with
+`-AllowUnverifiedOpenAiTls`, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectProviderResponse
 ```
 
 That confirms the guest is using e1000 networking, TLS, HTTPS, and the OpenAI
-Responses API directly. The MVP TLS path currently disables certificate
-verification, so hardening certificate or provider pin validation is still
-required before serious use.
+Responses API directly, but only through an explicit unverified development
+override. Positive certificate or provider pin validation is still required
+before serious use.
 
 ## VM Setup Menu
 
@@ -184,7 +197,8 @@ Type `setup` in the VM console to open the provider menu:
 
 ```text
 1 PROVIDER: OPENAI DIRECT    2 API KEY: MISSING
-3 CLEAR API KEY    4 STATUS    Q EXIT
+3 CLEAR API KEY    4 WIFI SSID: NONE
+5 WIFI KEY: MISSING    6 CLEAR WIFI    Q EXIT
 ```
 
 Press `1` to show provider status, press `2` to enter an API key, and press

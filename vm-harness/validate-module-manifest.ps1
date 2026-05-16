@@ -2,6 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ManifestPath,
     [string]$ArtifactPath = "",
+    [string]$BaseImagePath = "",
+    [string]$TestReportPath = "",
     [switch]$AllowInvalid
 )
 
@@ -134,12 +136,22 @@ $resolvedArtifact = $null
 if ($ArtifactPath) {
     $resolvedArtifact = (Resolve-Path -LiteralPath $ArtifactPath).Path
 }
+$resolvedBaseImage = $null
+if ($BaseImagePath) {
+    $resolvedBaseImage = (Resolve-Path -LiteralPath $BaseImagePath).Path
+}
+$resolvedTestReport = $null
+if ($TestReportPath) {
+    $resolvedTestReport = (Resolve-Path -LiteralPath $TestReportPath).Path
+}
 
 $errors = [System.Collections.Generic.List[string]]::new()
 $warnings = [System.Collections.Generic.List[string]]::new()
 $script:ManifestRaw = ""
 $manifestHash = Get-FileSha256 -Path $resolvedManifest
 $artifactHash = if ($resolvedArtifact) { Get-FileSha256 -Path $resolvedArtifact } else { $null }
+$baseImageHash = if ($resolvedBaseImage) { Get-FileSha256 -Path $resolvedBaseImage } else { $null }
+$testReportHash = if ($resolvedTestReport) { Get-FileSha256 -Path $resolvedTestReport } else { $null }
 
 try {
     $script:ManifestRaw = Get-Content -Raw -LiteralPath $resolvedManifest
@@ -211,6 +223,18 @@ if ($artifactHashDeclared -and $artifactHash -and $artifactHashDeclared -ne $art
 if ($artifactHashDeclared -and -not $artifactHash) {
     Add-Issue -List $warnings -Message "artifact_hash declared but ArtifactPath was not provided for byte-level verification"
 }
+if ($baseImageHashDeclared -and $baseImageHash -and $baseImageHashDeclared -ne $baseImageHash) {
+    Add-Issue -List $errors -Message "base_image_hash does not match BaseImagePath"
+}
+if ($baseImageHashDeclared -and -not $baseImageHash) {
+    Add-Issue -List $warnings -Message "base_image_hash declared but BaseImagePath was not provided for byte-level verification"
+}
+if ($testReportHashDeclared -and $testReportHash -and $testReportHashDeclared -ne $testReportHash) {
+    Add-Issue -List $errors -Message "test_report_hash does not match TestReportPath"
+}
+if ($testReportHashDeclared -and -not $testReportHash) {
+    Add-Issue -List $warnings -Message "test_report_hash declared but TestReportPath was not provided for byte-level verification"
+}
 
 $rollbackId = Get-PropertyValue -Object $manifest -Name "rollback_id"
 if ($null -ne $rollbackId -and -not ($rollbackId -is [string])) {
@@ -230,6 +254,16 @@ $result = [ordered]@{
         path = $resolvedArtifact
         sha256 = $artifactHash
         declared_sha256 = $artifactHashDeclared
+    }
+    base_image = [ordered]@{
+        path = $resolvedBaseImage
+        sha256 = $baseImageHash
+        declared_sha256 = $baseImageHashDeclared
+    }
+    test_report = [ordered]@{
+        path = $resolvedTestReport
+        sha256 = $testReportHash
+        declared_sha256 = $testReportHashDeclared
     }
     declared = [ordered]@{
         name = $name

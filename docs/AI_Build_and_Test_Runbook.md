@@ -1,181 +1,225 @@
-# AI Build & Test Runbook — Stage‑0 “Seed OS” → Stage‑1 (VM-first)
+# AI Build & Test Runbook - Stage-0 SeedOS To Stage-1
 
-> This is a **no‑code checklist** the AI can execute step by step to bring up the seed OS in a VM, connect to the cloud, install modules/OTA over WebSocket, and validate everything with deterministic tests. Each task has clear **artifacts** and **exit criteria**. Ticks (☑) indicate completion.
+This is a no-code runbook for AI agents and humans working on the SeedOS VM-first
+path. It preserves the historical Stage-1 goals, but distinguishes chosen or
+planned invariants from behavior that is implemented and verified in the current
+Stage-0 image.
 
----
+Status labels used below:
 
-## 0) Invariants (lock once, don’t drift)
-- [x] Target: **QEMU VM** (x86_64) with **OVMF/UEFI**, Intel **e1000** networking, **USB-xHCI** keyboard/mouse, and **RDRAND** entropy (locked in `docs/invariant-choices.md`).
-- [x] Boot: **Limine**, handoff to **Rust** kernel (locked in `docs/invariant-choices.md`).
-- [x] Display: **GOP framebuffer**, **BGRA8888**, **double buffer**, **immutable atlases**; ops: **fill, blit, present** (locked in `docs/invariant-choices.md`).
-- [x] Input: **raw key/mouse** events (down/up/move/scroll, UTF‑8 text), batched every **8–16 ms** (locked in `docs/invariant-choices.md`).
-- [x] Network: **DHCP + DNS**, **TLS with SPKI pin**, **WebSocket**, **JSON envelope** `{v,t,id,ts,body}` (locked in `docs/invariant-choices.md`).
-- [x] Seed includes **Wasm runtime** (single active module), **full outbound net allowed**, logs mirrored to serial + WS (locked in `docs/invariant-choices.md`).
-- [x] OTA: **A/B slots** on ESP, **WS‑streamed OTA** (Ed25519 signed, BLAKE3 chunk hashes), **kexec** fast handoff, rollback safe (locked in `docs/invariant-choices.md`).
-- [x] Trust: **offline root → short‑lived online signer**; device auth via **token + device‑key challenge** (locked in `docs/invariant-choices.md`).
-- [x] Recovery: **panic switch** to safe mode; **remote lockdown**; deterministic CI via VM harness (locked in `docs/invariant-choices.md`).
+- `implemented/verified`: proven in the current Stage-0 VM path by serial logs,
+  screenshots, tests, or documented local runs.
+- `partially implemented`: real Stage-0 code exists, but the full invariant or
+  final contract is not satisfied.
+- `chosen/planned`: an architectural target, not current behavior.
+- `blocked/denied`: intentionally unavailable until the required evidence or
+  trust boundary exists.
 
-**Exit:** A one‑page “choices sheet” is stored with the build artifacts.
+## 0) Invariants And Reality Check
 
----
+- [x] `implemented/verified` Target VM: QEMU x86_64 with OVMF/UEFI, Limine, Rust
+  kernel, Intel e1000 networking, USB-xHCI keyboard/pointer input, and RDRAND in
+  the bare-metal-style VM profile.
+- [x] `implemented/verified` Display: GOP/Limine framebuffer with heap
+  backbuffer and double-buffered Stage-0 UI.
+- [x] `partially implemented` Input: serial, USB-HID keyboard, USB-HID pointer,
+  QEMU tablet, and PS/2 fallback feed the current UI/console. The final 8-16 ms
+  batched event protocol is still planned.
+- [x] `partially implemented` Network/provider: DHCPv4, DNS, TCP 443, TLS 1.3,
+  HTTPS, and direct OpenAI Responses API calls work in the VM path when the
+  explicit unverified development override is built in.
+- [x] `implemented/verified` TLS trust gate: the normal provider path fails
+  closed before API-key copy or HTTPS write when trust is not verified.
+- [ ] `blocked/denied` Positive TLS trust: certificate verification or provider
+  pinning is not implemented yet because the active TLS crate does not expose
+  leaf certificate/SPKI input to downstream verifier code.
+- [ ] `chosen/planned` WebSocket control channel with JSON envelope
+  `{v,t,id,ts,body}`.
+- [ ] `chosen/planned` Wasm runtime with a single active module and explicit host
+  APIs.
+- [ ] `chosen/planned` A/B OTA, signed manifests, BLAKE3 chunk checks, kexec
+  handoff, success marker, and rollback.
+- [ ] `chosen/planned` Offline-root to online-signer trust chain for OTA/module
+  artifacts and device-token plus device-key challenge auth.
+- [ ] `chosen/planned` Safe mode, panic switch, remote lockdown, and recovery
+  lifeline.
 
+Exit: `docs/invariant-choices.md` states both the planned invariants and the
+current implemented/verified Stage-0 reality.
 
-## 1) Keys, registry, and observability (day‑0)
-**Goal:** Set up trust & release rails before touching the VM.
+## 1) Keys, Registry, And Observability
 
-- [x] Create **offline root key** (air‑gapped) and **online signing key** (rotatable) (`keys/dev/*`).
-- [x] Define **signature format** (Ed25519) and **hashes** (BLAKE3 per chunk; SHA‑256 for SPKI pins) (`ota/cli`, `ota-tools`).
-- [x] Provision a **content‑addressed registry** for modules & OTA bundles (store manifest, hash, signature, metadata) (`registry/core`, CLI + tests).
-- [ ] Stand up a **WS control service** with log sink. It understands: `hello`, `inventory_request/response`, `module_install/start/stop`, `ota_begin/chunk/commit`, `lockdown`, and log mirroring. (_Progress: `fake-cloud/server` serves WebSocket, handles `hello` + `ota_begin`, verifies manifests, and can publish into the registry; remaining commands/log sink pending._)
+Goal: define release rails without implying they are active inside Stage-0.
 
-**Artifacts:** `root.pub`, `online.pub`, signer cert (online signed by root), empty registry, WS service reachable.
-**Exit:** A dummy signed blob verifies end‑to‑end via the WS control plane.
+- [x] `implemented/verified in host tools` Dev signing/key tooling and registry
+  crates exist for signed artifacts and content-addressed metadata.
+- [x] `implemented/verified in host tools` Signature/hash tooling exists in the
+  workspace.
+- [ ] `chosen/planned` A production-ready control service with complete device
+  inventory, module lifecycle, OTA, lockdown, and log mirroring commands.
+- [ ] `blocked/denied in Stage-0` Stage-0 does not currently consume signed
+  modules or OTA bundles.
 
----
+Exit: host-side tooling can validate dummy signed artifacts, but Stage-0 must not
+be described as OTA/module capable until the guest runtime exists.
 
-## 2) Stage‑0 bring‑up (device)
-**Goal:** Boot → pixel → DHCP/DNS → pinned‑TLS WS → hello → Wasm module can draw & talk → OTA works.
+## 2) Stage-0 Bring-Up
 
-### 2.1 Boot & frame
-- [x] Boot via OVMF → **Limine** → kernel (`seed-kernel`, `scripts/package-stage0.sh`, Limine vendor build staged under `release/`).
-- [x] Claim GOP framebuffer; allocate backbuffer; implement `present()` (`seed-kernel/src/framebuffer.rs`).
-- [x] Serial logger + on‑screen **overlay** for warn/error (`seed-kernel/src/serial.rs`, `seed-kernel/src/main.rs`, text blitter).
+Goal: boot, show state, accept input, bring up network, and make the direct
+provider path explicit.
 
-**Exit:** “hello pixel” overlay visible; serial logs confirm resolution & pitch (achieved by `seed-kernel/src/main.rs` hello banner + serial output).
+### 2.1 Boot And Framebuffer
 
-### 2.2 Devices & time/entropy
-- [x] Init **RDRAND** entropy; don’t start net until entropy healthy. (_Status: entropy pool now exposes `take()` for consumers, PeriodicTask-driven refills, low-water logging, and the scheduler keeps networking gated until `entropy::is_ready()`._)
-- [x] Bring up **e1000**; run **DHCPv4**; learn **DNS**. (_Status: RX/TX rings are provisioned, a `smoltcp` device shim drives DHCP + DNS, leases are logged and cached in `seed-kernel/src/net.rs`, and resolver results are memoized with TTL-aware expiry._)
-- [x] Init **USB-HID** keyboard and mouse; timestamp events. (_Status: xHCI root-port HID boot keyboard/mouse reports stream into `input.rs` with entropy-jittered timestamps and 8 ms polling; PS/2 remains as fallback._)
+- [x] `implemented/verified` Boot via OVMF -> Limine -> higher-half Rust kernel.
+- [x] `implemented/verified` Framebuffer negotiation and backbuffered present.
+- [x] `implemented/verified` Serial logger and on-screen Stage-0 UI.
 
-**Exit:** IP acquired; keyboard/mouse events observed in logs with timestamps.
+Exit: QEMU shows the SeedOS UI and serial logs include framebuffer readiness.
 
-### 2.3 Control channel
-- [ ] Open **TLS** to cloud with **SPKI pin**; then **WebSocket**.
-- [ ] Send **`hello` (minimal)** → `{device_id, seed_ver, display{w,h}, input, mac, uptime_ms}`.
-- [ ] Reply to **`inventory_request`** with **rich inventory** (CPU flags, RAM, PCI/USB features, storage layout).
+### 2.2 Devices, Time, Entropy, And Network
 
-**Exit:** Device appears in console; cloud shows minimal info; rich inventory retrievable on demand.
+- [x] `implemented/verified` RDRAND entropy path in the bare-metal-style VM
+  profile.
+- [x] `implemented/verified` e1000 RX/TX and DHCPv4 configuration through
+  smoltcp in QEMU.
+- [x] `implemented/verified` DNS is learned from DHCP and used by the direct
+  provider path.
+- [x] `implemented/verified` USB-HID keyboard/pointer enumeration through xHCI
+  in the VM profile.
+- [x] `partially implemented` Surface Pro 4 Marvell AVASTAR Wi-Fi target is
+  detected and RAM-only SSID/WPA settings can be recorded; firmware upload,
+  association, WPA, and Wi-Fi transport are not implemented.
 
-### 2.4 Wasm (single module)
-- [ ] Host API (event‑driven): `on_start`, `on_input(batch)`, `on_timer(id)`, `on_ws_msg(chan,bytes)`, `on_shutdown`; calls: `fill`, `blit`, `present`, `atlas_upload/delete`, `kv_read/write/list/delete`, `ws_open/send/close`, `now_ms`, `set_timer`, `log`.
-- [ ] **Install & start** a “hello‑ui” module that draws a test page and echoes input.
+Exit: serial logs show entropy, USB input, e1000, DHCP lease, and input status.
 
-**Exit:** Module draws atlas assets and reacts to input in real‑time.
+### 2.3 Direct Provider Transport
 
-### 2.5 Enrollment & auth
-- [ ] First‑boot **self‑enrollment**; cloud issues `device_token` bound to device key; persist to DATA.
-- [ ] On WS open, perform **token + device‑key challenge** handshake.
+- [x] `implemented/verified` RAM-only OpenAI API-key entry through `setup`/`SET`.
+- [x] `implemented/verified` `ask <text>` stays inside the guest. In the normal
+  build it is denied by the TLS trust gate; with the explicit development
+  override it uses DNS, TCP 443, TLS 1.3, HTTPS, and the OpenAI Responses API.
+- [x] `partially implemented` Response parsing extracts the first `output_text`.
+- [x] `implemented/verified` Provider trust state is visible through typed
+  status/snapshot output and the Shadow VM smoke expects
+  `provider.tls_pin_config_missing` by default.
+- [ ] `blocked/denied` Certificate verification or provider pinning is not yet
+  implemented.
 
-**Exit:** Reboots reconnect automatically without user action.
+Exit: the VM denies normal direct provider use until trust is verified. A local
+development image can still obtain a direct provider response for transport
+smoke testing only when built with the explicit unverified TLS override.
 
-### 2.6 OTA over WebSocket (A/B + kexec)
-- [ ] Receive **OTA manifest** (Ed25519 by online key + attached cert from offline root).
-- [ ] Stream OTA chunks (**BLAKE3** per chunk) to **inactive slot**; verify whole‑image hash.
-- [ ] Mark slot **pending**; **kexec** the new kernel; Stage‑1 sets **success flag** in DATA; finalize slot.
+### 2.4 Control Channel
 
-**Exit:** OTA completes with success; rollback proven by simulating a failed boot (no success flag).
+- [ ] `chosen/planned` Open fail-closed TLS to a control endpoint, then a
+  WebSocket transport.
+- [ ] `chosen/planned` Send `hello` with device/display/input/network facts.
+- [ ] `chosen/planned` Reply to inventory requests through a typed protocol.
 
-### 2.7 Safety
-- [ ] Implement **panic switch** (boot flag or `/data/SAFE`) to block modules/updates.
-- [ ] Implement **remote `lockdown`**: halt modules, close outbound sockets; keep control WS.
+Exit: not currently satisfied. Do not describe Stage-0 as WebSocket-controlled.
 
-**Exit:** Panic & lockdown drills pass; logs visible in console.
+### 2.5 Wasm Runtime
 
----
+- [ ] `chosen/planned` Host API for rendering, input, timers, storage, logging,
+  and network/control messages.
+- [ ] `blocked/denied` Module installation/start must remain denied until
+  manifest, capability grants, VM test report, local attestation, and audit
+  records exist.
 
-## 3) Cloud control plane (parallel)
-- [ ] Device registry + enrollment UI.
-- [ ] WS server implementing the envelope & commands. (_Progress: `fake-cloud/server` WebSocket stub handles `hello` + `ota_begin`, performs manifest verification, and can publish to the registry; remaining commands, logging, and inventory flows pending._)
-- [x] Signing service; **registry** for modules/OTAs (content‑addressed) (`ota/cli` binaries, deterministic keygen, and `registry/*` crates + CLI/tests).
-- [ ] **Canary rollout** & auto‑revert logic.
-- [ ] Basic **AI loop stub** (planner → codegen → sign → stage), even if it only ships the “hello‑ui” module first.
+Exit: not currently satisfied. No Wasm runtime is implemented in Stage-0.
 
-**Exit:** Cloud can fully manage Stage‑0 without SSH/console.
+### 2.6 Enrollment And Auth
 
----
+- [ ] `chosen/planned` First-boot self-enrollment.
+- [ ] `chosen/planned` Token plus device-key challenge on reconnect.
+- [ ] `blocked/denied` Persistent auth state is not implemented in Stage-0.
 
-## 4) Stage‑1 composition (after first contact)
-- [ ] Decide kernel features for this machine (e.g., **SMP**, **preemptive scheduler**, **x2APIC + TSC‑Deadline**, split kernel/**system‑server**).
-- [ ] Choose driver set; bake into kernel or privileged bundles.
-- [ ] Ship initial **modules** (UI shell, updater, logger, metrics).
-- [ ] Optionally plan future **CBOR** migration (same semantics).
+Exit: not currently satisfied.
 
-**Exit:** Device runs Stage‑1 stably with the chosen features.
+### 2.7 OTA, Persistence, And Rollback
 
----
+- [ ] `chosen/planned` A/B slot image layout.
+- [ ] `chosen/planned` Signed OTA manifest and per-chunk verification.
+- [ ] `chosen/planned` Pending/success markers and rollback.
+- [ ] `blocked/denied` The current Stage-0 image is a single bootable FAT image;
+  no DATA partition, OTA write path, kexec handoff, or rollback path is
+  implemented.
 
-## 5) VM self‑testing strategy (how the AI tests the VM)
-**Goal:** Deterministic, automated validation without human in the loop.
+Exit: not currently satisfied. Do not imply A/B OTA or recovery exists.
 
-### 5.1 Harness architecture
-- [ ] **Orchestrator** drives QEMU via **QMP** (machine protocol) and consumes **serial logs**.
-- [ ] **Fake cloud** service implements the WS/JSON contract for tests (deterministic scripts).
-- [ ] **Fixtures** (per test): a manifest describing firmware, disks, net mode, SPKI pin, and the scenario timeline.
-- [ ] **Golden transcripts**: expected serial & WS message sequences for each scenario.
+### 2.8 Safety And Recovery
 
-**Exit:** One command to run an entire suite; results reported as pass/fail with logs & diffs attached.
+- [ ] `chosen/planned` Panic switch/safe mode.
+- [ ] `chosen/planned` Remote lockdown.
+- [ ] `chosen/planned` Recovery agent lifeline separate from the rich provider
+  path.
+- [ ] `blocked/denied` Current direct OpenAI chat is not a recovery control
+  plane.
 
-### 5.2 Determinism & isolation
-- [ ] Run QEMU in a **snapshot/ephemeral** mode; no persistent host writes.
-- [ ] Pin CPU model & timers; prefer **TCG** for deterministic CI; allow **KVM** for speed locally.
-- [ ] Use **user‑mode networking** for predictable DNS/ports; fixture owns host‑side port forwards.
-- [ ] Seed deterministic test entropy explicitly in the harness; record test seeds in reports.
+Exit: not currently satisfied.
 
-**Exit:** Re‑running a test yields identical results (timestamps aside).
+## 3) Cloud Control Plane
 
-### 5.3 Control & fault injection (via QMP)
-- [ ] **Power**: reset/power‑cycle during OTA write to test rollback.
-- [ ] **Net**: drop packets, sever link, delay/delay‑jitter during WS keepalive.
-- [ ] **Input**: inject key/mouse sequences; verify batching (8–16 ms).
-- [ ] **Clock**: skew RTC within bounds; ensure TLS pinning unaffected.
-- [ ] **Storage**: make ESP/DATA temporarily read‑error to test error paths.
+- [ ] `chosen/planned` Device registry and enrollment UI.
+- [ ] `chosen/planned` Complete WebSocket server implementing the final envelope
+  and commands.
+- [x] `implemented/verified in host tools` Registry/signing-related workspace
+  pieces exist.
+- [ ] `chosen/planned` Canary rollout and auto-revert logic.
+- [ ] `chosen/planned` AI planner/codegen/sign/stage loop.
 
-**Exit:** Each fault scenario produces the expected recovery behavior and log markers.
+Exit: cloud-side work must not be used as evidence that guest Stage-0 can run
+modules, accept OTA, or recover.
 
-### 5.4 Self‑test Wasm module (“bist”)
-- [ ] A signed **built‑in test module** performs: atlas upload → fills/blits → frame present cadence; input echo; WS echo to fake cloud; local KV read/write; outbound net probe.
-- [ ] Harness asserts visual checksum (simple hash over the framebuffer) and expected WS/log messages.
+## 4) Stage-1 Composition
 
-**Exit:** `bist` proves rendering, input, storage, and networking in one pass.
+- [ ] Choose future kernel/system-server split and scheduling features.
+- [ ] Choose final driver/service set.
+- [ ] Ship initial replaceable services only after the service inventory,
+  manifest, capability policy, VM-test-report, local-attestation, and audit
+  gates exist.
 
-### 5.5 Core test suite (minimum)
-- [ ] **Boot & Hello**: boot to hello; minimal inventory; keepalive pings OK.
-- [ ] **Render Basics**: atlas upload, fills, blits, present without tearing.
-- [ ] **Input Batching**: synthetic input bursts coalesce into 8–16 ms batches.
-- [ ] **Enrollment/Auth**: first‑boot enrollment; WS challenge response; token persistence across reboot.
-- [ ] **OTA Success**: OTA to slot B; kexec; success flag set; slot flip permanent.
-- [ ] **OTA Rollback**: corrupt image or kill power pre‑commit; verify fallback.
-- [ ] **Lockdown & Panic**: remote lockdown halts module; panic switch forces safe mode.
-- [ ] **Reconnect**: kill the WS; verify backoff & buffer behavior.
-- [ ] **Offline Mode**: server down; module continues to run; logs persisted and replayed later.
+Exit: Stage-1 composition is still future work.
 
-**Exit:** All tests green on CI with artifacts (logs, frame hashes, transcripts).
+## 5) VM Self-Testing Strategy
 
----
+- [ ] `chosen/planned` QMP-driven orchestrator, deterministic fake control
+  service, fixtures, and golden transcripts.
+- [x] `implemented/verified` Current PowerShell VM runners and serial harnesses
+  exercise the Stage-0 boot and direct-provider paths.
+- [ ] `chosen/planned` Fault injection for OTA, WebSocket reconnects, storage
+  failures, and panic/lockdown.
+- [ ] `chosen/planned` Built-in self-test module. This depends on the future
+  module runtime and is not implemented.
 
-## 6) Deliverables checklist (what to publish each run)
-- [ ] Seed OS image (ESP + DATA skeleton), versioned.
-- [ ] Seed OS image (ESP + DATA skeleton), versioned. (_Progress: `scripts/package-stage0.sh` produces `release/seedos-stage0.img` with Limine + kernel ESP; DATA partition skeleton pending._)
-- [ ] Keys & signer certs (public parts), SPKI pin.
-- [ ] WS envelope & message type spec (Markdown).
-- [ ] Module Host API spec (Markdown).
-- [ ] OTA manifest schema (Markdown).
-- [ ] Test fixtures & golden transcripts; CI report (HTML/Markdown).
-- [ ] Release notes + rollback instructions.
+Exit: current VM tests cover the real Stage-0 path; future tests should preserve
+that while adding typed reports for planned capabilities.
 
-**Exit:** Release is reproducible and diagnosable from artifacts alone.
+## 6) Deliverables Checklist
 
----
+- [x] `implemented/verified` Bootable Stage-0 image:
+  `release/seedos-stage0.img`.
+- [x] `implemented/verified` Windows build/package/run scripts.
+- [x] `implemented/verified` Documentation of current provider-key handling and
+  secret scanning.
+- [ ] `chosen/planned` ESP+DATA layout, A/B slots, rollback instructions, module
+  host API, OTA manifest schema, complete WS envelope, and CI report artifacts.
 
-## 7) Expansion afterwards (post‑VM)
-- [ ] Small PCs (e1000 + GOP), then ARM SBC (Pi4 + simplefb), then dev phones.
-- [ ] Optional: migrate payload encoding to **CBOR**; add Wi‑Fi later; GPU accel much later.
-- [ ] Add canary cohorts, metrics dashboards, cost guards, and Secure/Measured Boot as the fleet grows.
+Exit: publish current Stage-0 artifacts without presenting planned runtime,
+update, or recovery capabilities as implemented.
 
----
+## 7) Expansion Afterwards
 
-### Notes for the AI
-- Prefer **deterministic tests** first; speed later.
-- Keep **the seed small** and push complexity to the cloud & modules.
-- Never ship unsigned code; never accept a key you didn’t pin or certify.
+- [ ] Small PCs after VM stability.
+- [ ] ARM SBC and other device classes later.
+- [ ] Optional CBOR payload migration later.
+- [ ] Wi-Fi packet transport after firmware upload, association, and WPA work.
+
+## Notes For Agents
+
+- Keep the seed small, but keep the final architecture honest.
+- Do not add fake module, OTA, trust, recovery, or persistence fallbacks.
+- Missing evidence should produce explicit TODO, known-gap, or
+  `capability_denied` behavior.
+- Never describe a planned invariant as implemented unless the current Stage-0
+  image, tests, and status docs prove it.

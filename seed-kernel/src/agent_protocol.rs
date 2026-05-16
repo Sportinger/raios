@@ -432,7 +432,18 @@ fn emit_provider_object(provider: &provider::Snapshot, comma: bool) {
     raw("        \"direct_model\": ");
     json_str(provider.direct_model);
     raw_line(",");
-    raw_line("        \"trust_state\": \"tls_certificate_verification_bypassed\"");
+    raw("        \"trust_state\": ");
+    json_str(provider.trust_state);
+    raw_line(",");
+    raw("        \"pin_kind\": ");
+    json_opt_str(provider.trust_pin_kind);
+    raw_line(",");
+    raw("        \"pin_id\": ");
+    json_opt_str(provider.trust_pin_id);
+    raw_line(",");
+    raw("        \"development_bypass\": ");
+    raw_bool(provider.trust_development_bypass);
+    crlf();
     raw("      }");
     if comma {
         raw(",");
@@ -484,13 +495,7 @@ fn emit_device(id: &str, kind: &str, line: &system_status::StatusLine, comma: bo
 
 fn emit_problem_objects(status: &SystemSnapshot, provider: &provider::Snapshot, spaces: usize) {
     let mut wrote = false;
-    emit_problem(
-        &mut wrote,
-        spaces,
-        "provider.tls_unverified",
-        "high",
-        "OpenAI direct transport currently bypasses certificate verification",
-    );
+    emit_provider_trust_problem(&mut wrote, spaces, provider);
     if !provider.api_key_set {
         emit_problem(
             &mut wrote,
@@ -564,6 +569,42 @@ fn emit_problem_objects(status: &SystemSnapshot, provider: &provider::Snapshot, 
     } else {
         crlf();
     }
+}
+
+fn emit_provider_trust_problem(wrote: &mut bool, spaces: usize, provider: &provider::Snapshot) {
+    let (id, summary) = match provider.trust_state {
+        "unknown" => (
+            "provider.tls_unknown",
+            "OpenAI provider trust has not been established",
+        ),
+        "tls_certificate_verification_bypassed" => (
+            "provider.tls_unverified",
+            "OpenAI direct transport is using an explicit unverified TLS development override",
+        ),
+        "pin_config_missing" => (
+            "provider.tls_pin_config_missing",
+            "OpenAI direct transport is fail-closed until a provider pin is configured",
+        ),
+        "pin_config_invalid" => (
+            "provider.tls_pin_config_invalid",
+            "Configured OpenAI provider pin is invalid",
+        ),
+        "pin_verifier_unavailable" => (
+            "provider.tls_pin_verifier_unavailable",
+            "Configured OpenAI provider pin cannot be checked until TLS verifier input access exists",
+        ),
+        "pin_mismatch" => (
+            "provider.tls_pin_mismatch",
+            "OpenAI provider certificate did not match the configured pin",
+        ),
+        "pinned_cert_verified" | "pinned_spki_verified" | "webpki_verified" => return,
+        _ => (
+            "provider.tls_unknown",
+            "OpenAI provider trust state is not recognized by this protocol build",
+        ),
+    };
+
+    emit_problem(wrote, spaces, id, "high", summary);
 }
 
 fn emit_status_problem(
@@ -732,4 +773,11 @@ fn json_str(value: &str) {
         }
     }
     raw("\"");
+}
+
+fn json_opt_str(value: Option<&str>) {
+    match value {
+        Some(value) => json_str(value),
+        None => raw("null"),
+    }
 }

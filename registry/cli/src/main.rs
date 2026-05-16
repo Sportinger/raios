@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use registry_core::{ListFilter, PublishRequest, Registry};
+use registry_core::{EvidenceFile, ListFilter, PublishRequest, Registry};
 
 #[derive(Parser, Debug)]
 #[command(about = "Seed OS registry management tooling", version)]
@@ -42,6 +42,12 @@ enum Command {
         /// Version or tag (defaults to metadata.module_version or blob hash)
         #[arg(long)]
         version: Option<String>,
+        /// Shadow-VM test report JSON to bind as evidence
+        #[arg(long = "vm-report")]
+        vm_reports: Vec<PathBuf>,
+        /// Local attestation JSON to bind as evidence
+        #[arg(long = "local-attestation")]
+        local_attestations: Vec<PathBuf>,
     },
     /// List registry index entries
     List {
@@ -71,9 +77,20 @@ fn main() -> Result<()> {
             namespace,
             name,
             version,
+            vm_reports,
+            local_attestations,
         } => {
             let registry = Registry::new(registry);
             registry.init()?;
+            let evidence_files = vm_reports
+                .into_iter()
+                .map(EvidenceFile::vm_test_report)
+                .chain(
+                    local_attestations
+                        .into_iter()
+                        .map(EvidenceFile::local_attestation),
+                )
+                .collect();
             let result = registry.publish(PublishRequest {
                 blob,
                 manifest,
@@ -81,14 +98,16 @@ fn main() -> Result<()> {
                 namespace,
                 name,
                 version,
+                evidence_files,
             })?;
             println!(
-                "stored {} bytes as {} (namespace={} name={} tag={})",
+                "stored {} bytes as {} (namespace={} name={} tag={} evidence={})",
                 result.record.payload_len,
                 result.record.payload_hash,
                 result.namespace,
                 result.record.logical_name,
                 result.tag,
+                result.record.evidence.len(),
             );
         }
         Command::List {
@@ -107,12 +126,13 @@ fn main() -> Result<()> {
                 for entry in entries {
                     let version = entry.record.logical_version.as_deref().unwrap_or("<hash>");
                     println!(
-                        "[{ns}] {name} {version} -> {hash} ({len} bytes)",
+                        "[{ns}] {name} {version} -> {hash} ({len} bytes, evidence={evidence})",
                         ns = entry.namespace,
                         name = entry.record.logical_name,
                         version = version,
                         hash = entry.record.payload_hash,
                         len = entry.record.payload_len,
+                        evidence = entry.record.evidence.len(),
                     );
                 }
             }

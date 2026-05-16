@@ -28,6 +28,7 @@ mod openai;
 mod pci;
 mod provider;
 mod provider_config;
+mod provider_trust;
 mod ps2;
 mod scheduler;
 mod serial;

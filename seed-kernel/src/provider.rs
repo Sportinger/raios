@@ -1,7 +1,7 @@
 use core::fmt::{self, Write};
 use core::str;
 
-use crate::{net, openai, provider_config};
+use crate::{net, openai, provider_config, provider_trust};
 
 const LINE_CAPACITY: usize = 104;
 
@@ -45,6 +45,7 @@ pub struct Submitted {
 pub enum SubmitError {
     Empty,
     MissingApiKey,
+    TrustDenied { state: &'static str },
     Busy { route: Route, id: u32 },
 }
 
@@ -101,6 +102,10 @@ pub struct Snapshot {
     pub provider_name: &'static str,
     pub api_key_set: bool,
     pub route: Route,
+    pub trust_state: &'static str,
+    pub trust_pin_kind: Option<&'static str>,
+    pub trust_pin_id: Option<&'static str>,
+    pub trust_development_bypass: bool,
     pub direct_phase: &'static str,
     pub direct_pending_id: Option<u32>,
     pub direct_last_request_id: Option<u32>,
@@ -126,6 +131,13 @@ pub fn submit(request: AgentRequest<'_>) -> Result<Submitted, SubmitError> {
 
     if !provider_config::api_key_set() {
         return Err(SubmitError::MissingApiKey);
+    }
+
+    let trust = provider_trust::snapshot();
+    if !trust.allows_provider_request() {
+        return Err(SubmitError::TrustDenied {
+            state: trust.state.as_protocol(),
+        });
     }
 
     match openai::submit_request(prompt) {
@@ -155,6 +167,7 @@ pub fn poll() -> Option<Event> {
 pub fn snapshot() -> Snapshot {
     let config = provider_config::snapshot();
     let direct = openai::snapshot();
+    let trust = provider_trust::snapshot();
     let mut direct_last_prompt = FixedLine::empty();
     let mut direct_last_event = FixedLine::empty();
     let mut direct_last_error = FixedLine::empty();
@@ -167,6 +180,10 @@ pub fn snapshot() -> Snapshot {
         provider_name: config.provider_name,
         api_key_set: config.api_key_set,
         route: Route::OpenAiDirect,
+        trust_state: trust.state.as_protocol(),
+        trust_pin_kind: trust.pin_kind,
+        trust_pin_id: trust.pin_id,
+        trust_development_bypass: trust.development_bypass,
         direct_phase: direct.phase,
         direct_pending_id: direct.pending_id,
         direct_last_request_id: direct.last_request_id,

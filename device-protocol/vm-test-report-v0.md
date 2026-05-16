@@ -59,15 +59,36 @@ The JSON report contains:
     "sha256": null,
     "validation": null
   },
+  "hardware_profile": {
+    "profile": "seedos.shadow_vm.q35_xhci.v0",
+    "machine": "q35",
+    "memory": "512M",
+    "cpu": "max",
+    "firmware": "edk2-x86_64",
+    "boot_drive": "ide_raw_image",
+    "display": "none",
+    "serial": "tcp_chardev_with_log",
+    "input": [
+      "qemu-xhci",
+      "usb-kbd",
+      "usb-tablet"
+    ],
+    "network": "none"
+  },
   "qemu": {
+    "args_canonical_json": "[...]",
     "args_sha256": "..."
   },
   "evidence_binding": {
     "base_image_sha256": "...",
     "candidate_artifact_sha256": null,
     "candidate_manifest_sha256": null,
+    "hardware_profile_sha256": "...",
     "qemu_args_sha256": "...",
-    "serial_log_sha256": "..."
+    "serial_log_sha256": "...",
+    "predicate_count": 16,
+    "predicate_passed_count": 16,
+    "predicate_failed_count": 0
   },
   "commands": [
     "describe",
@@ -80,7 +101,8 @@ The JSON report contains:
     {
       "name": "policy:mutating_load_denied",
       "expected": "serial_contains:\"code\": \"capability_denied\"",
-      "passed": true
+      "passed": true,
+      "actual": "found"
     }
   ],
   "serial_log": {
@@ -93,3 +115,11 @@ The JSON report contains:
 
 A sidecar `.sha256` file is written for the report itself so the report can be
 referenced without embedding a self-referential hash in the JSON.
+
+`qemu.args_sha256` is computed from `qemu.args_canonical_json`, a compressed JSON
+array of the exact runner arguments, instead of a whitespace-joined command
+line. That keeps argument binding unambiguous even when a path contains spaces.
+
+Predicate `actual` is `"found"` on success. On failure it contains the tail of
+the serial log, capped for report readability, so a denied activation can still
+explain which marker was missing without opening the full log.

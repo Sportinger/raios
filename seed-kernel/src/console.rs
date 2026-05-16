@@ -1239,6 +1239,7 @@ fn show_provider_status() {
         api_key_status(snapshot.api_key_set),
         snapshot.direct_endpoint
     ));
+    write_output(format_args!("TLS TRUST: {}", snapshot.trust_state));
     if !snapshot.api_key_set {
         write_output(format_args!("OPENAI REQUIRES API KEY"));
     }
@@ -1283,6 +1284,7 @@ fn command_provider_status() {
     ));
 
     write_output(format_args!("ROUTE: {}", snapshot.route.as_str()));
+    write_output(format_args!("TLS TRUST: {}", snapshot.trust_state));
     command_openai_status();
 }
 
@@ -1293,6 +1295,21 @@ fn command_openai_status() {
         snapshot.direct_phase, snapshot.direct_model
     ));
     write_output(format_args!("ENDPOINT: {}", snapshot.direct_endpoint));
+    if let Some(pin_kind) = snapshot.trust_pin_kind {
+        if let Some(pin_id) = snapshot.trust_pin_id {
+            write_output(format_args!(
+                "TRUST: {}    PIN: {} {}",
+                snapshot.trust_state, pin_kind, pin_id
+            ));
+        } else {
+            write_output(format_args!(
+                "TRUST: {}    PIN: {}",
+                snapshot.trust_state, pin_kind
+            ));
+        }
+    } else {
+        write_output(format_args!("TRUST: {}", snapshot.trust_state));
+    }
     if let Some(id) = snapshot.direct_pending_id {
         write_output(format_args!("OPENAI REQUEST {} PENDING", id));
     }
@@ -1387,6 +1404,13 @@ fn submit_prompt(prompt: &str) {
         Err(provider::SubmitError::MissingApiKey) => {
             push_chat_args(ChatSpeaker::System, format_args!("OPENAI REQUIRES API KEY"));
             write_output(format_args!("OPENAI REQUIRES API KEY"));
+        }
+        Err(provider::SubmitError::TrustDenied { state }) => {
+            push_chat_args(
+                ChatSpeaker::System,
+                format_args!("OPENAI TLS TRUST DENIED: {}", state),
+            );
+            write_output(format_args!("OPENAI TLS TRUST DENIED: {}", state));
         }
         Err(provider::SubmitError::Busy { route, id }) => {
             push_chat_args(

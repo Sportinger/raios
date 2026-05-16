@@ -1,6 +1,6 @@
 # Project Status
 
-Last verified locally: 2026-05-10 on Windows with QEMU 11.
+Last verified locally: 2026-05-17 on Windows with QEMU 11.
 
 ## Verified Boot State
 
@@ -95,18 +95,15 @@ RAM, and not printed into the console or serial output. For local-only testing,
 the build scripts can also embed `OPENAI_API_KEY` into a separate non-default
 image with `-EmbedOpenAiApiKeyFromEnv`.
 
-Direct OpenAI transport smoke over TCP serial:
+Direct OpenAI trust-gate smoke over TCP serial:
 
 ```text
 > provider
 PROVIDER: OPENAI    API KEY: SET
 ROUTE: OPENAI DIRECT
+TLS TRUST: pin_config_missing
 > ask direct provider smoke
-OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses
-OPENAI DIRECT REQUEST 1 STARTED
-openai: TLS 1.3 established
-openai: HTTPS request sent
-OPENAI: <provider response text>
+OPENAI TLS TRUST DENIED: pin_config_missing
 ```
 
 ## Current Architecture Decision
@@ -168,15 +165,20 @@ Harden and polish the direct provider path:
   upload, WPA, and packet transport are not implemented yet.
 - a VM-local `setup` menu now records a RAM-only OpenAI API key without echoing
   the key back into the serial log.
-- `ask <text>` now stays inside the guest: it requires the VM API key state,
-  resolves `api.openai.com`, opens TCP 443 through e1000, performs TLS 1.3,
-  sends an HTTPS Responses API request, parses `output_text`, and prints the
-  provider response.
+- `ask <text>` now stays inside the guest. In the normal build it requires the
+  VM API key state and then fails closed at provider trust before API-key copy or
+  HTTPS write. With the explicit development override
+  `-AllowUnverifiedOpenAiTls`, it resolves `api.openai.com`, opens TCP 443
+  through e1000, performs TLS 1.3 with `NoVerify`, sends an HTTPS Responses API
+  request, parses `output_text`, and prints the provider response.
+- the provider trust state is visible in console/provider status,
+  `system.snapshot.v0`, `problem.list`, and `service.inventory`; the default
+  trust problem is `provider.tls_pin_config_missing`.
 - the development serial relay and old host-framing path have been removed from
   the runtime path.
-- the next milestone is replacing MVP certificate bypass with provider pinning
-  or certificate verification, then rendering responses better in the
-  framebuffer UI.
+- the next milestone is adding positive provider pinning or certificate
+  verification. The current blocker is that `embedded-tls` 0.17.0 does not
+  expose leaf certificate/SPKI bytes to downstream verifier code.
 
 ## Known Gaps
 
@@ -202,9 +204,9 @@ Harden and polish the direct provider path:
 - API key entry exists in the VM, but the key is RAM-only and not persisted in
   the default image. A local test image can embed the key explicitly, but must
   not be committed or shared.
-- Stage-0 uses DNS/TCP/TLS/HTTPS for `api.openai.com:443`, but the MVP TLS path
-  currently disables certificate verification and should be hardened before any
-  serious use.
+- Stage-0 has verified DNS/TCP/TLS/HTTPS for `api.openai.com:443` behind an
+  explicit unverified development override. The normal build now blocks that
+  provider path until positive TLS trust is implemented.
 - The OpenAI JSON response parser is intentionally minimal and only extracts the
   first `output_text` string.
 - QEMU TCP serial is single-client in practice; do not run two serial clients

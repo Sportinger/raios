@@ -273,6 +273,7 @@ fn handle_ota_begin(body: Value, state: &ServerState) -> Result<OtaAckBody> {
                 namespace: namespace.unwrap_or_else(|| "ota".into()),
                 name,
                 version,
+                evidence_files: Vec::new(),
             })
             .map_err(|err| HandlerError::Registry(err.to_string()))?;
         Some(publish.tag)

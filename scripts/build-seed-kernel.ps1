@@ -2,7 +2,10 @@ param(
     [ValidateSet("debug", "release")]
     [string]$Profile = "debug",
     [switch]$EmbedOpenAiApiKeyFromEnv,
-    [string]$OpenAiApiKeyEnvVar = "OPENAI_API_KEY"
+    [string]$OpenAiApiKeyEnvVar = "OPENAI_API_KEY",
+    [switch]$EmbedOpenAiCertPinFromEnv,
+    [string]$OpenAiCertPinEnvVar = "OPENAI_CERT_SHA256",
+    [switch]$AllowUnverifiedOpenAiTls
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,6 +21,8 @@ if (-not ((rustup toolchain list) -match [regex]::Escape($Toolchain))) {
 
 $oldRustFlags = $env:RUSTFLAGS
 $oldDefaultOpenAiApiKey = $env:SEEDOS_DEFAULT_OPENAI_API_KEY
+$oldOpenAiCertSha256 = $env:SEEDOS_OPENAI_CERT_SHA256
+$oldAllowUnverifiedOpenAiTls = $env:SEEDOS_ALLOW_UNVERIFIED_OPENAI_TLS
 $kernelRustFlags = @(
     "-C", "link-arg=-T$LinkerScript",
     "-C", "relocation-model=static",
@@ -36,6 +41,24 @@ try {
     }
     else {
         Remove-Item Env:\SEEDOS_DEFAULT_OPENAI_API_KEY -ErrorAction SilentlyContinue
+    }
+
+    if ($EmbedOpenAiCertPinFromEnv) {
+        $certPin = [Environment]::GetEnvironmentVariable($OpenAiCertPinEnvVar, "Process")
+        if ([string]::IsNullOrWhiteSpace($certPin)) {
+            throw "Environment variable '$OpenAiCertPinEnvVar' is not set."
+        }
+        $env:SEEDOS_OPENAI_CERT_SHA256 = $certPin
+    }
+    else {
+        Remove-Item Env:\SEEDOS_OPENAI_CERT_SHA256 -ErrorAction SilentlyContinue
+    }
+
+    if ($AllowUnverifiedOpenAiTls) {
+        $env:SEEDOS_ALLOW_UNVERIFIED_OPENAI_TLS = "1"
+    }
+    else {
+        Remove-Item Env:\SEEDOS_ALLOW_UNVERIFIED_OPENAI_TLS -ErrorAction SilentlyContinue
     }
 
     $env:RUSTFLAGS = "$kernelRustFlags $oldRustFlags".Trim()
@@ -62,6 +85,18 @@ finally {
     }
     else {
         $env:SEEDOS_DEFAULT_OPENAI_API_KEY = $oldDefaultOpenAiApiKey
+    }
+    if ($null -eq $oldOpenAiCertSha256) {
+        Remove-Item Env:\SEEDOS_OPENAI_CERT_SHA256 -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:SEEDOS_OPENAI_CERT_SHA256 = $oldOpenAiCertSha256
+    }
+    if ($null -eq $oldAllowUnverifiedOpenAiTls) {
+        Remove-Item Env:\SEEDOS_ALLOW_UNVERIFIED_OPENAI_TLS -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:SEEDOS_ALLOW_UNVERIFIED_OPENAI_TLS = $oldAllowUnverifiedOpenAiTls
     }
 }
 

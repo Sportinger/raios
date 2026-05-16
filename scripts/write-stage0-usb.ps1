@@ -9,13 +9,17 @@ param(
     [int]$BootPartitionSizeMB = 512,
     [switch]$EmbedOpenAiApiKeyFromEnv,
     [string]$OpenAiApiKeyEnvVar = "OPENAI_API_KEY",
+    [switch]$EmbedOpenAiCertPinFromEnv,
+    [string]$OpenAiCertPinEnvVar = "OPENAI_CERT_SHA256",
+    [switch]$AllowUnverifiedOpenAiTls,
     [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
 
-if ($EmbedOpenAiApiKeyFromEnv -and $SkipBuild) {
-    throw "Refusing -SkipBuild with -EmbedOpenAiApiKeyFromEnv because the key must be compiled into a fresh local kernel before writing the USB stick."
+$RequiresFreshKernelBuild = $EmbedOpenAiApiKeyFromEnv -or $EmbedOpenAiCertPinFromEnv -or $AllowUnverifiedOpenAiTls
+if ($RequiresFreshKernelBuild -and $SkipBuild) {
+    throw "Refusing -SkipBuild with provider trust/key build flags because they must be compiled into a fresh local kernel before writing the USB stick."
 }
 
 function Test-Admin {
@@ -103,21 +107,37 @@ try {
             throw "Environment variable '$OpenAiApiKeyEnvVar' is not set."
         }
     }
+    if ($EmbedOpenAiCertPinFromEnv) {
+        $certPin = [Environment]::GetEnvironmentVariable($OpenAiCertPinEnvVar, "Process")
+        if ([string]::IsNullOrWhiteSpace($certPin)) {
+            throw "Environment variable '$OpenAiCertPinEnvVar' is not set."
+        }
+    }
 
     if (-not $SkipBuild) {
-        if ($EmbedOpenAiApiKeyFromEnv) {
+        if ($RequiresFreshKernelBuild) {
             $TempEspDir = Join-Path $env:TEMP "seedos-baremetal-esp-$PID"
             Remove-Item -LiteralPath $TempEspDir -Recurse -Force -ErrorAction SilentlyContinue
             Copy-Item -LiteralPath $BaseEspDir -Destination $TempEspDir -Recurse -Force
             $SourceEspDir = $TempEspDir
 
-            & powershell `
-                -NoProfile `
-                -ExecutionPolicy Bypass `
-                -File (Join-Path $RepoRoot "scripts\build-seed-kernel.ps1") `
-                -Profile $Profile `
-                -EmbedOpenAiApiKeyFromEnv `
-                -OpenAiApiKeyEnvVar $OpenAiApiKeyEnvVar
+            $buildArgs = @(
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-File", (Join-Path $RepoRoot "scripts\build-seed-kernel.ps1"),
+                "-Profile", $Profile
+            )
+            if ($EmbedOpenAiApiKeyFromEnv) {
+                $buildArgs += @("-EmbedOpenAiApiKeyFromEnv", "-OpenAiApiKeyEnvVar", $OpenAiApiKeyEnvVar)
+            }
+            if ($EmbedOpenAiCertPinFromEnv) {
+                $buildArgs += @("-EmbedOpenAiCertPinFromEnv", "-OpenAiCertPinEnvVar", $OpenAiCertPinEnvVar)
+            }
+            if ($AllowUnverifiedOpenAiTls) {
+                $buildArgs += "-AllowUnverifiedOpenAiTls"
+            }
+
+            & powershell @buildArgs
             if ($LASTEXITCODE -ne 0) {
                 exit $LASTEXITCODE
             }
