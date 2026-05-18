@@ -18,6 +18,15 @@ It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
 immutable recovery core that cannot be broken from above.
 
+## What It Is
+
+| raisOS is | raisOS is not |
+| --- | --- |
+| A personal, bootable OS seed for one machine and one user. | A general-purpose Linux distribution, desktop environment, or app store. |
+| A real Stage-0 kernel with framebuffer UI, serial diagnostics, USB input, e1000 DHCP, entropy, RAM-only setup, and direct provider transport. | A finished self-extending runtime with signed modules, persistence, rollback, and recovery already complete. |
+| The foundation for a native agent protocol where system state is observable and future actions are capability-gated, testable, and reversible. | A port of Codex CLI into the kernel or a shell where an AI gets arbitrary host authority. |
+| A small system designed to be rebuilt, tested, and personalized by an AI under local policy. | A fake cloud agent, mock provider path, silent fallback chain, or demo that pretends missing safety layers already exist. |
+
 ## Screenshots
 
 ### Console status
