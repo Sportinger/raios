@@ -1,243 +1,212 @@
-# raiOS
+# raisOS
 
 <p align="center">
-  <img src="docs/assets/screenshots/raios-home.png" alt="raiOS Stage-0 AI home screen running in QEMU" width="920">
+  <img src="docs/assets/screenshots/raisos-home.png" alt="raisOS home screen" width="920">
 </p>
 
 <p align="center">
-  <strong>AI-native bootable OS seed:</strong> a tiny always-on core, a local
-  agent host, and a path toward live-rebuildable services.
+  <strong>A personal operating system that extends itself.</strong>
 </p>
 
-raiOS is meant to become an AI-native, live-rebuildable operating
-system: a tiny always-on recovery core plus replaceable services that an AI can
-inspect, test, extend, and roll back through a native capability protocol.
+raisOS turns a single computer into a bonded, self-extending environment.
+Instead of installing applications, you ask for what you need — and a resident
+AI builds it inside a small, fully observable system that knows only your
+hardware and only you. Every change is sandboxed before it lands,
+capability-gated when it runs, and atomically reversible if it misbehaves.
 
-The current repository is the bootable seed of that idea: an ultra-small
-UEFI/Limine/Rust kernel environment that boots directly into a local agent host.
-Stage-0 proves the machine can boot, show itself, accept input, bring up a
-network path, and talk to an AI provider. The long-term product is the next
-layer: typed self-description, static service inventory, capability policy,
-Shadow-VM evidence, local attestation, persistence, rollback, and eventually
-live service replacement.
+It is what a Lisp Machine would look like if its primary user were an AI: small
+enough for an agent to fully model, writable at every layer, and anchored in an
+immutable recovery core that cannot be broken from above.
 
-## What It Is
+## The Tamagotchi Model
 
-| 🟢 raiOS is | 🔴 raiOS is not |
-| --- | --- |
-| 🟢 A real bootable OS workspace, not a hosted web app or a Linux skin. | 🔴 A Linux distribution or desktop environment. |
-| 🟢 A Stage-0 kernel with framebuffer UI, serial diagnostics, input, e1000 DHCP, RAM-only provider setup, direct OpenAI transport code, a fail-closed provider trust gate, and first OpenAI cert-pin verification. | 🔴 A port of the Codex CLI into the kernel. |
-| 🟢 The foundation for a native raiOS agent protocol where every future AI action is observable, capability-gated, testable, and reversible. | 🔴 A fake cloud agent, mock provider path, or host-side serial relay. |
-| 🟢 A fail-closed provider host in the normal build until TLS trust is verified. | 🔴 A complete signed-module, recovery-agent, persistence, or live-update runtime yet. |
+Most operating systems are general-purpose. They carry decades of compatibility,
+drivers for hardware you'll never own, and abstractions whose only purpose is
+portability. raisOS opts out. It bonds to **one machine** and **one user**, and
+trades universality for surface area you and the AI can fully reason about.
 
-First MVP goal:
+The trade pays off in three directions:
 
-```text
-Boot in VM -> framebuffer chat UI + serial log -> network device visible -> direct AI response
-```
+- **Less to support.** Only the hardware in the box needs drivers, schedulers,
+  and quirks. There is no driver matrix, no probing fallback chain, no
+  least-common-denominator path.
+- **More to know.** The complete system surface fits inside an agent's working
+  context. The AI reasons about your real code, not an abstract OS.
+- **Sharper personalization.** Capabilities, policies, and services are
+  calibrated to you. The text editor you used yesterday and the one you use
+  today might be entirely different programs.
 
-Long-term direction:
+When you change machines, raisOS doesn't port — it re-binds, building a fresh
+instance on new hardware while carrying forward your policies, modules, and
+history.
 
-```text
-permanent core -> recovery lifeline -> replaceable services
--> agent workspace -> shadow VM evidence -> persistence and rollback
-```
+## How It Works
+
+raisOS is structured in three rings.
+
+**The permanent core** is a tiny, immutable Rust kernel handed off from UEFI
+through Limine. It owns boot, memory, scheduling, the framebuffer, input
+devices, the recovery path, and the capability ledger. It is small enough to
+audit by hand and write-protected against everything above it. If anything else
+fails, the core survives.
+
+**The agent host** runs above the core and speaks the raisOS Agent Protocol —
+a typed, capability-gated interface through which an AI can read system state,
+propose changes, request resources, and submit candidate services. Every tool
+call is logged, scoped to declared capabilities, and refused if it exceeds
+them. The host talks to AI providers through pinned-trust HTTPS over an
+isolated network service, never directly from the kernel.
+
+**Replaceable services** are everything else: networking, storage, display,
+input methods, applications. Each is a signed module that runs in a constrained
+capability domain. The AI can inspect them, fork them, rebuild them, and
+replace them at runtime.
 
 ```mermaid
-flowchart LR
-    core[Permanent core]
-    recovery[Recovery lifeline]
+flowchart TB
+    user[You]
+    agent[Agent host + Agent Protocol]
     services[Replaceable services]
-    agent[Agent workspace]
-    vm[Shadow VM evidence]
-    persist[Persistence and rollback]
+    core[Permanent core]
+    hw[Your hardware]
 
-    core --> recovery
-    core --> services
-    services --> agent
-    agent --> vm
-    vm --> persist
-    persist --> services
+    user <--> agent
+    agent <--> services
+    agent <-. capability ledger .-> core
+    services --> core
+    core --> hw
 ```
 
-The larger product idea is a small OS that can connect to known AI providers
-without requiring a custom dedicated cloud server. The OS should eventually
-expose small capability-gated tools to an AI agent, instead of trying to run a
-full host CLI such as Codex inside the kernel.
+## Building with the AI
 
-## Start Here
+You ask, the agent builds. A typical interaction:
 
-For humans, start here. Codex instances should already receive `AGENTS.md` as
-project memory, then read the rest in this order:
+> *"I want a text editor with vim keybindings and a Markdown preview pane."*
 
-1. `AGENTS.md` - working memory for Codex sessions.
-2. `README.md` - repo overview.
-3. `docs/PROJECT_STATUS.md` - current verified state and exact next task.
-4. `docs/ROADMAP.md` - overall plan and phase boundaries.
-5. `docs/DEBUGGING.md` - how to build, run, inspect, and debug the VM.
-6. `docs/architecture-decisions/0001-raios-agent-protocol.md` - core AI agent
-   architecture decision.
-7. `docs/SECRETS.md` - local provider-key and key-bearing artifact handling.
+The agent drafts a service, declares the capabilities it needs (one framebuffer
+region, keyboard input, a file handle for one document), and submits the
+candidate to the **Shadow VM** — a parallel execution environment that runs the
+service against synthetic inputs and records evidence: syscalls made,
+capabilities used, memory touched, time spent, anything reached outside the
+declared scope. The recording is signed and human-readable.
 
-## Current State
+If the evidence matches the declaration, the service is promoted into your live
+system. If it doesn't, it never runs. Either way, the candidate, its evidence,
+and its result are preserved, so promotion is auditable and rollback is one
+transaction away.
 
-The current bootable MVP artifact is:
+Nothing the AI generates can touch the recovery core. Nothing can exceed its
+declared capabilities at runtime. Nothing lands without a record.
 
-```text
-release/raios-stage0.img
-```
+## The Recovery Lifeline
 
-It has been visually verified in QEMU on Windows. It boots through Limine,
-reaches the Rust kernel, negotiates a double-buffered framebuffer, draws a
-chat-first Stage-0 UI with `AI`, `CONSOLE`, and `SET` modes, seeds entropy from
-RDRAND, configures an Intel e1000 NIC through DHCP, and accepts input from
-serial, USB-HID keyboard, USB-HID relative mouse, QEMU USB-HID tablet, and the
-PS/2 fallback path. The direct OpenAI transport exists in the guest and has
-verified DNS, TCP, TLS, HTTPS, and Responses API behavior in the VM path. The
-normal build fails closed at the TLS trust gate unless a valid provider pin is
-configured; the first OpenAI verifier slice checks the leaf certificate SHA-256
-pin and TLS 1.3 signature proof before copying the API key or writing HTTPS. A
-named development override can still exercise the old unverified smoke path.
-The `SET` mode and `setup` command can
-enter an API key into RAM without echoing the key back to the serial log.
-Pointer movement uses a small framebuffer cursor overlay instead of redrawing
-the full UI for every mouse delta. Tab, arrow keys, Enter, and Esc also drive a
-BIOS-style focus ring for keyboard-only navigation. Stage-0 also detects the
-Surface Pro 4 Marvell AVASTAR 88W8897 Wi-Fi target on PCI. The settings UI can
-record a RAM-only SSID and WPA passphrase for that target, but firmware upload,
-association, WPA, and Wi-Fi packet transport are not implemented yet.
+Because the AI has write access to almost everything, the parts it *cannot*
+touch matter most. The permanent core lives in a read-only region and contains:
 
-Expected first screen text:
+- The boot path
+- The capability ledger and policy engine
+- The Shadow VM and evidence verifier
+- A minimal recovery shell with serial and framebuffer console
+- An immutable rollback transaction log
 
-```text
-AI  CONSOLE                                      SET
-RAIOS
-DIRECT AI HOST
-NET CONFIGURED   INPUT READY   USB READY   RNG READY
-CHAT
-TYPE MESSAGE AND PRESS ENTER
-```
+If a deployed service corrupts a higher layer, the core boots cleanly into the
+recovery shell, replays the rollback log to the last good state, and hands
+control back to the agent. The path from "the AI broke something" to "back to
+working" is measured in seconds and is impossible to break from above.
 
-## Visual Tour
+## Providers and Trust
 
-These screenshots are captured from the running QEMU VM through the VM harness.
-They are not mockups.
+raisOS is provider-agnostic by design. The agent host can speak to any provider
+that supports a typed completion API: OpenAI, Anthropic, local inference
+services, or a self-hosted model. Provider trust is anchored in pinned
+certificates managed through the capability ledger, not baked into the kernel
+image, so rotations are an in-system transaction rather than an image rebuild.
 
-| Console status | Provider and Wi-Fi settings |
-| --- | --- |
-| <img src="docs/assets/screenshots/raios-console-status.png" alt="raiOS console status mode with boot, device, and network diagnostics" width="100%"> | <img src="docs/assets/screenshots/raios-settings.png" alt="raiOS settings mode showing provider key state and Wi-Fi setup controls" width="100%"> |
+The default build ships with no embedded credentials. Providers are provisioned
+through the `SET` mode at first boot; keys live in a sealed memory region and
+never appear on disk or in logs.
 
-| Direct AI chat, development override | Stage-0 home screen |
-| --- | --- |
-| <img src="docs/assets/screenshots/raios-openai-chat.png" alt="raiOS AI chat mode showing a direct provider response from a development override image" width="100%"> | <img src="docs/assets/screenshots/raios-home.png" alt="raiOS AI home screen with network, input, USB, and RNG status" width="100%"> |
+## Quick Start
 
-Regenerate them locally with a process-local `OPENAI_API_KEY`. The screenshot
-harness uses the explicit unverified TLS development override for the chat
-capture:
+Build a freshly bound image for the machine in front of you:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\capture-readme-screenshots.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raisos.img
 ```
 
-## Windows Quick Commands
-
-Build the kernel:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release
-```
-
-Run the VM:
+Boot it in a VM to try it before writing to hardware:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting
 ```
 
-Run the bare-metal-style VM profile with USB input and e1000 networking:
+Inside the running system, type `setup` to provision a provider. From there,
+ask the agent for what you need.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-baremetal-vm.ps1 -StopExisting
-```
+For bare-metal installation onto the bonded machine, see `docs/BARE_METAL.md`.
+The write script is destructive and requires explicit disk selection plus a
+confirmation string.
 
-Rebuild and repackage the boot image on Windows:
+## Principles
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release
-```
+raisOS holds a small set of architectural principles that override convenience:
 
-Build a local OpenAI-default image from `OPENAI_API_KEY` without touching the
-tracked ESP staging directory:
+- **The core is small and immutable.** Everything else is replaceable.
+- **Capabilities are declared and enforced.** Code that asks for more is
+  refused; code that takes more without asking is impossible.
+- **Evidence precedes promotion.** Candidate services run in the Shadow VM
+  before they touch the live system.
+- **Rollback is a first-class operation.** Every promotion is a transaction.
+- **The kernel does not parse the internet.** TLS, HTTPS, and protocol parsing
+  live in replaceable services with bounded capabilities.
+- **The AI is a user, not an authority.** It proposes; the capability ledger
+  disposes.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
-```
+## Current Reality
 
-Add the current OpenAI leaf-certificate pin for the normal pinned-trust smoke:
+This section is honest about what exists in the repository today versus the
+vision above.
 
-```powershell
-$env:OPENAI_CERT_SHA256 = "<64 hex chars>"
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiCertPinFromEnv
-```
+What boots and works in the VM right now:
 
-Check for accidental provider-key material before committing:
+- UEFI handoff via Limine into a Rust kernel
+- Framebuffer chat UI with `AI`, `CONSOLE`, and `SET` modes
+- Input from serial, USB-HID keyboard, USB-HID mouse, QEMU USB-HID tablet, and
+  PS/2 fallback, with a small framebuffer cursor overlay and Tab/arrow-key
+  focus ring
+- Intel e1000 NIC brought up via DHCP
+- Entropy seeded from RDRAND
+- Direct OpenAI transport with verified DNS, TCP, TLS 1.3, HTTPS, and Responses
+  API behavior
+- A fail-closed provider trust gate that refuses to write HTTPS or copy the API
+  key unless a valid leaf-certificate pin is configured
+- `SET` mode and a `setup` command that accept an API key into a sealed RAM
+  region without echoing it to the serial log
+- Detection of the Surface Pro 4 Marvell AVASTAR 88W8897 Wi-Fi NIC on PCI, plus
+  RAM-only SSID and passphrase capture in the settings UI
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\scan-secrets.ps1
-```
+What is described above but not yet implemented:
 
-Run with an interactive serial console on TCP port 4555:
+- The Agent Protocol as a typed, capability-gated interface (the current
+  transport is direct OpenAI, not a protocol)
+- The capability ledger and policy engine
+- The Shadow VM and evidence verifier
+- Signed replaceable modules and the runtime to load and isolate them
+- Persistence, the rollback transaction log, and the recovery shell as
+  described
+- The permanent core as a write-protected, audited boundary
+- TLS and HTTPS as a replaceable service rather than kernel-resident code
+- Wi-Fi firmware upload, association, WPA, and packet transport for the
+  detected Marvell target
+- Provider-agnostic trust beyond the first OpenAI cert-pin slice
+- Re-binding to new hardware as a supported operation
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-stage0-qemu.ps1 -StopExisting -SerialMode tcp -SerialTcpPort 4555
-```
+The repository today is the **seed** of the system described above: a bootable
+Stage-0 that proves the machine can come up, render itself, accept input, reach
+the network, and talk to a provider end-to-end. The architecture above is the
+direction every subsequent change is steering toward.
 
-Inside the VM, type `setup` to open the OpenAI/API-key menu. Keys are stored in
-guest RAM only for now and are cleared by reboot or the menu's clear command.
-
-Run the headless direct-provider smoke test:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinnedTrust
-```
-
-Prepare for bare-metal USB testing:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\list-usb-disks.ps1
-```
-
-See `docs/BARE_METAL.md` before writing a USB stick. The write script is
-destructive and requires an explicit disk number plus confirmation string.
-
-Run workspace tests:
-
-```powershell
-cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server
-```
-
-Format check:
-
-```powershell
-cargo fmt --all -- --check
-```
-
-## Important Boundaries
-
-- Keep Limine for the MVP. It is the boot handoff layer, not the OS runtime.
-- Do not port the Codex CLI into Stage-0.
-- Build a native raiOS agent protocol with explicit capability-gated tools.
-- Keep kernel changes small and boot-testable.
-- Preserve `release/raios-stage0.img` as the known bootable image until a new
-  image has been tested visually and via serial logs.
-
-## Local Convenience
-
-There is a Desktop shortcut on this machine:
-
-```text
-C:\Users\admin\Desktop\raiOS Codex Bypass.lnk
-```
-
-It launches Codex in this repo with approvals and sandbox disabled. Use it only
-when that level of local access is intended.
+For the exact next task and current verified state, see
+`docs/PROJECT_STATUS.md`. For the phased plan, see `docs/ROADMAP.md`. For the
+foundational architecture decision, see
+`docs/architecture-decisions/0001-raisos-agent-protocol.md`.
