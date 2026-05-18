@@ -9,7 +9,7 @@
   agent host, and a path toward live-rebuildable services.
 </p>
 
-SeedOS/RaiOS2 is meant to become an AI-native, live-rebuildable operating
+SeedOS/RaiOS is meant to become an AI-native, live-rebuildable operating
 system: a tiny always-on recovery core plus replaceable services that an AI can
 inspect, test, extend, and roll back through a native capability protocol.
 
