@@ -72,7 +72,7 @@ The trade pays off in three directions:
   context. The AI reasons about your real code, not an abstract OS.
 - **Sharper personalization.** Capabilities, policies, and services are
   calibrated to you. The text editor you used yesterday and the one you use
-  today might be entirely different programs.
+  today might be entirely different programs because you implemented a few things on the side.
 
 When you change machines, raisOS doesn't port — it re-binds, building a fresh
 instance on new hardware while carrying forward your policies, modules, and
