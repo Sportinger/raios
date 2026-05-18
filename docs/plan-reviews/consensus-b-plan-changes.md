@@ -1,9 +1,9 @@
-# Konsens B: Plan-Aenderungen fuer raisOS
+# Konsens B: Plan-Aenderungen fuer raiOS
 
 ## Zusammenfassung
 
 Die drei Reviews stimmen im Kern ueberein: Der aktuelle Stage-0-MVP ist stark,
-aber der Plan darf daraus nicht ableiten, dass raisOS schon eine
+aber der Plan darf daraus nicht ableiten, dass raiOS schon eine
 live-rebuildable Runtime besitzt. Im Code existieren Boot, UI, Console, USB-HID,
 e1000/DHCP/DNS/TCP, direkter OpenAI-HTTPS-Pfad und RAM-only Setup. Was fehlt,
 sind die tragenden Grenzen aus ADR 0002 und ADR 0003: maschinenlesbare
@@ -71,7 +71,7 @@ steht.
 7. Der VM-Harness muss zuerst Reports erzeugen, nicht sofort Fault-Injection
    koennen.
    `vm-harness/openai-direct-smoke.ps1` ist der richtige Start. Der naechste
-   Schritt ist ein `raisos.vm_test_report.v0` mit Image-Hash, QEMU-Args-Hash,
+   Schritt ist ein `raios.vm_test_report.v0` mit Image-Hash, QEMU-Args-Hash,
    Hardwareprofil, Commands, Predicates, Ergebnis und Serial-Log-Pfad. QMP,
    Power-Faults und Golden-Screenshot-Diffs koennen spaeter folgen.
 
@@ -228,7 +228,7 @@ steht.
    Read-only Caps zuerst. Mutierende Methoden liefern
    `capability_denied`. UI und Console nutzen weiter abgeleitete Human-Zeilen.
 
-5. VM-Smoke zu `raisos.vm_test_report.v0` erweitern.
+5. VM-Smoke zu `raios.vm_test_report.v0` erweitern.
    Noch ohne QMP-Pflicht. Report unter einem klaren Output-Pfad, mit Hashbindung
    und Predicate-Ergebnis.
 

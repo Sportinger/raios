@@ -1,7 +1,7 @@
 param(
     [ValidateSet("debug", "release")]
     [string]$Profile = "release",
-    [string]$Image = "$PSScriptRoot\..\release\raisos-stage0.img",
+    [string]$Image = "$PSScriptRoot\..\release\raios-stage0.img",
     [switch]$EmbedOpenAiApiKeyFromEnv,
     [string]$OpenAiApiKeyEnvVar = "OPENAI_API_KEY",
     [switch]$EmbedOpenAiCertPinFromEnv,
@@ -13,7 +13,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$DefaultImage = Join-Path $RepoRoot "release\raisos-stage0.img"
+$DefaultImage = Join-Path $RepoRoot "release\raios-stage0.img"
 $BaseEspDir = Join-Path $RepoRoot "release\esp"
 $TempEspDir = $null
 $EspDir = $BaseEspDir
@@ -31,12 +31,12 @@ try {
         $imageFullPath = [IO.Path]::GetFullPath($Image)
         $defaultImageFullPath = [IO.Path]::GetFullPath($DefaultImage)
         if ($imageFullPath -eq $defaultImageFullPath) {
-            throw "Refusing to write a provider-key image to release\raisos-stage0.img. Use an ignored local image path such as release\raisos-stage0-local-openai.img."
+            throw "Refusing to write a provider-key image to release\raios-stage0.img. Use an ignored local image path such as release\raios-stage0-local-openai.img."
         }
     }
 
     if ($UseTempEsp) {
-        $TempEspDir = Join-Path $env:TEMP "raisos-stage0-esp-$PID"
+        $TempEspDir = Join-Path $env:TEMP "raios-stage0-esp-$PID"
         Remove-Item -LiteralPath $TempEspDir -Recurse -Force -ErrorAction SilentlyContinue
         Copy-Item -LiteralPath $BaseEspDir -Destination $TempEspDir -Recurse -Force
         $EspDir = $TempEspDir

@@ -25,7 +25,7 @@ Massstab fuer Aufnahme:
    aber `NoVerify` darf nicht Basis fuer Snapshot-Kontext, Toolverkehr,
    Recovery, Enrollment, OTA oder Persistenz werden.
 
-2. **Vor Live-Loading braucht raisOS eine read-only Selbstbeschreibung.**
+2. **Vor Live-Loading braucht raiOS eine read-only Selbstbeschreibung.**
    `system.snapshot.v0`, `system.capabilities`, `system.boot_log`,
    `device.graph`, `problem.list` und `service.inventory` muessen zuerst als
    maschinenlesbarer Vertrag geplant werden.
@@ -47,7 +47,7 @@ Massstab fuer Aufnahme:
 6. **Module/Runtime/Persistenz brauchen erst Manifest-, Testreport- und
    Attestation-V0.** Ein signiertes Artefakt allein reicht nicht. Vor
    `module.load_ephemeral` oder Persistenz braucht der Plan mindestens
-   `module_manifest.v0`, `raisos.vm_test_report.v0` und lokale Acceptance-/
+   `module_manifest.v0`, `raios.vm_test_report.v0` und lokale Acceptance-/
    Attestation-Regeln.
 
 7. **Persistence und Bootmedien-Schreibpfade brauchen ein Layout-Dokument vor

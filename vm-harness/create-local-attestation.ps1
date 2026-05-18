@@ -61,8 +61,8 @@ if (-not $validation.valid) {
 }
 
 $report = Get-Content -Raw -LiteralPath $resolvedReport | ConvertFrom-Json
-if ($report.schema -ne "raisos.vm_test_report.v0") {
-    throw "VM report schema must be raisos.vm_test_report.v0"
+if ($report.schema -ne "raios.vm_test_report.v0") {
+    throw "VM report schema must be raios.vm_test_report.v0"
 }
 if ($report.result -ne "passed") {
     throw "VM report result must be passed"
@@ -144,7 +144,7 @@ $outputHashPath = "$outputPath.sha256"
 $rollbackPlan = if ($LoadMode -eq "ram_only") { "drop_on_reboot_or_kill_service" } else { "proposal_record_only" }
 
 $attestation = [ordered]@{
-    schema = "raisos.local_attestation.v0"
+    schema = "raios.local_attestation.v0"
     attestation_id = $attestationId
     created_at_utc = ([DateTime]::UtcNow.ToString("o"))
     result = "evidence_recorded_load_still_denied_in_stage0"

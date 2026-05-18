@@ -6,7 +6,7 @@
 .DS_Store
 .venv/
 release/esp/NvVars
-/release/raisos-stage0-local*.img
+/release/raios-stage0-local*.img
 /release/*openai*.img
 /release/*secret*.img
 /release/vm-reports/

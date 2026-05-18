@@ -42,7 +42,7 @@ strong Stage-0 MVP, not yet a live-rebuildable OS. The next plan steps are now:
 
 ## Deferred
 - Guest Wasm runtime.
-- OTA consumption inside raisOS.
+- OTA consumption inside raiOS.
 - Persistent secret storage.
 - Recovery over normal OpenAI chat.
 - Core-generation handoff.

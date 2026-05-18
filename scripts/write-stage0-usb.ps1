@@ -44,14 +44,14 @@ function New-GptFat32BootPartition {
         [string]$DriveLetter
     )
 
-    $diskpartScript = Join-Path $env:TEMP "raisos-usb-gpt-$PID.diskpart"
+    $diskpartScript = Join-Path $env:TEMP "raios-usb-gpt-$PID.diskpart"
     @"
 select disk $DiskNumber
 clean
 convert gpt noerr
 create partition primary size=$SizeMB
 select partition 1
-format quick fs=fat32 label=RAISOS
+format quick fs=fat32 label=RAIOS
 assign letter=$DriveLetter
 set id=c12a7328-f81f-11d2-ba4b-00a0c93ec93b override
 exit
@@ -116,7 +116,7 @@ try {
 
     if (-not $SkipBuild) {
         if ($RequiresFreshKernelBuild) {
-            $TempEspDir = Join-Path $env:TEMP "raisos-baremetal-esp-$PID"
+            $TempEspDir = Join-Path $env:TEMP "raios-baremetal-esp-$PID"
             Remove-Item -LiteralPath $TempEspDir -Recurse -Force -ErrorAction SilentlyContinue
             Copy-Item -LiteralPath $BaseEspDir -Destination $TempEspDir -Recurse -Force
             $SourceEspDir = $TempEspDir
@@ -190,7 +190,7 @@ try {
         $volume = Format-Volume `
             -Partition $partition `
             -FileSystem FAT32 `
-            -NewFileSystemLabel "RAISOS" `
+            -NewFileSystemLabel "RAIOS" `
             -Confirm:$false
         $driveLetter = $volume.DriveLetter
         if ([string]::IsNullOrWhiteSpace($driveLetter)) {
@@ -204,7 +204,7 @@ try {
     $targetRoot = "${driveLetter}:\"
     Copy-Item -Path (Join-Path $SourceEspDir "*") -Destination $targetRoot -Recurse -Force
 
-    Write-Host "raisOS USB prepared at $targetRoot"
+    Write-Host "raiOS USB prepared at $targetRoot"
     Write-Host "UEFI boot path: EFI\BOOT\BOOTX64.EFI"
     Write-Host "Kernel path: kernel\kernel.elf"
 }

@@ -15,7 +15,7 @@ registry/
 Index records capture the payload hash, byte length, signer key id, and the logical name/version extracted from the manifest metadata. Filenames are sanitised to ensure portability.
 
 Evidence references are optional and host-side only. A registry entry may bind
-`raisos.vm_test_report.v0` and `raisos.local_attestation.v0` JSON files by
+`raios.vm_test_report.v0` and `raios.local_attestation.v0` JSON files by
 SHA-256 and relative registry path. Publishing copies those evidence files into
 `evidence/` and records their schema, kind, result, and hash in the index
 record. The publisher reads the SHA-256 from the evidence tool's adjacent

@@ -2,7 +2,7 @@
 
 ## Product Thesis
 
-raisOS should be a tiny bootable environment whose primary interface is an
+raiOS should be a tiny bootable environment whose primary interface is an
 AI agent host. The OS should be small enough to understand, boot quickly in a VM,
 and expose narrow, auditable capabilities to an AI provider through native
 provider adapters.
@@ -13,7 +13,7 @@ should implement its own minimal protocol surface.
 
 ## North Star Architecture
 
-The long-term target is stronger than a small OS with a provider client. raisOS
+The long-term target is stronger than a small OS with a provider client. raiOS
 should become an always-on core plus a live-rebuildable world:
 
 ```text
@@ -188,7 +188,7 @@ be treated as safe.
 Goal:
 
 ```text
-Prompt + redacted read-only context -> provider adapter -> response rendered in raisOS
+Prompt + redacted read-only context -> provider adapter -> response rendered in raiOS
 ```
 
 Scope:
@@ -392,7 +392,7 @@ Scope:
 
 Definition of done:
 
-- raisOS can persist a tested live change, recover from a bad persistent change,
+- raiOS can persist a tested live change, recover from a bad persistent change,
   and eventually replace even core generations without a normal user-visible
   reinstall cycle.
 - The current single-FAT Stage-0 image remains explicitly documented as the MVP

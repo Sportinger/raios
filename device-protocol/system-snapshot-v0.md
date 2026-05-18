@@ -1,7 +1,7 @@
-# raisOS System Snapshot V0
+# raiOS System Snapshot V0
 
 `system.snapshot.v0` is the first typed, read-only machine snapshot exposed by
-`raisos.agent.v0`. It reports current-boot facts only. It is not an authority for
+`raios.agent.v0`. It reports current-boot facts only. It is not an authority for
 mutating decisions, persistence, provider trust, or module loading.
 
 The current Stage-0 kernel emits this schema from the serial-accessible
@@ -24,8 +24,8 @@ The current kernel output is a JSON response body result with this shape:
 {
   "schema": "system.snapshot.v0",
   "os": {
-    "name": "raisOS",
-    "product": "raisOS",
+    "name": "raiOS",
+    "product": "raiOS",
     "stage": "stage-0"
   },
   "status": {

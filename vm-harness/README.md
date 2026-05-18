@@ -13,7 +13,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smo
 temporary Stage-0 image unless `-Image` is provided, boots QEMU headless with no
 shared folders and networking disabled by default, sends read-only agent
 protocol commands over TCP serial, verifies mutating module load remains
-`capability_denied`, kills QEMU, and writes a `raisos.vm_test_report.v0` JSON
+`capability_denied`, kills QEMU, and writes a `raios.vm_test_report.v0` JSON
 report under `release\vm-reports`.
 
 The current Shadow-VM profile is fixed and recorded in each report as
@@ -48,7 +48,7 @@ from the tuple of manifest hash, artifact hash, VM report hash, base image hash,
 and load mode, not from the artifact hash alone.
 
 `openai-direct-smoke.ps1` starts QEMU headless with TCP serial against the local
-OpenAI-default image at `release\raisos-stage0-local-openai.img`. By default it
+OpenAI-default image at `release\raios-stage0-local-openai.img`. By default it
 sends one `ask <text>` command and verifies the current trust gate denies the
 request with `pin_config_missing` before any HTTPS write. With
 `-ExpectPinnedTrust`, it expects an image built with `-EmbedOpenAiCertPinFromEnv`

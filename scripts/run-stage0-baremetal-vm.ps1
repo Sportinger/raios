@@ -1,6 +1,6 @@
 param(
-    [string]$Image = "$PSScriptRoot\..\release\raisos-stage0.img",
-    [string]$SerialLog = "$env:TEMP\raisos-stage0-baremetal.serial.txt",
+    [string]$Image = "$PSScriptRoot\..\release\raios-stage0.img",
+    [string]$SerialLog = "$env:TEMP\raios-stage0-baremetal.serial.txt",
     [ValidateSet("file", "tcp")]
     [string]$SerialMode = "tcp",
     [int]$SerialTcpPort = 4555,

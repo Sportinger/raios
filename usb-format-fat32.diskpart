@@ -1,5 +1,5 @@
 select disk 2
 select partition 1
-format quick fs=fat32 label=RAISOS
+format quick fs=fat32 label=RAIOS
 assign letter=D
 exit

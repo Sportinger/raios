@@ -1,6 +1,6 @@
-# raisOS VM Test Report V0
+# raiOS VM Test Report V0
 
-`raisos.vm_test_report.v0` is the first machine-readable evidence artifact for
+`raios.vm_test_report.v0` is the first machine-readable evidence artifact for
 Shadow-VM checks. It is produced by:
 
 ```powershell
@@ -37,7 +37,7 @@ The JSON report contains:
 
 ```json
 {
-  "schema": "raisos.vm_test_report.v0",
+  "schema": "raios.vm_test_report.v0",
   "result": "passed",
   "run_id": "shadow-...",
   "sandbox_policy": {
@@ -60,7 +60,7 @@ The JSON report contains:
     "validation": null
   },
   "hardware_profile": {
-    "profile": "raisos.shadow_vm.q35_xhci.v0",
+    "profile": "raios.shadow_vm.q35_xhci.v0",
     "machine": "q35",
     "memory": "512M",
     "cpu": "max",

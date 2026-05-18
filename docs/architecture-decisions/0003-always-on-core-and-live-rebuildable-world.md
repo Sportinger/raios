@@ -1,10 +1,10 @@
 # ADR 0003: Always-On Core And Live-Rebuildable World
 
 ## Status
-Draft for the long-term raisOS architecture.
+Draft for the long-term raiOS architecture.
 
 ## Context
-The Stage-0 MVP currently proves that raisOS can boot directly into a small
+The Stage-0 MVP currently proves that raiOS can boot directly into a small
 agent host with framebuffer UI, input, e1000 networking, DHCP, DNS, TLS/HTTPS,
 and direct OpenAI API calls. That is useful, but it is not the final shape.
 
@@ -21,7 +21,7 @@ reboot. The VM remains important, but as a shadow safety pass and regression
 environment, not as the only place where changes can be tried.
 
 ## Decision
-raisOS should evolve toward a permanent minimal core plus a live-rebuildable
+raiOS should evolve toward a permanent minimal core plus a live-rebuildable
 world above it.
 
 The permanent core is not the whole OS. It is the survival layer:
@@ -169,13 +169,13 @@ persist_service_set
 ```
 
 V0 live loading is not allowed merely because these primitives are named. Before
-`load_service_ephemeral` can succeed, raisOS needs at least a service id,
+`load_service_ephemeral` can succeed, raiOS needs at least a service id,
 manifest, computed capability grants, VM test report, local attestation record,
 health check, and audit record. Missing evidence should produce a structured
 denial rather than a partial load.
 
 ## Agent Workspace
-raisOS should eventually contain its own agent workspace rather than only being
+raiOS should eventually contain its own agent workspace rather than only being
 edited from an external development machine. The workspace is a structured
 system object, not a POSIX-like shell requirement:
 
@@ -216,7 +216,7 @@ profile, and snapshot preconditions.
 
 ## Toward No Visible Reboot
 "No reboot" means no visible full restart of the user's system. Internally,
-raisOS may still pause, quiesce, restart services, or perform a core-generation
+raiOS may still pause, quiesce, restart services, or perform a core-generation
 handoff.
 
 Most updates should use service hot-swap:

@@ -20,9 +20,9 @@ if (-not ((rustup toolchain list) -match [regex]::Escape($Toolchain))) {
 }
 
 $oldRustFlags = $env:RUSTFLAGS
-$oldDefaultOpenAiApiKey = $env:RAISOS_DEFAULT_OPENAI_API_KEY
-$oldOpenAiCertSha256 = $env:RAISOS_OPENAI_CERT_SHA256
-$oldAllowUnverifiedOpenAiTls = $env:RAISOS_ALLOW_UNVERIFIED_OPENAI_TLS
+$oldDefaultOpenAiApiKey = $env:RAIOS_DEFAULT_OPENAI_API_KEY
+$oldOpenAiCertSha256 = $env:RAIOS_OPENAI_CERT_SHA256
+$oldAllowUnverifiedOpenAiTls = $env:RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS
 $kernelRustFlags = @(
     "-C", "link-arg=-T$LinkerScript",
     "-C", "relocation-model=static",
@@ -37,10 +37,10 @@ try {
         if ([string]::IsNullOrWhiteSpace($apiKey)) {
             throw "Environment variable '$OpenAiApiKeyEnvVar' is not set."
         }
-        $env:RAISOS_DEFAULT_OPENAI_API_KEY = $apiKey
+        $env:RAIOS_DEFAULT_OPENAI_API_KEY = $apiKey
     }
     else {
-        Remove-Item Env:\RAISOS_DEFAULT_OPENAI_API_KEY -ErrorAction SilentlyContinue
+        Remove-Item Env:\RAIOS_DEFAULT_OPENAI_API_KEY -ErrorAction SilentlyContinue
     }
 
     if ($EmbedOpenAiCertPinFromEnv) {
@@ -48,17 +48,17 @@ try {
         if ([string]::IsNullOrWhiteSpace($certPin)) {
             throw "Environment variable '$OpenAiCertPinEnvVar' is not set."
         }
-        $env:RAISOS_OPENAI_CERT_SHA256 = $certPin
+        $env:RAIOS_OPENAI_CERT_SHA256 = $certPin
     }
     else {
-        Remove-Item Env:\RAISOS_OPENAI_CERT_SHA256 -ErrorAction SilentlyContinue
+        Remove-Item Env:\RAIOS_OPENAI_CERT_SHA256 -ErrorAction SilentlyContinue
     }
 
     if ($AllowUnverifiedOpenAiTls) {
-        $env:RAISOS_ALLOW_UNVERIFIED_OPENAI_TLS = "1"
+        $env:RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS = "1"
     }
     else {
-        Remove-Item Env:\RAISOS_ALLOW_UNVERIFIED_OPENAI_TLS -ErrorAction SilentlyContinue
+        Remove-Item Env:\RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS -ErrorAction SilentlyContinue
     }
 
     $env:RUSTFLAGS = "$kernelRustFlags $oldRustFlags".Trim()
@@ -81,22 +81,22 @@ try {
 finally {
     $env:RUSTFLAGS = $oldRustFlags
     if ($null -eq $oldDefaultOpenAiApiKey) {
-        Remove-Item Env:\RAISOS_DEFAULT_OPENAI_API_KEY -ErrorAction SilentlyContinue
+        Remove-Item Env:\RAIOS_DEFAULT_OPENAI_API_KEY -ErrorAction SilentlyContinue
     }
     else {
-        $env:RAISOS_DEFAULT_OPENAI_API_KEY = $oldDefaultOpenAiApiKey
+        $env:RAIOS_DEFAULT_OPENAI_API_KEY = $oldDefaultOpenAiApiKey
     }
     if ($null -eq $oldOpenAiCertSha256) {
-        Remove-Item Env:\RAISOS_OPENAI_CERT_SHA256 -ErrorAction SilentlyContinue
+        Remove-Item Env:\RAIOS_OPENAI_CERT_SHA256 -ErrorAction SilentlyContinue
     }
     else {
-        $env:RAISOS_OPENAI_CERT_SHA256 = $oldOpenAiCertSha256
+        $env:RAIOS_OPENAI_CERT_SHA256 = $oldOpenAiCertSha256
     }
     if ($null -eq $oldAllowUnverifiedOpenAiTls) {
-        Remove-Item Env:\RAISOS_ALLOW_UNVERIFIED_OPENAI_TLS -ErrorAction SilentlyContinue
+        Remove-Item Env:\RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS -ErrorAction SilentlyContinue
     }
     else {
-        $env:RAISOS_ALLOW_UNVERIFIED_OPENAI_TLS = $oldAllowUnverifiedOpenAiTls
+        $env:RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS = $oldAllowUnverifiedOpenAiTls
     }
 }
 

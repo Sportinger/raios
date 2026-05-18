@@ -1,6 +1,6 @@
-# raisOS Local Attestation V0
+# raiOS Local Attestation V0
 
-`raisos.local_attestation.v0` records that a local user approved the exact
+`raios.local_attestation.v0` records that a local user approved the exact
 manifest, artifact, and Shadow-VM report tuple for a future load gate. It still
 does not load code in Stage-0.
 

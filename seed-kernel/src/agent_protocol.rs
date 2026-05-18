@@ -192,10 +192,10 @@ fn emit_describe() {
     begin_response("system.describe");
     raw_line("      \"schema\": \"system.describe.v0\",");
     raw_line(
-        "      \"os\": {\"name\": \"raisOS\", \"product\": \"raisOS\", \"stage\": \"stage-0\"},",
+        "      \"os\": {\"name\": \"raiOS\", \"product\": \"raiOS\", \"stage\": \"stage-0\"},",
     );
     raw_line("      \"protocol\": {");
-    raw_line("        \"version\": \"raisos.agent.v0\",");
+    raw_line("        \"version\": \"raios.agent.v0\",");
     raw_line("        \"transport\": \"serial-console\",");
     raw_line("        \"provider_context_injection\": \"disabled_until_tls_trust_gate\",");
     raw_line("        \"mutation_policy\": \"denied_by_default\"");
@@ -216,7 +216,7 @@ fn emit_snapshot(runtime: ui::RuntimeStatus) {
     begin_response("system.snapshot");
     raw_line("      \"schema\": \"system.snapshot.v0\",");
     raw_line(
-        "      \"os\": {\"name\": \"raisOS\", \"product\": \"raisOS\", \"stage\": \"stage-0\"},",
+        "      \"os\": {\"name\": \"raiOS\", \"product\": \"raiOS\", \"stage\": \"stage-0\"},",
     );
     raw_line("      \"status\": {");
     emit_status_state("framebuffer", status.framebuffer.state, true);
@@ -382,9 +382,9 @@ fn emit_service_inventory(runtime: ui::RuntimeStatus) {
 }
 
 fn emit_capability_denied(method: &'static str) {
-    serial::write_raw_fmt(format_args!("RAISOS_AGENT_BEGIN {}\r\n", method));
+    serial::write_raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
     raw_line("{");
-    raw_line("  \"v\": \"raisos.agent.v0\",");
+    raw_line("  \"v\": \"raios.agent.v0\",");
     raw_line("  \"t\": \"error\",");
     raw_line("  \"id\": \"serial\",");
     raw_line("  \"body\": {");
@@ -396,8 +396,8 @@ fn emit_capability_denied(method: &'static str) {
     json_str("mutating agent methods are denied until manifest, VM test report, local attestation, policy grant, approval, and rollback evidence exist");
     raw_line(",");
     raw_line("    \"required\": [");
-    raw_line("      \"raisos.module_manifest.v0\",");
-    raw_line("      \"raisos.vm_test_report.v0\",");
+    raw_line("      \"raios.module_manifest.v0\",");
+    raw_line("      \"raios.vm_test_report.v0\",");
     raw_line("      \"local_attestation.v0\",");
     raw_line("      \"computed_capability_grant\",");
     raw_line("      \"local_approval\",");
@@ -405,7 +405,7 @@ fn emit_capability_denied(method: &'static str) {
     raw_line("    ]");
     raw_line("  }");
     raw_line("}");
-    serial::write_raw_fmt(format_args!("RAISOS_AGENT_END {}\r\n", method));
+    serial::write_raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
 }
 
 fn emit_provider_object(provider: &provider::Snapshot, comma: bool) {
@@ -686,9 +686,9 @@ fn emit_inline_string_array(values: &[&str]) {
 }
 
 fn begin_response(method: &'static str) {
-    serial::write_raw_fmt(format_args!("RAISOS_AGENT_BEGIN {}\r\n", method));
+    serial::write_raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
     raw_line("{");
-    raw_line("  \"v\": \"raisos.agent.v0\",");
+    raw_line("  \"v\": \"raios.agent.v0\",");
     raw_line("  \"t\": \"response\",");
     raw_line("  \"id\": \"serial\",");
     raw_line("  \"body\": {");
@@ -702,7 +702,7 @@ fn end_response(method: &'static str) {
     raw_line("    }");
     raw_line("  }");
     raw_line("}");
-    serial::write_raw_fmt(format_args!("RAISOS_AGENT_END {}\r\n", method));
+    serial::write_raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
 }
 
 fn denied_method(method: &str) -> bool {

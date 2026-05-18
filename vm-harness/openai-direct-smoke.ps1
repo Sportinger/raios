@@ -1,7 +1,7 @@
 param(
     [int]$SerialTcpPort = 4555,
     [string]$Prompt = "direct provider smoke",
-    [string]$Image = "$PSScriptRoot\..\release\raisos-stage0-local-openai.img",
+    [string]$Image = "$PSScriptRoot\..\release\raios-stage0-local-openai.img",
     [int]$TimeoutSeconds = 90,
     [switch]$ExpectProviderResponse,
     [switch]$ExpectPinnedTrust,
@@ -21,7 +21,7 @@ if ($modeCount -gt 1) {
 }
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$SerialLog = Join-Path $env:TEMP "raisos-openai-direct-smoke.serial.txt"
+$SerialLog = Join-Path $env:TEMP "raios-openai-direct-smoke.serial.txt"
 $RunScript = Join-Path $RepoRoot "scripts\run-stage0-qemu.ps1"
 
 function Wait-ForLogText {
@@ -143,7 +143,7 @@ try {
     }
     $oldRelayName = -join ([char[]](66, 82, 73, 68, 71, 69))
     $removedTokens = @(
-        ("RAISOS_" + $oldRelayName),
+        ("RAIOS_" + $oldRelayName),
         ($oldRelayName + " REQUEST"),
         ($oldRelayName + " RESPONSE"),
         ("HOST " + $oldRelayName)

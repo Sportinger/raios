@@ -1,7 +1,7 @@
-# raisOS
+# raiOS
 
 <p align="center">
-  <img src="docs/assets/screenshots/raisos-home.png" alt="raisOS Stage-0 AI home screen running in QEMU" width="920">
+  <img src="docs/assets/screenshots/raios-home.png" alt="raiOS Stage-0 AI home screen running in QEMU" width="920">
 </p>
 
 <p align="center">
@@ -9,7 +9,7 @@
   agent host, and a path toward live-rebuildable services.
 </p>
 
-raisOS is meant to become an AI-native, live-rebuildable operating
+raiOS is meant to become an AI-native, live-rebuildable operating
 system: a tiny always-on recovery core plus replaceable services that an AI can
 inspect, test, extend, and roll back through a native capability protocol.
 
@@ -23,11 +23,11 @@ live service replacement.
 
 ## What It Is
 
-| 🟢 raisOS is | 🔴 raisOS is not |
+| 🟢 raiOS is | 🔴 raiOS is not |
 | --- | --- |
 | 🟢 A real bootable OS workspace, not a hosted web app or a Linux skin. | 🔴 A Linux distribution or desktop environment. |
 | 🟢 A Stage-0 kernel with framebuffer UI, serial diagnostics, input, e1000 DHCP, RAM-only provider setup, direct OpenAI transport code, a fail-closed provider trust gate, and first OpenAI cert-pin verification. | 🔴 A port of the Codex CLI into the kernel. |
-| 🟢 The foundation for a native raisOS agent protocol where every future AI action is observable, capability-gated, testable, and reversible. | 🔴 A fake cloud agent, mock provider path, or host-side serial relay. |
+| 🟢 The foundation for a native raiOS agent protocol where every future AI action is observable, capability-gated, testable, and reversible. | 🔴 A fake cloud agent, mock provider path, or host-side serial relay. |
 | 🟢 A fail-closed provider host in the normal build until TLS trust is verified. | 🔴 A complete signed-module, recovery-agent, persistence, or live-update runtime yet. |
 
 First MVP goal:
@@ -75,7 +75,7 @@ project memory, then read the rest in this order:
 3. `docs/PROJECT_STATUS.md` - current verified state and exact next task.
 4. `docs/ROADMAP.md` - overall plan and phase boundaries.
 5. `docs/DEBUGGING.md` - how to build, run, inspect, and debug the VM.
-6. `docs/architecture-decisions/0001-raisos-agent-protocol.md` - core AI agent
+6. `docs/architecture-decisions/0001-raios-agent-protocol.md` - core AI agent
    architecture decision.
 7. `docs/SECRETS.md` - local provider-key and key-bearing artifact handling.
 
@@ -84,7 +84,7 @@ project memory, then read the rest in this order:
 The current bootable MVP artifact is:
 
 ```text
-release/raisos-stage0.img
+release/raios-stage0.img
 ```
 
 It has been visually verified in QEMU on Windows. It boots through Limine,
@@ -111,7 +111,7 @@ Expected first screen text:
 
 ```text
 AI  CONSOLE                                      SET
-RAISOS
+RAIOS
 DIRECT AI HOST
 NET CONFIGURED   INPUT READY   USB READY   RNG READY
 CHAT
@@ -125,11 +125,11 @@ They are not mockups.
 
 | Console status | Provider and Wi-Fi settings |
 | --- | --- |
-| <img src="docs/assets/screenshots/raisos-console-status.png" alt="raisOS console status mode with boot, device, and network diagnostics" width="100%"> | <img src="docs/assets/screenshots/raisos-settings.png" alt="raisOS settings mode showing provider key state and Wi-Fi setup controls" width="100%"> |
+| <img src="docs/assets/screenshots/raios-console-status.png" alt="raiOS console status mode with boot, device, and network diagnostics" width="100%"> | <img src="docs/assets/screenshots/raios-settings.png" alt="raiOS settings mode showing provider key state and Wi-Fi setup controls" width="100%"> |
 
 | Direct AI chat, development override | Stage-0 home screen |
 | --- | --- |
-| <img src="docs/assets/screenshots/raisos-openai-chat.png" alt="raisOS AI chat mode showing a direct provider response from a development override image" width="100%"> | <img src="docs/assets/screenshots/raisos-home.png" alt="raisOS AI home screen with network, input, USB, and RNG status" width="100%"> |
+| <img src="docs/assets/screenshots/raios-openai-chat.png" alt="raiOS AI chat mode showing a direct provider response from a development override image" width="100%"> | <img src="docs/assets/screenshots/raios-home.png" alt="raiOS AI home screen with network, input, USB, and RNG status" width="100%"> |
 
 Regenerate them locally with a process-local `OPENAI_API_KEY`. The screenshot
 harness uses the explicit unverified TLS development override for the chat
@@ -169,14 +169,14 @@ Build a local OpenAI-default image from `OPENAI_API_KEY` without touching the
 tracked ESP staging directory:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raisos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
 ```
 
 Add the current OpenAI leaf-certificate pin for the normal pinned-trust smoke:
 
 ```powershell
 $env:OPENAI_CERT_SHA256 = "<64 hex chars>"
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raisos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiCertPinFromEnv
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiCertPinFromEnv
 ```
 
 Check for accidental provider-key material before committing:
@@ -226,9 +226,9 @@ cargo fmt --all -- --check
 
 - Keep Limine for the MVP. It is the boot handoff layer, not the OS runtime.
 - Do not port the Codex CLI into Stage-0.
-- Build a native raisOS agent protocol with explicit capability-gated tools.
+- Build a native raiOS agent protocol with explicit capability-gated tools.
 - Keep kernel changes small and boot-testable.
-- Preserve `release/raisos-stage0.img` as the known bootable image until a new
+- Preserve `release/raios-stage0.img` as the known bootable image until a new
   image has been tested visually and via serial logs.
 
 ## Local Convenience
@@ -236,7 +236,7 @@ cargo fmt --all -- --check
 There is a Desktop shortcut on this machine:
 
 ```text
-C:\Users\admin\Desktop\raisOS Codex Bypass.lnk
+C:\Users\admin\Desktop\raiOS Codex Bypass.lnk
 ```
 
 It launches Codex in this repo with approvals and sandbox disabled. Use it only

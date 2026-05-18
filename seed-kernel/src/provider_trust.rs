@@ -1,7 +1,7 @@
 use spin::Mutex;
 
-const OPENAI_CERT_SHA256: Option<&str> = option_env!("RAISOS_OPENAI_CERT_SHA256");
-const ALLOW_UNVERIFIED_OPENAI_TLS: Option<&str> = option_env!("RAISOS_ALLOW_UNVERIFIED_OPENAI_TLS");
+const OPENAI_CERT_SHA256: Option<&str> = option_env!("RAIOS_OPENAI_CERT_SHA256");
+const ALLOW_UNVERIFIED_OPENAI_TLS: Option<&str> = option_env!("RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS");
 
 static STATE: Mutex<RuntimeTrust> = Mutex::new(RuntimeTrust::new());
 

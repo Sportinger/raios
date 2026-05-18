@@ -209,7 +209,7 @@ an den Eintrag.
 ### 7. VM-Harness ist noch kein Acceptance-Harness
 
 `vm-harness/openai-direct-smoke.ps1` ist wertvoll, aber es ist ein Smoke-Test.
-Es erstellt keinen maschinenlesbaren `raisos.vm_test_report.v0` und hat keine
+Es erstellt keinen maschinenlesbaren `raios.vm_test_report.v0` und hat keine
 QMP-Orchestrierung.
 
 Abweichungen zum Runbook:
@@ -273,7 +273,7 @@ nachstellen.
 - **Scheinsicherheit durch Host-Tools:** Signatur, Registry und Fake Cloud sind
   testbar, aber das Geraet konsumiert diese Schiene noch nicht. Ein erfolgreicher
   `fake-cloud-server`-Test beweist daher noch keine OTA- oder Runtime-Faehigkeit
-  im raisOS-Gast.
+  im raiOS-Gast.
 - **TLS-Sicherheitsluecke:** Der direkte Providerpfad funktioniert, aber
   `NoVerify` darf nicht zur Basis fuer Enrollment, OTA oder persistente
   Agent-Aktionen werden.
@@ -408,7 +408,7 @@ zuerst reproduzierbare Fakten liefern:
    Inhalt:
    JSON-Envelope, Request/Response/Error, `system.snapshot.v0`,
    Capability-Namen, Capability-Denial, Redaction-Klassen, `module_manifest.v0`
-   und `raisos.vm_test_report.v0`.
+   und `raios.vm_test_report.v0`.
 
 2. **Read-only Snapshot aus bestehendem Statusmodell ableiten**
 
@@ -443,7 +443,7 @@ zuerst reproduzierbare Fakten liefern:
 
    Task:
    Neben den bestehenden seriellen Marker-Pruefungen einen
-   `raisos.vm_test_report.v0` schreiben: Image-Hash, QEMU-Args-Hash,
+   `raios.vm_test_report.v0` schreiben: Image-Hash, QEMU-Args-Hash,
    Hardwareprofil `qemu-e1000-usb-xhci-v0`, Commands, Predicates, Result,
    Serial-Log-Pfad.
 

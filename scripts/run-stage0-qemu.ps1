@@ -1,6 +1,6 @@
 param(
-    [string]$Image = "$PSScriptRoot\..\release\raisos-stage0.img",
-    [string]$SerialLog = "$env:TEMP\raisos-stage0.serial.txt",
+    [string]$Image = "$PSScriptRoot\..\release\raios-stage0.img",
+    [string]$SerialLog = "$env:TEMP\raios-stage0.serial.txt",
     [ValidateSet("file", "tcp")]
     [string]$SerialMode = "file",
     [int]$SerialTcpPort = 4555,
@@ -39,8 +39,8 @@ if ($StopExisting) {
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Qemu = "C:\Program Files\qemu\qemu-system-x86_64.exe"
 $CodeSrc = "C:\Program Files\qemu\share\edk2-x86_64-code.fd"
-$Code = Join-Path $env:TEMP "raisos-edk2-code-run.fd"
-$Vars = Join-Path $env:TEMP "raisos-ovmf-vars-run.fd"
+$Code = Join-Path $env:TEMP "raios-edk2-code-run.fd"
+$Vars = Join-Path $env:TEMP "raios-ovmf-vars-run.fd"
 $ErrLog = [System.IO.Path]::ChangeExtension($SerialLog, ".err.txt")
 
 Copy-Item -LiteralPath $CodeSrc -Destination $Code -Force

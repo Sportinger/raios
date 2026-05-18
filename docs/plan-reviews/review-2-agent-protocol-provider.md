@@ -7,9 +7,9 @@ als der langfristige Agent-Plan: `ask <text>` bleibt im Gast, nutzt e1000,
 DHCP/DNS, TCP, TLS 1.3, HTTPS und die OpenAI Responses API. Das ist eine starke
 Basis fuer Phase 3/4.
 
-Gleichzeitig ist der aktuelle Pfad noch kein raisOS-Agent-Protokoll. Er ist ein
+Gleichzeitig ist der aktuelle Pfad noch kein raiOS-Agent-Protokoll. Er ist ein
 fest verdrahteter Prompt-Client mit Human-Console-Ausgabe. Es fehlen
-`raisos.agent.v0`, `system.snapshot.v0`, Capability-Entscheidungen,
+`raios.agent.v0`, `system.snapshot.v0`, Capability-Entscheidungen,
 Provider-Redaction, Service-Inventar, Recovery-Lifeline und TLS-Trust. Der
 Plan sollte deshalb die naechsten Schritte umordnen: erst TLS/SPKI
 fail-closed, dann read-only Self-Description und Capability-Registry, danach
@@ -65,8 +65,8 @@ Tool-/Modul-Protokoll und erst spaeter Live-Loading.
   `Route::OpenAiDirect`.
 - `openai::build_request_body()` sendet nur einen freien Prompt. Es gibt keine
   Einbettung eines redigierten `system.snapshot.v0`, keine Tool-Schemas, keine
-  `raisos.agent.v0`-Envelope und keine Korrelation von Provider-Antworten mit
-  raisOS-Protokollmethoden.
+  `raios.agent.v0`-Envelope und keine Korrelation von Provider-Antworten mit
+  raiOS-Protokollmethoden.
 - `console.rs` fuehrt Kommandos direkt aus. `ask`, `setup`, `provider`,
   `openai`, `wifi`, `status`, `devices` und `log` laufen ohne
   Capability-Check, Policy-Entscheidung oder auditierbares
@@ -90,7 +90,7 @@ Tool-/Modul-Protokoll und erst spaeter Live-Loading.
 - `docs/invariant-choices.md` fordert fuer Networking "TLS sessions pinned via
   SHA-256 SPKI hash" und "WebSocket overlay for all control traffic". Der
   aktuelle Runtime-Pfad ist dagegen direkte HTTPS-POSTs an OpenAI. Der Plan
-  muss klar zwischen direktem Provider-Prompt-Pfad und raisOS-Control-Plane
+  muss klar zwischen direktem Provider-Prompt-Pfad und raiOS-Control-Plane
   unterscheiden.
 
 ## Risiken/Probleme
@@ -110,7 +110,7 @@ Tool-/Modul-Protokoll und erst spaeter Live-Loading.
   nullt den gespeicherten Key bei `clear_api_key()`, aber
   `openai::perform_https_request()` kopiert ihn in `let mut key = [0u8; 256]`
   und nullt diese lokale Kopie nach dem HTTPS-Write nicht. Der explizite
-  Local-Image-Pfad per `RAISOS_DEFAULT_OPENAI_API_KEY` ist nuetzlich, muss aber
+  Local-Image-Pfad per `RAIOS_DEFAULT_OPENAI_API_KEY` ist nuetzlich, muss aber
   im Plan als unsicherer Testmodus markiert bleiben.
 - Mittel: `provider_config::copy_api_key()` kopiert in beliebig grosse
   Zielpuffer und gibt bei zu kleinem Puffer eine stillschweigend abgeschnittene
@@ -143,10 +143,10 @@ Tool-/Modul-Protokoll und erst spaeter Live-Loading.
      `system.snapshot.v0` beilegen, aber noch keine mutierenden Tools
      ausfuehren.
 2. `docs/invariant-choices.md` praezisieren: WebSocket bleibt die
-   raisOS-Control-Plane fuer Fake-Cloud/OTA/Module, aber direkter
+   raiOS-Control-Plane fuer Fake-Cloud/OTA/Module, aber direkter
    Provider-HTTPS ist fuer den "no dedicated custom cloud server"-MVP erlaubt.
    Gemeinsame Pflicht bleibt: TLS fail-closed, Pin oder CA-Verification,
-   strukturierte Envelope fuer raisOS-Toolverkehr.
+   strukturierte Envelope fuer raiOS-Toolverkehr.
 3. ADR 0002 als kurzfristige Protokollquelle vor ADR 0003 umsetzen:
    erst `system.describe`, `system.snapshot`, `system.capabilities`,
    `system.boot_log`, `device.graph`, `problem.list`; `module.load_ephemeral`

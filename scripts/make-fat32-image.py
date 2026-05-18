@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the small raisOS FAT32 boot image without Linux mtools."""
+"""Create the small raiOS FAT32 boot image without Linux mtools."""
 
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ class Fat32Builder:
     def _write_boot_region(self) -> None:
         boot = bytearray(SECTOR_SIZE)
         boot[0:3] = b"\xEB\x58\x90"
-        boot[3:11] = b"RAISOS  "
+        boot[3:11] = b"RAIOS  "
         struct.pack_into("<H", boot, 11, SECTOR_SIZE)
         boot[13] = SECTORS_PER_CLUSTER
         struct.pack_into("<H", boot, 14, RESERVED_SECTORS)
@@ -140,7 +140,7 @@ class Fat32Builder:
         boot[64] = 0x80
         boot[66] = 0x29
         struct.pack_into("<I", boot, 67, 0x53454544)
-        boot[71:82] = b"RAISOS     "
+        boot[71:82] = b"RAIOS     "
         boot[82:90] = b"FAT32   "
         boot[510:512] = b"\x55\xAA"
         self._write_sector(0, boot)
