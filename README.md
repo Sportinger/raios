@@ -1,7 +1,7 @@
 # raisOS
 
 <p align="center">
-  <img src="docs/assets/screenshots/raisos-home.png" alt="raisOS home screen" width="920">
+  <img src="docs/assets/screenshots/raios-home.png" alt="raisOS home screen" width="920">
 </p>
 
 <p align="center">
