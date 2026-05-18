@@ -1,4 +1,4 @@
-# SeedOS / RaiOS2
+# SeedOS / RaiOS
 
 <p align="center">
   <img src="docs/assets/screenshots/seedos-home.png" alt="SeedOS Stage-0 AI home screen running in QEMU" width="920">
