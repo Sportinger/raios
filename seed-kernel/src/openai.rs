@@ -12,7 +12,10 @@ use embedded_tls::blocking::{Aes128GcmSha256, NoVerify, TlsConfig, TlsConnection
 use rand_core::{CryptoRng, RngCore};
 use spin::Mutex;
 
-use crate::{entropy, net, provider_config, provider_trust, serial, time, tls_io::KernelTcpStream};
+use crate::{
+    entropy, net, openai_trust::OpenAiPinnedCertVerifier, provider_config, provider_trust, serial,
+    time, tls_io::KernelTcpStream,
+};
 
 const API_HOST: &str = "api.openai.com";
 const API_PORT: u16 = 443;
@@ -351,18 +354,16 @@ enum HttpsResult {
 
 fn perform_https_request(prompt: &str) -> HttpsResult {
     let trust = provider_trust::snapshot();
-    if !trust.allows_provider_request() {
+    if !provider_config::api_key_set() {
+        return HttpsResult::Error(b"OPENAI DIRECT API KEY MISSING");
+    }
+    if !trust.allows_provider_request() && !provider_trust::can_attempt_openai_tls() {
         serial::write_fmt(format_args!(
             "openai: TLS trust denied before API key copy: {}\r\n",
             trust.state.as_protocol()
         ));
         return HttpsResult::Error(trust.state.openai_error());
     }
-
-    let mut key = [0u8; 256];
-    let Some(key_len) = provider_config::copy_api_key(&mut key) else {
-        return HttpsResult::Error(b"OPENAI DIRECT API KEY MISSING");
-    };
 
     let mut read_record_buffer = vec![0u8; TLS_RECORD_BUFFER_SIZE];
     let mut write_record_buffer = vec![0u8; TLS_WRITE_BUFFER_SIZE];
@@ -372,16 +373,51 @@ fn perform_https_request(prompt: &str) -> HttpsResult {
         .enable_rsa_signatures();
     let mut tls = TlsConnection::new(stream, &mut read_record_buffer, &mut write_record_buffer);
 
-    serial::write_line("openai: TLS 1.3 handshake starting (unverified development override)");
+    if trust.development_bypass {
+        serial::write_line("openai: TLS 1.3 handshake starting (unverified development override)");
+    } else {
+        serial::write_line("openai: TLS 1.3 handshake starting (pinned certificate verifier)");
+    }
     let mut rng = KernelRng;
-    if tls
-        .open::<KernelRng, NoVerify>(TlsContext::new(&config, &mut rng))
-        .is_err()
-    {
-        return HttpsResult::Error(b"OPENAI DIRECT TLS HANDSHAKE FAILED");
+    let tls_opened = if trust.development_bypass {
+        tls.open::<KernelRng, NoVerify>(TlsContext::new(&config, &mut rng))
+    } else {
+        tls.open::<KernelRng, OpenAiPinnedCertVerifier>(TlsContext::new(&config, &mut rng))
+    };
+    if tls_opened.is_err() {
+        let trust = provider_trust::snapshot();
+        return HttpsResult::Error(if trust.allows_provider_request() {
+            b"OPENAI DIRECT TLS HANDSHAKE FAILED"
+        } else {
+            trust.state.openai_error()
+        });
     }
     serial::write_line("openai: TLS 1.3 established");
-    serial::write_line("openai: TLS provider trust state: tls_certificate_verification_bypassed");
+    let trust = provider_trust::snapshot();
+    if !trust.allows_provider_request() {
+        serial::write_fmt(format_args!(
+            "openai: TLS trust denied before API key copy: {}\r\n",
+            trust.state.as_protocol()
+        ));
+        return HttpsResult::Error(trust.state.openai_error());
+    }
+    if trust.development_bypass {
+        serial::write_line(
+            "openai: TLS provider trust state: tls_certificate_verification_bypassed",
+        );
+    } else if let Some(pin_id) = trust.pin_id {
+        serial::write_fmt(format_args!(
+            "openai: TLS provider trust verified: pinned_cert sha256:{}\r\n",
+            pin_id
+        ));
+    } else {
+        serial::write_line("openai: TLS provider trust verified: pinned_cert");
+    }
+
+    let mut key = [0u8; 256];
+    let Some(key_len) = provider_config::copy_api_key(&mut key) else {
+        return HttpsResult::Error(b"OPENAI DIRECT API KEY MISSING");
+    };
 
     let body = build_request_body(prompt);
     let header = build_http_header(key_len, body.len());

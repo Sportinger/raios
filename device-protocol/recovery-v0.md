@@ -33,9 +33,10 @@ It may be exposed over one or more future bounded transports:
 
 The normal OpenAI direct provider service is not a recovery transport. It is a
 replaceable service candidate named `svc.provider.openai_direct`, depends on the
-normal network/TLS/provider stack, currently has unverified TLS in Stage-0, and
-can itself be crashed, disabled, misconfigured, or rolled back. A component that
-may need recovery cannot also be the trusted recovery lifeline.
+normal network/TLS/provider stack, has only normal provider trust rather than
+recovery trust, and can itself be crashed, disabled, misconfigured, or rolled
+back. A component that may need recovery cannot also be the trusted recovery
+lifeline.
 
 ## Trust States
 

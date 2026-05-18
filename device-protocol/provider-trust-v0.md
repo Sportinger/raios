@@ -1,7 +1,7 @@
 # Provider Trust V0
 
-Status: fail-closed gate implemented; positive pin verification is still blocked
-on TLS verifier input access.
+Status: fail-closed gate implemented; first positive `pinned_cert_verified`
+vertical slice implemented for OpenAI.
 
 SeedOS Stage-0 may talk to an AI provider only after the provider peer identity
 is verified. Until then, provider requests may carry direct user prompts, but
@@ -31,14 +31,14 @@ Allowed `trust_state` values:
 
 | State | Meaning | Provider context allowed |
 | --- | --- | --- |
-| `unknown` | No TLS attempt has completed in this boot. | no |
+| `unknown` | A syntactically valid pin exists, but no TLS attempt has completed in this boot. | no |
 | `tls_certificate_verification_bypassed` | TLS was established with `NoVerify`. | no |
 | `pin_config_missing` | A fail-closed verifier is active but has no configured pin. | no |
 | `pin_config_invalid` | A configured provider pin is not a 64-character SHA-256 hex string. | no |
-| `pin_verifier_unavailable` | A syntactically valid pin exists, but the active TLS crate does not expose enough verifier input to check it. | no |
-| `pin_mismatch` | A fail-closed verifier rejected the peer certificate or SPKI. | no |
+| `pin_verifier_unavailable` | A syntactically valid pin exists, but the verifier cannot validate the presented certificate/signature shape. | no |
+| `pin_mismatch` | A fail-closed verifier rejected the peer certificate, host, pin, or TLS signature proof. | no |
 | `pinned_spki_verified` | The peer leaf SPKI SHA-256 matched the configured provider pin. | yes, after redaction |
-| `pinned_cert_verified` | The peer leaf certificate SHA-256 matched the configured provider pin. | yes, after redaction |
+| `pinned_cert_verified` | The peer leaf certificate SHA-256 matched the configured provider pin and its TLS 1.3 `CertificateVerify` signature was valid. | yes, after redaction |
 | `webpki_verified` | A configured trust anchor, time source, and hostname check passed. | yes, after redaction |
 
 Fail-closed states must return a visible provider error and must not silently
@@ -46,16 +46,22 @@ fall back to `NoVerify`.
 
 ## Current Implementation
 
-The Stage-0 kernel now models OpenAI provider trust explicitly through
+The Stage-0 kernel models OpenAI provider trust explicitly through
 `seed-kernel/src/provider_trust.rs` and reports it in `system.snapshot.v0`.
 The normal build fails closed before copying the API key or writing an HTTPS
-request body when trust is not verified.
+request body unless trust is either already verified or a syntactically valid
+OpenAI certificate pin is configured for the handshake attempt.
 
 Current states:
 
 - no configured pin: `pin_config_missing`
 - invalid configured pin: `pin_config_invalid`
-- valid configured pin but no verifier access yet: `pin_verifier_unavailable`
+- valid configured pin before handshake completion: `unknown`
+- valid configured pin matching the OpenAI leaf certificate SHA-256 plus TLS 1.3
+  `CertificateVerify` signature proof: `pinned_cert_verified`
+- wrong pin, wrong host, or failed certificate/signature proof: `pin_mismatch`
+- unsupported verifier input such as a non-P-256 leaf public key:
+  `pin_verifier_unavailable`
 - explicit local development bypass:
   `tls_certificate_verification_bypassed`
 
@@ -64,63 +70,44 @@ The unverified path is available only through the named build/package switch
 `SEEDOS_ALLOW_UNVERIFIED_OPENAI_TLS=1` for that kernel build. It must not be used
 for normal provider or control-plane work.
 
-## Remaining Blocker
+## Implemented Verifier Slice
 
-The repository still pins `embedded-tls = "=0.17.0"` with `alloc` only.
-Inspection of the local Cargo registry source shows:
+`seed-kernel/src/openai_trust.rs` implements the first normal-path verifier:
 
-- `embedded_tls::blocking::NoVerify` is the active verifier in
-  `seed-kernel/src/openai.rs`.
-- `embedded_tls::blocking::TlsVerifier` exists and receives the handshake
-  transcript, optional CA, and `CertificateRef`.
-- `CertificateRef` stores the parsed certificate entries behind `pub(crate)`
-  fields, and the `handshake` module is private.
-- A downstream verifier can implement the trait, but cannot inspect the leaf DER
-  certificate or SPKI bytes needed for SHA-256 pinning.
-- The built-in `embedded_tls::webpki::CertVerifier` path is not a small provider
-  pin. It requires enabling the `webpki` feature, supplying trust anchors, a
-  clock implementation, and accepting its current chain limitations. The 0.17.0
-  verifier source also documents `TODO: Support intermediates...`.
+- endpoint host is fixed to `api.openai.com`
+- the configured pin is `SEEDOS_OPENAI_CERT_SHA256`
+- the pin is SHA-256 of the full DER leaf certificate
+- the verifier extracts the leaf P-256 public key from SubjectPublicKeyInfo
+- TLS 1.3 `CertificateVerify` is checked with ECDSA P-256/SHA-256 over the
+  embedded-tls handshake transcript
+- the API key is copied only after the trust state becomes
+  `pinned_cert_verified`
 
-Because the certificate material is not exposed to downstream code, a positive
-SPKI/certificate pinner is not implementable as a narrow kernel-only patch
-against `embedded-tls` 0.17.0. The current kernel therefore denies the normal
-provider path instead of silently falling back to `NoVerify`.
+The repository carries a narrow local patch of `embedded-tls` 0.17.0 under
+`vendor/embedded-tls-0.17.0` so downstream verifier code can read the leaf
+certificate DER and certificate-verify signature bytes. This is deliberately a
+small verifier-input patch, not a forked TLS policy layer.
 
-## Minimal Code Plan
-
-1. Add a verifier input API to the TLS dependency:
-   - preferred: upstream or locally patch `embedded-tls` so `TlsVerifier` can
-     iterate certificate entries as public borrowed DER slices;
-   - acceptable local ramp: expose a minimal `CertificateRef::leaf_der() ->
-     Option<&[u8]>` without exposing mutable internals.
-2. Add a tiny no-alloc DER helper in `seed-kernel/src/tls_io.rs` or a narrow new
-   trust module to extract SubjectPublicKeyInfo from the leaf certificate.
-3. Compute SHA-256 over either:
-   - the leaf SPKI DER for `pinned_spki_verified`; or
-   - the full leaf certificate DER for `pinned_cert_verified` as the first
-     simpler vertical slice.
-4. Replace the explicit development-only `openai.rs` `NoVerify` path with
-   `OpenAiPinnedVerifier` in the normal provider path.
-5. Keep missing pin, parse failure, mismatch, and TLS verifier failure as
-   explicit provider errors before API-key copy or HTTPS write.
-6. Keep `provider::Snapshot` and `system.snapshot.v0` exposing trust state and
-   pin kind.
-7. Update `vm-harness/openai-direct-smoke.ps1` to require a positive marker such
-   as:
-
-```text
-openai: TLS provider trust verified: pinned_spki sha256:<pin-id>
-```
-
-or, for the first cert-pin slice:
+The positive VM smoke requires this marker:
 
 ```text
 openai: TLS provider trust verified: pinned_cert sha256:<pin-id>
 ```
 
-8. Keep the current `NoVerify` path only behind an explicitly named development
-   build flag or remove it from the normal provider path.
+The `NoVerify` path remains only behind the explicit development build flag
+`-AllowUnverifiedOpenAiTls`.
+
+## Remaining Work
+
+- Add SPKI pinning (`pinned_spki_verified`) so normal use is not tied to every
+  provider leaf-certificate rotation.
+- Decide whether Stage-0 should keep the vendored verifier-input patch, move it
+  upstream, or upgrade to a TLS crate/version with the required public verifier
+  inputs.
+- Add broader certificate algorithm support or make unsupported algorithms a
+  permanent explicit denial.
+- Add a WebPKI path only after trust anchors, time, hostname verification, and
+  chain/intermediate handling are specified and tested.
 
 ## Acceptance Criteria
 

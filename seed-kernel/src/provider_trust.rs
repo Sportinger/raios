@@ -1,5 +1,21 @@
+use spin::Mutex;
+
 const OPENAI_CERT_SHA256: Option<&str> = option_env!("SEEDOS_OPENAI_CERT_SHA256");
 const ALLOW_UNVERIFIED_OPENAI_TLS: Option<&str> = option_env!("SEEDOS_ALLOW_UNVERIFIED_OPENAI_TLS");
+
+static STATE: Mutex<RuntimeTrust> = Mutex::new(RuntimeTrust::new());
+
+struct RuntimeTrust {
+    state: TrustState,
+}
+
+impl RuntimeTrust {
+    const fn new() -> Self {
+        Self {
+            state: TrustState::Unknown,
+        }
+    }
+}
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -83,7 +99,7 @@ pub fn snapshot() -> Snapshot {
     let state = match pin {
         None => TrustState::PinConfigMissing,
         Some(value) if !is_sha256_hex(value) => TrustState::PinConfigInvalid,
-        Some(_) => TrustState::PinVerifierUnavailable,
+        Some(_) => STATE.lock().state,
     };
 
     Snapshot {
@@ -92,6 +108,29 @@ pub fn snapshot() -> Snapshot {
         pin_id: pin_id(pin),
         development_bypass: false,
     }
+}
+
+pub fn can_attempt_openai_tls() -> bool {
+    unverified_development_allowed() || openai_cert_pin_bytes().is_ok()
+}
+
+pub fn openai_cert_pin_bytes() -> Result<[u8; 32], TrustState> {
+    let Some(pin) = configured_openai_cert_pin() else {
+        return Err(TrustState::PinConfigMissing);
+    };
+    parse_sha256_hex(pin).ok_or(TrustState::PinConfigInvalid)
+}
+
+pub fn mark_pin_mismatch() {
+    STATE.lock().state = TrustState::PinMismatch;
+}
+
+pub fn mark_pin_verifier_unavailable() {
+    STATE.lock().state = TrustState::PinVerifierUnavailable;
+}
+
+pub fn mark_pinned_cert_verified() {
+    STATE.lock().state = TrustState::PinnedCertVerified;
 }
 
 fn configured_openai_cert_pin() -> Option<&'static str> {
@@ -125,4 +164,29 @@ fn unverified_development_allowed() -> bool {
 
 fn is_sha256_hex(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn parse_sha256_hex(value: &str) -> Option<[u8; 32]> {
+    if !is_sha256_hex(value) {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    let bytes = value.as_bytes();
+    let mut index = 0usize;
+    while index < out.len() {
+        let high = hex_nibble(bytes[index * 2])?;
+        let low = hex_nibble(bytes[index * 2 + 1])?;
+        out[index] = (high << 4) | low;
+        index += 1;
+    }
+    Some(out)
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }

@@ -170,15 +170,18 @@ Definition of done:
   provider errors clearly.
 
 Current status: the host relay has been removed from the runtime path. The VM
-command `ask <text>` stays in the guest and now fails closed in the normal build
+command `ask <text>` stays in the guest and fails closed in the normal build
 when provider trust is not positively verified. The default visible trust state
-is `pin_config_missing`, and the Shadow VM smoke checks that problem. A local
-development image built with `-AllowUnverifiedOpenAiTls` can still exercise the
-old unverified path: RAM-only OpenAI API key state, DNS for `api.openai.com`,
-TCP 443 through e1000, TLS 1.3 with `NoVerify`, HTTPS Responses API request, and
-first `output_text` rendering. Positive certificate verification or provider
-pinning is the next gate before provider context injection, tool schemas, or
-capability policy can be treated as safe.
+is `pin_config_missing`, and the Shadow VM smoke checks that problem. The first
+positive verifier slice is implemented for OpenAI leaf-certificate SHA-256
+pinning: a local image built with `-EmbedOpenAiCertPinFromEnv` checks the
+configured pin and the TLS 1.3 P-256 ECDSA `CertificateVerify` proof before API
+key copy or HTTPS write, and `openai-direct-smoke.ps1 -ExpectPinnedTrust`
+verifies the marker. A local development image built with
+`-AllowUnverifiedOpenAiTls` can still exercise the old unverified path for
+transport debugging only. SPKI pinning or WebPKI is the next trust hardening
+gate before provider context injection, tool schemas, or capability policy can
+be treated as safe.
 
 ## Phase 4: Provider Integration And Redacted Context
 

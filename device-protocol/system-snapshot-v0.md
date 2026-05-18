@@ -11,7 +11,7 @@ existing framebuffer/console status model until richer per-service state exists.
 Provider context injection is disabled until both gates are true:
 
 - the provider transport is positively verified by certificate verification or
-  provider/SPKI pinning; the current fail-closed trust gate is not enough for
+  provider/SPKI pinning; a fail-closed missing-pin state is not enough for
   provider context injection
 - every outbound snapshot field is classified and redacted by this document or a
   later compatible policy
@@ -191,6 +191,7 @@ values.
 - Network, Wi-Fi, USB, and provider detail fields are still prose strings in the
   current kernel. They are useful locally but intentionally classified as
   `local_only` until typed subfields exist.
-- The normal direct OpenAI path now fails closed at provider trust
-  (`pin_config_missing` by default), so automatic snapshot attachment to
-  provider requests remains disabled until positive verification exists.
+- The normal direct OpenAI path now has a first positive
+  `pinned_cert_verified` slice, but automatic snapshot attachment to provider
+  requests remains disabled until a `provider_minimal` projection is emitted and
+  the provider request path explicitly applies this redaction profile.

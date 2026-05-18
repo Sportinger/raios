@@ -106,6 +106,17 @@ TLS TRUST: pin_config_missing
 OPENAI TLS TRUST DENIED: pin_config_missing
 ```
 
+Direct OpenAI pinned-trust smoke is also verified with a temporary image built
+from a process-local fake API key and a current `OPENAI_CERT_SHA256` leaf
+certificate pin. Expected positive trust lines:
+
+```text
+openai: TLS 1.3 established
+openai: TLS provider trust verified: pinned_cert sha256:<pin-id>
+openai: HTTPS request sent
+OPENAI HTTP
+```
+
 ## Current Architecture Decision
 
 Do not run or port the Codex CLI inside Stage-0.
@@ -167,18 +178,23 @@ Harden and polish the direct provider path:
   the key back into the serial log.
 - `ask <text>` now stays inside the guest. In the normal build it requires the
   VM API key state and then fails closed at provider trust before API-key copy or
-  HTTPS write. With the explicit development override
+  HTTPS write unless a syntactically valid provider pin is configured. With
+  `-EmbedOpenAiCertPinFromEnv`, the first positive verifier slice checks the
+  OpenAI leaf certificate SHA-256 pin and the TLS 1.3 P-256 ECDSA
+  `CertificateVerify` proof before copying the API key or writing HTTPS. With
+  the explicit development override
   `-AllowUnverifiedOpenAiTls`, it resolves `api.openai.com`, opens TCP 443
   through e1000, performs TLS 1.3 with `NoVerify`, sends an HTTPS Responses API
   request, parses `output_text`, and prints the provider response.
 - the provider trust state is visible in console/provider status,
   `system.snapshot.v0`, `problem.list`, and `service.inventory`; the default
-  trust problem is `provider.tls_pin_config_missing`.
+  trust problem is `provider.tls_pin_config_missing`, while a successful pinned
+  handshake reports `pinned_cert_verified`.
 - the development serial relay and old host-framing path have been removed from
   the runtime path.
-- the next milestone is adding positive provider pinning or certificate
-  verification. The current blocker is that `embedded-tls` 0.17.0 does not
-  expose leaf certificate/SPKI bytes to downstream verifier code.
+- the next milestone is moving from leaf-certificate pinning to a more durable
+  trust mechanism: SPKI pinning first, then possibly WebPKI once trust anchors,
+  time, hostname checks, and chain handling are specified.
 
 ## Known Gaps
 
@@ -204,9 +220,10 @@ Harden and polish the direct provider path:
 - API key entry exists in the VM, but the key is RAM-only and not persisted in
   the default image. A local test image can embed the key explicitly, but must
   not be committed or shared.
-- Stage-0 has verified DNS/TCP/TLS/HTTPS for `api.openai.com:443` behind an
-  explicit unverified development override. The normal build now blocks that
-  provider path until positive TLS trust is implemented.
+- Stage-0 has verified DNS/TCP/TLS/HTTPS for `api.openai.com:443` behind both
+  the explicit unverified development override and the first positive
+  leaf-certificate pin verifier. Leaf-certificate pins rotate with provider
+  certificates, so SPKI pinning or WebPKI remains a required hardening step.
 - The OpenAI JSON response parser is intentionally minimal and only extracts the
   first `output_text` string.
 - QEMU TCP serial is single-client in practice; do not run two serial clients

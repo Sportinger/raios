@@ -8,3 +8,6 @@ members = [
 ]
 resolver = "2"
 
+[patch.crates-io]
+embedded-tls = { path = "vendor/embedded-tls-0.17.0" }
+

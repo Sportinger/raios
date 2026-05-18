@@ -3,10 +3,22 @@ param(
     [string]$Prompt = "direct provider smoke",
     [string]$Image = "$PSScriptRoot\..\release\seedos-stage0-local-openai.img",
     [int]$TimeoutSeconds = 90,
-    [switch]$ExpectProviderResponse
+    [switch]$ExpectProviderResponse,
+    [switch]$ExpectPinnedTrust,
+    [switch]$ExpectPinMismatch
 )
 
 $ErrorActionPreference = "Stop"
+
+$modeCount = 0
+foreach ($mode in @($ExpectProviderResponse, $ExpectPinnedTrust, $ExpectPinMismatch)) {
+    if ($mode) {
+        $modeCount += 1
+    }
+}
+if ($modeCount -gt 1) {
+    throw "Use only one of -ExpectProviderResponse, -ExpectPinnedTrust, or -ExpectPinMismatch."
+}
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $SerialLog = Join-Path $env:TEMP "seedos-openai-direct-smoke.serial.txt"
@@ -94,14 +106,40 @@ try {
         Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI:" -TimeoutSeconds $TimeoutSeconds
     }
+    elseif ($ExpectPinnedTrust) {
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT REQUEST 1 STARTED" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 established" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: TLS provider trust verified: pinned_cert" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI HTTP" -TimeoutSeconds $TimeoutSeconds
+    }
+    elseif ($ExpectPinMismatch) {
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT REQUEST 1 STARTED" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 handshake starting (pinned certificate verifier)" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT TLS PIN MISMATCH" -TimeoutSeconds $TimeoutSeconds
+    }
     else {
         Wait-ForLogText -Path $SerialLog -Needle "TLS TRUST: pin_config_missing" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI TLS TRUST DENIED: pin_config_missing" -TimeoutSeconds $TimeoutSeconds
     }
 
     $serial = Get-Content -Raw -LiteralPath $SerialLog
-    if ((-not $ExpectProviderResponse) -and ($serial -like "*OPENAI_DIRECT_REQ*")) {
+    if ((-not $ExpectProviderResponse) -and (-not $ExpectPinnedTrust) -and (-not $ExpectPinMismatch) -and ($serial -like "*OPENAI_DIRECT_REQ*")) {
         throw "Trust-gate smoke saw an OpenAI request start before provider trust was verified in $SerialLog"
+    }
+    if ($ExpectPinnedTrust -and ($serial -like "*tls_certificate_verification_bypassed*")) {
+        throw "Pinned-trust smoke saw unverified TLS bypass output in $SerialLog"
+    }
+    if ($ExpectPinMismatch -and ($serial -like "*tls_certificate_verification_bypassed*")) {
+        throw "Pin-mismatch smoke saw unverified TLS bypass output in $SerialLog"
+    }
+    if ($ExpectPinMismatch -and ($serial -like "*openai: HTTPS request sent*")) {
+        throw "Pin-mismatch smoke sent HTTPS request data in $SerialLog"
+    }
+    if ($ExpectPinMismatch -and ($serial -like "*openai: TLS provider trust verified*")) {
+        throw "Pin-mismatch smoke saw a positive trust marker in $SerialLog"
     }
     $oldRelayName = -join ([char[]](66, 82, 73, 68, 71, 69))
     $removedTokens = @(
@@ -118,6 +156,12 @@ try {
 
     if ($ExpectProviderResponse) {
         Write-Host "openai direct development smoke passed"
+    }
+    elseif ($ExpectPinnedTrust) {
+        Write-Host "openai direct pinned-trust smoke passed"
+    }
+    elseif ($ExpectPinMismatch) {
+        Write-Host "openai direct pin-mismatch smoke passed"
     }
     else {
         Write-Host "openai direct trust-gate smoke passed"

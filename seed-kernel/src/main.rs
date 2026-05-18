@@ -25,6 +25,7 @@ mod input;
 mod memory;
 mod net;
 mod openai;
+mod openai_trust;
 mod pci;
 mod provider;
 mod provider_config;

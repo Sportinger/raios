@@ -26,7 +26,7 @@ live service replacement.
 | SeedOS is | SeedOS is not |
 | --- | --- |
 | A real bootable OS workspace, not a hosted web app or a Linux skin. | A Linux distribution or desktop environment. |
-| A Stage-0 kernel with framebuffer UI, serial diagnostics, input, e1000 DHCP, RAM-only provider setup, direct OpenAI transport code, and a fail-closed provider trust gate. | A port of the Codex CLI into the kernel. |
+| A Stage-0 kernel with framebuffer UI, serial diagnostics, input, e1000 DHCP, RAM-only provider setup, direct OpenAI transport code, a fail-closed provider trust gate, and first OpenAI cert-pin verification. | A port of the Codex CLI into the kernel. |
 | The foundation for a native SeedOS agent protocol where every future AI action is observable, capability-gated, testable, and reversible. | A fake cloud agent, mock provider path, or host-side serial relay. |
 | A fail-closed provider host in the normal build until TLS trust is verified. | A complete signed-module, recovery-agent, persistence, or live-update runtime yet. |
 
@@ -93,10 +93,12 @@ chat-first Stage-0 UI with `AI`, `CONSOLE`, and `SET` modes, seeds entropy from
 RDRAND, configures an Intel e1000 NIC through DHCP, and accepts input from
 serial, USB-HID keyboard, USB-HID relative mouse, QEMU USB-HID tablet, and the
 PS/2 fallback path. The direct OpenAI transport exists in the guest and has
-verified DNS, TCP, TLS, HTTPS, and Responses API behavior in the VM path, but the
-normal build now fails closed at the TLS trust gate until provider pinning or
-certificate verification is implemented. A named development override can still
-exercise the old unverified smoke path. The `SET` mode and `setup` command can
+verified DNS, TCP, TLS, HTTPS, and Responses API behavior in the VM path. The
+normal build fails closed at the TLS trust gate unless a valid provider pin is
+configured; the first OpenAI verifier slice checks the leaf certificate SHA-256
+pin and TLS 1.3 signature proof before copying the API key or writing HTTPS. A
+named development override can still exercise the old unverified smoke path.
+The `SET` mode and `setup` command can
 enter an API key into RAM without echoing the key back to the serial log.
 Pointer movement uses a small framebuffer cursor overlay instead of redrawing
 the full UI for every mouse delta. Tab, arrow keys, Enter, and Esc also drive a
@@ -170,6 +172,13 @@ tracked ESP staging directory:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
 ```
 
+Add the current OpenAI leaf-certificate pin for the normal pinned-trust smoke:
+
+```powershell
+$env:OPENAI_CERT_SHA256 = "<64 hex chars>"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiCertPinFromEnv
+```
+
 Check for accidental provider-key material before committing:
 
 ```powershell
@@ -189,6 +198,7 @@ Run the headless direct-provider smoke test:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinnedTrust
 ```
 
 Prepare for bare-metal USB testing:

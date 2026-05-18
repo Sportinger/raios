@@ -30,7 +30,8 @@ This stages `target\x86_64-seed\release\seed-kernel` into
 
 For local-only provider testing, a default OpenAI key can be embedded from the
 current process environment without touching the tracked ESP staging directory.
-The normal build still fails closed at the TLS trust gate:
+Without a configured pin, the normal build still fails closed at the TLS trust
+gate:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
@@ -40,6 +41,19 @@ This requires `OPENAI_API_KEY` to be set. The resulting image contains the key,
 so do not commit or share that local image. The packaging script refuses to
 embed a provider key into `release\esp` or the default `release\seedos-stage0.img`;
 see `docs\SECRETS.md`.
+
+To exercise the normal positive trust path, also embed the current OpenAI leaf
+certificate SHA-256 pin from the process environment:
+
+```powershell
+$env:OPENAI_API_KEY = "<local key or fake smoke key>"
+$env:OPENAI_CERT_SHA256 = "<64 hex chars>"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiCertPinFromEnv
+```
+
+Leaf-certificate pins are intentionally rotation-sensitive. Use them for the
+current Stage-0 verifier slice and move to SPKI pinning before treating this as
+a durable operator workflow.
 
 To exercise the old unverified provider-response smoke path, build a local image
 with the explicit development override:
@@ -188,8 +202,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smo
 
 That confirms the guest is using e1000 networking, TLS, HTTPS, and the OpenAI
 Responses API directly, but only through an explicit unverified development
-override. Positive certificate or provider pin validation is still required
-before serious use.
+override. Serious use must rely on the pinned or verified trust path, not this
+development mode.
+
+To require the normal pinned-trust path, package a local image with both
+`OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinnedTrust
+```
+
+The harness expects:
+
+```text
+openai: TLS 1.3 established
+openai: TLS provider trust verified: pinned_cert sha256:<pin-id>
+openai: HTTPS request sent
+```
+
+For a transport-only smoke, the API key can be a fake non-secret value; the
+expected result is then an `OPENAI HTTP` provider error after HTTPS write, not a
+model response.
+
+To prove a wrong pin fails before HTTPS write, package with an intentionally
+wrong `OPENAI_CERT_SHA256` and run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch
+```
 
 ## VM Setup Menu
 

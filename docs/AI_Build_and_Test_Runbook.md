@@ -30,9 +30,10 @@ Status labels used below:
   explicit unverified development override is built in.
 - [x] `implemented/verified` TLS trust gate: the normal provider path fails
   closed before API-key copy or HTTPS write when trust is not verified.
-- [ ] `blocked/denied` Positive TLS trust: certificate verification or provider
-  pinning is not implemented yet because the active TLS crate does not expose
-  leaf certificate/SPKI input to downstream verifier code.
+- [x] `implemented/verified` First positive TLS trust slice: OpenAI
+  leaf-certificate SHA-256 pinning plus TLS 1.3 P-256 ECDSA
+  `CertificateVerify` proof is implemented and VM-smoked. SPKI pinning or
+  WebPKI remains planned hardening.
 - [ ] `chosen/planned` WebSocket control channel with JSON envelope
   `{v,t,id,ts,body}`.
 - [ ] `chosen/planned` Wasm runtime with a single active module and explicit host
@@ -96,18 +97,22 @@ Exit: serial logs show entropy, USB input, e1000, DHCP lease, and input status.
 
 - [x] `implemented/verified` RAM-only OpenAI API-key entry through `setup`/`SET`.
 - [x] `implemented/verified` `ask <text>` stays inside the guest. In the normal
-  build it is denied by the TLS trust gate; with the explicit development
-  override it uses DNS, TCP 443, TLS 1.3, HTTPS, and the OpenAI Responses API.
+  build it is denied by the TLS trust gate until a valid provider pin is
+  configured; with the first cert-pin verifier it checks the pinned OpenAI leaf
+  certificate and TLS 1.3 signature proof before HTTPS write. With the explicit
+  development override it uses DNS, TCP 443, TLS 1.3, HTTPS, and the OpenAI
+  Responses API through an intentionally unverified path.
 - [x] `partially implemented` Response parsing extracts the first `output_text`.
 - [x] `implemented/verified` Provider trust state is visible through typed
   status/snapshot output and the Shadow VM smoke expects
   `provider.tls_pin_config_missing` by default.
-- [ ] `blocked/denied` Certificate verification or provider pinning is not yet
-  implemented.
+- [x] `implemented/verified` Leaf-certificate provider pinning is implemented
+  for the OpenAI direct path. SPKI pinning and WebPKI are still future gates.
 
 Exit: the VM denies normal direct provider use until trust is verified. A local
-development image can still obtain a direct provider response for transport
-smoke testing only when built with the explicit unverified TLS override.
+pinned image can prove the normal trust path; a local development image can
+still obtain a direct provider response for transport smoke testing only when
+built with the explicit unverified TLS override.
 
 ### 2.4 Control Channel
 

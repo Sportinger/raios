@@ -179,9 +179,10 @@ Capability grants are local execution authority. They are not permission to send
 the same data to a provider.
 
 Fields that leave the machine still need redaction classification:
-`public`, `local_only`, or `secret`. Until TLS certificate verification or
-provider/SPKI pinning is fail-closed, provider requests must not automatically
-attach `system.snapshot.v0` or capability/audit context. Local serial access may
+`public`, `local_only`, or `secret`. Provider requests must not automatically
+attach `system.snapshot.v0` or capability/audit context unless the current
+provider trust state is one of the positive verified states and the outbound
+projection has applied the matching redaction profile. Local serial access may
 show read-only facts that the provider path is not yet allowed to receive.
 
 ## Open Questions

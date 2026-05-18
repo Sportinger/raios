@@ -21,11 +21,13 @@ runbook, serial logs, tests, or screenshots.
   IP/gateway/DNS through smoltcp.
 - **Provider transport**: `ask <text>` stays inside the guest. The normal build
   fails closed at the TLS trust gate before copying the API key or writing an
-  HTTPS request. A local non-default development image can explicitly enable the
-  old unverified OpenAI transport for smoke testing.
+  HTTPS request unless a valid provider pin is configured. A local non-default
+  development image can explicitly enable the old unverified OpenAI transport
+  for smoke testing.
 - **TLS trust state**: The implemented default is `pin_config_missing`, exposed
-  through typed snapshot/problem output. Positive certificate verification or
-  provider pinning is still blocked on TLS verifier input access.
+  through typed snapshot/problem output. The first positive OpenAI verifier
+  slice now supports leaf-certificate SHA-256 pinning plus TLS 1.3
+  `CertificateVerify` proof; SPKI pinning or WebPKI is still planned hardening.
 - **Persistence/update/runtime**: No signed module runtime, Wasm host, A/B OTA
   slot layout, DATA partition success flag, kexec handoff, recovery agent, or
   WebSocket control plane is implemented in Stage-0.
@@ -50,10 +52,11 @@ ADR. They remain requirements or gates, not current behavior, until verified.
   certificate verification or provider/service pinning. A WebSocket overlay and
   strict JSON envelope are planned protocol choices, not current Stage-0 runtime
   behavior.
-- **Provider trust**: The fail-closed trust gate is implemented. The next
-  hardening gate is positive provider pinning or certificate validation. Until
-  that lands, provider responses are useful only for explicitly marked
-  development smoke tests and must not be treated as a trusted control plane.
+- **Provider trust**: The fail-closed trust gate and first positive
+  leaf-certificate pin verifier are implemented. The next hardening gate is SPKI
+  provider pinning or certificate-chain validation. Until that lands, provider
+  responses may prove transport behavior but must not be treated as the recovery
+  lifeline or trusted control plane for persistence.
 - **Runtime**: A single active Wasm module with explicit host APIs remains a
   planned service-runtime shape. Stage-0 currently has no Wasm module loader and
   no generic outbound socket host API for modules.

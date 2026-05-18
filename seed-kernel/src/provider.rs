@@ -134,7 +134,7 @@ pub fn submit(request: AgentRequest<'_>) -> Result<Submitted, SubmitError> {
     }
 
     let trust = provider_trust::snapshot();
-    if !trust.allows_provider_request() {
+    if !trust.allows_provider_request() && !provider_trust::can_attempt_openai_tls() {
         return Err(SubmitError::TrustDenied {
             state: trust.state.as_protocol(),
         });
