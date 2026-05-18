@@ -20,12 +20,12 @@ immutable recovery core that cannot be broken from above.
 
 ## What It Is
 
-| raisOS is | raisOS is not |
+| 🟢 raisOS is | 🔴 raisOS is not |
 | --- | --- |
-| A personal, bootable OS seed for one machine and one user. | A general-purpose Linux distribution, desktop environment, or app store. |
-| A real Stage-0 kernel with framebuffer UI, serial diagnostics, USB input, e1000 DHCP, entropy, RAM-only setup, and direct provider transport. | A finished self-extending runtime with signed modules, persistence, rollback, and recovery already complete. |
-| The foundation for a native agent protocol where system state is observable and future actions are capability-gated, testable, and reversible. | A port of Codex CLI into the kernel or a shell where an AI gets arbitrary host authority. |
-| A small system designed to be rebuilt, tested, and personalized by an AI under local policy. | A fake cloud agent, mock provider path, silent fallback chain, or demo that pretends missing safety layers already exist. |
+| 🟢 A personal operating system bonded to one machine and one user. | 🔴 A general-purpose Linux distribution, desktop environment, or app store. |
+| 🟢 A self-extending environment where an AI can inspect, build, test, and replace services under local policy. | 🔴 A cloud agent, hosted web app, or provider-locked control plane. |
+| 🟢 A capability-gated system where every AI action is observable, scoped, testable, and reversible. | 🔴 A shell where an AI gets arbitrary host authority. |
+| 🟢 An immutable recovery core with replaceable layers above it. | 🔴 A conventional OS with AI features bolted onto the surface. |
 
 ## Screenshots
 
