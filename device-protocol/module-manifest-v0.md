@@ -1,6 +1,6 @@
-# SeedOS Module Manifest V0
+# raisOS Module Manifest V0
 
-`seedos.module_manifest.v0` is the first durable description of an
+`raisos.module_manifest.v0` is the first durable description of an
 agent-proposed extension artifact. It is not a trust grant. It describes what an
 artifact claims to be, which capabilities it requests, and which hashes must be
 bound into VM reports and local attestations before any load decision can be
@@ -22,11 +22,11 @@ manifest + artifact
 
 ```json
 {
-  "schema": "seedos.module_manifest.v0",
+  "schema": "raisos.module_manifest.v0",
   "name": "hello-diagnostic",
   "version": "0.1.0",
   "kind": "guest_diagnostic",
-  "target": "seedos-stage0",
+  "target": "raisos-stage0",
   "abi": "none",
   "built_by": "agent-session-local",
   "provides": ["diagnostic.hello"],
@@ -69,8 +69,8 @@ When concrete evidence files already exist, the validator can also verify the
 declared base-image and report hashes:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\validate-module-manifest.ps1 -ManifestPath .\candidate.manifest.json -ArtifactPath .\candidate.bin -BaseImagePath .\seedos-stage0-shadow.img -TestReportPath .\shadow-report.json
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\validate-module-manifest.ps1 -ManifestPath .\candidate.manifest.json -ArtifactPath .\candidate.bin -BaseImagePath .\raisos-stage0-shadow.img -TestReportPath .\shadow-report.json
 ```
 
-The validator emits `seedos.module_manifest_validation.v0`. Invalid manifests
+The validator emits `raisos.module_manifest_validation.v0`. Invalid manifests
 fail the harness before QEMU boots.

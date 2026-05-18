@@ -3,7 +3,7 @@
 Status: fail-closed gate implemented; first positive `pinned_cert_verified`
 vertical slice implemented for OpenAI.
 
-SeedOS Stage-0 may talk to an AI provider only after the provider peer identity
+raisOS Stage-0 may talk to an AI provider only after the provider peer identity
 is verified. Until then, provider requests may carry direct user prompts, but
 they must not carry automatic system snapshots, tool schemas, persistence
 requests, recovery actions, or module-loading evidence.
@@ -15,7 +15,7 @@ connected" logs.
 
 ```json
 {
-  "schema": "seedos.provider_trust.v0",
+  "schema": "raisos.provider_trust.v0",
   "provider": "openai",
   "endpoint": "api.openai.com:443",
   "transport": "tls13",
@@ -67,7 +67,7 @@ Current states:
 
 The unverified path is available only through the named build/package switch
 `-AllowUnverifiedOpenAiTls`, which sets
-`SEEDOS_ALLOW_UNVERIFIED_OPENAI_TLS=1` for that kernel build. It must not be used
+`RAISOS_ALLOW_UNVERIFIED_OPENAI_TLS=1` for that kernel build. It must not be used
 for normal provider or control-plane work.
 
 ## Implemented Verifier Slice
@@ -75,7 +75,7 @@ for normal provider or control-plane work.
 `seed-kernel/src/openai_trust.rs` implements the first normal-path verifier:
 
 - endpoint host is fixed to `api.openai.com`
-- the configured pin is `SEEDOS_OPENAI_CERT_SHA256`
+- the configured pin is `RAISOS_OPENAI_CERT_SHA256`
 - the pin is SHA-256 of the full DER leaf certificate
 - the verifier extracts the leaf P-256 public key from SubjectPublicKeyInfo
 - TLS 1.3 `CertificateVerify` is checked with ECDSA P-256/SHA-256 over the

@@ -16,7 +16,7 @@ $RunScript = Join-Path $RepoRoot "scripts\run-stage0-qemu.ps1"
 $PackageScript = Join-Path $RepoRoot "scripts\package-stage0.ps1"
 $ValidateManifestScript = Join-Path $PSScriptRoot "validate-module-manifest.ps1"
 $RunId = "shadow-{0:yyyyMMdd-HHmmss}-{1}" -f (Get-Date), $PID
-$RunDir = Join-Path $env:TEMP "seedos-$RunId"
+$RunDir = Join-Path $env:TEMP "raisos-$RunId"
 $SerialLog = Join-Path $RunDir "serial.log"
 $ReportPath = Join-Path $ReportDir "$RunId.json"
 $ReportHashPath = "$ReportPath.sha256"
@@ -110,7 +110,7 @@ function New-HardwareProfile {
     }
 
     return [ordered]@{
-        profile = "seedos.shadow_vm.q35_xhci.v0"
+        profile = "raisos.shadow_vm.q35_xhci.v0"
         machine = "q35"
         memory = "512M"
         cpu = "max"
@@ -249,7 +249,7 @@ function Write-Report {
     $hardwareProfileSha256 = Get-TextSha256 -Text (ConvertTo-ReportJson -Value $HardwareProfile)
 
     $report = [ordered]@{
-        schema = "seedos.vm_test_report.v0"
+        schema = "raisos.vm_test_report.v0"
         result = $FinalResult
         generated_at_utc = ($endedAt.ToString("o"))
         started_at_utc = ($StartedAt.ToString("o"))
@@ -351,7 +351,7 @@ try {
         $ResolvedImage = (Resolve-Path -LiteralPath $Image).Path
     }
     else {
-        $ResolvedImage = Join-Path $RunDir "seedos-stage0-shadow.img"
+        $ResolvedImage = Join-Path $RunDir "raisos-stage0-shadow.img"
         $TempImage = $true
         & $PackageScript -Profile release -Image $ResolvedImage -UseTempEsp
         if ($LASTEXITCODE -ne 0) {
@@ -398,23 +398,23 @@ try {
     Assert-LogContains -Name "boot:framebuffer_ready" -Needle "status FRAMEBUFFER: READY" -TimeoutSeconds $TimeoutSeconds
     Assert-LogContains -Name "boot:usb_xhci_ready" -Needle "status USB-XHCI: READY" -TimeoutSeconds $TimeoutSeconds
 
-    Send-AgentCommand -Command "describe" -ExpectedMarker "SEEDOS_AGENT_END system.describe"
+    Send-AgentCommand -Command "describe" -ExpectedMarker "RAISOS_AGENT_END system.describe"
     Assert-LogContains -Name "protocol:describe_schema" -Needle '"schema": "system.describe.v0"' -TimeoutSeconds 1
 
-    Send-AgentCommand -Command "snapshot" -ExpectedMarker "SEEDOS_AGENT_END system.snapshot"
+    Send-AgentCommand -Command "snapshot" -ExpectedMarker "RAISOS_AGENT_END system.snapshot"
     Assert-LogContains -Name "protocol:snapshot_schema" -Needle '"schema": "system.snapshot.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_trust_problem" -Needle "provider.tls_pin_config_missing" -TimeoutSeconds 1
 
-    Send-AgentCommand -Command "services" -ExpectedMarker "SEEDOS_AGENT_END service.inventory"
+    Send-AgentCommand -Command "services" -ExpectedMarker "RAISOS_AGENT_END service.inventory"
     Assert-LogContains -Name "protocol:service_inventory_schema" -Needle '"schema": "service.inventory.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:openai_service_listed" -Needle "svc.provider.openai_direct" -TimeoutSeconds 1
 
-    Send-AgentCommand -Command "problems" -ExpectedMarker "SEEDOS_AGENT_END problem.list"
+    Send-AgentCommand -Command "problems" -ExpectedMarker "RAISOS_AGENT_END problem.list"
     Assert-LogContains -Name "protocol:problem_list_schema" -Needle '"schema": "problem.list.v0"' -TimeoutSeconds 1
 
-    Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "SEEDOS_AGENT_END module.load_ephemeral"
+    Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAISOS_AGENT_END module.load_ephemeral"
     Assert-LogContains -Name "policy:mutating_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:vm_report_required" -Needle "seedos.vm_test_report.v0" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:vm_report_required" -Needle "raisos.vm_test_report.v0" -TimeoutSeconds 1
 
     $Result = "passed"
 }

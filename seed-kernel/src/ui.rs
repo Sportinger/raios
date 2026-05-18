@@ -243,7 +243,7 @@ fn draw_header(
         APP_BLUE,
     );
 
-    text::draw_text(surface, 248, 20, "SeedOS", TEXT_MAIN, None);
+    text::draw_text(surface, 248, 20, "raisOS", TEXT_MAIN, None);
     text::draw_text(surface, 248, 42, "Direct AI Host", TEXT_MUTED, None);
 }
 

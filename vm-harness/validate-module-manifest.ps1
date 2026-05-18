@@ -163,8 +163,8 @@ catch {
 }
 
 $schema = Test-StringField -Manifest $manifest -Name "schema" -Errors $errors
-if ($schema -and $schema -ne "seedos.module_manifest.v0") {
-    Add-Issue -List $errors -Message "schema must be seedos.module_manifest.v0"
+if ($schema -and $schema -ne "raisos.module_manifest.v0") {
+    Add-Issue -List $errors -Message "schema must be raisos.module_manifest.v0"
 }
 
 $name = Test-StringField -Manifest $manifest -Name "name" -Errors $errors
@@ -183,11 +183,11 @@ $loadMode = Test-StringField -Manifest $manifest -Name "load_mode" -Errors $erro
 if ($kind) {
     Test-Enum -Name "kind" -Value $kind -Allowed @("workstation_capability", "guest_diagnostic", "service", "driver", "ui_tool") -Errors $errors
 }
-if ($target -and $target -ne "seedos-stage0") {
-    Add-Issue -List $errors -Message "target must be seedos-stage0"
+if ($target -and $target -ne "raisos-stage0") {
+    Add-Issue -List $errors -Message "target must be raisos-stage0"
 }
 if ($abi) {
-    Test-Enum -Name "abi" -Value $abi -Allowed @("none", "seedos-agent-v0", "seedos-service-v0", "seedos-driver-v0") -Errors $errors
+    Test-Enum -Name "abi" -Value $abi -Allowed @("none", "raisos-agent-v0", "raisos-service-v0", "raisos-driver-v0") -Errors $errors
 }
 if ($risk) {
     Test-Enum -Name "risk" -Value $risk -Allowed @("observe", "diagnose", "simulate", "modify_ram", "persist", "hardware") -Errors $errors
@@ -243,7 +243,7 @@ if ($null -ne $rollbackId -and -not ($rollbackId -is [string])) {
 
 $valid = $errors.Count -eq 0
 $result = [ordered]@{
-    schema = "seedos.module_manifest_validation.v0"
+    schema = "raisos.module_manifest_validation.v0"
     valid = $valid
     manifest = [ordered]@{
         path = $resolvedManifest

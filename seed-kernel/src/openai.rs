@@ -468,7 +468,7 @@ fn perform_https_request(prompt: &str) -> HttpsResult {
 
 fn build_http_header(key_len: usize, _body_len: usize) -> String {
     format!(
-        "POST {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: SeedOS/0.1\r\nAuthorization: Bearer ",
+        "POST {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: raisOS/0.1\r\nAuthorization: Bearer ",
         API_PATH, API_HOST
     )
     .chars()

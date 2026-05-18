@@ -1,6 +1,6 @@
 # Secret Handling
 
-SeedOS must not commit provider keys or key-bearing boot artifacts.
+raisOS must not commit provider keys or key-bearing boot artifacts.
 
 ## Local OpenAI Image
 
@@ -9,11 +9,11 @@ using a temporary ESP staging tree:
 
 ```powershell
 $env:OPENAI_API_KEY = "<local key>"
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raisos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
 ```
 
 `package-stage0.ps1` refuses to embed a provider key into `release\esp` or the
-default `release\seedos-stage0.img`. Local OpenAI images are ignored by Git.
+default `release\raisos-stage0.img`. Local OpenAI images are ignored by Git.
 The normal image still fails closed at the TLS trust gate. Add
 `-AllowUnverifiedOpenAiTls` only for a local development smoke image that must
 exercise the old unverified provider-response path.
@@ -23,7 +23,7 @@ For the normal pinned-trust smoke, add a process-local OpenAI certificate pin:
 ```powershell
 $env:OPENAI_API_KEY = "<local key or fake smoke key>"
 $env:OPENAI_CERT_SHA256 = "<64 hex chars>"
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiCertPinFromEnv
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raisos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiCertPinFromEnv
 ```
 
 The cert pin is not a provider key, but it should still be treated as

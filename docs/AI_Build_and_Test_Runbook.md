@@ -1,6 +1,6 @@
-# AI Build & Test Runbook - Stage-0 SeedOS To Stage-1
+# AI Build & Test Runbook - Stage-0 raisOS To Stage-1
 
-This is a no-code runbook for AI agents and humans working on the SeedOS VM-first
+This is a no-code runbook for AI agents and humans working on the raisOS VM-first
 path. It preserves the historical Stage-1 goals, but distinguishes chosen or
 planned invariants from behavior that is implemented and verified in the current
 Stage-0 image.
@@ -75,7 +75,7 @@ provider path explicit.
 - [x] `implemented/verified` Framebuffer negotiation and backbuffered present.
 - [x] `implemented/verified` Serial logger and on-screen Stage-0 UI.
 
-Exit: QEMU shows the SeedOS UI and serial logs include framebuffer readiness.
+Exit: QEMU shows the raisOS UI and serial logs include framebuffer readiness.
 
 ### 2.2 Devices, Time, Entropy, And Network
 
@@ -203,7 +203,7 @@ that while adding typed reports for planned capabilities.
 ## 6) Deliverables Checklist
 
 - [x] `implemented/verified` Bootable Stage-0 image:
-  `release/seedos-stage0.img`.
+  `release/raisos-stage0.img`.
 - [x] `implemented/verified` Windows build/package/run scripts.
 - [x] `implemented/verified` Documentation of current provider-key handling and
   secret scanning.

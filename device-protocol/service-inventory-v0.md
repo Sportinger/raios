@@ -1,8 +1,8 @@
-# SeedOS Service Inventory V0
+# raisOS Service Inventory V0
 
 `service.inventory.v0` is the static service graph for the current monolithic
 Stage-0 kernel. It describes permanent-core responsibilities and replaceable
-world components before SeedOS has dynamic service loading.
+world components before raisOS has dynamic service loading.
 
 This inventory is descriptive evidence, not load permission. Mutating service
 lifecycle methods remain denied until a module manifest, computed capability
@@ -16,7 +16,7 @@ The serial agent method is:
 service.inventory
 ```
 
-It is returned inside the `seedos.agent.v0` response envelope:
+It is returned inside the `raisos.agent.v0` response envelope:
 
 ```json
 {

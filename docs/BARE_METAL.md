@@ -1,6 +1,6 @@
 # Bare-Metal Bring-Up
 
-SeedOS is still a VM-first MVP. Bare-metal testing currently means: boot the
+raisOS is still a VM-first MVP. Bare-metal testing currently means: boot the
 same Limine/UEFI stage-0 payload from a USB stick and verify framebuffer plus
 device inventory and minimal keyboard/mouse input. Network and provider calls
 are expected in the VM through the e1000 test path; real hardware networking

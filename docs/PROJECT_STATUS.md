@@ -5,7 +5,7 @@ Last verified locally: 2026-05-17 on Windows with QEMU 11.
 ## Verified Boot State
 
 - Repository path: `C:\Users\admin\Documents\raios2`
-- Boot image: `release/seedos-stage0.img`
+- Boot image: `release/raisos-stage0.img`
 - Firmware vars seed: `release/ovmf_vars.fd`
 - Bootloader: Limine 10 UEFI binary at `release/esp/EFI/BOOT/BOOTX64.EFI`
 - Config file: `limine.conf` at ESP root and `EFI/BOOT/limine.conf`
@@ -50,7 +50,7 @@ Expected visible framebuffer UI:
 
 ```text
 AI  CONSOLE                                      SET
-SEEDOS
+RAISOS
 DIRECT AI HOST
 NET CONFIGURED   INPUT READY   USB READY   RNG READY
 CHAT
@@ -133,7 +133,7 @@ Codex/OpenAI integrations should use a small native provider boundary. The OS
 boundary should stay small and auditable; a full host CLI is not part of
 Stage-0.
 
-See `docs/architecture-decisions/0001-seedos-agent-protocol.md`.
+See `docs/architecture-decisions/0001-raisos-agent-protocol.md`.
 
 ## Exact Next Task
 
@@ -159,7 +159,7 @@ Harden and polish the direct provider path:
   instead of forcing a full UI redraw.
 - the visible QEMU GTK profile uses `usb-tablet` absolute pointer input by
   default and hides the host cursor over the guest area without automatic mouse
-  grab, so only the SeedOS pointer is visible and remains aligned after focus
+  grab, so only the raisOS pointer is visible and remains aligned after focus
   changes; `-RelativeMouse` or `-MouseGrab` switches back to relative
   `usb-mouse` for stricter boot-mouse testing.
 - the visible UI now defaults to a chat-first surface with `AI`, `CONSOLE`, and
@@ -199,7 +199,7 @@ Harden and polish the direct provider path:
 ## Known Gaps
 
 - Windows now has a minimal image repackaging path:
-  `scripts\package-stage0.ps1` creates `release\seedos-stage0.img` from
+  `scripts\package-stage0.ps1` creates `release\raisos-stage0.img` from
   `release\esp`.
 - `scripts/package-stage0.sh` is Linux/WSL-oriented and expects `mkfs.fat`,
   `mmd`, and `mcopy`.
@@ -236,5 +236,5 @@ Harden and polish the direct provider path:
 - Do not remove Limine request start/end markers.
 - Do not link the kernel lower-half.
 - Do not assume Linux packaging tools are available on this Windows host.
-- Do not delete or overwrite `release/seedos-stage0.img` unless the replacement
+- Do not delete or overwrite `release/raisos-stage0.img` unless the replacement
   has booted in QEMU.

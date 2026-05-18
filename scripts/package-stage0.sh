@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)
 ESP_DIR="$REPO_ROOT/release/esp"
-IMG="$REPO_ROOT/release/seedos-stage0.img"
+IMG="$REPO_ROOT/release/raisos-stage0.img"
 BOOTX64_SRC="$REPO_ROOT/vendor/limine/build/share/limine/BOOTX64.EFI"
 LIMINE_CD_SRC="$REPO_ROOT/vendor/limine/build/share/limine/limine-uefi-cd.bin"
 TMP_BOOTLOADER_DIR=""

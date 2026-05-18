@@ -1,10 +1,10 @@
 # Device Protocol
 
-Specifications and tooling for the SeedOS device/agent protocol.
+Specifications and tooling for the raisOS device/agent protocol.
 
 Current V0 docs:
 
-- `agent-v0.md` - serial-accessible `seedos.agent.v0` read-only methods and
+- `agent-v0.md` - serial-accessible `raisos.agent.v0` read-only methods and
   denied-by-default mutating methods.
 - `system-snapshot-v0.md` - typed current-boot snapshot plus field
   classification and provider redaction rules.

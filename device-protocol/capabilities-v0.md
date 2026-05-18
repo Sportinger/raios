@@ -1,7 +1,7 @@
-# SeedOS Capability Policy V0
+# raisOS Capability Policy V0
 
 `system.capabilities.v0` is the first local capability catalog for
-`seedos.agent.v0`. It documents what Stage-0 may expose to an agent, what is
+`raisos.agent.v0`. It documents what Stage-0 may expose to an agent, what is
 only requested by manifests, and why all mutating methods currently fail closed.
 
 V0 is intentionally small:
@@ -18,7 +18,7 @@ This document specifies the policy that file currently exposes over
 ## Policy Invariants
 
 - Capabilities are explicit names, not a generic shell or command runner.
-- A capability grant is computed by SeedOS local policy. It is never trusted from
+- A capability grant is computed by raisOS local policy. It is never trusted from
   a manifest, provider response, agent claim, or test report by itself.
 - Manifest `requested_caps` are requests only. Manifest `granted_caps` must stay
   empty for V0 artifacts.
@@ -45,7 +45,7 @@ This document specifies the policy that file currently exposes over
 
 Requests:
 
-- appear in `seedos.module_manifest.v0` as `requested_caps`
+- appear in `raisos.module_manifest.v0` as `requested_caps`
 - describe what an artifact or agent wants
 - do not authorize execution
 - may be used by policy, VM harnesses, and review tools to decide what evidence
@@ -69,9 +69,9 @@ A future mutating grant should bind at least:
   "duration": "ephemeral",
   "grant_source": "local_policy",
   "evidence": [
-    "seedos.module_manifest.v0",
-    "seedos.vm_test_report.v0",
-    "seedos.local_attestation.v0",
+    "raisos.module_manifest.v0",
+    "raisos.vm_test_report.v0",
+    "raisos.local_attestation.v0",
     "local_approval",
     "rollback_plan"
   ],
@@ -129,8 +129,8 @@ run_module_test
 The denial must name the missing evidence set:
 
 ```text
-seedos.module_manifest.v0
-seedos.vm_test_report.v0
+raisos.module_manifest.v0
+raisos.vm_test_report.v0
 local_attestation.v0
 computed_capability_grant
 local_approval
@@ -146,7 +146,7 @@ known mutating method -> structured denial; unknown method -> unknown command.
 Read-only methods may be recorded in the serial log and protocol transcript.
 That is sufficient for V0 observation.
 
-Before any mutating grant can exist, SeedOS must emit or persist an audit record
+Before any mutating grant can exist, raisOS must emit or persist an audit record
 that can explain the decision later. The minimum record should include:
 
 ```text
@@ -194,4 +194,4 @@ show read-only facts that the provider path is not yet allowed to receive.
 - Which low-risk diagnostic capability, if any, is the first candidate for a
   non-observe grant?
 - Should `module.propose` remain denied in the guest while workstation-side
-  proposal tooling accepts manifests outside the SeedOS runtime?
+  proposal tooling accepts manifests outside the raisOS runtime?

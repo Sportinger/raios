@@ -1,7 +1,7 @@
-# SeedOS Recovery Protocol V0
+# raisOS Recovery Protocol V0
 
-`seedos.recovery.v0` is the minimal recovery-control path for the permanent
-SeedOS core. It is separate from the normal `seedos.agent.v0` chat/provider
+`raisos.recovery.v0` is the minimal recovery-control path for the permanent
+raisOS core. It is separate from the normal `raisos.agent.v0` chat/provider
 surface and exists for the case where the replaceable service world is degraded,
 crashed, or unsafe to trust.
 
@@ -44,7 +44,7 @@ Recovery trust is explicit and separate from provider trust:
 
 ```json
 {
-  "schema": "seedos.recovery_trust.v0",
+  "schema": "raisos.recovery_trust.v0",
   "transport": "serial_local",
   "trust_state": "local_physical_console",
   "core_generation": "sha256:...",
@@ -95,7 +95,7 @@ Required shape:
 
 ```json
 {
-  "schema": "seedos.recovery_snapshot.v0",
+  "schema": "raisos.recovery_snapshot.v0",
   "core": {
     "state": "alive",
     "safe_mode": false,

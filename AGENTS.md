@@ -1,6 +1,6 @@
-# SeedOS / RaiOS2 Codex Memory
+# raisOS Codex Memory
 
-This repository is the local RaiOS2 / SeedOS workspace.
+This repository is the local raisOS workspace.
 
 ## Start Every New Instance Here
 
@@ -10,7 +10,7 @@ Read these files before making changes:
 2. `docs/PROJECT_STATUS.md`
 3. `docs/ROADMAP.md`
 4. `docs/DEBUGGING.md`
-5. `docs/architecture-decisions/0001-seedos-agent-protocol.md`
+5. `docs/architecture-decisions/0001-raisos-agent-protocol.md`
 
 Then run `git status --short` and preserve unrelated user changes.
 
@@ -32,7 +32,7 @@ reference/workstation tool, not the hard dependency inside the kernel.
 
 Do not deliberately build throwaway MVPs, mocks, fake services, fake security, or
 silent fallback paths. The project can move fast through agents, so default to
-keeping the full RaiOS vision in scope instead of traditional staged-down
+keeping the full raisOS vision in scope instead of traditional staged-down
 prototypes.
 
 When a narrow step is needed, make it a real vertical slice on the final
@@ -53,7 +53,7 @@ be mistaken for the intended system.
 
 Agents should approach new problems and features from the final system shape
 first. Start by identifying the full target architecture, invariants, protocols,
-trust boundaries, and evidence needed for the real RaiOS design. Then implement
+trust boundaries, and evidence needed for the real raisOS design. Then implement
 the smallest durable slice that moves that architecture forward. Avoid spending
 time optimizing intermediate product shapes, demo-only flows, compatibility
 shims, or "good enough for now" branches unless they are explicitly part of the
@@ -64,7 +64,7 @@ final architecture or test the real path.
 - Repo path: `C:\Users\admin\Documents\raios2`
 - Bootloader: Limine 10 UEFI binary in `release/esp/EFI/BOOT/BOOTX64.EFI`
 - Limine config uses `limine.conf`, not `limine.cfg`
-- Bootable image: `release/seedos-stage0.img`
+- Bootable image: `release/raisos-stage0.img`
 - QEMU visual boot has been verified on Windows with GTK display
 - Kernel currently draws a double-buffered framebuffer UI:
   - chat-first `AI` mode
@@ -107,7 +107,7 @@ final architecture or test the real path.
 - The kernel enables SSE early before Rust/allocator-heavy code paths.
 - The framebuffer renderer draws into a heap backbuffer and presents to the
   Limine framebuffer, avoiding visible clear/redraw flicker during mouse moves.
-- The visible QEMU GTK profile uses `grab-on-hover=on,show-cursor=off`; SeedOS
+- The visible QEMU GTK profile uses `grab-on-hover=on,show-cursor=off`; raisOS
   draws its own cursor and the host pointer should not escape the VM as easily.
 
 ## Secret Handling Rule
@@ -116,8 +116,8 @@ final architecture or test the real path.
 - Provider keys may enter a VM image or boot USB only from the local process
   environment, through the documented `-EmbedOpenAiApiKeyFromEnv` path.
 - Key embedding must use a temporary ESP staging tree and must not write into
-  tracked `release\esp` or the default `release\seedos-stage0.img`.
-- Local provider images such as `release\seedos-stage0-local-openai.img` are
+  tracked `release\esp` or the default `release\raisos-stage0.img`.
+- Local provider images such as `release\raisos-stage0-local-openai.img` are
   ignored artifacts and should be deleted after testing when not needed.
 - Before committing or pushing, run `scripts\scan-secrets.ps1`; when checking
   GitHub/remote safety, fetch remote refs and run
@@ -182,4 +182,4 @@ The current exact next task is maintained in `docs/PROJECT_STATUS.md`.
 - Keep changes narrow and boot-testable.
 - Prefer Windows PowerShell scripts for this local machine; Bash scripts are for
   WSL/Linux environments.
-- Preserve `release/seedos-stage0.img` as the currently bootable MVP artifact.
+- Preserve `release/raisos-stage0.img` as the currently bootable MVP artifact.

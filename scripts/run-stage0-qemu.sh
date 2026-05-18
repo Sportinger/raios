@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)
-IMG="$REPO_ROOT/release/seedos-stage0.img"
+IMG="$REPO_ROOT/release/raisos-stage0.img"
 OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE.fd}
 OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS.fd}
 

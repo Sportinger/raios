@@ -6,8 +6,8 @@ use ota_tools::{load_public_key_hex, SignedBlob};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const VM_TEST_REPORT_SCHEMA: &str = "seedos.vm_test_report.v0";
-pub const LOCAL_ATTESTATION_SCHEMA: &str = "seedos.local_attestation.v0";
+pub const VM_TEST_REPORT_SCHEMA: &str = "raisos.vm_test_report.v0";
+pub const LOCAL_ATTESTATION_SCHEMA: &str = "raisos.local_attestation.v0";
 
 #[derive(Clone, Debug)]
 pub struct PublishRequest {

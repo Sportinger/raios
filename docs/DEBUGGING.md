@@ -26,7 +26,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -
 ```
 
 This stages `target\x86_64-seed\release\seed-kernel` into
-`release\esp\kernel\kernel.elf` and writes `release\seedos-stage0.img`.
+`release\esp\kernel\kernel.elf` and writes `release\raisos-stage0.img`.
 
 For local-only provider testing, a default OpenAI key can be embedded from the
 current process environment without touching the tracked ESP staging directory.
@@ -34,12 +34,12 @@ Without a configured pin, the normal build still fails closed at the TLS trust
 gate:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raisos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv
 ```
 
 This requires `OPENAI_API_KEY` to be set. The resulting image contains the key,
 so do not commit or share that local image. The packaging script refuses to
-embed a provider key into `release\esp` or the default `release\seedos-stage0.img`;
+embed a provider key into `release\esp` or the default `release\raisos-stage0.img`;
 see `docs\SECRETS.md`.
 
 To exercise the normal positive trust path, also embed the current OpenAI leaf
@@ -48,7 +48,7 @@ certificate SHA-256 pin from the process environment:
 ```powershell
 $env:OPENAI_API_KEY = "<local key or fake smoke key>"
 $env:OPENAI_CERT_SHA256 = "<64 hex chars>"
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiCertPinFromEnv
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raisos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiCertPinFromEnv
 ```
 
 Leaf-certificate pins are intentionally rotation-sensitive. Use them for the
@@ -59,7 +59,7 @@ To exercise the old unverified provider-response smoke path, build a local image
 with the explicit development override:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\seedos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -AllowUnverifiedOpenAiTls
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raisos-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -AllowUnverifiedOpenAiTls
 ```
 
 ## Run VM On Windows
@@ -98,15 +98,15 @@ The runner uses:
 - QEMU: `C:\Program Files\qemu\qemu-system-x86_64.exe`
 - firmware code: `C:\Program Files\qemu\share\edk2-x86_64-code.fd`
 - firmware vars copy from `release\ovmf_vars.fd`
-- image: `release\seedos-stage0.img`
+- image: `release\raisos-stage0.img`
 - display: GTK with the host cursor hidden over the guest area by default, but
-  without automatic mouse grab, so SeedOS shows one pointer and the QEMU window
-  can still be moved or closed. Add `-MouseGrab` for grab-on-hover while SeedOS
+  without automatic mouse grab, so raisOS shows one pointer and the QEMU window
+  can still be moved or closed. Add `-MouseGrab` for grab-on-hover while raisOS
   draws its own pointer. Press `Ctrl+Alt+G` to release a grabbed QEMU mouse.
-- serial log: `%TEMP%\seedos-stage0.serial.txt`
+- serial log: `%TEMP%\raisos-stage0.serial.txt`
 - `-UsbXhciInput` adds `qemu-xhci`, `usb-kbd`, and `usb-tablet` by default.
   The tablet is still USB HID, but it reports absolute pointer coordinates, so
-  the SeedOS cursor stays aligned with the QEMU window after focus changes. Add
+  the raisOS cursor stays aligned with the QEMU window after focus changes. Add
   `-RelativeMouse` to use QEMU's relative `usb-mouse` boot device instead.
 - default networking is an emulated Intel e1000 device attached to QEMU
   user-mode networking.
@@ -123,7 +123,7 @@ for serial-only harness tests.
 Tail the serial log:
 
 ```powershell
-Get-Content $env:TEMP\seedos-stage0.serial.txt -Wait
+Get-Content $env:TEMP\raisos-stage0.serial.txt -Wait
 ```
 
 Stop QEMU:
@@ -163,7 +163,7 @@ List removable USB disks:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\list-usb-disks.ps1
 ```
 
-Write a SeedOS boot USB from an elevated Administrator PowerShell:
+Write a raisOS boot USB from an elevated Administrator PowerShell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\write-stage0-usb.ps1 -DiskNumber <N> -ConfirmErase "ERASE DISK <N>"
@@ -177,7 +177,7 @@ The write command erases the selected USB disk.
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1
 ```
 
-This uses `release\seedos-stage0-local-openai.img`, so first package that local
+This uses `release\raisos-stage0-local-openai.img`, so first package that local
 image with `-UseTempEsp -EmbedOpenAiApiKeyFromEnv`. The image contains the key
 and must not be committed or shared. By default this smoke checks that the
 provider path is denied by the TLS trust gate.
@@ -395,7 +395,7 @@ inside build scripts, not at the workspace root.
 The tested image is present at:
 
 ```text
-release/seedos-stage0.img
+release/raisos-stage0.img
 ```
 
 Windows packaging path:

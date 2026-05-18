@@ -18,7 +18,7 @@ denied-by-default until a matching VM test report and local attestation record
 exist.
 
 ## Context
-SeedOS/RaiOS2 is meant to be a small bootable agent host, not a Linux
+raisOS is meant to be a small bootable agent host, not a Linux
 distribution with AI tools preinstalled. The useful distinction is not that the
 system has fewer components. The useful distinction is that the OS can describe
 itself to an agent in a structured way and can constrain agent actions through a
@@ -28,8 +28,8 @@ A large external signed module ecosystem is not a good assumption for the early
 product. The expected development loop is faster and more local:
 
 ```text
-SeedOS boots -> reports structured state -> agent diagnoses -> agent builds an
-extension locally -> VM harness tests it -> SeedOS can load or persist the exact
+raisOS boots -> reports structured state -> agent diagnoses -> agent builds an
+extension locally -> VM harness tests it -> raisOS can load or persist the exact
 tested artifact under capability rules.
 ```
 
@@ -37,7 +37,7 @@ In this model, modules are not app-store packages. They are local, agent-built
 artifacts with manifests, hashes, test results, and audit records.
 
 ## Decision
-Build the next SeedOS agent architecture around two core primitives:
+Build the next raisOS agent architecture around two core primitives:
 
 1. Machine-readable self-description from the OS.
 2. Local-first live-built extension artifacts controlled by capability gates and
@@ -54,16 +54,16 @@ extension as acceptable only when the local system can answer:
 - Can it be rolled back?
 
 Acceptance is based on local attestation, not agent self-assertion. The agent can
-build and propose an artifact, but SeedOS should only accept an artifact hash
+build and propose an artifact, but raisOS should only accept an artifact hash
 that is tied to a manifest hash, base image hash, VM/harness report hash, and
 local approval record. The same provider response that built an artifact must not
 be sufficient to certify it as safe to load.
 
 This keeps agent iteration fast while still avoiding an unrestricted shell or
-arbitrary kernel patch path inside SeedOS.
+arbitrary kernel patch path inside raisOS.
 
 ## Core Thesis
-Ubuntu gives an agent broad existing power. SeedOS should give an agent a
+Ubuntu gives an agent broad existing power. raisOS should give an agent a
 smaller but clearer model of the system.
 
 The agent should not need to infer system state from a random pile of logs and
@@ -93,12 +93,12 @@ persist     Change boot config, persistent module set, or stored policy.
 hardware    Touch real hardware state with risk outside the VM.
 ```
 
-SeedOS should avoid a generic "run arbitrary command" capability. The host
+raisOS should avoid a generic "run arbitrary command" capability. The host
 builder may use normal development tools, but the OS boundary should remain a
 small catalog of explicit capabilities with input schemas, output schemas, risk
 levels, approval rules, and audit behavior.
 
-Manifest capabilities are requests, not grants. SeedOS computes effective grants
+Manifest capabilities are requests, not grants. raisOS computes effective grants
 from local policy, the current boot state, user approval, and test results. A V0
 grant should be shaped like this:
 
@@ -126,8 +126,8 @@ be one of several levels:
 | Kind | Runs where | Artifact format | Allowed first | Required gate |
 | --- | --- | --- | --- | --- |
 | workstation-side capability | dev workstation | script/binary plus manifest | yes | local policy + audit |
-| guest diagnostic | SeedOS sandbox | small guest artifact plus manifest | later | VM smoke + read-only caps |
-| ram-only driver | SeedOS kernel/runtime | low-level artifact plus manifest | later | matching VM report + approval |
+| guest diagnostic | raisOS sandbox | small guest artifact plus manifest | later | VM smoke + read-only caps |
+| ram-only driver | raisOS kernel/runtime | low-level artifact plus manifest | later | matching VM report + approval |
 | persistent driver | boot image/config | low-level artifact plus manifest | last | matching VM report + rollback |
 
 The first live-built artifact type should be a workstation-side capability module. The
@@ -139,11 +139,11 @@ Every extension artifact should carry a manifest shaped like this:
 
 ```json
 {
-  "manifest_version": "seedos.module.v0",
+  "manifest_version": "raisos.module.v0",
   "name": "usb-hid-keyboard",
   "kind": "driver",
-  "target": "seedos-stage0",
-  "abi": "seedos-driver-v0",
+  "target": "raisos-stage0",
+  "abi": "raisos-driver-v0",
   "built_by": "agent-session-id",
   "provides": ["input.keyboard"],
   "requested_caps": ["usb.xhci.read_events", "input.emit_key"],
@@ -177,7 +177,7 @@ another transport:
 
 ```json
 {
-  "v": "seedos.agent.v0",
+  "v": "raisos.agent.v0",
   "t": "request",
   "id": "req-001",
   "ts": 0,
@@ -192,7 +192,7 @@ Responses and errors should keep the same `id`:
 
 ```json
 {
-  "v": "seedos.agent.v0",
+  "v": "raisos.agent.v0",
   "t": "error",
   "id": "req-001",
   "ts": 0,
@@ -255,7 +255,7 @@ The smallest useful `system.snapshot.v0` should expose current facts only:
 {
   "schema": "system.snapshot.v0",
   "os": {
-    "name": "SeedOS",
+    "name": "raisOS",
     "stage": "stage-0",
     "kernel_build_id": "...",
     "image_hash": "blake3:..."
@@ -306,18 +306,18 @@ provider requests may remain plain prompts.
 Example flow:
 
 ```text
-Agent -> SeedOS: system.snapshot
-SeedOS -> Agent: xHCI ready, USB HID keyboard and mouse ready
+Agent -> raisOS: system.snapshot
+raisOS -> Agent: xHCI ready, USB HID keyboard and mouse ready
 
-Agent -> SeedOS: module.propose richer-usb-hid
-SeedOS -> Agent: allowed for VM-test only, needs usb.xhci.read_events
+Agent -> raisOS: module.propose richer-usb-hid
+raisOS -> Agent: allowed for VM-test only, needs usb.xhci.read_events
 
 Agent/Host: builds artifact
 Harness: boots test VM with artifact
-Harness -> SeedOS/Agent: module.test_result passed, artifact_hash blake3:...
+Harness -> raisOS/Agent: module.test_result passed, artifact_hash blake3:...
 
-Agent -> SeedOS: module.load_ephemeral blake3:...
-SeedOS -> Agent: loaded for current boot, input.keyboard ready
+Agent -> raisOS: module.load_ephemeral blake3:...
+raisOS -> Agent: loaded for current boot, input.keyboard ready
 ```
 
 ## VM Harness Role
@@ -329,7 +329,7 @@ The VM harness is a first-class part of the safety model. It should be able to:
 - Capture serial logs, framebuffer status, and protocol output.
 - Report a deterministic result back to the agent loop.
 
-The harness does not make live loading risk-free, but it gives SeedOS a fast
+The harness does not make live loading risk-free, but it gives raisOS a fast
 local check before accepting an artifact into the running boot or persistent
 image.
 
@@ -337,7 +337,7 @@ A V0 test report should be machine-readable:
 
 ```json
 {
-  "schema": "seedos.vm_test_report.v0",
+  "schema": "raisos.vm_test_report.v0",
   "report_hash": "blake3:...",
   "base_image_hash": "blake3:...",
   "candidate_artifact_hash": "blake3:...",
@@ -356,11 +356,11 @@ A V0 test report should be machine-readable:
 ```
 
 For bare-metal issues, the report should also include snapshot preconditions.
-SeedOS should refuse a report if the current image hash, artifact hash, hardware
+raisOS should refuse a report if the current image hash, artifact hash, hardware
 profile, or required preconditions do not match.
 
 ## Audit And Reproducibility
-SeedOS should record enough information to replay or understand a change:
+raisOS should record enough information to replay or understand a change:
 
 ```text
 agent session id
@@ -436,7 +436,7 @@ available capabilities
 
 ### Phase C: Agent Context Injection
 Make the direct provider adapter attach a compact `system.snapshot` to provider
-requests so the agent answers with current SeedOS context instead of blind chat.
+requests so the agent answers with current raisOS context instead of blind chat.
 
 ### Phase D: Proposal And Test Loop
 Add protocol support for module proposals and VM test results before implementing

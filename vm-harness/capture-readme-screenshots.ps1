@@ -1,6 +1,6 @@
 param(
     [string]$OutputDir = "$PSScriptRoot\..\docs\assets\screenshots",
-    [string]$Prompt = "Reply with exactly five words: SeedOS boots, networks, chats directly.",
+    [string]$Prompt = "Reply with exactly five words: raisOS boots, networks, chats directly.",
     [int]$SerialTcpPort = 4591,
     [int]$MonitorTcpPort = 4592,
     [int]$VncDisplay = 79,
@@ -11,9 +11,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$RunId = "seedos-readme-screenshots-{0:yyyyMMdd-HHmmss}-{1}" -f (Get-Date), $PID
+$RunId = "raisos-readme-screenshots-{0:yyyyMMdd-HHmmss}-{1}" -f (Get-Date), $PID
 $RunDir = Join-Path $env:TEMP $RunId
-$TempImage = Join-Path $RunDir "seedos-stage0-local-openai.img"
+$TempImage = Join-Path $RunDir "raisos-stage0-local-openai.img"
 $SerialLog = Join-Path $RunDir "serial.log"
 $ErrLog = Join-Path $RunDir "qemu.err"
 $Code = Join-Path $RunDir "edk2-code.fd"
@@ -305,7 +305,7 @@ try {
     Wait-ForLogText -Path $SerialLog -Needle "Default provider loaded: OPENAI API key set" -TimeoutSeconds $TimeoutSeconds
     Wait-ForLogText -Path $SerialLog -Needle "status NETWORK: CONFIGURED" -TimeoutSeconds $TimeoutSeconds
     Start-Sleep -Seconds 1
-    Capture-Screen -Name "seedos-home"
+    Capture-Screen -Name "raisos-home"
 
     [void](Send-Hmp -Command "sendkey tab")
     [void](Send-Hmp -Command "sendkey tab")
@@ -318,12 +318,12 @@ try {
     Send-Serial -Text "devices`r"
     Wait-ForLogText -Path $SerialLog -Needle "FRAMEBUFFER: READY - 1280x800 PITCH 5120" -TimeoutSeconds 10
     Start-Sleep -Seconds 1
-    Capture-Screen -Name "seedos-console-status"
+    Capture-Screen -Name "raisos-console-status"
 
     Send-Serial -Text "setup`r"
     Wait-ForLogText -Path $SerialLog -Needle "SETUP" -TimeoutSeconds 10
     Start-Sleep -Seconds 1
-    Capture-Screen -Name "seedos-settings"
+    Capture-Screen -Name "raisos-settings"
 
     Send-Serial -Text "q"
     Start-Sleep -Milliseconds 800
@@ -332,7 +332,7 @@ try {
     Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
     Wait-ForLogText -Path $SerialLog -Needle "OPENAI:" -TimeoutSeconds $TimeoutSeconds
     Start-Sleep -Seconds 2
-    Capture-Screen -Name "seedos-openai-chat"
+    Capture-Screen -Name "raisos-openai-chat"
     $Succeeded = $true
 }
 finally {

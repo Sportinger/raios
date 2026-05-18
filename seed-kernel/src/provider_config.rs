@@ -1,7 +1,7 @@
 use spin::Mutex;
 
 const API_KEY_CAPACITY: usize = 256;
-const DEFAULT_OPENAI_API_KEY: Option<&str> = option_env!("SEEDOS_DEFAULT_OPENAI_API_KEY");
+const DEFAULT_OPENAI_API_KEY: Option<&str> = option_env!("RAISOS_DEFAULT_OPENAI_API_KEY");
 
 static STATE: Mutex<ProviderConfig> = Mutex::new(ProviderConfig::new());
 

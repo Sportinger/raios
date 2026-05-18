@@ -1,4 +1,4 @@
-# SeedOS Agent Protocol V0
+# raisOS Agent Protocol V0
 
 Stage-0 exposes the first native agent protocol over the existing serial
 console. This is intentionally read-only except for explicit denial responses.
@@ -24,16 +24,16 @@ agent <method>        -> dispatch raw method name
 Each response is written to serial between markers:
 
 ```text
-SEEDOS_AGENT_BEGIN system.snapshot
+RAISOS_AGENT_BEGIN system.snapshot
 { ... JSON envelope ... }
-SEEDOS_AGENT_END system.snapshot
+RAISOS_AGENT_END system.snapshot
 ```
 
 The envelope shape is:
 
 ```json
 {
-  "v": "seedos.agent.v0",
+  "v": "raisos.agent.v0",
   "t": "response",
   "id": "serial",
   "body": {
@@ -88,6 +88,6 @@ provider.configure
 wifi.configure
 ```
 
-The denial names the missing evidence: `seedos.module_manifest.v0`,
-`seedos.vm_test_report.v0`, `local_attestation.v0`, computed capability grant,
+The denial names the missing evidence: `raisos.module_manifest.v0`,
+`raisos.vm_test_report.v0`, `local_attestation.v0`, computed capability grant,
 local approval, and rollback plan.
