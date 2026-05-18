@@ -18,6 +18,35 @@ It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
 immutable recovery core that cannot be broken from above.
 
+## Screenshots
+
+### Console status
+
+<p align="center">
+  <img src="docs/assets/screenshots/raios-console-status.png" alt="raisOS console status screen" width="920">
+</p>
+
+The console status view exposes boot, framebuffer, entropy, USB, input, Wi-Fi,
+and network state without requiring a graphical desktop or host-side helper.
+
+### Provider and Wi-Fi setup
+
+<p align="center">
+  <img src="docs/assets/screenshots/raios-settings.png" alt="raisOS provider and Wi-Fi settings screen" width="920">
+</p>
+
+The `SET` mode is the first in-guest setup surface for provider status,
+RAM-only API key entry, and early Wi-Fi SSID/passphrase capture.
+
+### Direct provider chat
+
+<p align="center">
+  <img src="docs/assets/screenshots/raios-openai-chat.png" alt="raisOS direct OpenAI chat screen" width="920">
+</p>
+
+The chat view shows the Stage-0 direct provider path rendering a response back
+inside the framebuffer UI after DNS, TCP, TLS, HTTPS, and response parsing.
+
 ## The Tamagotchi Model
 
 Most operating systems are general-purpose. They carry decades of compatibility,
