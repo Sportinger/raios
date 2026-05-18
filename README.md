@@ -23,12 +23,12 @@ live service replacement.
 
 ## What It Is
 
-| SeedOS is | SeedOS is not |
+| 🟢 SeedOS is | 🔴 SeedOS is not |
 | --- | --- |
-| A real bootable OS workspace, not a hosted web app or a Linux skin. | A Linux distribution or desktop environment. |
-| A Stage-0 kernel with framebuffer UI, serial diagnostics, input, e1000 DHCP, RAM-only provider setup, direct OpenAI transport code, a fail-closed provider trust gate, and first OpenAI cert-pin verification. | A port of the Codex CLI into the kernel. |
-| The foundation for a native SeedOS agent protocol where every future AI action is observable, capability-gated, testable, and reversible. | A fake cloud agent, mock provider path, or host-side serial relay. |
-| A fail-closed provider host in the normal build until TLS trust is verified. | A complete signed-module, recovery-agent, persistence, or live-update runtime yet. |
+| 🟢 A real bootable OS workspace, not a hosted web app or a Linux skin. | 🔴 A Linux distribution or desktop environment. |
+| 🟢 A Stage-0 kernel with framebuffer UI, serial diagnostics, input, e1000 DHCP, RAM-only provider setup, direct OpenAI transport code, a fail-closed provider trust gate, and first OpenAI cert-pin verification. | 🔴 A port of the Codex CLI into the kernel. |
+| 🟢 The foundation for a native SeedOS agent protocol where every future AI action is observable, capability-gated, testable, and reversible. | 🔴 A fake cloud agent, mock provider path, or host-side serial relay. |
+| 🟢 A fail-closed provider host in the normal build until TLS trust is verified. | 🔴 A complete signed-module, recovery-agent, persistence, or live-update runtime yet. |
 
 First MVP goal:
 
