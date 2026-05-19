@@ -86,8 +86,8 @@ The JSON report contains:
     "hardware_profile_sha256": "...",
     "qemu_args_sha256": "...",
     "serial_log_sha256": "...",
-    "predicate_count": 163,
-    "predicate_passed_count": 163,
+    "predicate_count": 174,
+    "predicate_passed_count": 174,
     "predicate_failed_count": 0
   },
   "commands": [
@@ -142,8 +142,9 @@ The current predicate set includes the read-only agent protocol, provider trust
 problem visibility, `memory.context` event ids, the local
 `provider_minimal` redaction projection with packet/field-list hashes, the
 denied `provider.context_export` gate with provider writes still
-`not_attempted`, positive request/export binding gates still missing, denial
-audit records that do not satisfy those gates, structured event-log denial
+`not_attempted`, positive request/export binding gates still missing, the
+read-only `provider.context_gate` missing-binding state, denial audit records
+that do not satisfy those gates, structured event-log denial
 bindings with packet and field-list hashes, negative checks for positive
 provider binding schemas, positive export authorization, and fake provider
 request envelopes from `provider.context_export`, query/trace locators, RAM-only

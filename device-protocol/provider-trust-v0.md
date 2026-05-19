@@ -140,5 +140,8 @@ The `NoVerify` path remains only behind the explicit development build flag
   `raios.provider_request_binding.v0` and
   `raios.provider_context_export_audit_binding.v0` local-only markers after
   request body/envelope hash validation and before API-key copy or HTTPS write.
+- Positive pinned/WebPKI request paths allow the retained binding pair to be
+  validated by `provider.context_gate` and consumed once by
+  `provider.context_export` for local gate evaluation only.
 - Development TLS bypass and pin mismatch do not emit positive request/export
   audit binding markers.

@@ -74,6 +74,83 @@ function Send-SerialText {
     }
 }
 
+function Get-MarkerJson {
+    param(
+        [string]$Serial,
+        [string]$Prefix
+    )
+
+    $line = @($Serial -split '\r?\n' | Where-Object { $_ -like "$Prefix *" } | Select-Object -Last 1)
+    if (-not $line) {
+        throw "Missing marker $Prefix in serial log"
+    }
+    return ($line.Substring($Prefix.Length + 1) | ConvertFrom-Json)
+}
+
+function Assert-Equal {
+    param(
+        [string]$Name,
+        $Actual,
+        $Expected
+    )
+
+    if ($Actual -ne $Expected) {
+        throw "$Name mismatch. Expected '$Expected' but saw '$Actual'."
+    }
+}
+
+function Assert-PositiveBindingMarkers {
+    param(
+        [string]$Serial
+    )
+
+    $envelope = Get-MarkerJson -Serial $Serial -Prefix "OPENAI_PROVIDER_REQUEST_ENVELOPE"
+    $requestBinding = Get-MarkerJson -Serial $Serial -Prefix "OPENAI_PROVIDER_REQUEST_BINDING"
+    $exportBinding = Get-MarkerJson -Serial $Serial -Prefix "OPENAI_PROVIDER_EXPORT_AUDIT_BINDING"
+
+    Assert-Equal -Name "request body hash" -Actual $requestBinding.request_body_hash -Expected $envelope.request_body.body_sha256
+    Assert-Equal -Name "request envelope hash" -Actual $requestBinding.request_envelope_hash -Expected $envelope.evidence.envelope_hash
+    Assert-Equal -Name "export request body hash" -Actual $exportBinding.request_body_hash -Expected $requestBinding.request_body_hash
+    Assert-Equal -Name "export request envelope hash" -Actual $exportBinding.request_envelope_hash -Expected $requestBinding.request_envelope_hash
+    Assert-Equal -Name "export request binding hash" -Actual $exportBinding.request_binding_hash -Expected $requestBinding.request_binding_hash
+    Assert-Equal -Name "export request binding event id" -Actual $exportBinding.request_binding_event_id -Expected $requestBinding.event_id
+    Assert-Equal -Name "provider packet hash" -Actual $exportBinding.hashes.projected_packet_hash -Expected $requestBinding.hashes.projected_packet_hash
+    Assert-Equal -Name "exported field list hash" -Actual $exportBinding.hashes.exported_field_list_hash -Expected $requestBinding.hashes.exported_field_list_hash
+    Assert-Equal -Name "omitted field list hash" -Actual $exportBinding.hashes.omitted_field_list_hash -Expected $requestBinding.hashes.omitted_field_list_hash
+    Assert-Equal -Name "request binding current boot export gate" -Actual $requestBinding.satisfies_current_boot_export_gate -Expected $false
+    Assert-Equal -Name "export binding current boot export gate" -Actual $exportBinding.satisfies_current_boot_export_gate -Expected $false
+    Assert-Equal -Name "automatic context injection" -Actual $exportBinding.automatic_context_injection -Expected "disabled"
+    Assert-Equal -Name "request binding body attachment" -Actual $requestBinding.context_attached_to_provider_body -Expected $false
+    Assert-Equal -Name "export binding body attachment" -Actual $exportBinding.context_attached_to_provider_body -Expected $false
+}
+
+function Invoke-PositiveBindingGateChecks {
+    param(
+        [int]$Port,
+        [string]$SerialLog,
+        [int]$TimeoutSeconds
+    )
+
+    Send-SerialText -Port $Port -TimeoutSeconds $TimeoutSeconds -Text "agent provider.context_gate provider_minimal`r"
+    Wait-ForLogText -Path $SerialLog -Needle "RAIOS_AGENT_END provider.context_gate" -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"schema": "raios.provider_context_export_gate_state.v0"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"binding_validation_status": "valid"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"binding_validation_reason": "binding_pair_valid_for_gate_evaluation"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"provider_request_binding": "present_validated"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"provider_export_audit_binding": "present_validated"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"satisfies_current_boot_export_gate": false' -TimeoutSeconds $TimeoutSeconds
+
+    Send-SerialText -Port $Port -TimeoutSeconds $TimeoutSeconds -Text "agent provider.context_export provider_minimal`r"
+    Wait-ForLogText -Path $SerialLog -Needle '"provider_binding_consumption": "consumed_for_gate_evaluation"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"schema": "raios.provider_context_binding_consumption.v0"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"provider_binding_consumed_without_body_attachment"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"automatic_context_injection": "disabled"' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"context_attached_to_provider_body": false' -TimeoutSeconds $TimeoutSeconds
+
+    Send-SerialText -Port $Port -TimeoutSeconds $TimeoutSeconds -Text "agent provider.context_export provider_minimal`r"
+    Wait-ForLogText -Path $SerialLog -Needle '"binding_validation_reason": "binding_already_consumed"' -TimeoutSeconds $TimeoutSeconds
+}
+
 if (-not (Test-Path -LiteralPath $Image)) {
     throw "Missing direct OpenAI image: $Image. Package it with scripts\package-stage0.ps1 -UseTempEsp -EmbedOpenAiApiKeyFromEnv."
 }
@@ -118,6 +195,7 @@ try {
         Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_EXPORT_AUDIT_BINDING {"schema":"raios.provider_context_export_audit_binding.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI HTTP" -TimeoutSeconds $TimeoutSeconds
+        Invoke-PositiveBindingGateChecks -Port $SerialTcpPort -SerialLog $SerialLog -TimeoutSeconds $TimeoutSeconds
     }
     elseif ($ExpectSpkiPinnedTrust) {
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
@@ -129,6 +207,7 @@ try {
         Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_EXPORT_AUDIT_BINDING {"schema":"raios.provider_context_export_audit_binding.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI HTTP" -TimeoutSeconds $TimeoutSeconds
+        Invoke-PositiveBindingGateChecks -Port $SerialTcpPort -SerialLog $SerialLog -TimeoutSeconds $TimeoutSeconds
     }
     elseif ($ExpectPinMismatch) {
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
@@ -160,6 +239,9 @@ try {
     }
     if (($ExpectPinnedTrust -or $ExpectSpkiPinnedTrust) -and ($serial -notlike "*raios.provider_context_export_audit_binding.v0*")) {
         throw "Pinned-trust smoke did not see a positive provider export audit binding in $SerialLog"
+    }
+    if ($ExpectPinnedTrust -or $ExpectSpkiPinnedTrust) {
+        Assert-PositiveBindingMarkers -Serial $serial
     }
     if (($ExpectProviderResponse -or $ExpectPinnedTrust -or $ExpectSpkiPinnedTrust -or $ExpectPinMismatch) -and ($serial -notlike "*`"provider_write`":`"not_attempted`"*")) {
         throw "Direct smoke did not see provider_write:not_attempted in the provider request envelope in $SerialLog"

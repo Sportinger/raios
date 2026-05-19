@@ -22,6 +22,7 @@ V0 records:
 - local provider request envelope creation on the real direct OpenAI request path
 - positive provider request binding records after pinned/WebPKI provider trust
 - positive export-audit binding records after pinned/WebPKI provider trust
+- checked binding consumption records for local gate evaluation without export
 - provider request-binding denial records for `provider_minimal`
 - provider context export-denial audit records with
   `outcome: denied_no_provider_write`
@@ -262,6 +263,41 @@ Stage-0 still reports the overall current-boot export gate as unsatisfied while
 automatic context injection is disabled. The OpenAI request body remains free of
 provider-minimal context in this slice.
 
+### Binding Consumption Event
+
+When `provider.context_export provider_minimal` evaluates a retained positive
+binding pair, Stage-0 may record a local-only consumption event:
+
+```json
+{
+  "schema": "audit.event.v0",
+  "kind": "provider_context_export.binding_consumption_checked",
+  "source_method": "provider.context_export",
+  "classification": "local_only",
+  "outcome": "checked_not_exported",
+  "requested_capability": "cap.provider.context_export",
+  "risk": "export",
+  "reason": "provider_binding_consumed_without_body_attachment",
+  "bindings": {
+    "schema": "raios.provider_context_binding_consumption.v0",
+    "status": "consumed_for_gate_evaluation",
+    "satisfies_current_boot_export_gate": false,
+    "automatic_context_injection": "disabled",
+    "provider_write": "not_attempted",
+    "context_attached_to_provider_body": false,
+    "request_binding_event_id": "event.current_boot.00000012",
+    "export_audit_binding_event_id": "event.current_boot.00000013",
+    "request_binding_hash": "sha256:<64 hex chars>",
+    "export_audit_binding_hash": "sha256:<64 hex chars>"
+  },
+  "persistence": "none"
+}
+```
+
+This event means the pair was consumed for local gate evaluation only. It is not
+an export record and cannot by itself make
+`satisfies_current_boot_export_gate` true.
+
 ## Provider Export Denial Events
 
 Stage-0 records denial evidence before any provider write. These records are
@@ -392,5 +428,8 @@ positive export authority by itself.
   `provider_write_at_binding: not_attempted`,
   `context_attached_to_provider_body: false`, and
   `satisfies_current_boot_export_gate: false` in this slice.
+- Binding consumption events must keep `provider_write: not_attempted`,
+  `automatic_context_injection: disabled`, and
+  `context_attached_to_provider_body: false`.
 - Future persistent audit records must bind hashes, approvals, rollback state,
   and durable timestamps separately. This V0 log is not that ledger.

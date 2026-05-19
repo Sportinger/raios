@@ -7,8 +7,9 @@ denied `provider.context_export` gate, the local redaction projection, read-only
 memory context, the RAM-only current-boot event log with structured denial
 bindings, the runtime `raios.provider_request_envelope.v0` marker on the real
 OpenAI request path, positive local-only request/export audit binding records on
-the SPKI pinned OpenAI path, and direct OpenAI pin-mismatch plus SPKI
-pinned-trust smokes using a fake local API key.
+the SPKI pinned OpenAI path, checked current-boot binding consumption with
+single-use rejection, and direct OpenAI pin-mismatch plus SPKI pinned-trust
+smokes using a fake local API key.
 
 ## Verified Boot State
 
@@ -155,20 +156,19 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Wire the positive current-boot request/export audit binding records into the
-next provider context consumption gate while automatic provider context injection
-remains disabled:
+Broaden the checked provider context gate toward the final explicit injection
+gate while automatic provider context injection remains disabled:
 
-- accept only one retained current-boot `raios.provider_request_binding.v0` and
-  one matching `raios.provider_context_export_audit_binding.v0`
-- reject denial schemas, stale or dropped event ids, previous-boot ids, consumed
-  bindings, trust-bypass records, and request/body/packet hash mismatches
+- add explicit negative harness cases for stale/dropped event ids,
+  previous-boot ids, substituted positive/denial schemas, and mismatched bound
+  request/body/context hashes
+- specify the separate final injection gate that may make
+  `context_attached_to_provider_body` true in a future slice
 - keep `satisfies_current_boot_export_gate: false` while
   `automatic_context_injection: disabled`
 - keep OpenAI request bodies free of provider-minimal context until the final
   explicit injection gate is specified and tested
-- add negative harness coverage for stale ids, consumed bindings, substitution,
-  and hash-mismatch attempts
+- preserve single-use consumption for retained positive binding pairs
 
 The verified foundation for that task is:
 
@@ -282,6 +282,16 @@ The verified foundation for that task is:
   `satisfies_current_boot_export_gate: false`,
   `automatic_context_injection: disabled`, and
   `context_attached_to_provider_body: false`.
+- `provider.context_gate provider_minimal` now exposes a read-only
+  `raios.provider_context_export_gate_state.v0` diagnostic over retained
+  current-boot binding records. It can validate one matching positive request
+  binding plus export-audit binding pair while keeping `can_export: false`.
+- `provider.context_export provider_minimal` now consumes one valid retained
+  positive binding pair for local gate evaluation only, records
+  `raios.provider_context_binding_consumption.v0`, and still returns
+  `capability_denied` because `automatic_context_injection` remains disabled.
+  A second attempt against the same pair is rejected as
+  `binding_already_consumed`.
 - `provider.context_export` still does not create a request envelope; the
   Shadow VM smoke checks that denied export cannot fake one.
 - `memory.query` and `memory.trace` include
@@ -305,8 +315,9 @@ The verified foundation for that task is:
   and export audit bindings still missing, denial-audit records present but not
   satisfying export gates, provider writes still not attempted, memory
   query/trace, event log schemas, audit alias, memory mutation denials with
-  event ids, and the existing denied module load path. Latest report:
-  `release\vm-reports\shadow-20260519-144953-10888.json` with 163/163
+  event ids, the read-only `provider.context_gate` missing-binding state, and
+  the existing denied module load path. Latest report:
+  `release\vm-reports\shadow-20260519-152207-9148.json` with 174/174
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It
@@ -318,7 +329,11 @@ The verified foundation for that task is:
   local image built with a fake API key and the current OpenAI SPKI pin. It
   verified the real request envelope marker, positive request binding marker,
   and positive export audit binding marker appear before the HTTPS write path,
-  while provider-minimal context remains unattached.
+  that marker body/envelope/binding/context hashes match, that
+  `provider.context_gate` validates the retained pair, that
+  `provider.context_export` consumes it once for local gate evaluation, and that
+  the second consumption attempt returns `binding_already_consumed`, while
+  provider-minimal context remains unattached.
 - the development serial relay and old host-framing path have been removed from
   the runtime path.
 - the next trust milestone is WebPKI or broader certificate algorithm support

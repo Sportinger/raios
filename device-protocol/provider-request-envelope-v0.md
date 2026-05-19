@@ -139,6 +139,11 @@ when all of these are true:
 
 Denial records, request-attempt ids, planned requests, stale event ids, dropped
 RAM-ring events, or records from a previous boot do not satisfy this predicate.
+The checked consumption gate also rejects substituted binding schemas, mismatched
+request-body or envelope hashes, mismatched binding hashes, non-positive trust
+records, development TLS bypass records, and already consumed pairs. A consumed
+pair is evidence that the local gate evaluated the binding; it is not evidence
+that context was attached to a provider body.
 
 ## Runtime Marker
 

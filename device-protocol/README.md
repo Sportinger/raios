@@ -17,7 +17,8 @@ Current V0 docs:
 - `memory-context-v0.md` - read-only `current_boot` memory profile, context,
   query, and trace methods for bounded `raios.agent_context.v0` packets.
 - `provider-context-export-v0.md` - denied-by-default provider context export
-  gate, local-only positive binding records, and audit-binding requirements.
+  gate, local-only positive binding records, checked consumption, and
+  audit-binding requirements.
 - `provider-request-envelope-v0.md` - local pre-write envelope contract for
   binding one provider context packet to one real provider request.
 - `event-log-v0.md` - RAM-only `current_boot` event/audit log for agent

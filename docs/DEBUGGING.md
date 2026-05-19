@@ -253,6 +253,21 @@ TLS override. The export-audit marker is positive audit evidence, but
 `satisfies_current_boot_export_gate` remains `false`, and the request body still
 does not include provider-minimal context.
 
+Pinned-trust direct smokes also exercise the checked local gate:
+
+```text
+agent provider.context_gate provider_minimal
+agent provider.context_export provider_minimal
+agent provider.context_export provider_minimal
+```
+
+The first command must report `raios.provider_context_export_gate_state.v0` with
+`binding_validation_status: valid`. The first export command consumes the
+retained positive binding pair for local gate evaluation only and records
+`raios.provider_context_binding_consumption.v0`; it still returns
+`capability_denied`. The second export command must reject the same pair with
+`binding_already_consumed`.
+
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:
 

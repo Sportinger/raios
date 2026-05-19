@@ -150,7 +150,9 @@ request binding, and a distinct provider export audit binding exist. The
 standalone denial path may emit request-binding-denial and export-denial-audit
 records, but those records do not satisfy the positive binding gates. The real
 pinned OpenAI `ask` path may emit positive local-only request/export audit
-binding records, but those records do not grant provider export or body
+binding records. `provider.context_gate` may validate retained positive binding
+pairs read-only, and `provider.context_export` may consume a valid pair once for
+local gate evaluation, but those records do not grant provider export or body
 attachment while automatic context injection is disabled. The standalone denial
 must report `provider_write: not_attempted`.
 
@@ -172,6 +174,7 @@ exported_field_list_hash
 omitted_field_list_hash
 provider_request_binding
 provider_context_export_audit_binding
+checked_current_boot_binding_consumption
 ```
 
 V0 does not distinguish between "method known but currently unsafe" and "method

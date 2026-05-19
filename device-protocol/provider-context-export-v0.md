@@ -158,6 +158,35 @@ In the current slice, even a positive export audit binding still carries
 `automatic_context_injection` is explicitly `disabled`. That final gate must be
 enabled separately before context can be attached to a provider body.
 
+## Current-Boot Binding Consumption
+
+`provider.context_gate provider_minimal` is a read-only diagnostic method for
+the local gate state. It emits
+`raios.provider_context_export_gate_state.v0` and never creates request
+envelopes, positive bindings, provider writes, or consumption records.
+
+`provider.context_export provider_minimal` may consume one retained positive
+binding pair for local gate evaluation. Consumption accepts only:
+
+- a retained `raios.provider_request_binding.v0`
+- a retained matching `raios.provider_context_export_audit_binding.v0`
+- matching request id, request-envelope event id, request-body hash,
+  request-envelope hash, and request-binding hash
+- matching provider-minimal packet, exported-field-list, and omitted-field-list
+  hashes inside the binding pair
+- positive provider trust without development TLS bypass
+- `context_attached_to_provider_body: false`
+- an unconsumed current-boot pair
+
+It rejects denial schemas, wrong variants, stale or dropped referenced event ids,
+already consumed pairs, non-positive trust records, trust-bypass records, and
+hash mismatches. A successful local check records
+`raios.provider_context_binding_consumption.v0` with status
+`consumed_for_gate_evaluation`, but still reports
+`satisfies_current_boot_export_gate: false`,
+`automatic_context_injection: disabled`, `provider_write: not_attempted`, and
+`context_attached_to_provider_body: false`.
+
 ## Required Gates
 
 Provider context export requires all of these gates:

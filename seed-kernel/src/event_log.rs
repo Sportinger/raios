@@ -44,6 +44,15 @@ const PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE: &[&str] = &[
     "positive_provider_trust",
     "context_injection_disabled",
 ];
+const PROVIDER_BINDING_CONSUMPTION_EVIDENCE: &[&str] = &[
+    "provider_binding_consumed_for_gate_evaluation",
+    "provider_request_binding",
+    "provider_context_export_audit_binding",
+    "request_binding_hash",
+    "export_audit_binding_hash",
+    "provider_write_not_attempted",
+    "context_injection_disabled",
+];
 
 static LOG: Mutex<EventLog> = Mutex::new(EventLog::new());
 
@@ -102,11 +111,42 @@ pub struct ProviderExportAuditBinding {
 }
 
 #[derive(Clone, Copy)]
+pub struct ProviderBindingConsumption {
+    pub request_id: u32,
+    pub request_envelope_event_id: EventId,
+    pub request_binding_event_id: EventId,
+    pub export_audit_binding_event_id: EventId,
+    pub request_binding_hash: [u8; 32],
+    pub export_audit_binding_hash: [u8; 32],
+    pub context: ProviderContextHashes,
+}
+
+#[derive(Clone, Copy)]
+struct ConsumedProviderBinding {
+    request_binding_event_id: EventId,
+    export_audit_binding_event_id: EventId,
+}
+
+#[derive(Clone, Copy)]
+pub struct ProviderBindingGateCheck {
+    pub status: &'static str,
+    pub reason: &'static str,
+    pub request_binding_event_id: Option<EventId>,
+    pub export_audit_binding_event_id: Option<EventId>,
+    pub request_envelope_event_id: Option<EventId>,
+    pub request_binding: Option<ProviderRequestBinding>,
+    pub export_audit_binding: Option<ProviderExportAuditBinding>,
+    pub consumed: bool,
+    pub retained: bool,
+}
+
+#[derive(Clone, Copy)]
 pub enum EventBindings {
     None,
     ProviderRequestEnvelope(ProviderRequestEnvelopeBinding),
     ProviderRequestBound(ProviderRequestBinding),
     ProviderExportAuditBound(ProviderExportAuditBinding),
+    ProviderBindingConsumption(ProviderBindingConsumption),
     ProviderRequestBindingDenied(ProviderContextHashes),
     ProviderExportDenialAudit(ProviderContextHashes),
 }
@@ -140,8 +180,11 @@ pub struct EventSnapshot {
 
 struct EventLog {
     events: [Option<Event>; EVENT_CAPACITY],
+    consumed_bindings: [Option<ConsumedProviderBinding>; EVENT_CAPACITY],
     next_slot: usize,
+    next_consumed_slot: usize,
     len: usize,
+    consumed_len: usize,
     next_sequence: u64,
 }
 
@@ -149,8 +192,11 @@ impl EventLog {
     const fn new() -> Self {
         Self {
             events: [None; EVENT_CAPACITY],
+            consumed_bindings: [None; EVENT_CAPACITY],
             next_slot: 0,
+            next_consumed_slot: 0,
             len: 0,
+            consumed_len: 0,
             next_sequence: 1,
         }
     }
@@ -203,6 +249,396 @@ impl EventLog {
             dropped_before_sequence,
         }
     }
+
+    fn check_provider_context_binding_gate(
+        &self,
+        _context: ProviderContextHashes,
+    ) -> ProviderBindingGateCheck {
+        let Some((export_event_id, export_binding)) = self.latest_export_audit_binding() else {
+            return ProviderBindingGateCheck::rejected(
+                "missing",
+                "provider_context_export_audit_binding_missing",
+            );
+        };
+
+        if self.binding_consumed(export_binding.request_binding_event_id, export_event_id) {
+            return ProviderBindingGateCheck {
+                status: "rejected",
+                reason: "binding_already_consumed",
+                request_binding_event_id: Some(export_binding.request_binding_event_id),
+                export_audit_binding_event_id: Some(export_event_id),
+                request_envelope_event_id: Some(export_binding.request_envelope_event_id),
+                request_binding: None,
+                export_audit_binding: Some(export_binding),
+                consumed: true,
+                retained: true,
+            };
+        }
+
+        let Some(request_event) = self.event_by_sequence(export_binding.request_binding_event_id)
+        else {
+            return ProviderBindingGateCheck::with_export(
+                "rejected",
+                "binding_stale_or_dropped_event_id",
+                export_event_id,
+                export_binding,
+            );
+        };
+
+        let EventBindings::ProviderRequestBound(request_binding) = request_event.bindings else {
+            return ProviderBindingGateCheck::with_export(
+                "rejected",
+                "binding_denied_schema_or_wrong_variant",
+                export_event_id,
+                export_binding,
+            );
+        };
+
+        let Some(envelope_event) =
+            self.event_by_sequence(request_binding.request_envelope_event_id)
+        else {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_stale_or_dropped_event_id",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        };
+
+        let EventBindings::ProviderRequestEnvelope(envelope_binding) = envelope_event.bindings
+        else {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "request_envelope_wrong_variant",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        };
+
+        if export_binding.request_envelope_event_id.sequence() != envelope_event.sequence
+            || request_binding.request_envelope_event_id.sequence() != envelope_event.sequence
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_request_envelope_event_id_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if request_binding.request_id != export_binding.request_id
+            || request_binding.request_id != envelope_binding.request_id
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_request_id_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if request_binding.request_body_hash != export_binding.request_body_hash
+            || request_binding.request_body_hash != envelope_binding.request_body_hash
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_request_body_hash_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if request_binding.request_envelope_hash != export_binding.request_envelope_hash
+            || request_binding.request_envelope_hash != envelope_binding.envelope_hash
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_request_envelope_hash_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if request_binding.request_binding_hash != export_binding.request_binding_hash {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_request_binding_hash_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if request_binding.context.projected_packet_hash
+            != export_binding.context.projected_packet_hash
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_provider_minimal_packet_hash_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if request_binding.context.exported_field_list_hash
+            != export_binding.context.exported_field_list_hash
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_exported_field_list_hash_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if request_binding.context.omitted_field_list_hash
+            != export_binding.context.omitted_field_list_hash
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_omitted_field_list_hash_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if request_binding.development_tls_bypass {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_trust_bypass_record",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if !positive_provider_trust(request_binding.provider_trust_state)
+            || !positive_provider_trust(export_binding.provider_trust_state)
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_provider_trust_not_positive",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if export_binding.context_attached_to_provider_body {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_context_already_attached",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+
+        ProviderBindingGateCheck {
+            status: "valid",
+            reason: "binding_pair_valid_for_gate_evaluation",
+            request_binding_event_id: Some(EventId {
+                sequence: request_event.sequence,
+            }),
+            export_audit_binding_event_id: Some(export_event_id),
+            request_envelope_event_id: Some(EventId {
+                sequence: envelope_event.sequence,
+            }),
+            request_binding: Some(request_binding),
+            export_audit_binding: Some(export_binding),
+            consumed: false,
+            retained: true,
+        }
+    }
+
+    fn consume_provider_context_binding_gate(
+        &mut self,
+        context: ProviderContextHashes,
+    ) -> (ProviderBindingGateCheck, Option<EventId>) {
+        let check = self.check_provider_context_binding_gate(context);
+        if check.status != "valid" {
+            return (check, None);
+        }
+
+        let Some(request_binding) = check.request_binding else {
+            return (check, None);
+        };
+        let Some(export_binding) = check.export_audit_binding else {
+            return (check, None);
+        };
+        let Some(request_binding_event_id) = check.request_binding_event_id else {
+            return (check, None);
+        };
+        let Some(export_audit_binding_event_id) = check.export_audit_binding_event_id else {
+            return (check, None);
+        };
+
+        self.consumed_bindings[self.next_consumed_slot] = Some(ConsumedProviderBinding {
+            request_binding_event_id,
+            export_audit_binding_event_id,
+        });
+        self.next_consumed_slot = (self.next_consumed_slot + 1) % EVENT_CAPACITY;
+        self.consumed_len = usize::min(self.consumed_len + 1, EVENT_CAPACITY);
+
+        let event_id = self.record(Event {
+            sequence: 0,
+            kind: "provider_context_export.binding_consumption_checked",
+            source_method: "provider.context_export",
+            source_transport: "serial-console",
+            classification: "local_only",
+            outcome: "checked_not_exported",
+            requested_capability: "cap.provider.context_export",
+            risk: "export",
+            subject: "agent.session.serial",
+            resource: "svc.provider.openai_direct",
+            reason: "provider_binding_consumed_without_body_attachment",
+            evidence: PROVIDER_BINDING_CONSUMPTION_EVIDENCE,
+            bindings: EventBindings::ProviderBindingConsumption(ProviderBindingConsumption {
+                request_id: export_binding.request_id,
+                request_envelope_event_id: export_binding.request_envelope_event_id,
+                request_binding_event_id,
+                export_audit_binding_event_id,
+                request_binding_hash: request_binding.request_binding_hash,
+                export_audit_binding_hash: export_binding.export_audit_binding_hash,
+                context: export_binding.context,
+            }),
+        });
+        (check, Some(event_id))
+    }
+
+    fn latest_export_audit_binding(&self) -> Option<(EventId, ProviderExportAuditBinding)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ProviderExportAuditBound(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn event_by_sequence(&self, event_id: EventId) -> Option<Event> {
+        let mut idx = 0usize;
+        while idx < EVENT_CAPACITY {
+            if let Some(event) = self.events[idx] {
+                if event.sequence == event_id.sequence() {
+                    return Some(event);
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn binding_consumed(
+        &self,
+        request_binding_event_id: EventId,
+        export_audit_binding_event_id: EventId,
+    ) -> bool {
+        let mut idx = 0usize;
+        while idx < self.consumed_len {
+            if let Some(consumed) = self.consumed_bindings[idx] {
+                if consumed.request_binding_event_id.sequence()
+                    == request_binding_event_id.sequence()
+                    && consumed.export_audit_binding_event_id.sequence()
+                        == export_audit_binding_event_id.sequence()
+                {
+                    return true;
+                }
+            }
+            idx += 1;
+        }
+        false
+    }
+}
+
+impl ProviderBindingGateCheck {
+    const fn rejected(status: &'static str, reason: &'static str) -> Self {
+        Self {
+            status,
+            reason,
+            request_binding_event_id: None,
+            export_audit_binding_event_id: None,
+            request_envelope_event_id: None,
+            request_binding: None,
+            export_audit_binding: None,
+            consumed: false,
+            retained: false,
+        }
+    }
+
+    fn with_export(
+        status: &'static str,
+        reason: &'static str,
+        export_audit_binding_event_id: EventId,
+        export_audit_binding: ProviderExportAuditBinding,
+    ) -> Self {
+        Self {
+            status,
+            reason,
+            request_binding_event_id: Some(export_audit_binding.request_binding_event_id),
+            export_audit_binding_event_id: Some(export_audit_binding_event_id),
+            request_envelope_event_id: Some(export_audit_binding.request_envelope_event_id),
+            request_binding: None,
+            export_audit_binding: Some(export_audit_binding),
+            consumed: false,
+            retained: true,
+        }
+    }
+
+    fn with_pair(
+        status: &'static str,
+        reason: &'static str,
+        request_binding_sequence: u64,
+        request_binding: ProviderRequestBinding,
+        export_audit_binding_event_id: EventId,
+        export_audit_binding: ProviderExportAuditBinding,
+    ) -> Self {
+        Self {
+            status,
+            reason,
+            request_binding_event_id: Some(EventId {
+                sequence: request_binding_sequence,
+            }),
+            export_audit_binding_event_id: Some(export_audit_binding_event_id),
+            request_envelope_event_id: Some(request_binding.request_envelope_event_id),
+            request_binding: Some(request_binding),
+            export_audit_binding: Some(export_audit_binding),
+            consumed: false,
+            retained: true,
+        }
+    }
+}
+
+fn positive_provider_trust(trust_state: &str) -> bool {
+    matches!(
+        trust_state,
+        "pinned_cert_verified" | "pinned_spki_verified" | "webpki_verified"
+    )
 }
 
 pub fn record_agent_read(
@@ -322,6 +758,18 @@ pub fn record_provider_context_export_audit_binding_bound(
         evidence: PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
         bindings: EventBindings::ProviderExportAuditBound(binding),
     })
+}
+
+pub fn check_provider_context_binding_gate(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateCheck {
+    LOG.lock().check_provider_context_binding_gate(context)
+}
+
+pub fn consume_provider_context_binding_gate(
+    context: ProviderContextHashes,
+) -> (ProviderBindingGateCheck, Option<EventId>) {
+    LOG.lock().consume_provider_context_binding_gate(context)
 }
 
 pub fn record_provider_context_export_denial_audit(hashes: ProviderContextHashes) -> EventId {

@@ -22,6 +22,7 @@ agent memory.profile  -> memory.profile
 agent memory.context diagnostic -> memory.context
 agent memory.context provider_minimal -> memory.context with provider export disabled
 agent provider.context_export provider_minimal -> denied export gate with audit/event ids
+agent provider.context_gate provider_minimal -> read-only export gate diagnostics
 agent memory.recent_events -> memory.recent_events
 agent audit.events 8 -> memory.recent_events with limit 8
 agent <method>        -> dispatch raw method name
@@ -107,6 +108,10 @@ positive trust paths, the same real `ask` path may also record local-only
 `raios.provider_context_export_audit_binding.v0` records. They are current-boot
 evidence for the request and audit binding gates only; automatic provider
 context injection remains disabled.
+`provider.context_gate provider_minimal` can validate retained positive binding
+pairs read-only. `provider.context_export provider_minimal` can consume a valid
+pair once for local gate evaluation, but still returns `capability_denied` and
+does not attach context to a provider body.
 
 ## Denied-By-Default Methods
 
@@ -154,4 +159,5 @@ field-list hashes.
 
 The direct OpenAI `ask` path can create positive local-only binding records when
 provider trust is pinned/verified, but the standalone `provider.context_export`
-method still denies and must not fake a provider request envelope.
+method still denies, must not fake a provider request envelope, and only
+consumes retained positive bindings for local gate evaluation.

@@ -185,6 +185,10 @@ but those bindings remain denial evidence and cannot satisfy export gates.
 The real pinned OpenAI `ask` path can record positive local-only request/export
 audit bindings for this projection, but `memory.context provider_minimal`
 remains a local preview and does not export or attach context.
+`provider.context_gate provider_minimal` can check retained positive binding
+pairs for this projection, and `provider.context_export provider_minimal` can
+consume one pair for local gate evaluation only. Neither method changes
+`provider_export: disabled` or attaches the preview to provider requests.
 
 ## Omitted Classes
 

@@ -1096,6 +1096,9 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
         "provider.context_export" | "provider.export_context" => {
             command_agent_protocol(command_line.trimmed_str(), runtime)
         }
+        "provider.context_gate" | "provider.context_export_status" => {
+            command_agent_protocol(command_line.trimmed_str(), runtime)
+        }
         "module.propose"
         | "module.build_result"
         | "module.test_request"
@@ -1129,7 +1132,7 @@ fn command_help() {
         "AGENT: describe snapshot caps bootlog services problems device.graph memory.profile"
     ));
     write_output(format_args!(
-        "AGENT RAW: memory.context provider.context_export memory.query memory.trace memory.recent_events"
+        "AGENT RAW: memory.context provider.context_export provider.context_gate memory.query memory.trace memory.recent_events"
     ));
 }
 
