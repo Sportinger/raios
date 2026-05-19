@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>raiOS Visual Soul Prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0c0f12;
+      --panel: #15191e;
+      --panel-2: #1d232a;
+      --line: #303842;
+      --text: #ecf1f4;
+      --muted: #9da8b2;
+      --accent: #55d6b3;
+      --accent-2: #f2c14e;
+      --danger: #f06c64;
+      --focus: #79a8ff;
+      --radius: 8px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    body {
+      overflow: hidden;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 340px minmax(0, 1fr);
+      width: 100vw;
+      height: 100vh;
+      min-height: 640px;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 0;
+      overflow: auto;
+      border-right: 1px solid var(--line);
+      background: linear-gradient(180deg, var(--panel), #11161b);
+      padding: 18px;
+    }
+
+    .stage {
+      position: relative;
+      min-width: 0;
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+        radial-gradient(circle at 50% 45%, #182127 0, #0c0f12 58%, #080a0d 100%);
+      background-size: 36px 36px, 36px 36px, auto;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    section {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.025);
+      padding: 12px;
+    }
+
+    .seed-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+
+    .seed-row input {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0e1216;
+      color: var(--text);
+      padding: 9px 10px;
+    }
+
+    button {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 8px 10px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: #4a5563;
+      background: #26303a;
+    }
+
+    button:focus-visible,
+    input:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    .buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .buttons button:last-child:nth-child(odd) {
+      grid-column: 1 / -1;
+    }
+
+    .control {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr) 34px;
+      align-items: center;
+      gap: 10px;
+      min-height: 34px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .value {
+      color: var(--text);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 32px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .toggle input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+    }
+
+    dl {
+      display: grid;
+      grid-template-columns: minmax(96px, auto) 1fr;
+      gap: 6px 10px;
+      margin: 0;
+      font-size: 13px;
+    }
+
+    dt {
+      color: var(--muted);
+    }
+
+    dd {
+      margin: 0;
+      min-width: 0;
+      color: var(--text);
+      overflow-wrap: anywhere;
+    }
+
+    .note {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .warning {
+      color: #f8d57a;
+    }
+
+    .badge {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      background: #0e1216;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 860px) {
+      body {
+        overflow: auto;
+      }
+
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(520px, 1fr);
+        height: auto;
+        min-height: 100vh;
+      }
+
+      .panel {
+        max-height: none;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .stage {
+        min-height: 520px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="panel" aria-label="Visual soul controls">
+      <header>
+        <h1>raiOS visual soul lab</h1>
+      </header>
+
+      <section>
+        <h2>Bond</h2>
+        <div class="seed-row">
+          <input id="seed" autocomplete="off" spellcheck="false" value="raios-local-bond-001" aria-label="Bond seed">
+          <button id="newSeed" type="button">New</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Pressures</h2>
+        <label class="control">Creation <input id="creation" type="range" min="0" max="100" value="46"><span class="value" id="creationValue"></span></label>
+        <label class="control">Boundary <input id="boundary" type="range" min="0" max="100" value="28"><span class="value" id="boundaryValue"></span></label>
+        <label class="control">Repair <input id="repair" type="range" min="0" max="100" value="22"><span class="value" id="repairValue"></span></label>
+        <label class="control">Trust <input id="trust" type="range" min="0" max="100" value="38"><span class="value" id="trustValue"></span></label>
+        <label class="control">Problems <input id="problem" type="range" min="0" max="100" value="18"><span class="value" id="problemValue"></span></label>
+        <label class="control">Services <input id="service" type="range" min="0" max="100" value="52"><span class="value" id="serviceValue"></span></label>
+        <label class="control">Recovery <input id="recovery" type="range" min="0" max="100" value="20"><span class="value" id="recoveryValue"></span></label>
+        <label class="control">Entropy <input id="entropy" type="range" min="0" max="100" value="44"><span class="value" id="entropyValue"></span></label>
+      </section>
+
+      <section>
+        <h2>Events</h2>
+        <div class="buttons">
+          <button id="addEditor" type="button">Editor event</button>
+          <button id="addDenied" type="button">Denied cap</button>
+          <button id="addRecover" type="button">Recovery</button>
+          <button id="addService" type="button">Service</button>
+          <button id="resetEvents" type="button">Reset events</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Projection</h2>
+        <label class="toggle"><input id="safeMode" type="checkbox"> Screenshot-safe</label>
+        <label class="toggle"><input id="motion" type="checkbox" checked> Live motion</label>
+      </section>
+
+      <section>
+        <h2>Explain</h2>
+        <dl>
+          <dt>Schema</dt><dd><span class="badge">raios.visual_state_projection.v0</span></dd>
+          <dt>Splines</dt><dd id="splineReadout">0</dd>
+          <dt>Face</dt><dd id="faceReadout">neutral</dd>
+          <dt>Halo nodes</dt><dd id="haloReadout">0</dd>
+          <dt>Events</dt><dd id="eventReadout">none</dd>
+          <dt>Inputs</dt><dd>coarse public/local-safe buckets only</dd>
+          <dt>Omitted</dt><dd>raw memory, prompts, secrets, provider text</dd>
+        </dl>
+      </section>
+
+      <section>
+        <p class="note warning">Local visual hint only. The real authority is typed evidence, hashes, policy, and audit.</p>
+      </section>
+    </aside>
+
+    <main class="stage" aria-label="Generated phenotype">
+      <canvas id="canvas" aria-label="Generative raiOS phenotype preview"></canvas>
+    </main>
+  </div>
+
+  <script>
+    "use strict";
+
+    const schemaVersion = "raios.visual.prototype.v0";
+    const pressureIds = [
+      "creation",
+      "boundary",
+      "repair",
+      "trust",
+      "problem",
+      "service",
+      "recovery",
+      "entropy"
+    ];
+
+    const eventState = {
+      editor: 0,
+      denied: 0,
+      recover: 0,
+      service: 0
+    };
+
+    const reducedMotion = window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const elements = {
+      canvas: document.getElementById("canvas"),
+      seed: document.getElementById("seed"),
+      newSeed: document.getElementById("newSeed"),
+      safeMode: document.getElementById("safeMode"),
+      motion: document.getElementById("motion"),
+      splineReadout: document.getElementById("splineReadout"),
+      faceReadout: document.getElementById("faceReadout"),
+      haloReadout: document.getElementById("haloReadout"),
+      eventReadout: document.getElementById("eventReadout")
+    };
+
+    if (reducedMotion) {
+      elements.motion.checked = false;
+    }
+
+    for (const id of pressureIds) {
+      elements[id] = document.getElementById(id);
+      elements[id + "Value"] = document.getElementById(id + "Value");
+    }
+
+    const ctx = elements.canvas.getContext("2d", { alpha: true });
+    let frame = 0;
+
+    function fnv1a(text) {
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < text.length; i += 1) {
+        h ^= text.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    }
+
+    function mulberry32(seed) {
+      return function next() {
+        let t = seed += 0x6D2B79F5;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function rngFor(seed, channel) {
+      return mulberry32(fnv1a(schemaVersion + "|" + seed + "|" + channel));
+    }
+
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+
+    function clamp(v, min, max) {
+      return Math.max(min, Math.min(max, v));
+    }
+
+    function signed(v) {
+      return (v * 2) - 1;
+    }
+
+    function pick(rng, items) {
+      return items[Math.floor(rng() * items.length) % items.length];
+    }
+
+    function hsl(h, s, l, a) {
+      return "hsla(" + ((h % 360 + 360) % 360).toFixed(1) + "," +
+        s.toFixed(1) + "%," + l.toFixed(1) + "%," + a.toFixed(3) + ")";
+    }
+
+    function updateValueLabels() {
+      for (const id of pressureIds) {
+        elements[id + "Value"].textContent = elements[id].value;
+      }
+    }
+
+    function eventBoosts() {
+      return {
+        creation: 1 - Math.exp(-eventState.editor * 0.34),
+        boundary: 1 - Math.exp(-eventState.denied * 0.28),
+        repair: 1 - Math.exp(-eventState.recover * 0.36),
+        trust: 1 - Math.exp(-eventState.recover * 0.18),
+        problem: 1 - Math.exp(-eventState.denied * 0.18),
+        service: 1 - Math.exp(-(eventState.service + eventState.editor) * 0.24),
+        recovery: 1 - Math.exp(-eventState.recover * 0.42),
+        entropy: 1 - Math.exp((-(eventState.service + eventState.denied + eventState.editor)) * 0.16)
+      };
+    }
+
+    function stateVector() {
+      const boosts = eventBoosts();
+      const safe = elements.safeMode.checked;
+      const out = {};
+      for (const id of pressureIds) {
+        const base = Number(elements[id].value) / 100;
+        out[id] = clamp(base * 0.72 + boosts[id] * 0.28, 0, 1);
+      }
+      if (safe) {
+        out.creation = out.creation * 0.45;
+        out.boundary = 0.35;
+        out.repair = out.repair * 0.35;
+        out.trust = 0.45;
+        out.problem = 0.12;
+        out.service = out.service * 0.35;
+        out.recovery = 0.18;
+        out.entropy = 0.26;
+      }
+      return out;
+    }
+
+    function styleMatrix(seed) {
+      const rng = rngFor(seed, "style-matrix");
+      const rows = [];
+      for (let row = 0; row < 8; row += 1) {
+        const values = [];
+        let norm = 0.0001;
+        for (let col = 0; col < 8; col += 1) {
+          const v = signed(rng());
+          values.push(v);
+          norm += Math.abs(v);
+        }
+        rows.push(values.map((v) => v / norm));
+      }
+      return rows;
+    }
+
+    function latentFor(seed, state) {
+      const vector = pressureIds.map((id) => state[id]);
+      return styleMatrix(seed).map((row) => {
+        let sum = 0;
+        for (let i = 0; i < row.length; i += 1) {
+          sum += row[i] * vector[i];
+        }
+        return clamp(sum * 2.2, -1, 1);
+      });
+    }
+
+    function ensureCanvasSize() {
+      const rect = elements.canvas.getBoundingClientRect();
+      const ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const width = Math.max(1, Math.floor(rect.width * ratio));
+      const height = Math.max(1, Math.floor(rect.height * ratio));
+      if (elements.canvas.width !== width || elements.canvas.height !== height) {
+        elements.canvas.width = width;
+        elements.canvas.height = height;
+      }
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      return { width: rect.width, height: rect.height };
+    }
+
+    function pathClosedSpline(points) {
+      if (!points.length) {
+        return;
+      }
+      ctx.beginPath();
+      const first = points[0];
+      const last = points[points.length - 1];
+      ctx.moveTo((first.x + last.x) / 2, (first.y + last.y) / 2);
+      for (let i = 0; i < points.length; i += 1) {
+        const p = points[i];
+        const next = points[(i + 1) % points.length];
+        ctx.quadraticCurveTo(p.x, p.y, (p.x + next.x) / 2, (p.y + next.y) / 2);
+      }
+      ctx.closePath();
+    }
+
+    function drawBody(seed, state, latent, t, cx, cy, radius, palette) {
+      const rng = rngFor(seed, "body");
+      const pointCount = 128;
+      const k1 = 3 + Math.floor(rng() * 4);
+      const k2 = 6 + Math.floor(rng() * 5);
+      const phase1 = rng() * Math.PI * 2;
+      const phase2 = rng() * Math.PI * 2;
+      const asym = signed(rng()) * 0.06;
+      const breath = Math.sin(t * 0.0014 + phase1) * 0.025 * (0.3 + state.trust);
+      const points = [];
+      for (let i = 0; i < pointCount; i += 1) {
+        const a = (i / pointCount) * Math.PI * 2;
+        const boundaryRidge = Math.sin(a * (8 + Math.floor(state.boundary * 6)) + phase2) *
+          state.boundary * 0.035;
+        const repairLayer = Math.sin(a * 5 - phase1) * state.repair * 0.025;
+        const creationLean = Math.cos(a - Math.PI * 0.18) * state.creation * 0.045;
+        const problemTension = Math.sin(a * 13 + t * 0.001) * state.problem * 0.015;
+        const harmonic = Math.sin(a * k1 + phase1 + latent[0]) * 0.07 +
+          Math.sin(a * k2 + phase2 + latent[1]) * 0.045;
+        const r = radius * (1 + breath + harmonic + boundaryRidge + repairLayer +
+          creationLean + problemTension + Math.cos(a) * asym);
+        points.push({
+          x: cx + Math.cos(a) * r * (1 + latent[2] * 0.05),
+          y: cy + Math.sin(a) * r * (0.92 + latent[3] * 0.04)
+        });
+      }
+
+      const grad = ctx.createRadialGradient(
+        cx - radius * 0.2,
+        cy - radius * 0.35,
+        radius * 0.15,
+        cx,
+        cy,
+        radius * 1.16
+      );
+      grad.addColorStop(0, hsl(palette.coreHue + 18, 72, 62, 0.98));
+      grad.addColorStop(0.55, hsl(palette.coreHue, 54, 38, 0.98));
+      grad.addColorStop(1, hsl(palette.shadowHue, 62, 19, 0.98));
+
+      pathClosedSpline(points);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.lineWidth = 2.2 + state.boundary * 4.2;
+      ctx.strokeStyle = hsl(palette.accentHue, 70, 58, 0.5 + state.boundary * 0.32);
+      ctx.stroke();
+
+      if (state.repair > 0.08) {
+        const rings = 1 + Math.floor(state.repair * 4);
+        for (let i = 0; i < rings; i += 1) {
+          const rr = radius * (0.46 + i * 0.11 + Math.sin(t * 0.001 + i) * 0.008);
+          ctx.beginPath();
+          ctx.ellipse(cx, cy + radius * 0.03, rr * (1 + latent[4] * 0.08), rr * 0.72, latent[5] * 0.15, 0, Math.PI * 2);
+          ctx.strokeStyle = hsl(palette.repairHue, 72, 63, 0.13 + state.repair * 0.13);
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
+      }
+    }
+
+    function drawGrowthSplines(seed, state, latent, t, cx, cy, radius, palette) {
+      const base = 9;
+      const count = Math.min(26, base +
+        Math.floor(state.creation * 5) +
+        Math.floor(state.service * 7) +
+        Math.floor(state.repair * 4) +
+        Math.floor(state.entropy * 3));
+
+      for (let i = 0; i < count; i += 1) {
+        const rng = rngFor(seed, "growth-spline-" + i);
+        const family = pick(rng, ["tissue", "tool", "boundary", "memory"]);
+        const a0 = rng() * Math.PI * 2;
+        const spread = lerp(0.7, 2.4, rng());
+        const a1 = a0 + signed(rng()) * spread;
+        const startR = radius * lerp(0.18, 0.55, rng());
+        const endR = radius * lerp(0.58, 1.02 + state.creation * 0.14, rng());
+        const cR = radius * lerp(0.15, 0.95, rng());
+        const curl = signed(rng()) * radius * (0.28 + state.entropy * 0.2);
+        const phase = rng() * Math.PI * 2;
+        const drift = Math.sin(t * (0.00035 + rng() * 0.00045) + phase) * radius * 0.018;
+        const x0 = cx + Math.cos(a0) * startR;
+        const y0 = cy + Math.sin(a0) * startR;
+        const x1 = cx + Math.cos(a1) * endR;
+        const y1 = cy + Math.sin(a1) * endR;
+        const midA = (a0 + a1) / 2 + latent[i % latent.length] * 0.22;
+        const c1x = cx + Math.cos(midA) * cR - Math.sin(midA) * curl + drift;
+        const c1y = cy + Math.sin(midA) * cR + Math.cos(midA) * curl - drift;
+        const c2x = lerp(c1x, x1, 0.55) + Math.sin(a1) * curl * 0.35;
+        const c2y = lerp(c1y, y1, 0.55) - Math.cos(a1) * curl * 0.35;
+        const alphaBase = family === "boundary" ? 0.18 + state.boundary * 0.28 : 0.16;
+        const hue = family === "tool" ? palette.toolHue :
+          family === "memory" ? palette.memoryHue :
+          family === "boundary" ? palette.accentHue :
+          palette.coreHue + 46;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.bezierCurveTo(c1x, c1y, c2x, c2y, x1, y1);
+        ctx.lineWidth = lerp(1.0, 3.6, rng()) * (family === "boundary" ? 1.2 : 1);
+        ctx.strokeStyle = hsl(hue, 72, 64, alphaBase + state.service * 0.11);
+        ctx.stroke();
+      }
+      return count;
+    }
+
+    function drawHalo(seed, state, latent, t, cx, cy, radius, palette) {
+      if (elements.safeMode.checked) {
+        return 3;
+      }
+      const count = 5 + Math.floor(state.service * 9) + Math.floor(state.creation * 3);
+      const rng = rngFor(seed, "halo");
+      const ring = radius * (1.45 + state.service * 0.22);
+      const nodeData = [];
+      for (let i = 0; i < count; i += 1) {
+        const local = rngFor(seed, "halo-node-" + i);
+        const a = (i / count) * Math.PI * 2 + signed(local()) * 0.2 + latent[(i + 2) % latent.length] * 0.09;
+        const rr = ring * lerp(0.86, 1.08, local());
+        const health = i < 3 ? 0.9 : clamp(0.65 + signed(local()) * 0.22 - state.problem * 0.18 + state.trust * 0.16, 0.15, 1);
+        nodeData.push({
+          x: cx + Math.cos(a) * rr,
+          y: cy + Math.sin(a) * rr * 0.82,
+          r: lerp(4, 9, local()) * (i < 3 ? 1.12 : 1),
+          health,
+          core: i < 3
+        });
+      }
+
+      for (let i = 0; i < nodeData.length; i += 1) {
+        const n = nodeData[i];
+        const next = nodeData[(i + 1) % nodeData.length];
+        ctx.beginPath();
+        ctx.moveTo(n.x, n.y);
+        ctx.lineTo(next.x, next.y);
+        ctx.strokeStyle = hsl(palette.memoryHue, 52, 56, 0.08 + state.service * 0.1);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      for (let i = 0; i < nodeData.length; i += 1) {
+        const n = nodeData[i];
+        const pulse = Math.sin(t * 0.0012 + i * 0.7 + rng()) * 0.18 + 1;
+        const hue = n.core ? palette.accentHue : lerp(palette.toolHue, palette.repairHue, 1 - n.health);
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r * pulse, 0, Math.PI * 2);
+        ctx.fillStyle = hsl(hue, 76, lerp(42, 68, n.health), n.core ? 0.78 : 0.58);
+        ctx.fill();
+        ctx.strokeStyle = hsl(hue, 84, 76, 0.28);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      return count;
+    }
+
+    function drawFace(seed, state, latent, t, cx, cy, radius, palette) {
+      const rng = rngFor(seed, "face");
+      const faceKind = pick(rng, ["wide", "quiet", "offset", "watchful"]);
+      const eyeY = cy - radius * lerp(0.18, 0.27, rng()) + latent[0] * radius * 0.04;
+      const eyeSpacing = radius * lerp(0.36, 0.48, rng());
+      const eyeW = radius * lerp(0.13, 0.18, rng()) * (1 - state.problem * 0.16);
+      const eyeH = radius * lerp(0.075, 0.12, rng()) * (1 + state.trust * 0.18);
+      const pupilShift = clamp((state.creation - state.problem) * radius * 0.035 + Math.sin(t * 0.0006) * radius * 0.012, -radius * 0.045, radius * 0.045);
+      const blink = 1 - Math.max(0, Math.sin(t * 0.0011 + rng() * 8) - 0.94) * 8;
+      const irisHue = palette.accentHue + latent[4] * 80;
+
+      function eye(x, y, mirror) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(mirror * latent[3] * 0.08);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, eyeW, eyeH * blink, 0, 0, Math.PI * 2);
+        ctx.fillStyle = hsl(190 + latent[2] * 30, 48, 91, 0.9);
+        ctx.fill();
+        ctx.strokeStyle = hsl(palette.shadowHue, 42, 18, 0.55);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(pupilShift * mirror, 0, eyeW * 0.34, Math.max(1.5, eyeH * 0.44 * blink), 0, 0, Math.PI * 2);
+        ctx.fillStyle = hsl(irisHue, 84, 32, 0.96);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(pupilShift * mirror - eyeW * 0.1, -eyeH * 0.18, Math.max(1.2, eyeW * 0.12), 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,255,255,0.72)";
+        ctx.fill();
+        ctx.restore();
+      }
+
+      eye(cx - eyeSpacing * 0.5, eyeY, -1);
+      eye(cx + eyeSpacing * 0.5, eyeY, 1);
+
+      const noseY = eyeY + radius * 0.18;
+      ctx.beginPath();
+      ctx.moveTo(cx + latent[1] * radius * 0.025, noseY - radius * 0.05);
+      ctx.quadraticCurveTo(
+        cx + radius * (0.04 + latent[2] * 0.025),
+        noseY + radius * 0.03,
+        cx - radius * (0.018 + latent[0] * 0.014),
+        noseY + radius * 0.08
+      );
+      ctx.strokeStyle = hsl(palette.shadowHue, 40, 78, 0.34);
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.stroke();
+
+      const mouthY = cy + radius * lerp(0.20, 0.28, rng());
+      const mouthW = radius * lerp(0.22, 0.34, rng()) * (1 - state.boundary * 0.18);
+      const posture = clamp(state.trust * 0.85 + state.recovery * 0.45 - state.problem * 0.7 - state.boundary * 0.18, -0.65, 0.75);
+      const curve = radius * posture * 0.13;
+      ctx.beginPath();
+      ctx.moveTo(cx - mouthW, mouthY);
+      ctx.bezierCurveTo(
+        cx - mouthW * 0.45,
+        mouthY + curve,
+        cx + mouthW * 0.45,
+        mouthY + curve,
+        cx + mouthW,
+        mouthY
+      );
+      ctx.strokeStyle = hsl(palette.toolHue, 68, 70, 0.72);
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = "round";
+      ctx.stroke();
+
+      if (state.boundary > 0.55) {
+        ctx.beginPath();
+        ctx.moveTo(cx - mouthW * 1.05, mouthY - radius * 0.05);
+        ctx.lineTo(cx + mouthW * 1.05, mouthY - radius * 0.05);
+        ctx.strokeStyle = hsl(palette.accentHue, 80, 66, state.boundary * 0.35);
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+
+      return faceKind + " / " + (posture > 0.18 ? "open" : posture < -0.18 ? "sealed" : "steady");
+    }
+
+    function draw() {
+      const size = ensureCanvasSize();
+      updateValueLabels();
+
+      const seed = elements.seed.value.trim() || "unbound";
+      const state = stateVector();
+      const latent = latentFor(seed, state);
+      const live = elements.motion.checked && !reducedMotion;
+      const t = live ? performance.now() : 0;
+      const cx = size.width * 0.5;
+      const cy = size.height * 0.52;
+      const radius = Math.max(96, Math.min(size.width, size.height) * 0.22);
+      const paletteRng = rngFor(seed, "palette");
+      const baseHue = paletteRng() * 360;
+      const palette = {
+        coreHue: baseHue,
+        shadowHue: baseHue + 206 + signed(paletteRng()) * 24,
+        accentHue: baseHue + 112 + signed(paletteRng()) * 32,
+        repairHue: baseHue + 48 + signed(paletteRng()) * 28,
+        toolHue: baseHue + 286 + signed(paletteRng()) * 34,
+        memoryHue: baseHue + 174 + signed(paletteRng()) * 30
+      };
+
+      ctx.clearRect(0, 0, size.width, size.height);
+
+      const bg = ctx.createLinearGradient(0, 0, size.width, size.height);
+      bg.addColorStop(0, hsl(palette.shadowHue, 38, 8, 0.28));
+      bg.addColorStop(0.5, "rgba(7,10,13,0.08)");
+      bg.addColorStop(1, hsl(palette.coreHue + 80, 35, 10, 0.24));
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, size.width, size.height);
+
+      const haloNodes = drawHalo(seed, state, latent, t, cx, cy, radius, palette);
+      drawBody(seed, state, latent, t, cx, cy, radius, palette);
+      const splineCount = drawGrowthSplines(seed, state, latent, t, cx, cy, radius, palette);
+      const face = drawFace(seed, state, latent, t, cx, cy, radius, palette);
+
+      const safe = elements.safeMode.checked;
+      const label = safe ? "screenshot-safe projection" : "local phenotype projection";
+      ctx.font = "13px Inter, system-ui, sans-serif";
+      ctx.fillStyle = "rgba(236,241,244,0.76)";
+      ctx.fillText(label, 22, size.height - 24);
+
+      elements.splineReadout.textContent = String(splineCount);
+      elements.haloReadout.textContent = String(haloNodes);
+      elements.faceReadout.textContent = face;
+      const events = [];
+      if (eventState.editor) events.push("editor:" + eventState.editor);
+      if (eventState.denied) events.push("denied:" + eventState.denied);
+      if (eventState.recover) events.push("recovery:" + eventState.recover);
+      if (eventState.service) events.push("service:" + eventState.service);
+      elements.eventReadout.textContent = events.join(", ") || "none";
+
+      frame += 1;
+      window.requestAnimationFrame(draw);
+    }
+
+    function randomSeed() {
+      const a = Math.random().toString(36).slice(2, 8);
+      const b = Date.now().toString(36).slice(-5);
+      return "raios-bond-" + a + "-" + b;
+    }
+
+    function addEvent(kind) {
+      eventState[kind] += 1;
+    }
+
+    for (const id of pressureIds) {
+      elements[id].addEventListener("input", updateValueLabels);
+    }
+
+    elements.seed.addEventListener("input", updateValueLabels);
+    elements.newSeed.addEventListener("click", () => {
+      elements.seed.value = randomSeed();
+    });
+    document.getElementById("addEditor").addEventListener("click", () => addEvent("editor"));
+    document.getElementById("addDenied").addEventListener("click", () => addEvent("denied"));
+    document.getElementById("addRecover").addEventListener("click", () => addEvent("recover"));
+    document.getElementById("addService").addEventListener("click", () => addEvent("service"));
+    document.getElementById("resetEvents").addEventListener("click", () => {
+      eventState.editor = 0;
+      eventState.denied = 0;
+      eventState.recover = 0;
+      eventState.service = 0;
+    });
+
+    updateValueLabels();
+    draw();
+  </script>
+</body>
+</html>

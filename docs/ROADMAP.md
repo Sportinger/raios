@@ -2,9 +2,12 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-19 by Codex after implementing the RAM-only current-boot
-event/audit log, recording agent protocol reads and denials, updating protocol
-docs and the Shadow VM harness, and running the Shadow VM smoke.
+Last updated: 2026-05-19 by Codex after adding positive local-only
+`raios.provider_request_binding.v0` and
+`raios.provider_context_export_audit_binding.v0` records on the real SPKI pinned
+OpenAI `ask` path, keeping automatic provider context injection disabled,
+updating harnesses and protocol docs, and running Shadow VM plus direct OpenAI
+pin-mismatch and SPKI pinned-trust smokes.
 
 Latest maintenance verification:
 
@@ -16,8 +19,17 @@ Latest maintenance verification:
   passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260519-104330-25636.json` with 80/80
+  `release\vm-reports\shadow-20260519-144953-10888.json` with 163/163
   predicates.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
+  passed against a local fake-key image with an intentionally wrong SPKI pin;
+  positive request/export audit binding markers stayed absent.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectSpkiPinnedTrust`
+  passed against a local fake-key image with the current OpenAI SPKI pin; the
+  request envelope, positive request binding, and positive export audit binding
+  markers appeared while provider-minimal context stayed unattached. The local
+  image was deleted and the release kernel was rebuilt without the test
+  environment afterward.
 
 This file is the planning handoff. Every agent that changes code, tests,
 protocol docs, architecture docs, or verified project state must update this
@@ -45,45 +57,79 @@ Current verified cursor:
   report docs, local attestation docs, and recovery protocol docs exist.
 - `memory.profile`, `memory.context`, `memory.query`, and `memory.trace` exist
   as local read-only `current_boot` methods. `memory.context` emits
-  `raios.agent_context.v0`; provider export remains disabled.
+  `raios.agent_context.v0` with local read event ids; provider export remains
+  disabled.
+- `memory.context provider_minimal` emits a local
+  `raios.provider_context_projection.v0` preview with explicit field
+  classification, included/omitted field lists, a nested redacted context
+  packet, deterministic packet/field-list hashes, and `can_export: false` until
+  positive provider trust and a distinct provider export audit binding exist.
+- `provider.context_export provider_minimal` exists as a denied-by-default
+  provider-boundary gate. It emits `raios.provider_context_export.v0`, records
+  `cap.provider.context_export` with risk `export`, reports
+  `provider_write: not_attempted`, reports packet/field-list evidence bindings
+  as present, keeps positive provider request binding and export audit binding
+  missing, and emits separate current-boot denial evidence for request-binding
+  denial and export-denial audit.
+- `event.log.v0` denial events now carry structured `bindings` with
+  provider-minimal packet, exported-field-list, and omitted-field-list hashes,
+  while explicitly marking current-boot export-gate satisfaction false.
+- `raios.provider_request_envelope.v0` is specified in
+  `device-protocol/provider-request-envelope-v0.md` and is now emitted as a
+  local-only `OPENAI_PROVIDER_REQUEST_ENVELOPE` marker on the real OpenAI `ask`
+  path before DNS/TCP/TLS/API-key copy/HTTPS write. It binds the exact request
+  body hash and envelope hash while keeping context attachment false.
+- After positive pinned provider trust and matching request-body hash validation
+  on the real OpenAI `ask` path, Stage-0 records local-only
+  `raios.provider_request_binding.v0` and
+  `raios.provider_context_export_audit_binding.v0` evidence before API-key copy
+  or HTTPS write. These records bind the request body/envelope hashes to the
+  provider-minimal packet/exported/omitted field-list hashes, but
+  `satisfies_current_boot_export_gate` remains false because automatic context
+  injection is still disabled.
 - `memory.recent_events` and `audit.events [limit]` expose a bounded RAM-only
-  `event.log.v0` ring for current-boot agent protocol reads and denials.
+  `event.log.v0` ring for current-boot agent protocol reads, denials,
+  provider request-binding denials, and provider export-denial audits.
 - Denied agent methods now cite current-boot `event_id` and `audit_event_id`
   values such as `event.current_boot.00000012`.
 - Memory mutation methods such as `memory.record_observation`,
   `memory.propose_policy`, `memory.supersede_fact`, `memory.redact`, and
   `memory.compact` return structured `capability_denied`.
 - The Shadow VM smoke validates the read-only protocol, memory context schemas,
+  the local provider-minimal projection, the denied provider context export gate,
   provider export denial, event/audit log reads, memory mutation denials with
   event ids, and the denied module load path, then emits
   `raios.vm_test_report.v0` reports.
 
-Current phase: Phase 5.6 is implemented as the first RAM-only current-boot
-event/audit foundation. The next durable architecture step is a
-`provider_minimal` redaction projection for `raios.agent_context.v0`.
+Current phase: Phase 5.12 is implemented for positive current-boot
+request/export audit binding records on the real pinned OpenAI request path. The
+next durable architecture step is consuming those bindings through an explicit
+provider context gate while keeping automatic injection disabled.
 
 Exact next task:
 
 ```text
-Define and implement the provider_minimal redaction projection for
-raios.agent_context.v0, keeping provider export disabled unless provider trust
-is positive and the outbound projection is audit-bound.
+Consume positive provider_minimal binding records only through a checked
+current-boot gate, while keeping automatic provider context injection disabled.
 ```
 
-Start with explicit field classification for the context packet, then emit a
-local-only projection that states what would be allowed or omitted for provider
-export. Do not attach it to provider requests until positive provider trust and
-event/audit binding both exist.
+Start by validating one retained `raios.provider_request_binding.v0` plus one
+matching `raios.provider_context_export_audit_binding.v0` against the exact
+request envelope, request body, provider-minimal packet, exported-field-list, and
+omitted-field-list hashes. Do not attach context to OpenAI requests until a
+separate final injection gate exists.
 
 Next three tasks:
 
-1. Specify the `provider_minimal` projection fields for
-   `raios.agent_context.v0`, including public/local-only/secret treatment and
-   explicit omissions.
-2. Implement local read-only projection output and Shadow VM assertions proving
-   that provider export remains disabled while trust is not positive.
-3. Add event/audit binding for any future provider-bound context export, still
-   without sending context automatically to OpenAI.
+1. Add a binding-consumption predicate that rejects denial schemas, stale or
+   dropped event ids, previous-boot ids, consumed bindings, trust-bypass records,
+   and request/body/packet hash mismatches.
+2. Add negative harness coverage for binding substitution, stale ids, consumed
+   bindings, and mismatched request-envelope/request-body/provider-minimal
+   hashes.
+3. Specify the final automatic context injection gate separately from positive
+   audit binding so `context_attached_to_provider_body` cannot become true by
+   accident.
 
 Current blockers and non-goals:
 
@@ -445,6 +491,202 @@ Definition of done:
 - Shadow VM proves `event.log.v0` and `audit.event.v0` over serial.
 - Denied memory and module methods cite event ids.
 - No persistent memory, durable audit ledger, or provider export is implied.
+
+## Phase 5.7: Provider-Minimal Redaction Projection
+
+Goal:
+
+```text
+agent_context.v0 -> classified provider_minimal projection -> export still denied
+```
+
+Status: implemented as a local read-only projection.
+
+Scope:
+
+- mark `provider_minimal` available as a local projection in `memory.profile`
+- include local `context_event_id` and `audit_event_id` handles on
+  `memory.context` responses
+- emit `raios.provider_context_projection.v0` for
+  `memory.context provider_minimal`
+- classify provider-bound fields as `public`, `local_only`, or `secret`
+- include only public product/stage identity, coarse subsystem states, provider
+  state markers, capability ids, service ids, stable problem metadata, and
+  public record summaries in the nested projected packet
+- omit raw `system.snapshot`, boot logs, local-only details, provider prompt
+  text, request ids, network topology, Wi-Fi secrets, TCP diagnostics, and
+  unclassified context
+- keep provider export disabled with explicit blockers for provider trust and
+  provider export audit binding
+
+Definition of done:
+
+- Shadow VM proves the projection schema, field classification, explicit
+  omissions, local event ids, provider export denial, and query/trace locator.
+- OpenAI requests still do not receive automatic context injection.
+
+## Phase 5.8: Provider Context Export Gate
+
+Goal:
+
+```text
+provider_minimal projection -> provider_context_export gate -> provider write denied
+```
+
+Status: implemented as a denied-by-default protocol gate.
+
+Scope:
+
+- expose `provider.context_export [provider_minimal]` and
+  `provider.export_context [provider_minimal]` as provider-boundary methods
+- add `cap.provider.context_export` with risk `export` and no V0 grant
+- return `raios.provider_context_export.v0` with current-boot `event_id` and
+  `audit_event_id`
+- report provider trust state, projection presence, field-classification
+  presence, packet evidence state, missing request binding, missing export
+  audit binding, and `provider_write: not_attempted`
+- record the denial in `event.log.v0` as `cap.provider.context_export`
+- keep OpenAI requests free of automatic context attachment
+
+Definition of done:
+
+- Shadow VM proves the export schema, capability denial, export risk event,
+  missing evidence list, and no provider write attempt.
+
+## Phase 5.9: Provider Context Packet Evidence
+
+Goal:
+
+```text
+provider_minimal packet -> canonical evidence hashes -> export still denied
+```
+
+Status: implemented for the local projection and denied export gate.
+
+Scope:
+
+- define `raios.provider_minimal.packet.canonical.v0`
+- hash the canonical provider-minimal `raios.agent_context.v0` packet
+- hash the exported field list separately
+- hash the omitted field list separately
+- expose those hashes through `raios.provider_context_projection.v0`
+- expose those hashes through `raios.provider_context_export.v0`
+- report packet and field-list bindings as present while provider writes remain
+  `not_attempted`
+- keep OpenAI requests free of automatic context attachment
+
+Definition of done:
+
+- Shadow VM proves the projection and export gate both expose
+  `projected_packet_hash`, `exported_field_list_hash`, and
+  `omitted_field_list_hash`, while request binding and export audit binding
+  remain missing.
+
+## Phase 5.10: Provider Export Denial Audit
+
+Goal:
+
+```text
+failed provider export -> distinct denial evidence -> export gates still fail
+```
+
+Status: implemented for the denied `provider.context_export` path.
+
+Scope:
+
+- keep positive `raios.provider_request_binding.v0` missing until a real
+  provider request envelope exists
+- keep positive `raios.provider_context_export_audit_binding.v0` missing until
+  structured hash-valued audit evidence exists
+- emit `raios.provider_request_binding_denial.v0` for the failed binding
+  attempt
+- emit `raios.provider_context_export_denial_audit.v0` for the no-write export
+  decision
+- record separate current-boot event ids for the capability denial, request
+  binding denial, and export denial audit
+- mark denial-audit records with `satisfies_export_gate: false`
+- carry hash-valued structured `event.log.v0` bindings on the denial events
+  while keeping `satisfies_current_boot_export_gate: false`
+- keep `provider_write: not_attempted` and automatic provider context injection
+  disabled
+
+Definition of done:
+
+- Shadow VM proves the positive binding gates remain missing, denial records are
+  present but cannot satisfy export gates, and the event log contains
+  `provider_context_export.request_binding_denied` plus
+  `provider_context_export.denial_audit` with packet/field-list hashes.
+
+## Phase 5.11: Provider Request Envelope
+
+Goal:
+
+```text
+real provider request path -> local pre-write envelope -> positive binding candidate
+```
+
+Status: implemented for the real direct OpenAI `ask` path.
+
+Scope:
+
+- create `raios.provider_request_envelope.v0` only from the real OpenAI request
+  path, not from `provider.context_export`
+- bind the envelope to the exact request body hash prepared for HTTPS write
+- keep raw prompt text, API keys, Authorization values, and Content-Length out
+  of the envelope
+- keep provider-minimal context attachment blocked unless positive provider
+  trust and a positive export audit binding both exist
+- fail closed if envelope hashes, packet hashes, boot scope, or event retention
+  do not match
+
+Definition of done:
+
+- Shadow VM proves `provider.context_export` does not create a fake request
+  envelope.
+- Direct OpenAI pin-mismatch smoke proves the envelope schema appears on a real
+  provider request path, omits prompt/Content-Length/Authorization values, and
+  still fails before HTTPS write on pin mismatch.
+- Denied export remains denied until a positive request binding and positive
+  export audit binding exist.
+
+## Phase 5.12: Positive Provider Context Binding
+
+Goal:
+
+```text
+provider_minimal packet hash -> real request envelope -> positive export audit binding
+```
+
+Status: implemented for local-only current-boot binding records; automatic
+context injection remains disabled.
+
+Scope:
+
+- create `raios.provider_request_binding.v0` only for a retained current-boot
+  `raios.provider_request_envelope.v0`
+- bind request-envelope hash, request-body hash, provider-minimal packet hash,
+  exported-field-list hash, and omitted-field-list hash
+- reject denial schemas, development TLS bypass, stale or dropped event ids,
+  previous-boot ids, consumed bindings, and hash mismatches
+- create `raios.provider_context_export_audit_binding.v0` only after positive
+  provider trust and matching request binding exist
+- set `satisfies_request_binding_gate: true` only on the request binding
+- set `positive_export_authorization: true` only on the export audit binding
+- keep `satisfies_current_boot_export_gate: false`,
+  `automatic_context_injection: disabled`, and
+  `context_attached_to_provider_body: false`
+
+Definition of done:
+
+- Shadow VM proves standalone `provider.context_export` still cannot fake
+  request envelopes or positive bindings.
+- Direct OpenAI pin-mismatch smoke proves positive binding markers remain absent
+  when provider trust fails.
+- Direct OpenAI SPKI pinned-trust smoke proves the real `ask` path emits the
+  request envelope, positive request binding, and positive export audit binding
+  markers before HTTPS write.
+- The OpenAI request body still does not receive automatic provider-minimal
+  context.
 
 ## Phase 6: Ephemeral Live Services
 

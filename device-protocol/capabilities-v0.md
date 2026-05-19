@@ -37,6 +37,7 @@ This document specifies the policy that file currently exposes over
 | `observe` | Read local facts, logs, inventory, capabilities, and problems. | Granted for selected current-boot methods. |
 | `diagnose` | Run bounded probes or checks that may touch devices but should not change state. | Not granted in Stage-0 V0. |
 | `simulate` | Build or test outside the live system, usually in a VM harness. | Evidence may be produced outside the guest; not a guest mutation grant. |
+| `export` | Send local system context or evidence across the provider boundary. | Denied. |
 | `modify_ram` | Change current-boot runtime state, load ephemeral code, or alter live services. | Denied. |
 | `persist` | Change boot image, saved config, module set, policy, or rollback state. | Denied. |
 | `hardware` | Touch physical device state with effects outside a VM or beyond observation. | Denied. |
@@ -116,6 +117,7 @@ memory.propose_policy
 memory.supersede_fact
 memory.redact
 memory.compact
+provider.context_export
 module.propose
 module.build_result
 module.test_request
@@ -141,7 +143,18 @@ Memory mutation methods map to the denied catalog capability
 `cap.memory.mutate`. They are visible so future agents can reason about the
 missing grant without treating RAM-only records as durable memory.
 
-The denial must name the missing evidence set:
+Provider context export maps to `cap.provider.context_export` and risk
+`export`. It is denied until positive provider trust, the
+`provider_minimal` redaction projection, packet/field-list evidence, provider
+request binding, and a distinct provider export audit binding exist. The
+standalone denial path may emit request-binding-denial and export-denial-audit
+records, but those records do not satisfy the positive binding gates. The real
+pinned OpenAI `ask` path may emit positive local-only request/export audit
+binding records, but those records do not grant provider export or body
+attachment while automatic context injection is disabled. The standalone denial
+must report `provider_write: not_attempted`.
+
+Capability denials must name the relevant evidence gates:
 
 ```text
 raios.module_manifest.v0
@@ -152,6 +165,13 @@ local_approval
 rollback_plan
 raios.audit_record.v0
 raios.memory_persistence.v0
+raios.provider_context_projection.v0
+raios.provider_context_export.v0
+projected_packet_hash
+exported_field_list_hash
+omitted_field_list_hash
+provider_request_binding
+provider_context_export_audit_binding
 ```
 
 V0 does not distinguish between "method known but currently unsafe" and "method
@@ -205,6 +225,9 @@ attach `system.snapshot.v0` or capability/audit context unless the current
 provider trust state is one of the positive verified states and the outbound
 projection has applied the matching redaction profile. Local serial access may
 show read-only facts that the provider path is not yet allowed to receive.
+`provider.context_export provider_minimal` is the V0 gate for this boundary and
+must remain denied until it can create positive request and export audit
+bindings.
 
 ## Open Questions
 

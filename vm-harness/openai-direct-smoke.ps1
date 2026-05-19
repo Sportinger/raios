@@ -101,6 +101,7 @@ try {
     if ($ExpectProviderResponse) {
         Wait-ForLogText -Path $SerialLog -Needle "TLS TRUST: tls_certificate_verification_bypassed" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_REQUEST_ENVELOPE {"schema":"raios.provider_request_envelope.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT REQUEST 1 STARTED" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 established" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: TLS provider trust state: tls_certificate_verification_bypassed" -TimeoutSeconds $TimeoutSeconds
@@ -109,22 +110,29 @@ try {
     }
     elseif ($ExpectPinnedTrust) {
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_REQUEST_ENVELOPE {"schema":"raios.provider_request_envelope.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT REQUEST 1 STARTED" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 established" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: TLS provider trust verified: pinned_cert" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_REQUEST_BINDING {"schema":"raios.provider_request_binding.v0"' -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_EXPORT_AUDIT_BINDING {"schema":"raios.provider_context_export_audit_binding.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI HTTP" -TimeoutSeconds $TimeoutSeconds
     }
     elseif ($ExpectSpkiPinnedTrust) {
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_REQUEST_ENVELOPE {"schema":"raios.provider_request_envelope.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT REQUEST 1 STARTED" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 established" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: TLS provider trust verified: pinned_spki" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_REQUEST_BINDING {"schema":"raios.provider_request_binding.v0"' -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_EXPORT_AUDIT_BINDING {"schema":"raios.provider_context_export_audit_binding.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI HTTP" -TimeoutSeconds $TimeoutSeconds
     }
     elseif ($ExpectPinMismatch) {
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_REQUEST_ENVELOPE {"schema":"raios.provider_request_envelope.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT REQUEST 1 STARTED" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 handshake starting (pinned provider verifier)" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT TLS PIN MISMATCH" -TimeoutSeconds $TimeoutSeconds
@@ -137,6 +145,42 @@ try {
     $serial = Get-Content -Raw -LiteralPath $SerialLog
     if ((-not $ExpectProviderResponse) -and (-not $ExpectPinnedTrust) -and (-not $ExpectSpkiPinnedTrust) -and (-not $ExpectPinMismatch) -and ($serial -like "*OPENAI_DIRECT_REQ*")) {
         throw "Trust-gate smoke saw an OpenAI request start before provider trust was verified in $SerialLog"
+    }
+    if ((-not $ExpectProviderResponse) -and (-not $ExpectPinnedTrust) -and (-not $ExpectSpkiPinnedTrust) -and (-not $ExpectPinMismatch) -and ($serial -like "*raios.provider_request_envelope.v0*")) {
+        throw "Trust-gate smoke saw a provider request envelope before provider trust allowed a request in $SerialLog"
+    }
+    if (($ExpectProviderResponse -or $ExpectPinMismatch) -and ($serial -like "*raios.provider_request_binding.v0*")) {
+        throw "Direct smoke saw a positive provider request binding without positive provider trust in $SerialLog"
+    }
+    if (($ExpectProviderResponse -or $ExpectPinMismatch) -and ($serial -like "*raios.provider_context_export_audit_binding.v0*")) {
+        throw "Direct smoke saw a positive provider export audit binding without positive provider trust in $SerialLog"
+    }
+    if (($ExpectPinnedTrust -or $ExpectSpkiPinnedTrust) -and ($serial -notlike "*raios.provider_request_binding.v0*")) {
+        throw "Pinned-trust smoke did not see a positive provider request binding in $SerialLog"
+    }
+    if (($ExpectPinnedTrust -or $ExpectSpkiPinnedTrust) -and ($serial -notlike "*raios.provider_context_export_audit_binding.v0*")) {
+        throw "Pinned-trust smoke did not see a positive provider export audit binding in $SerialLog"
+    }
+    if (($ExpectProviderResponse -or $ExpectPinnedTrust -or $ExpectSpkiPinnedTrust -or $ExpectPinMismatch) -and ($serial -notlike "*`"provider_write`":`"not_attempted`"*")) {
+        throw "Direct smoke did not see provider_write:not_attempted in the provider request envelope in $SerialLog"
+    }
+    if (($ExpectProviderResponse -or $ExpectPinnedTrust -or $ExpectSpkiPinnedTrust -or $ExpectPinMismatch) -and ($serial -notlike "*`"body_sha256`":`"sha256:*")) {
+        throw "Direct smoke did not see request body hash in the provider request envelope in $SerialLog"
+    }
+    if (($ExpectProviderResponse -or $ExpectPinnedTrust -or $ExpectSpkiPinnedTrust -or $ExpectPinMismatch) -and ($serial -notlike "*`"envelope_hash`":`"sha256:*")) {
+        throw "Direct smoke did not see envelope hash in the provider request envelope in $SerialLog"
+    }
+    $envelopeLines = @($serial -split '\r?\n' | Where-Object { $_ -like "OPENAI_PROVIDER_REQUEST_ENVELOPE *" })
+    foreach ($line in $envelopeLines) {
+        if ($line.Contains($safePrompt)) {
+            throw "Provider request envelope leaked raw prompt text in $SerialLog"
+        }
+        if ($line -like "*Content-Length*") {
+            throw "Provider request envelope leaked Content-Length in $SerialLog"
+        }
+        if ($line -like "*Authorization: Bearer*") {
+            throw "Provider request envelope leaked Authorization header value in $SerialLog"
+        }
     }
     if ($ExpectPinnedTrust -and ($serial -like "*tls_certificate_verification_bypassed*")) {
         throw "Pinned-trust smoke saw unverified TLS bypass output in $SerialLog"

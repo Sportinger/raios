@@ -228,6 +228,31 @@ openai: TLS provider trust verified: pinned_spki sha256:<pin-id>
 openai: HTTPS request sent
 ```
 
+For request modes that are allowed to start the direct provider path, the smoke
+also expects a local-only pre-write marker:
+
+```text
+OPENAI_PROVIDER_REQUEST_ENVELOPE {"schema":"raios.provider_request_envelope.v0", ...}
+```
+
+That marker must report `provider_write: not_attempted`, include body and
+envelope hashes, and omit raw prompt text, `Content-Length`, API keys, and
+Authorization values.
+
+On pinned/WebPKI positive trust paths with a matching request-body and envelope
+hash, the smoke also expects:
+
+```text
+OPENAI_PROVIDER_REQUEST_BINDING {"schema":"raios.provider_request_binding.v0", ...}
+OPENAI_PROVIDER_EXPORT_AUDIT_BINDING {"schema":"raios.provider_context_export_audit_binding.v0", ...}
+```
+
+Those markers must stay absent for pin mismatch and the unverified development
+TLS override. The export-audit marker is positive audit evidence, but
+`automatic_context_injection` remains `disabled`,
+`satisfies_current_boot_export_gate` remains `false`, and the request body still
+does not include provider-minimal context.
+
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:
 

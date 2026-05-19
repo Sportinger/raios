@@ -1,7 +1,7 @@
 use core::fmt::{self, Write};
 use core::str;
 
-use crate::{net, openai, provider_config, provider_trust};
+use crate::{net, openai, provider_config, provider_trust, ui};
 
 const LINE_CAPACITY: usize = 104;
 
@@ -117,11 +117,14 @@ pub struct Snapshot {
     pub tcp: Option<net::TcpSnapshot>,
 }
 
-pub fn submit_text(prompt: &str) -> Result<Submitted, SubmitError> {
-    submit(AgentRequest::text(prompt))
+pub fn submit_text(prompt: &str, runtime: ui::RuntimeStatus) -> Result<Submitted, SubmitError> {
+    submit(AgentRequest::text(prompt), runtime)
 }
 
-pub fn submit(request: AgentRequest<'_>) -> Result<Submitted, SubmitError> {
+pub fn submit(
+    request: AgentRequest<'_>,
+    runtime: ui::RuntimeStatus,
+) -> Result<Submitted, SubmitError> {
     let prompt = request.prompt.trim();
     let _model = request.model;
     let _max_output = request.max_output;
@@ -140,7 +143,7 @@ pub fn submit(request: AgentRequest<'_>) -> Result<Submitted, SubmitError> {
         });
     }
 
-    match openai::submit_request(prompt) {
+    match openai::submit_request(prompt, runtime) {
         Ok(id) => Ok(Submitted {
             route: Route::OpenAiDirect,
             id,

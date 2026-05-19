@@ -21,6 +21,7 @@ device.graph          -> device.graph
 agent memory.profile  -> memory.profile
 agent memory.context diagnostic -> memory.context
 agent memory.context provider_minimal -> memory.context with provider export disabled
+agent provider.context_export provider_minimal -> denied export gate with audit/event ids
 agent memory.recent_events -> memory.recent_events
 agent audit.events 8 -> memory.recent_events with limit 8
 agent <method>        -> dispatch raw method name
@@ -82,14 +83,30 @@ currently monolithic Stage-0 kernel. Entries already use stable ids such as
 `memory.context` returns a bounded `raios.agent_context.v0` packet over
 `current_boot` facts. `memory.query` and `memory.trace` expose the small V0
 record index and source links. Provider-bound context injection remains disabled
-even when `memory.context provider_minimal` is requested.
+even when `memory.context provider_minimal` is requested. That profile now emits
+a local `raios.provider_context_projection.v0` preview with explicit
+`public`/`local_only`/`secret` field treatment, included/omitted field lists,
+packet/field-list hashes, and current-boot event ids for the local projection.
+The preview still has `can_export: false` until provider trust is positive and
+a real provider request binding plus provider export audit binding exists.
 
 `memory.recent_events` returns a bounded RAM-only `event.log.v0` view over the
 current-boot agent protocol event ring. `audit.events [limit]` is an alias for
 the same data. Records use `audit.event.v0`, stable
 `event.current_boot.<sequence>` ids, method names, classification, outcome,
 requested capability, and compact evidence links. It does not persist memory and
-is not exported to providers.
+is not exported to providers. Provider context export denial events also carry
+structured non-authorizing `bindings` with packet and field-list hashes, but
+those denial bindings are not positive provider export authority.
+When a real direct OpenAI `ask` request is allowed to start, the event log may
+also contain a local-only `provider_request.envelope_created` record with
+`raios.provider_request_envelope.v0` hashes. That envelope is not created by
+`provider.context_export` and is not a context export binding. On pinned/WebPKI
+positive trust paths, the same real `ask` path may also record local-only
+`raios.provider_request_binding.v0` and
+`raios.provider_context_export_audit_binding.v0` records. They are current-boot
+evidence for the request and audit binding gates only; automatic provider
+context injection remains disabled.
 
 ## Denied-By-Default Methods
 
@@ -114,6 +131,7 @@ service.start
 service.stop
 config.apply
 provider.configure
+provider.context_export
 wifi.configure
 ```
 
@@ -122,3 +140,18 @@ current-boot event record for the denied method. The denial names the missing
 evidence: `raios.module_manifest.v0`,
 `raios.vm_test_report.v0`, `local_attestation.v0`, computed capability grant,
 local approval, and rollback plan.
+
+`provider.context_export [provider_minimal]` uses the same denied-by-default
+envelope but reports `raios.provider_context_export.v0` gate state instead of
+module evidence. It records `cap.provider.context_export`, returns
+`provider_write: not_attempted`, and requires positive provider trust, a
+provider-minimal projection, packet/field-list evidence, provider request
+binding, and a distinct export audit event before any future context attachment.
+The current denied path emits request-binding-denial and export-denial-audit
+records only; those records explicitly do not satisfy the export gates, even
+though their event-log bindings carry exact provider-minimal packet and
+field-list hashes.
+
+The direct OpenAI `ask` path can create positive local-only binding records when
+provider trust is pinned/verified, but the standalone `provider.context_export`
+method still denies and must not fake a provider request envelope.

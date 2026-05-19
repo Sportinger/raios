@@ -59,7 +59,8 @@ RAM-only current-boot event ring.
     },
     {
       "id": "provider_minimal",
-      "available": false,
+      "available": true,
+      "local_projection": true,
       "provider_export": false
     }
   ],
@@ -67,13 +68,16 @@ RAM-only current-boot event ring.
 }
 ```
 
-`provider_minimal` is listed as a planned profile because the provider boundary
-needs it later, but it remains unavailable for provider export until:
+`provider_minimal` is available as a local read-only redaction projection. It
+shows the packet raiOS would be allowed to build for a future provider request,
+the fields classified as `public`, `local_only`, or `secret`, and the fields
+omitted from the provider-bound packet. It remains unavailable for provider
+export until:
 
 - provider trust is positive: `pinned_spki_verified`, `pinned_cert_verified`,
   or `webpki_verified`
-- a separate provider redaction projection exists
-- an audit record can name what left the machine
+- a current-boot provider export event/audit record can name exactly what left
+  the machine
 
 ## memory.context
 
@@ -86,6 +90,8 @@ needs it later, but it remains unavailable for provider export until:
   "profile": "diagnostic",
   "scope": "current_boot",
   "provider_export": "disabled",
+  "context_event_id": "event.current_boot.00000004",
+  "audit_event_id": "event.current_boot.00000004",
   "source_schemas": [
     "system.snapshot.v0",
     "system.capabilities.v0",
@@ -113,6 +119,73 @@ record ids are the primary handle. Raw source material remains behind
 `system.snapshot`, `system.boot_log`, `service.inventory`, `problem.list`, or
 `memory.trace`.
 
+When `memory.context provider_minimal` is requested, the result also includes a
+local-only `provider_projection` object:
+
+```json
+{
+  "schema": "raios.provider_context_projection.v0",
+  "mode": "local_read_only",
+  "profile": "provider_minimal",
+  "provider_export": "disabled",
+  "redaction_projection": "present",
+  "classification_default": "local_only",
+  "unclassified_field_policy": "omit",
+  "packet_evidence": {
+    "canonicalization": "raios.provider_minimal.packet.canonical.v0",
+    "projected_packet_hash": "sha256:<64 hex chars>",
+    "exported_field_list_hash": "sha256:<64 hex chars>",
+    "omitted_field_list_hash": "sha256:<64 hex chars>"
+  },
+  "local_projection_event_id": "event.current_boot.00000005",
+  "audit_event_id": "event.current_boot.00000005",
+  "provider_trust_state": "pin_config_missing",
+  "provider_trust_positive": false,
+  "can_export": false,
+  "blocked_by": [
+    {
+      "gate": "provider_trust",
+      "state": "pin_config_missing",
+      "reason": "provider_trust_not_positive"
+    },
+    {
+      "gate": "provider_context_export_audit_binding",
+      "state": "missing",
+      "reason": "provider_context_export_audit_binding_missing"
+    }
+  ],
+  "included_fields": [],
+  "omitted_fields": [],
+  "packet": {
+    "schema": "raios.agent_context.v0",
+    "purpose": "current_boot_provider_context",
+    "profile": "provider_minimal"
+  }
+}
+```
+
+The nested `packet` is a local preview of the provider-minimal context. Its
+`packet_evidence` hashes bind the canonical packet, the included field list,
+and the omitted field list before any provider write is attempted. The packet
+contains only public field classes: product/stage identity, coarse subsystem
+states, provider family/route/key-state marker/trust state, public capability
+ids, stable service ids, stable problem ids/severities/scrubbed summaries, and
+public ADR/context record summaries. It deliberately excludes raw
+`system.snapshot`, raw boot logs, detail strings, prompt text, network
+addresses, Wi-Fi secrets, provider request ids, TCP diagnostics, and any
+unclassified context.
+
+The separate `provider.context_export provider_minimal` method is the V0 export
+gate for this projection. It currently returns `capability_denied`, records
+`cap.provider.context_export`, and reports `provider_write: not_attempted`
+until positive provider trust, a real provider request binding, and a distinct
+positive export audit binding exist. Its denial events now carry structured
+hash-valued event-log bindings for the provider-minimal packet and field lists,
+but those bindings remain denial evidence and cannot satisfy export gates.
+The real pinned OpenAI `ask` path can record positive local-only request/export
+audit bindings for this projection, but `memory.context provider_minimal`
+remains a local preview and does not export or attach context.
+
 ## Omitted Classes
 
 Every V0 context packet must report omitted classes:
@@ -123,9 +196,11 @@ Every V0 context packet must report omitted classes:
   ids, hashes, or topology
 - `secret_values`: API keys, Wi-Fi passphrases, and raw secret values are never
   included
-- `provider_export`: disabled until provider trust, redaction, and audit exist
-- `provider_minimal`: currently blocked by either provider trust or the missing
-  provider redaction projection
+- `provider_export`: disabled until positive provider trust, provider request
+  binding, provider export audit binding, and a final injection/export gate exist
+- `provider_minimal`: local projection exists; export is blocked by
+  `provider_trust_not_positive` and/or
+  `provider_context_export_audit_binding_missing`
 
 ## memory.query
 
@@ -138,6 +213,7 @@ Initial ids include:
 ```text
 mem.fact.identity.stage0
 snapshot.current
+snapshot.current.provider_minimal
 capabilities.current_boot
 service.inventory.current
 problem.list.current
@@ -149,7 +225,9 @@ adr.0004
 The event log is a separate current-boot evidence source. Event ids use the
 `event.current_boot.<sequence>` form and can be discovered through
 `memory.recent_events` or its `audit.events` alias. These event ids are
-locators/evidence records, not persistent memory facts.
+locators/evidence records, not persistent memory facts. Provider export denial
+events may include `bindings` objects with hashes, but those bindings remain
+current-boot non-authorizing denial evidence.
 
 ## memory.trace
 
@@ -187,3 +265,6 @@ memory.
 - Provider-bound context injection remains disabled even when local
   `memory.context provider_minimal` is requested.
 - Unknown fields and unknown record kinds are `local_only` until classified.
+- The provider-minimal projection is a local preview only. A real provider
+  export must have positive provider trust and a distinct current-boot export
+  event/audit binding.

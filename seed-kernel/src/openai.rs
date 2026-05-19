@@ -10,17 +10,19 @@ use core::str;
 use embedded_io::Write as IoWrite;
 use embedded_tls::blocking::{Aes128GcmSha256, NoVerify, TlsConfig, TlsConnection, TlsContext};
 use rand_core::{CryptoRng, RngCore};
+use sha2::{Digest, Sha256};
 use spin::Mutex;
 
 use crate::{
-    entropy, net, openai_trust::OpenAiPinnedCertVerifier, provider_config, provider_trust, serial,
-    time, tls_io::KernelTcpStream,
+    agent_protocol, entropy, event_log, net, openai_trust::OpenAiPinnedCertVerifier,
+    provider_config, provider_trust, serial, time, tls_io::KernelTcpStream, ui,
 };
 
 const API_HOST: &str = "api.openai.com";
 const API_PORT: u16 = 443;
 const API_PATH: &str = "/v1/responses";
 const MODEL: &str = "gpt-5.4";
+const MAX_OUTPUT_TOKENS: u16 = 128;
 const LINE_CAPACITY: usize = 104;
 const DNS_TIMEOUT_MS: u64 = 6_000;
 const TCP_TIMEOUT_MS: u64 = 8_000;
@@ -113,6 +115,32 @@ struct PendingRequest {
     phase: Phase,
     address: Option<smoltcp::wire::Ipv4Address>,
     phase_started_ms: u64,
+    envelope: ProviderRequestEnvelope,
+    envelope_event_id: event_log::EventId,
+    runtime: ui::RuntimeStatus,
+}
+
+#[derive(Clone, Copy)]
+struct ProviderRequestEnvelope {
+    request_id: u32,
+    request_body_hash: [u8; 32],
+    envelope_hash: [u8; 32],
+    provider_trust_state: &'static str,
+    provider_trust_positive: bool,
+    development_tls_bypass: bool,
+}
+
+impl ProviderRequestEnvelope {
+    fn event_binding(self) -> event_log::ProviderRequestEnvelopeBinding {
+        event_log::ProviderRequestEnvelopeBinding {
+            request_id: self.request_id,
+            request_body_hash: self.request_body_hash,
+            envelope_hash: self.envelope_hash,
+            provider_trust_state: self.provider_trust_state,
+            provider_trust_positive: self.provider_trust_positive,
+            development_tls_bypass: self.development_tls_bypass,
+        }
+    }
 }
 
 struct OpenAiState {
@@ -154,7 +182,7 @@ impl OpenAiState {
     }
 }
 
-pub fn submit_request(prompt: &str) -> Result<u32, SubmitError> {
+pub fn submit_request(prompt: &str, runtime: ui::RuntimeStatus) -> Result<u32, SubmitError> {
     let prompt = prompt.trim();
     if prompt.is_empty() {
         return Err(SubmitError::Empty);
@@ -167,11 +195,22 @@ pub fn submit_request(prompt: &str) -> Result<u32, SubmitError> {
 
     let id = state.next_id;
     state.next_id = state.next_id.wrapping_add(1).max(1);
+    let body = build_request_body(prompt);
+    let envelope = build_provider_request_envelope(
+        id,
+        hash_bytes(body.as_bytes()),
+        provider_trust::snapshot(),
+    );
+    let envelope_event_id =
+        event_log::record_provider_request_envelope_created(envelope.event_binding());
     state.pending = Some(PendingRequest {
         id,
         phase: Phase::Resolving,
         address: None,
         phase_started_ms: now_ms(),
+        envelope,
+        envelope_event_id,
+        runtime,
     });
     state.last_request_id = Some(id);
     state.last_prompt.set_from_str(prompt);
@@ -180,6 +219,7 @@ pub fn submit_request(prompt: &str) -> Result<u32, SubmitError> {
         .set_from_bytes(b"OPENAI DIRECT: RESOLVING api.openai.com");
     state.last_error.clear();
     net::tcp_abort();
+    emit_provider_request_envelope(envelope, runtime);
 
     serial::write_fmt(format_args!(
         "OPENAI_DIRECT_REQ {} {} {}\r\n",
@@ -215,7 +255,7 @@ pub fn poll() -> Option<FixedLine> {
                     API_HOST, address, API_PORT
                 ));
                 match handle_tcp_result(&mut state, net::tcp_connect_ipv4(address, API_PORT)) {
-                    TcpAction::None | TcpAction::StartHttps(_) => None,
+                    TcpAction::None | TcpAction::StartHttps { .. } => None,
                     TcpAction::Event(line) => Some(line),
                 }
             } else if now.saturating_sub(phase_started_ms) >= DNS_TIMEOUT_MS {
@@ -236,7 +276,12 @@ pub fn poll() -> Option<FixedLine> {
             match handle_tcp_result(&mut state, net::tcp_connect_ipv4(address, API_PORT)) {
                 TcpAction::None => None,
                 TcpAction::Event(line) => Some(line),
-                TcpAction::StartHttps(prompt) => {
+                TcpAction::StartHttps {
+                    prompt,
+                    envelope,
+                    envelope_event_id,
+                    runtime,
+                } => {
                     if let Some(pending) = state.pending.as_mut() {
                         pending.phase = Phase::Requesting;
                         pending.phase_started_ms = now;
@@ -245,7 +290,12 @@ pub fn poll() -> Option<FixedLine> {
                         .last_event
                         .set_from_bytes(b"OPENAI DIRECT: TLS HANDSHAKE STARTED");
                     drop(state);
-                    let result = perform_https_request(prompt.as_str());
+                    let result = perform_https_request(
+                        prompt.as_str(),
+                        envelope,
+                        envelope_event_id,
+                        runtime,
+                    );
                     net::tcp_abort();
                     let mut state = STATE.lock();
                     match result {
@@ -292,12 +342,30 @@ pub fn snapshot() -> Snapshot {
 enum TcpAction {
     None,
     Event(FixedLine),
-    StartHttps(FixedLine),
+    StartHttps {
+        prompt: FixedLine,
+        envelope: ProviderRequestEnvelope,
+        envelope_event_id: event_log::EventId,
+        runtime: ui::RuntimeStatus,
+    },
 }
 
 fn handle_tcp_result(state: &mut OpenAiState, result: net::TcpConnectResult) -> TcpAction {
     match result {
-        net::TcpConnectResult::Connected => TcpAction::StartHttps(state.last_prompt),
+        net::TcpConnectResult::Connected => {
+            let Some(pending) = state.pending.as_ref() else {
+                return TcpAction::Event(
+                    complete_error(state, b"OPENAI DIRECT REQUEST ENVELOPE MISSING")
+                        .unwrap_or_else(FixedLine::empty),
+                );
+            };
+            TcpAction::StartHttps {
+                prompt: state.last_prompt,
+                envelope: pending.envelope,
+                envelope_event_id: pending.envelope_event_id,
+                runtime: pending.runtime,
+            }
+        }
         net::TcpConnectResult::Started => {
             state
                 .last_event
@@ -346,13 +414,469 @@ fn now_ms() -> u64 {
     time::rdtsc() / per_ms
 }
 
+fn build_provider_request_envelope(
+    request_id: u32,
+    request_body_hash: [u8; 32],
+    trust: provider_trust::Snapshot,
+) -> ProviderRequestEnvelope {
+    let provider_trust_state = trust.state.as_protocol();
+    let provider_trust_positive = provider_trust_positive(trust.state);
+    let development_tls_bypass = trust.development_bypass;
+    let envelope_hash = provider_request_envelope_hash(
+        request_id,
+        request_body_hash,
+        provider_trust_state,
+        provider_trust_positive,
+        development_tls_bypass,
+    );
+
+    ProviderRequestEnvelope {
+        request_id,
+        request_body_hash,
+        envelope_hash,
+        provider_trust_state,
+        provider_trust_positive,
+        development_tls_bypass,
+    }
+}
+
+fn provider_trust_positive(state: provider_trust::TrustState) -> bool {
+    matches!(
+        state,
+        provider_trust::TrustState::PinnedCertVerified
+            | provider_trust::TrustState::PinnedSpkiVerified
+            | provider_trust::TrustState::WebPkiVerified
+    )
+}
+
+fn provider_request_envelope_hash(
+    request_id: u32,
+    request_body_hash: [u8; 32],
+    provider_trust_state: &'static str,
+    provider_trust_positive: bool,
+    development_tls_bypass: bool,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_field(
+        &mut hash,
+        "domain",
+        "raios.provider_request_envelope.canonical.v0",
+    );
+    hash_field(&mut hash, "schema", "raios.provider_request_envelope.v0");
+    hash_field(&mut hash, "scope", "current_boot");
+    hash_field(&mut hash, "classification", "local_only");
+    hash_field(&mut hash, "persistence", "none");
+    hash_field(&mut hash, "status", "local_prewrite_envelope");
+    hash_field(&mut hash, "provider_write", "not_attempted");
+    hash_field(&mut hash, "source.method", "ask");
+    hash_field(&mut hash, "source.capability", "cap.provider.request");
+    hash_field(&mut hash, "source.risk", "export");
+    hash_field(&mut hash, "source.code_path", "seed-kernel/src/openai.rs");
+    hash_field(&mut hash, "provider.selected", "OPENAI");
+    hash_field(&mut hash, "provider.route", "OPENAI DIRECT");
+    hash_field(&mut hash, "provider.host", API_HOST);
+    hash_field(&mut hash, "provider.port", "443");
+    hash_field(&mut hash, "provider.method", "POST");
+    hash_field(&mut hash, "provider.path", API_PATH);
+    hash_field(&mut hash, "provider.model", MODEL);
+    hash_field(&mut hash, "request.id", format!("{}", request_id).as_str());
+    hash_field(
+        &mut hash,
+        "request_body.schema",
+        "openai.responses.request.redacted.v0",
+    );
+    hash_field(&mut hash, "request_body.user_prompt", "present_redacted");
+    hash_field(
+        &mut hash,
+        "request_body.max_output_tokens",
+        format!("{}", MAX_OUTPUT_TOKENS).as_str(),
+    );
+    hash_field(&mut hash, "request_body.store", "false");
+    hash_field(
+        &mut hash,
+        "request_body.context_attached_to_provider_body",
+        "false",
+    );
+    hash_hash_field(&mut hash, "request_body.body_sha256", request_body_hash);
+    hash_field(
+        &mut hash,
+        "secret_state.api_key_state",
+        if provider_config::api_key_set() {
+            "set"
+        } else {
+            "missing"
+        },
+    );
+    hash_field(&mut hash, "secret_state.authorization_header", "redacted");
+    hash_field(&mut hash, "secret_state.api_key_value", "not_recorded");
+    hash_field(&mut hash, "provider_minimal_context.attached", "false");
+    hash_field(
+        &mut hash,
+        "provider_minimal_context.binding_status",
+        "not_bound",
+    );
+    hash_field(
+        &mut hash,
+        "trust_snapshot.provider_trust_state",
+        provider_trust_state,
+    );
+    hash_field(
+        &mut hash,
+        "trust_snapshot.provider_trust_positive",
+        bool_str(provider_trust_positive),
+    );
+    hash_field(
+        &mut hash,
+        "trust_snapshot.development_tls_bypass",
+        bool_str(development_tls_bypass),
+    );
+    hash.finalize().into()
+}
+
+fn hash_bytes(bytes: &[u8]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(bytes);
+    hash.finalize().into()
+}
+
+fn hash_field(hash: &mut Sha256, name: &str, value: &str) {
+    hash.update(name.as_bytes());
+    hash.update(b"=");
+    hash.update(value.as_bytes());
+    hash.update(b"\n");
+}
+
+fn hash_hash_field(hash: &mut Sha256, name: &str, value: [u8; 32]) {
+    hash.update(name.as_bytes());
+    hash.update(b"=sha256:");
+    hash.update(value);
+    hash.update(b"\n");
+}
+
+fn emit_provider_request_envelope(envelope: ProviderRequestEnvelope, _runtime: ui::RuntimeStatus) {
+    serial::write_raw_str("OPENAI_PROVIDER_REQUEST_ENVELOPE {\"schema\":\"raios.provider_request_envelope.v0\",\"id\":\"provider_request_envelope.current_boot.");
+    serial::write_raw_fmt(format_args!("{:08}", envelope.request_id));
+    serial::write_raw_str("\",\"scope\":\"current_boot\",\"classification\":\"local_only\",\"persistence\":\"none\",\"status\":\"local_prewrite_envelope\",\"provider_write\":\"not_attempted\",\"source\":{\"method\":\"ask\",\"capability\":\"cap.provider.request\",\"risk\":\"export\",\"code_path\":\"seed-kernel/src/openai.rs\"},\"provider\":{\"selected\":\"OPENAI\",\"route\":\"OPENAI DIRECT\",\"host\":\"");
+    serial::write_raw_str(API_HOST);
+    serial::write_raw_str("\",\"port\":");
+    serial::write_raw_fmt(format_args!("{}", API_PORT));
+    serial::write_raw_str(",\"method\":\"POST\",\"path\":\"");
+    serial::write_raw_str(API_PATH);
+    serial::write_raw_str("\",\"model\":\"");
+    serial::write_raw_str(MODEL);
+    serial::write_raw_str("\"},\"request_body\":{\"schema\":\"openai.responses.request.redacted.v0\",\"user_prompt\":\"present_redacted\",\"max_output_tokens\":");
+    serial::write_raw_fmt(format_args!("{}", MAX_OUTPUT_TOKENS));
+    serial::write_raw_str(
+        ",\"store\":false,\"context_attached_to_provider_body\":false,\"body_sha256\":",
+    );
+    write_raw_sha256(envelope.request_body_hash);
+    serial::write_raw_str("},\"secret_state\":{\"api_key_state\":\"");
+    serial::write_raw_str(if provider_config::api_key_set() {
+        "set"
+    } else {
+        "missing"
+    });
+    serial::write_raw_str("\",\"authorization_header\":\"redacted\",\"api_key_value\":\"not_recorded\"},\"provider_minimal_context\":{\"attached\":false,\"binding_status\":\"not_bound\"},\"trust_snapshot\":{\"provider_trust_state\":\"");
+    serial::write_raw_str(envelope.provider_trust_state);
+    serial::write_raw_str("\",\"provider_trust_positive\":");
+    serial::write_raw_str(bool_str(envelope.provider_trust_positive));
+    serial::write_raw_str(",\"development_tls_bypass\":");
+    serial::write_raw_str(bool_str(envelope.development_tls_bypass));
+    serial::write_raw_str("},\"evidence\":{\"canonicalization\":\"raios.provider_request_envelope.canonical.v0\",\"envelope_hash\":");
+    write_raw_sha256(envelope.envelope_hash);
+    serial::write_raw_str("}}\r\n");
+}
+
+fn write_raw_sha256(hash: [u8; 32]) {
+    serial::write_raw_str("\"sha256:");
+    let mut idx = 0usize;
+    while idx < hash.len() {
+        serial::write_raw_fmt(format_args!("{:02x}", hash[idx]));
+        idx += 1;
+    }
+    serial::write_raw_str("\"");
+}
+
+fn bool_str(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn record_positive_provider_context_bindings(
+    envelope: ProviderRequestEnvelope,
+    envelope_event_id: event_log::EventId,
+    runtime: ui::RuntimeStatus,
+    trust: provider_trust::Snapshot,
+) {
+    if trust.development_bypass || !provider_trust_positive(trust.state) {
+        return;
+    }
+
+    let context = agent_protocol::provider_minimal_context_evidence_for_runtime(runtime);
+    let context_hashes = context.event_hashes();
+    let provider_trust_state = trust.state.as_protocol();
+    let request_binding_hash = provider_request_binding_hash(
+        envelope,
+        envelope_event_id,
+        context_hashes,
+        provider_trust_state,
+    );
+    let request_binding = event_log::ProviderRequestBinding {
+        request_id: envelope.request_id,
+        request_envelope_event_id: envelope_event_id,
+        request_body_hash: envelope.request_body_hash,
+        request_envelope_hash: envelope.envelope_hash,
+        request_binding_hash,
+        context: context_hashes,
+        provider_trust_state,
+        development_tls_bypass: trust.development_bypass,
+    };
+    let request_binding_event_id =
+        event_log::record_provider_request_binding_bound(request_binding);
+    emit_provider_request_binding(request_binding, request_binding_event_id);
+
+    let export_audit_binding_hash = provider_export_audit_binding_hash(
+        request_binding,
+        request_binding_event_id,
+        provider_trust_state,
+    );
+    let export_binding = event_log::ProviderExportAuditBinding {
+        request_id: envelope.request_id,
+        request_envelope_event_id: envelope_event_id,
+        request_binding_event_id,
+        request_body_hash: envelope.request_body_hash,
+        request_envelope_hash: envelope.envelope_hash,
+        request_binding_hash,
+        export_audit_binding_hash,
+        context: context_hashes,
+        provider_trust_state,
+        context_attached_to_provider_body: false,
+    };
+    let export_audit_event_id =
+        event_log::record_provider_context_export_audit_binding_bound(export_binding);
+    emit_provider_export_audit_binding(export_binding, export_audit_event_id);
+}
+
+fn provider_request_binding_hash(
+    envelope: ProviderRequestEnvelope,
+    envelope_event_id: event_log::EventId,
+    context: event_log::ProviderContextHashes,
+    provider_trust_state: &'static str,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_field(
+        &mut hash,
+        "domain",
+        "raios.provider_request_binding.canonical.v0",
+    );
+    hash_field(&mut hash, "schema", "raios.provider_request_binding.v0");
+    hash_field(&mut hash, "status", "bound");
+    hash_field(&mut hash, "scope", "current_boot");
+    hash_field(
+        &mut hash,
+        "request.id",
+        format!("{}", envelope.request_id).as_str(),
+    );
+    hash_field(
+        &mut hash,
+        "request_envelope_event.sequence",
+        format!("{}", envelope_event_id.sequence()).as_str(),
+    );
+    hash_hash_field(&mut hash, "request_envelope_hash", envelope.envelope_hash);
+    hash_hash_field(&mut hash, "request_body_hash", envelope.request_body_hash);
+    hash_hash_field(
+        &mut hash,
+        "projected_packet_hash",
+        context.projected_packet_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "exported_field_list_hash",
+        context.exported_field_list_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "omitted_field_list_hash",
+        context.omitted_field_list_hash,
+    );
+    hash_field(
+        &mut hash,
+        "provider_trust_state_at_binding",
+        provider_trust_state,
+    );
+    hash_field(&mut hash, "development_tls_bypass", "false");
+    hash_field(&mut hash, "provider_write_at_binding", "not_attempted");
+    hash_field(&mut hash, "context_attached_to_provider_body", "false");
+    hash.finalize().into()
+}
+
+fn provider_export_audit_binding_hash(
+    request_binding: event_log::ProviderRequestBinding,
+    request_binding_event_id: event_log::EventId,
+    provider_trust_state: &'static str,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_field(
+        &mut hash,
+        "domain",
+        "raios.provider_context_export_audit_binding.canonical.v0",
+    );
+    hash_field(
+        &mut hash,
+        "schema",
+        "raios.provider_context_export_audit_binding.v0",
+    );
+    hash_field(
+        &mut hash,
+        "status",
+        "authorized_for_single_provider_request",
+    );
+    hash_field(&mut hash, "scope", "current_boot");
+    hash_field(
+        &mut hash,
+        "request.id",
+        format!("{}", request_binding.request_id).as_str(),
+    );
+    hash_field(
+        &mut hash,
+        "request_binding_event.sequence",
+        format!("{}", request_binding_event_id.sequence()).as_str(),
+    );
+    hash_hash_field(
+        &mut hash,
+        "request_binding_hash",
+        request_binding.request_binding_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "request_envelope_hash",
+        request_binding.request_envelope_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "request_body_hash",
+        request_binding.request_body_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "projected_packet_hash",
+        request_binding.context.projected_packet_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "exported_field_list_hash",
+        request_binding.context.exported_field_list_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "omitted_field_list_hash",
+        request_binding.context.omitted_field_list_hash,
+    );
+    hash_field(
+        &mut hash,
+        "provider_trust_state_at_binding",
+        provider_trust_state,
+    );
+    hash_field(&mut hash, "positive_export_authorization", "true");
+    hash_field(&mut hash, "context_attached_to_provider_body", "false");
+    hash_field(&mut hash, "automatic_context_injection", "disabled");
+    hash.finalize().into()
+}
+
+fn emit_provider_request_binding(
+    binding: event_log::ProviderRequestBinding,
+    event_id: event_log::EventId,
+) {
+    serial::write_raw_str("OPENAI_PROVIDER_REQUEST_BINDING {\"schema\":\"raios.provider_request_binding.v0\",\"id\":\"provider_request_binding.current_boot.");
+    serial::write_raw_fmt(format_args!("{:08}", event_id.sequence()));
+    serial::write_raw_str("\",\"event_id\":\"event.current_boot.");
+    serial::write_raw_fmt(format_args!("{:08}", event_id.sequence()));
+    serial::write_raw_str("\",\"status\":\"bound\",\"satisfies_request_binding_gate\":true,\"satisfies_current_boot_export_gate\":false,\"provider_write_at_binding\":\"not_attempted\",\"context_attached_to_provider_body\":false,\"request_id\":");
+    serial::write_raw_fmt(format_args!("{}", binding.request_id));
+    serial::write_raw_str(",\"request_envelope_event_id\":\"event.current_boot.");
+    serial::write_raw_fmt(format_args!(
+        "{:08}",
+        binding.request_envelope_event_id.sequence()
+    ));
+    serial::write_raw_str("\",\"request_body_hash\":");
+    write_raw_sha256(binding.request_body_hash);
+    serial::write_raw_str(",\"request_envelope_hash\":");
+    write_raw_sha256(binding.request_envelope_hash);
+    serial::write_raw_str(",\"request_binding_hash\":");
+    write_raw_sha256(binding.request_binding_hash);
+    serial::write_raw_str(",\"trust_snapshot\":{\"provider_trust_state\":\"");
+    serial::write_raw_str(binding.provider_trust_state);
+    serial::write_raw_str("\",\"provider_trust_positive\":true,\"development_tls_bypass\":");
+    serial::write_raw_str(bool_str(binding.development_tls_bypass));
+    serial::write_raw_str("},\"hashes\":");
+    write_raw_context_hashes(binding.context);
+    serial::write_raw_str("}\r\n");
+}
+
+fn emit_provider_export_audit_binding(
+    binding: event_log::ProviderExportAuditBinding,
+    event_id: event_log::EventId,
+) {
+    serial::write_raw_str("OPENAI_PROVIDER_EXPORT_AUDIT_BINDING {\"schema\":\"raios.provider_context_export_audit_binding.v0\",\"id\":\"provider_context_export_audit_binding.current_boot.");
+    serial::write_raw_fmt(format_args!("{:08}", event_id.sequence()));
+    serial::write_raw_str("\",\"event_id\":\"event.current_boot.");
+    serial::write_raw_fmt(format_args!("{:08}", event_id.sequence()));
+    serial::write_raw_str("\",\"status\":\"authorized_for_single_provider_request\",\"satisfies_export_audit_binding_gate\":true,\"satisfies_current_boot_export_gate\":false,\"positive_export_authorization\":true,\"automatic_context_injection\":\"disabled\",\"provider_write_at_binding\":\"not_attempted\",\"context_attached_to_provider_body\":");
+    serial::write_raw_str(bool_str(binding.context_attached_to_provider_body));
+    serial::write_raw_str(",\"request_id\":");
+    serial::write_raw_fmt(format_args!("{}", binding.request_id));
+    serial::write_raw_str(",\"request_envelope_event_id\":\"event.current_boot.");
+    serial::write_raw_fmt(format_args!(
+        "{:08}",
+        binding.request_envelope_event_id.sequence()
+    ));
+    serial::write_raw_str("\",\"request_binding_event_id\":\"event.current_boot.");
+    serial::write_raw_fmt(format_args!(
+        "{:08}",
+        binding.request_binding_event_id.sequence()
+    ));
+    serial::write_raw_str("\",\"request_body_hash\":");
+    write_raw_sha256(binding.request_body_hash);
+    serial::write_raw_str(",\"request_envelope_hash\":");
+    write_raw_sha256(binding.request_envelope_hash);
+    serial::write_raw_str(",\"request_binding_hash\":");
+    write_raw_sha256(binding.request_binding_hash);
+    serial::write_raw_str(",\"export_audit_binding_hash\":");
+    write_raw_sha256(binding.export_audit_binding_hash);
+    serial::write_raw_str(",\"trust_snapshot\":{\"provider_trust_state\":\"");
+    serial::write_raw_str(binding.provider_trust_state);
+    serial::write_raw_str(
+        "\",\"provider_trust_positive\":true,\"development_tls_bypass\":false},\"hashes\":",
+    );
+    write_raw_context_hashes(binding.context);
+    serial::write_raw_str("}\r\n");
+}
+
+fn write_raw_context_hashes(context: event_log::ProviderContextHashes) {
+    serial::write_raw_str("{\"packet_canonicalization\":\"raios.provider_minimal.packet.canonical.v0\",\"projected_packet_hash\":");
+    write_raw_sha256(context.projected_packet_hash);
+    serial::write_raw_str(",\"exported_field_list_hash\":");
+    write_raw_sha256(context.exported_field_list_hash);
+    serial::write_raw_str(",\"omitted_field_list_hash\":");
+    write_raw_sha256(context.omitted_field_list_hash);
+    serial::write_raw_str("}");
+}
+
 enum HttpsResult {
     Answer(FixedLine),
     Status(u16, FixedLine),
     Error(&'static [u8]),
 }
 
-fn perform_https_request(prompt: &str) -> HttpsResult {
+fn perform_https_request(
+    prompt: &str,
+    envelope: ProviderRequestEnvelope,
+    envelope_event_id: event_log::EventId,
+    runtime: ui::RuntimeStatus,
+) -> HttpsResult {
     let trust = provider_trust::snapshot();
     if !provider_config::api_key_set() {
         return HttpsResult::Error(b"OPENAI DIRECT API KEY MISSING");
@@ -425,12 +949,17 @@ fn perform_https_request(prompt: &str) -> HttpsResult {
         }
     }
 
+    let body = build_request_body(prompt);
+    if hash_bytes(body.as_bytes()) != envelope.request_body_hash {
+        return HttpsResult::Error(b"OPENAI DIRECT REQUEST ENVELOPE BODY HASH MISMATCH");
+    }
+    record_positive_provider_context_bindings(envelope, envelope_event_id, runtime, trust);
+
     let mut key = [0u8; 256];
     let Some(key_len) = provider_config::copy_api_key(&mut key) else {
         return HttpsResult::Error(b"OPENAI DIRECT API KEY MISSING");
     };
 
-    let body = build_request_body(prompt);
     let header = build_http_header(key_len, body.len());
 
     if tls.write_all(header.as_bytes()).is_err()
@@ -493,7 +1022,9 @@ fn build_request_body(prompt: &str) -> String {
     body.push_str(MODEL);
     body.push_str("\",\"input\":\"");
     push_json_string(&mut body, prompt);
-    body.push_str("\",\"max_output_tokens\":128,\"store\":false}");
+    body.push_str("\",\"max_output_tokens\":");
+    body.push_str(format!("{}", MAX_OUTPUT_TOKENS).as_str());
+    body.push_str(",\"store\":false}");
     body
 }
 

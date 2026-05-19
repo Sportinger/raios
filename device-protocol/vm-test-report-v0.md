@@ -86,8 +86,8 @@ The JSON report contains:
     "hardware_profile_sha256": "...",
     "qemu_args_sha256": "...",
     "serial_log_sha256": "...",
-    "predicate_count": 80,
-    "predicate_passed_count": 80,
+    "predicate_count": 163,
+    "predicate_passed_count": 163,
     "predicate_failed_count": 0
   },
   "commands": [
@@ -99,6 +99,7 @@ The JSON report contains:
     "agent memory.profile",
     "agent memory.context diagnostic",
     "agent memory.context provider_minimal",
+    "agent provider.context_export provider_minimal",
     "agent memory.query",
     "agent memory.trace snapshot.current",
     "agent memory.recent_events",
@@ -136,3 +137,14 @@ line. That keeps argument binding unambiguous even when a path contains spaces.
 Predicate `actual` is `"found"` on success. On failure it contains the tail of
 the serial log, capped for report readability, so a denied activation can still
 explain which marker was missing without opening the full log.
+
+The current predicate set includes the read-only agent protocol, provider trust
+problem visibility, `memory.context` event ids, the local
+`provider_minimal` redaction projection with packet/field-list hashes, the
+denied `provider.context_export` gate with provider writes still
+`not_attempted`, positive request/export binding gates still missing, denial
+audit records that do not satisfy those gates, structured event-log denial
+bindings with packet and field-list hashes, negative checks for positive
+provider binding schemas, positive export authorization, and fake provider
+request envelopes from `provider.context_export`, query/trace locators, RAM-only
+event/audit reads, denied memory mutations, and denied module loading.

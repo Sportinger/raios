@@ -132,3 +132,13 @@ The `NoVerify` path remains only behind the explicit development build flag
 - `trust_state` is visible in serial/provider snapshot output.
 - Automatic system context remains disabled unless trust is verified and the
   context redaction policy allows each field.
+- `provider.context_export provider_minimal` remains denied until positive
+  trust is paired with a real provider request binding and a distinct positive
+  export audit binding. The projected packet and field-list hashes, plus
+  denial-audit records, may be present before those gates pass.
+- Positive pinned/WebPKI request paths emit
+  `raios.provider_request_binding.v0` and
+  `raios.provider_context_export_audit_binding.v0` local-only markers after
+  request body/envelope hash validation and before API-key copy or HTTPS write.
+- Development TLS bypass and pin mismatch do not emit positive request/export
+  audit binding markers.

@@ -1012,7 +1012,7 @@ fn apply_action(action: ByteAction, runtime: ui::RuntimeStatus) -> bool {
             true
         }
         ByteAction::SubmitChat(prompt) => {
-            submit_chat(prompt);
+            submit_chat(prompt, runtime);
             true
         }
         ByteAction::Redraw => true,
@@ -1093,6 +1093,9 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
         | "memory.supersede_fact"
         | "memory.redact"
         | "memory.compact" => command_agent_protocol(command.as_str(), runtime),
+        "provider.context_export" | "provider.export_context" => {
+            command_agent_protocol(command_line.trimmed_str(), runtime)
+        }
         "module.propose"
         | "module.build_result"
         | "module.test_request"
@@ -1110,7 +1113,7 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
         "openai" => command_openai_status(),
         "wifi" => command_wifi_status(),
         "setup" => command_setup_enter(),
-        "ask" => command_ask(command_line.arguments_after_command()),
+        "ask" => command_ask(command_line.arguments_after_command(), runtime),
         _ => write_output(format_args!(
             "UNKNOWN COMMAND: {}",
             command_line.trimmed_str()
@@ -1126,7 +1129,7 @@ fn command_help() {
         "AGENT: describe snapshot caps bootlog services problems device.graph memory.profile"
     ));
     write_output(format_args!(
-        "AGENT RAW: memory.context memory.query memory.trace memory.recent_events module.load_ephemeral"
+        "AGENT RAW: memory.context provider.context_export memory.query memory.trace memory.recent_events"
     ));
 }
 
@@ -1391,16 +1394,16 @@ fn wifi_ssid_status(ssid: &wifi::WifiSsid) -> &str {
     }
 }
 
-fn command_ask(prompt: &str) {
-    submit_prompt(prompt);
+fn command_ask(prompt: &str, runtime: ui::RuntimeStatus) {
+    submit_prompt(prompt, runtime);
 }
 
-fn submit_chat(prompt: ConsoleLine) {
-    submit_prompt(prompt.trimmed_str());
+fn submit_chat(prompt: ConsoleLine, runtime: ui::RuntimeStatus) {
+    submit_prompt(prompt.trimmed_str(), runtime);
 }
 
-fn submit_prompt(prompt: &str) {
-    match provider::submit_text(prompt) {
+fn submit_prompt(prompt: &str, runtime: ui::RuntimeStatus) {
+    match provider::submit_text(prompt, runtime) {
         Ok(submitted) => {
             let _route = submitted.route;
             push_chat_str(ChatSpeaker::User, prompt);

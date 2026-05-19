@@ -1,9 +1,14 @@
 # Project Status
 
 Last verified locally: 2026-05-19 on Windows with QEMU 11 via headless Shadow
-VM smoke covering read-only memory context, the RAM-only current-boot event log,
-denial event ids, and an earlier direct OpenAI SPKI pinned-trust smoke using a
-fake local API key.
+VM smoke covering deterministic `provider_minimal` packet/field-list evidence,
+explicit provider request-binding denial and export-denial audit records, the
+denied `provider.context_export` gate, the local redaction projection, read-only
+memory context, the RAM-only current-boot event log with structured denial
+bindings, the runtime `raios.provider_request_envelope.v0` marker on the real
+OpenAI request path, positive local-only request/export audit binding records on
+the SPKI pinned OpenAI path, and direct OpenAI pin-mismatch plus SPKI
+pinned-trust smokes using a fake local API key.
 
 ## Verified Boot State
 
@@ -150,15 +155,20 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Implement the `provider_minimal` redaction projection for
-`raios.agent_context.v0`:
+Wire the positive current-boot request/export audit binding records into the
+next provider context consumption gate while automatic provider context injection
+remains disabled:
 
-- classify every outbound context field as `public`, `local_only`, or `secret`
-- produce a local read-only projection showing included and omitted fields
-- keep provider export disabled unless provider trust is positive and the
-  context export has current-boot event/audit binding
-- do not attach raw `system.snapshot`, boot logs, or unclassified memory context
-  to OpenAI requests
+- accept only one retained current-boot `raios.provider_request_binding.v0` and
+  one matching `raios.provider_context_export_audit_binding.v0`
+- reject denial schemas, stale or dropped event ids, previous-boot ids, consumed
+  bindings, trust-bypass records, and request/body/packet hash mismatches
+- keep `satisfies_current_boot_export_gate: false` while
+  `automatic_context_injection: disabled`
+- keep OpenAI request bodies free of provider-minimal context until the final
+  explicit injection gate is specified and tested
+- add negative harness coverage for stale ids, consumed bindings, substitution,
+  and hash-mismatch attempts
 
 The verified foundation for that task is:
 
@@ -230,11 +240,57 @@ The verified foundation for that task is:
   load behavior, then writes a `raios.vm_test_report.v0` report.
 - `memory.profile`, `memory.context`, `memory.query`, and `memory.trace` now
   expose a local read-only `current_boot` memory context slice. The
-  `memory.context` result schema is `raios.agent_context.v0`, and provider
-  export is explicitly disabled.
+  `memory.context` result schema is `raios.agent_context.v0`, includes
+  current-boot `context_event_id`/`audit_event_id` handles for the local read,
+  and provider export is explicitly disabled.
+- `memory.context provider_minimal` now emits a local-only
+  `raios.provider_context_projection.v0` preview with explicit
+  `public`/`local_only`/`secret` field classification, included and omitted
+  field lists, deterministic `packet_evidence` hashes for the canonical packet
+  plus exported and omitted field lists, a nested redacted
+  `raios.agent_context.v0` packet, and `can_export: false` until positive
+  provider trust and a distinct provider export audit binding exist.
+- `provider.context_export provider_minimal` now exposes the first
+  `raios.provider_context_export.v0` gate. It returns structured
+  `capability_denied`, records `cap.provider.context_export` with risk
+  `export`, reports `provider_write: not_attempted`, reports packet and
+  field-list evidence bindings as present, keeps the positive provider request
+  binding and export audit binding gates missing, and emits separate
+  current-boot denial evidence as
+  `raios.provider_request_binding_denial.v0` and
+  `raios.provider_context_export_denial_audit.v0`.
+- `event.log.v0` now carries structured `bindings` for those denial events:
+  both include the canonical provider-minimal packet hash plus exported and
+  omitted field-list hashes, and both explicitly report
+  `satisfies_current_boot_export_gate: false`.
+- The real OpenAI `ask` path now emits a local-only
+  `OPENAI_PROVIDER_REQUEST_ENVELOPE` serial marker with schema
+  `raios.provider_request_envelope.v0` after request id allocation and before
+  DNS/TCP/TLS/API-key copy/HTTPS write. It records redacted request-body shape,
+  body hash, envelope hash, trust snapshot, `provider_write: not_attempted`,
+  and `context_attached_to_provider_body: false` without raw prompt text,
+  `Content-Length`, API keys, or Authorization values.
+- On the `pinned_spki_verified` direct OpenAI path, after TLS proof and matching
+  request-body hash validation but before API-key copy or HTTPS write, Stage-0
+  now records local-only positive
+  `raios.provider_request_binding.v0` and
+  `raios.provider_context_export_audit_binding.v0` events. They bind the exact
+  request-body hash, request-envelope hash, provider-minimal packet hash,
+  exported-field-list hash, and omitted-field-list hash. The request binding
+  satisfies only `satisfies_request_binding_gate: true`; the export audit
+  binding sets `positive_export_authorization: true`, but both retain
+  `satisfies_current_boot_export_gate: false`,
+  `automatic_context_injection: disabled`, and
+  `context_attached_to_provider_body: false`.
+- `provider.context_export` still does not create a request envelope; the
+  Shadow VM smoke checks that denied export cannot fake one.
+- `memory.query` and `memory.trace` include
+  `snapshot.current.provider_minimal` as the stable locator for the redacted
+  current-status projection.
 - `memory.recent_events` and `audit.events [limit]` expose a bounded RAM-only
   `event.log.v0` ring containing compact `audit.event.v0` records for agent
-  protocol reads and known `capability_denied` outcomes.
+  protocol reads, known `capability_denied` outcomes, provider request-binding
+  denials, and provider export-denial audits with hash-valued denial bindings.
 - denied memory/module/service/config methods include current-boot `event_id`
   and `audit_event_id` handles, while all durable audit, persistence, policy
   mutation, redaction mutation, and rollback behavior remains denied.
@@ -243,10 +299,26 @@ The verified foundation for that task is:
   `memory.compact`) return structured `capability_denied` with missing audit and
   persistence evidence.
 - `vm-harness\shadow-vm-smoke.ps1` now verifies memory-context schemas,
-  provider export denial, memory query/trace, event log schemas, audit alias,
-  memory mutation denials with event ids, and the existing denied module load
-  path. Latest report:
-  `release\vm-reports\shadow-20260519-104330-25636.json`.
+  context event ids, the local `provider_minimal` redaction projection, the
+  provider-minimal packet/field-list hashes, the denied
+  `provider.context_export` gate with hash bindings present, positive request
+  and export audit bindings still missing, denial-audit records present but not
+  satisfying export gates, provider writes still not attempted, memory
+  query/trace, event log schemas, audit alias, memory mutation denials with
+  event ids, and the existing denied module load path. Latest report:
+  `release\vm-reports\shadow-20260519-144953-10888.json` with 163/163
+  predicates.
+- `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
+  local image built with a fake API key and intentionally wrong SPKI pin. It
+  verified the real request envelope marker appears on the `ask` path, omits raw
+  prompt/Content-Length/Authorization values, then fails at pin mismatch before
+  HTTPS request data is sent and without positive request/export audit binding
+  markers.
+- `vm-harness\openai-direct-smoke.ps1 -ExpectSpkiPinnedTrust` was run against a
+  local image built with a fake API key and the current OpenAI SPKI pin. It
+  verified the real request envelope marker, positive request binding marker,
+  and positive export audit binding marker appear before the HTTPS write path,
+  while provider-minimal context remains unattached.
 - the development serial relay and old host-framing path have been removed from
   the runtime path.
 - the next trust milestone is WebPKI or broader certificate algorithm support

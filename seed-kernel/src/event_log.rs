@@ -5,6 +5,45 @@ pub const DEFAULT_EVENT_LIMIT: usize = 32;
 
 const READ_EVIDENCE: &[&str] = &["computed_capability_grant"];
 const DENIED_EVIDENCE: &[&str] = &["missing_required_evidence", "capability_denied"];
+const PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE: &[&str] = &[
+    "provider_request_binding_denied",
+    "projected_packet_hash",
+    "provider_write_not_attempted",
+];
+const PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE: &[&str] = &[
+    "provider_request_binding_denied",
+    "projected_packet_hash",
+    "exported_field_list_hash",
+    "omitted_field_list_hash",
+    "provider_write_not_attempted",
+];
+const PROVIDER_REQUEST_ENVELOPE_EVIDENCE: &[&str] = &[
+    "provider_request_envelope_created",
+    "request_body_hash",
+    "envelope_hash",
+    "provider_write_not_attempted",
+];
+const PROVIDER_REQUEST_BINDING_EVIDENCE: &[&str] = &[
+    "provider_request_binding",
+    "request_envelope_hash",
+    "request_body_hash",
+    "projected_packet_hash",
+    "exported_field_list_hash",
+    "omitted_field_list_hash",
+    "positive_provider_trust",
+    "provider_write_not_attempted",
+];
+const PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE: &[&str] = &[
+    "provider_context_export_audit_binding",
+    "provider_request_binding",
+    "request_envelope_hash",
+    "request_body_hash",
+    "projected_packet_hash",
+    "exported_field_list_hash",
+    "omitted_field_list_hash",
+    "positive_provider_trust",
+    "context_injection_disabled",
+];
 
 static LOG: Mutex<EventLog> = Mutex::new(EventLog::new());
 
@@ -17,6 +56,59 @@ impl EventId {
     pub fn sequence(self) -> u64 {
         self.sequence
     }
+}
+
+#[derive(Clone, Copy)]
+pub struct ProviderContextHashes {
+    pub projected_packet_hash: [u8; 32],
+    pub exported_field_list_hash: [u8; 32],
+    pub omitted_field_list_hash: [u8; 32],
+}
+
+#[derive(Clone, Copy)]
+pub struct ProviderRequestEnvelopeBinding {
+    pub request_id: u32,
+    pub request_body_hash: [u8; 32],
+    pub envelope_hash: [u8; 32],
+    pub provider_trust_state: &'static str,
+    pub provider_trust_positive: bool,
+    pub development_tls_bypass: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct ProviderRequestBinding {
+    pub request_id: u32,
+    pub request_envelope_event_id: EventId,
+    pub request_body_hash: [u8; 32],
+    pub request_envelope_hash: [u8; 32],
+    pub request_binding_hash: [u8; 32],
+    pub context: ProviderContextHashes,
+    pub provider_trust_state: &'static str,
+    pub development_tls_bypass: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct ProviderExportAuditBinding {
+    pub request_id: u32,
+    pub request_envelope_event_id: EventId,
+    pub request_binding_event_id: EventId,
+    pub request_body_hash: [u8; 32],
+    pub request_envelope_hash: [u8; 32],
+    pub request_binding_hash: [u8; 32],
+    pub export_audit_binding_hash: [u8; 32],
+    pub context: ProviderContextHashes,
+    pub provider_trust_state: &'static str,
+    pub context_attached_to_provider_body: bool,
+}
+
+#[derive(Clone, Copy)]
+pub enum EventBindings {
+    None,
+    ProviderRequestEnvelope(ProviderRequestEnvelopeBinding),
+    ProviderRequestBound(ProviderRequestBinding),
+    ProviderExportAuditBound(ProviderExportAuditBinding),
+    ProviderRequestBindingDenied(ProviderContextHashes),
+    ProviderExportDenialAudit(ProviderContextHashes),
 }
 
 #[derive(Clone, Copy)]
@@ -33,6 +125,7 @@ pub struct Event {
     pub resource: &'static str,
     pub reason: &'static str,
     pub evidence: &'static [&'static str],
+    pub bindings: EventBindings,
 }
 
 #[derive(Clone, Copy)]
@@ -129,6 +222,7 @@ pub fn record_agent_read(
         resource: "current_boot",
         reason: "granted_read",
         evidence: READ_EVIDENCE,
+        bindings: EventBindings::None,
     })
 }
 
@@ -150,6 +244,101 @@ pub fn record_capability_denied(
         resource: "current_boot",
         reason: "missing_evidence",
         evidence: DENIED_EVIDENCE,
+        bindings: EventBindings::None,
+    })
+}
+
+pub fn record_provider_request_binding_denied(hashes: ProviderContextHashes) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "provider_context_export.request_binding_denied",
+        source_method: "provider.context_export",
+        source_transport: "serial-console",
+        classification: "public",
+        outcome: "denied_not_bound",
+        requested_capability: "cap.provider.context_export",
+        risk: "export",
+        subject: "agent.session.serial",
+        resource: "current_boot",
+        reason: "provider_request_binding_requires_real_request_envelope",
+        evidence: PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
+        bindings: EventBindings::ProviderRequestBindingDenied(hashes),
+    })
+}
+
+pub fn record_provider_request_envelope_created(
+    binding: ProviderRequestEnvelopeBinding,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "provider_request.envelope_created",
+        source_method: "ask",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "local_prewrite_envelope",
+        requested_capability: "cap.provider.request",
+        risk: "export",
+        subject: "agent.session.serial",
+        resource: "svc.provider.openai_direct",
+        reason: "provider_request_envelope_created_before_write",
+        evidence: PROVIDER_REQUEST_ENVELOPE_EVIDENCE,
+        bindings: EventBindings::ProviderRequestEnvelope(binding),
+    })
+}
+
+pub fn record_provider_request_binding_bound(binding: ProviderRequestBinding) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "provider_context_export.request_binding_bound",
+        source_method: "ask",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "bound",
+        requested_capability: "cap.provider.context_export",
+        risk: "export",
+        subject: "agent.session.serial",
+        resource: "svc.provider.openai_direct",
+        reason: "provider_minimal_context_bound_to_real_request_envelope",
+        evidence: PROVIDER_REQUEST_BINDING_EVIDENCE,
+        bindings: EventBindings::ProviderRequestBound(binding),
+    })
+}
+
+pub fn record_provider_context_export_audit_binding_bound(
+    binding: ProviderExportAuditBinding,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "provider_context_export.audit_binding_bound",
+        source_method: "ask",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "authorized_for_single_provider_request",
+        requested_capability: "cap.provider.context_export",
+        risk: "export",
+        subject: "agent.session.serial",
+        resource: "svc.provider.openai_direct",
+        reason: "provider_minimal_context_export_audit_bound_without_body_attachment",
+        evidence: PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
+        bindings: EventBindings::ProviderExportAuditBound(binding),
+    })
+}
+
+pub fn record_provider_context_export_denial_audit(hashes: ProviderContextHashes) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "provider_context_export.denial_audit",
+        source_method: "provider.context_export",
+        source_transport: "serial-console",
+        classification: "public",
+        outcome: "denied_no_provider_write",
+        requested_capability: "cap.provider.context_export",
+        risk: "export",
+        subject: "agent.session.serial",
+        resource: "current_boot",
+        reason: "provider_context_export_not_authorized",
+        evidence: PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE,
+        bindings: EventBindings::ProviderExportDenialAudit(hashes),
     })
 }
 

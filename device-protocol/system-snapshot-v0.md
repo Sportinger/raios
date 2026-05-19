@@ -186,13 +186,18 @@ values.
 
 ## Current Gaps
 
-- The serial `system.snapshot` method emits the local profile only; it does not
-  yet emit a separate `provider_minimal` projection.
+- The serial `system.snapshot` method emits the local profile only. The separate
+  `provider_minimal` projection is exposed through
+  `memory.context provider_minimal`, not through raw `system.snapshot`.
 - Network, Wi-Fi, USB, and provider detail fields are still prose strings in the
   current kernel. They are useful locally but intentionally classified as
   `local_only` until typed subfields exist.
 - The normal direct OpenAI path now has positive `pinned_spki_verified` and
   legacy `pinned_cert_verified` slices, but automatic snapshot attachment to
-  provider requests remains disabled until a `provider_minimal` projection is
-  emitted and the provider request path explicitly applies this redaction
-  profile.
+  provider requests remains disabled until provider trust is positive and the
+  provider request path binds that packet to one real request and creates a
+  positive current-boot export audit binding. The current
+  `provider.context_export provider_minimal` method exposes that gate as a
+  structured denial with packet/field-list hashes and explicit denial-audit
+  records, but it does not write to the provider and does not satisfy the
+  positive binding gates.
