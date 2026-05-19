@@ -189,6 +189,10 @@ remains a local preview and does not export or attach context.
 pairs for this projection, and `provider.context_export provider_minimal` can
 consume one pair for local gate evaluation only. Neither method changes
 `provider_export: disabled` or attaches the preview to provider requests.
+`provider.context_gate_selftest provider_minimal` exercises negative retained
+binding cases against the same predicate using synthetic RAM-only records. It is
+test infrastructure only and does not write those records into the global event
+log.
 
 ## Omitted Classes
 

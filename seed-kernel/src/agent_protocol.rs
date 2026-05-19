@@ -147,6 +147,13 @@ const CAPABILITIES: &[Capability] = &[
         summary: "read bounded current-boot audit event records",
     },
     Capability {
+        id: "cap.provider.context_export.read",
+        risk: "observe",
+        granted: true,
+        scope: "current_boot",
+        summary: "read provider context gate diagnostics and local selftests",
+    },
+    Capability {
         id: "cap.memory.mutate",
         risk: "persist",
         granted: false,
@@ -500,6 +507,7 @@ const READ_METHODS: &[&str] = &[
     "memory.recent_events",
     "audit.events",
     "provider.context_gate",
+    "provider.context_gate_selftest",
 ];
 
 const DENIED_METHODS: &[&str] = &[
@@ -617,6 +625,11 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("provider.context_gate");
         emit_provider_context_gate(runtime, method);
         return DispatchOutcome::Response("provider.context_gate");
+    }
+    if provider_context_gate_selftest_method(method) {
+        record_read("provider.context_gate_selftest");
+        emit_provider_context_gate_selftest(runtime, method);
+        return DispatchOutcome::Response("provider.context_gate_selftest");
     }
 
     if provider_context_export_method(method) {
@@ -1519,6 +1532,97 @@ fn emit_provider_context_gate(runtime: ui::RuntimeStatus, request: &str) {
     crlf();
     raw_line("      ]");
     end_response("provider.context_gate");
+}
+
+fn emit_provider_context_gate_selftest(runtime: ui::RuntimeStatus, request: &str) {
+    let status = SystemSnapshot::collect(None, runtime);
+    let provider = provider::snapshot();
+    let profile = provider_context_export_profile(request);
+    let profile_supported = method_eq(profile, "provider_minimal");
+    let evidence = provider_context_evidence(&status, &provider);
+    let cases = event_log::provider_context_binding_gate_selftest(evidence.event_hashes());
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("provider.context_gate_selftest");
+    raw_line("      \"schema\": \"raios.provider_context_gate_negative_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_provider_request_envelope\": false,");
+    raw_line("      \"creates_positive_binding_records\": false,");
+    raw_line("      \"provider_export\": \"disabled\",");
+    raw_line("      \"automatic_context_injection\": \"disabled\",");
+    raw_line("      \"context_attached_to_provider_body\": false,");
+    raw_line("      \"provider_write\": \"not_attempted\",");
+    raw("      \"profile\": ");
+    json_str(profile);
+    raw_line(",");
+    raw("      \"profile_supported\": ");
+    raw_bool(profile_supported);
+    raw_line(",");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"covered_rejections\": [");
+    raw_line("        \"missing_export_audit_binding\",");
+    raw_line("        \"stale_dropped_request_binding_event_id\",");
+    raw_line("        \"stale_dropped_envelope_event_id\",");
+    raw_line("        \"previous_boot_or_unretained_event_id\",");
+    raw_line("        \"denial_schema_substitution\",");
+    raw_line("        \"positive_record_substitution\",");
+    raw_line("        \"request_envelope_wrong_variant\",");
+    raw_line("        \"request_envelope_event_id_mismatch\",");
+    raw_line("        \"request_id_mismatch\",");
+    raw_line("        \"request_body_hash_mismatch\",");
+    raw_line("        \"request_envelope_hash_mismatch\",");
+    raw_line("        \"request_binding_hash_mismatch\",");
+    raw_line("        \"provider_minimal_packet_hash_mismatch\",");
+    raw_line("        \"exported_field_list_hash_mismatch\",");
+    raw_line("        \"omitted_field_list_hash_mismatch\",");
+    raw_line("        \"trust_bypass_record\"");
+    raw_line("      ],");
+    raw_line("      \"cases\": [");
+    let mut case_idx = 0usize;
+    while case_idx < cases.len() {
+        emit_provider_context_gate_selftest_case(&cases[case_idx], case_idx + 1 != cases.len());
+        case_idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"satisfies_current_boot_export_gate\": false,");
+    raw_line("      \"can_export\": false");
+    end_response("provider.context_gate_selftest");
+}
+
+fn emit_provider_context_gate_selftest_case(
+    case: &event_log::ProviderBindingGateSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw("}");
+    if comma {
+        raw(",");
+    }
+    crlf();
 }
 
 fn emit_capability_denied(method: &'static str, event_id: event_log::EventId) {
@@ -3204,7 +3308,9 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         "cap.memory.recent_events.read"
     } else if method_eq(method, "audit.events") {
         "cap.audit.events.read"
-    } else if method_eq(method, "provider.context_gate") {
+    } else if method_eq(method, "provider.context_gate")
+        || method_eq(method, "provider.context_gate_selftest")
+    {
         "cap.provider.context_export.read"
     } else {
         "cap.system.describe.read"
@@ -3266,6 +3372,10 @@ fn provider_context_export_method(method: &str) -> bool {
 fn provider_context_gate_method(method: &str) -> bool {
     method_head_eq(method, "provider.context_gate")
         || method_head_eq(method, "provider.context_export_status")
+}
+
+fn provider_context_gate_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "provider.context_gate_selftest")
 }
 
 fn provider_context_export_profile(method: &str) -> &'static str {
@@ -3360,6 +3470,8 @@ fn provider_context_export_arg(method: &str) -> &str {
         "provider.context_gate".len()
     } else if method_head_eq(method, "provider.context_export_status") {
         "provider.context_export_status".len()
+    } else if method_head_eq(method, "provider.context_gate_selftest") {
+        "provider.context_gate_selftest".len()
     } else {
         return "";
     };

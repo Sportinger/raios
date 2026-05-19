@@ -2,11 +2,12 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-19 by Codex after adding checked current-boot
-provider-context binding gate evaluation, one-time local consumption of retained
-positive binding pairs, keeping automatic provider context injection disabled,
-updating harnesses and protocol docs, and running Shadow VM plus direct OpenAI
-pin-mismatch and SPKI pinned-trust smokes.
+Last updated: 2026-05-19 by Codex after adding local-only negative
+provider-context gate selftests for stale/dropped ids,
+previous-boot-or-unretained ids, substituted schemas, substituted positive
+records, and mismatched hashes, keeping automatic provider context injection
+disabled, updating harnesses and protocol docs, and running the Shadow VM
+smoke plus direct OpenAI pin-mismatch smoke.
 
 Latest maintenance verification:
 
@@ -18,11 +19,13 @@ Latest maintenance verification:
   passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260519-152207-9148.json` with 174/174
+  `release\vm-reports\shadow-20260519-161411-6048.json` with 203/203
   predicates.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
-  positive request/export audit binding markers stayed absent.
+  positive request/export audit binding markers stayed absent. The local image
+  was deleted and the release kernel was rebuilt without the test environment
+  afterward.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectSpkiPinnedTrust`
   passed against a local fake-key image with the current OpenAI SPKI pin; the
   request envelope, positive request binding, and positive export audit binding
@@ -95,6 +98,13 @@ Current verified cursor:
   valid pair once for local gate evaluation and records
   `raios.provider_context_binding_consumption.v0`, but still returns
   `capability_denied` and keeps context unattached.
+- `provider.context_gate_selftest provider_minimal` exposes local-only
+  `raios.provider_context_gate_negative_selftest.v0` test infrastructure over
+  the same gate predicate. It covers stale/dropped event ids,
+  previous-boot-or-unretained ids, denial-schema substitution,
+  positive-record substitution, request/body/binding/context hash mismatches,
+  and trust-bypass records without mutating the global event log or creating
+  provider request envelopes.
 - `memory.recent_events` and `audit.events [limit]` expose a bounded RAM-only
   `event.log.v0` ring for current-boot agent protocol reads, denials,
   provider request-binding denials, and provider export-denial audits.
@@ -110,33 +120,32 @@ Current verified cursor:
   `raios.vm_test_report.v0` reports.
 
 Current phase: Phase 5.13 is implemented for checked current-boot
-request/export audit binding consumption. The next durable architecture step is
-explicit negative substitution/stale-id coverage and the separately specified
-final provider context injection gate.
+request/export audit binding consumption plus explicit negative
+substitution/stale-id/hash-mismatch selftest coverage. The next durable
+architecture step is the separately specified final provider context injection
+gate.
 
 Exact next task:
 
 ```text
-Add explicit stale-id/substitution/hash-mismatch harness cases and specify the
-final provider context injection gate, while keeping automatic provider context
-injection disabled.
+Specify and implement the final provider context injection gate, while keeping
+automatic provider context injection disabled until that distinct gate exists.
 ```
 
-Start by extending the real gate predicate tests beyond consumed-binding and
-pin-mismatch coverage: stale/dropped ids, previous-boot ids, denial-schema
-substitution, positive-record substitution, and mismatched bound hashes. Do not
-attach context to OpenAI requests until a separate final injection gate exists.
+Start by deciding whether the final injection gate is evaluated synchronously on
+the direct HTTPS request path or by a provider-adapter service boundary. Do not
+attach context to OpenAI requests until the final gate has its own schema,
+single-use evidence, harness coverage, and explicit no-leak failure modes.
 
 Next three tasks:
 
-1. Add explicit harness coverage for stale/dropped event ids, previous-boot ids,
-   denial-schema substitution, positive-record substitution, and mismatched
-   bound hashes.
-2. Specify the final automatic context injection gate separately from positive
+1. Specify the final automatic context injection gate separately from positive
    audit binding so `context_attached_to_provider_body` cannot become true by
    accident.
-3. Decide whether the final gate is evaluated synchronously before HTTPS write
+2. Decide whether the final gate is evaluated synchronously before HTTPS write
    or through a provider-adapter service boundary.
+3. Add a fail-closed harness for the selected final-gate path before allowing
+   any request-body context attachment.
 
 Current blockers and non-goals:
 
@@ -703,8 +712,8 @@ Goal:
 positive binding pair -> checked retained chain -> consumed for local gate evaluation
 ```
 
-Status: implemented for local gate evaluation; automatic context injection
-remains disabled.
+Status: implemented for local gate evaluation and negative predicate selftests;
+automatic context injection remains disabled.
 
 Scope:
 
@@ -718,6 +727,11 @@ Scope:
 - reject development TLS bypass records, non-positive trust records, stale or
   dropped referenced events, wrong variants, already consumed pairs, and body
   attachment records
+- expose `provider.context_gate_selftest provider_minimal` as local-only test
+  infrastructure that exercises stale/dropped ids,
+  previous-boot-or-unretained ids, substituted denial schemas, substituted
+  positive records, and request/body/context hash mismatches without mutating
+  global event state
 - consume a valid pair once through `provider.context_export provider_minimal`
   and record `raios.provider_context_binding_consumption.v0`
 - keep `satisfies_current_boot_export_gate: false`,
@@ -728,11 +742,49 @@ Definition of done:
 
 - Shadow VM proves the read-only gate reports missing binding evidence without
   creating request envelopes or positive bindings.
+- Shadow VM proves the selftest cases reject stale/dropped ids,
+  previous-boot-or-unretained ids, substituted schemas, substituted positive
+  records, mismatched request/body/binding/context hashes, and trust-bypass
+  records while creating no provider request envelopes or positive binding
+  records.
 - Direct OpenAI pin-mismatch smoke proves positive binding and consumption
   remain absent when trust fails.
 - Direct OpenAI SPKI pinned-trust smoke proves marker hashes match, the retained
   pair validates, the first export-gate evaluation consumes it without body
   attachment, and a second attempt is rejected as `binding_already_consumed`.
+
+## Phase 5.14: Final Provider Context Injection Gate
+
+Goal:
+
+```text
+checked binding evidence -> explicit injection authorization -> one request body may attach context
+```
+
+Status: planned; no context injection is implemented in the current slice.
+
+Scope:
+
+- define a distinct schema for the final injection authorization, separate from
+  request binding, export-audit binding, and binding consumption
+- require positive provider trust, retained current-boot binding evidence,
+  redaction projection hashes, single-use consumption, and a final local policy
+  decision before `context_attached_to_provider_body` may become true
+- decide whether the gate runs synchronously in the direct OpenAI path before
+  HTTPS write or behind a provider-adapter service boundary
+- require fail-closed harness coverage for missing final authorization, stale
+  final authorization, hash mismatch, trust bypass, and body attachment attempts
+  without authorization
+- keep raw prompt text, API keys, Authorization values, local-only network
+  details, and unclassified memory out of all provider context
+
+Definition of done:
+
+- `context_attached_to_provider_body` becomes true only when the final injection
+  gate's own schema and evidence pass.
+- Direct and Shadow VM harnesses prove denied and positive paths separately.
+- The request body contains only the redacted `provider_minimal` projection and
+  never raw local-only or secret fields.
 
 ## Phase 6: Ephemeral Live Services
 

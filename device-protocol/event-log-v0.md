@@ -10,7 +10,9 @@ recording hooks in `seed-kernel/src/agent_protocol.rs`.
 This document also describes the current denied `provider_minimal` export
 preflight records and the positive local-only binding records emitted by the
 real pinned OpenAI `ask` path. Denial events carry structured hash-valued
-bindings but never satisfy positive gates.
+bindings but never satisfy positive gates. Negative gate selftests are local
+test infrastructure and do not write synthetic positive bindings into the
+global event log.
 
 ## Scope
 
@@ -23,6 +25,8 @@ V0 records:
 - positive provider request binding records after pinned/WebPKI provider trust
 - positive export-audit binding records after pinned/WebPKI provider trust
 - checked binding consumption records for local gate evaluation without export
+- read-only negative gate selftest responses that exercise the same predicate
+  without mutating the global event log
 - provider request-binding denial records for `provider_minimal`
 - provider context export-denial audit records with
   `outcome: denied_no_provider_write`
@@ -297,6 +301,30 @@ binding pair, Stage-0 may record a local-only consumption event:
 This event means the pair was consumed for local gate evaluation only. It is not
 an export record and cannot by itself make
 `satisfies_current_boot_export_gate` true.
+
+## Negative Gate Selftest Response
+
+`provider.context_gate_selftest provider_minimal` emits
+`raios.provider_context_gate_negative_selftest.v0`. It is not an
+`audit.event.v0` record and it does not persist synthetic events into the global
+RAM ring. Its required flags are:
+
+```text
+test_infrastructure: true
+mutates_global_event_log: false
+creates_provider_request_envelope: false
+creates_positive_binding_records: false
+provider_write: not_attempted
+automatic_context_injection: disabled
+context_attached_to_provider_body: false
+```
+
+The Shadow VM harness expects the selftest to pass cases for stale/dropped
+event ids, previous-boot-or-unretained event ids, denial-schema substitution,
+positive-record substitution, wrong variants, mismatched request/body/binding
+hashes, mismatched provider-minimal context hashes, and trust-bypass records.
+These cases are evidence that the predicate fails closed; they are not provider
+export authority.
 
 ## Provider Export Denial Events
 

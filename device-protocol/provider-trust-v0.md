@@ -143,5 +143,9 @@ The `NoVerify` path remains only behind the explicit development build flag
 - Positive pinned/WebPKI request paths allow the retained binding pair to be
   validated by `provider.context_gate` and consumed once by
   `provider.context_export` for local gate evaluation only.
+- `provider.context_gate_selftest` covers stale/dropped ids,
+  previous-boot-or-unretained ids, substituted schemas, substituted positive
+  records, mismatched request/body/context hashes, and trust-bypass records
+  without creating request envelopes, positive bindings, or provider writes.
 - Development TLS bypass and pin mismatch do not emit positive request/export
   audit binding markers.

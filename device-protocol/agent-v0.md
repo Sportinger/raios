@@ -23,6 +23,7 @@ agent memory.context diagnostic -> memory.context
 agent memory.context provider_minimal -> memory.context with provider export disabled
 agent provider.context_export provider_minimal -> denied export gate with audit/event ids
 agent provider.context_gate provider_minimal -> read-only export gate diagnostics
+agent provider.context_gate_selftest provider_minimal -> local-only negative gate selftest
 agent memory.recent_events -> memory.recent_events
 agent audit.events 8 -> memory.recent_events with limit 8
 agent <method>        -> dispatch raw method name
@@ -66,6 +67,8 @@ memory.query
 memory.trace
 memory.recent_events
 audit.events
+provider.context_gate
+provider.context_gate_selftest
 ```
 
 `system.snapshot` reports `system.snapshot.v0` facts for framebuffer, entropy,
@@ -112,6 +115,12 @@ context injection remains disabled.
 pairs read-only. `provider.context_export provider_minimal` can consume a valid
 pair once for local gate evaluation, but still returns `capability_denied` and
 does not attach context to a provider body.
+`provider.context_gate_selftest provider_minimal` emits local-only
+`raios.provider_context_gate_negative_selftest.v0` test infrastructure for
+stale/dropped ids, previous-boot-or-unretained ids, substituted schemas,
+substituted positive records, hash mismatches, and trust-bypass records. It does
+not create request envelopes, positive binding records, provider writes, or
+provider body attachment.
 
 ## Denied-By-Default Methods
 

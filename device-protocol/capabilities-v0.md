@@ -102,6 +102,7 @@ read-only protocol methods:
 | `cap.memory.trace.read` | `memory.trace` | `observe` | `current_boot` | Trace current-boot memory records to source evidence. |
 | `cap.memory.recent_events.read` | `memory.recent_events` | `observe` | `current_boot` | Read bounded current-boot memory event records. |
 | `cap.audit.events.read` | `audit.events` | `observe` | `current_boot` | Read bounded current-boot audit event records. |
+| `cap.provider.context_export.read` | `provider.context_gate`, `provider.context_gate_selftest` | `observe` | `current_boot` | Read provider context gate diagnostics and local predicate selftests. |
 
 `system.snapshot` also reports `capability_denied.for_all_mutating_methods` so an
 agent can discover that mutation is intentionally unavailable.
@@ -155,6 +156,10 @@ pairs read-only, and `provider.context_export` may consume a valid pair once for
 local gate evaluation, but those records do not grant provider export or body
 attachment while automatic context injection is disabled. The standalone denial
 must report `provider_write: not_attempted`.
+`provider.context_gate_selftest` is granted only as local read/test
+infrastructure under `cap.provider.context_export.read`; it must not create
+request envelopes, positive binding records, provider writes, or body
+attachment.
 
 Capability denials must name the relevant evidence gates:
 

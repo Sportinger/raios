@@ -140,6 +140,18 @@ pub struct ProviderBindingGateCheck {
     pub retained: bool,
 }
 
+pub const PROVIDER_BINDING_GATE_SELFTEST_CASES: usize = 16;
+
+#[derive(Clone, Copy)]
+pub struct ProviderBindingGateSelfTestCase {
+    pub name: &'static str,
+    pub expected_status: &'static str,
+    pub expected_reason: &'static str,
+    pub actual_status: &'static str,
+    pub actual_reason: &'static str,
+    pub passed: bool,
+}
+
 #[derive(Clone, Copy)]
 pub enum EventBindings {
     None,
@@ -772,6 +784,29 @@ pub fn consume_provider_context_binding_gate(
     LOG.lock().consume_provider_context_binding_gate(context)
 }
 
+pub fn provider_context_binding_gate_selftest(
+    context: ProviderContextHashes,
+) -> [ProviderBindingGateSelfTestCase; PROVIDER_BINDING_GATE_SELFTEST_CASES] {
+    [
+        selftest_missing_export_audit_binding(context),
+        selftest_denial_schema_substitution(context),
+        selftest_stale_dropped_request_binding_event_id(context),
+        selftest_stale_dropped_envelope_event_id(context),
+        selftest_previous_boot_or_unretained_event_id(context),
+        selftest_request_envelope_wrong_variant(context),
+        selftest_positive_record_substitution(context),
+        selftest_request_envelope_event_id_mismatch(context),
+        selftest_request_id_mismatch(context),
+        selftest_request_body_hash_mismatch(context),
+        selftest_request_envelope_hash_mismatch(context),
+        selftest_request_binding_hash_mismatch(context),
+        selftest_provider_minimal_packet_hash_mismatch(context),
+        selftest_exported_field_list_hash_mismatch(context),
+        selftest_omitted_field_list_hash_mismatch(context),
+        selftest_trust_bypass_record(context),
+    ]
+}
+
 pub fn record_provider_context_export_denial_audit(hashes: ProviderContextHashes) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -800,4 +835,480 @@ fn normalize_limit(limit: usize) -> usize {
     } else {
         usize::min(limit, EVENT_CAPACITY)
     }
+}
+
+fn selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: ProviderBindingGateCheck,
+) -> ProviderBindingGateSelfTestCase {
+    ProviderBindingGateSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: check.status == expected_status && check.reason == expected_reason,
+    }
+}
+
+fn selftest_missing_export_audit_binding(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let log = EventLog::new();
+    selftest_case(
+        "missing_export_audit_binding",
+        "missing",
+        "provider_context_export_audit_binding_missing",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_denial_schema_substitution(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let denial_event_id = record_selftest_request_denial(&mut log, context);
+    let export = selftest_export_binding(1, envelope_event_id, denial_event_id, context);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "denial_schema_substitution",
+        "rejected",
+        "binding_denied_schema_or_wrong_variant",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_stale_dropped_request_binding_event_id(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    record_selftest_filler(&mut log, EVENT_CAPACITY);
+    let export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "stale_dropped_request_binding_event_id",
+        "rejected",
+        "binding_stale_or_dropped_event_id",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_stale_dropped_envelope_event_id(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request = selftest_request_binding(1, envelope_event_id, context);
+    let request_event_id = record_selftest_request_binding(&mut log, request);
+    record_selftest_filler(&mut log, EVENT_CAPACITY - 2);
+    let export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "stale_dropped_envelope_event_id",
+        "rejected",
+        "binding_stale_or_dropped_event_id",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_previous_boot_or_unretained_event_id(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let previous_boot_like_id = EventId { sequence: u64::MAX };
+    let export = selftest_export_binding(1, envelope_event_id, previous_boot_like_id, context);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "previous_boot_or_unretained_event_id",
+        "rejected",
+        "binding_stale_or_dropped_event_id",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_request_envelope_wrong_variant(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let wrong_envelope_event_id = record_selftest_request_denial(&mut log, context);
+    let request = selftest_request_binding(1, wrong_envelope_event_id, context);
+    let request_event_id = record_selftest_request_binding(&mut log, request);
+    let export = selftest_export_binding(1, wrong_envelope_event_id, request_event_id, context);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "request_envelope_wrong_variant",
+        "rejected",
+        "request_envelope_wrong_variant",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_positive_record_substitution(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let substituted_envelope_event_id = record_selftest_envelope(&mut log, 2);
+    let mut substituted = selftest_request_binding(2, substituted_envelope_event_id, context);
+    substituted.request_body_hash = tagged_hash(42);
+    let substituted_event_id = record_selftest_request_binding(&mut log, substituted);
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.request_binding_event_id = substituted_event_id;
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "positive_record_substitution",
+        "rejected",
+        "binding_request_envelope_event_id_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_request_envelope_event_id_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.request_envelope_event_id = EventId {
+        sequence: envelope_event_id.sequence().saturating_add(99),
+    };
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "request_envelope_event_id_mismatch",
+        "rejected",
+        "binding_request_envelope_event_id_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_request_id_mismatch(context: ProviderContextHashes) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let export = selftest_export_binding(2, envelope_event_id, request_event_id, context);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "request_id_mismatch",
+        "rejected",
+        "binding_request_id_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_request_body_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.request_body_hash = tagged_hash(43);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "request_body_hash_mismatch",
+        "rejected",
+        "binding_request_body_hash_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_request_envelope_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.request_envelope_hash = tagged_hash(44);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "request_envelope_hash_mismatch",
+        "rejected",
+        "binding_request_envelope_hash_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_request_binding_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.request_binding_hash = tagged_hash(45);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "request_binding_hash_mismatch",
+        "rejected",
+        "binding_request_binding_hash_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_provider_minimal_packet_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.context.projected_packet_hash = tagged_hash(46);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "provider_minimal_packet_hash_mismatch",
+        "rejected",
+        "binding_provider_minimal_packet_hash_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_exported_field_list_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.context.exported_field_list_hash = tagged_hash(47);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "exported_field_list_hash_mismatch",
+        "rejected",
+        "binding_exported_field_list_hash_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_omitted_field_list_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.context.omitted_field_list_hash = tagged_hash(48);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "omitted_field_list_hash_mismatch",
+        "rejected",
+        "binding_omitted_field_list_hash_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_trust_bypass_record(context: ProviderContextHashes) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let mut request = selftest_request_binding(1, envelope_event_id, context);
+    request.development_tls_bypass = true;
+    let request_event_id = record_selftest_request_binding(&mut log, request);
+    let export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "trust_bypass_record",
+        "rejected",
+        "binding_trust_bypass_record",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn record_selftest_envelope(log: &mut EventLog, request_id: u32) -> EventId {
+    log.record(Event {
+        sequence: 0,
+        kind: "selftest.provider_request.envelope_created",
+        source_method: "provider.context_gate_selftest",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "synthetic_not_exported",
+        requested_capability: "cap.provider.context_export.read",
+        risk: "observe",
+        subject: "selftest",
+        resource: "current_boot.synthetic",
+        reason: "synthetic_gate_input_not_global_evidence",
+        evidence: &[],
+        bindings: EventBindings::ProviderRequestEnvelope(ProviderRequestEnvelopeBinding {
+            request_id,
+            request_body_hash: tagged_hash(1),
+            envelope_hash: tagged_hash(2),
+            provider_trust_state: "pinned_spki_verified",
+            provider_trust_positive: true,
+            development_tls_bypass: false,
+        }),
+    })
+}
+
+fn record_selftest_request_binding(log: &mut EventLog, binding: ProviderRequestBinding) -> EventId {
+    log.record(Event {
+        sequence: 0,
+        kind: "selftest.provider_context_export.request_binding_bound",
+        source_method: "provider.context_gate_selftest",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "synthetic_not_exported",
+        requested_capability: "cap.provider.context_export.read",
+        risk: "observe",
+        subject: "selftest",
+        resource: "current_boot.synthetic",
+        reason: "synthetic_gate_input_not_global_evidence",
+        evidence: &[],
+        bindings: EventBindings::ProviderRequestBound(binding),
+    })
+}
+
+fn record_selftest_export_audit(
+    log: &mut EventLog,
+    binding: ProviderExportAuditBinding,
+) -> EventId {
+    log.record(Event {
+        sequence: 0,
+        kind: "selftest.provider_context_export.audit_binding_bound",
+        source_method: "provider.context_gate_selftest",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "synthetic_not_exported",
+        requested_capability: "cap.provider.context_export.read",
+        risk: "observe",
+        subject: "selftest",
+        resource: "current_boot.synthetic",
+        reason: "synthetic_gate_input_not_global_evidence",
+        evidence: &[],
+        bindings: EventBindings::ProviderExportAuditBound(binding),
+    })
+}
+
+fn record_selftest_request_denial(log: &mut EventLog, context: ProviderContextHashes) -> EventId {
+    log.record(Event {
+        sequence: 0,
+        kind: "selftest.provider_context_export.request_binding_denied",
+        source_method: "provider.context_gate_selftest",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "synthetic_not_exported",
+        requested_capability: "cap.provider.context_export.read",
+        risk: "observe",
+        subject: "selftest",
+        resource: "current_boot.synthetic",
+        reason: "synthetic_denial_variant",
+        evidence: &[],
+        bindings: EventBindings::ProviderRequestBindingDenied(context),
+    })
+}
+
+fn record_selftest_filler(log: &mut EventLog, count: usize) {
+    let mut idx = 0usize;
+    while idx < count {
+        log.record(Event {
+            sequence: 0,
+            kind: "selftest.filler",
+            source_method: "provider.context_gate_selftest",
+            source_transport: "serial-console",
+            classification: "local_only",
+            outcome: "synthetic_not_exported",
+            requested_capability: "cap.provider.context_export.read",
+            risk: "observe",
+            subject: "selftest",
+            resource: "current_boot.synthetic",
+            reason: "fills_ram_ring_to_exercise_retention",
+            evidence: &[],
+            bindings: EventBindings::None,
+        });
+        idx += 1;
+    }
+}
+
+fn selftest_request_binding(
+    request_id: u32,
+    request_envelope_event_id: EventId,
+    context: ProviderContextHashes,
+) -> ProviderRequestBinding {
+    ProviderRequestBinding {
+        request_id,
+        request_envelope_event_id,
+        request_body_hash: tagged_hash(1),
+        request_envelope_hash: tagged_hash(2),
+        request_binding_hash: tagged_hash(3),
+        context,
+        provider_trust_state: "pinned_spki_verified",
+        development_tls_bypass: false,
+    }
+}
+
+fn selftest_export_binding(
+    request_id: u32,
+    request_envelope_event_id: EventId,
+    request_binding_event_id: EventId,
+    context: ProviderContextHashes,
+) -> ProviderExportAuditBinding {
+    ProviderExportAuditBinding {
+        request_id,
+        request_envelope_event_id,
+        request_binding_event_id,
+        request_body_hash: tagged_hash(1),
+        request_envelope_hash: tagged_hash(2),
+        request_binding_hash: tagged_hash(3),
+        export_audit_binding_hash: tagged_hash(4),
+        context,
+        provider_trust_state: "pinned_spki_verified",
+        context_attached_to_provider_body: false,
+    }
+}
+
+fn tagged_hash(tag: u8) -> [u8; 32] {
+    let mut hash = [tag; 32];
+    hash[31] = tag.wrapping_mul(17);
+    hash
 }

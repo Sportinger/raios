@@ -268,6 +268,18 @@ retained positive binding pair for local gate evaluation only and records
 `capability_denied`. The second export command must reject the same pair with
 `binding_already_consumed`.
 
+The Shadow VM smoke also exercises local-only negative gate selftests:
+
+```text
+agent provider.context_gate_selftest provider_minimal
+```
+
+That command emits `raios.provider_context_gate_negative_selftest.v0`, does not
+mutate the global event log, does not create request envelopes or positive
+binding records, and checks stale/dropped ids, previous-boot-or-unretained ids,
+substituted denial/positive records, request/body/binding/context hash
+mismatches, and trust-bypass records.
+
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:
 

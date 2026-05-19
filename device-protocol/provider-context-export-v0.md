@@ -187,6 +187,68 @@ hash mismatches. A successful local check records
 `automatic_context_injection: disabled`, `provider_write: not_attempted`, and
 `context_attached_to_provider_body: false`.
 
+## Negative Gate Selftest
+
+`provider.context_gate_selftest provider_minimal` is local test infrastructure
+for the retained-binding predicate. It emits
+`raios.provider_context_gate_negative_selftest.v0` and must report:
+
+```text
+mutates_global_event_log: false
+creates_provider_request_envelope: false
+creates_positive_binding_records: false
+provider_write: not_attempted
+automatic_context_injection: disabled
+context_attached_to_provider_body: false
+```
+
+The selftest feeds synthetic RAM-only records into the same predicate used by
+`provider.context_gate` and `provider.context_export`. It covers:
+
+- missing export-audit binding
+- stale or dropped request-binding event ids
+- stale or dropped request-envelope event ids
+- previous-boot-or-unretained event ids, represented as ids that are not
+  retained in the current-boot RAM ring
+- denial-schema substitution
+- positive-record substitution
+- wrong request-envelope variants
+- request-envelope event id mismatch
+- request id mismatch
+- request-body, request-envelope, and request-binding hash mismatches
+- provider-minimal packet, exported-field-list, and omitted-field-list hash
+  mismatches
+- development TLS bypass records
+
+The selftest is not an export authority. It must not emit positive binding
+schemas into the global event log.
+
+## Final Injection Gate
+
+The final provider context injection gate is separate from all current records.
+Neither `raios.provider_request_binding.v0`,
+`raios.provider_context_export_audit_binding.v0`, nor
+`raios.provider_context_binding_consumption.v0` may make
+`context_attached_to_provider_body` true by itself.
+
+A future final gate must define its own schema and require at least:
+
+- positive provider trust without development bypass
+- a retained current-boot request envelope for the exact outbound request
+- one matching retained positive request binding
+- one matching retained positive export-audit binding
+- single-use local consumption of that pair
+- matching provider-minimal packet, exported-field-list, and omitted-field-list
+  hashes
+- a final local policy decision that permits body attachment for this request
+- a fail-closed check immediately before the provider write or inside a
+  provider-adapter service boundary
+
+Until that schema and harness coverage exist, every response must continue to
+report `automatic_context_injection: disabled`,
+`satisfies_current_boot_export_gate: false`, and
+`context_attached_to_provider_body: false`.
+
 ## Required Gates
 
 Provider context export requires all of these gates:

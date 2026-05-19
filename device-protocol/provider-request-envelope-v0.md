@@ -145,6 +145,28 @@ records, development TLS bypass records, and already consumed pairs. A consumed
 pair is evidence that the local gate evaluated the binding; it is not evidence
 that context was attached to a provider body.
 
+The Shadow VM selftest exposes those negative checks as
+`raios.provider_context_gate_negative_selftest.v0` through
+`provider.context_gate_selftest provider_minimal`. The selftest uses synthetic
+RAM-only records and must not create global request envelopes, positive binding
+events, or provider writes.
+
+## Final Injection Predicate
+
+The envelope and positive bindings are prerequisites for future context
+attachment, not the final authority. A separate injection predicate must be
+specified before `context_attached_to_provider_body` may become true. That
+predicate must bind the final request body shape to:
+
+- the retained current-boot envelope for the exact outbound request
+- the checked and consumed request/export audit binding pair
+- the redacted `provider_minimal` packet and field-list hashes
+- positive non-bypass provider trust at final write time
+- a final local policy decision for one provider request
+
+Until that final predicate exists and is tested, OpenAI request bodies must keep
+`context_attached_to_provider_body: false`.
+
 ## Runtime Marker
 
 The current Stage-0 slice writes a local serial marker:
