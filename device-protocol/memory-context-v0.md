@@ -193,6 +193,11 @@ consume one pair for local gate evaluation only. Neither method changes
 binding cases against the same predicate using synthetic RAM-only records. It is
 test infrastructure only and does not write those records into the global event
 log.
+`provider.context_injection_gate provider_minimal` exposes the separate final
+body-attachment diagnostic for this projection. It names the future
+`raios.provider_context_injection_authorization.v0` schema but keeps
+`provider_export: disabled`, `automatic_context_injection: disabled`, and
+`can_attach_context: false`.
 
 ## Omitted Classes
 

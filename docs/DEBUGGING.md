@@ -245,11 +245,13 @@ hash, the smoke also expects:
 ```text
 OPENAI_PROVIDER_REQUEST_BINDING {"schema":"raios.provider_request_binding.v0", ...}
 OPENAI_PROVIDER_EXPORT_AUDIT_BINDING {"schema":"raios.provider_context_export_audit_binding.v0", ...}
+OPENAI_PROVIDER_CONTEXT_INJECTION_GATE {"schema":"raios.provider_context_injection_gate.v0", ...}
 ```
 
 Those markers must stay absent for pin mismatch and the unverified development
-TLS override. The export-audit marker is positive audit evidence, but
-`automatic_context_injection` remains `disabled`,
+TLS override. The export-audit marker is positive audit evidence, and the
+injection-gate marker is a blocked prewrite diagnostic; both keep
+`automatic_context_injection` `disabled`,
 `satisfies_current_boot_export_gate` remains `false`, and the request body still
 does not include provider-minimal context.
 
@@ -272,6 +274,7 @@ The Shadow VM smoke also exercises local-only negative gate selftests:
 
 ```text
 agent provider.context_gate_selftest provider_minimal
+agent provider.context_injection_gate provider_minimal
 ```
 
 That command emits `raios.provider_context_gate_negative_selftest.v0`, does not
@@ -279,6 +282,11 @@ mutate the global event log, does not create request envelopes or positive
 binding records, and checks stale/dropped ids, previous-boot-or-unretained ids,
 substituted denial/positive records, request/body/binding/context hash
 mismatches, and trust-bypass records.
+
+`provider.context_injection_gate` emits
+`raios.provider_context_injection_gate.v0`; it names the final authorization
+schema `raios.provider_context_injection_authorization.v0`, reports that
+authorization as missing, and keeps `can_attach_context: false`.
 
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:

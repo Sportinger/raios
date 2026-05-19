@@ -27,6 +27,7 @@ V0 records:
 - checked binding consumption records for local gate evaluation without export
 - read-only negative gate selftest responses that exercise the same predicate
   without mutating the global event log
+- read-only final injection gate diagnostics that keep body attachment blocked
 - provider request-binding denial records for `provider_minimal`
 - provider context export-denial audit records with
   `outcome: denied_no_provider_write`
@@ -325,6 +326,27 @@ positive-record substitution, wrong variants, mismatched request/body/binding
 hashes, mismatched provider-minimal context hashes, and trust-bypass records.
 These cases are evidence that the predicate fails closed; they are not provider
 export authority.
+
+## Final Injection Gate Diagnostic
+
+`provider.context_injection_gate provider_minimal` emits
+`raios.provider_context_injection_gate.v0`. It is a read-only diagnostic, not an
+`audit.event.v0` authority. It reports:
+
+```text
+final_authorization_schema: raios.provider_context_injection_authorization.v0
+final_authorization: missing
+final_prewrite_body_check: not_attempted
+automatic_context_injection: disabled
+context_attached_to_provider_body: false
+provider_write: not_attempted
+can_attach_context: false
+```
+
+Positive pinned/WebPKI OpenAI request paths emit a local
+`OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker before API-key copy or HTTPS
+write. The marker binds request and provider-minimal context hashes but still
+has `status: blocked`.
 
 ## Provider Export Denial Events
 

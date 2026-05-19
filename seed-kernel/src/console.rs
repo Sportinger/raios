@@ -1098,7 +1098,8 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
         }
         "provider.context_gate"
         | "provider.context_export_status"
-        | "provider.context_gate_selftest" => {
+        | "provider.context_gate_selftest"
+        | "provider.context_injection_gate" => {
             command_agent_protocol(command_line.trimmed_str(), runtime)
         }
         "module.propose"
@@ -1134,7 +1135,7 @@ fn command_help() {
         "AGENT: describe snapshot caps bootlog services problems device.graph memory.profile"
     ));
     write_output(format_args!(
-        "AGENT RAW: memory.context provider.context_export provider.context_gate provider.context_gate_selftest memory.query memory.trace memory.recent_events"
+        "AGENT RAW: memory.context provider.context_export provider.context_gate provider.context_gate_selftest provider.context_injection_gate memory.query memory.trace memory.recent_events"
     ));
 }
 

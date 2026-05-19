@@ -231,7 +231,29 @@ Neither `raios.provider_request_binding.v0`,
 `raios.provider_context_binding_consumption.v0` may make
 `context_attached_to_provider_body` true by itself.
 
-A future final gate must define its own schema and require at least:
+`provider.context_injection_gate provider_minimal` exposes the current
+fail-closed diagnostic for that gate. It emits
+`raios.provider_context_injection_gate.v0`, reports
+`final_authorization_schema:
+raios.provider_context_injection_authorization.v0`, and keeps:
+
+```text
+final_authorization: missing
+automatic_context_injection: disabled
+satisfies_current_boot_export_gate: false
+context_attached_to_provider_body: false
+provider_write: not_attempted
+can_attach_context: false
+```
+
+On positive pinned/WebPKI OpenAI request paths, Stage-0 also emits a local-only
+`OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker after positive request/export
+binding evidence and before API-key copy or HTTPS write. That marker binds the
+request body hash, request-envelope hash, and provider-minimal context hashes,
+but remains a blocked diagnostic.
+
+The final positive gate must define its own authorization schema and require at
+least:
 
 - positive provider trust without development bypass
 - a retained current-boot request envelope for the exact outbound request

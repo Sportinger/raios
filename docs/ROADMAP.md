@@ -5,9 +5,9 @@
 Last updated: 2026-05-19 by Codex after adding local-only negative
 provider-context gate selftests for stale/dropped ids,
 previous-boot-or-unretained ids, substituted schemas, substituted positive
-records, and mismatched hashes, keeping automatic provider context injection
-disabled, updating harnesses and protocol docs, and running the Shadow VM
-smoke plus direct OpenAI pin-mismatch smoke.
+records, and mismatched hashes; then adding the separate fail-closed
+`raios.provider_context_injection_gate.v0` diagnostic and OpenAI prewrite
+marker while keeping automatic provider context injection disabled.
 
 Latest maintenance verification:
 
@@ -19,7 +19,7 @@ Latest maintenance verification:
   passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260519-161411-6048.json` with 203/203
+  `release\vm-reports\shadow-20260519-202124-12104.json` with 218/218
   predicates.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
@@ -105,6 +105,16 @@ Current verified cursor:
   positive-record substitution, request/body/binding/context hash mismatches,
   and trust-bypass records without mutating the global event log or creating
   provider request envelopes.
+- `provider.context_injection_gate provider_minimal` exposes the separate
+  `raios.provider_context_injection_gate.v0` diagnostic. It makes the final
+  authorization schema explicit as
+  `raios.provider_context_injection_authorization.v0`, reports that
+  authorization as missing, and keeps `can_attach_context: false`.
+- Positive pinned/WebPKI OpenAI request paths now emit
+  `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` after positive request/export binding
+  evidence and before API-key copy or HTTPS write. The marker binds request and
+  context hashes but keeps provider write not attempted and body attachment
+  false.
 - `memory.recent_events` and `audit.events [limit]` expose a bounded RAM-only
   `event.log.v0` ring for current-boot agent protocol reads, denials,
   provider request-binding denials, and provider export-denial audits.
@@ -119,33 +129,31 @@ Current verified cursor:
   event ids, and the denied module load path, then emits
   `raios.vm_test_report.v0` reports.
 
-Current phase: Phase 5.13 is implemented for checked current-boot
-request/export audit binding consumption plus explicit negative
-substitution/stale-id/hash-mismatch selftest coverage. The next durable
-architecture step is the separately specified final provider context injection
-gate.
+Current phase: Phase 5.14 has a fail-closed final provider context injection
+gate diagnostic and direct OpenAI prewrite marker. The next durable architecture
+step is explicit negative harness coverage for final authorization records
+before any positive body-attachment path exists.
 
 Exact next task:
 
 ```text
-Specify and implement the final provider context injection gate, while keeping
-automatic provider context injection disabled until that distinct gate exists.
+Add negative final-injection authorization harness cases while keeping automatic
+provider context injection disabled.
 ```
 
-Start by deciding whether the final injection gate is evaluated synchronously on
-the direct HTTPS request path or by a provider-adapter service boundary. Do not
-attach context to OpenAI requests until the final gate has its own schema,
-single-use evidence, harness coverage, and explicit no-leak failure modes.
+Start by testing missing, stale, substituted, mismatched, and trust-downgraded
+`raios.provider_context_injection_authorization.v0` candidates. Do not attach
+context to OpenAI requests until the final positive gate has single-use evidence
+and explicit no-leak failure modes.
 
 Next three tasks:
 
-1. Specify the final automatic context injection gate separately from positive
-   audit binding so `context_attached_to_provider_body` cannot become true by
-   accident.
-2. Decide whether the final gate is evaluated synchronously before HTTPS write
-   or through a provider-adapter service boundary.
-3. Add a fail-closed harness for the selected final-gate path before allowing
-   any request-body context attachment.
+1. Add final-injection authorization negative cases for missing, stale,
+   substituted, and mismatched authorization records.
+2. Add a direct OpenAI smoke assertion for the blocked
+   `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker on positive pinned trust.
+3. Decide the first positive authorization source, likely local policy over a
+   retained current-boot binding pair, before allowing request-body attachment.
 
 Current blockers and non-goals:
 
@@ -761,17 +769,23 @@ Goal:
 checked binding evidence -> explicit injection authorization -> one request body may attach context
 ```
 
-Status: planned; no context injection is implemented in the current slice.
+Status: fail-closed diagnostic implemented; no context injection is implemented
+in the current slice.
 
 Scope:
 
 - define a distinct schema for the final injection authorization, separate from
   request binding, export-audit binding, and binding consumption
+- expose `provider.context_injection_gate provider_minimal` as a read-only
+  diagnostic over the current gate state
+- emit a blocked `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker on positive
+  pinned/WebPKI OpenAI request paths before API-key copy or HTTPS write
 - require positive provider trust, retained current-boot binding evidence,
   redaction projection hashes, single-use consumption, and a final local policy
   decision before `context_attached_to_provider_body` may become true
-- decide whether the gate runs synchronously in the direct OpenAI path before
-  HTTPS write or behind a provider-adapter service boundary
+- evaluate the current direct OpenAI gate synchronously before HTTPS write; a
+  future provider-adapter service boundary may replace that direct path after it
+  has equivalent evidence and tests
 - require fail-closed harness coverage for missing final authorization, stale
   final authorization, hash mismatch, trust bypass, and body attachment attempts
   without authorization

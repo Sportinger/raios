@@ -107,6 +107,7 @@ function Assert-PositiveBindingMarkers {
     $envelope = Get-MarkerJson -Serial $Serial -Prefix "OPENAI_PROVIDER_REQUEST_ENVELOPE"
     $requestBinding = Get-MarkerJson -Serial $Serial -Prefix "OPENAI_PROVIDER_REQUEST_BINDING"
     $exportBinding = Get-MarkerJson -Serial $Serial -Prefix "OPENAI_PROVIDER_EXPORT_AUDIT_BINDING"
+    $injectionGate = Get-MarkerJson -Serial $Serial -Prefix "OPENAI_PROVIDER_CONTEXT_INJECTION_GATE"
 
     Assert-Equal -Name "request body hash" -Actual $requestBinding.request_body_hash -Expected $envelope.request_body.body_sha256
     Assert-Equal -Name "request envelope hash" -Actual $requestBinding.request_envelope_hash -Expected $envelope.evidence.envelope_hash
@@ -122,6 +123,15 @@ function Assert-PositiveBindingMarkers {
     Assert-Equal -Name "automatic context injection" -Actual $exportBinding.automatic_context_injection -Expected "disabled"
     Assert-Equal -Name "request binding body attachment" -Actual $requestBinding.context_attached_to_provider_body -Expected $false
     Assert-Equal -Name "export binding body attachment" -Actual $exportBinding.context_attached_to_provider_body -Expected $false
+    Assert-Equal -Name "injection gate request body hash" -Actual $injectionGate.request_body_hash -Expected $requestBinding.request_body_hash
+    Assert-Equal -Name "injection gate request envelope hash" -Actual $injectionGate.request_envelope_hash -Expected $requestBinding.request_envelope_hash
+    Assert-Equal -Name "injection gate packet hash" -Actual $injectionGate.hashes.projected_packet_hash -Expected $requestBinding.hashes.projected_packet_hash
+    Assert-Equal -Name "injection gate final authorization" -Actual $injectionGate.final_authorization -Expected "missing"
+    Assert-Equal -Name "injection gate current boot export gate" -Actual $injectionGate.satisfies_current_boot_export_gate -Expected $false
+    Assert-Equal -Name "injection gate automatic context injection" -Actual $injectionGate.automatic_context_injection -Expected "disabled"
+    Assert-Equal -Name "injection gate body attachment" -Actual $injectionGate.context_attached_to_provider_body -Expected $false
+    Assert-Equal -Name "injection gate provider write" -Actual $injectionGate.provider_write -Expected "not_attempted"
+    Assert-Equal -Name "injection gate can attach" -Actual $injectionGate.can_attach_context -Expected $false
 }
 
 function Invoke-PositiveBindingGateChecks {
@@ -193,6 +203,7 @@ try {
         Wait-ForLogText -Path $SerialLog -Needle "openai: TLS provider trust verified: pinned_cert" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_REQUEST_BINDING {"schema":"raios.provider_request_binding.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_EXPORT_AUDIT_BINDING {"schema":"raios.provider_context_export_audit_binding.v0"' -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_CONTEXT_INJECTION_GATE {"schema":"raios.provider_context_injection_gate.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI HTTP" -TimeoutSeconds $TimeoutSeconds
         Invoke-PositiveBindingGateChecks -Port $SerialTcpPort -SerialLog $SerialLog -TimeoutSeconds $TimeoutSeconds
@@ -205,6 +216,7 @@ try {
         Wait-ForLogText -Path $SerialLog -Needle "openai: TLS provider trust verified: pinned_spki" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_REQUEST_BINDING {"schema":"raios.provider_request_binding.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_EXPORT_AUDIT_BINDING {"schema":"raios.provider_context_export_audit_binding.v0"' -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle 'OPENAI_PROVIDER_CONTEXT_INJECTION_GATE {"schema":"raios.provider_context_injection_gate.v0"' -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI HTTP" -TimeoutSeconds $TimeoutSeconds
         Invoke-PositiveBindingGateChecks -Port $SerialTcpPort -SerialLog $SerialLog -TimeoutSeconds $TimeoutSeconds
@@ -233,6 +245,9 @@ try {
     }
     if (($ExpectProviderResponse -or $ExpectPinMismatch) -and ($serial -like "*raios.provider_context_export_audit_binding.v0*")) {
         throw "Direct smoke saw a positive provider export audit binding without positive provider trust in $SerialLog"
+    }
+    if (($ExpectProviderResponse -or $ExpectPinMismatch) -and ($serial -like "*raios.provider_context_injection_gate.v0*")) {
+        throw "Direct smoke saw a provider context injection gate marker without positive provider trust in $SerialLog"
     }
     if (($ExpectPinnedTrust -or $ExpectSpkiPinnedTrust) -and ($serial -notlike "*raios.provider_request_binding.v0*")) {
         throw "Pinned-trust smoke did not see a positive provider request binding in $SerialLog"

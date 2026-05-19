@@ -155,8 +155,17 @@ events, or provider writes.
 
 The envelope and positive bindings are prerequisites for future context
 attachment, not the final authority. A separate injection predicate must be
-specified before `context_attached_to_provider_body` may become true. That
-predicate must bind the final request body shape to:
+specified before `context_attached_to_provider_body` may become true.
+
+The current fail-closed slice emits
+`raios.provider_context_injection_gate.v0` through
+`provider.context_injection_gate provider_minimal` and, on positive pinned/WebPKI
+request paths, through the local
+`OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker. Both report
+`final_authorization: missing`, `provider_write: not_attempted`, and
+`can_attach_context: false`.
+
+The positive predicate must bind the final request body shape to:
 
 - the retained current-boot envelope for the exact outbound request
 - the checked and consumed request/export audit binding pair

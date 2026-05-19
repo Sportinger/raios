@@ -143,6 +143,9 @@ The `NoVerify` path remains only behind the explicit development build flag
 - Positive pinned/WebPKI request paths allow the retained binding pair to be
   validated by `provider.context_gate` and consumed once by
   `provider.context_export` for local gate evaluation only.
+- Positive pinned/WebPKI request paths emit a blocked
+  `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker before API-key copy or HTTPS
+  write; it must keep final authorization missing and body attachment false.
 - `provider.context_gate_selftest` covers stale/dropped ids,
   previous-boot-or-unretained ids, substituted schemas, substituted positive
   records, mismatched request/body/context hashes, and trust-bypass records

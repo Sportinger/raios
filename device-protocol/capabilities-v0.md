@@ -103,6 +103,7 @@ read-only protocol methods:
 | `cap.memory.recent_events.read` | `memory.recent_events` | `observe` | `current_boot` | Read bounded current-boot memory event records. |
 | `cap.audit.events.read` | `audit.events` | `observe` | `current_boot` | Read bounded current-boot audit event records. |
 | `cap.provider.context_export.read` | `provider.context_gate`, `provider.context_gate_selftest` | `observe` | `current_boot` | Read provider context gate diagnostics and local predicate selftests. |
+| `cap.provider.context_injection.read` | `provider.context_injection_gate` | `observe` | `current_boot` | Read final provider context injection gate diagnostics. |
 
 `system.snapshot` also reports `capability_denied.for_all_mutating_methods` so an
 agent can discover that mutation is intentionally unavailable.
@@ -160,6 +161,9 @@ must report `provider_write: not_attempted`.
 infrastructure under `cap.provider.context_export.read`; it must not create
 request envelopes, positive binding records, provider writes, or body
 attachment.
+`provider.context_injection_gate` is granted only as local read diagnostics under
+`cap.provider.context_injection.read`; it names the future final authorization
+schema but does not grant `cap.provider.context_export` or body attachment.
 
 Capability denials must name the relevant evidence gates:
 

@@ -660,6 +660,29 @@ fn record_positive_provider_context_bindings(
     emit_provider_export_audit_binding(export_binding, export_audit_event_id);
 }
 
+fn emit_provider_context_injection_gate_blocked(
+    envelope: ProviderRequestEnvelope,
+    runtime: ui::RuntimeStatus,
+    trust: provider_trust::Snapshot,
+) {
+    if trust.development_bypass || !provider_trust_positive(trust.state) {
+        return;
+    }
+
+    let context = agent_protocol::provider_minimal_context_evidence_for_runtime(runtime);
+    serial::write_raw_str("OPENAI_PROVIDER_CONTEXT_INJECTION_GATE {\"schema\":\"raios.provider_context_injection_gate.v0\",\"scope\":\"current_boot\",\"classification\":\"local_only\",\"status\":\"blocked\",\"reason\":\"automatic_context_injection_disabled\",\"request_id\":");
+    serial::write_raw_fmt(format_args!("{}", envelope.request_id));
+    serial::write_raw_str(",\"request_body_hash\":");
+    write_raw_sha256(envelope.request_body_hash);
+    serial::write_raw_str(",\"request_envelope_hash\":");
+    write_raw_sha256(envelope.envelope_hash);
+    serial::write_raw_str(",\"provider_trust_state\":\"");
+    serial::write_raw_str(trust.state.as_protocol());
+    serial::write_raw_str("\",\"provider_trust_positive\":true,\"final_authorization_schema\":\"raios.provider_context_injection_authorization.v0\",\"final_authorization\":\"missing\",\"satisfies_current_boot_export_gate\":false,\"automatic_context_injection\":\"disabled\",\"context_attached_to_provider_body\":false,\"provider_write\":\"not_attempted\",\"can_attach_context\":false,\"hashes\":");
+    write_raw_context_hashes(context.event_hashes());
+    serial::write_raw_str("}\r\n");
+}
+
 fn provider_request_binding_hash(
     envelope: ProviderRequestEnvelope,
     envelope_event_id: event_log::EventId,
@@ -954,6 +977,7 @@ fn perform_https_request(
         return HttpsResult::Error(b"OPENAI DIRECT REQUEST ENVELOPE BODY HASH MISMATCH");
     }
     record_positive_provider_context_bindings(envelope, envelope_event_id, runtime, trust);
+    emit_provider_context_injection_gate_blocked(envelope, runtime, trust);
 
     let mut key = [0u8; 256];
     let Some(key_len) = provider_config::copy_api_key(&mut key) else {

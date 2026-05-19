@@ -10,8 +10,9 @@ OpenAI request path, positive local-only request/export audit binding records on
 the SPKI pinned OpenAI path, checked current-boot binding consumption with
 single-use rejection, a local-only negative gate selftest for stale/dropped,
 previous-boot-or-unretained, substituted-schema, substituted-positive-record,
-and mismatched-hash cases, and direct OpenAI pin-mismatch plus SPKI
-pinned-trust smokes using a fake local API key.
+and mismatched-hash cases, the separate fail-closed
+`raios.provider_context_injection_gate.v0` diagnostic, and direct OpenAI
+pin-mismatch plus SPKI pinned-trust smokes using a fake local API key.
 
 ## Verified Boot State
 
@@ -158,17 +159,18 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Specify and implement the separate final provider context injection gate while
-automatic provider context injection remains disabled until that gate exists:
+Harden the final provider context injection gate toward a positive path while
+automatic provider context injection remains disabled:
 
-- keep the final injection gate distinct from positive request binding, positive
-  export-audit binding, and local binding consumption
-- decide whether the final gate is evaluated synchronously before HTTPS write
-  or by a provider-adapter service boundary
+- add explicit negative harness coverage for missing final authorization, stale
+  final authorization, final body-hash mismatch, and trust downgrade before
+  write
+- keep the current synchronous prewrite gate shape for the direct OpenAI path
+  unless a provider-adapter service boundary is specified first
 - keep `satisfies_current_boot_export_gate: false` while
   `automatic_context_injection: disabled`
-- keep OpenAI request bodies free of provider-minimal context until the final
-  explicit injection gate is specified, implemented, and tested
+- keep OpenAI request bodies free of provider-minimal context until a positive
+  `raios.provider_context_injection_authorization.v0` path exists and is tested
 - preserve single-use consumption for retained positive binding pairs
 
 The verified foundation for that task is:
@@ -300,6 +302,17 @@ The verified foundation for that task is:
   `capability_denied` because `automatic_context_injection` remains disabled.
   A second attempt against the same pair is rejected as
   `binding_already_consumed`.
+- `provider.context_injection_gate provider_minimal` now exposes the separate
+  `raios.provider_context_injection_gate.v0` diagnostic. It reports final
+  authorization as missing, requires
+  `raios.provider_context_injection_authorization.v0`, keeps
+  `automatic_context_injection: disabled`, and reports
+  `can_attach_context: false`.
+- On positive pinned/WebPKI OpenAI request paths, Stage-0 now emits a local-only
+  `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker after request/export binding
+  evidence and before API-key copy or HTTPS write. The marker binds the request
+  body hash, request-envelope hash, and provider-minimal context hashes while
+  keeping provider write not attempted and body attachment false.
 - `provider.context_export` still does not create a request envelope; the
   Shadow VM smoke checks that denied export cannot fake one.
 - `memory.query` and `memory.trace` include
@@ -324,9 +337,10 @@ The verified foundation for that task is:
   satisfying export gates, provider writes still not attempted, memory
   query/trace, event log schemas, audit alias, memory mutation denials with
   event ids, the read-only `provider.context_gate` missing-binding state, the
-  `provider.context_gate_selftest` negative predicate cases, and the existing
-  denied module load path. Latest report:
-  `release\vm-reports\shadow-20260519-161411-6048.json` with 203/203
+  `provider.context_gate_selftest` negative predicate cases, the separate
+  `provider.context_injection_gate` missing-final-authorization state, and the
+  existing denied module load path. Latest report:
+  `release\vm-reports\shadow-20260519-202124-12104.json` with 218/218
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It
@@ -337,8 +351,9 @@ The verified foundation for that task is:
 - `vm-harness\openai-direct-smoke.ps1 -ExpectSpkiPinnedTrust` was run against a
   local image built with a fake API key and the current OpenAI SPKI pin. It
   verified the real request envelope marker, positive request binding marker,
-  and positive export audit binding marker appear before the HTTPS write path,
-  that marker body/envelope/binding/context hashes match, that
+  positive export audit binding marker, and blocked injection-gate marker appear
+  before the HTTPS write path, that marker body/envelope/binding/context hashes
+  match, that
   `provider.context_gate` validates the retained pair, that
   `provider.context_export` consumes it once for local gate evaluation, and that
   the second consumption attempt returns `binding_already_consumed`, while
