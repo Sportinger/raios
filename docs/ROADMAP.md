@@ -173,15 +173,18 @@ Current status: the host relay has been removed from the runtime path. The VM
 command `ask <text>` stays in the guest and fails closed in the normal build
 when provider trust is not positively verified. The default visible trust state
 is `pin_config_missing`, and the Shadow VM smoke checks that problem. The first
-positive verifier slice is implemented for OpenAI leaf-certificate SHA-256
-pinning: a local image built with `-EmbedOpenAiCertPinFromEnv` checks the
-configured pin and the TLS 1.3 P-256 ECDSA `CertificateVerify` proof before API
-key copy or HTTPS write, and `openai-direct-smoke.ps1 -ExpectPinnedTrust`
-verifies the marker. A local development image built with
+positive verifier slice is implemented for OpenAI SPKI SHA-256 pinning: a local
+image built with `-EmbedOpenAiSpkiPinFromEnv` checks the configured pin and the
+TLS 1.3 P-256 ECDSA `CertificateVerify` proof before API key copy or HTTPS
+write, and `openai-direct-smoke.ps1 -ExpectSpkiPinnedTrust` verifies the marker.
+The earlier leaf-certificate SHA-256 pin path remains available through
+`-EmbedOpenAiCertPinFromEnv` and `-ExpectPinnedTrust` for compatibility. A local
+development image built with
 `-AllowUnverifiedOpenAiTls` can still exercise the old unverified path for
-transport debugging only. SPKI pinning or WebPKI is the next trust hardening
-gate before provider context injection, tool schemas, or capability policy can
-be treated as safe.
+transport debugging only. WebPKI, broader certificate algorithm support, and
+redacted context projection remain the next trust hardening gates before
+provider context injection, tool schemas, or capability policy can be treated as
+safe.
 
 ## Phase 4: Provider Integration And Redacted Context
 

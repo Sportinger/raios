@@ -17,17 +17,18 @@ architecture and current Stage-0 evidence.
 - Network path: Intel e1000 plus DHCPv4 configures IP/gateway/DNS in QEMU.
 - Provider path: `ask <text>` stays in the guest. The normal build fails closed
   at provider trust before API-key copy or HTTPS write unless a valid provider
-  pin is configured; the first OpenAI cert-pin verifier checks the leaf
-  certificate SHA-256 and TLS 1.3 signature proof before HTTPS write. An explicit
-  development image can still exercise in-guest DNS, TCP 443, TLS 1.3, HTTPS,
-  and the Responses API with RAM-only API-key state.
+  pin is configured; the OpenAI SPKI verifier checks the leaf
+  SubjectPublicKeyInfo SHA-256 and TLS 1.3 signature proof before HTTPS write.
+  The older leaf-certificate pin verifier remains available for compatibility.
+  An explicit development image can still exercise in-guest DNS, TCP 443, TLS
+  1.3, HTTPS, and the Responses API with RAM-only API-key state.
 - Logging: serial log is the authoritative implemented log sink.
 
 ## Partially Implemented Or Known Gaps
 
-- The first positive TLS verifier is leaf-certificate pinning, which is
-  intentionally rotation-sensitive. SPKI pinning or certificate-chain
-  verification remains the next trust hardening step.
+- The first durable TLS verifier is SPKI pinning, still limited to the current
+  P-256 ECDSA `CertificateVerify` path. Certificate-chain verification and
+  broader certificate algorithm support remain trust hardening steps.
 - Input events exist, but the final 8-16 ms batched event protocol is not yet a
   stable external contract.
 - Wi-Fi target detection and RAM-only SSID/WPA entry exist for the Surface Pro 4
@@ -40,8 +41,8 @@ architecture and current Stage-0 evidence.
 These remain architectural targets and must not be reported as implemented until
 there is direct Stage-0 evidence:
 
-- Durable provider/control trust using SPKI pinning or certificate-chain
-  verification.
+- Durable provider/control trust using certificate-chain verification or broader
+  certificate algorithm support.
 - WebSocket control transport with strict JSON envelope `{v,t,id,ts,body}`.
 - Single active Wasm module runtime with explicit host APIs.
 - Signed module lifecycle guarded by manifest, computed capabilities, VM test

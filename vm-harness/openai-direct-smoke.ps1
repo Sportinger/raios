@@ -5,19 +5,20 @@ param(
     [int]$TimeoutSeconds = 90,
     [switch]$ExpectProviderResponse,
     [switch]$ExpectPinnedTrust,
+    [switch]$ExpectSpkiPinnedTrust,
     [switch]$ExpectPinMismatch
 )
 
 $ErrorActionPreference = "Stop"
 
 $modeCount = 0
-foreach ($mode in @($ExpectProviderResponse, $ExpectPinnedTrust, $ExpectPinMismatch)) {
+foreach ($mode in @($ExpectProviderResponse, $ExpectPinnedTrust, $ExpectSpkiPinnedTrust, $ExpectPinMismatch)) {
     if ($mode) {
         $modeCount += 1
     }
 }
 if ($modeCount -gt 1) {
-    throw "Use only one of -ExpectProviderResponse, -ExpectPinnedTrust, or -ExpectPinMismatch."
+    throw "Use only one of -ExpectProviderResponse, -ExpectPinnedTrust, -ExpectSpkiPinnedTrust, or -ExpectPinMismatch."
 }
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -114,10 +115,18 @@ try {
         Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI HTTP" -TimeoutSeconds $TimeoutSeconds
     }
+    elseif ($ExpectSpkiPinnedTrust) {
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT REQUEST 1 STARTED" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 established" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: TLS provider trust verified: pinned_spki" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: HTTPS request sent" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "OPENAI HTTP" -TimeoutSeconds $TimeoutSeconds
+    }
     elseif ($ExpectPinMismatch) {
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI_DIRECT_REQ 1 api.openai.com /v1/responses" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT REQUEST 1 STARTED" -TimeoutSeconds $TimeoutSeconds
-        Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 handshake starting (pinned certificate verifier)" -TimeoutSeconds $TimeoutSeconds
+        Wait-ForLogText -Path $SerialLog -Needle "openai: TLS 1.3 handshake starting (pinned provider verifier)" -TimeoutSeconds $TimeoutSeconds
         Wait-ForLogText -Path $SerialLog -Needle "OPENAI DIRECT TLS PIN MISMATCH" -TimeoutSeconds $TimeoutSeconds
     }
     else {
@@ -126,11 +135,14 @@ try {
     }
 
     $serial = Get-Content -Raw -LiteralPath $SerialLog
-    if ((-not $ExpectProviderResponse) -and (-not $ExpectPinnedTrust) -and (-not $ExpectPinMismatch) -and ($serial -like "*OPENAI_DIRECT_REQ*")) {
+    if ((-not $ExpectProviderResponse) -and (-not $ExpectPinnedTrust) -and (-not $ExpectSpkiPinnedTrust) -and (-not $ExpectPinMismatch) -and ($serial -like "*OPENAI_DIRECT_REQ*")) {
         throw "Trust-gate smoke saw an OpenAI request start before provider trust was verified in $SerialLog"
     }
     if ($ExpectPinnedTrust -and ($serial -like "*tls_certificate_verification_bypassed*")) {
         throw "Pinned-trust smoke saw unverified TLS bypass output in $SerialLog"
+    }
+    if ($ExpectSpkiPinnedTrust -and ($serial -like "*tls_certificate_verification_bypassed*")) {
+        throw "SPKI pinned-trust smoke saw unverified TLS bypass output in $SerialLog"
     }
     if ($ExpectPinMismatch -and ($serial -like "*tls_certificate_verification_bypassed*")) {
         throw "Pin-mismatch smoke saw unverified TLS bypass output in $SerialLog"
@@ -159,6 +171,9 @@ try {
     }
     elseif ($ExpectPinnedTrust) {
         Write-Host "openai direct pinned-trust smoke passed"
+    }
+    elseif ($ExpectSpkiPinnedTrust) {
+        Write-Host "openai direct SPKI pinned-trust smoke passed"
     }
     elseif ($ExpectPinMismatch) {
         Write-Host "openai direct pin-mismatch smoke passed"

@@ -11,13 +11,15 @@ param(
     [string]$OpenAiApiKeyEnvVar = "OPENAI_API_KEY",
     [switch]$EmbedOpenAiCertPinFromEnv,
     [string]$OpenAiCertPinEnvVar = "OPENAI_CERT_SHA256",
+    [switch]$EmbedOpenAiSpkiPinFromEnv,
+    [string]$OpenAiSpkiPinEnvVar = "OPENAI_SPKI_SHA256",
     [switch]$AllowUnverifiedOpenAiTls,
     [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
 
-$RequiresFreshKernelBuild = $EmbedOpenAiApiKeyFromEnv -or $EmbedOpenAiCertPinFromEnv -or $AllowUnverifiedOpenAiTls
+$RequiresFreshKernelBuild = $EmbedOpenAiApiKeyFromEnv -or $EmbedOpenAiCertPinFromEnv -or $EmbedOpenAiSpkiPinFromEnv -or $AllowUnverifiedOpenAiTls
 if ($RequiresFreshKernelBuild -and $SkipBuild) {
     throw "Refusing -SkipBuild with provider trust/key build flags because they must be compiled into a fresh local kernel before writing the USB stick."
 }
@@ -113,6 +115,12 @@ try {
             throw "Environment variable '$OpenAiCertPinEnvVar' is not set."
         }
     }
+    if ($EmbedOpenAiSpkiPinFromEnv) {
+        $spkiPin = [Environment]::GetEnvironmentVariable($OpenAiSpkiPinEnvVar, "Process")
+        if ([string]::IsNullOrWhiteSpace($spkiPin)) {
+            throw "Environment variable '$OpenAiSpkiPinEnvVar' is not set."
+        }
+    }
 
     if (-not $SkipBuild) {
         if ($RequiresFreshKernelBuild) {
@@ -132,6 +140,9 @@ try {
             }
             if ($EmbedOpenAiCertPinFromEnv) {
                 $buildArgs += @("-EmbedOpenAiCertPinFromEnv", "-OpenAiCertPinEnvVar", $OpenAiCertPinEnvVar)
+            }
+            if ($EmbedOpenAiSpkiPinFromEnv) {
+                $buildArgs += @("-EmbedOpenAiSpkiPinFromEnv", "-OpenAiSpkiPinEnvVar", $OpenAiSpkiPinEnvVar)
             }
             if ($AllowUnverifiedOpenAiTls) {
                 $buildArgs += "-AllowUnverifiedOpenAiTls"

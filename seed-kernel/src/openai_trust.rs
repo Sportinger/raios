@@ -16,6 +16,7 @@ pub struct OpenAiPinnedCertVerifier {
     transcript: Option<<Aes128GcmSha256 as TlsCipherSuite>::Hash>,
     public_key: [u8; P256_UNCOMPRESSED_POINT_LEN],
     public_key_len: usize,
+    pin_kind: Option<provider_trust::PinKind>,
     pin_matched: bool,
 }
 
@@ -38,6 +39,7 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             transcript: None,
             public_key: [0; P256_UNCOMPRESSED_POINT_LEN],
             public_key_len: 0,
+            pin_kind: None,
             pin_matched: false,
         }
     }
@@ -55,26 +57,30 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             );
         }
 
-        let expected_pin = match provider_trust::openai_cert_pin_bytes() {
+        let configured_pin = match provider_trust::openai_pin() {
             Ok(pin) => pin,
             Err(state) => return Self::reject(state, TlsError::InvalidCertificate),
         };
         let leaf = cert.leaf_x509_der().ok_or(TlsError::InvalidCertificate)?;
-        let actual_pin = Sha256::digest(leaf);
-        if actual_pin.as_slice() != expected_pin {
+
+        let spki = extract_p256_spki(leaf).ok_or_else(|| {
+            provider_trust::mark_pin_verifier_unavailable();
+            TlsError::InvalidCertificate
+        })?;
+        let actual_pin = match configured_pin.kind {
+            provider_trust::PinKind::LeafCertSha256 => Sha256::digest(leaf),
+            provider_trust::PinKind::SpkiSha256 => Sha256::digest(spki.der),
+        };
+        if actual_pin.as_slice() != configured_pin.bytes {
             return Self::reject(
                 provider_trust::TrustState::PinMismatch,
                 TlsError::InvalidCertificate,
             );
         }
 
-        let public_key = extract_p256_public_key(leaf).ok_or_else(|| {
-            provider_trust::mark_pin_verifier_unavailable();
-            TlsError::InvalidCertificate
-        })?;
-
-        self.public_key.copy_from_slice(public_key);
-        self.public_key_len = public_key.len();
+        self.public_key.copy_from_slice(spki.public_key);
+        self.public_key_len = spki.public_key.len();
+        self.pin_kind = Some(configured_pin.kind);
         self.pin_matched = true;
         self.transcript.replace(transcript.clone());
         Ok(())
@@ -121,12 +127,28 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             return Err(TlsError::InvalidSignature);
         }
 
-        provider_trust::mark_pinned_cert_verified();
+        match self.pin_kind {
+            Some(provider_trust::PinKind::LeafCertSha256) => {
+                provider_trust::mark_pinned_cert_verified()
+            }
+            Some(provider_trust::PinKind::SpkiSha256) => {
+                provider_trust::mark_pinned_spki_verified()
+            }
+            None => {
+                provider_trust::mark_pin_mismatch();
+                return Err(TlsError::InvalidHandshake);
+            }
+        }
         Ok(())
     }
 }
 
-fn extract_p256_public_key(cert_der: &[u8]) -> Option<&[u8]> {
+struct P256Spki<'a> {
+    der: &'a [u8],
+    public_key: &'a [u8],
+}
+
+fn extract_p256_spki(cert_der: &[u8]) -> Option<P256Spki<'_>> {
     let cert = read_single_tlv(cert_der, 0x30)?;
     let mut cert_reader = DerReader::new(cert.value);
     let tbs = cert_reader.read_tlv(0x30)?;
@@ -155,7 +177,10 @@ fn extract_p256_public_key(cert_der: &[u8]) -> Option<&[u8]> {
     {
         return None;
     }
-    Some(key)
+    Some(P256Spki {
+        der: spki.full,
+        public_key: key,
+    })
 }
 
 fn algorithm_is_p256_ec(algorithm_der: &[u8]) -> bool {

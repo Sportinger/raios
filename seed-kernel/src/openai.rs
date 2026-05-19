@@ -376,7 +376,7 @@ fn perform_https_request(prompt: &str) -> HttpsResult {
     if trust.development_bypass {
         serial::write_line("openai: TLS 1.3 handshake starting (unverified development override)");
     } else {
-        serial::write_line("openai: TLS 1.3 handshake starting (pinned certificate verifier)");
+        serial::write_line("openai: TLS 1.3 handshake starting (pinned provider verifier)");
     }
     let mut rng = KernelRng;
     let tls_opened = if trust.development_bypass {
@@ -405,13 +405,24 @@ fn perform_https_request(prompt: &str) -> HttpsResult {
         serial::write_line(
             "openai: TLS provider trust state: tls_certificate_verification_bypassed",
         );
-    } else if let Some(pin_id) = trust.pin_id {
-        serial::write_fmt(format_args!(
-            "openai: TLS provider trust verified: pinned_cert sha256:{}\r\n",
-            pin_id
-        ));
     } else {
-        serial::write_line("openai: TLS provider trust verified: pinned_cert");
+        let trust_label = match trust.state {
+            provider_trust::TrustState::PinnedCertVerified => "pinned_cert",
+            provider_trust::TrustState::PinnedSpkiVerified => "pinned_spki",
+            provider_trust::TrustState::WebPkiVerified => "webpki",
+            _ => "verified",
+        };
+        if let Some(pin_id) = trust.pin_id {
+            serial::write_fmt(format_args!(
+                "openai: TLS provider trust verified: {} sha256:{}\r\n",
+                trust_label, pin_id
+            ));
+        } else {
+            serial::write_fmt(format_args!(
+                "openai: TLS provider trust verified: {}\r\n",
+                trust_label
+            ));
+        }
     }
 
     let mut key = [0u8; 256];

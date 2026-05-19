@@ -1,6 +1,7 @@
 use spin::Mutex;
 
 const OPENAI_CERT_SHA256: Option<&str> = option_env!("RAIOS_OPENAI_CERT_SHA256");
+const OPENAI_SPKI_SHA256: Option<&str> = option_env!("RAIOS_OPENAI_SPKI_SHA256");
 const ALLOW_UNVERIFIED_OPENAI_TLS: Option<&str> = option_env!("RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS");
 
 static STATE: Mutex<RuntimeTrust> = Mutex::new(RuntimeTrust::new());
@@ -85,8 +86,29 @@ impl Snapshot {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PinKind {
+    LeafCertSha256,
+    SpkiSha256,
+}
+
+impl PinKind {
+    pub fn as_protocol(self) -> &'static str {
+        match self {
+            PinKind::LeafCertSha256 => "leaf_cert_sha256",
+            PinKind::SpkiSha256 => "spki_sha256",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct OpenAiPin {
+    pub kind: PinKind,
+    pub bytes: [u8; 32],
+}
+
 pub fn snapshot() -> Snapshot {
-    let pin = configured_openai_cert_pin();
+    let pin = configured_openai_pin();
     if unverified_development_allowed() {
         return Snapshot {
             state: TrustState::TlsCertificateVerificationBypassed,
@@ -98,7 +120,7 @@ pub fn snapshot() -> Snapshot {
 
     let state = match pin {
         None => TrustState::PinConfigMissing,
-        Some(value) if !is_sha256_hex(value) => TrustState::PinConfigInvalid,
+        Some(value) if !is_sha256_hex(value.value) => TrustState::PinConfigInvalid,
         Some(_) => STATE.lock().state,
     };
 
@@ -111,14 +133,18 @@ pub fn snapshot() -> Snapshot {
 }
 
 pub fn can_attempt_openai_tls() -> bool {
-    unverified_development_allowed() || openai_cert_pin_bytes().is_ok()
+    unverified_development_allowed() || openai_pin().is_ok()
 }
 
-pub fn openai_cert_pin_bytes() -> Result<[u8; 32], TrustState> {
-    let Some(pin) = configured_openai_cert_pin() else {
+pub fn openai_pin() -> Result<OpenAiPin, TrustState> {
+    let Some(pin) = configured_openai_pin() else {
         return Err(TrustState::PinConfigMissing);
     };
-    parse_sha256_hex(pin).ok_or(TrustState::PinConfigInvalid)
+    let bytes = parse_sha256_hex(pin.value).ok_or(TrustState::PinConfigInvalid)?;
+    Ok(OpenAiPin {
+        kind: pin.kind,
+        bytes,
+    })
 }
 
 pub fn mark_pin_mismatch() {
@@ -133,6 +159,38 @@ pub fn mark_pinned_cert_verified() {
     STATE.lock().state = TrustState::PinnedCertVerified;
 }
 
+pub fn mark_pinned_spki_verified() {
+    STATE.lock().state = TrustState::PinnedSpkiVerified;
+}
+
+#[derive(Clone, Copy)]
+struct ConfiguredPin {
+    kind: PinKind,
+    value: &'static str,
+}
+
+fn configured_openai_pin() -> Option<ConfiguredPin> {
+    if let Some(value) = configured_openai_spki_pin() {
+        return Some(ConfiguredPin {
+            kind: PinKind::SpkiSha256,
+            value,
+        });
+    }
+    configured_openai_cert_pin().map(|value| ConfiguredPin {
+        kind: PinKind::LeafCertSha256,
+        value,
+    })
+}
+
+fn configured_openai_spki_pin() -> Option<&'static str> {
+    let value = OPENAI_SPKI_SHA256?.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
 fn configured_openai_cert_pin() -> Option<&'static str> {
     let value = OPENAI_CERT_SHA256?.trim();
     if value.is_empty() {
@@ -142,14 +200,14 @@ fn configured_openai_cert_pin() -> Option<&'static str> {
     }
 }
 
-fn pin_kind(pin: Option<&str>) -> Option<&'static str> {
-    pin.map(|_| "leaf_cert_sha256")
+fn pin_kind(pin: Option<ConfiguredPin>) -> Option<&'static str> {
+    pin.map(|pin| pin.kind.as_protocol())
 }
 
-fn pin_id(pin: Option<&'static str>) -> Option<&'static str> {
+fn pin_id(pin: Option<ConfiguredPin>) -> Option<&'static str> {
     let pin = pin?;
-    if is_sha256_hex(pin) {
-        Some(&pin[..12])
+    if is_sha256_hex(pin.value) {
+        Some(&pin.value[..12])
     } else {
         None
     }

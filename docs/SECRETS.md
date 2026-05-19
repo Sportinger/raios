@@ -18,7 +18,15 @@ The normal image still fails closed at the TLS trust gate. Add
 `-AllowUnverifiedOpenAiTls` only for a local development smoke image that must
 exercise the old unverified provider-response path.
 
-For the normal pinned-trust smoke, add a process-local OpenAI certificate pin:
+For the normal pinned-trust smoke, prefer a process-local OpenAI SPKI pin:
+
+```powershell
+$env:OPENAI_API_KEY = "<local key or fake smoke key>"
+$env:OPENAI_SPKI_SHA256 = "<64 hex chars>"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiSpkiPinFromEnv
+```
+
+Legacy leaf-certificate pinning is still supported for compatibility:
 
 ```powershell
 $env:OPENAI_API_KEY = "<local key or fake smoke key>"
@@ -26,7 +34,7 @@ $env:OPENAI_CERT_SHA256 = "<64 hex chars>"
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiCertPinFromEnv
 ```
 
-The cert pin is not a provider key, but it should still be treated as
+Provider pins are not provider keys, but they should still be treated as
 environment-supplied local configuration. Leaf-certificate pins rotate with the
 provider certificate and should not be hardcoded into normal docs or source.
 

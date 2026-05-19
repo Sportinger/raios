@@ -51,12 +51,15 @@ and load mode, not from the artifact hash alone.
 OpenAI-default image at `release\raios-stage0-local-openai.img`. By default it
 sends one `ask <text>` command and verifies the current trust gate denies the
 request with `pin_config_missing` before any HTTPS write. With
-`-ExpectPinnedTrust`, it expects an image built with `-EmbedOpenAiCertPinFromEnv`
-and verifies the normal OpenAI leaf-certificate pin path through TLS 1.3,
-positive `pinned_cert` trust, HTTPS write, and provider HTTP response/error.
-With `-ExpectPinMismatch`, it expects an intentionally wrong configured pin and
-verifies that the request fails during the pinned verifier path before HTTPS
-write.
+`-ExpectSpkiPinnedTrust`, it expects an image built with
+`-EmbedOpenAiSpkiPinFromEnv` and verifies the normal OpenAI SPKI pin path through
+TLS 1.3, positive `pinned_spki` trust, HTTPS write, and provider HTTP
+response/error. With `-ExpectPinnedTrust`, it expects an image built with
+`-EmbedOpenAiCertPinFromEnv` and verifies the legacy leaf-certificate pin path
+through TLS 1.3, positive `pinned_cert` trust, HTTPS write, and provider HTTP
+response/error. With `-ExpectPinMismatch`, it expects an intentionally wrong
+configured pin and verifies that the request fails during the pinned verifier
+path before HTTPS write.
 With `-ExpectProviderResponse`, it expects a development image built with
 `-AllowUnverifiedOpenAiTls` and verifies the old unverified DNS/TCP/TLS/HTTPS
 provider-response path.

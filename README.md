@@ -1,14 +1,14 @@
-# raisOS
+# raiOS
 
 <p align="center">
-  <img src="docs/assets/screenshots/raios-openai-chat.png" alt="raisOS direct provider chat screen" width="920">
+  <img src="docs/assets/screenshots/raios-openai-chat.png" alt="raiOS direct provider chat screen" width="920">
 </p>
 
 <p align="center">
   <strong>A personal operating system that extends itself.</strong>
 </p>
 
-raisOS turns a single computer into a bonded, self-extending environment.
+raiOS turns a single computer into a bonded, self-extending environment.
 Instead of installing applications, you ask for what you need — and a resident
 AI builds it inside a small, fully observable system that knows only your
 hardware and only you. Every change is sandboxed before it lands,
@@ -20,7 +20,7 @@ immutable recovery core that cannot be broken from above.
 
 ## What It Is
 
-| 🟢 raisOS is | 🔴 raisOS is not |
+| 🟢 raiOS is | 🔴 raiOS is not |
 | --- | --- |
 | 🟢 A personal operating system bonded to one machine and one user. | 🔴 A general-purpose Linux distribution, desktop environment, or app store. |
 | 🟢 A self-extending environment where an AI can inspect, build, test, and replace services under local policy. | 🔴 A cloud agent, hosted web app, or provider-locked control plane. |
@@ -32,7 +32,7 @@ immutable recovery core that cannot be broken from above.
 ### Console status
 
 <p align="center">
-  <img src="docs/assets/screenshots/raios-console-status.png" alt="raisOS console status screen" width="920">
+  <img src="docs/assets/screenshots/raios-console-status.png" alt="raiOS console status screen" width="920">
 </p>
 
 The console status view exposes boot, framebuffer, entropy, USB, input, Wi-Fi,
@@ -41,7 +41,7 @@ and network state without requiring a graphical desktop or host-side helper.
 ### Provider and Wi-Fi setup
 
 <p align="center">
-  <img src="docs/assets/screenshots/raios-settings.png" alt="raisOS provider and Wi-Fi settings screen" width="920">
+  <img src="docs/assets/screenshots/raios-settings.png" alt="raiOS provider and Wi-Fi settings screen" width="920">
 </p>
 
 The `SET` mode is the first in-guest setup surface for provider status,
@@ -50,7 +50,7 @@ RAM-only API key entry, and early Wi-Fi SSID/passphrase capture.
 ### Direct provider chat
 
 <p align="center">
-  <img src="docs/assets/screenshots/raios-openai-chat.png" alt="raisOS direct OpenAI chat screen" width="920">
+  <img src="docs/assets/screenshots/raios-openai-chat.png" alt="raiOS direct OpenAI chat screen" width="920">
 </p>
 
 The chat view shows the Stage-0 direct provider path rendering a response back
@@ -60,7 +60,7 @@ inside the framebuffer UI after DNS, TCP, TLS, HTTPS, and response parsing.
 
 Most operating systems are general-purpose. They carry decades of compatibility,
 drivers for hardware you'll never own, and abstractions whose only purpose is
-portability. raisOS opts out. It bonds to **one machine** and **one user**, and
+portability. raiOS opts out. It bonds to **one machine** and **one user**, and
 trades universality for surface area you and the AI can fully reason about.
 
 The trade pays off in three directions:
@@ -74,13 +74,13 @@ The trade pays off in three directions:
   calibrated to you. The text editor you used yesterday and the one you use
   today might be entirely different programs because you implemented a few things on the side.
 
-When you change machines, raisOS doesn't port — it re-binds, building a fresh
+When you change machines, raiOS doesn't port — it re-binds, building a fresh
 instance on new hardware while carrying forward your policies, modules, and
 history.
 
 ## How It Works
 
-raisOS is structured in three rings.
+raiOS is structured in three rings.
 
 **The permanent core** is a tiny, immutable Rust kernel handed off from UEFI
 through Limine. It owns boot, memory, scheduling, the framebuffer, input
@@ -88,7 +88,7 @@ devices, the recovery path, and the capability ledger. It is small enough to
 audit by hand and write-protected against everything above it. If anything else
 fails, the core survives.
 
-**The agent host** runs above the core and speaks the raisOS Agent Protocol —
+**The agent host** runs above the core and speaks the raiOS Agent Protocol —
 a typed, capability-gated interface through which an AI can read system state,
 propose changes, request resources, and submit candidate services. Every tool
 call is logged, scoped to declared capabilities, and refused if it exceeds
@@ -154,7 +154,7 @@ working" is measured in seconds and is impossible to break from above.
 
 ## Providers and Trust
 
-raisOS is provider-agnostic by design. The agent host can speak to any provider
+raiOS is provider-agnostic by design. The agent host can speak to any provider
 that supports a typed completion API: OpenAI, Anthropic, local inference
 services, or a self-hosted model. Provider trust is anchored in pinned
 certificates managed through the capability ledger, not baked into the kernel
@@ -169,7 +169,7 @@ never appear on disk or in logs.
 Build a freshly bound image for the machine in front of you:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raisos.img
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios.img
 ```
 
 Boot it in a VM to try it before writing to hardware:
@@ -187,7 +187,7 @@ confirmation string.
 
 ## Principles
 
-raisOS holds a small set of architectural principles that override convenience:
+raiOS holds a small set of architectural principles that override convenience:
 
 - **The core is small and immutable.** Everything else is replaceable.
 - **Capabilities are declared and enforced.** Code that asks for more is
@@ -247,4 +247,4 @@ direction every subsequent change is steering toward.
 For the exact next task and current verified state, see
 `docs/PROJECT_STATUS.md`. For the phased plan, see `docs/ROADMAP.md`. For the
 foundational architecture decision, see
-`docs/architecture-decisions/0001-raisos-agent-protocol.md`.
+`docs/architecture-decisions/0001-raios-agent-protocol.md`.

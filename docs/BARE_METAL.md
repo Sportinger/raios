@@ -32,8 +32,9 @@ Expected gaps:
 - Intel e1000 exists and is used in the bare-metal-style VM. Broader real
   hardware NIC coverage is still missing.
 - In-OS provider transport has reached OpenAI over DNS/TCP/TLS/HTTPS in QEMU.
-  The normal path now has a first OpenAI leaf-certificate pin verifier; without
-  a configured pin it still fails closed before API-key copy or HTTPS write.
+  The normal path now has an OpenAI SPKI pin verifier and a legacy
+  leaf-certificate pin verifier; without a configured pin it still fails closed
+  before API-key copy or HTTPS write.
 - No persistence or secure secret store yet.
 
 ## List USB Disks
@@ -66,7 +67,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\write-stage0-usb.ps1
 
 That embeds `OPENAI_API_KEY` into the local kernel copied to the USB. Do not
 share that USB or its image. The normal provider path still fails closed at TLS
-trust unless `-EmbedOpenAiCertPinFromEnv` supplies a current
+trust unless `-EmbedOpenAiSpkiPinFromEnv` supplies a current
+`OPENAI_SPKI_SHA256` or `-EmbedOpenAiCertPinFromEnv` supplies a current
 `OPENAI_CERT_SHA256`. Add `-AllowUnverifiedOpenAiTls` only for a local
 development smoke USB. The USB script refuses `-SkipBuild` with provider
 key/trust build flags so they cannot silently be omitted or copied from stale

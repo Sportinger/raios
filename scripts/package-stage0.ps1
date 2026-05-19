@@ -6,6 +6,8 @@ param(
     [string]$OpenAiApiKeyEnvVar = "OPENAI_API_KEY",
     [switch]$EmbedOpenAiCertPinFromEnv,
     [string]$OpenAiCertPinEnvVar = "OPENAI_CERT_SHA256",
+    [switch]$EmbedOpenAiSpkiPinFromEnv,
+    [string]$OpenAiSpkiPinEnvVar = "OPENAI_SPKI_SHA256",
     [switch]$AllowUnverifiedOpenAiTls,
     [switch]$UseTempEsp
 )
@@ -54,6 +56,9 @@ try {
     }
     if ($EmbedOpenAiCertPinFromEnv) {
         $buildArgs += @("-EmbedOpenAiCertPinFromEnv", "-OpenAiCertPinEnvVar", $OpenAiCertPinEnvVar)
+    }
+    if ($EmbedOpenAiSpkiPinFromEnv) {
+        $buildArgs += @("-EmbedOpenAiSpkiPinFromEnv", "-OpenAiSpkiPinEnvVar", $OpenAiSpkiPinEnvVar)
     }
     if ($AllowUnverifiedOpenAiTls) {
         $buildArgs += "-AllowUnverifiedOpenAiTls"

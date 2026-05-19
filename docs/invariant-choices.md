@@ -52,11 +52,12 @@ ADR. They remain requirements or gates, not current behavior, until verified.
   certificate verification or provider/service pinning. A WebSocket overlay and
   strict JSON envelope are planned protocol choices, not current Stage-0 runtime
   behavior.
-- **Provider trust**: The fail-closed trust gate and first positive
-  leaf-certificate pin verifier are implemented. The next hardening gate is SPKI
-  provider pinning or certificate-chain validation. Until that lands, provider
-  responses may prove transport behavior but must not be treated as the recovery
-  lifeline or trusted control plane for persistence.
+- **Provider trust**: The fail-closed trust gate, SPKI pin verifier, and legacy
+  leaf-certificate pin verifier are implemented for OpenAI. The next hardening
+  gates are broader certificate algorithm support and certificate-chain
+  validation. Until those land, provider responses may prove transport behavior
+  but must not be treated as the recovery lifeline or trusted control plane for
+  persistence.
 - **Runtime**: A single active Wasm module with explicit host APIs remains a
   planned service-runtime shape. Stage-0 currently has no Wasm module loader and
   no generic outbound socket host API for modules.
