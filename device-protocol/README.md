@@ -13,7 +13,11 @@ Current V0 docs:
 - `capabilities-v0.md` - current observe-only capability policy and mutation
   denial rules.
 - `provider-trust-v0.md` - provider peer-trust states, fail-closed default, and
-  the remaining positive verification blocker.
+  the implemented OpenAI SPKI/leaf-certificate pinning slices.
+- `memory-context-v0.md` - read-only `current_boot` memory profile, context,
+  query, and trace methods for bounded `raios.agent_context.v0` packets.
+- `event-log-v0.md` - RAM-only `current_boot` event/audit log for agent
+  protocol reads and denials.
 - `module-manifest-v0.md` - manifest contract for agent-proposed artifacts.
 - `vm-test-report-v0.md` - Shadow-VM report emitted by
   `vm-harness\shadow-vm-smoke.ps1`.

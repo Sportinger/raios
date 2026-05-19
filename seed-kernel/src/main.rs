@@ -20,6 +20,7 @@ mod agent_protocol;
 mod console;
 mod e1000;
 mod entropy;
+mod event_log;
 mod framebuffer;
 mod input;
 mod memory;

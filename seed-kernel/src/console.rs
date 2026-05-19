@@ -1080,7 +1080,19 @@ fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
         "devicegraph" | "device.graph" => command_agent_protocol("device.graph", runtime),
         "problems" | "problem.list" => command_agent_protocol("problem.list", runtime),
         "services" | "service.inventory" => command_agent_protocol("service.inventory", runtime),
+        "memory.profile" | "memprofile" => command_agent_protocol("memory.profile", runtime),
+        "memory.context" | "memctx" => command_agent_protocol(command_line.trimmed_str(), runtime),
+        "memory.query" | "memquery" => command_agent_protocol(command_line.trimmed_str(), runtime),
+        "memory.trace" | "memtrace" => command_agent_protocol(command_line.trimmed_str(), runtime),
+        "memory.recent_events" | "audit.events" | "events" => {
+            command_agent_protocol(command_line.trimmed_str(), runtime)
+        }
         "agent" => command_agent_protocol(command_line.arguments_after_command(), runtime),
+        "memory.record_observation"
+        | "memory.propose_policy"
+        | "memory.supersede_fact"
+        | "memory.redact"
+        | "memory.compact" => command_agent_protocol(command.as_str(), runtime),
         "module.propose"
         | "module.build_result"
         | "module.test_request"
@@ -1111,10 +1123,10 @@ fn command_help() {
         "COMMANDS: help status devices log provider openai wifi setup ask <text>"
     ));
     write_output(format_args!(
-        "AGENT: describe snapshot caps bootlog services problems device.graph"
+        "AGENT: describe snapshot caps bootlog services problems device.graph memory.profile"
     ));
     write_output(format_args!(
-        "AGENT RAW: system.snapshot service.inventory module.load_ephemeral"
+        "AGENT RAW: memory.context memory.query memory.trace memory.recent_events module.load_ephemeral"
     ));
 }
 

@@ -1,5 +1,110 @@
 # Roadmap
 
+## Agent Handoff Cursor
+
+Last updated: 2026-05-19 by Codex after implementing the RAM-only current-boot
+event/audit log, recording agent protocol reads and denials, updating protocol
+docs and the Shadow VM harness, and running the Shadow VM smoke.
+
+Latest maintenance verification:
+
+- `git diff --check` passed.
+- `cargo fmt --all -- --check` passed.
+- `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
+  passed.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`
+  passed.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
+  passed and wrote
+  `release\vm-reports\shadow-20260519-104330-25636.json` with 80/80
+  predicates.
+
+This file is the planning handoff. Every agent that changes code, tests,
+protocol docs, architecture docs, or verified project state must update this
+section before handing off. If the exact next task changes, also update
+`docs/PROJECT_STATUS.md`.
+
+Current verified cursor:
+
+- Stage-0 is a bootable Limine/Rust kernel with framebuffer UI, serial console,
+  USB-HID/xHCI input, e1000 DHCP, entropy, setup UI, and direct OpenAI transport
+  through the guest network path.
+- Provider trust is fail-closed by default. OpenAI SPKI SHA-256 pinning is the
+  preferred positive verifier slice, and legacy leaf-certificate SHA-256 pinning
+  remains supported. The unverified TLS path exists only behind the explicit
+  development build switch.
+- `raios.agent.v0` exists over the serial console with read-only methods:
+  `system.describe`, `system.snapshot`, `system.capabilities`,
+  `system.boot_log`, `device.graph`, `problem.list`, and
+  `service.inventory`.
+- Mutating or potentially mutating methods currently return structured
+  `capability_denied` until manifest, VM test report, local attestation,
+  computed grant, approval, audit, and rollback evidence exist.
+- `system.snapshot.v0`, `system.capabilities.v0`, `problem.list.v0`,
+  `service.inventory.v0`, provider trust docs, module manifest docs, VM test
+  report docs, local attestation docs, and recovery protocol docs exist.
+- `memory.profile`, `memory.context`, `memory.query`, and `memory.trace` exist
+  as local read-only `current_boot` methods. `memory.context` emits
+  `raios.agent_context.v0`; provider export remains disabled.
+- `memory.recent_events` and `audit.events [limit]` expose a bounded RAM-only
+  `event.log.v0` ring for current-boot agent protocol reads and denials.
+- Denied agent methods now cite current-boot `event_id` and `audit_event_id`
+  values such as `event.current_boot.00000012`.
+- Memory mutation methods such as `memory.record_observation`,
+  `memory.propose_policy`, `memory.supersede_fact`, `memory.redact`, and
+  `memory.compact` return structured `capability_denied`.
+- The Shadow VM smoke validates the read-only protocol, memory context schemas,
+  provider export denial, event/audit log reads, memory mutation denials with
+  event ids, and the denied module load path, then emits
+  `raios.vm_test_report.v0` reports.
+
+Current phase: Phase 5.6 is implemented as the first RAM-only current-boot
+event/audit foundation. The next durable architecture step is a
+`provider_minimal` redaction projection for `raios.agent_context.v0`.
+
+Exact next task:
+
+```text
+Define and implement the provider_minimal redaction projection for
+raios.agent_context.v0, keeping provider export disabled unless provider trust
+is positive and the outbound projection is audit-bound.
+```
+
+Start with explicit field classification for the context packet, then emit a
+local-only projection that states what would be allowed or omitted for provider
+export. Do not attach it to provider requests until positive provider trust and
+event/audit binding both exist.
+
+Next three tasks:
+
+1. Specify the `provider_minimal` projection fields for
+   `raios.agent_context.v0`, including public/local-only/secret treatment and
+   explicit omissions.
+2. Implement local read-only projection output and Shadow VM assertions proving
+   that provider export remains disabled while trust is not positive.
+3. Add event/audit binding for any future provider-bound context export, still
+   without sending context automatically to OpenAI.
+
+Current blockers and non-goals:
+
+- Do not add fake persistent memory. V0 memory is `current_boot` and read-only.
+- Do not send raw `system.snapshot` or boot logs to a provider.
+- Do not grant module/service/config mutation before the evidence chain exists.
+- Do not treat the direct OpenAI provider path as the recovery lifeline.
+- Do not overwrite `release/raios-stage0.img` unless the replacement has booted
+  in QEMU.
+
+Update discipline for future agents:
+
+- Update `Last updated`, `Current phase`, `Exact next task`, `Next three tasks`,
+  and verification notes whenever work changes the project state.
+- Mark work as done only with evidence: file paths, protocol methods, harness
+  reports, command output, or explicit known gaps.
+- Keep prose plans tied to stable IDs such as service ids, problem ids,
+  capability ids, schema ids, report ids, and ADR ids.
+- If a task only verifies behavior and changes no code, still update the
+  verification note when that result changes what future agents should trust.
+
 ## Product Thesis
 
 raiOS should be a tiny bootable environment whose primary interface is an
@@ -68,6 +173,7 @@ fail-closed TLS/provider trust
 -> static service.inventory.v0
 -> capability policy v0
 -> read-only memory.context over real typed facts
+-> RAM-only event.log.v0 over reads and denials
 -> module_manifest.v0
 -> vm_test_report.v0
 -> local_attestation.v0
@@ -313,6 +419,32 @@ Definition of done:
   store or raw logs.
 - Context packets report profile, budget, included records, and omitted classes.
 - Provider-bound context still obeys provider trust and redaction gates.
+
+## Phase 5.6: RAM-Only Current-Boot Event Log
+
+Goal:
+
+```text
+agent protocol behavior -> bounded event.log.v0 -> denial/event evidence ids
+```
+
+Status: implemented for agent protocol reads and known denials.
+
+Scope:
+
+- expose `memory.recent_events [limit]`
+- expose `audit.events [limit]` as an alias
+- record read-only protocol responses with method, capability, classification,
+  outcome, and compact evidence
+- record `capability_denied` outcomes for memory/module/service/config methods
+- include current-boot `event_id` and `audit_event_id` in denial responses
+- keep the log RAM-only, bounded, non-secret, and non-provider-exported
+
+Definition of done:
+
+- Shadow VM proves `event.log.v0` and `audit.event.v0` over serial.
+- Denied memory and module methods cite event ids.
+- No persistent memory, durable audit ledger, or provider export is implied.
 
 ## Phase 6: Ephemeral Live Services
 

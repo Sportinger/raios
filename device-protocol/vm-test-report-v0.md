@@ -86,21 +86,34 @@ The JSON report contains:
     "hardware_profile_sha256": "...",
     "qemu_args_sha256": "...",
     "serial_log_sha256": "...",
-    "predicate_count": 16,
-    "predicate_passed_count": 16,
+    "predicate_count": 80,
+    "predicate_passed_count": 80,
     "predicate_failed_count": 0
   },
   "commands": [
     "describe",
     "snapshot",
+    "caps",
     "services",
     "problems",
+    "agent memory.profile",
+    "agent memory.context diagnostic",
+    "agent memory.context provider_minimal",
+    "agent memory.query",
+    "agent memory.trace snapshot.current",
+    "agent memory.recent_events",
+    "agent audit.events 8",
+    "agent memory.record_observation",
+    "agent memory.propose_policy",
+    "agent memory.supersede_fact",
+    "agent memory.redact",
+    "agent memory.compact",
     "module.load_ephemeral"
   ],
   "predicates": [
     {
-      "name": "policy:mutating_load_denied",
-      "expected": "serial_contains:\"code\": \"capability_denied\"",
+      "name": "protocol:memory_context_schema",
+      "expected": "serial_contains:\"schema\": \"raios.agent_context.v0\"",
       "passed": true,
       "actual": "found"
     }

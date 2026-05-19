@@ -1,7 +1,9 @@
 # Project Status
 
-Last verified locally: 2026-05-19 on Windows with QEMU 11 via headless shadow VM
-smoke and direct OpenAI SPKI pinned-trust smoke using a fake local API key.
+Last verified locally: 2026-05-19 on Windows with QEMU 11 via headless Shadow
+VM smoke covering read-only memory context, the RAM-only current-boot event log,
+denial event ids, and an earlier direct OpenAI SPKI pinned-trust smoke using a
+fake local API key.
 
 ## Verified Boot State
 
@@ -148,7 +150,17 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Harden and polish the direct provider path:
+Implement the `provider_minimal` redaction projection for
+`raios.agent_context.v0`:
+
+- classify every outbound context field as `public`, `local_only`, or `secret`
+- produce a local read-only projection showing included and omitted fields
+- keep provider export disabled unless provider trust is positive and the
+  context export has current-boot event/audit binding
+- do not attach raw `system.snapshot`, boot logs, or unclassified memory context
+  to OpenAI requests
+
+The verified foundation for that task is:
 
 - Virtio has been removed from the Stage-0 kernel runtime and VM runner path.
 - RDRAND seeds entropy in the bare-metal-style VM profile.
@@ -204,6 +216,37 @@ Harden and polish the direct provider path:
   `system.snapshot.v0`, `problem.list`, and `service.inventory`; the default
   trust problem is `provider.tls_pin_config_missing`, while a successful pinned
   handshake reports `pinned_spki_verified` or `pinned_cert_verified`.
+- `raios.agent.v0` exposes read-only serial methods for `system.describe`,
+  `system.snapshot`, `system.capabilities`, `system.boot_log`, `device.graph`,
+  `problem.list`, `service.inventory`, `memory.profile`, `memory.context`,
+  `memory.query`, `memory.trace`, `memory.recent_events`, and `audit.events`.
+- mutating or potentially mutating methods such as `module.load_ephemeral`,
+  `service.restart`, `config.apply`, `provider.configure`, and `wifi.configure`
+  return structured `capability_denied` until manifest, VM test report, local
+  attestation, computed capability grant, approval, audit, and rollback evidence
+  exist.
+- `vm-harness\shadow-vm-smoke.ps1` verifies the read-only agent protocol,
+  provider trust problem visibility, static service inventory, and denied module
+  load behavior, then writes a `raios.vm_test_report.v0` report.
+- `memory.profile`, `memory.context`, `memory.query`, and `memory.trace` now
+  expose a local read-only `current_boot` memory context slice. The
+  `memory.context` result schema is `raios.agent_context.v0`, and provider
+  export is explicitly disabled.
+- `memory.recent_events` and `audit.events [limit]` expose a bounded RAM-only
+  `event.log.v0` ring containing compact `audit.event.v0` records for agent
+  protocol reads and known `capability_denied` outcomes.
+- denied memory/module/service/config methods include current-boot `event_id`
+  and `audit_event_id` handles, while all durable audit, persistence, policy
+  mutation, redaction mutation, and rollback behavior remains denied.
+- memory mutation methods (`memory.record_observation`,
+  `memory.propose_policy`, `memory.supersede_fact`, `memory.redact`, and
+  `memory.compact`) return structured `capability_denied` with missing audit and
+  persistence evidence.
+- `vm-harness\shadow-vm-smoke.ps1` now verifies memory-context schemas,
+  provider export denial, memory query/trace, event log schemas, audit alias,
+  memory mutation denials with event ids, and the existing denied module load
+  path. Latest report:
+  `release\vm-reports\shadow-20260519-104330-25636.json`.
 - the development serial relay and old host-framing path have been removed from
   the runtime path.
 - the next trust milestone is WebPKI or broader certificate algorithm support

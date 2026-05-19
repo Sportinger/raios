@@ -95,6 +95,12 @@ read-only protocol methods:
 | `cap.service.inventory.read` | `service.inventory` | `observe` | `current_boot` | Read static service inventory. |
 | `cap.device.graph.read` | `device.graph` | `observe` | `current_boot` | Read known device graph facts. |
 | `cap.problem.list.read` | `problem.list` | `observe` | `current_boot` | Read known local problems and gaps. |
+| `cap.memory.profile.read` | `memory.profile` | `observe` | `current_boot` | Read available memory context profiles. |
+| `cap.memory.context.read` | `memory.context` | `observe` | `current_boot` | Read bounded current-boot agent context. |
+| `cap.memory.query.read` | `memory.query` | `observe` | `current_boot` | Query current-boot memory record ids. |
+| `cap.memory.trace.read` | `memory.trace` | `observe` | `current_boot` | Trace current-boot memory records to source evidence. |
+| `cap.memory.recent_events.read` | `memory.recent_events` | `observe` | `current_boot` | Read bounded current-boot memory event records. |
+| `cap.audit.events.read` | `audit.events` | `observe` | `current_boot` | Read bounded current-boot audit event records. |
 
 `system.snapshot` also reports `capability_denied.for_all_mutating_methods` so an
 agent can discover that mutation is intentionally unavailable.
@@ -105,6 +111,11 @@ The following methods are present as protocol vocabulary but must return
 `capability_denied` in Stage-0 V0:
 
 ```text
+memory.record_observation
+memory.propose_policy
+memory.supersede_fact
+memory.redact
+memory.compact
 module.propose
 module.build_result
 module.test_request
@@ -126,6 +137,10 @@ download_signed_module
 run_module_test
 ```
 
+Memory mutation methods map to the denied catalog capability
+`cap.memory.mutate`. They are visible so future agents can reason about the
+missing grant without treating RAM-only records as durable memory.
+
 The denial must name the missing evidence set:
 
 ```text
@@ -135,6 +150,8 @@ local_attestation.v0
 computed_capability_grant
 local_approval
 rollback_plan
+raios.audit_record.v0
+raios.memory_persistence.v0
 ```
 
 V0 does not distinguish between "method known but currently unsafe" and "method
@@ -143,11 +160,15 @@ known mutating method -> structured denial; unknown method -> unknown command.
 
 ## Audit Expectation
 
-Read-only methods may be recorded in the serial log and protocol transcript.
-That is sufficient for V0 observation.
+Read-only methods and known `capability_denied` outcomes are recorded in the
+RAM-only `event.log.v0` ring for the current boot. The serial log and protocol
+transcript remain useful evidence, but they are no longer the only structured
+observation record. Denial responses also cite the current-boot `event_id` and
+`audit_event_id`.
 
 Before any mutating grant can exist, raiOS must emit or persist an audit record
-that can explain the decision later. The minimum record should include:
+that can explain the decision later. The current RAM ring is not durable enough
+for that grant. The minimum durable record should include:
 
 ```text
 agent session id

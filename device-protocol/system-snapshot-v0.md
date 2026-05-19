@@ -191,7 +191,8 @@ values.
 - Network, Wi-Fi, USB, and provider detail fields are still prose strings in the
   current kernel. They are useful locally but intentionally classified as
   `local_only` until typed subfields exist.
-- The normal direct OpenAI path now has a first positive
-  `pinned_cert_verified` slice, but automatic snapshot attachment to provider
-  requests remains disabled until a `provider_minimal` projection is emitted and
-  the provider request path explicitly applies this redaction profile.
+- The normal direct OpenAI path now has positive `pinned_spki_verified` and
+  legacy `pinned_cert_verified` slices, but automatic snapshot attachment to
+  provider requests remains disabled until a `provider_minimal` projection is
+  emitted and the provider request path explicitly applies this redaction
+  profile.
