@@ -28,6 +28,8 @@ V0 records:
 - read-only negative gate selftest responses that exercise the same predicate
   without mutating the global event log
 - read-only final injection gate diagnostics that keep body attachment blocked
+- read-only final injection negative selftest responses that exercise the final
+  authorization predicate without mutating the global event log
 - provider request-binding denial records for `provider_minimal`
 - provider context export-denial audit records with
   `outcome: denied_no_provider_write`
@@ -347,6 +349,31 @@ Positive pinned/WebPKI OpenAI request paths emit a local
 `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker before API-key copy or HTTPS
 write. The marker binds request and provider-minimal context hashes but still
 has `status: blocked`.
+
+`provider.context_injection_gate_selftest provider_minimal` emits
+`raios.provider_context_injection_gate_negative_selftest.v0`. Like the export
+gate selftest, it is a response-only test artifact, not an `audit.event.v0`
+record. It must keep:
+
+```text
+test_infrastructure: true
+mutates_global_event_log: false
+creates_provider_request_envelope: false
+creates_positive_binding_records: false
+creates_final_authorization_records: false
+provider_write: not_attempted
+automatic_context_injection: disabled
+context_attached_to_provider_body: false
+can_attach_context: false
+```
+
+The current cases cover `final_injection_authorization_missing`,
+`final_injection_authorization_stale_or_dropped_event_id`,
+`final_injection_authorization_wrong_schema_or_variant`,
+`final_injection_authorization_substituted_record`,
+`final_prewrite_body_hash_mismatch`,
+`final_provider_trust_downgraded_before_write`, and
+`body_attachment_without_final_authorization`.
 
 ## Provider Export Denial Events
 

@@ -99,6 +99,27 @@ function Assert-Equal {
     }
 }
 
+function Assert-TextOrder {
+    param(
+        [string]$Name,
+        [string]$Serial,
+        [string]$Earlier,
+        [string]$Later
+    )
+
+    $earlierIndex = $Serial.IndexOf($Earlier, [StringComparison]::Ordinal)
+    $laterIndex = $Serial.IndexOf($Later, [StringComparison]::Ordinal)
+    if ($earlierIndex -lt 0) {
+        throw "$Name missing earlier marker '$Earlier'."
+    }
+    if ($laterIndex -lt 0) {
+        throw "$Name missing later marker '$Later'."
+    }
+    if ($earlierIndex -gt $laterIndex) {
+        throw "$Name order mismatch. '$Earlier' appeared after '$Later'."
+    }
+}
+
 function Assert-PositiveBindingMarkers {
     param(
         [string]$Serial
@@ -126,7 +147,11 @@ function Assert-PositiveBindingMarkers {
     Assert-Equal -Name "injection gate request body hash" -Actual $injectionGate.request_body_hash -Expected $requestBinding.request_body_hash
     Assert-Equal -Name "injection gate request envelope hash" -Actual $injectionGate.request_envelope_hash -Expected $requestBinding.request_envelope_hash
     Assert-Equal -Name "injection gate packet hash" -Actual $injectionGate.hashes.projected_packet_hash -Expected $requestBinding.hashes.projected_packet_hash
+    Assert-Equal -Name "injection gate status" -Actual $injectionGate.status -Expected "blocked"
+    Assert-Equal -Name "injection gate reason" -Actual $injectionGate.reason -Expected "automatic_context_injection_disabled"
+    Assert-Equal -Name "injection gate final schema" -Actual $injectionGate.final_authorization_schema -Expected "raios.provider_context_injection_authorization.v0"
     Assert-Equal -Name "injection gate final authorization" -Actual $injectionGate.final_authorization -Expected "missing"
+    Assert-Equal -Name "injection gate provider trust positive" -Actual $injectionGate.provider_trust_positive -Expected $true
     Assert-Equal -Name "injection gate current boot export gate" -Actual $injectionGate.satisfies_current_boot_export_gate -Expected $false
     Assert-Equal -Name "injection gate automatic context injection" -Actual $injectionGate.automatic_context_injection -Expected "disabled"
     Assert-Equal -Name "injection gate body attachment" -Actual $injectionGate.context_attached_to_provider_body -Expected $false
@@ -257,6 +282,10 @@ try {
     }
     if ($ExpectPinnedTrust -or $ExpectSpkiPinnedTrust) {
         Assert-PositiveBindingMarkers -Serial $serial
+        Assert-TextOrder -Name "injection gate before HTTPS write" -Serial $serial -Earlier "OPENAI_PROVIDER_CONTEXT_INJECTION_GATE" -Later "openai: HTTPS request sent"
+    }
+    if (($serial -like '*"context_attached_to_provider_body":true*') -or ($serial -like '*"context_attached_to_provider_body": true*')) {
+        throw "Direct smoke saw provider context body attachment before final injection authorization in $SerialLog"
     }
     if (($ExpectProviderResponse -or $ExpectPinnedTrust -or $ExpectSpkiPinnedTrust -or $ExpectPinMismatch) -and ($serial -notlike "*`"provider_write`":`"not_attempted`"*")) {
         throw "Direct smoke did not see provider_write:not_attempted in the provider request envelope in $SerialLog"

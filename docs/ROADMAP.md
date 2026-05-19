@@ -7,7 +7,8 @@ provider-context gate selftests for stale/dropped ids,
 previous-boot-or-unretained ids, substituted schemas, substituted positive
 records, and mismatched hashes; then adding the separate fail-closed
 `raios.provider_context_injection_gate.v0` diagnostic and OpenAI prewrite
-marker while keeping automatic provider context injection disabled.
+marker; then adding local-only negative final-injection authorization selftests
+while keeping automatic provider context injection disabled.
 
 Latest maintenance verification:
 
@@ -19,7 +20,7 @@ Latest maintenance verification:
   passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260519-202124-12104.json` with 218/218
+  `release\vm-reports\shadow-20260519-203426-15148.json` with 246/246
   predicates.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
@@ -110,6 +111,12 @@ Current verified cursor:
   authorization schema explicit as
   `raios.provider_context_injection_authorization.v0`, reports that
   authorization as missing, and keeps `can_attach_context: false`.
+- `provider.context_injection_gate_selftest provider_minimal` exposes local-only
+  `raios.provider_context_injection_gate_negative_selftest.v0` test
+  infrastructure over the final authorization predicate. It covers missing,
+  stale/dropped, wrong-schema, substituted-positive-record, final body-hash
+  mismatch, trust downgrade, and body-attachment-without-final-authorization
+  cases without mutating the global event log or creating provider writes.
 - Positive pinned/WebPKI OpenAI request paths now emit
   `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` after positive request/export binding
   evidence and before API-key copy or HTTPS write. The marker binds request and
@@ -130,30 +137,31 @@ Current verified cursor:
   `raios.vm_test_report.v0` reports.
 
 Current phase: Phase 5.14 has a fail-closed final provider context injection
-gate diagnostic and direct OpenAI prewrite marker. The next durable architecture
-step is explicit negative harness coverage for final authorization records
-before any positive body-attachment path exists.
+gate diagnostic, direct OpenAI prewrite marker, and negative final-authorization
+selftests. The next durable architecture step is defining the first positive
+authorization source before any body-attachment path exists.
 
 Exact next task:
 
 ```text
-Add negative final-injection authorization harness cases while keeping automatic
-provider context injection disabled.
+Define the first positive final-injection authorization source while keeping
+automatic provider context injection disabled.
 ```
 
-Start by testing missing, stale, substituted, mismatched, and trust-downgraded
-`raios.provider_context_injection_authorization.v0` candidates. Do not attach
-context to OpenAI requests until the final positive gate has single-use evidence
-and explicit no-leak failure modes.
+Start by specifying how local policy can create a single-request
+`raios.provider_context_injection_authorization.v0` record over a consumed
+current-boot binding pair. Do not attach context to OpenAI requests until that
+positive authorization path has single-use evidence and explicit no-leak failure
+modes.
 
 Next three tasks:
 
-1. Add final-injection authorization negative cases for missing, stale,
-   substituted, and mismatched authorization records.
-2. Add a direct OpenAI smoke assertion for the blocked
-   `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker on positive pinned trust.
-3. Decide the first positive authorization source, likely local policy over a
+1. Decide the first positive authorization source, likely local policy over a
    retained current-boot binding pair, before allowing request-body attachment.
+2. Define the canonical hash for `raios.provider_context_injection_authorization.v0`
+   and bind it to the final prewrite body hash check.
+3. Add the first positive authorization writer only if it remains fail-closed
+   with `automatic_context_injection: disabled`.
 
 Current blockers and non-goals:
 
@@ -769,8 +777,8 @@ Goal:
 checked binding evidence -> explicit injection authorization -> one request body may attach context
 ```
 
-Status: fail-closed diagnostic implemented; no context injection is implemented
-in the current slice.
+Status: fail-closed diagnostic and negative authorization selftests implemented;
+no context injection is implemented in the current slice.
 
 Scope:
 
@@ -778,6 +786,10 @@ Scope:
   request binding, export-audit binding, and binding consumption
 - expose `provider.context_injection_gate provider_minimal` as a read-only
   diagnostic over the current gate state
+- expose `provider.context_injection_gate_selftest provider_minimal` as
+  local-only test infrastructure for missing, stale, substituted, body-hash
+  mismatched, trust-downgraded, and unauthorized body-attachment final
+  authorization candidates
 - emit a blocked `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker on positive
   pinned/WebPKI OpenAI request paths before API-key copy or HTTPS write
 - require positive provider trust, retained current-boot binding evidence,

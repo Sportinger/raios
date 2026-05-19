@@ -18,7 +18,8 @@ Current V0 docs:
   query, and trace methods for bounded `raios.agent_context.v0` packets.
 - `provider-context-export-v0.md` - denied-by-default provider context export
   gate, local-only positive binding records, checked consumption, negative gate
-  selftests, final injection-gate requirements, and audit-binding requirements.
+  selftests, final injection-gate negative selftests, and audit-binding
+  requirements.
 - `provider-request-envelope-v0.md` - local pre-write envelope contract for
   binding one provider context packet to one real provider request.
 - `event-log-v0.md` - RAM-only `current_boot` event/audit log for agent

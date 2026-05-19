@@ -198,6 +198,9 @@ body-attachment diagnostic for this projection. It names the future
 `raios.provider_context_injection_authorization.v0` schema but keeps
 `provider_export: disabled`, `automatic_context_injection: disabled`, and
 `can_attach_context: false`.
+`provider.context_injection_gate_selftest provider_minimal` exercises the
+negative final-authorization predicate for this projection using synthetic
+RAM-only records and does not mutate the global event log or attach context.
 
 ## Omitted Classes
 

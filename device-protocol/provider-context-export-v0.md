@@ -246,6 +246,39 @@ provider_write: not_attempted
 can_attach_context: false
 ```
 
+The future `raios.provider_context_injection_authorization.v0` record is a
+local-only, current-boot, single-request authorization. It must bind at least
+the request id, request-envelope event id and hash, request body hash, request
+binding event id and hash, export-audit binding event id and hash,
+binding-consumption event id, provider-minimal packet/exported/omitted field
+hashes, provider trust at authorization, provider trust at final prewrite, a
+local policy decision id/status, and an authorization hash. Until a production
+writer for that schema exists, Stage-0 treats the authorization as missing.
+
+`provider.context_injection_gate_selftest provider_minimal` is local test
+infrastructure for the final-authorization predicate. It emits
+`raios.provider_context_injection_gate_negative_selftest.v0` and must report:
+
+```text
+test_infrastructure: true
+mutates_global_event_log: false
+creates_provider_request_envelope: false
+creates_positive_binding_records: false
+creates_final_authorization_records: false
+provider_write: not_attempted
+automatic_context_injection: disabled
+context_attached_to_provider_body: false
+can_attach_context: false
+```
+
+The selftest feeds synthetic RAM-only records into the same final predicate used
+by `provider.context_injection_gate`. It covers missing final authorization,
+stale or dropped authorization references, wrong schema/variant substitution,
+substituted positive authorization records, final prewrite body-hash mismatch,
+provider trust downgrade before write, and body attachment attempts without
+final authorization. These cases are response-only test evidence; they must not
+write synthetic authorization records into the global event log.
+
 On positive pinned/WebPKI OpenAI request paths, Stage-0 also emits a local-only
 `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker after positive request/export
 binding evidence and before API-key copy or HTTPS write. That marker binds the

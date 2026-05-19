@@ -146,6 +146,10 @@ The `NoVerify` path remains only behind the explicit development build flag
 - Positive pinned/WebPKI request paths emit a blocked
   `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker before API-key copy or HTTPS
   write; it must keep final authorization missing and body attachment false.
+- `provider.context_injection_gate_selftest` covers missing, stale, substituted,
+  final body-hash mismatched, trust-downgraded, and body-attachment-without-final
+  authorization candidates without creating global event-log records, provider
+  writes, or body attachment.
 - `provider.context_gate_selftest` covers stale/dropped ids,
   previous-boot-or-unretained ids, substituted schemas, substituted positive
   records, mismatched request/body/context hashes, and trust-bypass records

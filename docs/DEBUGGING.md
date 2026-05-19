@@ -275,18 +275,26 @@ The Shadow VM smoke also exercises local-only negative gate selftests:
 ```text
 agent provider.context_gate_selftest provider_minimal
 agent provider.context_injection_gate provider_minimal
+agent provider.context_injection_gate_selftest provider_minimal
 ```
 
-That command emits `raios.provider_context_gate_negative_selftest.v0`, does not
-mutate the global event log, does not create request envelopes or positive
-binding records, and checks stale/dropped ids, previous-boot-or-unretained ids,
-substituted denial/positive records, request/body/binding/context hash
-mismatches, and trust-bypass records.
+The export-gate selftest emits
+`raios.provider_context_gate_negative_selftest.v0`, does not mutate the global
+event log, does not create request envelopes or positive binding records, and
+checks stale/dropped ids, previous-boot-or-unretained ids, substituted
+denial/positive records, request/body/binding/context hash mismatches, and
+trust-bypass records.
 
 `provider.context_injection_gate` emits
 `raios.provider_context_injection_gate.v0`; it names the final authorization
 schema `raios.provider_context_injection_authorization.v0`, reports that
 authorization as missing, and keeps `can_attach_context: false`.
+
+The final-injection selftest emits
+`raios.provider_context_injection_gate_negative_selftest.v0`, keeps provider
+write and body attachment disabled, and checks missing, stale, substituted,
+body-hash mismatched, trust-downgraded, and unauthorized body-attachment final
+authorization candidates.
 
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:

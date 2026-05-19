@@ -516,6 +516,7 @@ const READ_METHODS: &[&str] = &[
     "provider.context_gate",
     "provider.context_gate_selftest",
     "provider.context_injection_gate",
+    "provider.context_injection_gate_selftest",
 ];
 
 const DENIED_METHODS: &[&str] = &[
@@ -643,6 +644,11 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("provider.context_injection_gate");
         emit_provider_context_injection_gate(runtime, method);
         return DispatchOutcome::Response("provider.context_injection_gate");
+    }
+    if provider_context_injection_gate_selftest_method(method) {
+        record_read("provider.context_injection_gate_selftest");
+        emit_provider_context_injection_gate_selftest(runtime, method);
+        return DispatchOutcome::Response("provider.context_injection_gate_selftest");
     }
 
     if provider_context_export_method(method) {
@@ -1649,6 +1655,10 @@ fn emit_provider_context_injection_gate(runtime: ui::RuntimeStatus, request: &st
     let projection_present = profile_supported;
     let evidence = provider_context_evidence(&status, &provider);
     let check = event_log::check_provider_context_binding_gate(evidence.event_hashes());
+    let injection_check = event_log::check_provider_context_injection_gate(
+        evidence.event_hashes(),
+        provider.trust_state,
+    );
 
     begin_response("provider.context_injection_gate");
     raw_line("      \"schema\": \"raios.provider_context_injection_gate.v0\",");
@@ -1702,10 +1712,33 @@ fn emit_provider_context_injection_gate(runtime: ui::RuntimeStatus, request: &st
     raw_line(
         "        \"final_authorization_schema\": \"raios.provider_context_injection_authorization.v0\",",
     );
-    raw_line("        \"final_authorization\": \"missing\",");
-    raw_line("        \"final_prewrite_body_check\": \"not_attempted\",");
-    raw_line("        \"satisfies_current_boot_export_gate\": false,");
-    raw_line("        \"can_attach_context\": false");
+    raw("        \"final_authorization\": ");
+    json_str(provider_injection_authorization_state(&injection_check));
+    raw_line(",");
+    raw("        \"final_authorization_validation_status\": ");
+    json_str(injection_check.status);
+    raw_line(",");
+    raw("        \"final_authorization_validation_reason\": ");
+    json_str(injection_check.reason);
+    raw_line(",");
+    raw("        \"final_authorization_event_id\": ");
+    json_event_id_option(injection_check.authorization_event_id);
+    raw_line(",");
+    raw("        \"binding_consumption_event_id\": ");
+    json_event_id_option(injection_check.binding_consumption_event_id);
+    raw_line(",");
+    raw("        \"final_authorization_retained\": ");
+    raw_bool(injection_check.retained);
+    raw_line(",");
+    raw("        \"final_prewrite_body_check\": ");
+    json_str(provider_injection_body_check_state(&injection_check));
+    raw_line(",");
+    raw("        \"satisfies_current_boot_export_gate\": ");
+    raw_bool(injection_check.satisfies_current_boot_export_gate);
+    raw_line(",");
+    raw("        \"can_attach_context\": ");
+    raw_bool(injection_check.can_attach_context);
+    crlf();
     raw_line("      },");
     raw_line("      \"candidate\": {");
     emit_provider_binding_candidate(&check, 8);
@@ -1759,12 +1792,14 @@ fn emit_provider_context_injection_gate(runtime: ui::RuntimeStatus, request: &st
             check.reason,
         );
     }
-    emit_export_gate(
-        &mut wrote,
-        "provider_context_injection_authorization",
-        "missing",
-        "final_injection_authorization_missing",
-    );
+    if injection_check.status != "blocked" {
+        emit_export_gate(
+            &mut wrote,
+            "provider_context_injection_authorization",
+            injection_check.status,
+            injection_check.reason,
+        );
+    }
     emit_export_gate(
         &mut wrote,
         "provider_write_path",
@@ -1785,6 +1820,93 @@ fn emit_provider_context_injection_gate(runtime: ui::RuntimeStatus, request: &st
     raw_line("      \"satisfies_current_boot_export_gate\": false,");
     raw_line("      \"can_export\": false");
     end_response("provider.context_injection_gate");
+}
+
+fn emit_provider_context_injection_gate_selftest(runtime: ui::RuntimeStatus, request: &str) {
+    let status = SystemSnapshot::collect(None, runtime);
+    let provider = provider::snapshot();
+    let profile = provider_context_export_profile(request);
+    let profile_supported = method_eq(profile, "provider_minimal");
+    let evidence = provider_context_evidence(&status, &provider);
+    let cases = event_log::provider_context_injection_gate_selftest(evidence.event_hashes());
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("provider.context_injection_gate_selftest");
+    raw_line("      \"schema\": \"raios.provider_context_injection_gate_negative_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_provider_request_envelope\": false,");
+    raw_line("      \"creates_positive_binding_records\": false,");
+    raw_line("      \"creates_final_authorization_records\": false,");
+    raw_line("      \"provider_export\": \"disabled\",");
+    raw_line("      \"automatic_context_injection\": \"disabled\",");
+    raw_line("      \"context_attached_to_provider_body\": false,");
+    raw_line("      \"provider_write\": \"not_attempted\",");
+    raw_line("      \"can_attach_context\": false,");
+    raw("      \"profile\": ");
+    json_str(profile);
+    raw_line(",");
+    raw("      \"profile_supported\": ");
+    raw_bool(profile_supported);
+    raw_line(",");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"covered_rejections\": [");
+    raw_line("        \"missing_final_authorization\",");
+    raw_line("        \"stale_dropped_final_authorization_event_id\",");
+    raw_line("        \"final_authorization_schema_substitution\",");
+    raw_line("        \"substituted_positive_final_authorization_record\",");
+    raw_line("        \"final_authorization_body_hash_mismatch\",");
+    raw_line("        \"final_authorization_trust_downgrade\",");
+    raw_line("        \"body_attachment_without_final_authorization\"");
+    raw_line("      ],");
+    raw_line("      \"cases\": [");
+    let mut case_idx = 0usize;
+    while case_idx < cases.len() {
+        emit_provider_context_injection_gate_selftest_case(
+            &cases[case_idx],
+            case_idx + 1 != cases.len(),
+        );
+        case_idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"satisfies_current_boot_export_gate\": false,");
+    raw_line("      \"can_export\": false");
+    end_response("provider.context_injection_gate_selftest");
+}
+
+fn emit_provider_context_injection_gate_selftest_case(
+    case: &event_log::ProviderContextInjectionGateSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw("}");
+    if comma {
+        raw(",");
+    }
+    crlf();
 }
 
 fn emit_capability_denied(method: &'static str, event_id: event_log::EventId) {
@@ -2317,6 +2439,35 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             emit_provider_context_hashes(binding.context);
             raw("}");
         }
+        event_log::EventBindings::ProviderContextInjectionAuthorization(binding) => {
+            raw(", \"bindings\": {\"schema\": \"raios.provider_context_injection_authorization.v0\", \"status\": \"authorized_for_single_provider_request\", \"satisfies_current_boot_export_gate\": false, \"automatic_context_injection\": \"disabled\", \"provider_write\": \"not_attempted\", \"context_attached_to_provider_body\": ");
+            raw_bool(binding.context_attached_to_provider_body);
+            raw(", \"request_id\": ");
+            raw_fmt(format_args!("{}", binding.request_id));
+            raw(", \"request_envelope_event_id\": ");
+            json_event_id(binding.request_envelope_event_id);
+            raw(", \"request_binding_event_id\": ");
+            json_event_id(binding.request_binding_event_id);
+            raw(", \"export_audit_binding_event_id\": ");
+            json_event_id(binding.export_audit_binding_event_id);
+            raw(", \"binding_consumption_event_id\": ");
+            json_event_id(binding.binding_consumption_event_id);
+            raw(", \"request_body_hash\": ");
+            json_sha256(binding.request_body_hash);
+            raw(", \"request_envelope_hash\": ");
+            json_sha256(binding.request_envelope_hash);
+            raw(", \"request_binding_hash\": ");
+            json_sha256(binding.request_binding_hash);
+            raw(", \"export_audit_binding_hash\": ");
+            json_sha256(binding.export_audit_binding_hash);
+            raw(", \"final_authorization_hash\": ");
+            json_sha256(binding.final_authorization_hash);
+            raw(", \"trust_snapshot\": {\"provider_trust_state\": ");
+            json_str(binding.provider_trust_state);
+            raw(", \"provider_trust_positive\": true}, \"hashes\": ");
+            emit_provider_context_hashes(binding.context);
+            raw("}");
+        }
         event_log::EventBindings::ProviderRequestBindingDenied(hashes) => {
             raw(", \"bindings\": {\"schema\": \"raios.provider_request_binding_denial.v0\", \"status\": \"denied_not_bound\", \"satisfies_current_boot_export_gate\": false, \"provider_write\": \"not_attempted\", \"hashes\": ");
             emit_provider_context_hashes(hashes);
@@ -2761,6 +2912,30 @@ fn provider_binding_gate_state(
         "rejected"
     } else {
         "missing"
+    }
+}
+
+fn provider_injection_authorization_state(
+    check: &event_log::ProviderContextInjectionGateCheck,
+) -> &'static str {
+    if check.authorization_event_id.is_none() {
+        "missing"
+    } else if check.status == "blocked" {
+        "present_blocked"
+    } else {
+        "present_rejected"
+    }
+}
+
+fn provider_injection_body_check_state(
+    check: &event_log::ProviderContextInjectionGateCheck,
+) -> &'static str {
+    if check.reason == "final_prewrite_body_hash_mismatch" {
+        "mismatch"
+    } else if check.authorization_event_id.is_none() || check.status != "blocked" {
+        "not_attempted"
+    } else {
+        "matched"
     }
 }
 
@@ -3473,8 +3648,11 @@ fn requested_capability_for_read(method: &str) -> &'static str {
     } else if method_eq(method, "provider.context_gate")
         || method_eq(method, "provider.context_gate_selftest")
         || method_eq(method, "provider.context_injection_gate")
+        || method_eq(method, "provider.context_injection_gate_selftest")
     {
-        if method_eq(method, "provider.context_injection_gate") {
+        if method_eq(method, "provider.context_injection_gate")
+            || method_eq(method, "provider.context_injection_gate_selftest")
+        {
             "cap.provider.context_injection.read"
         } else {
             "cap.provider.context_export.read"
@@ -3547,6 +3725,10 @@ fn provider_context_gate_selftest_method(method: &str) -> bool {
 
 fn provider_context_injection_gate_method(method: &str) -> bool {
     method_head_eq(method, "provider.context_injection_gate")
+}
+
+fn provider_context_injection_gate_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "provider.context_injection_gate_selftest")
 }
 
 fn provider_context_export_profile(method: &str) -> &'static str {
@@ -3645,6 +3827,8 @@ fn provider_context_export_arg(method: &str) -> &str {
         "provider.context_gate_selftest".len()
     } else if method_head_eq(method, "provider.context_injection_gate") {
         "provider.context_injection_gate".len()
+    } else if method_head_eq(method, "provider.context_injection_gate_selftest") {
+        "provider.context_injection_gate_selftest".len()
     } else {
         return "";
     };

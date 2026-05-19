@@ -165,6 +165,13 @@ request paths, through the local
 `final_authorization: missing`, `provider_write: not_attempted`, and
 `can_attach_context: false`.
 
+`provider.context_injection_gate_selftest provider_minimal` exposes the current
+negative final-injection predicate as
+`raios.provider_context_injection_gate_negative_selftest.v0`. It proves that
+missing, stale, wrong-variant, substituted, body-hash mismatched, and
+trust-downgraded final authorization candidates fail closed before any provider
+write or body attachment.
+
 The positive predicate must bind the final request body shape to:
 
 - the retained current-boot envelope for the exact outbound request
@@ -172,6 +179,7 @@ The positive predicate must bind the final request body shape to:
 - the redacted `provider_minimal` packet and field-list hashes
 - positive non-bypass provider trust at final write time
 - a final local policy decision for one provider request
+- a final prewrite body hash check immediately before provider bytes are sent
 
 Until that final predicate exists and is tested, OpenAI request bodies must keep
 `context_attached_to_provider_body: false`.

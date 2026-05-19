@@ -25,6 +25,7 @@ agent provider.context_export provider_minimal -> denied export gate with audit/
 agent provider.context_gate provider_minimal -> read-only export gate diagnostics
 agent provider.context_gate_selftest provider_minimal -> local-only negative gate selftest
 agent provider.context_injection_gate provider_minimal -> read-only final injection gate diagnostics
+agent provider.context_injection_gate_selftest provider_minimal -> local-only final injection negative selftest
 agent memory.recent_events -> memory.recent_events
 agent audit.events 8 -> memory.recent_events with limit 8
 agent <method>        -> dispatch raw method name
@@ -71,6 +72,7 @@ audit.events
 provider.context_gate
 provider.context_gate_selftest
 provider.context_injection_gate
+provider.context_injection_gate_selftest
 ```
 
 `system.snapshot` reports `system.snapshot.v0` facts for framebuffer, entropy,
@@ -128,6 +130,13 @@ provider body attachment.
 body-attachment gate. It requires the future
 `raios.provider_context_injection_authorization.v0` schema, currently reports
 that authorization as missing, and keeps `can_attach_context: false`.
+`provider.context_injection_gate_selftest provider_minimal` emits local-only
+`raios.provider_context_injection_gate_negative_selftest.v0` test
+infrastructure for missing, stale, substituted, body-hash mismatched,
+trust-downgraded, and unauthorized body-attachment final authorization
+candidates. It does not mutate the global event log, create real envelopes or
+positive binding records, create final authorization records, write to a
+provider, or attach context to a provider body.
 
 ## Denied-By-Default Methods
 

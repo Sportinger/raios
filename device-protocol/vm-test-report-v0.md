@@ -86,8 +86,8 @@ The JSON report contains:
     "hardware_profile_sha256": "...",
     "qemu_args_sha256": "...",
     "serial_log_sha256": "...",
-    "predicate_count": 218,
-    "predicate_passed_count": 218,
+    "predicate_count": 246,
+    "predicate_passed_count": 246,
     "predicate_failed_count": 0
   },
   "commands": [
@@ -103,6 +103,7 @@ The JSON report contains:
     "agent provider.context_gate provider_minimal",
     "agent provider.context_gate_selftest provider_minimal",
     "agent provider.context_injection_gate provider_minimal",
+    "agent provider.context_injection_gate_selftest provider_minimal",
     "agent memory.query",
     "agent memory.trace snapshot.current",
     "agent memory.recent_events",
@@ -148,9 +149,10 @@ denied `provider.context_export` gate with provider writes still
 `not_attempted`, positive request/export binding gates still missing, the
 read-only `provider.context_gate` missing-binding state, the local-only
 `provider.context_gate_selftest` negative predicate cases, the separate
-`provider.context_injection_gate` missing-final-authorization state, denial
-audit records that do not satisfy those gates, structured event-log denial
-bindings with packet and field-list hashes, negative checks for positive
+`provider.context_injection_gate` missing-final-authorization state, the
+`provider.context_injection_gate_selftest` negative final-authorization cases,
+denial audit records that do not satisfy those gates, structured event-log
+denial bindings with packet and field-list hashes, negative checks for positive
 provider binding schemas, positive export authorization, and fake provider
-request envelopes from `provider.context_export`, query/trace locators,
-RAM-only event/audit reads, denied memory mutations, and denied module loading.
+request envelopes from `provider.context_export`, query/trace locators, RAM-only
+event/audit reads, denied memory mutations, and denied module loading.

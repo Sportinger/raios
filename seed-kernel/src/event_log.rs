@@ -53,6 +53,20 @@ const PROVIDER_BINDING_CONSUMPTION_EVIDENCE: &[&str] = &[
     "provider_write_not_attempted",
     "context_injection_disabled",
 ];
+const PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_EVIDENCE: &[&str] = &[
+    "provider_context_injection_authorization",
+    "provider_binding_consumption",
+    "request_binding_hash",
+    "export_audit_binding_hash",
+    "request_body_hash",
+    "request_envelope_hash",
+    "projected_packet_hash",
+    "exported_field_list_hash",
+    "omitted_field_list_hash",
+    "positive_provider_trust",
+    "provider_write_not_attempted",
+    "context_injection_disabled",
+];
 
 static LOG: Mutex<EventLog> = Mutex::new(EventLog::new());
 
@@ -122,6 +136,23 @@ pub struct ProviderBindingConsumption {
 }
 
 #[derive(Clone, Copy)]
+pub struct ProviderContextInjectionAuthorization {
+    pub request_id: u32,
+    pub request_envelope_event_id: EventId,
+    pub request_binding_event_id: EventId,
+    pub export_audit_binding_event_id: EventId,
+    pub binding_consumption_event_id: EventId,
+    pub request_body_hash: [u8; 32],
+    pub request_envelope_hash: [u8; 32],
+    pub request_binding_hash: [u8; 32],
+    pub export_audit_binding_hash: [u8; 32],
+    pub context: ProviderContextHashes,
+    pub provider_trust_state: &'static str,
+    pub final_authorization_hash: [u8; 32],
+    pub context_attached_to_provider_body: bool,
+}
+
+#[derive(Clone, Copy)]
 struct ConsumedProviderBinding {
     request_binding_event_id: EventId,
     export_audit_binding_event_id: EventId,
@@ -140,10 +171,32 @@ pub struct ProviderBindingGateCheck {
     pub retained: bool,
 }
 
+#[derive(Clone, Copy)]
+pub struct ProviderContextInjectionGateCheck {
+    pub status: &'static str,
+    pub reason: &'static str,
+    pub authorization_event_id: Option<EventId>,
+    pub binding_consumption_event_id: Option<EventId>,
+    pub retained: bool,
+    pub can_attach_context: bool,
+    pub satisfies_current_boot_export_gate: bool,
+}
+
 pub const PROVIDER_BINDING_GATE_SELFTEST_CASES: usize = 16;
+pub const PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES: usize = 7;
 
 #[derive(Clone, Copy)]
 pub struct ProviderBindingGateSelfTestCase {
+    pub name: &'static str,
+    pub expected_status: &'static str,
+    pub expected_reason: &'static str,
+    pub actual_status: &'static str,
+    pub actual_reason: &'static str,
+    pub passed: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct ProviderContextInjectionGateSelfTestCase {
     pub name: &'static str,
     pub expected_status: &'static str,
     pub expected_reason: &'static str,
@@ -159,6 +212,7 @@ pub enum EventBindings {
     ProviderRequestBound(ProviderRequestBinding),
     ProviderExportAuditBound(ProviderExportAuditBinding),
     ProviderBindingConsumption(ProviderBindingConsumption),
+    ProviderContextInjectionAuthorization(ProviderContextInjectionAuthorization),
     ProviderRequestBindingDenied(ProviderContextHashes),
     ProviderExportDenialAudit(ProviderContextHashes),
 }
@@ -530,6 +584,242 @@ impl EventLog {
         (check, Some(event_id))
     }
 
+    fn check_provider_context_injection_gate(
+        &self,
+        _context: ProviderContextHashes,
+        current_provider_trust_state: &'static str,
+    ) -> ProviderContextInjectionGateCheck {
+        let Some((authorization_event_id, authorization)) =
+            self.latest_context_injection_authorization()
+        else {
+            return ProviderContextInjectionGateCheck::missing();
+        };
+
+        let Some(consumption_event) =
+            self.event_by_sequence(authorization.binding_consumption_event_id)
+        else {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_stale_or_dropped_event_id",
+                authorization_event_id,
+                authorization,
+            );
+        };
+
+        let EventBindings::ProviderBindingConsumption(consumption) = consumption_event.bindings
+        else {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_wrong_schema_or_variant",
+                authorization_event_id,
+                authorization,
+            );
+        };
+
+        if authorization.request_id != consumption.request_id {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.request_envelope_event_id.sequence()
+            != consumption.request_envelope_event_id.sequence()
+            || authorization.request_binding_event_id.sequence()
+                != consumption.request_binding_event_id.sequence()
+            || authorization.export_audit_binding_event_id.sequence()
+                != consumption.export_audit_binding_event_id.sequence()
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.request_binding_hash != consumption.request_binding_hash {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.export_audit_binding_hash != consumption.export_audit_binding_hash {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.projected_packet_hash != consumption.context.projected_packet_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.exported_field_list_hash
+            != consumption.context.exported_field_list_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.omitted_field_list_hash
+            != consumption.context.omitted_field_list_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+
+        let Some(request_event) = self.event_by_sequence(authorization.request_binding_event_id)
+        else {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_stale_or_dropped_event_id",
+                authorization_event_id,
+                authorization,
+            );
+        };
+        let EventBindings::ProviderRequestBound(request_binding) = request_event.bindings else {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_wrong_schema_or_variant",
+                authorization_event_id,
+                authorization,
+            );
+        };
+        let Some(export_event) =
+            self.event_by_sequence(authorization.export_audit_binding_event_id)
+        else {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_stale_or_dropped_event_id",
+                authorization_event_id,
+                authorization,
+            );
+        };
+        let EventBindings::ProviderExportAuditBound(export_binding) = export_event.bindings else {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_wrong_schema_or_variant",
+                authorization_event_id,
+                authorization,
+            );
+        };
+
+        if authorization.request_body_hash != request_binding.request_body_hash
+            || authorization.request_body_hash != export_binding.request_body_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_prewrite_body_hash_mismatch",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.request_envelope_hash != request_binding.request_envelope_hash
+            || authorization.request_envelope_hash != export_binding.request_envelope_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.projected_packet_hash
+            != request_binding.context.projected_packet_hash
+            || authorization.context.projected_packet_hash
+                != export_binding.context.projected_packet_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.exported_field_list_hash
+            != request_binding.context.exported_field_list_hash
+            || authorization.context.exported_field_list_hash
+                != export_binding.context.exported_field_list_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.omitted_field_list_hash
+            != request_binding.context.omitted_field_list_hash
+            || authorization.context.omitted_field_list_hash
+                != export_binding.context.omitted_field_list_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context_attached_to_provider_body
+            || export_binding.context_attached_to_provider_body
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "body_attachment_without_final_authorization",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if request_binding.development_tls_bypass
+            || !positive_provider_trust(request_binding.provider_trust_state)
+            || !positive_provider_trust(export_binding.provider_trust_state)
+            || !positive_provider_trust(authorization.provider_trust_state)
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_provider_trust_downgraded_before_write",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if !positive_provider_trust(current_provider_trust_state)
+            || current_provider_trust_state != authorization.provider_trust_state
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_provider_trust_downgraded_before_write",
+                authorization_event_id,
+                authorization,
+            );
+        }
+
+        ProviderContextInjectionGateCheck {
+            status: "blocked",
+            reason: "automatic_context_injection_disabled",
+            authorization_event_id: Some(authorization_event_id),
+            binding_consumption_event_id: Some(authorization.binding_consumption_event_id),
+            retained: true,
+            can_attach_context: false,
+            satisfies_current_boot_export_gate: false,
+        }
+    }
+
     fn latest_export_audit_binding(&self) -> Option<(EventId, ProviderExportAuditBinding)> {
         let mut idx = 0usize;
         while idx < self.len {
@@ -540,6 +830,33 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::ProviderExportAuditBound(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_context_injection_authorization(
+        &self,
+    ) -> Option<(EventId, ProviderContextInjectionAuthorization)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ProviderContextInjectionAuthorization(binding) =
+                    event.bindings
+                {
                     return Some((
                         EventId {
                             sequence: event.sequence,
@@ -642,6 +959,37 @@ impl ProviderBindingGateCheck {
             export_audit_binding: Some(export_audit_binding),
             consumed: false,
             retained: true,
+        }
+    }
+}
+
+impl ProviderContextInjectionGateCheck {
+    const fn missing() -> Self {
+        Self {
+            status: "missing",
+            reason: "final_injection_authorization_missing",
+            authorization_event_id: None,
+            binding_consumption_event_id: None,
+            retained: false,
+            can_attach_context: false,
+            satisfies_current_boot_export_gate: false,
+        }
+    }
+
+    fn with_authorization(
+        status: &'static str,
+        reason: &'static str,
+        authorization_event_id: EventId,
+        authorization: ProviderContextInjectionAuthorization,
+    ) -> Self {
+        Self {
+            status,
+            reason,
+            authorization_event_id: Some(authorization_event_id),
+            binding_consumption_event_id: Some(authorization.binding_consumption_event_id),
+            retained: true,
+            can_attach_context: false,
+            satisfies_current_boot_export_gate: false,
         }
     }
 }
@@ -784,6 +1132,14 @@ pub fn consume_provider_context_binding_gate(
     LOG.lock().consume_provider_context_binding_gate(context)
 }
 
+pub fn check_provider_context_injection_gate(
+    context: ProviderContextHashes,
+    current_provider_trust_state: &'static str,
+) -> ProviderContextInjectionGateCheck {
+    LOG.lock()
+        .check_provider_context_injection_gate(context, current_provider_trust_state)
+}
+
 pub fn provider_context_binding_gate_selftest(
     context: ProviderContextHashes,
 ) -> [ProviderBindingGateSelfTestCase; PROVIDER_BINDING_GATE_SELFTEST_CASES] {
@@ -804,6 +1160,20 @@ pub fn provider_context_binding_gate_selftest(
         selftest_exported_field_list_hash_mismatch(context),
         selftest_omitted_field_list_hash_mismatch(context),
         selftest_trust_bypass_record(context),
+    ]
+}
+
+pub fn provider_context_injection_gate_selftest(
+    context: ProviderContextHashes,
+) -> [ProviderContextInjectionGateSelfTestCase; PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES] {
+    [
+        selftest_missing_final_authorization(context),
+        selftest_stale_dropped_final_authorization_event_id(context),
+        selftest_final_authorization_schema_substitution(context),
+        selftest_substituted_positive_final_authorization_record(context),
+        selftest_final_authorization_body_hash_mismatch(context),
+        selftest_final_authorization_trust_downgrade(context),
+        selftest_body_attachment_without_final_authorization(context),
     ]
 }
 
@@ -844,6 +1214,22 @@ fn selftest_case(
     check: ProviderBindingGateCheck,
 ) -> ProviderBindingGateSelfTestCase {
     ProviderBindingGateSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: check.status == expected_status && check.reason == expected_reason,
+    }
+}
+
+fn injection_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: ProviderContextInjectionGateCheck,
+) -> ProviderContextInjectionGateSelfTestCase {
+    ProviderContextInjectionGateSelfTestCase {
         name,
         expected_status,
         expected_reason,
@@ -1166,6 +1552,132 @@ fn selftest_trust_bypass_record(context: ProviderContextHashes) -> ProviderBindi
     )
 }
 
+fn selftest_missing_final_authorization(
+    context: ProviderContextHashes,
+) -> ProviderContextInjectionGateSelfTestCase {
+    let log = EventLog::new();
+    injection_selftest_case(
+        "missing_final_authorization",
+        "missing",
+        "final_injection_authorization_missing",
+        log.check_provider_context_injection_gate(context, "pinned_spki_verified"),
+    )
+}
+
+fn selftest_stale_dropped_final_authorization_event_id(
+    context: ProviderContextHashes,
+) -> ProviderContextInjectionGateSelfTestCase {
+    let mut log = EventLog::new();
+    let chain = record_selftest_injection_chain(&mut log, context);
+    record_selftest_filler(&mut log, EVENT_CAPACITY);
+    record_selftest_injection_authorization(
+        &mut log,
+        selftest_injection_authorization(chain, context),
+    );
+
+    injection_selftest_case(
+        "stale_dropped_final_authorization_event_id",
+        "rejected",
+        "final_injection_authorization_stale_or_dropped_event_id",
+        log.check_provider_context_injection_gate(context, "pinned_spki_verified"),
+    )
+}
+
+fn selftest_final_authorization_schema_substitution(
+    context: ProviderContextHashes,
+) -> ProviderContextInjectionGateSelfTestCase {
+    let mut log = EventLog::new();
+    let chain = record_selftest_injection_chain(&mut log, context);
+    let wrong_consumption_event_id = record_selftest_request_denial(&mut log, context);
+    let mut authorization = selftest_injection_authorization(chain, context);
+    authorization.binding_consumption_event_id = wrong_consumption_event_id;
+    record_selftest_injection_authorization(&mut log, authorization);
+
+    injection_selftest_case(
+        "final_authorization_schema_substitution",
+        "rejected",
+        "final_injection_authorization_wrong_schema_or_variant",
+        log.check_provider_context_injection_gate(context, "pinned_spki_verified"),
+    )
+}
+
+fn selftest_substituted_positive_final_authorization_record(
+    context: ProviderContextHashes,
+) -> ProviderContextInjectionGateSelfTestCase {
+    let mut log = EventLog::new();
+    let chain = record_selftest_injection_chain(&mut log, context);
+    let mut authorization = selftest_injection_authorization(chain, context);
+    authorization.request_id = 2;
+    record_selftest_injection_authorization(&mut log, authorization);
+
+    injection_selftest_case(
+        "substituted_positive_final_authorization_record",
+        "rejected",
+        "final_injection_authorization_substituted_record",
+        log.check_provider_context_injection_gate(context, "pinned_spki_verified"),
+    )
+}
+
+fn selftest_final_authorization_body_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderContextInjectionGateSelfTestCase {
+    let mut log = EventLog::new();
+    let chain = record_selftest_injection_chain(&mut log, context);
+    let mut authorization = selftest_injection_authorization(chain, context);
+    authorization.request_body_hash = tagged_hash(90);
+    record_selftest_injection_authorization(&mut log, authorization);
+
+    injection_selftest_case(
+        "final_authorization_body_hash_mismatch",
+        "rejected",
+        "final_prewrite_body_hash_mismatch",
+        log.check_provider_context_injection_gate(context, "pinned_spki_verified"),
+    )
+}
+
+fn selftest_final_authorization_trust_downgrade(
+    context: ProviderContextHashes,
+) -> ProviderContextInjectionGateSelfTestCase {
+    let mut log = EventLog::new();
+    let chain = record_selftest_injection_chain(&mut log, context);
+    record_selftest_injection_authorization(
+        &mut log,
+        selftest_injection_authorization(chain, context),
+    );
+
+    injection_selftest_case(
+        "final_authorization_trust_downgrade",
+        "rejected",
+        "final_provider_trust_downgraded_before_write",
+        log.check_provider_context_injection_gate(context, "pin_config_missing"),
+    )
+}
+
+fn selftest_body_attachment_without_final_authorization(
+    context: ProviderContextHashes,
+) -> ProviderContextInjectionGateSelfTestCase {
+    let mut log = EventLog::new();
+    let chain = record_selftest_injection_chain(&mut log, context);
+    let mut authorization = selftest_injection_authorization(chain, context);
+    authorization.context_attached_to_provider_body = true;
+    record_selftest_injection_authorization(&mut log, authorization);
+
+    injection_selftest_case(
+        "body_attachment_without_final_authorization",
+        "rejected",
+        "body_attachment_without_final_authorization",
+        log.check_provider_context_injection_gate(context, "pinned_spki_verified"),
+    )
+}
+
+#[derive(Clone, Copy)]
+struct ProviderContextInjectionSelfTestChain {
+    request_binding: ProviderRequestBinding,
+    export_binding: ProviderExportAuditBinding,
+    consumption: ProviderBindingConsumption,
+    binding_consumption_event_id: EventId,
+}
+
 fn record_selftest_envelope(log: &mut EventLog, request_id: u32) -> EventId {
     log.record(Event {
         sequence: 0,
@@ -1230,6 +1742,48 @@ fn record_selftest_export_audit(
     })
 }
 
+fn record_selftest_binding_consumption(
+    log: &mut EventLog,
+    binding: ProviderBindingConsumption,
+) -> EventId {
+    log.record(Event {
+        sequence: 0,
+        kind: "selftest.provider_context_export.binding_consumption_checked",
+        source_method: "provider.context_injection_gate_selftest",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "synthetic_not_exported",
+        requested_capability: "cap.provider.context_injection.read",
+        risk: "observe",
+        subject: "selftest",
+        resource: "current_boot.synthetic",
+        reason: "synthetic_gate_input_not_global_evidence",
+        evidence: PROVIDER_BINDING_CONSUMPTION_EVIDENCE,
+        bindings: EventBindings::ProviderBindingConsumption(binding),
+    })
+}
+
+fn record_selftest_injection_authorization(
+    log: &mut EventLog,
+    binding: ProviderContextInjectionAuthorization,
+) -> EventId {
+    log.record(Event {
+        sequence: 0,
+        kind: "selftest.provider_context_injection.authorization_bound",
+        source_method: "provider.context_injection_gate_selftest",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "synthetic_not_exported",
+        requested_capability: "cap.provider.context_injection.read",
+        risk: "observe",
+        subject: "selftest",
+        resource: "current_boot.synthetic",
+        reason: "synthetic_gate_input_not_global_evidence",
+        evidence: PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_EVIDENCE,
+        bindings: EventBindings::ProviderContextInjectionAuthorization(binding),
+    })
+}
+
 fn record_selftest_request_denial(log: &mut EventLog, context: ProviderContextHashes) -> EventId {
     log.record(Event {
         sequence: 0,
@@ -1270,6 +1824,39 @@ fn record_selftest_filler(log: &mut EventLog, count: usize) {
     }
 }
 
+fn record_selftest_injection_chain(
+    log: &mut EventLog,
+    context: ProviderContextHashes,
+) -> ProviderContextInjectionSelfTestChain {
+    let request_envelope_event_id = record_selftest_envelope(log, 1);
+    let request_binding = selftest_request_binding(1, request_envelope_event_id, context);
+    let request_binding_event_id = record_selftest_request_binding(log, request_binding);
+    let export_binding = selftest_export_binding(
+        1,
+        request_envelope_event_id,
+        request_binding_event_id,
+        context,
+    );
+    let export_audit_binding_event_id = record_selftest_export_audit(log, export_binding);
+    let consumption = ProviderBindingConsumption {
+        request_id: 1,
+        request_envelope_event_id,
+        request_binding_event_id,
+        export_audit_binding_event_id,
+        request_binding_hash: request_binding.request_binding_hash,
+        export_audit_binding_hash: export_binding.export_audit_binding_hash,
+        context,
+    };
+    let binding_consumption_event_id = record_selftest_binding_consumption(log, consumption);
+
+    ProviderContextInjectionSelfTestChain {
+        request_binding,
+        export_binding,
+        consumption,
+        binding_consumption_event_id,
+    }
+}
+
 fn selftest_request_binding(
     request_id: u32,
     request_envelope_event_id: EventId,
@@ -1303,6 +1890,27 @@ fn selftest_export_binding(
         export_audit_binding_hash: tagged_hash(4),
         context,
         provider_trust_state: "pinned_spki_verified",
+        context_attached_to_provider_body: false,
+    }
+}
+
+fn selftest_injection_authorization(
+    chain: ProviderContextInjectionSelfTestChain,
+    context: ProviderContextHashes,
+) -> ProviderContextInjectionAuthorization {
+    ProviderContextInjectionAuthorization {
+        request_id: chain.consumption.request_id,
+        request_envelope_event_id: chain.consumption.request_envelope_event_id,
+        request_binding_event_id: chain.consumption.request_binding_event_id,
+        export_audit_binding_event_id: chain.consumption.export_audit_binding_event_id,
+        binding_consumption_event_id: chain.binding_consumption_event_id,
+        request_body_hash: chain.request_binding.request_body_hash,
+        request_envelope_hash: chain.request_binding.request_envelope_hash,
+        request_binding_hash: chain.consumption.request_binding_hash,
+        export_audit_binding_hash: chain.consumption.export_audit_binding_hash,
+        context,
+        provider_trust_state: chain.export_binding.provider_trust_state,
+        final_authorization_hash: tagged_hash(5),
         context_attached_to_provider_body: false,
     }
 }
