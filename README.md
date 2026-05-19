@@ -78,6 +78,35 @@ When you change machines, raiOS doesn't port — it re-binds, building a fresh
 instance on new hardware while carrying forward your policies, modules, and
 history.
 
+## The System Is The Memory
+
+raiOS memory is not a chatbot notebook. The system itself should become the
+agent's memory: typed local facts, current state, events, decisions, problems,
+capability grants and denials, test evidence, rollback history, and derived
+summaries with source links.
+
+Future work should make every durable subsystem describe itself in a small,
+structured, classified way. If a service learns something important, it should
+become a memory record or a source for one. If an agent needs context, it should
+receive a task-scoped `agent_context.v0` packet assembled by raiOS, not a dump
+of logs, chats, or the whole memory store.
+
+The token strategy follows from that rule:
+
+- **Facts are authoritative.** Core ledgers, snapshots, service state,
+  decisions, and VM evidence outrank summaries or semantic search hits.
+- **Summaries and RAG are locators.** They help find records, but they do not
+  authorize actions by themselves.
+- **Context is budgeted.** The context broker chooses a profile such as
+  `provider_minimal`, `diagnostic`, or `planning`, includes only relevant
+  records, and reports what it omitted.
+- **Provider export is gated.** Memory may leave the machine only after provider
+  trust, field classification, redaction, and audit rules pass.
+- **No fake persistence.** Until the persistence and rollback layers exist,
+  memory can be real but must be labeled `current_boot` or test-only.
+
+See `docs/architecture-decisions/0004-system-memory-and-agent-context.md`.
+
 ## How It Works
 
 raiOS is structured in three rings.

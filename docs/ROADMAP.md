@@ -31,6 +31,14 @@ networking, Wi-Fi, provider adapters, diagnostics, agent tools, builder service,
 and eventually driver experiments. The provider/OpenAI path is therefore a
 service, not the core identity of the OS.
 
+System memory is part of this north star. raiOS should not grow a large prompt
+dump or generic RAG database. It should make the system itself the memory:
+typed facts, events, decisions, problems, capability denials, service state,
+test evidence, and rollback records with provenance. Agents should receive
+task-scoped `agent_context.v0` packets selected by a local context broker under
+token, redaction, and provider-trust budgets. See
+`docs/architecture-decisions/0004-system-memory-and-agent-context.md`.
+
 For the final system, most evolution should happen without a visible reboot:
 
 ```text
@@ -59,6 +67,7 @@ fail-closed TLS/provider trust
 -> typed system.snapshot.v0
 -> static service.inventory.v0
 -> capability policy v0
+-> read-only memory.context over real typed facts
 -> module_manifest.v0
 -> vm_test_report.v0
 -> local_attestation.v0
@@ -277,6 +286,33 @@ service.inventory
 Mutating methods may be documented, but they must initially return
 `capability_denied` until manifest, VM-test-report, local attestation, and audit
 records exist.
+
+## Phase 5.5: Read-Only System Memory Context
+
+Goal:
+
+```text
+typed facts -> bounded context broker -> agent_context.v0
+```
+
+Scope:
+
+- expose `memory.profile`
+- expose read-only `memory.context` over current snapshot, service inventory,
+  problem list, capabilities, boot log summaries, and ADR metadata
+- expose `memory.query` and `memory.trace` for included records
+- enforce token profiles such as `provider_minimal`, `diagnostic`, and
+  `planning`
+- make summaries and semantic/RAG hits locators only, never authority
+- keep all memory mutation denied until event log, audit, policy, persistence,
+  and rollback records exist
+
+Definition of done:
+
+- The agent can ask for task-relevant context without receiving the whole memory
+  store or raw logs.
+- Context packets report profile, budget, included records, and omitted classes.
+- Provider-bound context still obeys provider trust and redaction gates.
 
 ## Phase 6: Ephemeral Live Services
 

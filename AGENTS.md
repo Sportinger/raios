@@ -11,6 +11,7 @@ Read these files before making changes:
 3. `docs/ROADMAP.md`
 4. `docs/DEBUGGING.md`
 5. `docs/architecture-decisions/0001-raios-agent-protocol.md`
+6. `docs/architecture-decisions/0004-system-memory-and-agent-context.md`
 
 Then run `git status --short` and preserve unrelated user changes.
 
@@ -58,6 +59,33 @@ the smallest durable slice that moves that architecture forward. Avoid spending
 time optimizing intermediate product shapes, demo-only flows, compatibility
 shims, or "good enough for now" branches unless they are explicitly part of the
 final architecture or test the real path.
+
+## System Memory Architecture Rule
+
+Future agents must build toward the ADR 0004 model: raiOS itself is the memory.
+Do not treat memory as a large chat transcript, prompt stuffing, or a generic
+RAG database. Important system knowledge should become typed, classified,
+evidence-bound records or source facts that can later feed
+`raios.agent_context.v0`.
+
+When changing status, logs, provider context, service inventory, problems,
+capabilities, test reports, recovery behavior, or persistence, preserve these
+rules:
+
+- expose stable IDs and typed facts before prose-only strings
+- attach provenance or evidence for facts that may guide agent action
+- classify fields as `public`, `local_only`, or `secret` before provider export
+- make summaries and semantic/RAG results locators only, never authority
+- enforce token budgets through a context broker instead of sending whole memory
+- keep memory writes denied or explicitly scoped until audit, policy, and
+  persistence exist
+- label early memory as `current_boot` when it is RAM-only or non-persistent
+
+The near-term path is still raiOS first: harden provider trust and redaction,
+stabilize `system.snapshot.v0`, `service.inventory`, `problem.list`, and
+capability policy, then add read-only `memory.context` over those real facts.
+Do not build fake persistent memory ahead of the real persistence/rollback
+architecture.
 
 ## Current Verified State
 
