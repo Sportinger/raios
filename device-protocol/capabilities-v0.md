@@ -71,10 +71,14 @@ A future mutating grant should bind at least:
   "grant_source": "local_policy",
   "evidence": [
     "raios.module_manifest.v0",
+    "candidate_artifact_sha256",
     "raios.vm_test_report.v0",
     "raios.local_attestation.v0",
+    "computed_capability_grant",
     "local_approval",
-    "rollback_plan"
+    "raios.audit_record.v0",
+    "rollback_plan",
+    "ram_only_service_slot"
   ],
   "audit_level": "full"
 }
@@ -145,6 +149,17 @@ Memory mutation methods map to the denied catalog capability
 `cap.memory.mutate`. They are visible so future agents can reason about the
 missing grant without treating RAM-only records as durable memory.
 
+`module.load_ephemeral` and `service.load_ephemeral` map to
+`cap.module.load_ephemeral`, risk `modify_ram`, and resource
+`live_service_graph`. They return the explicit `raios.module_load_gate.v0`
+denial schema and record the same gate as an `event.log.v0` binding. The gate
+keeps `can_load: false`, `load_attempted: false`,
+`service_inventory_change: none`, `artifact_loaded: false`, and
+`service_started: false` until the manifest, exact artifact hash, VM report,
+local attestation, computed capability grant, local approval, durable audit
+record, rollback plan, and ram-only service slot are all present and locally
+verified.
+
 Provider context export maps to `cap.provider.context_export` and risk
 `export`. It is denied until positive provider trust, the
 `provider_minimal` redaction projection, packet/field-list evidence, provider
@@ -171,10 +186,12 @@ Capability denials must name the relevant evidence gates:
 
 ```text
 raios.module_manifest.v0
+candidate_artifact_sha256
 raios.vm_test_report.v0
-local_attestation.v0
+raios.local_attestation.v0
 computed_capability_grant
 local_approval
+ram_only_service_slot
 rollback_plan
 raios.audit_record.v0
 raios.memory_persistence.v0

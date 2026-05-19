@@ -25,6 +25,8 @@ Current V0 docs:
 - `event-log-v0.md` - RAM-only `current_boot` event/audit log for agent
   protocol reads and denials.
 - `module-manifest-v0.md` - manifest contract for agent-proposed artifacts.
+- `module-load-gate-v0.md` - denied-by-default current-boot gate for
+  `module.load_ephemeral` and `service.load_ephemeral`.
 - `vm-test-report-v0.md` - Shadow-VM report emitted by
   `vm-harness\shadow-vm-smoke.ps1`.
 - `local-attestation-v0.md` - local evidence record binding manifest,

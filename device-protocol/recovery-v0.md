@@ -290,6 +290,10 @@ require the full evidence chain above.
 
 Recovery V0 may reuse hashes and service ids from those documents, but it does
 not inherit normal agent or provider permissions.
+The normal `raios.module_load_gate.v0` denial for `module.load_ephemeral` is
+also not recovery authority. Recovery artifact loads must be evaluated through
+`recovery.load_artifact_by_hash`, recovery trust state, recovery policy
+generation, and recovery audit evidence.
 
 ## Open Questions
 

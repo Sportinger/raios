@@ -12,8 +12,10 @@ single-use rejection, a local-only negative gate selftest for stale/dropped,
 previous-boot-or-unretained, substituted-schema, substituted-positive-record,
 and mismatched-hash cases, the separate fail-closed
 `raios.provider_context_injection_gate.v0` diagnostic, local-only negative
-final-injection authorization selftests, and direct OpenAI pin-mismatch plus
-SPKI pinned-trust smokes using a fake local API key.
+final-injection authorization selftests, the fail-closed
+`raios.module_load_gate.v0` denial with event-log binding for denied
+`module.load_ephemeral`, and direct OpenAI pin-mismatch plus SPKI pinned-trust
+smokes using a fake local API key.
 
 ## Verified Boot State
 
@@ -160,21 +162,23 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the first positive final provider context injection authorization source
-while automatic provider context injection remains disabled:
+Define the first computed module capability grant diagnostic while live loading
+remains disabled:
 
-- specify the local policy/evidence source for
-  `raios.provider_context_injection_authorization.v0`
-- keep the negative harness coverage for missing final authorization, stale
-  final authorization, substituted records, final body-hash mismatch, trust
-  downgrade, and unauthorized body attachment passing
-- keep the current synchronous prewrite gate shape for the direct OpenAI path
-  unless a provider-adapter service boundary is specified first
-- keep `satisfies_current_boot_export_gate: false` while
-  `automatic_context_injection: disabled`
-- keep OpenAI request bodies free of provider-minimal context until a positive
-  `raios.provider_context_injection_authorization.v0` path exists and is tested
-- preserve single-use consumption for retained positive binding pairs
+- specify `computed_capability_grant` for
+  `cap.module.load_ephemeral` over manifest hash, candidate artifact hash, VM
+  report hash, local attestation hash, requested capability, load mode, subject,
+  resource, and current-boot scope
+- keep `raios.module_load_gate.v0` reporting `can_load: false`,
+  `load_attempted: false`, `service_inventory_change: none`, loader
+  unavailable, and service slot unallocated until the in-guest loader, durable
+  audit record, rollback plan, and ram-only service slot exist
+- allow host-side manifest/report/attestation evidence to be hashed and
+  validated by tools without treating those artifacts as execution authority
+- add negative tests for mismatched manifest/artifact/report/attestation hashes,
+  non-empty manifest `granted_caps`, wrong approval phrase, and any
+  `grants_load_now: true` attestation
+- keep recovery artifact loading separate from the normal module load gate
 
 The verified foundation for that task is:
 
@@ -241,6 +245,12 @@ The verified foundation for that task is:
   return structured `capability_denied` until manifest, VM test report, local
   attestation, computed capability grant, approval, audit, and rollback evidence
   exist.
+- `module.load_ephemeral` and `service.load_ephemeral` now return
+  `raios.module_load_gate.v0`, which reports the manifest, exact artifact, VM
+  report, local attestation, computed grant, local approval, durable audit,
+  rollback plan, loader, and ram-only service slot gates; the current state is
+  `can_load: false`, `service_inventory_change: none`, and
+  `load_attempted: false`.
 - `vm-harness\shadow-vm-smoke.ps1` verifies the read-only agent protocol,
   provider trust problem visibility, static service inventory, and denied module
   load behavior, then writes a `raios.vm_test_report.v0` report.
@@ -331,7 +341,8 @@ The verified foundation for that task is:
 - `memory.recent_events` and `audit.events [limit]` expose a bounded RAM-only
   `event.log.v0` ring containing compact `audit.event.v0` records for agent
   protocol reads, known `capability_denied` outcomes, provider request-binding
-  denials, and provider export-denial audits with hash-valued denial bindings.
+  denials, provider export-denial audits with hash-valued denial bindings, and
+  the `raios.module_load_gate.v0` denial binding.
 - denied memory/module/service/config methods include current-boot `event_id`
   and `audit_event_id` handles, while all durable audit, persistence, policy
   mutation, redaction mutation, and rollback behavior remains denied.
@@ -350,8 +361,9 @@ The verified foundation for that task is:
   `provider.context_gate_selftest` negative predicate cases, the separate
   `provider.context_injection_gate` missing-final-authorization state, the
   `provider.context_injection_gate_selftest` negative final-authorization cases,
-  and the existing denied module load path. Latest report:
-  `release\vm-reports\shadow-20260519-203426-15148.json` with 246/246
+  and the denied module load gate including the event-log binding. Latest
+  report:
+  `release\vm-reports\shadow-20260519-205441-15120.json` with 297/297
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

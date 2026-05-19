@@ -296,6 +296,21 @@ write and body attachment disabled, and checks missing, stale, substituted,
 body-hash mismatched, trust-downgraded, and unauthorized body-attachment final
 authorization candidates.
 
+The Shadow VM smoke also exercises the denied module load gate:
+
+```text
+module.load_ephemeral
+agent audit.events 8
+```
+
+The expected response schema is `raios.module_load_gate.v0`. It must report the
+manifest, candidate artifact, VM report, local attestation, computed grant,
+local approval, durable audit record, rollback plan, loader, and ram-only
+service slot as missing or unavailable, with `can_load: false`,
+`service_inventory_change: none`, and `load_attempted: false`. The follow-up
+`audit.events` read must show a matching `raios.module_load_gate.v0` event
+binding.
+
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:
 

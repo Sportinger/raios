@@ -2,13 +2,11 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-19 by Codex after adding local-only negative
-provider-context gate selftests for stale/dropped ids,
-previous-boot-or-unretained ids, substituted schemas, substituted positive
-records, and mismatched hashes; then adding the separate fail-closed
-`raios.provider_context_injection_gate.v0` diagnostic and OpenAI prewrite
-marker; then adding local-only negative final-injection authorization selftests
-while keeping automatic provider context injection disabled.
+Last updated: 2026-05-19 by Codex after adding a typed, event-backed
+`raios.module_load_gate.v0` denial for `module.load_ephemeral` and
+`service.load_ephemeral`. The gate keeps live loading disabled, records the
+denial in `event.log.v0`, and proves `load_attempted: false` plus unchanged
+service inventory in the Shadow VM smoke.
 
 Latest maintenance verification:
 
@@ -20,7 +18,7 @@ Latest maintenance verification:
   passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260519-203426-15148.json` with 246/246
+  `release\vm-reports\shadow-20260519-205441-15120.json` with 297/297
   predicates.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
@@ -58,6 +56,12 @@ Current verified cursor:
 - Mutating or potentially mutating methods currently return structured
   `capability_denied` until manifest, VM test report, local attestation,
   computed grant, approval, audit, and rollback evidence exist.
+- `module.load_ephemeral` and `service.load_ephemeral` now use
+  `raios.module_load_gate.v0`. The current gate reports missing
+  manifest/artifact/report/attestation/grant/approval/audit/rollback evidence,
+  loader unavailable, service slot unallocated, `can_load: false`,
+  `service_inventory_change: none`, and `load_attempted: false`, and the same
+  gate is visible as an `event.log.v0` binding.
 - `system.snapshot.v0`, `system.capabilities.v0`, `problem.list.v0`,
   `service.inventory.v0`, provider trust docs, module manifest docs, VM test
   report docs, local attestation docs, and recovery protocol docs exist.
@@ -133,35 +137,34 @@ Current verified cursor:
 - The Shadow VM smoke validates the read-only protocol, memory context schemas,
   the local provider-minimal projection, the denied provider context export gate,
   provider export denial, event/audit log reads, memory mutation denials with
-  event ids, and the denied module load path, then emits
+  event ids, and the denied module load gate, then emits
   `raios.vm_test_report.v0` reports.
 
-Current phase: Phase 5.14 has a fail-closed final provider context injection
-gate diagnostic, direct OpenAI prewrite marker, and negative final-authorization
-selftests. The next durable architecture step is defining the first positive
-authorization source before any body-attachment path exists.
+Current phase: Phase 6 has started with a fail-closed module load gate
+diagnostic. No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the first positive final-injection authorization source while keeping
-automatic provider context injection disabled.
+Define the first computed module capability grant diagnostic while keeping live
+loading disabled.
 ```
 
-Start by specifying how local policy can create a single-request
-`raios.provider_context_injection_authorization.v0` record over a consumed
-current-boot binding pair. Do not attach context to OpenAI requests until that
-positive authorization path has single-use evidence and explicit no-leak failure
-modes.
+Start by specifying how local policy computes a non-authorizing
+`computed_capability_grant` candidate for `cap.module.load_ephemeral` from an
+exact manifest/artifact/VM-report/local-attestation tuple. Do not add a loader
+or mutate `service.inventory.v0` until durable audit, rollback, ram-only service
+slots, and negative evidence tests exist.
 
 Next three tasks:
 
-1. Decide the first positive authorization source, likely local policy over a
-   retained current-boot binding pair, before allowing request-body attachment.
-2. Define the canonical hash for `raios.provider_context_injection_authorization.v0`
-   and bind it to the final prewrite body hash check.
-3. Add the first positive authorization writer only if it remains fail-closed
-   with `automatic_context_injection: disabled`.
+1. Define `computed_capability_grant` fields, canonical hash, and denial reasons
+   for `cap.module.load_ephemeral`.
+2. Add host-side negative tests for mismatched manifest/artifact/report/
+   attestation evidence, non-empty manifest `granted_caps`, bad approval phrase,
+   and `grants_load_now: true`.
+3. Bind accepted host evidence into a read-only gate diagnostic while the guest
+   still reports loader unavailable and `load_attempted: false`.
 
 Current blockers and non-goals:
 
@@ -254,7 +257,7 @@ fail-closed TLS/provider trust
 -> RAM-only event.log.v0 over reads and denials
 -> module_manifest.v0
 -> vm_test_report.v0
--> local_attestation.v0
+-> raios.local_attestation.v0
 -> live loading remains denied until evidence matches
 ```
 
@@ -813,6 +816,10 @@ Definition of done:
   never raw local-only or secret fields.
 
 ## Phase 6: Ephemeral Live Services
+
+Status: started with a denied-by-default `raios.module_load_gate.v0`
+diagnostic. No artifact loader, ram-only service slot allocator, durable audit
+ledger, rollback state, or positive computed grant exists yet.
 
 Goal:
 

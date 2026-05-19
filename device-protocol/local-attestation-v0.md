@@ -47,3 +47,9 @@ evidence_recorded_load_still_denied_in_stage0
 
 That wording is intentional: until the guest loader and kernel policy exist, an
 attestation is evidence, not execution permission.
+
+The current `raios.module_load_gate.v0` treats local attestation as one required
+input and still reports `can_load: false` while the in-guest computed
+capability grant, durable audit record, rollback plan, loader, and ram-only
+service slot are missing. A valid attestation must never be interpreted as
+`grants_load_now: true` in Stage-0.

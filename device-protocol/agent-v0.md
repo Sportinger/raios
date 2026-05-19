@@ -168,8 +168,18 @@ wifi.configure
 The denial includes `event_id` and `audit_event_id` fields that cite the
 current-boot event record for the denied method. The denial names the missing
 evidence: `raios.module_manifest.v0`,
-`raios.vm_test_report.v0`, `local_attestation.v0`, computed capability grant,
-local approval, and rollback plan.
+`candidate_artifact_sha256`, `raios.vm_test_report.v0`,
+`raios.local_attestation.v0`, computed capability grant, local approval,
+durable audit record, rollback plan, and a ram-only service slot.
+
+`module.load_ephemeral` and `service.load_ephemeral` use the explicit
+`raios.module_load_gate.v0` denial schema. The gate reports
+`load_mode: ram_only`, `requested_capability: cap.module.load_ephemeral`,
+`target: live_service_graph`, all required evidence as missing, the loader as
+`unavailable`, `service_slot: unallocated`, `can_load: false`, and
+`load_attempted: false`. The matching `audit.event.v0` record carries the same
+schema as a non-authorizing event binding so the denial is visible through
+`audit.events`.
 
 `provider.context_export [provider_minimal]` uses the same denied-by-default
 envelope but reports `raios.provider_context_export.v0` gate state instead of

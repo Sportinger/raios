@@ -67,6 +67,13 @@ const PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_EVIDENCE: &[&str] = &[
     "provider_write_not_attempted",
     "context_injection_disabled",
 ];
+const MODULE_LOAD_GATE_EVIDENCE: &[&str] = &[
+    "missing_required_evidence",
+    "capability_denied",
+    "module_load_gate_evaluated",
+    "service_inventory_unchanged",
+    "load_not_attempted",
+];
 
 static LOG: Mutex<EventLog> = Mutex::new(EventLog::new());
 
@@ -215,6 +222,7 @@ pub enum EventBindings {
     ProviderContextInjectionAuthorization(ProviderContextInjectionAuthorization),
     ProviderRequestBindingDenied(ProviderContextHashes),
     ProviderExportDenialAudit(ProviderContextHashes),
+    ModuleLoadGate,
 }
 
 #[derive(Clone, Copy)]
@@ -1041,6 +1049,24 @@ pub fn record_capability_denied(
         reason: "missing_evidence",
         evidence: DENIED_EVIDENCE,
         bindings: EventBindings::None,
+    })
+}
+
+pub fn record_module_load_ephemeral_denied(source_method: &'static str) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "agent_protocol.capability_denied",
+        source_method,
+        source_transport: "serial-console",
+        classification: "public",
+        outcome: "capability_denied",
+        requested_capability: "cap.module.load_ephemeral",
+        risk: "modify_ram",
+        subject: "agent.session.serial",
+        resource: "live_service_graph",
+        reason: "missing_evidence",
+        evidence: MODULE_LOAD_GATE_EVIDENCE,
+        bindings: EventBindings::ModuleLoadGate,
     })
 }
 

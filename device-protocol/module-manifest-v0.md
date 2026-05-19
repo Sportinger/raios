@@ -7,8 +7,11 @@ bound into VM reports and local attestations before any load decision can be
 made.
 
 Stage-0 still returns `capability_denied` for `module.load_ephemeral` and
-`module.persist`. A valid manifest only makes an artifact eligible for the
-evidence flow:
+`module.persist`. `module.load_ephemeral` currently returns
+`raios.module_load_gate.v0`, where the manifest is only one missing input among
+the exact artifact hash, VM report, local attestation, computed grant, local
+approval, durable audit, rollback plan, and ram-only service slot. A valid
+manifest only makes an artifact eligible for the evidence flow:
 
 ```text
 manifest + artifact

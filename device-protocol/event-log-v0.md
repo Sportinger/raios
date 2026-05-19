@@ -20,6 +20,7 @@ V0 records:
 
 - read-only `raios.agent.v0` responses
 - `capability_denied` outcomes for known mutating methods
+- `raios.module_load_gate.v0` bindings for denied module/service load attempts
 - `capability_denied` outcomes for provider context export attempts
 - local provider request envelope creation on the real direct OpenAI request path
 - positive provider request binding records after pinned/WebPKI provider trust
@@ -122,6 +123,10 @@ reason: missing_evidence
 evidence: missing_required_evidence, capability_denied
 ```
 
+`module.load_ephemeral` and `service.load_ephemeral` denials add
+`module_load_gate_evaluated`, `service_inventory_unchanged`, and
+`load_not_attempted` evidence and attach a `raios.module_load_gate.v0` binding.
+
 Most denial responses include `event_id` and `audit_event_id`, both pointing at
 the current-boot denial record id. `provider.context_export` is stricter: its
 `event_id` points at the capability-denial event, while `audit_event_id` points
@@ -136,6 +141,69 @@ authorize provider export.
 `requested_capability: cap.provider.context_export` and `risk: export`. These
 records prove that no provider write was attempted; they are not positive export
 bindings.
+
+## Module Load Gate Event
+
+Denied module loading is recorded as a normal current-boot audit event with a
+structured non-authorizing binding:
+
+```json
+{
+  "schema": "audit.event.v0",
+  "kind": "agent_protocol.capability_denied",
+  "source_method": "module.load_ephemeral",
+  "classification": "public",
+  "outcome": "capability_denied",
+  "requested_capability": "cap.module.load_ephemeral",
+  "risk": "modify_ram",
+  "subject": "agent.session.serial",
+  "resource": "live_service_graph",
+  "reason": "missing_evidence",
+  "evidence": [
+    "missing_required_evidence",
+    "capability_denied",
+    "module_load_gate_evaluated",
+    "service_inventory_unchanged",
+    "load_not_attempted"
+  ],
+  "bindings": {
+    "schema": "raios.module_load_gate.v0",
+    "status": "denied_missing_evidence",
+    "load_mode": "ram_only",
+    "requested_capability": "cap.module.load_ephemeral",
+    "risk": "modify_ram",
+    "target": "live_service_graph",
+    "gate_state": {
+      "module_manifest": "missing",
+      "candidate_artifact": "missing",
+      "vm_test_report": "missing",
+      "local_attestation": "missing",
+      "computed_capability_grant": "missing",
+      "local_approval": "missing",
+      "rollback_plan": "missing",
+      "durable_audit_record": "missing",
+      "loader": "unavailable",
+      "service_slot": "unallocated",
+      "artifact_loaded": false,
+      "service_started": false,
+      "persistence": "none",
+      "can_load": false
+    },
+    "evidence": {
+      "manifest_hash": null,
+      "artifact_hash": null,
+      "vm_test_report_hash": null,
+      "local_attestation_hash": null,
+      "service_inventory_change": "none",
+      "load_attempted": false
+    }
+  },
+  "persistence": "none"
+}
+```
+
+This event is evidence that the gate refused to load. It is not a durable audit
+record and cannot satisfy a future load grant by itself.
 
 ## Provider Request Envelope Event
 

@@ -86,8 +86,8 @@ The JSON report contains:
     "hardware_profile_sha256": "...",
     "qemu_args_sha256": "...",
     "serial_log_sha256": "...",
-    "predicate_count": 246,
-    "predicate_passed_count": 246,
+    "predicate_count": 297,
+    "predicate_passed_count": 297,
     "predicate_failed_count": 0
   },
   "commands": [
@@ -113,7 +113,8 @@ The JSON report contains:
     "agent memory.supersede_fact",
     "agent memory.redact",
     "agent memory.compact",
-    "module.load_ephemeral"
+    "module.load_ephemeral",
+    "agent audit.events 8"
   ],
   "predicates": [
     {
@@ -150,9 +151,13 @@ denied `provider.context_export` gate with provider writes still
 read-only `provider.context_gate` missing-binding state, the local-only
 `provider.context_gate_selftest` negative predicate cases, the separate
 `provider.context_injection_gate` missing-final-authorization state, the
-`provider.context_injection_gate_selftest` negative final-authorization cases,
+  `provider.context_injection_gate_selftest` negative final-authorization cases,
 denial audit records that do not satisfy those gates, structured event-log
 denial bindings with packet and field-list hashes, negative checks for positive
 provider binding schemas, positive export authorization, and fake provider
 request envelopes from `provider.context_export`, query/trace locators, RAM-only
-event/audit reads, denied memory mutations, and denied module loading.
+event/audit reads, denied memory mutations, and denied module loading through
+`raios.module_load_gate.v0`. The module-load assertions also verify the
+current-boot audit event binding, full missing-evidence list, null
+manifest/artifact/report/attestation hashes, unchanged service inventory, and
+`load_attempted: false`.

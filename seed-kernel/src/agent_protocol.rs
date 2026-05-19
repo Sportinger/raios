@@ -657,6 +657,13 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         return DispatchOutcome::Denied("provider.context_export");
     }
 
+    if module_load_ephemeral_method(method) {
+        let method = canonical_module_load_ephemeral_method(method);
+        let event_id = event_log::record_module_load_ephemeral_denied(method);
+        emit_module_load_ephemeral_denied(method, event_id);
+        return DispatchOutcome::Denied(method);
+    }
+
     if memory_mutation_method(method) {
         let method = canonical_memory_mutation_method(method);
         let event_id = record_denial(method);
@@ -1942,6 +1949,104 @@ fn emit_capability_denied(method: &'static str, event_id: event_log::EventId) {
     serial::write_raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
 }
 
+fn emit_module_load_ephemeral_denied(method: &'static str, event_id: event_log::EventId) {
+    serial::write_raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
+    raw_line("{");
+    raw_line("  \"v\": \"raios.agent.v0\",");
+    raw_line("  \"t\": \"error\",");
+    raw_line("  \"id\": \"serial\",");
+    raw_line("  \"body\": {");
+    raw("    \"method\": ");
+    json_str(method);
+    raw_line(",");
+    raw("    \"event_id\": ");
+    json_event_id(event_id);
+    raw_line(",");
+    raw("    \"audit_event_id\": ");
+    json_event_id(event_id);
+    raw_line(",");
+    raw_line("    \"code\": \"capability_denied\",");
+    raw_line("    \"schema\": \"raios.module_load_gate.v0\",");
+    raw("    \"message\": ");
+    json_str("ephemeral module loading is denied until a manifest, exact artifact, VM test report, local attestation, computed capability grant, audit record, and rollback plan are bound");
+    raw_line(",");
+    raw_line("    \"request\": {");
+    raw_line("      \"load_mode\": \"ram_only\",");
+    raw_line("      \"requested_capability\": \"cap.module.load_ephemeral\",");
+    raw_line("      \"risk\": \"modify_ram\",");
+    raw_line("      \"target\": \"live_service_graph\",");
+    raw_line("      \"subject\": \"agent.session.serial\"");
+    raw_line("    },");
+    raw_line("    \"gate_state\": {");
+    raw_line("      \"module_manifest\": \"missing\",");
+    raw_line("      \"candidate_artifact\": \"missing\",");
+    raw_line("      \"vm_test_report\": \"missing\",");
+    raw_line("      \"local_attestation\": \"missing\",");
+    raw_line("      \"computed_capability_grant\": \"missing\",");
+    raw_line("      \"local_approval\": \"missing\",");
+    raw_line("      \"rollback_plan\": \"missing\",");
+    raw_line("      \"durable_audit_record\": \"missing\",");
+    raw_line("      \"loader\": \"unavailable\",");
+    raw_line("      \"service_slot\": \"unallocated\",");
+    raw_line("      \"artifact_loaded\": false,");
+    raw_line("      \"service_started\": false,");
+    raw_line("      \"persistence\": \"none\",");
+    raw_line("      \"can_load\": false");
+    raw_line("    },");
+    raw_line("    \"blocked_by\": [");
+    raw_line(
+        "      {\"gate\": \"module_manifest\", \"state\": \"missing\", \"reason\": \"module_manifest_missing\"},",
+    );
+    raw_line(
+        "      {\"gate\": \"candidate_artifact\", \"state\": \"missing\", \"reason\": \"candidate_artifact_missing\"},",
+    );
+    raw_line(
+        "      {\"gate\": \"vm_test_report\", \"state\": \"missing\", \"reason\": \"vm_test_report_missing\"},",
+    );
+    raw_line(
+        "      {\"gate\": \"local_attestation\", \"state\": \"missing\", \"reason\": \"local_attestation_missing\"},",
+    );
+    raw_line(
+        "      {\"gate\": \"computed_capability_grant\", \"state\": \"missing\", \"reason\": \"computed_capability_grant_missing\"},",
+    );
+    raw_line(
+        "      {\"gate\": \"durable_audit_record\", \"state\": \"missing\", \"reason\": \"durable_audit_record_missing\"},",
+    );
+    raw_line(
+        "      {\"gate\": \"rollback_plan\", \"state\": \"missing\", \"reason\": \"rollback_plan_missing\"},",
+    );
+    raw_line(
+        "      {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}",
+    );
+    raw_line("    ],");
+    raw_line("    \"required\": [");
+    raw_line("      \"raios.module_manifest.v0\",");
+    raw_line("      \"candidate_artifact_sha256\",");
+    raw_line("      \"raios.vm_test_report.v0\",");
+    raw_line("      \"raios.local_attestation.v0\",");
+    raw_line("      \"computed_capability_grant\",");
+    raw_line("      \"local_approval\",");
+    raw_line("      \"raios.audit_record.v0\",");
+    raw_line("      \"rollback_plan\",");
+    raw_line("      \"ram_only_service_slot\"");
+    raw_line("    ],");
+    raw_line("    \"evidence\": {");
+    raw("      \"denial_event_id\": ");
+    json_event_id(event_id);
+    raw_line(",");
+    raw_line("      \"event_scope\": \"current_boot\",");
+    raw_line("      \"manifest_hash\": null,");
+    raw_line("      \"artifact_hash\": null,");
+    raw_line("      \"vm_test_report_hash\": null,");
+    raw_line("      \"local_attestation_hash\": null,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false");
+    raw_line("    }");
+    raw_line("  }");
+    raw_line("}");
+    serial::write_raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
+}
+
 fn emit_memory_capability_denied(method: &'static str, event_id: event_log::EventId) {
     serial::write_raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
     raw_line("{");
@@ -2477,6 +2582,9 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             raw(", \"bindings\": {\"schema\": \"raios.provider_context_export_denial_audit.v0\", \"status\": \"denied_no_provider_write\", \"satisfies_current_boot_export_gate\": false, \"positive_export_authorization\": false, \"provider_write\": \"not_attempted\", \"hashes\": ");
             emit_provider_context_hashes(hashes);
             raw("}");
+        }
+        event_log::EventBindings::ModuleLoadGate => {
+            raw(", \"bindings\": {\"schema\": \"raios.module_load_gate.v0\", \"status\": \"denied_missing_evidence\", \"load_mode\": \"ram_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"risk\": \"modify_ram\", \"target\": \"live_service_graph\", \"subject\": \"agent.session.serial\", \"gate_state\": {\"module_manifest\": \"missing\", \"candidate_artifact\": \"missing\", \"vm_test_report\": \"missing\", \"local_attestation\": \"missing\", \"computed_capability_grant\": \"missing\", \"local_approval\": \"missing\", \"rollback_plan\": \"missing\", \"durable_audit_record\": \"missing\", \"loader\": \"unavailable\", \"service_slot\": \"unallocated\", \"artifact_loaded\": false, \"service_started\": false, \"persistence\": \"none\", \"can_load\": false}, \"blocked_by\": [{\"gate\": \"module_manifest\", \"state\": \"missing\", \"reason\": \"module_manifest_missing\"}, {\"gate\": \"candidate_artifact\", \"state\": \"missing\", \"reason\": \"candidate_artifact_missing\"}, {\"gate\": \"vm_test_report\", \"state\": \"missing\", \"reason\": \"vm_test_report_missing\"}, {\"gate\": \"local_attestation\", \"state\": \"missing\", \"reason\": \"local_attestation_missing\"}, {\"gate\": \"computed_capability_grant\", \"state\": \"missing\", \"reason\": \"computed_capability_grant_missing\"}, {\"gate\": \"durable_audit_record\", \"state\": \"missing\", \"reason\": \"durable_audit_record_missing\"}, {\"gate\": \"rollback_plan\", \"state\": \"missing\", \"reason\": \"rollback_plan_missing\"}, {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}], \"required\": [\"raios.module_manifest.v0\", \"candidate_artifact_sha256\", \"raios.vm_test_report.v0\", \"raios.local_attestation.v0\", \"computed_capability_grant\", \"local_approval\", \"raios.audit_record.v0\", \"rollback_plan\", \"ram_only_service_slot\"], \"evidence\": {\"event_scope\": \"current_boot\", \"manifest_hash\": null, \"artifact_hash\": null, \"vm_test_report_hash\": null, \"local_attestation_hash\": null, \"service_inventory_change\": \"none\", \"load_attempted\": false}}");
         }
     }
 }
@@ -3618,6 +3726,14 @@ fn canonical_denied_method(method: &str) -> &'static str {
     "unknown"
 }
 
+fn canonical_module_load_ephemeral_method(method: &str) -> &'static str {
+    if method_eq(method, "service.load_ephemeral") {
+        "service.load_ephemeral"
+    } else {
+        "module.load_ephemeral"
+    }
+}
+
 fn requested_capability_for_read(method: &str) -> &'static str {
     if method_eq(method, "system.describe") {
         "cap.system.describe.read"
@@ -3707,6 +3823,10 @@ fn risk_for_denial(method: &str) -> &'static str {
     } else {
         "modify_ram"
     }
+}
+
+fn module_load_ephemeral_method(method: &str) -> bool {
+    method_eq(method, "module.load_ephemeral") || method_eq(method, "service.load_ephemeral")
 }
 
 fn provider_context_export_method(method: &str) -> bool {

@@ -342,7 +342,8 @@ function Write-Report {
             "agent memory.supersede_fact",
             "agent memory.redact",
             "agent memory.compact",
-            "module.load_ephemeral"
+            "module.load_ephemeral",
+            "agent audit.events 8"
         )
         predicates = @($Predicates.ToArray())
         serial_log = [ordered]@{
@@ -699,8 +700,60 @@ try {
 
     Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
     Assert-LogContains -Name "policy:mutating_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_load_gate_schema" -Needle '"schema": "raios.module_load_gate.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:mutating_load_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_load_mode_ram_only" -Needle '"load_mode": "ram_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_load_capability" -Needle '"requested_capability": "cap.module.load_ephemeral"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_load_target" -Needle '"target": "live_service_graph"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_manifest_missing" -Needle '"module_manifest": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:candidate_artifact_missing" -Needle '"candidate_artifact": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_vm_report_missing" -Needle '"vm_test_report": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_attestation_missing" -Needle '"local_attestation": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_computed_grant_missing" -Needle '"computed_capability_grant": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_approval_missing" -Needle '"local_approval": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rollback_missing" -Needle '"rollback_plan": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_audit_missing" -Needle '"durable_audit_record": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_unavailable" -Needle '"loader": "unavailable"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_slot_unallocated" -Needle '"service_slot": "unallocated"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_artifact_not_loaded" -Needle '"artifact_loaded": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_not_started" -Needle '"service_started": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_manifest_missing_reason" -Needle '"reason": "module_manifest_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:candidate_artifact_missing_reason" -Needle '"reason": "candidate_artifact_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_vm_report_missing_reason" -Needle '"reason": "vm_test_report_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_attestation_missing_reason" -Needle '"reason": "local_attestation_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_computed_grant_missing_reason" -Needle '"reason": "computed_capability_grant_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_audit_missing_reason" -Needle '"reason": "durable_audit_record_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rollback_missing_reason" -Needle '"reason": "rollback_plan_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_unimplemented_reason" -Needle '"reason": "module_loader_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_manifest_required" -Needle "raios.module_manifest.v0" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:candidate_artifact_sha256_required" -Needle "candidate_artifact_sha256" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:vm_report_required" -Needle "raios.vm_test_report.v0" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:local_attestation_required" -Needle "raios.local_attestation.v0" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_computed_grant_required" -Needle "computed_capability_grant" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_approval_required" -Needle "local_approval" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_audit_record_required" -Needle "raios.audit_record.v0" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rollback_required" -Needle "rollback_plan" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_slot_required" -Needle "ram_only_service_slot" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_manifest_hash_null" -Needle '"manifest_hash": null' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_artifact_hash_null" -Needle '"artifact_hash": null' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_vm_report_hash_null" -Needle '"vm_test_report_hash": null' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_attestation_hash_null" -Needle '"local_attestation_hash": null' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_inventory_unchanged" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent audit.events 8" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+    Assert-LogContains -Name "protocol:module_load_audit_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_capability" -Needle '"requested_capability": "cap.module.load_ephemeral"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_risk" -Needle '"risk": "modify_ram"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_resource" -Needle '"resource": "live_service_graph"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_reason" -Needle '"reason": "missing_evidence"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_evidence_gate" -Needle '"module_load_gate_evaluated"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_evidence_inventory" -Needle '"service_inventory_unchanged"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_evidence_no_load" -Needle '"load_not_attempted"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_load_gate.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_binding_status" -Needle '"status": "denied_missing_evidence"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_binding_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
     $Result = "passed"
 }

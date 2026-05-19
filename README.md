@@ -246,7 +246,15 @@ What boots and works in the VM right now:
 - Direct OpenAI transport with verified DNS, TCP, TLS 1.3, HTTPS, and Responses
   API behavior
 - A fail-closed provider trust gate that refuses to write HTTPS or copy the API
-  key unless a valid leaf-certificate pin is configured
+  key unless a valid SPKI or leaf-certificate pin is configured
+- A native serial `raios.agent.v0` protocol with typed read-only snapshot,
+  capability, service inventory, memory context, event log, and provider gate
+  methods
+- A denied-by-default `raios.module_load_gate.v0` for `module.load_ephemeral`
+  and `service.load_ephemeral`, including current-boot audit/event evidence and
+  `load_attempted: false`
+- A Shadow VM smoke harness that emits `raios.vm_test_report.v0` evidence over
+  the real boot and serial protocol path
 - `SET` mode and a `setup` command that accept an API key into a sealed RAM
   region without echoing it to the serial log
 - Detection of the Surface Pro 4 Marvell AVASTAR 88W8897 Wi-Fi NIC on PCI, plus
@@ -254,10 +262,7 @@ What boots and works in the VM right now:
 
 What is described above but not yet implemented:
 
-- The Agent Protocol as a typed, capability-gated interface (the current
-  transport is direct OpenAI, not a protocol)
 - The capability ledger and policy engine
-- The Shadow VM and evidence verifier
 - Signed replaceable modules and the runtime to load and isolate them
 - Persistence, the rollback transaction log, and the recovery shell as
   described
@@ -265,7 +270,7 @@ What is described above but not yet implemented:
 - TLS and HTTPS as a replaceable service rather than kernel-resident code
 - Wi-Fi firmware upload, association, WPA, and packet transport for the
   detected Marvell target
-- Provider-agnostic trust beyond the first OpenAI cert-pin slice
+- Provider-agnostic trust beyond the first OpenAI SPKI/cert-pin slices
 - Re-binding to new hardware as a supported operation
 
 The repository today is the **seed** of the system described above: a bootable

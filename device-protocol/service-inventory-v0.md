@@ -7,6 +7,10 @@ world components before raiOS has dynamic service loading.
 This inventory is descriptive evidence, not load permission. Mutating service
 lifecycle methods remain denied until a module manifest, computed capability
 grant, VM test report, local attestation, audit record, and rollback plan exist.
+The current `raios.module_load_gate.v0` also reports
+`service_inventory_change: none`, `service_slot: unallocated`, and
+`service_started: false` for denied `module.load_ephemeral` and
+`service.load_ephemeral` requests.
 
 ## Current Transport
 
@@ -140,3 +144,6 @@ The current kernel maps service health as follows:
 - Mutating lifecycle methods such as `service.start`, `service.stop`,
   `service.restart`, and `service.load_ephemeral` must continue to return
   `capability_denied` until the evidence chain exists.
+- A denied module or service load must not add, remove, or mutate inventory
+  rows. The event/audit binding may describe the failed gate, but the
+  `service.inventory.v0` graph remains unchanged.
