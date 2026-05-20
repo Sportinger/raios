@@ -149,8 +149,9 @@ This object is a requirement schema, not persistence. Stage-0 does not create
 durable audit records, rollback plans, service slots, or loader entries.
 The host-side `raios.module_audit_rollback_diagnostic.v0` can now compute
 canonical `raios.audit_record.v0` and `raios.rollback_plan.v0` candidates for
-that evidence shape, but those candidates are not accepted by the guest yet and
-do not grant loading.
+that evidence shape. The guest-side `module.audit_rollback_diagnostic` method
+can inspect those candidates as hashes only, but it does not retain them yet and
+does not grant loading.
 
 ## Event Binding
 
@@ -250,6 +251,24 @@ audit-bound manifest/artifact/VM-report/local-attestation mismatches, local
 approval mismatch, audit-bound rollback hash mismatch, rollback artifact
 mismatch, and rollback service-slot mismatch.
 
+## Audit/Rollback Hash-Reference Diagnostic
+
+The read-only method:
+
+```text
+agent module.audit_rollback_diagnostic
+agent module.audit_rollback_diagnostic <audit_record_hash> <rollback_plan_hash> <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> <local_approval_hash> <pre_load_service_inventory_hash> <cleanup_actions_hash> <denial_event_id> <retained_reference_event_id> <ram_only_service_slot_id> [current_boot]
+agent module.audit_rollback_diagnostic_selftest
+```
+
+emits `raios.module_audit_rollback_reference_diagnostic.v0` and
+`raios.module_audit_rollback_reference_diagnostic_selftest.v0`. It validates
+only canonical hashes and current-boot ids, keeps
+`creates_durable_audit_records: false`, `creates_rollback_plans: false`,
+`allocates_service_slot: false`, `loads_artifact: false`, `can_load_now: false`,
+and `load_attempted: false`, and covers stale, previous-boot, wrong-schema,
+substituted, and mismatched audit/rollback references.
+
 ## Invariants
 
 - No artifact bytes are loaded by this gate.
@@ -264,6 +283,9 @@ mismatch, and rollback service-slot mismatch.
   current-boot diagnostic evidence only; it is not durable audit authority.
 - `raios.module_load_gate_audit_rollback_requirements.v0` is a requirement
   shape only; it does not prove that durable audit or rollback state exists.
+- A valid `module.audit_rollback_diagnostic` hash reference is read-only
+  evidence; it is not retained yet and is not durable audit or rollback
+  authority.
 - `module.load_gate_audit_rollback_selftest` is test infrastructure and must
   not create audit records, rollback plans, service slots, loader state, or
   service inventory changes.

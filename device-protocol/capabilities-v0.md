@@ -108,7 +108,7 @@ read-only protocol methods:
 | `cap.audit.events.read` | `audit.events` | `observe` | `current_boot` | Read bounded current-boot audit event records. |
 | `cap.provider.context_export.read` | `provider.context_gate`, `provider.context_gate_selftest` | `observe` | `current_boot` | Read provider context gate diagnostics and local predicate selftests. |
 | `cap.provider.context_injection.read` | `provider.context_injection_gate`, `provider.context_injection_gate_selftest` | `observe` | `current_boot` | Read final provider context injection gate diagnostics and local predicate selftests. |
-| `cap.module.grant_diagnostic.read` | `module.grant_diagnostic`, `module.grant_diagnostic_selftest`, `module.load_gate_retained_selftest`, `module.load_gate_audit_rollback_selftest` | `observe` | `current_boot` | Read module computed-grant hash-reference diagnostics and denied-load gate predicate selftests. |
+| `cap.module.grant_diagnostic.read` | `module.grant_diagnostic`, `module.grant_diagnostic_selftest`, `module.audit_rollback_diagnostic`, `module.audit_rollback_diagnostic_selftest`, `module.load_gate_retained_selftest`, `module.load_gate_audit_rollback_selftest` | `observe` | `current_boot` | Read module computed-grant, audit/rollback hash-reference diagnostics, and denied-load gate predicate selftests. |
 
 `system.snapshot` also reports `capability_denied.for_all_mutating_methods` so an
 agent can discover that mutation is intentionally unavailable.
@@ -168,6 +168,11 @@ the canonical hash reference for that diagnostic without accepting artifact
 bytes. A valid reference is retained as a local-only current-boot
 `raios.module_computed_grant_reference.v0` event binding, but it also keeps
 `can_load_now: false` and `load_attempted: false`.
+The read-only `module.audit_rollback_diagnostic` method can inspect canonical
+`raios.audit_record.v0` and `raios.rollback_plan.v0` hash references without
+accepting durable records or artifact bytes. A valid audit/rollback reference
+still keeps `durable_audit_written: false`, `rollback_plan_installed: false`,
+`can_load_now: false`, and `load_attempted: false`.
 
 Provider context export maps to `cap.provider.context_export` and risk
 `export`. It is denied until positive provider trust, the

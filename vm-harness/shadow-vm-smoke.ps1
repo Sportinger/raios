@@ -345,10 +345,13 @@ function Write-Report {
             "agent module.grant_diagnostic",
             "agent module.grant_diagnostic <valid hash reference>",
             "agent module.grant_diagnostic_selftest",
+            "agent module.audit_rollback_diagnostic",
+            "agent module.audit_rollback_diagnostic <valid hash reference>",
+            "agent module.audit_rollback_diagnostic_selftest",
             "agent module.load_gate_retained_selftest",
             "agent module.load_gate_audit_rollback_selftest",
             "module.load_ephemeral",
-            "agent audit.events 8"
+            "agent audit.events 32"
         )
         predicates = @($Predicates.ToArray())
         serial_log = [ordered]@{
@@ -754,6 +757,76 @@ try {
     Assert-LogContains -Name "protocol:module_grant_diag_valid_still_no_load" -Needle '"can_load_now": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_diag_valid_hash_echo" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "agent module.audit_rollback_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_diagnostic"
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_schema" -Needle '"schema": "raios.module_audit_rollback_reference_diagnostic.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_absent" -Needle '"validation_status": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_absent_reason" -Needle '"validation_reason": "audit_rollback_reference_absent"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    $moduleAuditLocalApprovalHash = "6666666666666666666666666666666666666666666666666666666666666666"
+    $moduleAuditPreInventoryHash = "7777777777777777777777777777777777777777777777777777777777777777"
+    $moduleAuditCleanupHash = "8888888888888888888888888888888888888888888888888888888888888888"
+    $moduleAuditDenialEventId = "event.current_boot.00000031"
+    $moduleAuditRetainedReferenceEventId = "event.current_boot.00000027"
+    $moduleAuditRamOnlyServiceSlotId = "ram_only:svc.test.0001"
+    $moduleRollbackCanonical = @(
+        "canonicalization=raios.rollback_plan.canonical.v0",
+        "schema=raios.rollback_plan.v0",
+        "load_mode=ram_only",
+        "scope=current_boot",
+        "artifact_sha256=$moduleGrantArtifactHash",
+        "pre_load_service_inventory_sha256=$moduleAuditPreInventoryHash",
+        "ram_only_service_slot_id=$moduleAuditRamOnlyServiceSlotId",
+        "cleanup_actions_sha256=$moduleAuditCleanupHash",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $moduleRollbackHash = Get-TextSha256 -Text $moduleRollbackCanonical
+    $moduleAuditCanonical = @(
+        "canonicalization=raios.audit_record.canonical.v0",
+        "schema=raios.audit_record.v0",
+        "requested_capability=cap.module.load_ephemeral",
+        "load_mode=ram_only",
+        "subject=agent.session.serial",
+        "resource=live_service_graph",
+        "scope=current_boot",
+        "denial_event_id=$moduleAuditDenialEventId",
+        "retained_reference_event_id=$moduleAuditRetainedReferenceEventId",
+        "computed_capability_grant_sha256=$moduleGrantHash",
+        "manifest_sha256=$moduleGrantManifestHash",
+        "candidate_artifact_sha256=$moduleGrantArtifactHash",
+        "vm_test_report_sha256=$moduleGrantReportHash",
+        "local_attestation_sha256=$moduleGrantAttestationHash",
+        "local_approval_sha256=$moduleAuditLocalApprovalHash",
+        "rollback_plan_sha256=$moduleRollbackHash",
+        "ram_only_service_slot_id=$moduleAuditRamOnlyServiceSlotId",
+        "grants_load_now=false",
+        "authorizes_guest_load=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $moduleAuditHash = Get-TextSha256 -Text $moduleAuditCanonical
+    $moduleAuditCommand = "agent module.audit_rollback_diagnostic $moduleAuditHash $moduleRollbackHash $moduleGrantHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash $moduleAuditLocalApprovalHash $moduleAuditPreInventoryHash $moduleAuditCleanupHash $moduleAuditDenialEventId $moduleAuditRetainedReferenceEventId $moduleAuditRamOnlyServiceSlotId"
+
+    Send-AgentCommand -Command $moduleAuditCommand -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_diagnostic"
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_valid_status" -Needle '"validation_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_valid_reason" -Needle '"validation_reason": "audit_rollback_reference_valid_but_loader_and_slot_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_audit_hash_echo" -Needle "`"audit_record_hash`": `"sha256:$moduleAuditHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_rollback_hash_echo" -Needle "`"rollback_plan_hash`": `"sha256:$moduleRollbackHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_grant_hash_echo" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_audit_ref_present" -Needle '"audit_record_hash_reference_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_rollback_ref_present" -Needle '"rollback_plan_hash_reference_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_no_durable_write" -Needle '"durable_audit_written": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_not_installed" -Needle '"rollback_plan_installed": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_can_load_false" -Needle '"can_load_now": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+
     Send-AgentCommand -Command "agent module.grant_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic_selftest"
     Assert-LogContains -Name "protocol:module_grant_selftest_schema" -Needle '"schema": "raios.module_computed_grant_diagnostic_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
@@ -771,6 +844,30 @@ try {
     Assert-LogContains -Name "protocol:module_grant_selftest_wrong_policy_case" -Needle '"case": "grants_load_now_or_wrong_policy_hash"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.audit_rollback_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_diagnostic_selftest"
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_reference_diagnostic_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_artifacts" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_count" -Needle '"case_count": 10' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_absent_case" -Needle '"case": "absent_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_valid_case" -Needle '"case": "accepted_current_boot_reference_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_valid_status" -Needle '"actual_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_stale_case" -Needle '"case": "stale_previous_boot_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_event_case" -Needle '"case": "previous_boot_denial_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_audit_schema_case" -Needle '"case": "audit_record_schema_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_rollback_schema_case" -Needle '"case": "rollback_plan_schema_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_substituted_case" -Needle '"case": "substituted_audit_record_hash"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_rollback_hash_case" -Needle '"case": "mismatched_rollback_plan_hash"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_grant_hash_case" -Needle '"case": "mismatched_computed_grant_hash"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_slot_case" -Needle '"case": "invalid_ram_only_service_slot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_retained_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_retained_selftest"
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_schema" -Needle '"schema": "raios.module_load_gate_retained_reference_selftest.v0"' -TimeoutSeconds 1
@@ -893,7 +990,7 @@ try {
     Assert-LogContains -Name "policy:module_local_attestation_hash_retained" -Needle "`"local_attestation_hash`": `"sha256:$moduleGrantAttestationHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_service_inventory_unchanged" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
 
-    Send-AgentCommand -Command "agent audit.events 8" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+    Send-AgentCommand -Command "agent audit.events 32" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
     Assert-LogContains -Name "protocol:module_grant_audit_source" -Needle '"source_method": "module.grant_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_kind" -Needle '"kind": "module.computed_grant_reference.retained"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1

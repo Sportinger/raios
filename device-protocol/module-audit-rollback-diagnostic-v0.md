@@ -43,6 +43,52 @@ event id, rollback plan hash, and ram-only service slot id.
 The tool exits non-zero for rejected evidence unless `--allow-invalid` is
 provided.
 
+## Guest Hash-Reference Diagnostic
+
+Stage-0 can now inspect the host candidate as hashes only:
+
+```text
+agent module.audit_rollback_diagnostic
+agent module.audit_rollback_diagnostic <audit_record_hash> <rollback_plan_hash> <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> <local_approval_hash> <pre_load_service_inventory_hash> <cleanup_actions_hash> <denial_event_id> <retained_reference_event_id> <ram_only_service_slot_id> [current_boot]
+agent module.audit_rollback_diagnostic_selftest
+```
+
+The response schema is
+`raios.module_audit_rollback_reference_diagnostic.v0`. The method does not
+accept artifact bytes, manifest JSON, VM-report JSON, attestation JSON, local
+approval text, audit-record JSON, or rollback-plan JSON. It recomputes the
+canonical grant, rollback-plan, and audit-record hashes from the supplied hash
+references and current-boot ids only.
+
+A valid reference reports:
+
+```text
+validation_status: valid_hash_reference_load_still_denied
+audit_record_hash_reference_present: true
+rollback_plan_hash_reference_present: true
+durable_audit_written: false
+rollback_plan_installed: false
+grants_capability: false
+grants_load_now: false
+authorizes_guest_load: false
+can_load_now: false
+service_inventory_change: none
+load_attempted: false
+loader: unavailable
+service_slot: unallocated
+```
+
+This diagnostic is deliberately read-only. It does not retain audit/rollback
+references yet, write durable audit records, install rollback plans, allocate
+service slots, load artifacts, or change `service.inventory.v0`.
+
+`module.audit_rollback_diagnostic_selftest` emits
+`raios.module_audit_rollback_reference_diagnostic_selftest.v0` and covers
+absent references, accepted current-boot references, stale scope, previous-boot
+event ids, audit/rollback schema mismatches, substituted audit hashes,
+rollback-plan hash mismatches, computed-grant hash mismatches, and invalid
+ram-only service-slot ids.
+
 ## Canonical Rollback Plan Hash
 
 The rollback candidate uses `raios.rollback_plan.canonical.v0` and binds:
@@ -122,12 +168,13 @@ rollback_plan_hash_mismatch
 rollback_service_slot_mismatch
 ```
 
-These tests prove the host diagnostic fails closed before a future guest
-hash-reference path exists. They do not create guest loader state.
+These tests prove the host diagnostic fails closed before the guest
+hash-reference path can inspect the candidates. They do not create guest loader
+state.
 
 ## Boundary
 
-The output may become input to a future guest read-only hash-reference
-diagnostic. It is not accepted by Stage-0 today and cannot satisfy
+The host output may become input to the guest read-only hash-reference
+diagnostic, but even a valid guest reference cannot satisfy
 `module.load_ephemeral`. Recovery artifacts remain under `raios.recovery.v0`,
 not this normal module load gate.

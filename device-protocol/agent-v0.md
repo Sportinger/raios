@@ -28,6 +28,8 @@ agent provider.context_injection_gate provider_minimal -> read-only final inject
 agent provider.context_injection_gate_selftest provider_minimal -> local-only final injection negative selftest
 agent module.grant_diagnostic -> read-only computed-grant hash-reference diagnostic
 agent module.grant_diagnostic_selftest -> local-only module grant diagnostic selftest
+agent module.audit_rollback_diagnostic -> read-only audit/rollback hash-reference diagnostic
+agent module.audit_rollback_diagnostic_selftest -> local-only audit/rollback hash-reference diagnostic selftest
 agent module.load_gate_retained_selftest -> local-only retained-reference gate selftest
 agent module.load_gate_audit_rollback_selftest -> local-only audit/rollback gate selftest
 agent memory.recent_events -> memory.recent_events
@@ -79,6 +81,8 @@ provider.context_injection_gate
 provider.context_injection_gate_selftest
 module.grant_diagnostic
 module.grant_diagnostic_selftest
+module.audit_rollback_diagnostic
+module.audit_rollback_diagnostic_selftest
 module.load_gate_retained_selftest
 module.load_gate_audit_rollback_selftest
 ```
@@ -168,6 +172,29 @@ loader token.
 `raios.module_computed_grant_diagnostic_selftest.v0` test infrastructure for
 absent, accepted-current-boot, stale, mismatched, and wrong-policy hash
 references. It does not load artifacts or mutate `service.inventory.v0`.
+`module.audit_rollback_diagnostic` emits local-only
+`raios.module_audit_rollback_reference_diagnostic.v0`. With no arguments it
+reports the audit/rollback reference as absent. With hash arguments it checks
+only canonical hash references and current-boot ids:
+
+```text
+module.audit_rollback_diagnostic <audit_record_hash> <rollback_plan_hash> <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> <local_approval_hash> <pre_load_service_inventory_hash> <cleanup_actions_hash> <denial_event_id> <retained_reference_event_id> <ram_only_service_slot_id> [current_boot]
+```
+
+The guest does not accept artifact bytes, JSON evidence, local approval text,
+or durable records through this method. A valid hash reference sets
+`audit_record_hash_reference_present: true` and
+`rollback_plan_hash_reference_present: true`, but still keeps
+`durable_audit_written: false`, `rollback_plan_installed: false`,
+`grants_capability: false`, `can_load_now: false`,
+`service_inventory_change: none`, and `load_attempted: false`.
+`module.audit_rollback_diagnostic_selftest` emits local-only
+`raios.module_audit_rollback_reference_diagnostic_selftest.v0` test
+infrastructure for absent, accepted-current-boot, stale, previous-boot event
+id, wrong-schema, substituted, mismatched, and invalid service-slot references.
+It does not mutate the global event log, create durable audit records, create
+rollback plans, allocate service slots, load artifacts, or mutate
+`service.inventory.v0`.
 `module.load_gate_retained_selftest` emits local-only
 `raios.module_load_gate_retained_reference_selftest.v0` test infrastructure for
 the denied load gate's retained-reference predicate. It covers missing,

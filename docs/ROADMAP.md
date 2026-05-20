@@ -2,20 +2,16 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-20 by Codex after adding host-side canonical
-audit/rollback diagnostics for the denied `raios.module_load_gate.v0` while
-keeping `cap.module.load_ephemeral` denied. The host
-`raios.computed_capability_grant.v0` diagnostic validates and hashes an exact
-manifest/artifact/VM-report/local-attestation tuple, while the guest
-`module.grant_diagnostic` validates only the canonical hash reference, records
-`raios.module_computed_grant_reference.v0` for valid current-boot references,
-the module load gate reports retained references as non-authorizing evidence
-only, `module.load_gate_retained_selftest` covers negative retained reference
-candidates, and `module.load_gate_audit_rollback_selftest` covers missing and
-mismatched durable audit/rollback candidates without creating those records.
-`registry-tools audit-rollback-diagnostic` now emits non-authorizing
-`raios.module_audit_rollback_diagnostic.v0` with canonical
-`raios.audit_record.v0` and `raios.rollback_plan.v0` candidates.
+Last updated: 2026-05-20 by Codex after adding guest-side read-only
+audit/rollback hash-reference diagnostics for host
+`raios.module_audit_rollback_diagnostic.v0` candidates while keeping
+`cap.module.load_ephemeral` denied. The guest now validates canonical
+`raios.audit_record.v0` and `raios.rollback_plan.v0` hash references through
+`module.audit_rollback_diagnostic` and covers absent, stale, previous-boot,
+wrong-schema, substituted, mismatched, and invalid service-slot cases through
+`module.audit_rollback_diagnostic_selftest`. It still creates no durable audit
+records, rollback plans, service slots, loader state, retained audit/rollback
+records, or service inventory changes.
 
 Latest maintenance verification:
 
@@ -30,9 +26,10 @@ Latest maintenance verification:
   passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260520-134329-21388.json` with 432/432
+  `release\vm-reports\shadow-20260520-153224-24720.json` with 478/478
   predicates, including `module.grant_diagnostic`,
-  `module.grant_diagnostic_selftest`, retained
+  `module.grant_diagnostic_selftest`, `module.audit_rollback_diagnostic`,
+  `module.audit_rollback_diagnostic_selftest`, retained
   `raios.module_computed_grant_reference.v0` audit/event binding coverage, and
   retained-reference state plus negative retained-reference and audit/rollback
   requirement selftests in the denied module load gate.
@@ -98,6 +95,14 @@ Current verified cursor:
 - `registry-core` unit tests cover audit/rollback mismatches for retained grant
   hash, manifest, artifact, report, attestation, approval, rollback hash, and
   service-slot ids.
+- `module.audit_rollback_diagnostic` now exposes
+  `raios.module_audit_rollback_reference_diagnostic.v0` as a guest read-only
+  hash-reference diagnostic over host audit/rollback candidates. It accepts
+  only hashes and current-boot ids, recomputes the canonical grant,
+  rollback-plan, and audit-record hashes, rejects stale, previous-boot,
+  wrong-schema, substituted, mismatched, and invalid service-slot candidates,
+  and keeps `durable_audit_written`, `rollback_plan_installed`,
+  `can_load_now`, and `load_attempted` false.
 - `module.grant_diagnostic` now exposes
   `raios.module_computed_grant_diagnostic.v0` as a read-only hash-reference
   diagnostic. It accepts no artifact bytes, recomputes the canonical grant hash
@@ -216,13 +221,15 @@ Current verified cursor:
 - The Shadow VM smoke validates the read-only protocol, memory context schemas,
   the local provider-minimal projection, the denied provider context export gate,
   provider export denial, event/audit log reads, memory mutation denials with
-  event ids, module computed-grant hash-reference diagnostics, and the denied
-  module load gate, then emits `raios.vm_test_report.v0` reports.
+  event ids, module computed-grant hash-reference diagnostics, module
+  audit/rollback hash-reference diagnostics, and the denied module load gate,
+  then emits `raios.vm_test_report.v0` reports.
 
 Current phase: Phase 6 has host-side computed grant plus audit/rollback
 evidence diagnostics, guest-side read-only computed-grant hash-reference
-diagnostics, current-boot retained computed-grant hash-reference bindings, and
-a fail-closed module load gate that reports retained references plus
+diagnostics, guest-side read-only audit/rollback hash-reference diagnostics,
+current-boot retained computed-grant hash-reference bindings, and a
+fail-closed module load gate that reports retained references plus
 audit/rollback requirements as non-authorizing evidence with negative
 retained-reference and audit/rollback selftest coverage. No code loading exists
 yet.
@@ -230,25 +237,24 @@ yet.
 Exact next task:
 
 ```text
-Define a guest read-only audit/rollback hash-reference diagnostic without
-granting live load.
+Retain valid audit/rollback hash references as local-only current-boot
+evidence without granting live load.
 ```
 
-Start by accepting only hashes for `raios.audit_record.v0`,
-`raios.rollback_plan.v0`, retained grant references, manifest, artifact, VM
-report, local attestation, local approval, and ram-only service-slot id. Do not
-add a loader, accept artifact bytes in the guest, or mutate
-`service.inventory.v0`.
+Start from the validated `module.audit_rollback_diagnostic` predicate. Record
+only a RAM-only `raios.module_audit_rollback_reference.v0` event binding for a
+valid current-boot reference, report it from the denied load gate as
+non-authorizing evidence, and continue to deny loading until durable audit,
+rollback installation, loader, and service-slot allocation exist.
 
 Next three tasks:
 
-1. Add guest-side audit/rollback hash-reference diagnostics and negative
-   selftests for missing, stale, wrong-schema, substituted, and mismatched
-   audit/rollback candidates.
+1. Retain valid audit/rollback hash references as local-only current-boot
+   evidence only after the negative guest predicate passes.
 2. Keep `module.load_ephemeral` denied with loader unavailable,
    `service_inventory_change: none`, and `load_attempted: false`.
-3. Retain valid audit/rollback hash references as local-only current-boot
-   evidence only after the negative guest predicate exists.
+3. Extend the denied module load gate to report retained audit/rollback
+   reference state without treating it as durable authority.
 
 Current blockers and non-goals:
 

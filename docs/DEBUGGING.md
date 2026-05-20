@@ -358,6 +358,9 @@ Inside the guest, inspect only the hash reference with:
 agent module.grant_diagnostic
 agent module.grant_diagnostic <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
 agent module.grant_diagnostic_selftest
+agent module.audit_rollback_diagnostic
+agent module.audit_rollback_diagnostic <audit_record_hash> <rollback_plan_hash> <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> <local_approval_hash> <pre_load_service_inventory_hash> <cleanup_actions_hash> <denial_event_id> <retained_reference_event_id> <ram_only_service_slot_id> [current_boot]
+agent module.audit_rollback_diagnostic_selftest
 agent module.load_gate_retained_selftest
 agent module.load_gate_audit_rollback_selftest
 ```
@@ -367,6 +370,12 @@ The expected guest schemas are
 `raios.module_computed_grant_diagnostic_selftest.v0`. They must keep
 `accepts_artifact_bytes: false`, `service_inventory_change: none`, and
 `load_attempted: false`.
+
+The audit/rollback diagnostic emits
+`raios.module_audit_rollback_reference_diagnostic.v0` and
+`raios.module_audit_rollback_reference_diagnostic_selftest.v0`. It validates
+only canonical hashes and current-boot ids, creates no durable audit records or
+rollback plans, allocates no service slot, and keeps `can_load_now: false`.
 
 A valid full hash-reference command records a local-only current-boot
 `raios.module_computed_grant_reference.v0` event binding and the diagnostic

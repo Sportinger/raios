@@ -5,7 +5,7 @@ use spin::Mutex;
 
 use crate::{agent_protocol, input, provider, provider_config, serial, system_status, ui, wifi};
 
-const COMMAND_WIDTH: usize = 512;
+const COMMAND_WIDTH: usize = 1536;
 const OUTPUT_WIDTH: usize = 104;
 const OUTPUT_LINES: usize = 8;
 const CHAT_LINES: usize = 10;
