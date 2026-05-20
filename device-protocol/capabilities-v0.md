@@ -171,7 +171,9 @@ bytes. A valid reference is retained as a local-only current-boot
 The read-only `module.audit_rollback_diagnostic` method can inspect canonical
 `raios.audit_record.v0` and `raios.rollback_plan.v0` hash references without
 accepting durable records or artifact bytes. A valid audit/rollback reference
-still keeps `durable_audit_written: false`, `rollback_plan_installed: false`,
+is retained as a local-only current-boot
+`raios.module_audit_rollback_reference.v0` event binding, but still keeps
+`durable_audit_written: false`, `rollback_plan_installed: false`,
 `can_load_now: false`, and `load_attempted: false`.
 
 Provider context export maps to `cap.provider.context_export` and risk

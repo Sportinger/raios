@@ -23,6 +23,8 @@ V0 records:
 - `raios.module_load_gate.v0` bindings for denied module/service load attempts
 - local-only `raios.module_computed_grant_reference.v0` bindings for valid
   current-boot module computed-grant hash references
+- local-only `raios.module_audit_rollback_reference.v0` bindings for valid
+  current-boot module audit/rollback hash references
 - `capability_denied` outcomes for provider context export attempts
 - local provider request envelope creation on the real direct OpenAI request path
 - positive provider request binding records after pinned/WebPKI provider trust
@@ -136,6 +138,9 @@ evidence: missing_required_evidence, capability_denied
 `durable_audit_record_required`, `rollback_plan_required`,
 `rollback_bindings_required`, `service_inventory_unchanged`, and
 `load_not_attempted` evidence and attach a `raios.module_load_gate.v0` binding.
+If valid audit/rollback hash-reference evidence was retained earlier in the
+same boot, the denial snapshots that reference as non-authorizing
+current-boot evidence.
 
 Most denial responses include `event_id` and `audit_event_id`, both pointing at
 the current-boot denial record id. `provider.context_export` is stricter: its
@@ -194,8 +199,8 @@ structured non-authorizing binding:
       "local_attestation": "missing",
       "computed_capability_grant": "missing | retained_hash_reference_only",
       "local_approval": "missing",
-      "rollback_plan": "missing",
-      "durable_audit_record": "missing",
+      "rollback_plan": "missing | retained_hash_reference_only_not_installed",
+      "durable_audit_record": "missing | retained_hash_reference_only_not_durable",
       "loader": "unavailable",
       "service_slot": "unallocated",
       "artifact_loaded": false,
@@ -208,17 +213,22 @@ structured non-authorizing binding:
       "schema": "raios.module_computed_grant_reference.v0",
       "status": "missing | retained_hash_reference_load_still_denied"
     },
+    "retained_audit_rollback_reference": {
+      "state": "missing | present",
+      "schema": "raios.module_audit_rollback_reference.v0",
+      "status": "missing | retained_hash_reference_load_still_denied"
+    },
     "audit_rollback_requirements": {
       "schema": "raios.module_load_gate_audit_rollback_requirements.v0",
       "status": "required_missing",
       "writes_enabled": false,
       "durable_audit_record": {
         "schema": "raios.audit_record.v0",
-        "state": "missing"
+        "state": "missing | retained_hash_reference_only_not_durable"
       },
       "rollback_plan": {
         "schema": "raios.rollback_plan.v0",
-        "state": "missing"
+        "state": "missing | retained_hash_reference_only_not_installed"
       }
     },
     "evidence": {
@@ -227,6 +237,12 @@ structured non-authorizing binding:
       "artifact_hash": "null | sha256:<retained artifact hash>",
       "vm_test_report_hash": "null | sha256:<retained report hash>",
       "local_attestation_hash": "null | sha256:<retained attestation hash>",
+      "audit_record_hash": "null | sha256:<retained audit record hash>",
+      "rollback_plan_hash": "null | sha256:<retained rollback plan hash>",
+      "local_approval_hash": "null | sha256:<retained approval hash>",
+      "pre_load_service_inventory_hash": "null | sha256:<retained inventory hash>",
+      "cleanup_actions_hash": "null | sha256:<retained cleanup hash>",
+      "ram_only_service_slot_id": "null | ram_only:<service slot id>",
       "service_inventory_change": "none",
       "load_attempted": false
     }
@@ -245,8 +261,8 @@ record and cannot satisfy a future load grant by itself.
 The same binding also exposes
 `raios.module_load_gate_audit_rollback_requirements.v0`. That requirement
 shape names the future `raios.audit_record.v0` and `raios.rollback_plan.v0`
-bindings but keeps both missing, disables writes, and does not create durable
-state.
+bindings, reports retained hash-reference-only states when available, disables
+writes, and does not create durable state.
 
 ## Module Computed Grant Reference Event
 
@@ -294,6 +310,66 @@ JSON.
 The latest retained reference is visible through
 `module.grant_diagnostic` as `retained_reference`. It remains diagnostic
 evidence only and cannot satisfy the future durable audit or loader gates.
+
+## Module Audit/Rollback Reference Event
+
+When `module.audit_rollback_diagnostic` receives a valid current-boot
+audit/rollback hash reference, Stage-0 records one local-only RAM event. This
+event retains hashes and current-boot ids only; it does not retain durable audit
+JSON, rollback-plan JSON, artifact bytes, manifests, VM reports, attestations,
+or local approval text.
+
+```json
+{
+  "schema": "audit.event.v0",
+  "kind": "module.audit_rollback_reference.retained",
+  "source_method": "module.audit_rollback_diagnostic",
+  "classification": "local_only",
+  "outcome": "retained_hash_reference_load_still_denied",
+  "requested_capability": "cap.module.grant_diagnostic.read",
+  "risk": "observe",
+  "resource": "live_service_graph",
+  "reason": "audit_rollback_reference_valid_for_current_boot",
+  "bindings": {
+    "schema": "raios.module_audit_rollback_reference.v0",
+    "status": "retained_hash_reference_load_still_denied",
+    "scope": "current_boot",
+    "classification": "local_only",
+    "requested_capability": "cap.module.load_ephemeral",
+    "load_mode": "ram_only",
+    "durable_audit_written": false,
+    "rollback_plan_installed": false,
+    "grants_capability": false,
+    "grants_load_now": false,
+    "authorizes_guest_load": false,
+    "can_load_now": false,
+    "service_inventory_change": "none",
+    "load_attempted": false,
+    "denial_event_id": "event.current_boot.00000031",
+    "retained_computed_grant_reference_event_id": "event.current_boot.00000027",
+    "ram_only_service_slot_id": "ram_only:svc.example.0001",
+    "hashes": {
+      "audit_record_hash": "sha256:<64 hex chars>",
+      "rollback_plan_hash": "sha256:<64 hex chars>",
+      "computed_capability_grant_hash": "sha256:<64 hex chars>",
+      "manifest_hash": "sha256:<64 hex chars>",
+      "artifact_hash": "sha256:<64 hex chars>",
+      "vm_test_report_hash": "sha256:<64 hex chars>",
+      "local_attestation_hash": "sha256:<64 hex chars>",
+      "local_approval_hash": "sha256:<64 hex chars>",
+      "pre_load_service_inventory_hash": "sha256:<64 hex chars>",
+      "cleanup_actions_hash": "sha256:<64 hex chars>"
+    }
+  },
+  "persistence": "none"
+}
+```
+
+The latest retained audit/rollback reference is visible through
+`module.audit_rollback_diagnostic` as `retained_audit_rollback_reference` and
+through later denied `module.load_ephemeral` bindings. It remains diagnostic
+evidence only and cannot satisfy durable audit, rollback installation, service
+slot allocation, or loader gates.
 
 ## Provider Request Envelope Event
 

@@ -140,7 +140,9 @@ The next diagnostic is `raios.module_audit_rollback_diagnostic.v0`, emitted by
 `registry-tools audit-rollback-diagnostic` and inspected in the guest through
 `module.audit_rollback_diagnostic`. It consumes this computed grant hash plus
 retained-reference and denial event ids to build and validate non-authorizing
-`raios.audit_record.v0` and `raios.rollback_plan.v0` candidates. See
+`raios.audit_record.v0` and `raios.rollback_plan.v0` candidates. A valid guest
+hash reference may be retained as local-only current-boot evidence, but it does
+not become durable audit or an installed rollback plan. See
 `module-audit-rollback-diagnostic-v0.md`.
 
 ## Required Negative Cases

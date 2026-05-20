@@ -822,6 +822,11 @@ try {
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_grant_hash_echo" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_audit_ref_present" -Needle '"audit_record_hash_reference_present": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_rollback_ref_present" -Needle '"rollback_plan_hash_reference_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_retention_mutation" -Needle '"global_event_log_mutation": "valid_hash_reference_retention_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_retained_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_retained_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_retained_recorded_event_id" -Needle '"recorded_event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_diag_retained_matches" -Needle '"matches_current_reference": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_no_durable_write" -Needle '"durable_audit_written": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_not_installed" -Needle '"rollback_plan_installed": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_can_load_false" -Needle '"can_load_now": false' -TimeoutSeconds 1
@@ -949,8 +954,14 @@ try {
     Assert-LogContains -Name "policy:module_retained_grant_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_retained_grant_hash" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_local_approval_missing" -Needle '"local_approval": "missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_rollback_missing" -Needle '"rollback_plan": "missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_audit_missing" -Needle '"durable_audit_record": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rollback_reference_retained" -Needle '"rollback_plan": "retained_hash_reference_only_not_installed"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_audit_reference_retained" -Needle '"durable_audit_record": "retained_hash_reference_only_not_durable"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_audit_rollback_reference" -Needle '"retained_audit_rollback_reference": {' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_audit_rollback_present" -Needle '"schema": "raios.module_audit_rollback_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_audit_rollback_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_audit_rollback_event_id" -Needle '"retained_audit_rollback_reference_event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_audit_hash" -Needle "`"audit_record_hash`": `"sha256:$moduleAuditHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_rollback_hash" -Needle "`"rollback_plan_hash`": `"sha256:$moduleRollbackHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_unavailable" -Needle '"loader": "unavailable"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_service_slot_unallocated" -Needle '"service_slot": "unallocated"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_artifact_not_loaded" -Needle '"artifact_loaded": false' -TimeoutSeconds 1
@@ -961,8 +972,8 @@ try {
     Assert-LogContains -Name "policy:module_vm_report_missing_reason" -Needle '"reason": "vm_test_report_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_local_attestation_missing_reason" -Needle '"reason": "local_attestation_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_computed_grant_retained_not_authorizing" -Needle '"reason": "retained_computed_grant_reference_not_authorizing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_audit_missing_reason" -Needle '"reason": "durable_audit_record_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_rollback_missing_reason" -Needle '"reason": "rollback_plan_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_audit_reference_reason" -Needle '"reason": "retained_audit_record_reference_not_durable"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rollback_reference_reason" -Needle '"reason": "retained_rollback_plan_reference_not_installed"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_unimplemented_reason" -Needle '"reason": "module_loader_unimplemented"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_manifest_required" -Needle "raios.module_manifest.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:candidate_artifact_sha256_required" -Needle "candidate_artifact_sha256" -TimeoutSeconds 1
@@ -982,8 +993,8 @@ try {
     Assert-LogContains -Name "policy:module_audit_record_schema" -Needle '"schema": "raios.audit_record.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_rollback_plan_schema" -Needle '"schema": "raios.rollback_plan.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_retained_reference_required" -Needle '"retained_computed_grant_reference_event_id"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_audit_rollback_hash_required" -Needle '"rollback_plan_hash": null' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_audit_slot_id_required" -Needle '"ram_only_service_slot_id": null' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_audit_rollback_hash_retained" -Needle "`"rollback_plan_hash`": `"sha256:$moduleRollbackHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_audit_slot_id_retained" -Needle "`"ram_only_service_slot_id`": `"$moduleAuditRamOnlyServiceSlotId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_manifest_hash_retained" -Needle "`"manifest_hash`": `"sha256:$moduleGrantManifestHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_artifact_hash_retained" -Needle "`"artifact_hash`": `"sha256:$moduleGrantArtifactHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_vm_report_hash_retained" -Needle "`"vm_test_report_hash`": `"sha256:$moduleGrantReportHash`"" -TimeoutSeconds 1
@@ -1000,6 +1011,12 @@ try {
     Assert-LogContains -Name "protocol:module_grant_audit_no_capability" -Needle '"grants_capability": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_hash" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_audit_source" -Needle '"source_method": "module.audit_rollback_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_audit_kind" -Needle '"kind": "module.audit_rollback_reference.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_audit_rollback_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_audit_hash" -Needle "`"audit_record_hash`": `"sha256:$moduleAuditHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_capability" -Needle '"requested_capability": "cap.module.load_ephemeral"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_risk" -Needle '"risk": "modify_ram"' -TimeoutSeconds 1
@@ -1019,6 +1036,11 @@ try {
     Assert-LogContains -Name "protocol:module_load_audit_retained_grant_binding" -Needle '"retained_computed_grant_reference": {"state": "present"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_retained_grant_reason" -Needle '"reason": "retained_computed_grant_reference_not_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_retained_grant_hash" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_retained_audit_rollback_binding" -Needle '"retained_audit_rollback_reference": {"state": "present"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_retained_audit_state" -Needle '"durable_audit_record": "retained_hash_reference_only_not_durable"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_retained_rollback_state" -Needle '"rollback_plan": "retained_hash_reference_only_not_installed"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_retained_audit_hash" -Needle "`"audit_record_hash`": `"sha256:$moduleAuditHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_retained_rollback_hash" -Needle "`"rollback_plan_hash`": `"sha256:$moduleRollbackHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_binding_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
     $Result = "passed"

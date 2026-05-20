@@ -376,10 +376,14 @@ The audit/rollback diagnostic emits
 `raios.module_audit_rollback_reference_diagnostic_selftest.v0`. It validates
 only canonical hashes and current-boot ids, creates no durable audit records or
 rollback plans, allocates no service slot, and keeps `can_load_now: false`.
+When the full hash reference is valid, it records only a local-only current-boot
+`raios.module_audit_rollback_reference.v0` event binding and reports
+`retained_audit_rollback_reference.status:
+retained_hash_reference_load_still_denied`.
 
-A valid full hash-reference command records a local-only current-boot
-`raios.module_computed_grant_reference.v0` event binding and the diagnostic
-response reports `retained_reference.status:
+A valid `module.grant_diagnostic` full hash-reference command records a
+local-only current-boot `raios.module_computed_grant_reference.v0` event binding
+and the diagnostic response reports `retained_reference.status:
 retained_hash_reference_load_still_denied`. This retained reference is still
 non-authorizing: `grants_capability`, `grants_load_now`,
 `authorizes_guest_load`, `can_load_now`, and `load_attempted` must remain
@@ -388,9 +392,15 @@ false.
 After a valid reference is retained, `module.load_ephemeral` still denies but
 should report `computed_capability_grant: retained_hash_reference_only`,
 `retained_computed_grant_reference.state: present`, retained hashes, and
-`retained_computed_grant_reference_not_authorizing`. Loader, service slot,
-service inventory change, and load attempt state must remain unavailable,
-unallocated, `none`, and `false`.
+`retained_computed_grant_reference_not_authorizing`. After a valid
+audit/rollback reference is retained, the same denial should also report
+`retained_audit_rollback_reference.state: present`,
+`durable_audit_record: retained_hash_reference_only_not_durable`,
+`rollback_plan: retained_hash_reference_only_not_installed`,
+`retained_audit_record_reference_not_durable`, and
+`retained_rollback_plan_reference_not_installed`. Loader, service slot, service
+inventory change, and load attempt state must remain unavailable, unallocated,
+`none`, and `false`.
 
 `module.load_gate_retained_selftest` emits
 `raios.module_load_gate_retained_reference_selftest.v0`. It must keep
@@ -402,8 +412,9 @@ hash-mismatch retained-reference cases.
 
 `module.load_ephemeral` also reports
 `raios.module_load_gate_audit_rollback_requirements.v0`, with
-`raios.audit_record.v0` and `raios.rollback_plan.v0` still missing and record
-writes disabled. `module.load_gate_audit_rollback_selftest` emits
+`raios.audit_record.v0` and `raios.rollback_plan.v0` still non-durable and
+non-installed even when retained hash references exist; record writes remain
+disabled. `module.load_gate_audit_rollback_selftest` emits
 `raios.module_load_gate_audit_rollback_selftest.v0`; it must keep
 `mutates_global_event_log: false`, `creates_durable_audit_records: false`,
 `creates_rollback_plans: false`, `allocates_service_slot: false`,

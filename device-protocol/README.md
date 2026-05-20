@@ -28,11 +28,12 @@ Current V0 docs:
 - `computed-capability-grant-v0.md` - host-side non-authorizing computed
   grant diagnostic for `cap.module.load_ephemeral` evidence tuples.
 - `module-audit-rollback-diagnostic-v0.md` - host-side non-authorizing
-  audit/rollback diagnostic plus the guest read-only hash-reference diagnostic
-  for future module load gate evidence.
+  audit/rollback diagnostic plus the guest hash-reference diagnostic and
+  RAM-only retained reference for future module load gate evidence.
 - `module-load-gate-v0.md` - denied-by-default current-boot gate for
   `module.load_ephemeral` and `service.load_ephemeral`, including retained
-  grant and audit/rollback requirement diagnostics.
+  grant, retained audit/rollback reference, and audit/rollback requirement
+  diagnostics.
 - `vm-test-report-v0.md` - Shadow-VM report emitted by
   `vm-harness\shadow-vm-smoke.ps1`.
 - `local-attestation-v0.md` - local evidence record binding manifest,

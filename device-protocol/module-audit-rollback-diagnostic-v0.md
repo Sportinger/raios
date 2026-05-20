@@ -76,18 +76,28 @@ service_inventory_change: none
 load_attempted: false
 loader: unavailable
 service_slot: unallocated
+global_event_log_mutation: valid_hash_reference_retention_only
+retained_audit_rollback_reference.schema: raios.module_audit_rollback_reference.v0
+retained_audit_rollback_reference.status: retained_hash_reference_load_still_denied
 ```
 
-This diagnostic is deliberately read-only. It does not retain audit/rollback
-references yet, write durable audit records, install rollback plans, allocate
-service slots, load artifacts, or change `service.inventory.v0`.
+A valid reference is retained as one local-only, RAM-only current-boot
+`raios.module_audit_rollback_reference.v0` event binding. The retained record
+stores hashes and current-boot ids only. It is diagnostic evidence for the
+current boot, not durable authority: it does not write durable audit records,
+install rollback plans, allocate service slots, load artifacts, or change
+`service.inventory.v0`.
+
+Invalid or absent references keep `mutates_global_event_log: false` and
+`global_event_log_mutation: none`.
 
 `module.audit_rollback_diagnostic_selftest` emits
 `raios.module_audit_rollback_reference_diagnostic_selftest.v0` and covers
 absent references, accepted current-boot references, stale scope, previous-boot
 event ids, audit/rollback schema mismatches, substituted audit hashes,
 rollback-plan hash mismatches, computed-grant hash mismatches, and invalid
-ram-only service-slot ids.
+ram-only service-slot ids. The selftest remains local test infrastructure and
+does not create retained records.
 
 ## Canonical Rollback Plan Hash
 
@@ -174,7 +184,7 @@ state.
 
 ## Boundary
 
-The host output may become input to the guest read-only hash-reference
-diagnostic, but even a valid guest reference cannot satisfy
-`module.load_ephemeral`. Recovery artifacts remain under `raios.recovery.v0`,
-not this normal module load gate.
+The host output may become input to the guest hash-reference diagnostic. A valid
+guest reference can be retained as current-boot RAM evidence, but it still
+cannot satisfy `module.load_ephemeral`. Recovery artifacts remain under
+`raios.recovery.v0`, not this normal module load gate.

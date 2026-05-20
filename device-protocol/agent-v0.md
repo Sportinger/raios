@@ -1,7 +1,9 @@
 # raiOS Agent Protocol V0
 
 Stage-0 exposes the first native agent protocol over the existing serial
-console. This is intentionally read-only except for explicit denial responses.
+console. It is observation-first: mutating methods deny by default, while
+selected valid diagnostics may record local-only current-boot evidence without
+loading artifacts, exporting provider context, or changing service inventory.
 Provider context injection remains disabled until the OpenAI direct TLS path has
 fail-closed certificate verification or pinning and the selected snapshot
 projection passes `system.snapshot.v0` redaction rules.
@@ -28,7 +30,7 @@ agent provider.context_injection_gate provider_minimal -> read-only final inject
 agent provider.context_injection_gate_selftest provider_minimal -> local-only final injection negative selftest
 agent module.grant_diagnostic -> read-only computed-grant hash-reference diagnostic
 agent module.grant_diagnostic_selftest -> local-only module grant diagnostic selftest
-agent module.audit_rollback_diagnostic -> read-only audit/rollback hash-reference diagnostic
+agent module.audit_rollback_diagnostic -> audit/rollback hash-reference diagnostic with local-only retention for valid references
 agent module.audit_rollback_diagnostic_selftest -> local-only audit/rollback hash-reference diagnostic selftest
 agent module.load_gate_retained_selftest -> local-only retained-reference gate selftest
 agent module.load_gate_audit_rollback_selftest -> local-only audit/rollback gate selftest
@@ -187,7 +189,11 @@ or durable records through this method. A valid hash reference sets
 `rollback_plan_hash_reference_present: true`, but still keeps
 `durable_audit_written: false`, `rollback_plan_installed: false`,
 `grants_capability: false`, `can_load_now: false`,
-`service_inventory_change: none`, and `load_attempted: false`.
+`service_inventory_change: none`, and `load_attempted: false`. It records a
+local-only current-boot `raios.module_audit_rollback_reference.v0` event binding
+and returns it as `retained_audit_rollback_reference`; that record is
+hash-reference evidence only and is not durable audit, an installed rollback
+plan, or a loader token.
 `module.audit_rollback_diagnostic_selftest` emits local-only
 `raios.module_audit_rollback_reference_diagnostic_selftest.v0` test
 infrastructure for absent, accepted-current-boot, stale, previous-boot event
@@ -251,9 +257,10 @@ durable audit record, rollback plan, and a ram-only service slot.
 `module.load_ephemeral` and `service.load_ephemeral` use the explicit
 `raios.module_load_gate.v0` denial schema. The gate reports
 `load_mode: ram_only`, `requested_capability: cap.module.load_ephemeral`,
-`target: live_service_graph`, all required evidence as missing, the loader as
-`unavailable`, `service_slot: unallocated`, `can_load: false`, and
-`load_attempted: false`. It also exposes
+`target: live_service_graph`, missing required evidence plus any retained
+computed-grant and audit/rollback hash references, the loader as `unavailable`,
+`service_slot: unallocated`, `can_load: false`, and `load_attempted: false`. It
+also exposes
 `raios.module_load_gate_audit_rollback_requirements.v0`, which names the
 required `raios.audit_record.v0` and `raios.rollback_plan.v0` bindings while
 keeping record creation disabled. The matching `audit.event.v0` record carries

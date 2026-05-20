@@ -41,8 +41,8 @@ The serial error response reports:
     "local_attestation": "missing",
     "computed_capability_grant": "missing | retained_hash_reference_only",
     "local_approval": "missing",
-    "rollback_plan": "missing",
-    "durable_audit_record": "missing",
+    "rollback_plan": "missing | retained_hash_reference_only_not_installed",
+    "durable_audit_record": "missing | retained_hash_reference_only_not_durable",
     "loader": "unavailable",
     "service_slot": "unallocated",
     "artifact_loaded": false,
@@ -64,6 +64,8 @@ computed_capability_grant_missing
 retained_computed_grant_reference_not_authorizing
 durable_audit_record_missing
 rollback_plan_missing
+retained_audit_record_reference_not_durable
+retained_rollback_plan_reference_not_installed
 module_loader_unimplemented
 ```
 
@@ -116,7 +118,7 @@ The denial now exposes the first explicit audit/rollback requirement object:
   "creates_rollback_plans": false,
   "durable_audit_record": {
     "schema": "raios.audit_record.v0",
-    "state": "missing",
+    "state": "missing | retained_hash_reference_only_not_durable",
     "durability": "required_before_load",
     "required_bindings": [
       "denial_event_id",
@@ -133,7 +135,7 @@ The denial now exposes the first explicit audit/rollback requirement object:
   },
   "rollback_plan": {
     "schema": "raios.rollback_plan.v0",
-    "state": "missing",
+    "state": "missing | retained_hash_reference_only_not_installed",
     "must_preexist_load": true,
     "required_bindings": [
       "artifact_hash",
@@ -141,7 +143,8 @@ The denial now exposes the first explicit audit/rollback requirement object:
       "ram_only_service_slot_id",
       "cleanup_actions_hash"
     ]
-  }
+  },
+  "retained_audit_rollback_reference_event_id": "null | event.current_boot.00000032"
 }
 ```
 
@@ -150,8 +153,10 @@ durable audit records, rollback plans, service slots, or loader entries.
 The host-side `raios.module_audit_rollback_diagnostic.v0` can now compute
 canonical `raios.audit_record.v0` and `raios.rollback_plan.v0` candidates for
 that evidence shape. The guest-side `module.audit_rollback_diagnostic` method
-can inspect those candidates as hashes only, but it does not retain them yet and
-does not grant loading.
+can inspect those candidates as hashes only. A valid guest hash reference is
+retained as local-only RAM current-boot evidence in
+`raios.module_audit_rollback_reference.v0`, but it is still not durable audit,
+not an installed rollback plan, and not load authority.
 
 ## Event Binding
 
@@ -181,15 +186,25 @@ The binding repeats the gate state and evidence hashes:
 
 ```text
 retained_computed_grant_reference.state: missing | present
+retained_audit_rollback_reference.state: missing | present
+retained_audit_rollback_reference.schema: raios.module_audit_rollback_reference.v0
 computed_capability_grant_hash: null | sha256:<retained grant hash>
 manifest_hash: null | sha256:<retained manifest hash>
 artifact_hash: null | sha256:<retained artifact hash>
 vm_test_report_hash: null | sha256:<retained report hash>
 local_attestation_hash: null | sha256:<retained attestation hash>
+audit_record_hash: null | sha256:<retained audit record hash>
+rollback_plan_hash: null | sha256:<retained rollback plan hash>
+local_approval_hash: null | sha256:<retained approval hash>
+pre_load_service_inventory_hash: null | sha256:<retained inventory hash>
+cleanup_actions_hash: null | sha256:<retained cleanup hash>
+ram_only_service_slot_id: null | ram_only:<service slot id>
 audit_rollback_requirements.schema: raios.module_load_gate_audit_rollback_requirements.v0
 audit_rollback_requirements.status: required_missing
 audit_rollback_requirements.durable_audit_record.schema: raios.audit_record.v0
+audit_rollback_requirements.durable_audit_record.state: missing | retained_hash_reference_only_not_durable
 audit_rollback_requirements.rollback_plan.schema: raios.rollback_plan.v0
+audit_rollback_requirements.rollback_plan.state: missing | retained_hash_reference_only_not_installed
 audit_rollback_requirements.writes_enabled: false
 service_inventory_change: none
 load_attempted: false
@@ -263,11 +278,14 @@ agent module.audit_rollback_diagnostic_selftest
 
 emits `raios.module_audit_rollback_reference_diagnostic.v0` and
 `raios.module_audit_rollback_reference_diagnostic_selftest.v0`. It validates
-only canonical hashes and current-boot ids, keeps
+only canonical hashes and current-boot ids. A valid command records a local-only
+`raios.module_audit_rollback_reference.v0` event binding with
+`global_event_log_mutation: valid_hash_reference_retention_only`, keeps
 `creates_durable_audit_records: false`, `creates_rollback_plans: false`,
 `allocates_service_slot: false`, `loads_artifact: false`, `can_load_now: false`,
-and `load_attempted: false`, and covers stale, previous-boot, wrong-schema,
-substituted, and mismatched audit/rollback references.
+and `load_attempted: false`. The selftest covers stale, previous-boot,
+wrong-schema, substituted, and mismatched audit/rollback references without
+mutating the global event log.
 
 ## Invariants
 
@@ -283,9 +301,9 @@ substituted, and mismatched audit/rollback references.
   current-boot diagnostic evidence only; it is not durable audit authority.
 - `raios.module_load_gate_audit_rollback_requirements.v0` is a requirement
   shape only; it does not prove that durable audit or rollback state exists.
-- A valid `module.audit_rollback_diagnostic` hash reference is read-only
-  evidence; it is not retained yet and is not durable audit or rollback
-  authority.
+- A valid `module.audit_rollback_diagnostic` hash reference may be retained as
+  `raios.module_audit_rollback_reference.v0` current-boot diagnostic evidence;
+  it is not durable audit or rollback authority.
 - `module.load_gate_audit_rollback_selftest` is test infrastructure and must
   not create audit records, rollback plans, service slots, loader state, or
   service inventory changes.

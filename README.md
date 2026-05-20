@@ -259,8 +259,9 @@ What boots and works in the VM right now:
 - Host-only canonical audit/rollback diagnostics for `raios.audit_record.v0`
   and `raios.rollback_plan.v0`, still non-authorizing and not installed in the
   guest
-- Guest read-only audit/rollback hash-reference diagnostics for those host
-  candidates, still non-authorizing and not retained as durable guest state
+- Guest audit/rollback hash-reference diagnostics for those host
+  candidates, retained only as RAM-only current-boot event evidence and still
+  non-authorizing
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - The denied module load gate reports retained computed-grant references as

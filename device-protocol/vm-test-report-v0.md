@@ -182,4 +182,6 @@ mismatch, and rollback service-slot mismatch. The
 module-load assertions verify the current-boot audit event binding, full
 missing-evidence list, audit/rollback requirement schema, retained
 grant/manifest/artifact/report/attestation hashes when a valid grant reference
-was retained, unchanged service inventory, and `load_attempted: false`.
+was retained, retained audit/rollback reference state and hashes when a valid
+audit/rollback reference was retained, unchanged service inventory, and
+`load_attempted: false`.

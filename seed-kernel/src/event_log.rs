@@ -1,7 +1,10 @@
+use core::str;
+
 use spin::Mutex;
 
 pub const EVENT_CAPACITY: usize = 64;
 pub const DEFAULT_EVENT_LIMIT: usize = 32;
+pub const MODULE_SERVICE_SLOT_ID_MAX: usize = 96;
 
 const READ_EVIDENCE: &[&str] = &["computed_capability_grant"];
 const DENIED_EVIDENCE: &[&str] = &["missing_required_evidence", "capability_denied"];
@@ -88,10 +91,21 @@ const MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE: &[&str] = &[
     "hash_reference_only",
     "load_not_attempted",
 ];
+const MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE: &[&str] = &[
+    "audit_rollback_reference",
+    "audit_record_hash",
+    "rollback_plan_hash",
+    "computed_capability_grant_hash",
+    "retained_reference_event_id",
+    "denial_event_id",
+    "ram_only_service_slot_id",
+    "hash_reference_only",
+    "load_not_attempted",
+];
 
 static LOG: Mutex<EventLog> = Mutex::new(EventLog::new());
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct EventId {
     sequence: u64,
 }
@@ -99,6 +113,14 @@ pub struct EventId {
 impl EventId {
     pub fn sequence(self) -> u64 {
         self.sequence
+    }
+
+    pub fn from_sequence(sequence: u64) -> Option<Self> {
+        if sequence == 0 {
+            None
+        } else {
+            Some(Self { sequence })
+        }
     }
 }
 
@@ -183,9 +205,53 @@ pub struct ModuleComputedGrantReference {
 }
 
 #[derive(Clone, Copy)]
+pub struct ModuleServiceSlotId {
+    bytes: [u8; MODULE_SERVICE_SLOT_ID_MAX],
+    len: usize,
+}
+
+impl ModuleServiceSlotId {
+    pub fn new(value: &str) -> Option<Self> {
+        let bytes = value.as_bytes();
+        if bytes.is_empty() || bytes.len() > MODULE_SERVICE_SLOT_ID_MAX {
+            return None;
+        }
+        let mut out = Self {
+            bytes: [0; MODULE_SERVICE_SLOT_ID_MAX],
+            len: bytes.len(),
+        };
+        out.bytes[..bytes.len()].copy_from_slice(bytes);
+        Some(out)
+    }
+
+    pub fn as_str(&self) -> &str {
+        unsafe { str::from_utf8_unchecked(&self.bytes[..self.len]) }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ModuleAuditRollbackReference {
+    pub audit_record_hash: [u8; 32],
+    pub rollback_plan_hash: [u8; 32],
+    pub computed_grant_hash: [u8; 32],
+    pub manifest_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub vm_report_hash: [u8; 32],
+    pub local_attestation_hash: [u8; 32],
+    pub local_approval_hash: [u8; 32],
+    pub pre_load_service_inventory_hash: [u8; 32],
+    pub cleanup_actions_hash: [u8; 32],
+    pub denial_event_id: EventId,
+    pub retained_reference_event_id: EventId,
+    pub ram_only_service_slot_id: ModuleServiceSlotId,
+}
+
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateBinding {
     pub retained_reference_event_id: Option<EventId>,
     pub retained_reference: Option<ModuleComputedGrantReference>,
+    pub audit_rollback_reference_event_id: Option<EventId>,
+    pub audit_rollback_reference: Option<ModuleAuditRollbackReference>,
 }
 
 #[derive(Clone, Copy)]
@@ -252,6 +318,7 @@ pub enum EventBindings {
     ProviderRequestBindingDenied(ProviderContextHashes),
     ProviderExportDenialAudit(ProviderContextHashes),
     ModuleComputedGrantReference(ModuleComputedGrantReference),
+    ModuleAuditRollbackReference(ModuleAuditRollbackReference),
     ModuleLoadGate(ModuleLoadGateBinding),
 }
 
@@ -933,6 +1000,31 @@ impl EventLog {
         None
     }
 
+    fn latest_module_audit_rollback_reference(
+        &self,
+    ) -> Option<(EventId, ModuleAuditRollbackReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleAuditRollbackReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
     fn event_by_sequence(&self, event_id: EventId) -> Option<Event> {
         let mut idx = 0usize;
         while idx < EVENT_CAPACITY {
@@ -1112,9 +1204,12 @@ pub fn record_module_load_ephemeral_denied(
 ) -> (EventId, ModuleLoadGateBinding) {
     let mut log = LOG.lock();
     let retained = log.latest_module_computed_grant_reference();
+    let audit_rollback = log.latest_module_audit_rollback_reference();
     let binding = ModuleLoadGateBinding {
         retained_reference_event_id: retained.map(|(event_id, _)| event_id),
         retained_reference: retained.map(|(_, reference)| reference),
+        audit_rollback_reference_event_id: audit_rollback.map(|(event_id, _)| event_id),
+        audit_rollback_reference: audit_rollback.map(|(_, reference)| reference),
     };
     let event_id = log.record(Event {
         sequence: 0,
@@ -1149,6 +1244,24 @@ pub fn record_module_computed_grant_reference(binding: ModuleComputedGrantRefere
         reason: "computed_grant_reference_valid_for_current_boot",
         evidence: MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
         bindings: EventBindings::ModuleComputedGrantReference(binding),
+    })
+}
+
+pub fn record_module_audit_rollback_reference(binding: ModuleAuditRollbackReference) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.audit_rollback_reference.retained",
+        source_method: "module.audit_rollback_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.module.grant_diagnostic.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "live_service_graph",
+        reason: "audit_rollback_reference_valid_for_current_boot",
+        evidence: MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE,
+        bindings: EventBindings::ModuleAuditRollbackReference(binding),
     })
 }
 
@@ -1309,6 +1422,10 @@ pub fn snapshot_recent(limit: usize) -> EventSnapshot {
 
 pub fn latest_module_computed_grant_reference() -> Option<(EventId, ModuleComputedGrantReference)> {
     LOG.lock().latest_module_computed_grant_reference()
+}
+
+pub fn latest_module_audit_rollback_reference() -> Option<(EventId, ModuleAuditRollbackReference)> {
+    LOG.lock().latest_module_audit_rollback_reference()
 }
 
 fn normalize_limit(limit: usize) -> usize {
