@@ -8,3 +8,4 @@ license = "MIT"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 registry-core = { path = "../core" }
+serde_json = "1"

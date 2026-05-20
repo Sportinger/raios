@@ -1373,6 +1373,7 @@ dependencies = [
  "ota-tools",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
 ]
 
@@ -1383,6 +1384,7 @@ dependencies = [
  "anyhow",
  "clap",
  "registry-core",
+ "serde_json",
 ]
 
 [[package]]

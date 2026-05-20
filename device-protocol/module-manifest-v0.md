@@ -77,3 +77,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\validate-module-m
 
 The validator emits `raios.module_manifest_validation.v0`. Invalid manifests
 fail the harness before QEMU boots.
+
+After a passing `raios.vm_test_report.v0` and a matching
+`raios.local_attestation.v0` exist, the host registry tool can compute
+`raios.computed_capability_grant.v0` for the exact evidence tuple. The manifest
+still does not grant its own `granted_caps`, and the computed diagnostic does
+not authorize Stage-0 loading.

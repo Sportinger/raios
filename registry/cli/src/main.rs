@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use registry_core::module_grant::ComputeCapabilityGrantRequest;
 use registry_core::{EvidenceFile, ListFilter, PublishRequest, Registry};
 
 #[derive(Parser, Debug)]
@@ -60,6 +61,45 @@ enum Command {
         /// Filter to logical name
         #[arg(long)]
         name: Option<String>,
+    },
+    /// Compute a non-authorizing module capability grant diagnostic
+    GrantDiagnostic {
+        /// raiOS module_manifest.v0 JSON
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Candidate artifact bytes bound by the manifest
+        #[arg(long)]
+        artifact: PathBuf,
+        /// Shadow VM test report JSON
+        #[arg(long = "vm-report")]
+        vm_report: PathBuf,
+        /// Local attestation JSON
+        #[arg(long = "local-attestation")]
+        local_attestation: PathBuf,
+        /// Exact local approval phrase for the evidence tuple
+        #[arg(long)]
+        approval: String,
+        /// Capability being evaluated
+        #[arg(long, default_value = "cap.module.load_ephemeral")]
+        requested_capability: String,
+        /// Requested load mode
+        #[arg(long, default_value = "ram_only")]
+        load_mode: String,
+        /// Subject for the diagnostic request
+        #[arg(long, default_value = "agent.session.serial")]
+        subject: String,
+        /// Resource being evaluated
+        #[arg(long, default_value = "live_service_graph")]
+        resource: String,
+        /// Scope for the diagnostic request
+        #[arg(long, default_value = "current_boot")]
+        scope: String,
+        /// Expected local attestation SHA-256, with or without sha256: prefix
+        #[arg(long)]
+        expected_local_attestation_sha256: Option<String>,
+        /// Print rejected diagnostics instead of exiting with an error
+        #[arg(long)]
+        allow_invalid: bool,
     },
 }
 
@@ -135,6 +175,42 @@ fn main() -> Result<()> {
                         evidence = entry.record.evidence.len(),
                     );
                 }
+            }
+        }
+        Command::GrantDiagnostic {
+            manifest,
+            artifact,
+            vm_report,
+            local_attestation,
+            approval,
+            requested_capability,
+            load_mode,
+            subject,
+            resource,
+            scope,
+            expected_local_attestation_sha256,
+            allow_invalid,
+        } => {
+            let mut request = ComputeCapabilityGrantRequest::new(
+                manifest,
+                artifact,
+                vm_report,
+                local_attestation,
+                approval,
+            );
+            request.requested_capability = requested_capability;
+            request.load_mode = load_mode;
+            request.subject = subject;
+            request.resource = resource;
+            request.scope = scope;
+            request.expected_local_attestation_sha256 = expected_local_attestation_sha256;
+            let diagnostic = registry_core::module_grant::compute_capability_grant(&request)?;
+            println!("{}", serde_json::to_string_pretty(&diagnostic)?);
+            if !diagnostic.valid_evidence && !allow_invalid {
+                anyhow::bail!(
+                    "computed grant diagnostic rejected evidence: {}",
+                    diagnostic.denial_reasons.join(", ")
+                );
             }
         }
     }

@@ -71,7 +71,21 @@ const MODULE_LOAD_GATE_EVIDENCE: &[&str] = &[
     "missing_required_evidence",
     "capability_denied",
     "module_load_gate_evaluated",
+    "computed_capability_grant_reference_checked",
+    "durable_audit_record_required",
+    "rollback_plan_required",
+    "rollback_bindings_required",
     "service_inventory_unchanged",
+    "load_not_attempted",
+];
+const MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE: &[&str] = &[
+    "computed_capability_grant_reference",
+    "computed_capability_grant_hash",
+    "manifest_hash",
+    "candidate_artifact_hash",
+    "vm_test_report_hash",
+    "local_attestation_hash",
+    "hash_reference_only",
     "load_not_attempted",
 ];
 
@@ -160,6 +174,21 @@ pub struct ProviderContextInjectionAuthorization {
 }
 
 #[derive(Clone, Copy)]
+pub struct ModuleComputedGrantReference {
+    pub computed_grant_hash: [u8; 32],
+    pub manifest_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub vm_report_hash: [u8; 32],
+    pub local_attestation_hash: [u8; 32],
+}
+
+#[derive(Clone, Copy)]
+pub struct ModuleLoadGateBinding {
+    pub retained_reference_event_id: Option<EventId>,
+    pub retained_reference: Option<ModuleComputedGrantReference>,
+}
+
+#[derive(Clone, Copy)]
 struct ConsumedProviderBinding {
     request_binding_event_id: EventId,
     export_audit_binding_event_id: EventId,
@@ -222,7 +251,8 @@ pub enum EventBindings {
     ProviderContextInjectionAuthorization(ProviderContextInjectionAuthorization),
     ProviderRequestBindingDenied(ProviderContextHashes),
     ProviderExportDenialAudit(ProviderContextHashes),
-    ModuleLoadGate,
+    ModuleComputedGrantReference(ModuleComputedGrantReference),
+    ModuleLoadGate(ModuleLoadGateBinding),
 }
 
 #[derive(Clone, Copy)]
@@ -878,6 +908,31 @@ impl EventLog {
         None
     }
 
+    fn latest_module_computed_grant_reference(
+        &self,
+    ) -> Option<(EventId, ModuleComputedGrantReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleComputedGrantReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
     fn event_by_sequence(&self, event_id: EventId) -> Option<Event> {
         let mut idx = 0usize;
         while idx < EVENT_CAPACITY {
@@ -1052,8 +1107,16 @@ pub fn record_capability_denied(
     })
 }
 
-pub fn record_module_load_ephemeral_denied(source_method: &'static str) -> EventId {
-    LOG.lock().record(Event {
+pub fn record_module_load_ephemeral_denied(
+    source_method: &'static str,
+) -> (EventId, ModuleLoadGateBinding) {
+    let mut log = LOG.lock();
+    let retained = log.latest_module_computed_grant_reference();
+    let binding = ModuleLoadGateBinding {
+        retained_reference_event_id: retained.map(|(event_id, _)| event_id),
+        retained_reference: retained.map(|(_, reference)| reference),
+    };
+    let event_id = log.record(Event {
         sequence: 0,
         kind: "agent_protocol.capability_denied",
         source_method,
@@ -1066,7 +1129,26 @@ pub fn record_module_load_ephemeral_denied(source_method: &'static str) -> Event
         resource: "live_service_graph",
         reason: "missing_evidence",
         evidence: MODULE_LOAD_GATE_EVIDENCE,
-        bindings: EventBindings::ModuleLoadGate,
+        bindings: EventBindings::ModuleLoadGate(binding),
+    });
+    (event_id, binding)
+}
+
+pub fn record_module_computed_grant_reference(binding: ModuleComputedGrantReference) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.computed_grant_reference.retained",
+        source_method: "module.grant_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.module.grant_diagnostic.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "live_service_graph",
+        reason: "computed_grant_reference_valid_for_current_boot",
+        evidence: MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
+        bindings: EventBindings::ModuleComputedGrantReference(binding),
     })
 }
 
@@ -1223,6 +1305,10 @@ pub fn record_provider_context_export_denial_audit(hashes: ProviderContextHashes
 
 pub fn snapshot_recent(limit: usize) -> EventSnapshot {
     LOG.lock().snapshot_recent(limit)
+}
+
+pub fn latest_module_computed_grant_reference() -> Option<(EventId, ModuleComputedGrantReference)> {
+    LOG.lock().latest_module_computed_grant_reference()
 }
 
 fn normalize_limit(limit: usize) -> usize {

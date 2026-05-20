@@ -21,6 +21,8 @@ V0 records:
 - read-only `raios.agent.v0` responses
 - `capability_denied` outcomes for known mutating methods
 - `raios.module_load_gate.v0` bindings for denied module/service load attempts
+- local-only `raios.module_computed_grant_reference.v0` bindings for valid
+  current-boot module computed-grant hash references
 - `capability_denied` outcomes for provider context export attempts
 - local provider request envelope creation on the real direct OpenAI request path
 - positive provider request binding records after pinned/WebPKI provider trust
@@ -31,6 +33,12 @@ V0 records:
 - read-only final injection gate diagnostics that keep body attachment blocked
 - read-only final injection negative selftest responses that exercise the final
   authorization predicate without mutating the global event log
+- read-only module load-gate retained-reference selftest responses that
+  exercise negative retained-reference candidates without mutating the global
+  event log
+- read-only module load-gate audit/rollback selftest responses that exercise
+  missing and mismatched audit/rollback candidates without mutating the global
+  event log
 - provider request-binding denial records for `provider_minimal`
 - provider context export-denial audit records with
   `outcome: denied_no_provider_write`
@@ -124,7 +132,9 @@ evidence: missing_required_evidence, capability_denied
 ```
 
 `module.load_ephemeral` and `service.load_ephemeral` denials add
-`module_load_gate_evaluated`, `service_inventory_unchanged`, and
+`module_load_gate_evaluated`, `computed_capability_grant_reference_checked`,
+`durable_audit_record_required`, `rollback_plan_required`,
+`rollback_bindings_required`, `service_inventory_unchanged`, and
 `load_not_attempted` evidence and attach a `raios.module_load_gate.v0` binding.
 
 Most denial responses include `event_id` and `audit_event_id`, both pointing at
@@ -163,6 +173,10 @@ structured non-authorizing binding:
     "missing_required_evidence",
     "capability_denied",
     "module_load_gate_evaluated",
+    "computed_capability_grant_reference_checked",
+    "durable_audit_record_required",
+    "rollback_plan_required",
+    "rollback_bindings_required",
     "service_inventory_unchanged",
     "load_not_attempted"
   ],
@@ -178,7 +192,7 @@ structured non-authorizing binding:
       "candidate_artifact": "missing",
       "vm_test_report": "missing",
       "local_attestation": "missing",
-      "computed_capability_grant": "missing",
+      "computed_capability_grant": "missing | retained_hash_reference_only",
       "local_approval": "missing",
       "rollback_plan": "missing",
       "durable_audit_record": "missing",
@@ -189,11 +203,30 @@ structured non-authorizing binding:
       "persistence": "none",
       "can_load": false
     },
+    "retained_computed_grant_reference": {
+      "state": "missing | present",
+      "schema": "raios.module_computed_grant_reference.v0",
+      "status": "missing | retained_hash_reference_load_still_denied"
+    },
+    "audit_rollback_requirements": {
+      "schema": "raios.module_load_gate_audit_rollback_requirements.v0",
+      "status": "required_missing",
+      "writes_enabled": false,
+      "durable_audit_record": {
+        "schema": "raios.audit_record.v0",
+        "state": "missing"
+      },
+      "rollback_plan": {
+        "schema": "raios.rollback_plan.v0",
+        "state": "missing"
+      }
+    },
     "evidence": {
-      "manifest_hash": null,
-      "artifact_hash": null,
-      "vm_test_report_hash": null,
-      "local_attestation_hash": null,
+      "computed_capability_grant_hash": "null | sha256:<retained grant hash>",
+      "manifest_hash": "null | sha256:<retained manifest hash>",
+      "artifact_hash": "null | sha256:<retained artifact hash>",
+      "vm_test_report_hash": "null | sha256:<retained report hash>",
+      "local_attestation_hash": "null | sha256:<retained attestation hash>",
       "service_inventory_change": "none",
       "load_attempted": false
     }
@@ -202,8 +235,65 @@ structured non-authorizing binding:
 }
 ```
 
-This event is evidence that the gate refused to load. It is not a durable audit
+This event is evidence that the gate refused to load. If a valid
+`raios.module_computed_grant_reference.v0` was retained earlier in the same
+boot, the denied load event snapshots its event id and hashes, reports
+`computed_capability_grant: retained_hash_reference_only`, and still blocks with
+`retained_computed_grant_reference_not_authorizing`. It is not a durable audit
 record and cannot satisfy a future load grant by itself.
+
+The same binding also exposes
+`raios.module_load_gate_audit_rollback_requirements.v0`. That requirement
+shape names the future `raios.audit_record.v0` and `raios.rollback_plan.v0`
+bindings but keeps both missing, disables writes, and does not create durable
+state.
+
+## Module Computed Grant Reference Event
+
+When `module.grant_diagnostic` receives a valid current-boot hash reference,
+Stage-0 records one local-only RAM event. This event retains hashes only; it
+does not retain artifact bytes, manifest JSON, VM-report JSON, or attestation
+JSON.
+
+```json
+{
+  "schema": "audit.event.v0",
+  "kind": "module.computed_grant_reference.retained",
+  "source_method": "module.grant_diagnostic",
+  "classification": "local_only",
+  "outcome": "retained_hash_reference_load_still_denied",
+  "requested_capability": "cap.module.grant_diagnostic.read",
+  "risk": "observe",
+  "resource": "live_service_graph",
+  "reason": "computed_grant_reference_valid_for_current_boot",
+  "bindings": {
+    "schema": "raios.module_computed_grant_reference.v0",
+    "status": "retained_hash_reference_load_still_denied",
+    "scope": "current_boot",
+    "classification": "local_only",
+    "requested_capability": "cap.module.load_ephemeral",
+    "load_mode": "ram_only",
+    "grants_capability": false,
+    "grants_load_now": false,
+    "authorizes_guest_load": false,
+    "can_load_now": false,
+    "service_inventory_change": "none",
+    "load_attempted": false,
+    "hashes": {
+      "computed_capability_grant_hash": "sha256:<64 hex chars>",
+      "manifest_hash": "sha256:<64 hex chars>",
+      "artifact_hash": "sha256:<64 hex chars>",
+      "vm_test_report_hash": "sha256:<64 hex chars>",
+      "local_attestation_hash": "sha256:<64 hex chars>"
+    }
+  },
+  "persistence": "none"
+}
+```
+
+The latest retained reference is visible through
+`module.grant_diagnostic` as `retained_reference`. It remains diagnostic
+evidence only and cannot satisfy the future durable audit or loader gates.
 
 ## Provider Request Envelope Event
 
@@ -576,5 +666,8 @@ positive export authority by itself.
 - Binding consumption events must keep `provider_write: not_attempted`,
   `automatic_context_injection: disabled`, and
   `context_attached_to_provider_body: false`.
+- Module computed-grant reference events must keep `grants_capability: false`,
+  `grants_load_now: false`, `authorizes_guest_load: false`,
+  `can_load_now: false`, and `load_attempted: false`.
 - Future persistent audit records must bind hashes, approvals, rollback state,
   and durable timestamps separately. This V0 log is not that ledger.

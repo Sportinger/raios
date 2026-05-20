@@ -26,6 +26,10 @@ agent provider.context_gate provider_minimal -> read-only export gate diagnostic
 agent provider.context_gate_selftest provider_minimal -> local-only negative gate selftest
 agent provider.context_injection_gate provider_minimal -> read-only final injection gate diagnostics
 agent provider.context_injection_gate_selftest provider_minimal -> local-only final injection negative selftest
+agent module.grant_diagnostic -> read-only computed-grant hash-reference diagnostic
+agent module.grant_diagnostic_selftest -> local-only module grant diagnostic selftest
+agent module.load_gate_retained_selftest -> local-only retained-reference gate selftest
+agent module.load_gate_audit_rollback_selftest -> local-only audit/rollback gate selftest
 agent memory.recent_events -> memory.recent_events
 agent audit.events 8 -> memory.recent_events with limit 8
 agent <method>        -> dispatch raw method name
@@ -73,6 +77,10 @@ provider.context_gate
 provider.context_gate_selftest
 provider.context_injection_gate
 provider.context_injection_gate_selftest
+module.grant_diagnostic
+module.grant_diagnostic_selftest
+module.load_gate_retained_selftest
+module.load_gate_audit_rollback_selftest
 ```
 
 `system.snapshot` reports `system.snapshot.v0` facts for framebuffer, entropy,
@@ -138,6 +146,47 @@ candidates. It does not mutate the global event log, create real envelopes or
 positive binding records, create final authorization records, write to a
 provider, or attach context to a provider body.
 
+`module.grant_diagnostic` emits local-only
+`raios.module_computed_grant_diagnostic.v0`. With no arguments it reports the
+computed grant as absent. With hash arguments it checks only the
+`raios.computed_capability_grant.canonical.v0` hash reference:
+
+```text
+module.grant_diagnostic <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
+```
+
+The guest does not accept artifact bytes or JSON evidence through this method.
+A valid hash reference sets `computed_candidate_present: true`, but still keeps
+`grants_capability: false`, `grants_load_now: false`,
+`authorizes_guest_load: false`, `can_load_now: false`,
+`service_inventory_change: none`, and `load_attempted: false`.
+It also records a local-only current-boot
+`raios.module_computed_grant_reference.v0` event binding and returns it as
+`retained_reference`; that record is diagnostic evidence only and is not a
+loader token.
+`module.grant_diagnostic_selftest` emits local-only
+`raios.module_computed_grant_diagnostic_selftest.v0` test infrastructure for
+absent, accepted-current-boot, stale, mismatched, and wrong-policy hash
+references. It does not load artifacts or mutate `service.inventory.v0`.
+`module.load_gate_retained_selftest` emits local-only
+`raios.module_load_gate_retained_reference_selftest.v0` test infrastructure for
+the denied load gate's retained-reference predicate. It covers missing,
+accepted-current-boot-but-denied, stale/dropped event id,
+previous-boot-or-unretained event id, wrong schema, substituted record, and hash
+mismatch cases. It does not mutate the global event log, create retained
+records, load artifacts, or mutate `service.inventory.v0`.
+`module.load_gate_audit_rollback_selftest` emits local-only
+`raios.module_load_gate_audit_rollback_selftest.v0` test infrastructure for the
+denied load gate's durable audit and rollback predicates. It covers missing
+audit record, missing rollback plan, matching audit/rollback evidence that is
+still denied by missing loader and service slot, audit/rollback schema
+mismatches, retained grant hash mismatch, manifest/artifact/VM-report/
+local-attestation mismatches, local approval mismatch, rollback-plan hash
+mismatch, rollback artifact mismatch, and rollback service-slot mismatch. It
+does not mutate the global event log, create durable audit records, create
+rollback plans, allocate service slots, load artifacts, or mutate
+`service.inventory.v0`.
+
 ## Denied-By-Default Methods
 
 Mutating or potentially mutating methods return `capability_denied`:
@@ -177,9 +226,12 @@ durable audit record, rollback plan, and a ram-only service slot.
 `load_mode: ram_only`, `requested_capability: cap.module.load_ephemeral`,
 `target: live_service_graph`, all required evidence as missing, the loader as
 `unavailable`, `service_slot: unallocated`, `can_load: false`, and
-`load_attempted: false`. The matching `audit.event.v0` record carries the same
-schema as a non-authorizing event binding so the denial is visible through
-`audit.events`.
+`load_attempted: false`. It also exposes
+`raios.module_load_gate_audit_rollback_requirements.v0`, which names the
+required `raios.audit_record.v0` and `raios.rollback_plan.v0` bindings while
+keeping record creation disabled. The matching `audit.event.v0` record carries
+the same schemas as non-authorizing event bindings so the denial is visible
+through `audit.events`.
 
 `provider.context_export [provider_minimal]` uses the same denied-by-default
 envelope but reports `raios.provider_context_export.v0` gate state instead of

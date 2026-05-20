@@ -253,6 +253,18 @@ What boots and works in the VM right now:
 - A denied-by-default `raios.module_load_gate.v0` for `module.load_ephemeral`
   and `service.load_ephemeral`, including current-boot audit/event evidence and
   `load_attempted: false`
+- Host and guest read-only computed-grant diagnostics for
+  `cap.module.load_ephemeral`, including canonical hash-reference checks while
+  live loading remains disabled
+- RAM-only current-boot event binding for valid computed-grant hash references,
+  still non-authorizing and local-only
+- The denied module load gate reports retained computed-grant references as
+  hash evidence while keeping `can_load: false`
+- Local-only retained-reference gate selftests cover stale, substituted, and
+  mismatched module-grant evidence candidates without mutating the event log
+- The denied module load gate now names required durable audit and rollback
+  bindings and has local-only selftests for missing/mismatched audit and
+  rollback evidence, still without loading artifacts or changing services
 - A Shadow VM smoke harness that emits `raios.vm_test_report.v0` evidence over
   the real boot and serial protocol path
 - `SET` mode and a `setup` command that accept an API key into a sealed RAM

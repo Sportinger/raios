@@ -29,6 +29,13 @@ Local attestation records must explicitly report `limits.grants_load_now: false`
 or publishing fails closed. VM reports and attestations are treated as evidence
 inputs for later policy, not as authority by themselves.
 
+`registry-tools grant-diagnostic` computes
+`raios.computed_capability_grant.v0` for an exact
+manifest/artifact/VM-report/local-attestation tuple. This is still a
+non-authorizing host diagnostic: valid evidence produces a stable diagnostic
+hash and `computed_candidate_present: true`, while `grants_capability`,
+`grants_load_now`, `can_load_now`, and `load_attempted` remain false.
+
 ## CLI
 
 The `registry-tools` binary wraps common operations:
@@ -36,6 +43,7 @@ The `registry-tools` binary wraps common operations:
 - `cargo run -p registry-tools -- init --path registry/local`
 - `cargo run -p registry-tools -- publish --registry registry/local --blob <file> --manifest <manifest.json> --root-pub keys/dev/root.pub`
 - `cargo run -p registry-tools -- publish --registry registry/local --blob <file> --manifest <manifest.json> --root-pub keys/dev/root.pub --vm-report release/vm-reports/<report>.json --local-attestation release/attestations/<attestation>.json`
+- `cargo run -p registry-tools -- grant-diagnostic --manifest <module-manifest.json> --artifact <file> --vm-report release/vm-reports/<report>.json --local-attestation release/attestations/<attestation>.json --approval "APPROVE RAM_ONLY <tuple-prefix>"`
 - `cargo run -p registry-tools -- list --registry registry/local [--namespace modules] [--name hello-ui]`
 
 Publishing verifies the manifest against the offline root key, copies the blob and manifest into the CAS layout, and generates the index record.

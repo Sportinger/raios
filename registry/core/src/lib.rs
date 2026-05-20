@@ -6,6 +6,8 @@ use ota_tools::{load_public_key_hex, SignedBlob};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod module_grant;
+
 pub const VM_TEST_REPORT_SCHEMA: &str = "raios.vm_test_report.v0";
 pub const LOCAL_ATTESTATION_SCHEMA: &str = "raios.local_attestation.v0";
 

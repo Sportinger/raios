@@ -5,7 +5,7 @@ use spin::Mutex;
 
 use crate::{agent_protocol, input, provider, provider_config, serial, system_status, ui, wifi};
 
-const COMMAND_WIDTH: usize = 256;
+const COMMAND_WIDTH: usize = 512;
 const OUTPUT_WIDTH: usize = 104;
 const OUTPUT_LINES: usize = 8;
 const CHAT_LINES: usize = 10;
@@ -47,32 +47,6 @@ impl ConsoleLine {
     fn trimmed_str(&self) -> &str {
         let (start, end) = self.trimmed_bounds();
         unsafe { str::from_utf8_unchecked(&self.bytes[start..end]) }
-    }
-
-    fn command_word(&self) -> CommandText {
-        let (start, end) = self.trimmed_bounds();
-        let mut text = CommandText::new();
-        let mut idx = start;
-        while idx < end && !self.bytes[idx].is_ascii_whitespace() {
-            let byte = self.bytes[idx];
-            if !byte.is_ascii() {
-                break;
-            }
-            text.push_byte(byte.to_ascii_lowercase());
-            idx += 1;
-        }
-        text
-    }
-
-    fn arguments_after_command(&self) -> &str {
-        let (mut idx, end) = self.trimmed_bounds();
-        while idx < end && !self.bytes[idx].is_ascii_whitespace() {
-            idx += 1;
-        }
-        while idx < end && self.bytes[idx].is_ascii_whitespace() {
-            idx += 1;
-        }
-        unsafe { str::from_utf8_unchecked(&self.bytes[idx..end]) }
     }
 }
 
@@ -460,7 +434,7 @@ impl ConsoleState {
                 if self.input.is_empty() {
                     ByteAction::Noop
                 } else {
-                    let command = self.input.as_line();
+                    let command = self.input;
                     self.input.clear();
                     ByteAction::Execute(command)
                 }
@@ -489,7 +463,7 @@ impl ConsoleState {
                 if self.serial_input.is_empty() {
                     ByteAction::Noop
                 } else {
-                    let command = self.serial_input.as_line();
+                    let command = self.serial_input;
                     self.serial_input.clear();
                     ByteAction::Execute(command)
                 }
@@ -762,7 +736,7 @@ enum ByteAction {
     Echo(u8),
     Backspace,
     Bell,
-    Execute(ConsoleLine),
+    Execute(CommandLine),
     SubmitChat(ConsoleLine),
     Redraw,
     ShowApiKeyEntry,
@@ -792,6 +766,7 @@ enum SetupMessage {
     WifiEntryCancelled,
 }
 
+#[derive(Clone, Copy)]
 struct CommandLine {
     bytes: [u8; COMMAND_WIDTH],
     len: usize,
@@ -811,6 +786,50 @@ impl CommandLine {
 
     fn as_bytes(&self) -> &[u8] {
         &self.bytes[..self.len]
+    }
+
+    fn trimmed_bounds(&self) -> (usize, usize) {
+        let mut start = 0usize;
+        let mut end = self.len;
+        while start < end && self.bytes[start].is_ascii_whitespace() {
+            start += 1;
+        }
+        while end > start && self.bytes[end - 1].is_ascii_whitespace() {
+            end -= 1;
+        }
+
+        (start, end)
+    }
+
+    fn trimmed_str(&self) -> &str {
+        let (start, end) = self.trimmed_bounds();
+        unsafe { str::from_utf8_unchecked(&self.bytes[start..end]) }
+    }
+
+    fn command_word(&self) -> CommandText {
+        let (start, end) = self.trimmed_bounds();
+        let mut text = CommandText::new();
+        let mut idx = start;
+        while idx < end && !self.bytes[idx].is_ascii_whitespace() {
+            let byte = self.bytes[idx];
+            if !byte.is_ascii() {
+                break;
+            }
+            text.push_byte(byte.to_ascii_lowercase());
+            idx += 1;
+        }
+        text
+    }
+
+    fn arguments_after_command(&self) -> &str {
+        let (mut idx, end) = self.trimmed_bounds();
+        while idx < end && !self.bytes[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+        while idx < end && self.bytes[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+        unsafe { str::from_utf8_unchecked(&self.bytes[idx..end]) }
     }
 
     fn len(&self) -> usize {
@@ -1056,7 +1075,7 @@ fn process_serial_byte(byte: u8, runtime: ui::RuntimeStatus) -> bool {
     apply_action(action, runtime)
 }
 
-fn execute(command_line: ConsoleLine, runtime: ui::RuntimeStatus) {
+fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
     let command = command_line.command_word();
     if command.as_str().is_empty() {
         return;

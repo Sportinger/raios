@@ -1,6 +1,6 @@
 # Project Status
 
-Last verified locally: 2026-05-19 on Windows with QEMU 11 via headless Shadow
+Last verified locally: 2026-05-20 on Windows with QEMU 11 via headless Shadow
 VM smoke covering deterministic `provider_minimal` packet/field-list evidence,
 explicit provider request-binding denial and export-denial audit records, the
 denied `provider.context_export` gate, the local redaction projection, read-only
@@ -14,8 +14,29 @@ and mismatched-hash cases, the separate fail-closed
 `raios.provider_context_injection_gate.v0` diagnostic, local-only negative
 final-injection authorization selftests, the fail-closed
 `raios.module_load_gate.v0` denial with event-log binding for denied
-`module.load_ephemeral`, and direct OpenAI pin-mismatch plus SPKI pinned-trust
-smokes using a fake local API key.
+`module.load_ephemeral`, read-only `module.grant_diagnostic` and
+`module.grant_diagnostic_selftest` computed-grant hash-reference diagnostics,
+local-only current-boot retention of valid computed-grant hash references, the
+denied module load gate reporting retained computed-grant references without
+authorizing loading, and local-only negative retained-reference plus
+audit/rollback evidence gate selftests.
+Direct OpenAI pin-mismatch plus SPKI pinned-trust smokes using a fake local API
+key remain previously verified from the prior handoff.
+
+Latest host-tool verification: 2026-05-20 on Windows with
+`cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
+covering OTA/registry tooling plus the non-authorizing
+`raios.computed_capability_grant.v0` diagnostic and negative
+manifest/artifact/report/attestation evidence cases.
+
+Latest guest-protocol verification: 2026-05-20 on Windows with
+`vm-harness\shadow-vm-smoke.ps1`, report
+`release\vm-reports\shadow-20260520-134329-21388.json` with 432/432
+predicates, covering absent/accepted/stale/mismatched/wrong-policy module
+computed-grant hash-reference diagnostics plus RAM-only retention of a valid
+computed-grant hash reference and its visibility in the denied module load gate
+while live loading remains denied, negative retained-reference gate selftests,
+and missing/mismatched durable audit plus rollback evidence selftests.
 
 ## Verified Boot State
 
@@ -162,23 +183,19 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the first computed module capability grant diagnostic while live loading
-remains disabled:
+Define the first host-side canonical audit and rollback diagnostic artifacts
+that can satisfy the guest-visible requirement schema without granting load:
 
-- specify `computed_capability_grant` for
-  `cap.module.load_ephemeral` over manifest hash, candidate artifact hash, VM
-  report hash, local attestation hash, requested capability, load mode, subject,
-  resource, and current-boot scope
-- keep `raios.module_load_gate.v0` reporting `can_load: false`,
-  `load_attempted: false`, `service_inventory_change: none`, loader
-  unavailable, and service slot unallocated until the in-guest loader, durable
-  audit record, rollback plan, and ram-only service slot exist
-- allow host-side manifest/report/attestation evidence to be hashed and
-  validated by tools without treating those artifacts as execution authority
-- add negative tests for mismatched manifest/artifact/report/attestation hashes,
-  non-empty manifest `granted_caps`, wrong approval phrase, and any
-  `grants_load_now: true` attestation
-- keep recovery artifact loading separate from the normal module load gate
+- emit canonical `raios.audit_record.v0` and `raios.rollback_plan.v0`
+  diagnostics that bind module manifest, artifact hash, VM report, local
+  attestation, retained grant reference, local approval, rollback plan, and
+  ram-only service slot identifiers
+- keep `module.load_ephemeral`/`service.load_ephemeral` denied with
+  `can_load: false`, `load_attempted: false`,
+  `service_inventory_change: none`, loader unavailable, and service slot
+  unallocated
+- reject mismatched audit/rollback hashes before any artifact bytes are accepted
+- keep recovery artifact loading separate from the normal module gate
 
 The verified foundation for that task is:
 
@@ -239,7 +256,8 @@ The verified foundation for that task is:
 - `raios.agent.v0` exposes read-only serial methods for `system.describe`,
   `system.snapshot`, `system.capabilities`, `system.boot_log`, `device.graph`,
   `problem.list`, `service.inventory`, `memory.profile`, `memory.context`,
-  `memory.query`, `memory.trace`, `memory.recent_events`, and `audit.events`.
+  `memory.query`, `memory.trace`, `memory.recent_events`, `audit.events`,
+  `module.grant_diagnostic`, and `module.grant_diagnostic_selftest`.
 - mutating or potentially mutating methods such as `module.load_ephemeral`,
   `service.restart`, `config.apply`, `provider.configure`, and `wifi.configure`
   return structured `capability_denied` until manifest, VM test report, local
@@ -251,6 +269,66 @@ The verified foundation for that task is:
   rollback plan, loader, and ram-only service slot gates; the current state is
   `can_load: false`, `service_inventory_change: none`, and
   `load_attempted: false`.
+- host-side `registry-tools grant-diagnostic` now emits
+  `raios.computed_capability_grant.v0` over an exact module manifest,
+  candidate artifact, Shadow-VM report, local attestation, approval phrase,
+  requested capability, subject, resource, and current-boot scope. The
+  diagnostic is evidence only: valid tuples set
+  `computed_candidate_present: true`, while `grants_capability`,
+  `grants_load_now`,
+  `authorizes_guest_load`, `can_load_now`, and `load_attempted` remain false.
+- `registry-core` unit tests reject mismatched manifest/artifact/report/
+  attestation hashes, non-empty manifest `granted_caps`, wrong approval
+  phrases, and `limits.grants_load_now: true` attestations.
+- `module.grant_diagnostic` now exposes a read-only guest diagnostic for a
+  computed-grant hash reference. It accepts no artifact bytes and validates only
+  the `raios.computed_capability_grant.canonical.v0` hash over manifest,
+  artifact, VM-report, and local-attestation hashes. A valid reference sets
+  `computed_candidate_present: true` but still keeps
+  `grants_capability: false`, `grants_load_now: false`,
+  `authorizes_guest_load: false`,
+  `can_load_now: false`, `service_inventory_change: none`, and
+  `load_attempted: false`.
+- A valid `module.grant_diagnostic` reference is now retained as a local-only
+  current-boot `raios.module_computed_grant_reference.v0` event binding. The
+  retained record stores hashes only, appears through `retained_reference` and
+  `audit.events`, and remains non-authorizing with
+  `grants_capability: false`, `grants_load_now: false`,
+  `authorizes_guest_load: false`, `can_load_now: false`, and
+  `load_attempted: false`.
+- `module.load_ephemeral` and `service.load_ephemeral` now snapshot the latest
+  retained computed-grant reference into their denied
+  `raios.module_load_gate.v0` response and event binding. With a retained
+  reference, the gate reports
+  `computed_capability_grant: retained_hash_reference_only`,
+  `retained_computed_grant_reference.state: present`, retained hashes, and
+  `retained_computed_grant_reference_not_authorizing`, while still keeping
+  `can_load: false`, `service_inventory_change: none`, and
+  `load_attempted: false`.
+- `module.load_gate_retained_selftest` now exposes local-only
+  `raios.module_load_gate_retained_reference_selftest.v0` test infrastructure
+  for the denied load gate's retained-reference predicate. It covers missing,
+  accepted-current-boot-but-denied, stale/dropped,
+  previous-boot-or-unretained, wrong-schema, substituted-record, and
+  hash-mismatch candidates without mutating the global event log, creating
+  retained records, loading artifacts, or mutating service inventory.
+- `module.load_ephemeral` and `service.load_ephemeral` also expose
+  `raios.module_load_gate_audit_rollback_requirements.v0` in the denied
+  response and event binding. The requirement schema names
+  `raios.audit_record.v0`, `raios.rollback_plan.v0`, retained grant/reference
+  ids, local approval, rollback-plan hash, and ram-only service-slot id as
+  required but missing, with writes disabled and `can_load: false`.
+- `module.load_gate_audit_rollback_selftest` now exposes local-only
+  `raios.module_load_gate_audit_rollback_selftest.v0` test infrastructure for
+  missing durable audit, missing rollback plan, matching-but-still-denied
+  audit/rollback evidence, audit/rollback schema mismatches, retained grant
+  hash mismatch, manifest/artifact/VM-report/local-attestation mismatches,
+  local approval mismatch, rollback hash mismatch, rollback artifact mismatch,
+  and rollback service-slot mismatch. It creates no durable audit records,
+  rollback plans, service slots, event-log records, or loads.
+- `module.grant_diagnostic_selftest` covers absent, accepted-current-boot,
+  stale previous-boot, mismatched manifest-hash, and wrong-policy computed
+  grant references without loading artifacts or mutating service inventory.
 - `vm-harness\shadow-vm-smoke.ps1` verifies the read-only agent protocol,
   provider trust problem visibility, static service inventory, and denied module
   load behavior, then writes a `raios.vm_test_report.v0` report.
@@ -361,9 +439,13 @@ The verified foundation for that task is:
   `provider.context_gate_selftest` negative predicate cases, the separate
   `provider.context_injection_gate` missing-final-authorization state, the
   `provider.context_injection_gate_selftest` negative final-authorization cases,
-  and the denied module load gate including the event-log binding. Latest
-  report:
-  `release\vm-reports\shadow-20260519-205441-15120.json` with 297/297
+  the read-only module computed-grant diagnostics and selftests, the retained
+  `raios.module_computed_grant_reference.v0` event binding, and the denied
+  module load gate including retained computed-grant reference state in the
+  response and event-log binding plus negative retained-reference and
+  audit/rollback requirement selftests.
+  Latest report:
+  `release\vm-reports\shadow-20260520-134329-21388.json` with 432/432
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

@@ -74,7 +74,7 @@ A future mutating grant should bind at least:
     "candidate_artifact_sha256",
     "raios.vm_test_report.v0",
     "raios.local_attestation.v0",
-    "computed_capability_grant",
+    "raios.computed_capability_grant.v0",
     "local_approval",
     "raios.audit_record.v0",
     "rollback_plan",
@@ -108,6 +108,7 @@ read-only protocol methods:
 | `cap.audit.events.read` | `audit.events` | `observe` | `current_boot` | Read bounded current-boot audit event records. |
 | `cap.provider.context_export.read` | `provider.context_gate`, `provider.context_gate_selftest` | `observe` | `current_boot` | Read provider context gate diagnostics and local predicate selftests. |
 | `cap.provider.context_injection.read` | `provider.context_injection_gate`, `provider.context_injection_gate_selftest` | `observe` | `current_boot` | Read final provider context injection gate diagnostics and local predicate selftests. |
+| `cap.module.grant_diagnostic.read` | `module.grant_diagnostic`, `module.grant_diagnostic_selftest`, `module.load_gate_retained_selftest`, `module.load_gate_audit_rollback_selftest` | `observe` | `current_boot` | Read module computed-grant hash-reference diagnostics and denied-load gate predicate selftests. |
 
 `system.snapshot` also reports `capability_denied.for_all_mutating_methods` so an
 agent can discover that mutation is intentionally unavailable.
@@ -158,7 +159,15 @@ keeps `can_load: false`, `load_attempted: false`,
 `service_started: false` until the manifest, exact artifact hash, VM report,
 local attestation, computed capability grant, local approval, durable audit
 record, rollback plan, and ram-only service slot are all present and locally
-verified.
+verified. The first host-side computed grant diagnostic is
+`raios.computed_capability_grant.v0`; it can prove the evidence tuple is
+consistent, but it still reports `grants_capability: false`,
+`grants_load_now: false`, and `authorizes_guest_load: false` until an in-guest
+policy path exists. The read-only `module.grant_diagnostic` method can inspect
+the canonical hash reference for that diagnostic without accepting artifact
+bytes. A valid reference is retained as a local-only current-boot
+`raios.module_computed_grant_reference.v0` event binding, but it also keeps
+`can_load_now: false` and `load_attempted: false`.
 
 Provider context export maps to `cap.provider.context_export` and risk
 `export`. It is denied until positive provider trust, the
@@ -189,7 +198,7 @@ raios.module_manifest.v0
 candidate_artifact_sha256
 raios.vm_test_report.v0
 raios.local_attestation.v0
-computed_capability_grant
+raios.computed_capability_grant.v0
 local_approval
 ram_only_service_slot
 rollback_plan

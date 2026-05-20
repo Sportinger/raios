@@ -53,3 +53,10 @@ input and still reports `can_load: false` while the in-guest computed
 capability grant, durable audit record, rollback plan, loader, and ram-only
 service slot are missing. A valid attestation must never be interpreted as
 `grants_load_now: true` in Stage-0.
+
+After an attestation exists, `registry-tools grant-diagnostic` can compute a
+host-side `raios.computed_capability_grant.v0` diagnostic over the exact
+manifest/artifact/report/attestation tuple and approval phrase. That diagnostic
+is intentionally non-authorizing: it rejects mismatched evidence and unsafe
+attestations, but even a valid tuple keeps `grants_capability: false`,
+`grants_load_now: false`, and `load_attempted: false`.

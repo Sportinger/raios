@@ -311,6 +311,71 @@ service slot as missing or unavailable, with `can_load: false`,
 `audit.events` read must show a matching `raios.module_load_gate.v0` event
 binding.
 
+After a matching manifest, artifact, Shadow-VM report, and local attestation
+exist, compute the host-side grant diagnostic with:
+
+```powershell
+cargo run -p registry-tools -- grant-diagnostic `
+  --manifest .\candidate.manifest.json `
+  --artifact .\candidate.bin `
+  --vm-report .\release\vm-reports\shadow-....json `
+  --local-attestation .\release\attestations\attest-....json `
+  --approval "APPROVE RAM_ONLY <tuple-prefix>"
+```
+
+The output schema is `raios.computed_capability_grant.v0`. It may report
+`computed_candidate_present: true`, but `grants_capability`,
+`grants_load_now`, `can_load_now`, and `load_attempted` must remain false.
+
+Inside the guest, inspect only the hash reference with:
+
+```text
+agent module.grant_diagnostic
+agent module.grant_diagnostic <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
+agent module.grant_diagnostic_selftest
+agent module.load_gate_retained_selftest
+agent module.load_gate_audit_rollback_selftest
+```
+
+The expected guest schemas are
+`raios.module_computed_grant_diagnostic.v0` and
+`raios.module_computed_grant_diagnostic_selftest.v0`. They must keep
+`accepts_artifact_bytes: false`, `service_inventory_change: none`, and
+`load_attempted: false`.
+
+A valid full hash-reference command records a local-only current-boot
+`raios.module_computed_grant_reference.v0` event binding and the diagnostic
+response reports `retained_reference.status:
+retained_hash_reference_load_still_denied`. This retained reference is still
+non-authorizing: `grants_capability`, `grants_load_now`,
+`authorizes_guest_load`, `can_load_now`, and `load_attempted` must remain
+false.
+
+After a valid reference is retained, `module.load_ephemeral` still denies but
+should report `computed_capability_grant: retained_hash_reference_only`,
+`retained_computed_grant_reference.state: present`, retained hashes, and
+`retained_computed_grant_reference_not_authorizing`. Loader, service slot,
+service inventory change, and load attempt state must remain unavailable,
+unallocated, `none`, and `false`.
+
+`module.load_gate_retained_selftest` emits
+`raios.module_load_gate_retained_reference_selftest.v0`. It must keep
+`mutates_global_event_log: false`, `creates_retained_reference_records: false`,
+`loads_artifact: false`, `service_inventory_change: none`, and
+`can_load: false` while covering missing, stale/dropped,
+previous-boot-or-unretained, wrong-schema, substituted-record, and
+hash-mismatch retained-reference cases.
+
+`module.load_ephemeral` also reports
+`raios.module_load_gate_audit_rollback_requirements.v0`, with
+`raios.audit_record.v0` and `raios.rollback_plan.v0` still missing and record
+writes disabled. `module.load_gate_audit_rollback_selftest` emits
+`raios.module_load_gate_audit_rollback_selftest.v0`; it must keep
+`mutates_global_event_log: false`, `creates_durable_audit_records: false`,
+`creates_rollback_plans: false`, `allocates_service_slot: false`,
+`loads_artifact: false`, and `can_load: false` while covering missing and
+mismatched audit/rollback evidence.
+
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:
 

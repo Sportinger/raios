@@ -113,6 +113,11 @@ The JSON report contains:
     "agent memory.supersede_fact",
     "agent memory.redact",
     "agent memory.compact",
+    "agent module.grant_diagnostic",
+    "agent module.grant_diagnostic <valid hash reference>",
+    "agent module.grant_diagnostic_selftest",
+    "agent module.load_gate_retained_selftest",
+    "agent module.load_gate_audit_rollback_selftest",
     "module.load_ephemeral",
     "agent audit.events 8"
   ],
@@ -157,7 +162,24 @@ denial bindings with packet and field-list hashes, negative checks for positive
 provider binding schemas, positive export authorization, and fake provider
 request envelopes from `provider.context_export`, query/trace locators, RAM-only
 event/audit reads, denied memory mutations, and denied module loading through
-`raios.module_load_gate.v0`. The module-load assertions also verify the
-current-boot audit event binding, full missing-evidence list, null
-manifest/artifact/report/attestation hashes, unchanged service inventory, and
-`load_attempted: false`.
+`raios.module_load_gate.v0`. It also checks the read-only
+`raios.module_computed_grant_diagnostic.v0` absent-reference state, a valid
+full hash-reference command that records
+`raios.module_computed_grant_reference.v0` in the current-boot event log, and
+`raios.module_computed_grant_diagnostic_selftest.v0` cases for accepted,
+absent, stale, mismatched, and wrong-policy computed grant references. The
+current predicate set also checks
+`raios.module_load_gate_retained_reference_selftest.v0` cases for missing,
+accepted-current-boot-but-denied, stale/dropped, previous-boot-or-unretained,
+wrong-schema, substituted-record, and mismatched-hash retained-reference
+candidates. It also checks
+`raios.module_load_gate_audit_rollback_selftest.v0` cases for missing durable
+audit, missing rollback plan, matching audit/rollback evidence still denied by
+missing loader and service slot, audit/rollback schema mismatches, retained
+grant hash mismatch, manifest/artifact/VM-report/local-attestation mismatches,
+local approval mismatch, rollback-plan hash mismatch, rollback artifact
+mismatch, and rollback service-slot mismatch. The
+module-load assertions verify the current-boot audit event binding, full
+missing-evidence list, audit/rollback requirement schema, retained
+grant/manifest/artifact/report/attestation hashes when a valid grant reference
+was retained, unchanged service inventory, and `load_attempted: false`.
