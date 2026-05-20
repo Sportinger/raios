@@ -116,6 +116,9 @@ The JSON report contains:
     "agent module.manifest_diagnostic",
     "agent module.manifest_diagnostic <valid hash reference>",
     "agent module.manifest_diagnostic_selftest",
+    "agent module.artifact_diagnostic",
+    "agent module.artifact_diagnostic <valid hash reference>",
+    "agent module.artifact_diagnostic_selftest",
     "agent module.grant_diagnostic",
     "agent module.grant_diagnostic <valid hash reference>",
     "agent module.grant_diagnostic_selftest",
@@ -126,6 +129,7 @@ The JSON report contains:
     "agent module.service_slot_diagnostic <valid hash reference>",
     "agent module.service_slot_diagnostic_selftest",
     "agent module.load_gate_manifest_selftest",
+    "agent module.load_gate_artifact_selftest",
     "agent module.load_gate_retained_selftest",
     "agent module.load_gate_audit_rollback_selftest",
     "agent module.load_gate_service_slot_selftest",
@@ -180,6 +184,12 @@ manifest hash-reference command that records
 `raios.module_manifest_reference_diagnostic_selftest.v0` cases for accepted,
 absent, stale, mismatched, and invalid manifest references. The current
 predicate set also checks the read-only
+`raios.module_candidate_artifact_reference_diagnostic.v0` absent-reference
+state, a valid artifact hash-reference command that records
+`raios.module_candidate_artifact_reference.v0` in the current-boot event log,
+and `raios.module_candidate_artifact_reference_diagnostic_selftest.v0` cases for
+accepted, absent, stale, mismatched, malformed, and grant-mismatched artifact
+references. The current predicate set also checks the read-only
 `raios.module_computed_grant_diagnostic.v0` absent-reference state, a valid
 full hash-reference command that records
 `raios.module_computed_grant_reference.v0` in the current-boot event log, and
@@ -189,6 +199,11 @@ checks `raios.module_load_gate_manifest_selftest.v0` cases for
 missing, accepted-current-boot-but-denied, stale/dropped,
 previous-boot-or-unretained, wrong-schema, substituted-record, and mismatched
 manifest-reference candidates. The current predicate set also checks
+`raios.module_load_gate_artifact_selftest.v0` cases for missing,
+accepted-current-boot-but-denied, stale/dropped, previous-boot-or-unretained,
+wrong-schema, substituted-record, artifact-reference hash mismatch,
+manifest-reference mismatch, and computed-grant-reference mismatch candidates.
+The current predicate set also checks
 `raios.module_load_gate_retained_reference_selftest.v0` cases for missing,
 accepted-current-boot-but-denied, stale/dropped, previous-boot-or-unretained,
 wrong-schema, substituted-record, and mismatched-hash retained-reference
@@ -215,12 +230,13 @@ accepted, stale, mismatched-hash, and invalid-slot cases. The
 module-load assertions verify the current-boot audit event binding, full
 missing-evidence list, audit/rollback requirement schema, retained
 manifest hash evidence when a valid manifest reference was retained, retained
-grant/artifact/report/attestation hashes when a valid grant reference was
+artifact hash evidence when a valid candidate-artifact reference was retained,
+retained grant/report/attestation hashes when a valid grant reference was
 retained, live rejection of a wrong-schema retained audit/rollback reference,
 retained audit/rollback reference state and hashes when a valid audit/rollback
 reference was retained, live retained service-slot reservation state and
 reservation hash when a valid reservation was retained, unchanged service
 inventory, and
 `load_attempted: false`. The latest verified report is
-`release/vm-reports/shadow-20260520-173957-23812.json` with 733/733
+`release/vm-reports/shadow-20260520-182402-20552.json` with 807/807
 predicates.

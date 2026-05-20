@@ -23,6 +23,8 @@ V0 records:
 - `raios.module_load_gate.v0` bindings for denied module/service load attempts
 - local-only `raios.module_manifest_reference.v0` bindings for valid
   current-boot module manifest hash references
+- local-only `raios.module_candidate_artifact_reference.v0` bindings for valid
+  current-boot candidate-artifact hash references
 - local-only `raios.module_computed_grant_reference.v0` bindings for valid
   current-boot module computed-grant hash references
 - local-only `raios.module_audit_rollback_reference.v0` bindings for valid
@@ -139,6 +141,7 @@ evidence: missing_required_evidence, capability_denied
 
 `module.load_ephemeral` and `service.load_ephemeral` denials add
 `module_load_gate_evaluated`, `module_manifest_reference_checked`,
+`candidate_artifact_reference_checked`,
 `computed_capability_grant_reference_checked`, `durable_audit_record_required`,
 `rollback_plan_required`,
 `rollback_bindings_required`, `service_inventory_unchanged`, and
@@ -206,6 +209,7 @@ structured non-authorizing binding:
     "capability_denied",
     "module_load_gate_evaluated",
     "module_manifest_reference_checked",
+    "candidate_artifact_reference_checked",
     "computed_capability_grant_reference_checked",
     "durable_audit_record_required",
     "rollback_plan_required",
@@ -222,7 +226,7 @@ structured non-authorizing binding:
     "target": "live_service_graph",
     "gate_state": {
       "module_manifest": "missing | retained_hash_reference_only | rejected_retained_reference",
-      "candidate_artifact": "missing",
+      "candidate_artifact": "missing | retained_hash_reference_only | rejected_retained_reference",
       "vm_test_report": "missing",
       "local_attestation": "missing",
       "computed_capability_grant": "missing | retained_hash_reference_only",
@@ -239,6 +243,11 @@ structured non-authorizing binding:
     "retained_module_manifest_reference": {
       "state": "missing | present | rejected",
       "schema": "raios.module_manifest_reference.v0",
+      "status": "missing | retained_hash_reference_load_still_denied | rejected"
+    },
+    "retained_candidate_artifact_reference": {
+      "state": "missing | present | rejected",
+      "schema": "raios.module_candidate_artifact_reference.v0",
       "status": "missing | retained_hash_reference_load_still_denied | rejected"
     },
     "retained_computed_grant_reference": {
@@ -273,6 +282,7 @@ structured non-authorizing binding:
       "computed_capability_grant_hash": "null | sha256:<retained grant hash>",
       "manifest_reference_hash": "null | sha256:<retained manifest reference hash>",
       "manifest_hash": "null | sha256:<retained manifest hash>",
+      "artifact_reference_hash": "null | sha256:<retained artifact reference hash>",
       "artifact_hash": "null | sha256:<retained artifact hash>",
       "vm_test_report_hash": "null | sha256:<retained report hash>",
       "local_attestation_hash": "null | sha256:<retained attestation hash>",
@@ -352,6 +362,44 @@ denied `module.load_ephemeral` bindings after live validation. It remains
 diagnostic evidence only and cannot satisfy candidate artifact, VM report,
 local attestation, computed grant, audit, rollback, service-slot, or loader
 gates.
+
+## Module Candidate Artifact Reference Event
+
+When `module.artifact_diagnostic` receives a valid current-boot hash reference,
+Stage-0 records one local-only RAM event. This event retains hashes and retained
+event ids only; it does not retain artifact bytes, paths, signed module data, or
+registry records.
+
+```json
+{
+  "schema": "audit.event.v0",
+  "kind": "module.artifact_reference.retained",
+  "source_method": "module.artifact_diagnostic",
+  "classification": "local_only",
+  "outcome": "retained_hash_reference_load_still_denied",
+  "requested_capability": "cap.module.grant_diagnostic.read",
+  "risk": "observe",
+  "resource": "live_service_graph",
+  "reason": "candidate_artifact_reference_valid_for_current_boot",
+  "bindings": {
+    "schema": "raios.module_candidate_artifact_reference.v0",
+    "status": "retained_hash_reference_load_still_denied",
+    "scope": "current_boot",
+    "classification": "local_only",
+    "accepts_artifact_bytes": false,
+    "authorizes_guest_load": false,
+    "can_load_now": false,
+    "service_inventory_change": "none",
+    "load_attempted": false
+  },
+  "persistence": "none"
+}
+```
+
+The latest retained candidate-artifact reference is visible through
+`module.artifact_diagnostic` as `retained_candidate_artifact_reference` and
+through later denied `module.load_ephemeral` bindings after live validation
+against the retained manifest and computed-grant references.
 
 When the latest retained `raios.module_audit_rollback_reference.v0` fails the
 live predicate, the load-gate binding retains only its event id, schema,

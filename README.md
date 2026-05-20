@@ -14,8 +14,9 @@ AI builds it inside a small, fully observable system that knows only your
 hardware and only you. Every change is sandboxed before it lands,
 capability-gated when it runs, and atomically reversible if it misbehaves.
 The current Stage-0 gate already keeps module loading denied while exposing
-retained manifest, computed-grant, audit/rollback, and RAM-only service-slot
-reservation evidence as non-authorizing current-boot facts.
+retained manifest, candidate-artifact, computed-grant, audit/rollback, and
+RAM-only service-slot reservation evidence as non-authorizing current-boot
+facts.
 
 It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
@@ -262,6 +263,9 @@ What boots and works in the VM right now:
 - Guest read-only module-manifest hash-reference diagnostics for
   `raios.module_manifest_reference.v0`, accepting no manifest JSON, artifact
   bytes, or unsigned service code
+- Guest read-only candidate-artifact hash-reference diagnostics for
+  `raios.module_candidate_artifact_reference.v0`, binding the retained manifest
+  and computed-grant events without accepting artifact bytes
 - Host-only canonical audit/rollback diagnostics for `raios.audit_record.v0`
   and `raios.rollback_plan.v0`, still non-authorizing and not installed in the
   guest
@@ -276,10 +280,14 @@ What boots and works in the VM right now:
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,
   still non-authorizing and local-only
+- RAM-only current-boot event binding for valid candidate-artifact hash
+  references, still non-authorizing and local-only
 - The denied module load gate reports retained computed-grant references as
   hash evidence while keeping `can_load: false`
 - The denied module load gate validates retained manifest references before
   reporting them as non-authorizing manifest hash evidence
+- The denied module load gate validates retained candidate-artifact references
+  before reporting them as non-authorizing artifact hash evidence
 - The denied module load gate validates retained audit/rollback references
   against the current-boot event log and canonical hashes before reporting them
   as non-authorizing hash evidence

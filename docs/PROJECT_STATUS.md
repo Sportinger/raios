@@ -15,17 +15,20 @@ and mismatched-hash cases, the separate fail-closed
 final-injection authorization selftests, the fail-closed
 `raios.module_load_gate.v0` denial with event-log binding for denied
 `module.load_ephemeral`, read-only `module.manifest_diagnostic`,
-`module.manifest_diagnostic_selftest`, `module.grant_diagnostic`, and
-`module.grant_diagnostic_selftest` manifest and computed-grant hash-reference
-diagnostics, local-only current-boot retention of valid manifest and
-computed-grant hash references, the denied module load gate reporting retained
-manifest and computed-grant references without authorizing loading, guest
+`module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
+`module.artifact_diagnostic_selftest`, `module.grant_diagnostic`, and
+`module.grant_diagnostic_selftest` manifest, candidate-artifact, and
+computed-grant hash-reference diagnostics, local-only current-boot retention of
+valid manifest, artifact, and computed-grant hash references, the denied module
+load gate reporting retained manifest, artifact, and computed-grant references
+without authorizing loading, guest
 audit/rollback hash-reference diagnostics that retain valid references only as
 local-only current-boot evidence, the denied module load gate reporting retained
 audit/rollback references as non-authorizing hash evidence only after live
 current-boot predicate validation, rejection of a wrong-schema retained
 audit/rollback reference in the live denied load gate, and local-only negative
-manifest, retained-reference, plus audit/rollback evidence gate selftests plus
+manifest, artifact, retained-reference, plus audit/rollback evidence gate
+selftests plus
 `module.audit_rollback_diagnostic_selftest` guest hash-reference diagnostics,
 and guest `module.service_slot_diagnostic` RAM-only service-slot reservation
 hash-reference diagnostics that retain valid reservations as local-only
@@ -45,15 +48,16 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-20 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260520-173957-23812.json` with 733/733
+`release\vm-reports\shadow-20260520-182402-20552.json` with 807/807
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
-hash-reference diagnostics, RAM-only retention of a valid manifest reference,
-live denied load-gate visibility of retained manifest hash evidence, negative
-manifest-reference gate selftests, absent/accepted/stale/mismatched/wrong-policy
-module computed-grant hash-reference diagnostics plus RAM-only retention of a
-valid computed-grant hash reference and its visibility in the denied module load
-gate while live loading remains denied, negative retained-reference gate
-selftests, negative retained audit/rollback reference gate selftests,
+hash-reference diagnostics, RAM-only retention of valid manifest and
+candidate-artifact references, live denied load-gate visibility of retained
+manifest and artifact hash evidence, negative manifest/artifact-reference gate
+selftests, absent/accepted/stale/mismatched/wrong-policy module computed-grant
+hash-reference diagnostics plus RAM-only retention of a valid computed-grant
+hash reference and its visibility in the denied module load gate while live
+loading remains denied, negative retained-reference gate selftests, negative
+retained audit/rollback reference gate selftests,
 missing/mismatched durable audit plus rollback evidence selftests, and guest
 audit/rollback hash-reference diagnostics over `raios.audit_record.v0` and
 `raios.rollback_plan.v0` candidates, including RAM-only retention of a valid
@@ -211,15 +215,15 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the first guest candidate-artifact hash-reference diagnostic:
+Define the first guest VM-test-report hash-reference diagnostic:
 
-- specify a local-only current-boot artifact reference record as evidence, not
+- specify a local-only current-boot VM report reference record as evidence, not
   load authority
-- accept only canonical artifact hash/reference input, not artifact bytes or
-  unsigned service code
-- bind the retained artifact reference to the already retained manifest and
+- accept only canonical report hash/reference input, not report JSON that
+  pretends to be trusted runtime state
+- bind the retained report reference to retained manifest, artifact, and
   computed-grant evidence
-- make the live load gate report retained artifact hash evidence only after a
+- make the live load gate report retained VM-report hash evidence only after a
   current-boot predicate validates the retained event
 - keep the loader unavailable and recovery artifact loading separate from the
   normal module gate
@@ -322,6 +326,32 @@ The verified foundation for that task is:
   hash-mismatch retained manifest-reference candidates without mutating the
   global event log, accepting manifest JSON or artifact bytes, or loading
   artifacts.
+- `module.artifact_diagnostic` now exposes a read-only guest diagnostic for a
+  candidate-artifact hash reference. It accepts no manifest JSON, artifact
+  bytes, or unsigned service code and validates the canonical
+  `raios.module_candidate_artifact_reference.v0` hash over retained manifest and
+  computed-grant event ids plus manifest, artifact, report, attestation, and
+  grant hashes.
+- A valid `module.artifact_diagnostic` reference is retained as a local-only
+  current-boot `raios.module_candidate_artifact_reference.v0` event binding. The
+  retained record stores hashes only, appears through
+  `retained_candidate_artifact_reference` and `audit.events`, and remains
+  non-authorizing with `artifact_loaded: false`, `can_load_now: false`, and
+  `load_attempted: false`.
+- `module.load_ephemeral` and `service.load_ephemeral` now validate the latest
+  retained candidate-artifact reference before snapshotting it into the denied
+  `raios.module_load_gate.v0` response and event binding. With a valid retained
+  reference, the gate reports `candidate_artifact: retained_hash_reference_only`,
+  retained artifact hashes, and
+  `retained_candidate_artifact_reference_not_authorizing`; stale, substituted,
+  wrong-schema, or hash-mismatched references are rejected without exposing their
+  artifact hashes as accepted evidence.
+- `module.load_gate_artifact_selftest` now exposes local-only
+  `raios.module_load_gate_artifact_selftest.v0` test infrastructure for missing,
+  accepted-current-boot-but-denied, stale/dropped, previous-boot-or-unretained,
+  wrong-schema, substituted-record, hash-mismatch, manifest-reference mismatch,
+  and computed-grant-reference mismatch candidates without mutating the global
+  event log or loading artifacts.
 - host-side `registry-tools grant-diagnostic` now emits
   `raios.computed_capability_grant.v0` over an exact module manifest,
   candidate artifact, Shadow-VM report, local attestation, approval phrase,
@@ -570,21 +600,22 @@ The verified foundation for that task is:
   `provider.context_gate_selftest` negative predicate cases, the separate
   `provider.context_injection_gate` missing-final-authorization state, the
   `provider.context_injection_gate_selftest` negative final-authorization cases,
-  the read-only module manifest and computed-grant diagnostics and selftests,
-  the module audit/rollback hash-reference diagnostics and selftests, retained
-  `raios.module_manifest_reference.v0`,
+  the read-only module manifest, candidate-artifact, and computed-grant
+  diagnostics and selftests, the module audit/rollback hash-reference
+  diagnostics and selftests, retained `raios.module_manifest_reference.v0`,
+  `raios.module_candidate_artifact_reference.v0`,
   `raios.module_computed_grant_reference.v0`, and
   `raios.module_audit_rollback_reference.v0` event bindings, and the denied
-  module load gate including retained manifest, retained computed-grant, plus
-  retained audit/rollback reference state in the response and event-log binding,
-  live wrong-schema retained audit/rollback rejection, plus negative
-  manifest-reference, retained-reference, retained audit/rollback reference, and
-  audit/rollback requirement selftests, service-slot reservation diagnostics and
-  selftests, live denied load-gate visibility of valid retained service-slot
-  reservation evidence, and negative retained service-slot reservation gate
-  selftests.
+  module load gate including retained manifest, retained artifact, retained
+  computed-grant, plus retained audit/rollback reference state in the response
+  and event-log binding, live wrong-schema retained audit/rollback rejection,
+  plus negative manifest-reference, artifact-reference, retained-reference,
+  retained audit/rollback reference, and audit/rollback requirement selftests,
+  service-slot reservation diagnostics and selftests, live denied load-gate
+  visibility of valid retained service-slot reservation evidence, and negative
+  retained service-slot reservation gate selftests.
   Latest report:
-  `release\vm-reports\shadow-20260520-173957-23812.json` with 733/733
+  `release\vm-reports\shadow-20260520-182402-20552.json` with 807/807
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

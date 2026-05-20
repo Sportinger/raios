@@ -25,6 +25,17 @@ pub struct ModuleServiceSlotReservationHashInput<'a> {
     pub ram_only_service_slot_id: &'a str,
 }
 
+pub struct ModuleCandidateArtifactReferenceHashInput<'a> {
+    pub retained_manifest_reference_event_id: &'a str,
+    pub retained_reference_event_id: &'a str,
+    pub manifest_reference_hash: [u8; 32],
+    pub manifest_hash: [u8; 32],
+    pub computed_grant_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub vm_report_hash: [u8; 32],
+    pub local_attestation_hash: [u8; 32],
+}
+
 pub fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash_static_line(
@@ -48,6 +59,151 @@ pub fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 
     hash_static_line(&mut hash, b"scope=current_boot", true);
     hash_static_line(&mut hash, b"manifest_schema=raios.module_manifest.v0", true);
     hash_hash_line(&mut hash, b"manifest_sha256", manifest_hash, true);
+    hash_static_line(&mut hash, b"authorizes_guest_load=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_module_candidate_artifact_reference_hash(
+    input: ModuleCandidateArtifactReferenceHashInput<'_>,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.module_candidate_artifact_reference.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.module_candidate_artifact_reference.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"requested_capability=cap.module.load_ephemeral",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=ram_only", true);
+    hash_static_line(&mut hash, b"subject=agent.session.serial", true);
+    hash_static_line(&mut hash, b"resource=live_service_graph", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_str_line(
+        &mut hash,
+        b"retained_manifest_reference_event_id",
+        input.retained_manifest_reference_event_id,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"retained_reference_event_id",
+        input.retained_reference_event_id,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"manifest_reference_sha256",
+        input.manifest_reference_hash,
+        true,
+    );
+    hash_hash_line(&mut hash, b"manifest_sha256", input.manifest_hash, true);
+    hash_hash_line(
+        &mut hash,
+        b"computed_capability_grant_sha256",
+        input.computed_grant_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"candidate_artifact_sha256",
+        input.artifact_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"vm_test_report_sha256",
+        input.vm_report_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"local_attestation_sha256",
+        input.local_attestation_hash,
+        true,
+    );
+    hash_static_line(&mut hash, b"accepts_artifact_bytes=false", true);
+    hash_static_line(&mut hash, b"loads_artifact=false", true);
+    hash_static_line(&mut hash, b"authorizes_guest_load=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_module_candidate_artifact_reference_hash_from_sequences(
+    retained_manifest_reference_event_sequence: u64,
+    retained_reference_event_sequence: u64,
+    manifest_reference_hash: [u8; 32],
+    manifest_hash: [u8; 32],
+    computed_grant_hash: [u8; 32],
+    artifact_hash: [u8; 32],
+    vm_report_hash: [u8; 32],
+    local_attestation_hash: [u8; 32],
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.module_candidate_artifact_reference.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.module_candidate_artifact_reference.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"requested_capability=cap.module.load_ephemeral",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=ram_only", true);
+    hash_static_line(&mut hash, b"subject=agent.session.serial", true);
+    hash_static_line(&mut hash, b"resource=live_service_graph", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_event_id_line(
+        &mut hash,
+        b"retained_manifest_reference_event_id",
+        retained_manifest_reference_event_sequence,
+        true,
+    );
+    hash_event_id_line(
+        &mut hash,
+        b"retained_reference_event_id",
+        retained_reference_event_sequence,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"manifest_reference_sha256",
+        manifest_reference_hash,
+        true,
+    );
+    hash_hash_line(&mut hash, b"manifest_sha256", manifest_hash, true);
+    hash_hash_line(
+        &mut hash,
+        b"computed_capability_grant_sha256",
+        computed_grant_hash,
+        true,
+    );
+    hash_hash_line(&mut hash, b"candidate_artifact_sha256", artifact_hash, true);
+    hash_hash_line(&mut hash, b"vm_test_report_sha256", vm_report_hash, true);
+    hash_hash_line(
+        &mut hash,
+        b"local_attestation_sha256",
+        local_attestation_hash,
+        true,
+    );
+    hash_static_line(&mut hash, b"accepts_artifact_bytes=false", true);
+    hash_static_line(&mut hash, b"loads_artifact=false", true);
     hash_static_line(&mut hash, b"authorizes_guest_load=false", true);
     hash_static_line(&mut hash, b"service_inventory_change=none", true);
     hash_static_line(&mut hash, b"load_attempted=false", false);
@@ -320,6 +476,20 @@ fn hash_str_line(hash: &mut Sha256, name: &'static [u8], value: &str, newline: b
     hash.update(name);
     hash.update(b"=");
     hash.update(value.as_bytes());
+    if newline {
+        hash.update(b"\n");
+    }
+}
+
+fn hash_event_id_line(hash: &mut Sha256, name: &'static [u8], sequence: u64, newline: bool) {
+    hash.update(name);
+    hash.update(b"=event.current_boot.");
+    let mut divisor = 10_000_000u64;
+    while divisor > 0 {
+        let digit = ((sequence / divisor) % 10) as u8;
+        hash.update(&[b'0' + digit]);
+        divisor /= 10;
+    }
     if newline {
         hash.update(b"\n");
     }

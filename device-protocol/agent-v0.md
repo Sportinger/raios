@@ -30,6 +30,8 @@ agent provider.context_injection_gate provider_minimal -> read-only final inject
 agent provider.context_injection_gate_selftest provider_minimal -> local-only final injection negative selftest
 agent module.manifest_diagnostic -> read-only manifest hash-reference diagnostic
 agent module.manifest_diagnostic_selftest -> local-only manifest diagnostic selftest
+agent module.artifact_diagnostic -> read-only candidate-artifact hash-reference diagnostic
+agent module.artifact_diagnostic_selftest -> local-only artifact diagnostic selftest
 agent module.grant_diagnostic -> read-only computed-grant hash-reference diagnostic
 agent module.grant_diagnostic_selftest -> local-only module grant diagnostic selftest
 agent module.audit_rollback_diagnostic -> audit/rollback hash-reference diagnostic with local-only retention for valid references
@@ -37,6 +39,7 @@ agent module.audit_rollback_diagnostic_selftest -> local-only audit/rollback has
 agent module.service_slot_diagnostic -> RAM-only service-slot reservation hash-reference diagnostic
 agent module.service_slot_diagnostic_selftest -> local-only service-slot reservation diagnostic selftest
 agent module.load_gate_manifest_selftest -> local-only manifest-reference gate selftest
+agent module.load_gate_artifact_selftest -> local-only artifact-reference gate selftest
 agent module.load_gate_retained_selftest -> local-only retained-reference gate selftest
 agent module.load_gate_audit_rollback_selftest -> local-only audit/rollback gate selftest
 agent module.load_gate_service_slot_selftest -> local-only service-slot gate selftest
@@ -89,6 +92,8 @@ provider.context_injection_gate
 provider.context_injection_gate_selftest
 module.manifest_diagnostic
 module.manifest_diagnostic_selftest
+module.artifact_diagnostic
+module.artifact_diagnostic_selftest
 module.grant_diagnostic
 module.grant_diagnostic_selftest
 module.audit_rollback_diagnostic
@@ -96,6 +101,7 @@ module.audit_rollback_diagnostic_selftest
 module.service_slot_diagnostic
 module.service_slot_diagnostic_selftest
 module.load_gate_manifest_selftest
+module.load_gate_artifact_selftest
 module.load_gate_retained_selftest
 module.load_gate_audit_rollback_selftest
 module.load_gate_service_slot_selftest
@@ -183,6 +189,27 @@ returns it as `retained_manifest_reference`; that record keeps
 `raios.module_manifest_reference_diagnostic_selftest.v0` test infrastructure
 for absent, accepted-current-boot, stale, and mismatched manifest references.
 
+`module.artifact_diagnostic` emits local-only
+`raios.module_candidate_artifact_reference_diagnostic.v0`. With no arguments it
+reports the candidate-artifact reference as absent. With hash arguments it
+checks only the canonical
+`raios.module_candidate_artifact_reference.canonical.v0` hash reference:
+
+```text
+module.artifact_diagnostic <artifact_reference_hash> <retained_manifest_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <manifest_hash> <computed_grant_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
+```
+
+The guest does not accept artifact bytes, paths, signed blobs, or service code
+through this method. A valid hash reference records a local-only current-boot
+`raios.module_candidate_artifact_reference.v0` event binding and returns it as
+`retained_candidate_artifact_reference`; that record keeps
+`artifact_loaded: false`, `authorizes_guest_load: false`, `can_load_now: false`,
+`service_inventory_change: none`, and `load_attempted: false`.
+`module.artifact_diagnostic_selftest` emits local-only
+`raios.module_candidate_artifact_reference_diagnostic_selftest.v0` test
+infrastructure for absent, accepted-current-boot, stale, mismatched, malformed,
+and grant-mismatched artifact references.
+
 `module.grant_diagnostic` emits local-only
 `raios.module_computed_grant_diagnostic.v0`. With no arguments it reports the
 computed grant as absent. With hash arguments it checks only the
@@ -268,6 +295,14 @@ accepted-current-boot-but-denied, stale/dropped event id,
 previous-boot-or-unretained event id, wrong schema, substituted record, and
 hash mismatch cases. It does not mutate the global event log, create retained
 records, accept manifest JSON, load artifacts, or mutate `service.inventory.v0`.
+`module.load_gate_artifact_selftest` emits local-only
+`raios.module_load_gate_artifact_selftest.v0` test infrastructure for the denied
+load gate's retained candidate-artifact predicate. It covers missing,
+accepted-current-boot-but-denied, stale/dropped event id,
+previous-boot-or-unretained event id, wrong schema, substituted record, artifact
+hash mismatch, manifest-reference mismatch, and computed-grant-reference
+mismatch cases. It does not mutate the global event log, create retained
+records, accept artifact bytes, load artifacts, or mutate `service.inventory.v0`.
 `module.load_gate_retained_selftest` emits local-only
 `raios.module_load_gate_retained_reference_selftest.v0` test infrastructure for
 the denied load gate's retained-reference predicate. It covers missing,
@@ -336,8 +371,8 @@ durable audit record, rollback plan, and a ram-only service slot.
 `raios.module_load_gate.v0` denial schema. The gate reports
 `load_mode: ram_only`, `requested_capability: cap.module.load_ephemeral`,
 `target: live_service_graph`, missing required evidence plus any live-validated
-retained manifest, computed-grant, audit/rollback, and service-slot hash
-references, the loader as `unavailable`,
+retained manifest, candidate-artifact, computed-grant, audit/rollback, and
+service-slot hash references, the loader as `unavailable`,
 service-slot state as `unallocated`,
 `retained_hash_reference_only_not_allocated`, or
 `rejected_retained_reference`, `can_load: false`, and
