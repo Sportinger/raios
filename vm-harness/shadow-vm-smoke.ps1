@@ -237,11 +237,47 @@ function Send-SerialText {
 function Send-AgentCommand {
     param(
         [string]$Command,
-        [string]$ExpectedMarker
+        [string]$ExpectedMarker,
+        [string]$Name = ""
     )
 
     Send-SerialText -Port $SerialTcpPort -Text "$Command`r" -TimeoutSeconds $TimeoutSeconds
-    Assert-LogContains -Name "command:$Command" -Needle $ExpectedMarker -TimeoutSeconds $TimeoutSeconds
+    $predicateName = if ($Name.Length -gt 0) { $Name } else { "command:$Command" }
+    Assert-LogContains -Name $predicateName -Needle $ExpectedMarker -TimeoutSeconds $TimeoutSeconds
+}
+
+function Get-LastAgentResponseJson {
+    param(
+        [string]$Method
+    )
+
+    $content = Get-Content -Raw -LiteralPath $SerialLog -ErrorAction Stop
+    $begin = "RAIOS_AGENT_BEGIN $Method"
+    $end = "RAIOS_AGENT_END $Method"
+    $beginIndex = $content.LastIndexOf($begin, [System.StringComparison]::Ordinal)
+    if ($beginIndex -lt 0) {
+        throw "No agent response for method '$Method' found in $SerialLog"
+    }
+    $jsonStart = $content.IndexOf("{", $beginIndex, [System.StringComparison]::Ordinal)
+    $endIndex = $content.IndexOf($end, $jsonStart, [System.StringComparison]::Ordinal)
+    if ($jsonStart -lt 0 -or $endIndex -lt 0) {
+        throw "Incomplete agent response for method '$Method' found in $SerialLog"
+    }
+    $json = $content.Substring($jsonStart, $endIndex - $jsonStart).Trim()
+    return $json | ConvertFrom-Json
+}
+
+function Assert-CurrentBootEventId {
+    param(
+        [string]$Name,
+        [string]$Value
+    )
+
+    $passed = $Value -match '^event\.current_boot\.[0-9]{8}$'
+    Add-Predicate -Name $Name -Expected "current_boot_event_id" -Passed $passed -Actual $Value
+    if (-not $passed) {
+        throw "Expected current-boot event id for '$Name', got '$Value'"
+    }
 }
 
 function Write-Report {
@@ -757,6 +793,19 @@ try {
     Assert-LogContains -Name "protocol:module_grant_diag_valid_still_no_load" -Needle '"can_load_now": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_diag_valid_hash_echo" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
 
+    $moduleGrantResponse = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
+    $moduleAuditRetainedReferenceEventId = [string]$moduleGrantResponse.body.result.retained_reference.event_id
+    Assert-CurrentBootEventId -Name "protocol:module_grant_retained_reference_event_id_captured" -Value $moduleAuditRetainedReferenceEventId
+
+    Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "command:module.load_ephemeral.pre_audit"
+    $modulePreAuditLoadResponse = Get-LastAgentResponseJson -Method "module.load_ephemeral"
+    $moduleAuditDenialEventId = [string]$modulePreAuditLoadResponse.body.event_id
+    Assert-CurrentBootEventId -Name "protocol:module_audit_denial_event_id_captured" -Value $moduleAuditDenialEventId
+    Assert-LogContains -Name "policy:module_pre_audit_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_grant_retained" -Needle '"computed_capability_grant": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_audit_missing" -Needle '"durable_audit_record": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_rollback_missing" -Needle '"rollback_plan": "missing"' -TimeoutSeconds 1
+
     Send-AgentCommand -Command "agent module.audit_rollback_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_diagnostic"
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_schema" -Needle '"schema": "raios.module_audit_rollback_reference_diagnostic.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
@@ -772,8 +821,6 @@ try {
     $moduleAuditLocalApprovalHash = "6666666666666666666666666666666666666666666666666666666666666666"
     $moduleAuditPreInventoryHash = "7777777777777777777777777777777777777777777777777777777777777777"
     $moduleAuditCleanupHash = "8888888888888888888888888888888888888888888888888888888888888888"
-    $moduleAuditDenialEventId = "event.current_boot.00000031"
-    $moduleAuditRetainedReferenceEventId = "event.current_boot.00000027"
     $moduleAuditRamOnlyServiceSlotId = "ram_only:svc.test.0001"
     $moduleRollbackCanonical = @(
         "canonicalization=raios.rollback_plan.canonical.v0",
@@ -788,6 +835,43 @@ try {
         "load_attempted=false"
     ) -join "`n"
     $moduleRollbackHash = Get-TextSha256 -Text $moduleRollbackCanonical
+
+    $moduleWrongAuditDenialEventId = $moduleAuditRetainedReferenceEventId
+    $moduleWrongAuditCanonical = @(
+        "canonicalization=raios.audit_record.canonical.v0",
+        "schema=raios.audit_record.v0",
+        "requested_capability=cap.module.load_ephemeral",
+        "load_mode=ram_only",
+        "subject=agent.session.serial",
+        "resource=live_service_graph",
+        "scope=current_boot",
+        "denial_event_id=$moduleWrongAuditDenialEventId",
+        "retained_reference_event_id=$moduleAuditRetainedReferenceEventId",
+        "computed_capability_grant_sha256=$moduleGrantHash",
+        "manifest_sha256=$moduleGrantManifestHash",
+        "candidate_artifact_sha256=$moduleGrantArtifactHash",
+        "vm_test_report_sha256=$moduleGrantReportHash",
+        "local_attestation_sha256=$moduleGrantAttestationHash",
+        "local_approval_sha256=$moduleAuditLocalApprovalHash",
+        "rollback_plan_sha256=$moduleRollbackHash",
+        "ram_only_service_slot_id=$moduleAuditRamOnlyServiceSlotId",
+        "grants_load_now=false",
+        "authorizes_guest_load=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $moduleWrongAuditHash = Get-TextSha256 -Text $moduleWrongAuditCanonical
+    $moduleWrongAuditCommand = "agent module.audit_rollback_diagnostic $moduleWrongAuditHash $moduleRollbackHash $moduleGrantHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash $moduleAuditLocalApprovalHash $moduleAuditPreInventoryHash $moduleAuditCleanupHash $moduleWrongAuditDenialEventId $moduleAuditRetainedReferenceEventId $moduleAuditRamOnlyServiceSlotId"
+
+    Send-AgentCommand -Command $moduleWrongAuditCommand -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_diagnostic" -Name "command:module.audit_rollback_diagnostic.wrong_denial"
+    Assert-LogContains -Name "protocol:module_wrong_audit_rollback_diag_valid_status" -Needle '"validation_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "command:module.load_ephemeral.rejected_audit_ref"
+    Assert-LogContains -Name "policy:module_rejected_audit_reference_state" -Needle '"state": "rejected"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rejected_audit_reference_status" -Needle '"status": "rejected"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rejected_audit_reference_reason" -Needle '"reason": "retained_audit_rollback_reference_wrong_schema_or_variant"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rejected_audit_state" -Needle '"durable_audit_record": "rejected_retained_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rejected_rollback_state" -Needle '"rollback_plan": "rejected_retained_reference"' -TimeoutSeconds 1
+
     $moduleAuditCanonical = @(
         "canonicalization=raios.audit_record.canonical.v0",
         "schema=raios.audit_record.v0",

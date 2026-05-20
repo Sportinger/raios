@@ -266,6 +266,9 @@ What boots and works in the VM right now:
   still non-authorizing and local-only
 - The denied module load gate reports retained computed-grant references as
   hash evidence while keeping `can_load: false`
+- The denied module load gate validates retained audit/rollback references
+  against the current-boot event log and canonical hashes before reporting them
+  as non-authorizing hash evidence
 - Local-only retained-reference gate selftests cover stale, substituted, and
   mismatched module-grant evidence candidates without mutating the event log
 - The denied module load gate now names required durable audit and rollback

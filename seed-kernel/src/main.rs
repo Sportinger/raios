@@ -24,6 +24,7 @@ mod event_log;
 mod framebuffer;
 mod input;
 mod memory;
+mod module_evidence;
 mod net;
 mod openai;
 mod openai_trust;

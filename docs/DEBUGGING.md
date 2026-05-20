@@ -327,9 +327,10 @@ The output schema is `raios.computed_capability_grant.v0`. It may report
 `computed_candidate_present: true`, but `grants_capability`,
 `grants_load_now`, `can_load_now`, and `load_attempted` must remain false.
 
-After retaining the computed grant reference in the guest and collecting the
-denied `module.load_ephemeral` event id, build the host-only audit/rollback
-diagnostic with:
+After retaining the computed grant reference in the guest, run one denied
+`module.load_ephemeral` and use that response's current-boot `event_id` plus
+the retained computed-grant `event_id` when building the host-only
+audit/rollback diagnostic:
 
 ```powershell
 cargo run -p registry-tools -- audit-rollback-diagnostic `
@@ -339,8 +340,8 @@ cargo run -p registry-tools -- audit-rollback-diagnostic `
   --local-attestation .\release\attestations\attest-....json `
   --approval "APPROVE RAM_ONLY <tuple-prefix>" `
   --computed-grant-hash sha256:<grant-hash> `
-  --denial-event-id event.current_boot.00000031 `
-  --retained-reference-event-id event.current_boot.00000027 `
+  --denial-event-id event.current_boot.<denied-load-id> `
+  --retained-reference-event-id event.current_boot.<retained-grant-id> `
   --ram-only-service-slot-id ram_only:svc.example.0001 `
   --pre-load-service-inventory-hash sha256:<inventory-hash> `
   --cleanup-actions-hash sha256:<cleanup-actions-hash>
@@ -401,6 +402,13 @@ audit/rollback reference is retained, the same denial should also report
 `retained_rollback_plan_reference_not_installed`. Loader, service slot, service
 inventory change, and load attempt state must remain unavailable, unallocated,
 `none`, and `false`.
+
+The live denied load gate revalidates a retained audit/rollback reference
+before reporting those retained states. If the retained record points at a
+wrong-schema event, stale/dropped event, substituted record, mismatched
+canonical grant/audit/rollback hash, or invalid `ram_only:` service-slot id, the
+gate reports `rejected_retained_reference`; the accepted audit/rollback evidence
+hash fields stay `null`, and loading remains denied.
 
 `module.load_gate_retained_selftest` emits
 `raios.module_load_gate_retained_reference_selftest.v0`. It must keep

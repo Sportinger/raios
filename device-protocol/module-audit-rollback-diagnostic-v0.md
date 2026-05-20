@@ -27,8 +27,8 @@ cargo run -p registry-tools -- audit-rollback-diagnostic `
   --local-attestation .\release\attestations\attest-....json `
   --approval "APPROVE RAM_ONLY <tuple-prefix>" `
   --computed-grant-hash sha256:<grant-hash> `
-  --denial-event-id event.current_boot.00000031 `
-  --retained-reference-event-id event.current_boot.00000027 `
+  --denial-event-id event.current_boot.<denied-load-id> `
+  --retained-reference-event-id event.current_boot.<retained-grant-id> `
   --ram-only-service-slot-id ram_only:svc.example.0001 `
   --pre-load-service-inventory-hash sha256:<inventory-hash> `
   --cleanup-actions-hash sha256:<cleanup-actions-hash>
@@ -90,6 +90,14 @@ install rollback plans, allocate service slots, load artifacts, or change
 
 Invalid or absent references keep `mutates_global_event_log: false` and
 `global_event_log_mutation: none`.
+
+The guest diagnostic validates hash shape and current-boot id syntax. The later
+live `module.load_ephemeral`/`service.load_ephemeral` gate revalidates the
+retained record against the RAM event log before treating it as accepted
+evidence. That live check requires the referenced retained computed-grant event,
+a prior denied load event, canonical computed-grant/rollback/audit hashes, and
+a valid `ram_only:` slot id; rejected live references do not expose
+audit/rollback hashes as accepted load-gate evidence.
 
 `module.audit_rollback_diagnostic_selftest` emits
 `raios.module_audit_rollback_reference_diagnostic_selftest.v0` and covers

@@ -21,8 +21,10 @@ denied module load gate reporting retained computed-grant references without
 authorizing loading, guest audit/rollback hash-reference diagnostics that retain
 valid references only as local-only current-boot evidence, the denied module
 load gate reporting retained audit/rollback references as non-authorizing
-hash evidence, and local-only negative retained-reference plus audit/rollback
-evidence gate selftests plus
+hash evidence only after live current-boot predicate validation, rejection of a
+wrong-schema retained audit/rollback reference in the live denied load gate, and
+local-only negative retained-reference plus audit/rollback evidence gate
+selftests plus
 `module.audit_rollback_diagnostic_selftest` guest hash-reference diagnostics.
 Direct OpenAI pin-mismatch plus SPKI pinned-trust smokes using a fake local API
 key remain previously verified from the prior handoff.
@@ -36,7 +38,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-20 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260520-160353-24588.json` with 519/519
+`release\vm-reports\shadow-20260520-162329-23696.json` with 534/534
 predicates, covering absent/accepted/stale/mismatched/wrong-policy module
 computed-grant hash-reference diagnostics plus RAM-only retention of a valid
 computed-grant hash reference and its visibility in the denied module load gate
@@ -45,7 +47,9 @@ negative retained audit/rollback reference gate selftests,
 missing/mismatched durable audit plus rollback evidence selftests, and guest
 audit/rollback hash-reference diagnostics over `raios.audit_record.v0` and
 `raios.rollback_plan.v0` candidates, including RAM-only retention of a valid
-audit/rollback reference and its visibility in the denied module load gate.
+audit/rollback reference, live rejection of a wrong-schema retained
+audit/rollback reference, and valid retained audit/rollback visibility in the
+denied module load gate.
 
 ## Verified Boot State
 
@@ -192,15 +196,16 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Apply the retained audit/rollback reference predicate to the live denied module
-load gate:
+Define the first real RAM-only service-slot reservation diagnostic for the
+denied module load path:
 
-- validate the retained `raios.module_audit_rollback_reference.v0` event against
-  the retained computed-grant reference, denied load event id, canonical hashes,
-  and ram-only service-slot id before reporting retained audit/rollback states
-- reject stale/dropped, previous-boot-or-unretained, wrong-schema,
-  substituted, computed-grant/hash mismatch, audit/rollback hash mismatch, and
-  service-slot mismatch retained audit/rollback references
+- bind a requested `ram_only:<service id>` slot to the retained computed-grant
+  reference, retained audit/rollback reference, canonical hashes, and current
+  service-inventory snapshot before any slot is considered reserved
+- expose accepted reservations only as local-only current-boot event evidence,
+  not durable service inventory state and not load authority
+- reject stale/dropped, wrong-schema, substituted, mismatched-hash, mismatched
+  service-inventory, and mismatched-slot reservations
 - keep `module.load_ephemeral`/`service.load_ephemeral` denied with
   `can_load: false`, `service_inventory_change: none`, and
   `load_attempted: false`
@@ -364,17 +369,22 @@ The verified foundation for that task is:
   hash, rollback hash mismatch, computed-grant hash mismatch, and invalid
   ram-only service-slot cases without creating audit records, rollback plans,
   service slots, retained references, or service inventory changes.
-- `module.load_ephemeral` and `service.load_ephemeral` now also snapshot the
-  latest retained audit/rollback reference into the denied
-  `raios.module_load_gate.v0` response and event binding. With a retained
-  reference, the gate reports
+- `module.load_ephemeral` and `service.load_ephemeral` now also validate the
+  latest retained audit/rollback reference before snapshotting it into the
+  denied `raios.module_load_gate.v0` response and event binding. The live
+  predicate checks that the retained reference binds the latest retained
+  computed-grant reference, a prior denied load event, canonical computed-grant,
+  rollback-plan, and audit-record hashes, and a valid `ram_only:` service-slot
+  id. With a valid retained reference, the gate reports
   `durable_audit_record: retained_hash_reference_only_not_durable`,
   `rollback_plan: retained_hash_reference_only_not_installed`,
   `retained_audit_rollback_reference.state: present`, retained audit/rollback
   hashes, `retained_audit_record_reference_not_durable`, and
   `retained_rollback_plan_reference_not_installed`, while still keeping
   `can_load: false`, `service_inventory_change: none`, and
-  `load_attempted: false`.
+  `load_attempted: false`. A retained reference that points at a wrong-schema
+  event or mismatched hashes is reported as `rejected_retained_reference`, and
+  its audit/rollback hashes are not exposed as accepted gate evidence.
 - `module.grant_diagnostic_selftest` covers absent, accepted-current-boot,
   stale previous-boot, mismatched manifest-hash, and wrong-policy computed
   grant references without loading artifacts or mutating service inventory.
@@ -493,11 +503,12 @@ The verified foundation for that task is:
   `raios.module_computed_grant_reference.v0` and
   `raios.module_audit_rollback_reference.v0` event bindings, and the denied
   module load gate including retained computed-grant plus retained
-  audit/rollback reference state in the response and event-log binding plus
-  negative retained-reference, retained audit/rollback reference, and
-  audit/rollback requirement selftests.
+  audit/rollback reference state in the response and event-log binding, live
+  wrong-schema retained audit/rollback rejection, plus negative
+  retained-reference, retained audit/rollback reference, and audit/rollback
+  requirement selftests.
   Latest report:
-  `release\vm-reports\shadow-20260520-160353-24588.json` with 519/519
+  `release\vm-reports\shadow-20260520-162329-23696.json` with 534/534
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

@@ -194,6 +194,12 @@ local-only current-boot `raios.module_audit_rollback_reference.v0` event binding
 and returns it as `retained_audit_rollback_reference`; that record is
 hash-reference evidence only and is not durable audit, an installed rollback
 plan, or a loader token.
+Later `module.load_ephemeral` and `service.load_ephemeral` calls revalidate the
+retained audit/rollback reference against the live current-boot event log before
+reporting it as accepted gate evidence. Wrong-schema, stale/dropped,
+substituted, mismatched-hash, or invalid-slot retained references are reported
+as `rejected_retained_reference` and do not expose audit/rollback hashes as
+accepted evidence.
 `module.audit_rollback_diagnostic_selftest` emits local-only
 `raios.module_audit_rollback_reference_diagnostic_selftest.v0` test
 infrastructure for absent, accepted-current-boot, stale, previous-boot event
@@ -263,6 +269,10 @@ durable audit record, rollback plan, and a ram-only service slot.
 `target: live_service_graph`, missing required evidence plus any retained
 computed-grant and audit/rollback hash references, the loader as `unavailable`,
 `service_slot: unallocated`, `can_load: false`, and `load_attempted: false`. It
+reports retained audit/rollback references as accepted evidence only if the live
+predicate validates the retained computed-grant event, prior denied load event,
+canonical hashes, and `ram_only:` service-slot id; otherwise the durable-audit
+and rollback gates are `rejected_retained_reference`.
 also exposes
 `raios.module_load_gate_audit_rollback_requirements.v0`, which names the
 required `raios.audit_record.v0` and `raios.rollback_plan.v0` bindings while

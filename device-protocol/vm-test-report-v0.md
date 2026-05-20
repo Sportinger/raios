@@ -185,6 +185,9 @@ service-slot mismatch. The
 module-load assertions verify the current-boot audit event binding, full
 missing-evidence list, audit/rollback requirement schema, retained
 grant/manifest/artifact/report/attestation hashes when a valid grant reference
-was retained, retained audit/rollback reference state and hashes when a valid
+was retained, live rejection of a wrong-schema retained audit/rollback
+reference, retained audit/rollback reference state and hashes when a valid
 audit/rollback reference was retained, unchanged service inventory, and
-`load_attempted: false`.
+`load_attempted: false`. The latest verified report is
+`release/vm-reports/shadow-20260520-162329-23696.json` with 534/534
+predicates.

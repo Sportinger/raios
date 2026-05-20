@@ -174,7 +174,10 @@ accepting durable records or artifact bytes. A valid audit/rollback reference
 is retained as a local-only current-boot
 `raios.module_audit_rollback_reference.v0` event binding, but still keeps
 `durable_audit_written: false`, `rollback_plan_installed: false`,
-`can_load_now: false`, and `load_attempted: false`.
+`can_load_now: false`, and `load_attempted: false`. The denied live load gate
+must revalidate that retained reference before reporting it as accepted
+evidence; rejected retained references remain non-authorizing and expose no
+accepted audit/rollback hashes.
 
 Provider context export maps to `cap.provider.context_export` and risk
 `export`. It is denied until positive provider trust, the

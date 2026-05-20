@@ -2,9 +2,11 @@ use core::str;
 
 use spin::Mutex;
 
+use crate::module_evidence;
+
 pub const EVENT_CAPACITY: usize = 64;
 pub const DEFAULT_EVENT_LIMIT: usize = 32;
-pub const MODULE_SERVICE_SLOT_ID_MAX: usize = 96;
+pub use crate::module_evidence::MODULE_SERVICE_SLOT_ID_MAX;
 
 const READ_EVIDENCE: &[&str] = &["computed_capability_grant"];
 const DENIED_EVIDENCE: &[&str] = &["missing_required_evidence", "capability_denied"];
@@ -252,6 +254,16 @@ pub struct ModuleLoadGateBinding {
     pub retained_reference: Option<ModuleComputedGrantReference>,
     pub audit_rollback_reference_event_id: Option<EventId>,
     pub audit_rollback_reference: Option<ModuleAuditRollbackReference>,
+    pub audit_rollback_reference_status: &'static str,
+    pub audit_rollback_reference_reason: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct ModuleAuditRollbackReferenceGateCheck {
+    event_id: Option<EventId>,
+    reference: Option<ModuleAuditRollbackReference>,
+    status: &'static str,
+    reason: &'static str,
 }
 
 #[derive(Clone, Copy)]
@@ -1025,6 +1037,148 @@ impl EventLog {
         None
     }
 
+    fn check_module_audit_rollback_reference_for_load(
+        &self,
+        retained: Option<(EventId, ModuleComputedGrantReference)>,
+        audit_rollback: Option<(EventId, ModuleAuditRollbackReference)>,
+    ) -> ModuleAuditRollbackReferenceGateCheck {
+        let Some((audit_rollback_event_id, audit_rollback_reference)) = audit_rollback else {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: None,
+                reference: None,
+                status: "missing",
+                reason: "retained_audit_rollback_reference_missing",
+            };
+        };
+
+        let Some((retained_reference_event_id, retained_reference)) = retained else {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_computed_grant_reference_missing",
+            };
+        };
+
+        if audit_rollback_reference.retained_reference_event_id != retained_reference_event_id {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_reference_substituted_record",
+            };
+        }
+
+        let Some(retained_event) =
+            self.event_by_sequence(audit_rollback_reference.retained_reference_event_id)
+        else {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_reference_stale_or_dropped_event_id",
+            };
+        };
+        let EventBindings::ModuleComputedGrantReference(retained_event_reference) =
+            retained_event.bindings
+        else {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_reference_wrong_schema_or_variant",
+            };
+        };
+        if !module_computed_grant_reference_matches(retained_reference, retained_event_reference) {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_reference_substituted_record",
+            };
+        }
+        if !module_computed_grant_reference_hashes_consistent(retained_reference) {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_computed_grant_hash_mismatch",
+            };
+        }
+        if !module_audit_rollback_binds_computed_grant(audit_rollback_reference, retained_reference)
+        {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_computed_grant_hash_mismatch",
+            };
+        }
+        if !module_evidence::ram_only_service_slot_id_valid(
+            audit_rollback_reference.ram_only_service_slot_id.as_str(),
+        ) {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_service_slot_mismatch",
+            };
+        }
+        if let Some(reason) =
+            module_audit_rollback_reference_hash_mismatch(audit_rollback_reference)
+        {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason,
+            };
+        }
+
+        if audit_rollback_reference.denial_event_id.sequence() >= audit_rollback_event_id.sequence()
+        {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_reference_substituted_record",
+            };
+        }
+
+        let Some(denial_event) = self.event_by_sequence(audit_rollback_reference.denial_event_id)
+        else {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_reference_stale_or_dropped_event_id",
+            };
+        };
+        let EventBindings::ModuleLoadGate(denial_binding) = denial_event.bindings else {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_reference_wrong_schema_or_variant",
+            };
+        };
+        if denial_binding.retained_reference_event_id != Some(retained_reference_event_id) {
+            return ModuleAuditRollbackReferenceGateCheck {
+                event_id: Some(audit_rollback_event_id),
+                reference: Some(audit_rollback_reference),
+                status: "rejected",
+                reason: "retained_audit_rollback_reference_substituted_record",
+            };
+        }
+
+        ModuleAuditRollbackReferenceGateCheck {
+            event_id: Some(audit_rollback_event_id),
+            reference: Some(audit_rollback_reference),
+            status: "retained_hash_reference_only",
+            reason: "retained_audit_rollback_reference_not_authorizing",
+        }
+    }
+
     fn event_by_sequence(&self, event_id: EventId) -> Option<Event> {
         let mut idx = 0usize;
         while idx < EVENT_CAPACITY {
@@ -1118,6 +1272,97 @@ impl ProviderBindingGateCheck {
     }
 }
 
+fn module_computed_grant_reference_matches(
+    left: ModuleComputedGrantReference,
+    right: ModuleComputedGrantReference,
+) -> bool {
+    left.computed_grant_hash == right.computed_grant_hash
+        && left.manifest_hash == right.manifest_hash
+        && left.artifact_hash == right.artifact_hash
+        && left.vm_report_hash == right.vm_report_hash
+        && left.local_attestation_hash == right.local_attestation_hash
+}
+
+fn module_computed_grant_reference_hashes_consistent(
+    reference: ModuleComputedGrantReference,
+) -> bool {
+    reference.computed_grant_hash
+        == module_evidence::computed_module_grant_hash(
+            reference.manifest_hash,
+            reference.artifact_hash,
+            reference.vm_report_hash,
+            reference.local_attestation_hash,
+        )
+}
+
+fn module_audit_rollback_binds_computed_grant(
+    audit_rollback_reference: ModuleAuditRollbackReference,
+    retained_reference: ModuleComputedGrantReference,
+) -> bool {
+    audit_rollback_reference.computed_grant_hash == retained_reference.computed_grant_hash
+        && audit_rollback_reference.manifest_hash == retained_reference.manifest_hash
+        && audit_rollback_reference.artifact_hash == retained_reference.artifact_hash
+        && audit_rollback_reference.vm_report_hash == retained_reference.vm_report_hash
+        && audit_rollback_reference.local_attestation_hash
+            == retained_reference.local_attestation_hash
+}
+
+fn module_audit_rollback_reference_hash_mismatch(
+    reference: ModuleAuditRollbackReference,
+) -> Option<&'static str> {
+    let expected_rollback_plan_hash = module_evidence::computed_module_rollback_plan_hash(
+        reference.artifact_hash,
+        reference.pre_load_service_inventory_hash,
+        reference.ram_only_service_slot_id.as_str(),
+        reference.cleanup_actions_hash,
+    );
+    if reference.rollback_plan_hash != expected_rollback_plan_hash {
+        return Some("retained_rollback_plan_hash_mismatch");
+    }
+
+    let mut denial_event_id = [0u8; EVENT_ID_TEXT_LEN];
+    let mut retained_reference_event_id = [0u8; EVENT_ID_TEXT_LEN];
+    let denial_event_id = event_id_text(reference.denial_event_id, &mut denial_event_id);
+    let retained_reference_event_id = event_id_text(
+        reference.retained_reference_event_id,
+        &mut retained_reference_event_id,
+    );
+    let expected_audit_record_hash = module_evidence::computed_module_audit_record_hash(
+        module_evidence::ModuleAuditRecordHashInput {
+            denial_event_id,
+            retained_reference_event_id,
+            computed_grant_hash: reference.computed_grant_hash,
+            manifest_hash: reference.manifest_hash,
+            artifact_hash: reference.artifact_hash,
+            vm_report_hash: reference.vm_report_hash,
+            local_attestation_hash: reference.local_attestation_hash,
+            local_approval_hash: reference.local_approval_hash,
+            rollback_plan_hash: reference.rollback_plan_hash,
+            ram_only_service_slot_id: reference.ram_only_service_slot_id.as_str(),
+        },
+    );
+    if reference.audit_record_hash != expected_audit_record_hash {
+        return Some("retained_audit_record_hash_mismatch");
+    }
+
+    None
+}
+
+const EVENT_ID_TEXT_LEN: usize = 27;
+
+fn event_id_text<'a>(event_id: EventId, out: &'a mut [u8; EVENT_ID_TEXT_LEN]) -> &'a str {
+    const PREFIX: &[u8] = b"event.current_boot.";
+    out[..PREFIX.len()].copy_from_slice(PREFIX);
+    let mut value = event_id.sequence();
+    let mut idx = EVENT_ID_TEXT_LEN;
+    while idx > PREFIX.len() {
+        idx -= 1;
+        out[idx] = b'0' + (value % 10) as u8;
+        value /= 10;
+    }
+    unsafe { str::from_utf8_unchecked(out) }
+}
+
 impl ProviderContextInjectionGateCheck {
     const fn missing() -> Self {
         Self {
@@ -1205,11 +1450,15 @@ pub fn record_module_load_ephemeral_denied(
     let mut log = LOG.lock();
     let retained = log.latest_module_computed_grant_reference();
     let audit_rollback = log.latest_module_audit_rollback_reference();
+    let audit_rollback_check =
+        log.check_module_audit_rollback_reference_for_load(retained, audit_rollback);
     let binding = ModuleLoadGateBinding {
         retained_reference_event_id: retained.map(|(event_id, _)| event_id),
         retained_reference: retained.map(|(_, reference)| reference),
-        audit_rollback_reference_event_id: audit_rollback.map(|(event_id, _)| event_id),
-        audit_rollback_reference: audit_rollback.map(|(_, reference)| reference),
+        audit_rollback_reference_event_id: audit_rollback_check.event_id,
+        audit_rollback_reference: audit_rollback_check.reference,
+        audit_rollback_reference_status: audit_rollback_check.status,
+        audit_rollback_reference_reason: audit_rollback_check.reason,
     };
     let event_id = log.record(Event {
         sequence: 0,

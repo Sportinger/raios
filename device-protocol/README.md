@@ -32,8 +32,8 @@ Current V0 docs:
   RAM-only retained reference for future module load gate evidence.
 - `module-load-gate-v0.md` - denied-by-default current-boot gate for
   `module.load_ephemeral` and `service.load_ephemeral`, including retained
-  grant, retained audit/rollback reference, and audit/rollback requirement
-  diagnostics.
+  grant, live-validated retained audit/rollback references, and
+  audit/rollback requirement diagnostics.
 - `vm-test-report-v0.md` - Shadow-VM report emitted by
   `vm-harness\shadow-vm-smoke.ps1`.
 - `local-attestation-v0.md` - local evidence record binding manifest,

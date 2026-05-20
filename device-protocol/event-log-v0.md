@@ -139,8 +139,10 @@ evidence: missing_required_evidence, capability_denied
 `rollback_bindings_required`, `service_inventory_unchanged`, and
 `load_not_attempted` evidence and attach a `raios.module_load_gate.v0` binding.
 If valid audit/rollback hash-reference evidence was retained earlier in the
-same boot, the denial snapshots that reference as non-authorizing
-current-boot evidence.
+same boot, the denial snapshots that reference as non-authorizing current-boot
+evidence only after the live gate validates the retained reference against the
+retained computed-grant event, a prior denied load event, canonical hashes, and
+the `ram_only:` service-slot id.
 
 Most denial responses include `event_id` and `audit_event_id`, both pointing at
 the current-boot denial record id. `provider.context_export` is stricter: its
@@ -199,8 +201,8 @@ structured non-authorizing binding:
       "local_attestation": "missing",
       "computed_capability_grant": "missing | retained_hash_reference_only",
       "local_approval": "missing",
-      "rollback_plan": "missing | retained_hash_reference_only_not_installed",
-      "durable_audit_record": "missing | retained_hash_reference_only_not_durable",
+      "rollback_plan": "missing | retained_hash_reference_only_not_installed | rejected_retained_reference",
+      "durable_audit_record": "missing | retained_hash_reference_only_not_durable | rejected_retained_reference",
       "loader": "unavailable",
       "service_slot": "unallocated",
       "artifact_loaded": false,
@@ -214,9 +216,9 @@ structured non-authorizing binding:
       "status": "missing | retained_hash_reference_load_still_denied"
     },
     "retained_audit_rollback_reference": {
-      "state": "missing | present",
+      "state": "missing | present | rejected",
       "schema": "raios.module_audit_rollback_reference.v0",
-      "status": "missing | retained_hash_reference_load_still_denied"
+      "status": "missing | retained_hash_reference_load_still_denied | rejected"
     },
     "audit_rollback_requirements": {
       "schema": "raios.module_load_gate_audit_rollback_requirements.v0",
@@ -224,11 +226,11 @@ structured non-authorizing binding:
       "writes_enabled": false,
       "durable_audit_record": {
         "schema": "raios.audit_record.v0",
-        "state": "missing | retained_hash_reference_only_not_durable"
+        "state": "missing | retained_hash_reference_only_not_durable | rejected_retained_reference"
       },
       "rollback_plan": {
         "schema": "raios.rollback_plan.v0",
-        "state": "missing | retained_hash_reference_only_not_installed"
+        "state": "missing | retained_hash_reference_only_not_installed | rejected_retained_reference"
       }
     },
     "evidence": {
@@ -263,6 +265,13 @@ The same binding also exposes
 shape names the future `raios.audit_record.v0` and `raios.rollback_plan.v0`
 bindings, reports retained hash-reference-only states when available, disables
 writes, and does not create durable state.
+
+When the latest retained `raios.module_audit_rollback_reference.v0` fails the
+live predicate, the load-gate binding retains only its event id, schema,
+`status: rejected`, reason, and non-authorizing flags. The accepted
+`audit_record_hash`, `rollback_plan_hash`, approval, inventory, cleanup, and
+slot evidence fields remain `null` so a rejected retained record cannot be
+mistaken for valid gate evidence.
 
 ## Module Computed Grant Reference Event
 
@@ -345,8 +354,8 @@ or local approval text.
     "can_load_now": false,
     "service_inventory_change": "none",
     "load_attempted": false,
-    "denial_event_id": "event.current_boot.00000031",
-    "retained_computed_grant_reference_event_id": "event.current_boot.00000027",
+    "denial_event_id": "event.current_boot.<denied-load-id>",
+    "retained_computed_grant_reference_event_id": "event.current_boot.<retained-grant-id>",
     "ram_only_service_slot_id": "ram_only:svc.example.0001",
     "hashes": {
       "audit_record_hash": "sha256:<64 hex chars>",
