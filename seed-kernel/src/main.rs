@@ -24,6 +24,7 @@ mod agent_protocol_module_reference;
 mod agent_protocol_module_service_slot;
 mod agent_protocol_module_types;
 mod agent_protocol_support;
+mod agent_protocol_system;
 mod console;
 mod e1000;
 mod entropy;
