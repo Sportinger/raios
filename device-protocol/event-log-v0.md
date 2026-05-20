@@ -155,6 +155,13 @@ The binding is hash evidence only: it reports `allocates_service_slot: false`,
 `creates_service_inventory_records: false`, `can_load_now: false`, and
 `load_attempted: false`.
 
+If valid service-slot reservation evidence was retained earlier in the same
+boot, the denial snapshots that reservation as non-authorizing current-boot
+evidence only after the live gate validates the retained grant event, retained
+audit/rollback event, canonical reservation hash,
+computed-grant/audit/rollback hashes, pre-load service-inventory hash, and
+`ram_only:` slot id. The gate still does not allocate a service slot.
+
 Most denial responses include `event_id` and `audit_event_id`, both pointing at
 the current-boot denial record id. `provider.context_export` is stricter: its
 `event_id` points at the capability-denial event, while `audit_event_id` points
@@ -215,7 +222,7 @@ structured non-authorizing binding:
       "rollback_plan": "missing | retained_hash_reference_only_not_installed | rejected_retained_reference",
       "durable_audit_record": "missing | retained_hash_reference_only_not_durable | rejected_retained_reference",
       "loader": "unavailable",
-      "service_slot": "unallocated",
+      "service_slot": "unallocated | retained_hash_reference_only_not_allocated | rejected_retained_reference",
       "artifact_loaded": false,
       "service_started": false,
       "persistence": "none",
@@ -230,6 +237,11 @@ structured non-authorizing binding:
       "state": "missing | present | rejected",
       "schema": "raios.module_audit_rollback_reference.v0",
       "status": "missing | retained_hash_reference_load_still_denied | rejected"
+    },
+    "retained_service_slot_reservation": {
+      "state": "missing | present | rejected",
+      "schema": "raios.module_service_slot_reservation.v0",
+      "status": "missing | retained_hash_reference_only_not_allocated | rejected"
     },
     "audit_rollback_requirements": {
       "schema": "raios.module_load_gate_audit_rollback_requirements.v0",
@@ -256,6 +268,7 @@ structured non-authorizing binding:
       "pre_load_service_inventory_hash": "null | sha256:<retained inventory hash>",
       "cleanup_actions_hash": "null | sha256:<retained cleanup hash>",
       "ram_only_service_slot_id": "null | ram_only:<service slot id>",
+      "service_slot_reservation_hash": "null | sha256:<retained reservation hash>",
       "service_inventory_change": "none",
       "load_attempted": false
     }
@@ -283,6 +296,14 @@ live predicate, the load-gate binding retains only its event id, schema,
 `audit_record_hash`, `rollback_plan_hash`, approval, inventory, cleanup, and
 slot evidence fields remain `null` so a rejected retained record cannot be
 mistaken for valid gate evidence.
+
+When the latest retained `raios.module_service_slot_reservation.v0` passes the
+live predicate, the same binding reports
+`service_slot: retained_hash_reference_only_not_allocated` and exposes
+`service_slot_reservation_hash` only as non-authorizing evidence. If the
+retained reservation is stale, wrong-schema, substituted, hash-mismatched,
+inventory-mismatched, or slot-mismatched, the service-slot state is
+`rejected_retained_reference` and the accepted reservation hash stays `null`.
 
 ## Module Computed Grant Reference Event
 

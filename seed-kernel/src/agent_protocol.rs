@@ -5650,6 +5650,26 @@ fn module_load_gate_rollback_reason(binding: event_log::ModuleLoadGateBinding) -
     }
 }
 
+fn module_load_gate_service_slot_state(binding: event_log::ModuleLoadGateBinding) -> &'static str {
+    if module_load_gate_service_slot_reservation_valid(binding) {
+        "retained_hash_reference_only_not_allocated"
+    } else if module_load_gate_service_slot_reservation_rejected(binding) {
+        "rejected_retained_reference"
+    } else {
+        "unallocated"
+    }
+}
+
+fn module_load_gate_service_slot_reason(binding: event_log::ModuleLoadGateBinding) -> &'static str {
+    if module_load_gate_service_slot_reservation_valid(binding) {
+        "retained_service_slot_reservation_not_allocated"
+    } else if module_load_gate_service_slot_reservation_rejected(binding) {
+        binding.service_slot_reservation_reason
+    } else {
+        "ram_only_service_slot_unallocated"
+    }
+}
+
 fn module_load_gate_audit_rollback_reference_valid(
     binding: event_log::ModuleLoadGateBinding,
 ) -> bool {
@@ -5663,6 +5683,21 @@ fn module_load_gate_audit_rollback_reference_rejected(
     binding: event_log::ModuleLoadGateBinding,
 ) -> bool {
     method_eq(binding.audit_rollback_reference_status, "rejected")
+}
+
+fn module_load_gate_service_slot_reservation_valid(
+    binding: event_log::ModuleLoadGateBinding,
+) -> bool {
+    method_eq(
+        binding.service_slot_reservation_status,
+        "retained_hash_reference_only_not_allocated",
+    )
+}
+
+fn module_load_gate_service_slot_reservation_rejected(
+    binding: event_log::ModuleLoadGateBinding,
+) -> bool {
+    method_eq(binding.service_slot_reservation_status, "rejected")
 }
 
 fn emit_module_load_gate_retained_reference(binding: event_log::ModuleLoadGateBinding) {
@@ -5809,6 +5844,89 @@ fn emit_module_load_gate_audit_rollback_reference(binding: event_log::ModuleLoad
     raw("    }");
 }
 
+fn emit_module_load_gate_service_slot_reservation(binding: event_log::ModuleLoadGateBinding) {
+    raw_line("    \"retained_service_slot_reservation\": {");
+    if let Some(reservation) = binding.service_slot_reservation {
+        if module_load_gate_service_slot_reservation_rejected(binding) {
+            raw_line("      \"state\": \"rejected\",");
+            raw_line("      \"retention\": \"current_boot_ram_event_log\",");
+            raw("      \"event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw_line(",");
+            raw_line("      \"schema\": \"raios.module_service_slot_reservation.v0\",");
+            raw("      \"status\": ");
+            json_str(binding.service_slot_reservation_status);
+            raw_line(",");
+            raw("      \"reason\": ");
+            json_str(binding.service_slot_reservation_reason);
+            raw_line(",");
+            raw_line("      \"classification\": \"local_only\",");
+            raw_line("      \"allocates_service_slot\": false,");
+            raw_line("      \"creates_service_inventory_records\": false,");
+            raw_line("      \"can_load_now\": false,");
+            raw_line("      \"load_attempted\": false");
+            raw("    }");
+            return;
+        }
+
+        raw_line("      \"state\": \"present\",");
+        raw_line("      \"retention\": \"current_boot_ram_event_log\",");
+        raw("      \"event_id\": ");
+        json_event_id_option(binding.service_slot_reservation_event_id);
+        raw_line(",");
+        raw_line("      \"schema\": \"raios.module_service_slot_reservation.v0\",");
+        raw_line("      \"status\": \"retained_hash_reference_only_not_allocated\",");
+        raw_line("      \"classification\": \"local_only\",");
+        raw_line("      \"allocates_service_slot\": false,");
+        raw_line("      \"creates_service_inventory_records\": false,");
+        raw_line("      \"grants_capability\": false,");
+        raw_line("      \"grants_load_now\": false,");
+        raw_line("      \"authorizes_guest_load\": false,");
+        raw_line("      \"can_load_now\": false,");
+        raw_line("      \"load_attempted\": false,");
+        raw("      \"retained_computed_grant_reference_event_id\": ");
+        json_event_id(reservation.retained_reference_event_id);
+        raw_line(",");
+        raw("      \"retained_audit_rollback_reference_event_id\": ");
+        json_event_id(reservation.retained_audit_rollback_reference_event_id);
+        raw_line(",");
+        raw("      \"ram_only_service_slot_id\": ");
+        json_str(reservation.ram_only_service_slot_id.as_str());
+        raw_line(",");
+        raw_line("      \"hashes\": {");
+        raw("        \"reservation_hash\": ");
+        json_sha256(reservation.reservation_hash);
+        raw_line(",");
+        raw("        \"computed_capability_grant_hash\": ");
+        json_sha256(reservation.computed_grant_hash);
+        raw_line(",");
+        raw("        \"audit_record_hash\": ");
+        json_sha256(reservation.audit_record_hash);
+        raw_line(",");
+        raw("        \"rollback_plan_hash\": ");
+        json_sha256(reservation.rollback_plan_hash);
+        raw_line(",");
+        raw("        \"pre_load_service_inventory_hash\": ");
+        json_sha256(reservation.pre_load_service_inventory_hash);
+        crlf();
+        raw_line("      }");
+    } else {
+        raw_line("      \"state\": \"missing\",");
+        raw_line("      \"retention\": \"current_boot_ram_event_log\",");
+        raw_line("      \"event_id\": null,");
+        raw_line("      \"schema\": \"raios.module_service_slot_reservation.v0\",");
+        raw("      \"status\": ");
+        json_str(binding.service_slot_reservation_status);
+        raw_line(",");
+        raw("      \"reason\": ");
+        json_str(binding.service_slot_reservation_reason);
+        raw_line(",");
+        raw_line("      \"can_load_now\": false,");
+        raw_line("      \"load_attempted\": false");
+    }
+    raw("    }");
+}
+
 fn emit_module_load_gate_evidence_hashes(binding: event_log::ModuleLoadGateBinding) {
     if let Some(reference) = binding.retained_reference {
         raw("      \"computed_capability_grant_hash\": ");
@@ -5863,6 +5981,16 @@ fn emit_module_load_gate_evidence_hashes(binding: event_log::ModuleLoadGateBindi
         raw_line("      \"cleanup_actions_hash\": null,");
         raw_line("      \"ram_only_service_slot_id\": null,");
     }
+    if let Some(reservation) = binding
+        .service_slot_reservation
+        .filter(|_| module_load_gate_service_slot_reservation_valid(binding))
+    {
+        raw("      \"service_slot_reservation_hash\": ");
+        json_sha256(reservation.reservation_hash);
+        raw_line(",");
+    } else {
+        raw_line("      \"service_slot_reservation_hash\": null,");
+    }
 }
 
 fn emit_module_load_gate_audit_rollback_requirements(binding: event_log::ModuleLoadGateBinding) {
@@ -5914,8 +6042,15 @@ fn emit_module_load_gate_audit_rollback_requirements(binding: event_log::ModuleL
     raw("      \"retained_audit_rollback_reference_event_id\": ");
     json_event_id_option(binding.audit_rollback_reference_event_id);
     raw_line(",");
+    raw("      \"retained_service_slot_reservation_event_id\": ");
+    json_event_id_option(binding.service_slot_reservation_event_id);
+    raw_line(",");
     raw_line("      \"local_approval\": {\"state\": \"missing\", \"required\": true},");
-    raw_line("      \"ram_only_service_slot\": {\"state\": \"unallocated\", \"required\": true},");
+    raw("      \"ram_only_service_slot\": {\"state\": ");
+    json_str(module_load_gate_service_slot_state(binding));
+    raw(", \"reason\": ");
+    json_str(module_load_gate_service_slot_reason(binding));
+    raw_line(", \"required\": true, \"allocates_service_slot\": false},");
     raw_line("      \"load_attempted\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"can_load\": false");
@@ -5967,14 +6102,24 @@ fn emit_module_load_gate_required_hashes(binding: event_log::ModuleLoadGateBindi
         raw_line(",");
         raw("        \"ram_only_service_slot_id\": ");
         json_str(reference.ram_only_service_slot_id.as_str());
-        crlf();
+        raw_line(",");
     } else {
         raw_line("        \"audit_record_hash\": null,");
         raw_line("        \"rollback_plan_hash\": null,");
         raw_line("        \"local_approval_hash\": null,");
         raw_line("        \"pre_load_service_inventory_hash\": null,");
         raw_line("        \"cleanup_actions_hash\": null,");
-        raw_line("        \"ram_only_service_slot_id\": null");
+        raw_line("        \"ram_only_service_slot_id\": null,");
+    }
+    if let Some(reservation) = binding
+        .service_slot_reservation
+        .filter(|_| module_load_gate_service_slot_reservation_valid(binding))
+    {
+        raw("        \"service_slot_reservation_hash\": ");
+        json_sha256(reservation.reservation_hash);
+        crlf();
+    } else {
+        raw_line("        \"service_slot_reservation_hash\": null");
     }
 }
 
@@ -6026,7 +6171,9 @@ fn emit_module_load_ephemeral_denied(
     json_str(module_load_gate_durable_audit_state(gate_binding));
     raw_line(",");
     raw_line("      \"loader\": \"unavailable\",");
-    raw_line("      \"service_slot\": \"unallocated\",");
+    raw("      \"service_slot\": ");
+    json_str(module_load_gate_service_slot_state(gate_binding));
+    raw_line(",");
     raw_line("      \"artifact_loaded\": false,");
     raw_line("      \"service_started\": false,");
     raw_line("      \"persistence\": \"none\",");
@@ -6035,6 +6182,8 @@ fn emit_module_load_ephemeral_denied(
     emit_module_load_gate_retained_reference(gate_binding);
     raw_line(",");
     emit_module_load_gate_audit_rollback_reference(gate_binding);
+    raw_line(",");
+    emit_module_load_gate_service_slot_reservation(gate_binding);
     raw_line(",");
     emit_module_load_gate_audit_rollback_requirements(gate_binding);
     raw_line(",");
@@ -6065,6 +6214,11 @@ fn emit_module_load_ephemeral_denied(
     json_str(module_load_gate_rollback_state(gate_binding));
     raw(", \"reason\": ");
     json_str(module_load_gate_rollback_reason(gate_binding));
+    raw_line("},");
+    raw("      {\"gate\": \"service_slot\", \"state\": ");
+    json_str(module_load_gate_service_slot_state(gate_binding));
+    raw(", \"reason\": ");
+    json_str(module_load_gate_service_slot_reason(gate_binding));
     raw_line("},");
     raw_line(
         "      {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}",
@@ -6705,10 +6859,14 @@ fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoadGateBinding
     json_str(module_load_gate_rollback_state(binding));
     raw(", \"durable_audit_record\": ");
     json_str(module_load_gate_durable_audit_state(binding));
-    raw(", \"loader\": \"unavailable\", \"service_slot\": \"unallocated\", \"artifact_loaded\": false, \"service_started\": false, \"persistence\": \"none\", \"can_load\": false}, \"retained_computed_grant_reference\": ");
+    raw(", \"loader\": \"unavailable\", \"service_slot\": ");
+    json_str(module_load_gate_service_slot_state(binding));
+    raw(", \"artifact_loaded\": false, \"service_started\": false, \"persistence\": \"none\", \"can_load\": false}, \"retained_computed_grant_reference\": ");
     emit_module_load_gate_retained_reference_compact(binding);
     raw(", \"retained_audit_rollback_reference\": ");
     emit_module_load_gate_audit_rollback_reference_compact(binding);
+    raw(", \"retained_service_slot_reservation\": ");
+    emit_module_load_gate_service_slot_reservation_compact(binding);
     raw(", \"audit_rollback_requirements\": ");
     emit_module_load_gate_audit_rollback_requirements_compact(binding);
     raw(", \"blocked_by\": [{\"gate\": \"module_manifest\", \"state\": \"missing\", \"reason\": \"module_manifest_missing\"}, {\"gate\": \"candidate_artifact\", \"state\": \"missing\", \"reason\": \"candidate_artifact_missing\"}, {\"gate\": \"vm_test_report\", \"state\": \"missing\", \"reason\": \"vm_test_report_missing\"}, {\"gate\": \"local_attestation\", \"state\": \"missing\", \"reason\": \"local_attestation_missing\"}, {\"gate\": \"computed_capability_grant\", \"state\": ");
@@ -6723,6 +6881,10 @@ fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoadGateBinding
     json_str(module_load_gate_rollback_state(binding));
     raw(", \"reason\": ");
     json_str(module_load_gate_rollback_reason(binding));
+    raw("}, {\"gate\": \"service_slot\", \"state\": ");
+    json_str(module_load_gate_service_slot_state(binding));
+    raw(", \"reason\": ");
+    json_str(module_load_gate_service_slot_reason(binding));
     raw("}, {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}], \"required\": [\"raios.module_manifest.v0\", \"candidate_artifact_sha256\", \"raios.vm_test_report.v0\", \"raios.local_attestation.v0\", \"raios.computed_capability_grant.v0\", \"local_approval\", \"raios.audit_record.v0\", \"rollback_plan\", \"ram_only_service_slot\"], \"evidence\": {\"event_scope\": \"current_boot\", ");
     emit_module_load_gate_evidence_hashes_compact(binding);
     raw(", \"service_inventory_change\": \"none\", \"load_attempted\": false}}");
@@ -6801,6 +6963,49 @@ fn emit_module_load_gate_audit_rollback_reference_compact(
     }
 }
 
+fn emit_module_load_gate_service_slot_reservation_compact(
+    binding: event_log::ModuleLoadGateBinding,
+) {
+    if let Some(reservation) = binding.service_slot_reservation {
+        if module_load_gate_service_slot_reservation_rejected(binding) {
+            raw("{\"state\": \"rejected\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw(", \"schema\": \"raios.module_service_slot_reservation.v0\", \"status\": ");
+            json_str(binding.service_slot_reservation_status);
+            raw(", \"reason\": ");
+            json_str(binding.service_slot_reservation_reason);
+            raw(", \"classification\": \"local_only\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"can_load_now\": false, \"load_attempted\": false}");
+            return;
+        }
+
+        raw("{\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
+        json_event_id_option(binding.service_slot_reservation_event_id);
+        raw(", \"schema\": \"raios.module_service_slot_reservation.v0\", \"status\": \"retained_hash_reference_only_not_allocated\", \"classification\": \"local_only\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"grants_capability\": false, \"grants_load_now\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"load_attempted\": false, \"retained_computed_grant_reference_event_id\": ");
+        json_event_id(reservation.retained_reference_event_id);
+        raw(", \"retained_audit_rollback_reference_event_id\": ");
+        json_event_id(reservation.retained_audit_rollback_reference_event_id);
+        raw(", \"ram_only_service_slot_id\": ");
+        json_str(reservation.ram_only_service_slot_id.as_str());
+        raw(", \"hashes\": {\"reservation_hash\": ");
+        json_sha256(reservation.reservation_hash);
+        raw(", \"computed_capability_grant_hash\": ");
+        json_sha256(reservation.computed_grant_hash);
+        raw(", \"audit_record_hash\": ");
+        json_sha256(reservation.audit_record_hash);
+        raw(", \"rollback_plan_hash\": ");
+        json_sha256(reservation.rollback_plan_hash);
+        raw(", \"pre_load_service_inventory_hash\": ");
+        json_sha256(reservation.pre_load_service_inventory_hash);
+        raw("}}");
+    } else {
+        raw("{\"state\": \"missing\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": null, \"schema\": \"raios.module_service_slot_reservation.v0\", \"status\": ");
+        json_str(binding.service_slot_reservation_status);
+        raw(", \"reason\": ");
+        json_str(binding.service_slot_reservation_reason);
+        raw(", \"can_load_now\": false, \"load_attempted\": false}");
+    }
+}
+
 fn emit_module_load_gate_evidence_hashes_compact(binding: event_log::ModuleLoadGateBinding) {
     if let Some(reference) = binding.retained_reference {
         raw("\"computed_capability_grant_hash\": ");
@@ -6835,6 +7040,15 @@ fn emit_module_load_gate_evidence_hashes_compact(binding: event_log::ModuleLoadG
     } else {
         raw(", \"audit_record_hash\": null, \"rollback_plan_hash\": null, \"local_approval_hash\": null, \"pre_load_service_inventory_hash\": null, \"cleanup_actions_hash\": null, \"ram_only_service_slot_id\": null");
     }
+    if let Some(reservation) = binding
+        .service_slot_reservation
+        .filter(|_| module_load_gate_service_slot_reservation_valid(binding))
+    {
+        raw(", \"service_slot_reservation_hash\": ");
+        json_sha256(reservation.reservation_hash);
+    } else {
+        raw(", \"service_slot_reservation_hash\": null");
+    }
 }
 
 fn emit_module_load_gate_audit_rollback_requirements_compact(
@@ -6850,7 +7064,13 @@ fn emit_module_load_gate_audit_rollback_requirements_compact(
     json_event_id_option(binding.retained_reference_event_id);
     raw(", \"retained_audit_rollback_reference_event_id\": ");
     json_event_id_option(binding.audit_rollback_reference_event_id);
-    raw(", \"local_approval\": {\"state\": \"missing\", \"required\": true}, \"ram_only_service_slot\": {\"state\": \"unallocated\", \"required\": true}, \"load_attempted\": false, \"service_inventory_change\": \"none\", \"can_load\": false}");
+    raw(", \"retained_service_slot_reservation_event_id\": ");
+    json_event_id_option(binding.service_slot_reservation_event_id);
+    raw(", \"local_approval\": {\"state\": \"missing\", \"required\": true}, \"ram_only_service_slot\": {\"state\": ");
+    json_str(module_load_gate_service_slot_state(binding));
+    raw(", \"reason\": ");
+    json_str(module_load_gate_service_slot_reason(binding));
+    raw(", \"required\": true, \"allocates_service_slot\": false}, \"load_attempted\": false, \"service_inventory_change\": \"none\", \"can_load\": false}");
 }
 
 fn emit_module_load_gate_required_hashes_compact(binding: event_log::ModuleLoadGateBinding) {
@@ -6886,6 +7106,15 @@ fn emit_module_load_gate_required_hashes_compact(binding: event_log::ModuleLoadG
         json_str(reference.ram_only_service_slot_id.as_str());
     } else {
         raw(", \"audit_record_hash\": null, \"rollback_plan_hash\": null, \"local_approval_hash\": null, \"pre_load_service_inventory_hash\": null, \"cleanup_actions_hash\": null, \"ram_only_service_slot_id\": null");
+    }
+    if let Some(reservation) = binding
+        .service_slot_reservation
+        .filter(|_| module_load_gate_service_slot_reservation_valid(binding))
+    {
+        raw(", \"service_slot_reservation_hash\": ");
+        json_sha256(reservation.reservation_hash);
+    } else {
+        raw(", \"service_slot_reservation_hash\": null");
     }
 }
 

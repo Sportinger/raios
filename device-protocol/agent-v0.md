@@ -295,12 +295,19 @@ durable audit record, rollback plan, and a ram-only service slot.
 `load_mode: ram_only`, `requested_capability: cap.module.load_ephemeral`,
 `target: live_service_graph`, missing required evidence plus any retained
 computed-grant and audit/rollback hash references, the loader as `unavailable`,
-`service_slot: unallocated`, `can_load: false`, and `load_attempted: false`. It
-reports retained audit/rollback references as accepted evidence only if the live
-predicate validates the retained computed-grant event, prior denied load event,
-canonical hashes, and `ram_only:` service-slot id; otherwise the durable-audit
-and rollback gates are `rejected_retained_reference`.
-also exposes
+service-slot state as `unallocated`,
+`retained_hash_reference_only_not_allocated`, or
+`rejected_retained_reference`, `can_load: false`, and
+`load_attempted: false`. It reports retained
+audit/rollback references as accepted evidence only if the live predicate
+validates the retained computed-grant event, prior denied load event, canonical
+hashes, and `ram_only:` service-slot id; otherwise the durable-audit and
+rollback gates are `rejected_retained_reference`. It reports retained
+service-slot reservations as accepted non-authorizing evidence only if the live
+predicate validates the retained grant and audit/rollback events, reservation
+hash, computed-grant/audit/rollback hashes, inventory hash, and `ram_only:` slot
+id; otherwise the service-slot gate is `rejected_retained_reference`. It also
+exposes
 `raios.module_load_gate_audit_rollback_requirements.v0`, which names the
 required `raios.audit_record.v0` and `raios.rollback_plan.v0` bindings while
 keeping record creation disabled. The matching `audit.event.v0` record carries

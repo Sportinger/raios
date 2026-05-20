@@ -28,7 +28,9 @@ selftests plus
 `module.audit_rollback_diagnostic_selftest` guest hash-reference diagnostics,
 and guest `module.service_slot_diagnostic` RAM-only service-slot reservation
 hash-reference diagnostics that retain valid reservations as local-only
-current-boot evidence without allocating a slot or loading artifacts.
+current-boot evidence without allocating a slot or loading artifacts, plus the
+denied module load gate live-validating that retained reservation as
+non-authorizing service-slot evidence.
 Direct OpenAI pin-mismatch plus SPKI pinned-trust smokes using a fake local API
 key remain previously verified from the prior handoff.
 
@@ -41,7 +43,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-20 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260520-164131-22208.json` with 593/593
+`release\vm-reports\shadow-20260520-165621-21664.json` with 612/612
 predicates, covering absent/accepted/stale/mismatched/wrong-policy module
 computed-grant hash-reference diagnostics plus RAM-only retention of a valid
 computed-grant hash reference and its visibility in the denied module load gate
@@ -54,7 +56,9 @@ audit/rollback reference, live rejection of a wrong-schema retained
 audit/rollback reference, and valid retained audit/rollback visibility in the
 denied module load gate, plus RAM-only service-slot reservation diagnostics and
 selftests over retained computed-grant/audit/rollback event ids, canonical
-reservation hashes, pre-load service-inventory hashes, and `ram_only:` slot ids.
+reservation hashes, pre-load service-inventory hashes, and `ram_only:` slot ids,
+including live denied load-gate visibility of valid retained service-slot
+reservation evidence without allocation.
 
 ## Verified Boot State
 
@@ -201,18 +205,21 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Integrate retained service-slot reservation evidence into the live denied module
-load path:
+Add negative retained service-slot reservation coverage for the live denied
+module load gate:
 
-- validate the latest retained `raios.module_service_slot_reservation.v0`
-  against the retained computed-grant reference, retained audit/rollback
-  reference, canonical hashes, pre-load service-inventory hash, and `ram_only:`
-  slot id before reporting it in `raios.module_load_gate.v0`
-- reject stale/dropped, wrong-schema, substituted, mismatched-hash,
-  mismatched-inventory, and mismatched-slot retained reservations
-- keep the service slot gate non-authorizing with `service_slot: unallocated`,
-  `allocates_service_slot: false`, `can_load: false`,
-  `service_inventory_change: none`, and `load_attempted: false`
+- expose local-only selftest cases for stale/dropped, wrong-schema,
+  substituted-record, mismatched-grant, mismatched-audit, mismatched-rollback,
+  mismatched-inventory, mismatched-slot, and mismatched-reservation-hash
+  retained reservations
+- prove rejected retained reservations report
+  `service_slot: rejected_retained_reference` and do not expose accepted
+  `service_slot_reservation_hash` evidence
+- keep the accepted path non-authorizing with
+  `service_slot: retained_hash_reference_only_not_allocated`,
+  `allocates_service_slot: false`,
+  `can_load: false`, `service_inventory_change: none`, and
+  `load_attempted: false`
 - keep recovery artifact loading separate from the normal module gate
 
 The verified foundation for that task is:
@@ -403,6 +410,18 @@ The verified foundation for that task is:
   `load_attempted: false`. A retained reference that points at a wrong-schema
   event or mismatched hashes is reported as `rejected_retained_reference`, and
   its audit/rollback hashes are not exposed as accepted gate evidence.
+- `module.load_ephemeral` and `service.load_ephemeral` now validate the latest
+  retained `raios.module_service_slot_reservation.v0` before snapshotting it
+  into the same denied gate. The live predicate checks the retained grant and
+  audit/rollback event ids, referenced event variants, canonical reservation
+  hash, computed-grant/audit/rollback hashes, pre-load service-inventory hash,
+  and `ram_only:` slot id. A valid reservation reports
+  `service_slot: retained_hash_reference_only_not_allocated`,
+  `retained_service_slot_reservation.state: present`, and
+  `service_slot_reservation_hash` while keeping
+  `allocates_service_slot: false`, `can_load: false`,
+  `service_inventory_change: none`, and
+  `load_attempted: false`.
 - `module.grant_diagnostic_selftest` covers absent, accepted-current-boot,
   stale previous-boot, mismatched manifest-hash, and wrong-policy computed
   grant references without loading artifacts or mutating service inventory.
@@ -524,9 +543,11 @@ The verified foundation for that task is:
   audit/rollback reference state in the response and event-log binding, live
   wrong-schema retained audit/rollback rejection, plus negative
   retained-reference, retained audit/rollback reference, and audit/rollback
-  requirement selftests.
+  requirement selftests, service-slot reservation diagnostics and selftests,
+  and live denied load-gate visibility of valid retained service-slot
+  reservation evidence.
   Latest report:
-  `release\vm-reports\shadow-20260520-164131-22208.json` with 593/593
+  `release\vm-reports\shadow-20260520-165621-21664.json` with 612/612
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

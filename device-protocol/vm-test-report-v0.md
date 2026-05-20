@@ -198,7 +198,9 @@ missing-evidence list, audit/rollback requirement schema, retained
 grant/manifest/artifact/report/attestation hashes when a valid grant reference
 was retained, live rejection of a wrong-schema retained audit/rollback
 reference, retained audit/rollback reference state and hashes when a valid
-audit/rollback reference was retained, unchanged service inventory, and
+audit/rollback reference was retained, live retained service-slot reservation
+state and reservation hash when a valid reservation was retained, unchanged
+service inventory, and
 `load_attempted: false`. The latest verified report is
-`release/vm-reports/shadow-20260520-164131-22208.json` with 593/593
+`release/vm-reports/shadow-20260520-165621-21664.json` with 612/612
 predicates.

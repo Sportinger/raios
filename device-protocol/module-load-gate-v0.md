@@ -44,7 +44,7 @@ The serial error response reports:
     "rollback_plan": "missing | retained_hash_reference_only_not_installed | rejected_retained_reference",
     "durable_audit_record": "missing | retained_hash_reference_only_not_durable | rejected_retained_reference",
     "loader": "unavailable",
-    "service_slot": "unallocated",
+    "service_slot": "unallocated | retained_hash_reference_only_not_allocated | rejected_retained_reference",
     "artifact_loaded": false,
     "service_started": false,
     "persistence": "none",
@@ -72,6 +72,16 @@ retained_audit_rollback_computed_grant_hash_mismatch
 retained_audit_record_hash_mismatch
 retained_rollback_plan_hash_mismatch
 retained_audit_rollback_service_slot_mismatch
+retained_service_slot_reservation_not_allocated
+retained_service_slot_reservation_stale_or_dropped_event_id
+retained_service_slot_reservation_wrong_schema_or_variant
+retained_service_slot_reservation_substituted_record
+retained_service_slot_reservation_computed_grant_hash_mismatch
+retained_service_slot_reservation_audit_record_hash_mismatch
+retained_service_slot_reservation_rollback_plan_hash_mismatch
+retained_service_slot_reservation_pre_load_inventory_hash_mismatch
+retained_service_slot_reservation_service_slot_mismatch
+retained_service_slot_reservation_hash_mismatch
 module_loader_unimplemented
 ```
 
@@ -191,9 +201,16 @@ ram_only_service_slot_id
 
 A valid reference is retained as local-only current-boot event evidence, but it
 does not allocate the slot, create service inventory records, load an artifact,
-or grant execution. The next gate slice should revalidate the retained
-reservation before exposing it inside `raios.module_load_gate.v0`; until then
-the live load gate still reports `service_slot: unallocated`.
+or grant execution. Before the denied live load gate reports a retained
+reservation as hash-reference evidence, it revalidates the retained grant event,
+the retained audit/rollback event, canonical reservation hash,
+computed-grant/audit/rollback hashes, pre-load service-inventory hash, and
+`ram_only:` slot id. A valid reservation changes the service-slot gate state to
+`retained_hash_reference_only_not_allocated`, exposes
+`retained_service_slot_reservation.state: present` and
+`service_slot_reservation_hash`, and still keeps
+`allocates_service_slot: false`, `service_inventory_change: none`, and
+`load_attempted: false`.
 
 ## Event Binding
 
@@ -225,6 +242,8 @@ The binding repeats the gate state and evidence hashes:
 retained_computed_grant_reference.state: missing | present
 retained_audit_rollback_reference.state: missing | present | rejected
 retained_audit_rollback_reference.schema: raios.module_audit_rollback_reference.v0
+retained_service_slot_reservation.state: missing | present | rejected
+retained_service_slot_reservation.schema: raios.module_service_slot_reservation.v0
 computed_capability_grant_hash: null | sha256:<retained grant hash>
 manifest_hash: null | sha256:<retained manifest hash>
 artifact_hash: null | sha256:<retained artifact hash>
@@ -236,6 +255,7 @@ local_approval_hash: null | sha256:<retained approval hash>
 pre_load_service_inventory_hash: null | sha256:<retained inventory hash>
 cleanup_actions_hash: null | sha256:<retained cleanup hash>
 ram_only_service_slot_id: null | ram_only:<service slot id>
+service_slot_reservation_hash: null | sha256:<retained reservation hash>
 audit_rollback_requirements.schema: raios.module_load_gate_audit_rollback_requirements.v0
 audit_rollback_requirements.status: required_missing
 audit_rollback_requirements.durable_audit_record.schema: raios.audit_record.v0
@@ -371,6 +391,9 @@ accepted-current-boot, stale, mismatched reservation hash, and invalid
   it is not durable audit or rollback authority.
 - A retained audit/rollback reference must pass the live load-gate predicate
   before its hashes appear as accepted audit/rollback evidence in
+  `module.load_ephemeral` or `service.load_ephemeral`.
+- A retained service-slot reservation must pass the live load-gate predicate
+  before its reservation hash appears as accepted service-slot evidence in
   `module.load_ephemeral` or `service.load_ephemeral`.
 - `module.load_gate_audit_rollback_selftest` is test infrastructure and must
   not create retained reference records, audit records, rollback plans, service

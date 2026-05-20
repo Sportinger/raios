@@ -414,8 +414,14 @@ audit/rollback reference is retained, the same denial should also report
 `rollback_plan: retained_hash_reference_only_not_installed`,
 `retained_audit_record_reference_not_durable`, and
 `retained_rollback_plan_reference_not_installed`. Loader, service slot, service
-inventory change, and load attempt state must remain unavailable, unallocated,
-`none`, and `false`.
+inventory change, and load attempt state must remain unavailable,
+non-authorizing, `none`, and `false`. After a valid service-slot reservation is
+retained, the denial should report
+`retained_service_slot_reservation.state: present`,
+`service_slot: retained_hash_reference_only_not_allocated`,
+`retained_service_slot_reservation_not_allocated`, and
+`service_slot_reservation_hash`, while still keeping
+`allocates_service_slot: false`.
 
 The live denied load gate revalidates a retained audit/rollback reference
 before reporting those retained states. If the retained record points at a
@@ -423,6 +429,13 @@ wrong-schema event, stale/dropped event, substituted record, mismatched
 canonical grant/audit/rollback hash, or invalid `ram_only:` service-slot id, the
 gate reports `rejected_retained_reference`; the accepted audit/rollback evidence
 hash fields stay `null`, and loading remains denied.
+
+The live denied load gate also revalidates a retained service-slot reservation
+before reporting it as retained service-slot evidence. If the reservation points
+at stale, wrong-schema, substituted, hash-mismatched, inventory-mismatched, or
+slot-mismatched evidence, the service-slot gate reports
+`rejected_retained_reference`, accepted `service_slot_reservation_hash` stays
+`null`, and loading remains denied.
 
 `module.load_gate_retained_selftest` emits
 `raios.module_load_gate_retained_reference_selftest.v0`. It must keep

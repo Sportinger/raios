@@ -8,9 +8,10 @@ This inventory is descriptive evidence, not load permission. Mutating service
 lifecycle methods remain denied until a module manifest, computed capability
 grant, VM test report, local attestation, audit record, and rollback plan exist.
 The current `raios.module_load_gate.v0` also reports
-`service_inventory_change: none`, `service_slot: unallocated`, and
-`service_started: false` for denied `module.load_ephemeral` and
-`service.load_ephemeral` requests.
+`service_inventory_change: none`, a non-authorizing service-slot state
+(`unallocated`, `retained_hash_reference_only_not_allocated`, or
+`rejected_retained_reference`), and `service_started: false` for denied
+`module.load_ephemeral` and `service.load_ephemeral` requests.
 
 ## Current Transport
 

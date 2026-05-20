@@ -281,12 +281,24 @@ pub struct ModuleLoadGateBinding {
     pub audit_rollback_reference: Option<ModuleAuditRollbackReference>,
     pub audit_rollback_reference_status: &'static str,
     pub audit_rollback_reference_reason: &'static str,
+    pub service_slot_reservation_event_id: Option<EventId>,
+    pub service_slot_reservation: Option<ModuleServiceSlotReservation>,
+    pub service_slot_reservation_status: &'static str,
+    pub service_slot_reservation_reason: &'static str,
 }
 
 #[derive(Clone, Copy)]
 struct ModuleAuditRollbackReferenceGateCheck {
     event_id: Option<EventId>,
     reference: Option<ModuleAuditRollbackReference>,
+    status: &'static str,
+    reason: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct ModuleServiceSlotReservationGateCheck {
+    event_id: Option<EventId>,
+    reservation: Option<ModuleServiceSlotReservation>,
     status: &'static str,
     reason: &'static str,
 }
@@ -1230,6 +1242,201 @@ impl EventLog {
         }
     }
 
+    fn check_module_service_slot_reservation_for_load(
+        &self,
+        retained: Option<(EventId, ModuleComputedGrantReference)>,
+        audit_rollback_check: ModuleAuditRollbackReferenceGateCheck,
+        service_slot: Option<(EventId, ModuleServiceSlotReservation)>,
+    ) -> ModuleServiceSlotReservationGateCheck {
+        let Some((reservation_event_id, reservation)) = service_slot else {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: None,
+                reservation: None,
+                status: "missing",
+                reason: "retained_service_slot_reservation_missing",
+            };
+        };
+
+        let Some((retained_reference_event_id, retained_reference)) = retained else {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_computed_grant_reference_missing",
+            };
+        };
+
+        if audit_rollback_check.status != "retained_hash_reference_only" {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: if audit_rollback_check.event_id.is_some() {
+                    "retained_audit_rollback_reference_not_valid_for_service_slot"
+                } else {
+                    "retained_audit_rollback_reference_missing"
+                },
+            };
+        }
+
+        let Some(audit_rollback_event_id) = audit_rollback_check.event_id else {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_audit_rollback_reference_missing",
+            };
+        };
+        let Some(audit_rollback_reference) = audit_rollback_check.reference else {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_audit_rollback_reference_missing",
+            };
+        };
+
+        if reservation.retained_reference_event_id != retained_reference_event_id {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_grant_reference_mismatch",
+            };
+        }
+        if reservation.retained_audit_rollback_reference_event_id != audit_rollback_event_id {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_audit_rollback_reference_mismatch",
+            };
+        }
+
+        let Some(retained_event) = self.event_by_sequence(reservation.retained_reference_event_id)
+        else {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_stale_or_dropped_event_id",
+            };
+        };
+        let EventBindings::ModuleComputedGrantReference(retained_event_reference) =
+            retained_event.bindings
+        else {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_wrong_schema_or_variant",
+            };
+        };
+        if !module_computed_grant_reference_matches(retained_reference, retained_event_reference) {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_substituted_record",
+            };
+        }
+
+        let Some(audit_event) =
+            self.event_by_sequence(reservation.retained_audit_rollback_reference_event_id)
+        else {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_stale_or_dropped_event_id",
+            };
+        };
+        let EventBindings::ModuleAuditRollbackReference(audit_event_reference) =
+            audit_event.bindings
+        else {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_wrong_schema_or_variant",
+            };
+        };
+        if !module_audit_rollback_reference_matches(audit_rollback_reference, audit_event_reference)
+        {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_substituted_record",
+            };
+        }
+
+        if reservation.computed_grant_hash != retained_reference.computed_grant_hash
+            || reservation.computed_grant_hash != audit_rollback_reference.computed_grant_hash
+        {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_computed_grant_hash_mismatch",
+            };
+        }
+        if reservation.audit_record_hash != audit_rollback_reference.audit_record_hash {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_audit_record_hash_mismatch",
+            };
+        }
+        if reservation.rollback_plan_hash != audit_rollback_reference.rollback_plan_hash {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_rollback_plan_hash_mismatch",
+            };
+        }
+        if reservation.pre_load_service_inventory_hash
+            != audit_rollback_reference.pre_load_service_inventory_hash
+        {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_pre_load_inventory_hash_mismatch",
+            };
+        }
+        if reservation.ram_only_service_slot_id.as_str()
+            != audit_rollback_reference.ram_only_service_slot_id.as_str()
+            || !module_evidence::ram_only_service_slot_id_valid(
+                reservation.ram_only_service_slot_id.as_str(),
+            )
+        {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason: "retained_service_slot_reservation_service_slot_mismatch",
+            };
+        }
+        if let Some(reason) = module_service_slot_reservation_hash_mismatch(reservation) {
+            return ModuleServiceSlotReservationGateCheck {
+                event_id: Some(reservation_event_id),
+                reservation: Some(reservation),
+                status: "rejected",
+                reason,
+            };
+        }
+
+        ModuleServiceSlotReservationGateCheck {
+            event_id: Some(reservation_event_id),
+            reservation: Some(reservation),
+            status: "retained_hash_reference_only_not_allocated",
+            reason: "retained_service_slot_reservation_not_allocated",
+        }
+    }
+
     fn event_by_sequence(&self, event_id: EventId) -> Option<Event> {
         let mut idx = 0usize;
         while idx < EVENT_CAPACITY {
@@ -1346,6 +1553,25 @@ fn module_computed_grant_reference_hashes_consistent(
         )
 }
 
+fn module_audit_rollback_reference_matches(
+    left: ModuleAuditRollbackReference,
+    right: ModuleAuditRollbackReference,
+) -> bool {
+    left.audit_record_hash == right.audit_record_hash
+        && left.rollback_plan_hash == right.rollback_plan_hash
+        && left.computed_grant_hash == right.computed_grant_hash
+        && left.manifest_hash == right.manifest_hash
+        && left.artifact_hash == right.artifact_hash
+        && left.vm_report_hash == right.vm_report_hash
+        && left.local_attestation_hash == right.local_attestation_hash
+        && left.local_approval_hash == right.local_approval_hash
+        && left.pre_load_service_inventory_hash == right.pre_load_service_inventory_hash
+        && left.cleanup_actions_hash == right.cleanup_actions_hash
+        && left.denial_event_id == right.denial_event_id
+        && left.retained_reference_event_id == right.retained_reference_event_id
+        && left.ram_only_service_slot_id.as_str() == right.ram_only_service_slot_id.as_str()
+}
+
 fn module_audit_rollback_binds_computed_grant(
     audit_rollback_reference: ModuleAuditRollbackReference,
     retained_reference: ModuleComputedGrantReference,
@@ -1394,6 +1620,37 @@ fn module_audit_rollback_reference_hash_mismatch(
     );
     if reference.audit_record_hash != expected_audit_record_hash {
         return Some("retained_audit_record_hash_mismatch");
+    }
+
+    None
+}
+
+fn module_service_slot_reservation_hash_mismatch(
+    reservation: ModuleServiceSlotReservation,
+) -> Option<&'static str> {
+    let mut retained_reference_event_id = [0u8; EVENT_ID_TEXT_LEN];
+    let mut retained_audit_rollback_reference_event_id = [0u8; EVENT_ID_TEXT_LEN];
+    let retained_reference_event_id = event_id_text(
+        reservation.retained_reference_event_id,
+        &mut retained_reference_event_id,
+    );
+    let retained_audit_rollback_reference_event_id = event_id_text(
+        reservation.retained_audit_rollback_reference_event_id,
+        &mut retained_audit_rollback_reference_event_id,
+    );
+    let expected_reservation_hash = module_evidence::computed_module_service_slot_reservation_hash(
+        module_evidence::ModuleServiceSlotReservationHashInput {
+            retained_reference_event_id,
+            retained_audit_rollback_reference_event_id,
+            computed_grant_hash: reservation.computed_grant_hash,
+            audit_record_hash: reservation.audit_record_hash,
+            rollback_plan_hash: reservation.rollback_plan_hash,
+            pre_load_service_inventory_hash: reservation.pre_load_service_inventory_hash,
+            ram_only_service_slot_id: reservation.ram_only_service_slot_id.as_str(),
+        },
+    );
+    if reservation.reservation_hash != expected_reservation_hash {
+        return Some("retained_service_slot_reservation_hash_mismatch");
     }
 
     None
@@ -1501,8 +1758,14 @@ pub fn record_module_load_ephemeral_denied(
     let mut log = LOG.lock();
     let retained = log.latest_module_computed_grant_reference();
     let audit_rollback = log.latest_module_audit_rollback_reference();
+    let service_slot = log.latest_module_service_slot_reservation();
     let audit_rollback_check =
         log.check_module_audit_rollback_reference_for_load(retained, audit_rollback);
+    let service_slot_check = log.check_module_service_slot_reservation_for_load(
+        retained,
+        audit_rollback_check,
+        service_slot,
+    );
     let binding = ModuleLoadGateBinding {
         retained_reference_event_id: retained.map(|(event_id, _)| event_id),
         retained_reference: retained.map(|(_, reference)| reference),
@@ -1510,6 +1773,10 @@ pub fn record_module_load_ephemeral_denied(
         audit_rollback_reference: audit_rollback_check.reference,
         audit_rollback_reference_status: audit_rollback_check.status,
         audit_rollback_reference_reason: audit_rollback_check.reason,
+        service_slot_reservation_event_id: service_slot_check.event_id,
+        service_slot_reservation: service_slot_check.reservation,
+        service_slot_reservation_status: service_slot_check.status,
+        service_slot_reservation_reason: service_slot_check.reason,
     };
     let event_id = log.record(Event {
         sequence: 0,

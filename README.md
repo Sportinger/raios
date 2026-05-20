@@ -13,6 +13,9 @@ Instead of installing applications, you ask for what you need — and a resident
 AI builds it inside a small, fully observable system that knows only your
 hardware and only you. Every change is sandboxed before it lands,
 capability-gated when it runs, and atomically reversible if it misbehaves.
+The current Stage-0 gate already keeps module loading denied while exposing
+retained computed-grant, audit/rollback, and RAM-only service-slot reservation
+evidence as non-authorizing current-boot facts.
 
 It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an

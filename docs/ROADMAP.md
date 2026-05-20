@@ -2,15 +2,15 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-20 by Codex after adding the first RAM-only service-slot
-reservation hash-reference diagnostic while keeping `cap.module.load_ephemeral`
-denied. The guest now validates
-`raios.module_service_slot_reservation.v0` references through
-`module.service_slot_diagnostic`, binding a `ram_only:` slot id to retained
-computed-grant and audit/rollback reference event ids, canonical hashes, and the
-pre-load service-inventory hash. Valid reservations are retained only as
-local-only current-boot evidence and still allocate no slot, create no service
-inventory records, load no artifact, and grant no live execution.
+Last updated: 2026-05-20 by Codex after wiring retained RAM-only service-slot
+reservation evidence into the denied module load gate while keeping
+`cap.module.load_ephemeral` denied. The guest now live-validates the latest
+`raios.module_service_slot_reservation.v0` reference against retained
+computed-grant and audit/rollback events, canonical hashes, the pre-load
+service-inventory hash, and the `ram_only:` slot id before reporting it in
+`raios.module_load_gate.v0`. Valid reservations remain local-only current-boot
+evidence and still allocate no slot, create no service inventory records, load
+no artifact, and grant no live execution.
 
 Latest maintenance verification:
 
@@ -25,7 +25,7 @@ Latest maintenance verification:
   passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260520-164131-22208.json` with 593/593
+  `release\vm-reports\shadow-20260520-165621-21664.json` with 612/612
   predicates, including `module.grant_diagnostic`,
   `module.grant_diagnostic_selftest`, `module.audit_rollback_diagnostic`,
   `module.audit_rollback_diagnostic_selftest`,
@@ -35,8 +35,9 @@ Latest maintenance verification:
   `raios.module_audit_rollback_reference.v0` plus
   `raios.module_service_slot_reservation.v0` audit/event binding coverage, and
   retained-reference state plus live wrong-schema retained audit/rollback
-  rejection, negative retained-reference, retained audit/rollback reference,
-  and audit/rollback requirement selftests in the denied module load gate.
+  rejection, live retained service-slot reservation visibility, negative
+  retained-reference, retained audit/rollback reference, and audit/rollback
+  requirement selftests in the denied module load gate.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
   positive request/export audit binding markers stayed absent. The local image
@@ -77,7 +78,8 @@ Current verified cursor:
 - `module.load_ephemeral` and `service.load_ephemeral` now use
   `raios.module_load_gate.v0`. The current gate reports missing
   manifest/artifact/report/attestation/grant/approval/audit/rollback evidence,
-  loader unavailable, service slot unallocated, `can_load: false`,
+  loader unavailable, service-slot state as either unallocated or
+  retained-hash-reference-only-not-allocated, `can_load: false`,
   `service_inventory_change: none`, and `load_attempted: false`, and the same
   gate is visible as an `event.log.v0` binding.
 - `registry-tools grant-diagnostic` now emits
@@ -153,6 +155,16 @@ Current verified cursor:
   wrong-schema, substituted, or hash-mismatched retained reference is reported
   as `rejected_retained_reference` and its audit/rollback hashes are not exposed
   as accepted evidence.
+- `module.load_ephemeral` and `service.load_ephemeral` now validate the latest
+  retained service-slot reservation before snapshotting it into the same denied
+  gate. The live predicate checks retained grant/audit event ids and variants,
+  canonical reservation hash, computed-grant/audit/rollback hashes, pre-load
+  service-inventory hash, and the `ram_only:` slot id. A valid reservation
+  changes the service-slot gate state to
+  `retained_hash_reference_only_not_allocated` and exposes
+  `service_slot_reservation_hash` only as non-authorizing evidence while
+  `allocates_service_slot`, `can_load`, `load_attempted`, and
+  `service_inventory_change` remain false or `none`.
 - `module.load_gate_retained_selftest` now exposes local-only
   `raios.module_load_gate_retained_reference_selftest.v0` test infrastructure
   for missing, accepted-current-boot-but-denied, stale/dropped,
@@ -263,32 +275,35 @@ Current phase: Phase 6 has host-side computed grant plus audit/rollback
 evidence diagnostics, guest-side read-only computed-grant, audit/rollback, and
 service-slot reservation hash-reference diagnostics, current-boot retained
 computed-grant, audit/rollback, and service-slot reservation bindings, and a
-fail-closed module load gate that validates retained grant/audit references
-before reporting them as non-authorizing evidence. Negative retained-reference,
-audit/rollback, and service-slot reservation selftests are covered. No code
-loading exists yet.
+fail-closed module load gate that validates retained grant, audit/rollback, and
+service-slot reservation references before reporting them as non-authorizing
+evidence. Negative retained-reference, audit/rollback, and service-slot
+reservation selftests are covered; live service-slot reservation negative gate
+selftests are the next gap. No code loading exists yet.
 
 Exact next task:
 
 ```text
-Integrate retained RAM-only service-slot reservation evidence into the denied
-module load path.
+Add negative retained service-slot reservation coverage to the denied module
+load gate.
 ```
 
-Start from the retained `raios.module_service_slot_reservation.v0` event
-binding. Extend the denied `raios.module_load_gate.v0` response and event
-binding to revalidate that retained reservation against the retained grant and
-audit/rollback chain before reporting it as non-authorizing service-slot
-evidence. It must still keep `service_slot: unallocated`,
-`allocates_service_slot: false`, `service_inventory_change: none`, and
-`load_attempted: false`.
+Start from the live predicate that already accepts a valid retained
+`raios.module_service_slot_reservation.v0` as
+`retained_hash_reference_only_not_allocated`. Add local-only live-gate selftest
+cases for stale/dropped, wrong-schema, substituted, mismatched-grant,
+mismatched-audit, mismatched-rollback, mismatched-inventory, mismatched-slot,
+and mismatched-reservation-hash reservations. Rejected reservations must report
+`rejected_retained_reference` without accepted
+`service_slot_reservation_hash` evidence. The accepted path must remain
+non-authorizing.
 
 Next three tasks:
 
-1. Snapshot live-validated retained service-slot reservation evidence into the
-   denied module load gate.
-2. Reject stale/dropped, wrong-schema, substituted, hash-mismatched,
-   inventory-mismatched, and slot-mismatched retained reservations.
+1. Add live denied-gate selftests for rejected retained service-slot
+   reservations.
+2. Assert rejected retained reservations do not expose accepted service-slot
+   reservation hashes.
 3. Keep `module.load_ephemeral` and `service.load_ephemeral` denied with
    loader unavailable, `service_inventory_change: none`, and
    `load_attempted: false`.
