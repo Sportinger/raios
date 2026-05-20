@@ -328,6 +328,38 @@ mismatch; audit-bound manifest/artifact/VM-report/local-attestation mismatches;
 local approval mismatch; audit-bound rollback hash mismatch; rollback artifact
 mismatch; and rollback service-slot mismatch.
 
+## Service-Slot Gate Selftest
+
+The read-only method:
+
+```text
+agent module.load_gate_service_slot_selftest
+```
+
+emits `raios.module_load_gate_service_slot_selftest.v0`. It is local test
+infrastructure over the retained service-slot reservation predicate and must
+report:
+
+```text
+test_infrastructure: true
+mutates_global_event_log: false
+creates_service_slot_reservation_records: false
+allocates_service_slot: false
+creates_service_inventory_records: false
+loads_artifact: false
+service_inventory_change: none
+load_attempted: false
+can_load: false
+```
+
+The current cases cover missing, accepted-current-boot-but-denied,
+stale/dropped, wrong-schema, substituted, computed-grant-hash-mismatched,
+audit-hash-mismatched, rollback-hash-mismatched, inventory-hash-mismatched,
+service-slot-mismatched, and reservation-hash-mismatched retained service-slot
+reservations. Rejected cases report `actual_service_slot_state:
+rejected_retained_reference` and `accepted_service_slot_reservation_hash:
+false`.
+
 ## Audit/Rollback Hash-Reference Diagnostic
 
 The read-only method:

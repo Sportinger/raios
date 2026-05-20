@@ -124,6 +124,7 @@ The JSON report contains:
     "agent module.service_slot_diagnostic_selftest",
     "agent module.load_gate_retained_selftest",
     "agent module.load_gate_audit_rollback_selftest",
+    "agent module.load_gate_service_slot_selftest",
     "module.load_ephemeral",
     "agent audit.events 8"
   ],
@@ -188,6 +189,11 @@ retained service-slot mismatch, retained grant hash mismatch,
 manifest/artifact/VM-report/local-attestation mismatches, local approval
 mismatch, rollback-plan hash mismatch, rollback artifact mismatch, and rollback
 service-slot mismatch. It also checks
+`raios.module_load_gate_service_slot_selftest.v0` cases for missing,
+accepted-current-boot, stale/dropped, wrong-schema, substituted,
+computed-grant/audit/rollback hash mismatches, inventory mismatch, slot
+mismatch, and reservation-hash mismatch retained service-slot reservations. It
+also checks
 `raios.module_service_slot_reservation_diagnostic.v0` absent and valid
 hash-reference commands, RAM-only retention as
 `raios.module_service_slot_reservation.v0`, and
@@ -202,5 +208,5 @@ audit/rollback reference was retained, live retained service-slot reservation
 state and reservation hash when a valid reservation was retained, unchanged
 service inventory, and
 `load_attempted: false`. The latest verified report is
-`release/vm-reports/shadow-20260520-165621-21664.json` with 612/612
+`release/vm-reports/shadow-20260520-171035-17848.json` with 653/653
 predicates.

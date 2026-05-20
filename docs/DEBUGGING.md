@@ -367,6 +367,7 @@ agent module.service_slot_diagnostic <reservation_hash> <retained_reference_even
 agent module.service_slot_diagnostic_selftest
 agent module.load_gate_retained_selftest
 agent module.load_gate_audit_rollback_selftest
+agent module.load_gate_service_slot_selftest
 ```
 
 The expected guest schemas are
@@ -459,6 +460,17 @@ disabled. `module.load_gate_audit_rollback_selftest` emits
 substituted retained audit/rollback references; retained
 computed-grant/audit/rollback hash mismatches; retained service-slot mismatch;
 and the existing missing/mismatched durable audit plus rollback evidence cases.
+
+`module.load_gate_service_slot_selftest` emits
+`raios.module_load_gate_service_slot_selftest.v0`; it must keep
+`mutates_global_event_log: false`,
+`creates_service_slot_reservation_records: false`,
+`allocates_service_slot: false`, `creates_service_inventory_records: false`,
+`loads_artifact: false`, and `can_load: false`. It covers stale/dropped,
+wrong-schema, substituted, computed-grant/audit/rollback hash mismatches,
+inventory mismatch, slot mismatch, and reservation-hash mismatch for retained
+service-slot reservations; rejected cases must keep
+`accepted_service_slot_reservation_hash: false`.
 
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:

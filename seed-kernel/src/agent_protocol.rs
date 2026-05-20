@@ -534,6 +534,7 @@ const READ_METHODS: &[&str] = &[
     "module.service_slot_diagnostic_selftest",
     "module.load_gate_retained_selftest",
     "module.load_gate_audit_rollback_selftest",
+    "module.load_gate_service_slot_selftest",
 ];
 
 const DENIED_METHODS: &[&str] = &[
@@ -706,6 +707,11 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("module.load_gate_audit_rollback_selftest");
         emit_module_load_gate_audit_rollback_selftest();
         return DispatchOutcome::Response("module.load_gate_audit_rollback_selftest");
+    }
+    if module_load_gate_service_slot_selftest_method(method) {
+        record_read("module.load_gate_service_slot_selftest");
+        emit_module_load_gate_service_slot_selftest();
+        return DispatchOutcome::Response("module.load_gate_service_slot_selftest");
     }
 
     if provider_context_export_method(method) {
@@ -2171,11 +2177,54 @@ struct ModuleLoadGateAuditRollbackSelfTestCase {
     passed: bool,
 }
 
+#[derive(Clone, Copy)]
+struct ModuleLoadGateServiceSlotReservationCandidate {
+    scope: &'static str,
+    retained: bool,
+    schema_ok: bool,
+    grant_event_schema_ok: bool,
+    audit_event_schema_ok: bool,
+    grant_event_reference: Option<event_log::ModuleComputedGrantReference>,
+    audit_event_reference: Option<event_log::ModuleAuditRollbackReference>,
+    event_reservation: Option<event_log::ModuleServiceSlotReservation>,
+    candidate_reservation: Option<event_log::ModuleServiceSlotReservation>,
+}
+
+#[derive(Clone, Copy)]
+struct ModuleLoadGateServiceSlotCandidate {
+    retained_reference: Option<event_log::ModuleComputedGrantReference>,
+    audit_rollback_reference: Option<event_log::ModuleAuditRollbackReference>,
+    audit_rollback_valid: bool,
+    service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate,
+}
+
+#[derive(Clone, Copy)]
+struct ModuleLoadGateServiceSlotEvaluation {
+    status: &'static str,
+    reason: &'static str,
+    service_slot_state: &'static str,
+    accepted_service_slot_reservation_hash: bool,
+    can_load: bool,
+    load_attempted: bool,
+}
+
+struct ModuleLoadGateServiceSlotSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    actual_service_slot_state: &'static str,
+    accepted_service_slot_reservation_hash: bool,
+    passed: bool,
+}
+
 const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
 const MODULE_LOAD_GATE_RETAINED_SELFTEST_CASES: usize = 7;
 const MODULE_LOAD_GATE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 23;
+const MODULE_LOAD_GATE_SERVICE_SLOT_SELFTEST_CASES: usize = 13;
 const MODULE_GRANT_TEST_MANIFEST_HASH: [u8; 32] = [0x11; 32];
 const MODULE_GRANT_TEST_ARTIFACT_HASH: [u8; 32] = [0x22; 32];
 const MODULE_GRANT_TEST_VM_REPORT_HASH: [u8; 32] = [0x33; 32];
@@ -3131,6 +3180,83 @@ fn emit_module_load_gate_audit_rollback_selftest_case(
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"can_load\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_module_load_gate_service_slot_selftest() {
+    let cases = module_load_gate_service_slot_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("module.load_gate_service_slot_selftest");
+    raw_line("      \"schema\": \"raios.module_load_gate_service_slot_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_service_slot_reservation_records\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"loads_artifact\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"loader\": \"unavailable\",");
+    raw_line("      \"service_slot\": \"non_authorizing\",");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"required_bindings\": [");
+    raw_line("        \"retained_computed_grant_reference_event_id\",");
+    raw_line("        \"retained_audit_rollback_reference_event_id\",");
+    raw_line("        \"reservation_hash\",");
+    raw_line("        \"computed_capability_grant_hash\",");
+    raw_line("        \"audit_record_hash\",");
+    raw_line("        \"rollback_plan_hash\",");
+    raw_line("        \"pre_load_service_inventory_hash\",");
+    raw_line("        \"ram_only_service_slot_id\"");
+    raw_line("      ],");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_module_load_gate_service_slot_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_load\": false");
+    end_response("module.load_gate_service_slot_selftest");
+}
+
+fn emit_module_load_gate_service_slot_selftest_case(
+    case: &ModuleLoadGateServiceSlotSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"actual_service_slot_state\": ");
+    json_str(case.actual_service_slot_state);
+    raw(", \"accepted_service_slot_reservation_hash\": ");
+    raw_bool(case.accepted_service_slot_reservation_hash);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"allocates_service_slot\": false, \"can_load\": false, \"load_attempted\": false}");
     if comma {
         raw(",");
     }
@@ -4956,6 +5082,236 @@ fn module_load_gate_audit_rollback_selftest_cases(
     ]
 }
 
+fn module_load_gate_service_slot_selftest_cases(
+) -> [ModuleLoadGateServiceSlotSelfTestCase; MODULE_LOAD_GATE_SERVICE_SLOT_SELFTEST_CASES] {
+    let valid_gate = module_load_gate_test_service_slot_candidate();
+    let valid_reservation = module_load_gate_test_service_slot_reservation();
+    let substituted_reservation = module_load_gate_test_service_slot_reservation_with_override(
+        Some([0x91; 32]),
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    let computed_grant_mismatch_reservation =
+        module_load_gate_test_service_slot_reservation_with_override(
+            Some([0x92; 32]),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+    let audit_hash_mismatch_reservation =
+        module_load_gate_test_service_slot_reservation_with_override(
+            None,
+            Some([0x93; 32]),
+            None,
+            None,
+            None,
+            None,
+        );
+    let rollback_hash_mismatch_reservation =
+        module_load_gate_test_service_slot_reservation_with_override(
+            None,
+            None,
+            Some([0x94; 32]),
+            None,
+            None,
+            None,
+        );
+    let inventory_hash_mismatch_reservation =
+        module_load_gate_test_service_slot_reservation_with_override(
+            None,
+            None,
+            None,
+            Some([0x95; 32]),
+            None,
+            None,
+        );
+    let service_slot_mismatch_reservation =
+        module_load_gate_test_service_slot_reservation_with_override(
+            None,
+            None,
+            None,
+            None,
+            Some("ram_only:svc.test.other"),
+            None,
+        );
+    let reservation_hash_mismatch = module_load_gate_test_service_slot_reservation_with_override(
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some([0x96; 32]),
+    );
+
+    [
+        module_load_gate_service_slot_selftest_case(
+            "missing_retained_service_slot_reservation",
+            "missing",
+            "retained_service_slot_reservation_missing",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    event_reservation: None,
+                    candidate_reservation: None,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "accepted_current_boot_reservation_still_denied",
+            "retained_hash_reference_only_not_allocated",
+            "retained_service_slot_reservation_not_allocated",
+            valid_gate,
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "stale_dropped_retained_service_slot_reservation_event_id",
+            "rejected",
+            "retained_service_slot_reservation_stale_or_dropped_event_id",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    retained: false,
+                    event_reservation: valid_reservation,
+                    candidate_reservation: valid_reservation,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "retained_service_slot_wrong_schema_or_variant",
+            "rejected",
+            "retained_service_slot_reservation_wrong_schema_or_variant",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    schema_ok: false,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "substituted_retained_service_slot_reservation",
+            "rejected",
+            "retained_service_slot_reservation_substituted_record",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    event_reservation: valid_reservation,
+                    candidate_reservation: substituted_reservation,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "retained_service_slot_grant_wrong_schema_or_variant",
+            "rejected",
+            "retained_service_slot_reservation_wrong_schema_or_variant",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    grant_event_schema_ok: false,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "retained_service_slot_audit_rollback_wrong_schema_or_variant",
+            "rejected",
+            "retained_service_slot_reservation_wrong_schema_or_variant",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    audit_event_schema_ok: false,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "retained_service_slot_computed_grant_hash_mismatch",
+            "rejected",
+            "retained_service_slot_reservation_computed_grant_hash_mismatch",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    event_reservation: computed_grant_mismatch_reservation,
+                    candidate_reservation: computed_grant_mismatch_reservation,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "retained_service_slot_audit_record_hash_mismatch",
+            "rejected",
+            "retained_service_slot_reservation_audit_record_hash_mismatch",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    event_reservation: audit_hash_mismatch_reservation,
+                    candidate_reservation: audit_hash_mismatch_reservation,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "retained_service_slot_rollback_plan_hash_mismatch",
+            "rejected",
+            "retained_service_slot_reservation_rollback_plan_hash_mismatch",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    event_reservation: rollback_hash_mismatch_reservation,
+                    candidate_reservation: rollback_hash_mismatch_reservation,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "retained_service_slot_inventory_hash_mismatch",
+            "rejected",
+            "retained_service_slot_reservation_pre_load_inventory_hash_mismatch",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    event_reservation: inventory_hash_mismatch_reservation,
+                    candidate_reservation: inventory_hash_mismatch_reservation,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "retained_service_slot_service_slot_mismatch",
+            "rejected",
+            "retained_service_slot_reservation_service_slot_mismatch",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    event_reservation: service_slot_mismatch_reservation,
+                    candidate_reservation: service_slot_mismatch_reservation,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+        module_load_gate_service_slot_selftest_case(
+            "retained_service_slot_reservation_hash_mismatch",
+            "rejected",
+            "retained_service_slot_reservation_hash_mismatch",
+            ModuleLoadGateServiceSlotCandidate {
+                service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+                    event_reservation: reservation_hash_mismatch,
+                    candidate_reservation: reservation_hash_mismatch,
+                    ..valid_gate.service_slot_reservation
+                },
+                ..valid_gate
+            },
+        ),
+    ]
+}
+
 fn module_grant_selftest_case(
     name: &'static str,
     expected_status: &'static str,
@@ -5009,6 +5365,33 @@ fn module_load_gate_audit_rollback_selftest_case(
         actual_reason: actual.reason,
         passed: method_eq(actual.status, expected_status)
             && method_eq(actual.reason, expected_reason)
+            && !actual.can_load
+            && !actual.load_attempted,
+    }
+}
+
+fn module_load_gate_service_slot_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    candidate: ModuleLoadGateServiceSlotCandidate,
+) -> ModuleLoadGateServiceSlotSelfTestCase {
+    let actual = evaluate_module_load_gate_service_slot_candidate(candidate);
+    let expected_hash_exposed = method_eq(
+        expected_status,
+        "retained_hash_reference_only_not_allocated",
+    );
+    ModuleLoadGateServiceSlotSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: actual.status,
+        actual_reason: actual.reason,
+        actual_service_slot_state: actual.service_slot_state,
+        accepted_service_slot_reservation_hash: actual.accepted_service_slot_reservation_hash,
+        passed: method_eq(actual.status, expected_status)
+            && method_eq(actual.reason, expected_reason)
+            && actual.accepted_service_slot_reservation_hash == expected_hash_exposed
             && !actual.can_load
             && !actual.load_attempted,
     }
@@ -5138,6 +5521,88 @@ fn module_load_gate_test_audit_rollback_reference_with_override(
         retained_reference_event_id: parse_current_boot_event_id(
             MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID,
         )?,
+        ram_only_service_slot_id: event_log::ModuleServiceSlotId::new(ram_only_service_slot_id)?,
+    })
+}
+
+fn module_load_gate_test_service_slot_candidate() -> ModuleLoadGateServiceSlotCandidate {
+    let retained_reference = Some(module_load_gate_test_reference(
+        MODULE_GRANT_TEST_MANIFEST_HASH,
+        MODULE_GRANT_TEST_ARTIFACT_HASH,
+        MODULE_GRANT_TEST_VM_REPORT_HASH,
+        MODULE_GRANT_TEST_ATTESTATION_HASH,
+    ));
+    let audit_rollback_reference =
+        module_load_gate_test_audit_rollback_reference(MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID);
+    let service_slot_reservation = module_load_gate_test_service_slot_reservation();
+
+    ModuleLoadGateServiceSlotCandidate {
+        retained_reference,
+        audit_rollback_reference,
+        audit_rollback_valid: true,
+        service_slot_reservation: ModuleLoadGateServiceSlotReservationCandidate {
+            scope: "current_boot",
+            retained: true,
+            schema_ok: true,
+            grant_event_schema_ok: true,
+            audit_event_schema_ok: true,
+            grant_event_reference: retained_reference,
+            audit_event_reference: audit_rollback_reference,
+            event_reservation: service_slot_reservation,
+            candidate_reservation: service_slot_reservation,
+        },
+    }
+}
+
+fn module_load_gate_test_service_slot_reservation(
+) -> Option<event_log::ModuleServiceSlotReservation> {
+    module_load_gate_test_service_slot_reservation_with_override(None, None, None, None, None, None)
+}
+
+fn module_load_gate_test_service_slot_reservation_with_override(
+    computed_grant_hash_override: Option<[u8; 32]>,
+    audit_record_hash_override: Option<[u8; 32]>,
+    rollback_plan_hash_override: Option<[u8; 32]>,
+    pre_load_service_inventory_hash_override: Option<[u8; 32]>,
+    ram_only_service_slot_id_override: Option<&'static str>,
+    reservation_hash_override: Option<[u8; 32]>,
+) -> Option<event_log::ModuleServiceSlotReservation> {
+    let audit_rollback_reference =
+        module_load_gate_test_audit_rollback_reference(MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID)?;
+    let ram_only_service_slot_id =
+        ram_only_service_slot_id_override.unwrap_or(MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID);
+    let computed_grant_hash =
+        computed_grant_hash_override.unwrap_or(audit_rollback_reference.computed_grant_hash);
+    let audit_record_hash =
+        audit_record_hash_override.unwrap_or(audit_rollback_reference.audit_record_hash);
+    let rollback_plan_hash =
+        rollback_plan_hash_override.unwrap_or(audit_rollback_reference.rollback_plan_hash);
+    let pre_load_service_inventory_hash = pre_load_service_inventory_hash_override
+        .unwrap_or(audit_rollback_reference.pre_load_service_inventory_hash);
+    let reservation_hash =
+        computed_module_service_slot_reservation_hash(ModuleServiceSlotReservationHashInput {
+            retained_reference_event_id: MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID,
+            retained_audit_rollback_reference_event_id:
+                MODULE_SERVICE_SLOT_TEST_RETAINED_AUDIT_ROLLBACK_EVENT_ID,
+            computed_grant_hash,
+            audit_record_hash,
+            rollback_plan_hash,
+            pre_load_service_inventory_hash,
+            ram_only_service_slot_id,
+        });
+
+    Some(event_log::ModuleServiceSlotReservation {
+        reservation_hash: reservation_hash_override.unwrap_or(reservation_hash),
+        retained_reference_event_id: parse_current_boot_event_id(
+            MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID,
+        )?,
+        retained_audit_rollback_reference_event_id: parse_current_boot_event_id(
+            MODULE_SERVICE_SLOT_TEST_RETAINED_AUDIT_ROLLBACK_EVENT_ID,
+        )?,
+        computed_grant_hash,
+        audit_record_hash,
+        rollback_plan_hash,
+        pre_load_service_inventory_hash,
         ram_only_service_slot_id: event_log::ModuleServiceSlotId::new(ram_only_service_slot_id)?,
     })
 }
@@ -5381,6 +5846,181 @@ fn evaluate_module_load_gate_audit_rollback_reference_candidate(
     )
 }
 
+fn evaluate_module_load_gate_service_slot_candidate(
+    candidate: ModuleLoadGateServiceSlotCandidate,
+) -> ModuleLoadGateServiceSlotEvaluation {
+    let Some(reservation) = candidate.service_slot_reservation.candidate_reservation else {
+        return module_load_gate_service_slot_check(
+            "missing",
+            "retained_service_slot_reservation_missing",
+        );
+    };
+    let Some(retained_reference) = candidate.retained_reference else {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_computed_grant_reference_missing",
+        );
+    };
+    let Some(audit_rollback_reference) = candidate.audit_rollback_reference else {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_audit_rollback_reference_missing",
+        );
+    };
+    if !candidate.audit_rollback_valid {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_audit_rollback_reference_not_valid_for_service_slot",
+        );
+    }
+
+    let Some(retained_reference_event_id) =
+        parse_current_boot_event_id(MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID)
+    else {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_grant_reference_mismatch",
+        );
+    };
+    let Some(audit_rollback_event_id) =
+        parse_current_boot_event_id(MODULE_SERVICE_SLOT_TEST_RETAINED_AUDIT_ROLLBACK_EVENT_ID)
+    else {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_audit_rollback_reference_mismatch",
+        );
+    };
+
+    if reservation.retained_reference_event_id != retained_reference_event_id {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_grant_reference_mismatch",
+        );
+    }
+    if reservation.retained_audit_rollback_reference_event_id != audit_rollback_event_id {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_audit_rollback_reference_mismatch",
+        );
+    }
+
+    let service_slot_candidate = candidate.service_slot_reservation;
+    if !method_eq(service_slot_candidate.scope, "current_boot") || !service_slot_candidate.retained
+    {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_stale_or_dropped_event_id",
+        );
+    }
+    if !service_slot_candidate.schema_ok {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_wrong_schema_or_variant",
+        );
+    }
+    let Some(event_reservation) = service_slot_candidate.event_reservation else {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_stale_or_dropped_event_id",
+        );
+    };
+    if !module_service_slot_reservation_matches(event_reservation, reservation) {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_substituted_record",
+        );
+    }
+
+    if !service_slot_candidate.grant_event_schema_ok {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_wrong_schema_or_variant",
+        );
+    }
+    let Some(grant_event_reference) = service_slot_candidate.grant_event_reference else {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_stale_or_dropped_event_id",
+        );
+    };
+    if !module_computed_grant_reference_matches(retained_reference, grant_event_reference) {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_substituted_record",
+        );
+    }
+
+    if !service_slot_candidate.audit_event_schema_ok {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_wrong_schema_or_variant",
+        );
+    }
+    let Some(audit_event_reference) = service_slot_candidate.audit_event_reference else {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_stale_or_dropped_event_id",
+        );
+    };
+    if !module_audit_rollback_event_reference_matches(
+        audit_rollback_reference,
+        audit_event_reference,
+    ) {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_substituted_record",
+        );
+    }
+
+    if reservation.computed_grant_hash != retained_reference.computed_grant_hash
+        || reservation.computed_grant_hash != audit_rollback_reference.computed_grant_hash
+    {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_computed_grant_hash_mismatch",
+        );
+    }
+    if reservation.audit_record_hash != audit_rollback_reference.audit_record_hash {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_audit_record_hash_mismatch",
+        );
+    }
+    if reservation.rollback_plan_hash != audit_rollback_reference.rollback_plan_hash {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_rollback_plan_hash_mismatch",
+        );
+    }
+    if reservation.pre_load_service_inventory_hash
+        != audit_rollback_reference.pre_load_service_inventory_hash
+    {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_pre_load_inventory_hash_mismatch",
+        );
+    }
+    if reservation.ram_only_service_slot_id.as_str()
+        != audit_rollback_reference.ram_only_service_slot_id.as_str()
+        || !module_evidence::ram_only_service_slot_id_valid(
+            reservation.ram_only_service_slot_id.as_str(),
+        )
+    {
+        return module_load_gate_service_slot_check(
+            "rejected",
+            "retained_service_slot_reservation_service_slot_mismatch",
+        );
+    }
+    if let Some(reason) = module_service_slot_reservation_hash_mismatch(reservation) {
+        return module_load_gate_service_slot_check("rejected", reason);
+    }
+
+    module_load_gate_service_slot_check(
+        "retained_hash_reference_only_not_allocated",
+        "retained_service_slot_reservation_not_allocated",
+    )
+}
+
 fn module_audit_rollback_event_reference_matches(
     event_reference: event_log::ModuleAuditRollbackReference,
     candidate_reference: event_log::ModuleAuditRollbackReference,
@@ -5452,6 +6092,72 @@ fn module_audit_rollback_reference_hash_mismatch(
     }
 
     None
+}
+
+fn module_service_slot_reservation_matches(
+    left: event_log::ModuleServiceSlotReservation,
+    right: event_log::ModuleServiceSlotReservation,
+) -> bool {
+    left.reservation_hash == right.reservation_hash
+        && left.retained_reference_event_id == right.retained_reference_event_id
+        && left.retained_audit_rollback_reference_event_id
+            == right.retained_audit_rollback_reference_event_id
+        && left.computed_grant_hash == right.computed_grant_hash
+        && left.audit_record_hash == right.audit_record_hash
+        && left.rollback_plan_hash == right.rollback_plan_hash
+        && left.pre_load_service_inventory_hash == right.pre_load_service_inventory_hash
+        && left.ram_only_service_slot_id.as_str() == right.ram_only_service_slot_id.as_str()
+}
+
+fn module_service_slot_reservation_hash_mismatch(
+    reservation: event_log::ModuleServiceSlotReservation,
+) -> Option<&'static str> {
+    if parse_current_boot_event_id(MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID)
+        != Some(reservation.retained_reference_event_id)
+        || parse_current_boot_event_id(MODULE_SERVICE_SLOT_TEST_RETAINED_AUDIT_ROLLBACK_EVENT_ID)
+            != Some(reservation.retained_audit_rollback_reference_event_id)
+    {
+        return Some("retained_service_slot_reservation_hash_mismatch");
+    }
+
+    let expected_reservation_hash =
+        computed_module_service_slot_reservation_hash(ModuleServiceSlotReservationHashInput {
+            retained_reference_event_id: MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID,
+            retained_audit_rollback_reference_event_id:
+                MODULE_SERVICE_SLOT_TEST_RETAINED_AUDIT_ROLLBACK_EVENT_ID,
+            computed_grant_hash: reservation.computed_grant_hash,
+            audit_record_hash: reservation.audit_record_hash,
+            rollback_plan_hash: reservation.rollback_plan_hash,
+            pre_load_service_inventory_hash: reservation.pre_load_service_inventory_hash,
+            ram_only_service_slot_id: reservation.ram_only_service_slot_id.as_str(),
+        });
+    if reservation.reservation_hash != expected_reservation_hash {
+        return Some("retained_service_slot_reservation_hash_mismatch");
+    }
+
+    None
+}
+
+fn module_load_gate_service_slot_check(
+    status: &'static str,
+    reason: &'static str,
+) -> ModuleLoadGateServiceSlotEvaluation {
+    let accepted = method_eq(status, "retained_hash_reference_only_not_allocated");
+    let service_slot_state = if accepted {
+        "retained_hash_reference_only_not_allocated"
+    } else if method_eq(status, "rejected") {
+        "rejected_retained_reference"
+    } else {
+        "unallocated"
+    };
+    ModuleLoadGateServiceSlotEvaluation {
+        status,
+        reason,
+        service_slot_state,
+        accepted_service_slot_reservation_hash: accepted,
+        can_load: false,
+        load_attempted: false,
+    }
 }
 
 fn module_load_gate_audit_rollback_check(
@@ -8318,6 +9024,7 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         || method_eq(method, "module.service_slot_diagnostic_selftest")
         || method_eq(method, "module.load_gate_retained_selftest")
         || method_eq(method, "module.load_gate_audit_rollback_selftest")
+        || method_eq(method, "module.load_gate_service_slot_selftest")
     {
         "cap.module.grant_diagnostic.read"
     } else {
@@ -8433,6 +9140,11 @@ fn module_load_gate_retained_selftest_method(method: &str) -> bool {
 fn module_load_gate_audit_rollback_selftest_method(method: &str) -> bool {
     method_head_eq(method, "module.load_gate_audit_rollback_selftest")
         || method_head_eq(method, "module.audit_rollback_gate_selftest")
+}
+
+fn module_load_gate_service_slot_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "module.load_gate_service_slot_selftest")
+        || method_head_eq(method, "module.service_slot_gate_selftest")
 }
 
 fn provider_context_export_profile(method: &str) -> &'static str {

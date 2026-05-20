@@ -36,6 +36,7 @@ agent module.service_slot_diagnostic -> RAM-only service-slot reservation hash-r
 agent module.service_slot_diagnostic_selftest -> local-only service-slot reservation diagnostic selftest
 agent module.load_gate_retained_selftest -> local-only retained-reference gate selftest
 agent module.load_gate_audit_rollback_selftest -> local-only audit/rollback gate selftest
+agent module.load_gate_service_slot_selftest -> local-only service-slot gate selftest
 agent memory.recent_events -> memory.recent_events
 agent audit.events 8 -> memory.recent_events with limit 8
 agent <method>        -> dispatch raw method name
@@ -91,6 +92,7 @@ module.service_slot_diagnostic
 module.service_slot_diagnostic_selftest
 module.load_gate_retained_selftest
 module.load_gate_audit_rollback_selftest
+module.load_gate_service_slot_selftest
 ```
 
 `system.snapshot` reports `system.snapshot.v0` facts for framebuffer, entropy,
@@ -255,6 +257,14 @@ mismatch, and rollback service-slot mismatch. It does not mutate the global
 event log, create retained reference records, create durable audit records,
 create rollback plans, allocate service slots, load artifacts, or mutate
 `service.inventory.v0`.
+`module.load_gate_service_slot_selftest` emits local-only
+`raios.module_load_gate_service_slot_selftest.v0` test infrastructure for the
+denied load gate's retained service-slot reservation predicate. It covers
+missing, accepted-current-boot, stale/dropped, wrong-schema, substituted,
+computed-grant-hash, audit-hash, rollback-hash, inventory-hash, service-slot,
+and reservation-hash cases. It does not mutate the global event log, create
+retained reservation records, allocate service slots, create service inventory
+records, load artifacts, or mutate `service.inventory.v0`.
 
 ## Denied-By-Default Methods
 
