@@ -33,6 +33,10 @@ use crate::{
         emit_module_service_slot_diagnostic, emit_module_service_slot_diagnostic_selftest,
         module_service_slot_diagnostic_method, module_service_slot_diagnostic_selftest_method,
     },
+    agent_protocol_policy::{
+        canonical_denied_method, canonical_module_load_ephemeral_method, denied_method,
+        emit_capability_denied, module_load_ephemeral_method, record_denial, record_read,
+    },
     agent_protocol_provider::{
         emit_provider_context_export_denied, emit_provider_context_gate,
         emit_provider_context_gate_selftest, emit_provider_context_injection_gate,
@@ -40,12 +44,12 @@ use crate::{
         provider_context_gate_method, provider_context_gate_selftest_method,
         provider_context_injection_gate_method, provider_context_injection_gate_selftest_method,
     },
-    agent_protocol_support::{json_event_id, json_str, method_eq, method_head_eq, raw, raw_line},
+    agent_protocol_support::{method_eq, method_head_eq},
     agent_protocol_system::{
         emit_boot_log, emit_capabilities, emit_describe, emit_device_graph, emit_problem_list,
-        emit_service_inventory, emit_snapshot, DENIED_METHODS,
+        emit_service_inventory, emit_snapshot,
     },
-    event_log, serial, ui,
+    event_log, ui,
 };
 
 pub(crate) use crate::agent_protocol_provider::provider_minimal_context_evidence_for_runtime;
@@ -270,194 +274,4 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
     }
 
     DispatchOutcome::Unknown
-}
-
-fn record_read(method: &'static str) -> event_log::EventId {
-    event_log::record_agent_read(method, requested_capability_for_read(method))
-}
-
-fn record_denial(method: &'static str) -> event_log::EventId {
-    event_log::record_capability_denied(
-        method,
-        requested_capability_for_denial(method),
-        risk_for_denial(method),
-    )
-}
-
-fn emit_capability_denied(method: &'static str, event_id: event_log::EventId) {
-    serial::write_raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
-    raw_line("{");
-    raw_line("  \"v\": \"raios.agent.v0\",");
-    raw_line("  \"t\": \"error\",");
-    raw_line("  \"id\": \"serial\",");
-    raw_line("  \"body\": {");
-    raw("    \"method\": ");
-    json_str(method);
-    raw_line(",");
-    raw("    \"event_id\": ");
-    json_event_id(event_id);
-    raw_line(",");
-    raw("    \"audit_event_id\": ");
-    json_event_id(event_id);
-    raw_line(",");
-    raw_line("    \"code\": \"capability_denied\",");
-    raw("    \"message\": ");
-    json_str("mutating agent methods are denied until manifest, VM test report, local attestation, policy grant, approval, and rollback evidence exist");
-    raw_line(",");
-    raw_line("    \"required\": [");
-    raw_line("      \"raios.module_manifest.v0\",");
-    raw_line("      \"raios.vm_test_report.v0\",");
-    raw_line("      \"local_attestation.v0\",");
-    raw_line("      \"computed_capability_grant\",");
-    raw_line("      \"local_approval\",");
-    raw_line("      \"rollback_plan\"");
-    raw_line("    ]");
-    raw_line("  }");
-    raw_line("}");
-    serial::write_raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
-}
-
-fn denied_method(method: &str) -> bool {
-    let mut idx = 0usize;
-    while idx < DENIED_METHODS.len() {
-        if method_eq(method, DENIED_METHODS[idx]) {
-            return true;
-        }
-        idx += 1;
-    }
-    false
-}
-
-fn canonical_denied_method(method: &str) -> &'static str {
-    let mut idx = 0usize;
-    while idx < DENIED_METHODS.len() {
-        if method_eq(method, DENIED_METHODS[idx]) {
-            return DENIED_METHODS[idx];
-        }
-        idx += 1;
-    }
-    "unknown"
-}
-
-fn canonical_module_load_ephemeral_method(method: &str) -> &'static str {
-    if method_eq(method, "service.load_ephemeral") {
-        "service.load_ephemeral"
-    } else {
-        "module.load_ephemeral"
-    }
-}
-
-fn requested_capability_for_read(method: &str) -> &'static str {
-    if method_eq(method, "system.describe") {
-        "cap.system.describe.read"
-    } else if method_eq(method, "system.snapshot") {
-        "cap.system.snapshot.read"
-    } else if method_eq(method, "system.capabilities") {
-        "cap.system.capabilities.read"
-    } else if method_eq(method, "system.boot_log") {
-        "cap.system.boot_log.read"
-    } else if method_eq(method, "device.graph") {
-        "cap.device.graph.read"
-    } else if method_eq(method, "problem.list") {
-        "cap.problem.list.read"
-    } else if method_eq(method, "service.inventory") {
-        "cap.service.inventory.read"
-    } else if method_eq(method, "memory.profile") {
-        "cap.memory.profile.read"
-    } else if method_eq(method, "memory.context") {
-        "cap.memory.context.read"
-    } else if method_eq(method, "memory.query") {
-        "cap.memory.query.read"
-    } else if method_eq(method, "memory.trace") {
-        "cap.memory.trace.read"
-    } else if method_eq(method, "memory.recent_events") {
-        "cap.memory.recent_events.read"
-    } else if method_eq(method, "audit.events") {
-        "cap.audit.events.read"
-    } else if method_eq(method, "provider.context_gate")
-        || method_eq(method, "provider.context_gate_selftest")
-        || method_eq(method, "provider.context_injection_gate")
-        || method_eq(method, "provider.context_injection_gate_selftest")
-    {
-        if method_eq(method, "provider.context_injection_gate")
-            || method_eq(method, "provider.context_injection_gate_selftest")
-        {
-            "cap.provider.context_injection.read"
-        } else {
-            "cap.provider.context_export.read"
-        }
-    } else if method_eq(method, "module.manifest_diagnostic")
-        || method_eq(method, "module.manifest_diagnostic_selftest")
-        || method_eq(method, "module.artifact_diagnostic")
-        || method_eq(method, "module.artifact_diagnostic_selftest")
-        || method_eq(method, "module.vm_report_diagnostic")
-        || method_eq(method, "module.vm_report_diagnostic_selftest")
-        || method_eq(method, "module.grant_diagnostic")
-        || method_eq(method, "module.grant_diagnostic_selftest")
-        || method_eq(method, "module.audit_rollback_diagnostic")
-        || method_eq(method, "module.audit_rollback_diagnostic_selftest")
-        || method_eq(method, "module.service_slot_diagnostic")
-        || method_eq(method, "module.service_slot_diagnostic_selftest")
-        || method_eq(method, "module.load_gate_manifest_selftest")
-        || method_eq(method, "module.load_gate_artifact_selftest")
-        || method_eq(method, "module.load_gate_vm_report_selftest")
-        || method_eq(method, "module.load_gate_retained_selftest")
-        || method_eq(method, "module.load_gate_audit_rollback_selftest")
-        || method_eq(method, "module.load_gate_service_slot_selftest")
-    {
-        "cap.module.grant_diagnostic.read"
-    } else {
-        "cap.system.describe.read"
-    }
-}
-
-fn requested_capability_for_denial(method: &str) -> &'static str {
-    if memory_mutation_method(method) {
-        "cap.memory.mutate"
-    } else if provider_context_export_method(method) {
-        "cap.provider.context_export"
-    } else if method_eq(method, "module.propose")
-        || method_eq(method, "module.build_result")
-        || method_eq(method, "module.test_request")
-        || method_eq(method, "module.test_result")
-    {
-        "cap.module.propose"
-    } else if method_eq(method, "module.load_ephemeral")
-        || method_eq(method, "service.load_ephemeral")
-    {
-        "cap.module.load_ephemeral"
-    } else if method_eq(method, "module.persist") {
-        "cap.module.persist"
-    } else if method_eq(method, "module.rollback") {
-        "cap.module.rollback"
-    } else if method_eq(method, "config.apply")
-        || method_eq(method, "apply_config")
-        || method_eq(method, "provider.configure")
-        || method_eq(method, "wifi.configure")
-    {
-        "cap.config.apply"
-    } else {
-        "capability_denied.for_all_mutating_methods"
-    }
-}
-
-fn risk_for_denial(method: &str) -> &'static str {
-    if provider_context_export_method(method) {
-        "export"
-    } else if method_eq(method, "module.persist")
-        || method_eq(method, "module.rollback")
-        || method_eq(method, "config.apply")
-        || method_eq(method, "apply_config")
-        || method_eq(method, "provider.configure")
-        || method_eq(method, "wifi.configure")
-        || memory_mutation_method(method)
-    {
-        "persist"
-    } else {
-        "modify_ram"
-    }
-}
-
-fn module_load_ephemeral_method(method: &str) -> bool {
-    method_eq(method, "module.load_ephemeral") || method_eq(method, "service.load_ephemeral")
 }
