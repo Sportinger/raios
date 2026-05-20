@@ -183,6 +183,18 @@ function Assert-LogContains {
     }
 }
 
+function Assert-LogContainsFields {
+    param(
+        [string]$NamePrefix,
+        [object[]]$Fields,
+        [int]$TimeoutSeconds
+    )
+
+    foreach ($field in $Fields) {
+        Assert-LogContains -Name "$NamePrefix$($field.Suffix)" -Needle $field.Needle -TimeoutSeconds $TimeoutSeconds
+    }
+}
+
 function Assert-LogDoesNotContain {
     param(
         [string]$Name,
@@ -790,17 +802,19 @@ try {
     $moduleManifestCommand = "agent module.manifest_diagnostic $moduleManifestReferenceHash $moduleGrantManifestHash"
 
     Send-AgentCommand -Command $moduleManifestCommand -ExpectedMarker "RAIOS_AGENT_END module.manifest_diagnostic"
-    Assert-LogContains -Name "protocol:module_manifest_diag_valid_status" -Needle '"validation_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_diag_valid_reason" -Needle '"validation_reason": "module_manifest_reference_valid_but_loader_and_evidence_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_diag_retention_mutation" -Needle '"global_event_log_mutation": "valid_hash_reference_retention_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_diag_retained_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_diag_retained_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_diag_recorded_event_id" -Needle '"recorded_event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_diag_retained_matches" -Needle '"matches_current_reference": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_diag_manifest_present" -Needle '"manifest_reference_present": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_diag_ref_hash_echo" -Needle "`"manifest_reference_hash`": `"sha256:$moduleManifestReferenceHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_diag_manifest_hash_echo" -Needle "`"manifest_hash`": `"sha256:$moduleGrantManifestHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_manifest_diag_still_no_load" -Needle '"can_load_now": false' -TimeoutSeconds 1
+    Assert-LogContainsFields -NamePrefix "protocol:module_manifest_diag_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "valid_status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "valid_reason"; Needle = '"validation_reason": "module_manifest_reference_valid_but_loader_and_evidence_missing"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "manifest_present"; Needle = '"manifest_reference_present": true' },
+        @{ Suffix = "ref_hash_echo"; Needle = "`"manifest_reference_hash`": `"sha256:$moduleManifestReferenceHash`"" },
+        @{ Suffix = "manifest_hash_echo"; Needle = "`"manifest_hash`": `"sha256:$moduleGrantManifestHash`"" },
+        @{ Suffix = "still_no_load"; Needle = '"can_load_now": false' }
+    )
 
     $moduleManifestResponse = Get-LastAgentResponseJson -Method "module.manifest_diagnostic"
     $moduleManifestRetainedReferenceEventId = [string]$moduleManifestResponse.body.result.retained_manifest_reference.event_id
@@ -858,15 +872,17 @@ try {
     $moduleGrantCommand = "agent module.grant_diagnostic $moduleGrantHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash"
 
     Send-AgentCommand -Command $moduleGrantCommand -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic"
-    Assert-LogContains -Name "protocol:module_grant_diag_valid_status" -Needle '"validation_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_diag_valid_retained" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_diag_retained_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_diag_recorded_event_id" -Needle '"recorded_event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_diag_retained_matches" -Needle '"matches_current_reference": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_diag_candidate_present" -Needle '"computed_candidate_present": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_diag_valid_still_no_capability" -Needle '"grants_capability": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_diag_valid_still_no_load" -Needle '"can_load_now": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_diag_valid_hash_echo" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
+    Assert-LogContainsFields -NamePrefix "protocol:module_grant_diag_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "valid_status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "valid_retained"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "candidate_present"; Needle = '"computed_candidate_present": true' },
+        @{ Suffix = "valid_still_no_capability"; Needle = '"grants_capability": false' },
+        @{ Suffix = "valid_still_no_load"; Needle = '"can_load_now": false' },
+        @{ Suffix = "valid_hash_echo"; Needle = "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" }
+    )
 
     $moduleGrantResponse = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
     $moduleAuditRetainedReferenceEventId = [string]$moduleGrantResponse.body.result.retained_reference.event_id
@@ -909,17 +925,19 @@ try {
     $moduleArtifactCommand = "agent module.artifact_diagnostic $moduleArtifactReferenceHash $moduleManifestRetainedReferenceEventId $moduleAuditRetainedReferenceEventId $moduleManifestReferenceHash $moduleGrantManifestHash $moduleGrantHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash"
 
     Send-AgentCommand -Command $moduleArtifactCommand -ExpectedMarker "RAIOS_AGENT_END module.artifact_diagnostic"
-    Assert-LogContains -Name "protocol:module_artifact_diag_valid_status" -Needle '"validation_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_diag_valid_reason" -Needle '"validation_reason": "candidate_artifact_reference_valid_but_loader_and_evidence_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_diag_retention_mutation" -Needle '"global_event_log_mutation": "valid_hash_reference_retention_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_diag_retained_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_diag_retained_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_diag_recorded_event_id" -Needle '"recorded_event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_diag_retained_matches" -Needle '"matches_current_reference": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_diag_present" -Needle '"candidate_artifact_reference_present": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_diag_ref_hash_echo" -Needle "`"artifact_reference_hash`": `"sha256:$moduleArtifactReferenceHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_diag_artifact_hash_echo" -Needle "`"artifact_hash`": `"sha256:$moduleGrantArtifactHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_artifact_diag_still_no_load" -Needle '"can_load_now": false' -TimeoutSeconds 1
+    Assert-LogContainsFields -NamePrefix "protocol:module_artifact_diag_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "valid_status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "valid_reason"; Needle = '"validation_reason": "candidate_artifact_reference_valid_but_loader_and_evidence_missing"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "present"; Needle = '"candidate_artifact_reference_present": true' },
+        @{ Suffix = "ref_hash_echo"; Needle = "`"artifact_reference_hash`": `"sha256:$moduleArtifactReferenceHash`"" },
+        @{ Suffix = "artifact_hash_echo"; Needle = "`"artifact_hash`": `"sha256:$moduleGrantArtifactHash`"" },
+        @{ Suffix = "still_no_load"; Needle = '"can_load_now": false' }
+    )
 
     $moduleArtifactResponse = Get-LastAgentResponseJson -Method "module.artifact_diagnostic"
     $moduleArtifactRetainedReferenceEventId = [string]$moduleArtifactResponse.body.result.retained_candidate_artifact_reference.event_id
@@ -977,18 +995,20 @@ try {
     $moduleVmReportCommand = "agent module.vm_report_diagnostic $moduleVmReportReferenceHash $moduleManifestRetainedReferenceEventId $moduleArtifactRetainedReferenceEventId $moduleAuditRetainedReferenceEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash"
 
     Send-AgentCommand -Command $moduleVmReportCommand -ExpectedMarker "RAIOS_AGENT_END module.vm_report_diagnostic"
-    Assert-LogContains -Name "protocol:module_vm_report_diag_valid_status" -Needle '"validation_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_valid_reason" -Needle '"validation_reason": "vm_test_report_reference_valid_but_loader_and_evidence_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_retention_mutation" -Needle '"global_event_log_mutation": "valid_hash_reference_retention_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_retained_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_retained_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_recorded_event_id" -Needle '"recorded_event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_retained_matches" -Needle '"matches_current_reference": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_present" -Needle '"vm_test_report_reference_present": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_ref_hash_echo" -Needle "`"vm_test_report_reference_hash`": `"sha256:$moduleVmReportReferenceHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_report_hash_echo" -Needle "`"vm_test_report_hash`": `"sha256:$moduleGrantReportHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_artifact_ref_hash_echo" -Needle "`"artifact_reference_hash`": `"sha256:$moduleArtifactReferenceHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_vm_report_diag_still_no_load" -Needle '"can_load_now": false' -TimeoutSeconds 1
+    Assert-LogContainsFields -NamePrefix "protocol:module_vm_report_diag_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "valid_status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "valid_reason"; Needle = '"validation_reason": "vm_test_report_reference_valid_but_loader_and_evidence_missing"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "present"; Needle = '"vm_test_report_reference_present": true' },
+        @{ Suffix = "ref_hash_echo"; Needle = "`"vm_test_report_reference_hash`": `"sha256:$moduleVmReportReferenceHash`"" },
+        @{ Suffix = "report_hash_echo"; Needle = "`"vm_test_report_hash`": `"sha256:$moduleGrantReportHash`"" },
+        @{ Suffix = "artifact_ref_hash_echo"; Needle = "`"artifact_reference_hash`": `"sha256:$moduleArtifactReferenceHash`"" },
+        @{ Suffix = "still_no_load"; Needle = '"can_load_now": false' }
+    )
 
     $moduleVmReportResponse = Get-LastAgentResponseJson -Method "module.vm_report_diagnostic"
     $moduleVmReportRetainedReferenceEventId = [string]$moduleVmReportResponse.body.result.retained_vm_test_report_reference.event_id
@@ -1111,22 +1131,24 @@ try {
     $moduleAuditCommand = "agent module.audit_rollback_diagnostic $moduleAuditHash $moduleRollbackHash $moduleGrantHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantReportHash $moduleGrantAttestationHash $moduleAuditLocalApprovalHash $moduleAuditPreInventoryHash $moduleAuditCleanupHash $moduleAuditDenialEventId $moduleAuditRetainedReferenceEventId $moduleAuditRamOnlyServiceSlotId"
 
     Send-AgentCommand -Command $moduleAuditCommand -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_diagnostic"
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_valid_status" -Needle '"validation_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_valid_reason" -Needle '"validation_reason": "audit_rollback_reference_valid_but_loader_and_slot_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_audit_hash_echo" -Needle "`"audit_record_hash`": `"sha256:$moduleAuditHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_rollback_hash_echo" -Needle "`"rollback_plan_hash`": `"sha256:$moduleRollbackHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_grant_hash_echo" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_audit_ref_present" -Needle '"audit_record_hash_reference_present": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_rollback_ref_present" -Needle '"rollback_plan_hash_reference_present": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_retention_mutation" -Needle '"global_event_log_mutation": "valid_hash_reference_retention_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_retained_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_retained_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_retained_recorded_event_id" -Needle '"recorded_event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_retained_matches" -Needle '"matches_current_reference": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_no_durable_write" -Needle '"durable_audit_written": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_not_installed" -Needle '"rollback_plan_installed": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_can_load_false" -Needle '"can_load_now": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_audit_rollback_diag_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContainsFields -NamePrefix "protocol:module_audit_rollback_diag_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "valid_status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "valid_reason"; Needle = '"validation_reason": "audit_rollback_reference_valid_but_loader_and_slot_missing"' },
+        @{ Suffix = "audit_hash_echo"; Needle = "`"audit_record_hash`": `"sha256:$moduleAuditHash`"" },
+        @{ Suffix = "rollback_hash_echo"; Needle = "`"rollback_plan_hash`": `"sha256:$moduleRollbackHash`"" },
+        @{ Suffix = "grant_hash_echo"; Needle = "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" },
+        @{ Suffix = "audit_ref_present"; Needle = '"audit_record_hash_reference_present": true' },
+        @{ Suffix = "rollback_ref_present"; Needle = '"rollback_plan_hash_reference_present": true' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "retained_recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "no_durable_write"; Needle = '"durable_audit_written": false' },
+        @{ Suffix = "not_installed"; Needle = '"rollback_plan_installed": false' },
+        @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
+        @{ Suffix = "inventory_none"; Needle = '"service_inventory_change": "none"' }
+    )
 
     $moduleAuditResponse = Get-LastAgentResponseJson -Method "module.audit_rollback_diagnostic"
     $moduleServiceSlotRetainedAuditEventId = [string]$moduleAuditResponse.body.result.retained_audit_rollback_reference.event_id
@@ -1162,23 +1184,25 @@ try {
     $moduleServiceSlotCommand = "agent module.service_slot_diagnostic $moduleServiceSlotReservationHash $moduleAuditRetainedReferenceEventId $moduleServiceSlotRetainedAuditEventId $moduleGrantHash $moduleAuditHash $moduleRollbackHash $moduleAuditPreInventoryHash $moduleAuditRamOnlyServiceSlotId"
 
     Send-AgentCommand -Command $moduleServiceSlotCommand -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic"
-    Assert-LogContains -Name "protocol:module_service_slot_diag_valid_status" -Needle '"validation_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_valid_reason" -Needle '"validation_reason": "service_slot_reservation_valid_but_allocator_and_loader_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_reservation_hash_echo" -Needle "`"reservation_hash`": `"sha256:$moduleServiceSlotReservationHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_grant_hash_echo" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_audit_hash_echo" -Needle "`"audit_record_hash`": `"sha256:$moduleAuditHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_rollback_hash_echo" -Needle "`"rollback_plan_hash`": `"sha256:$moduleRollbackHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_inventory_hash_echo" -Needle "`"pre_load_service_inventory_hash`": `"sha256:$moduleAuditPreInventoryHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_slot_echo" -Needle "`"ram_only_service_slot_id`": `"$moduleAuditRamOnlyServiceSlotId`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_retention_mutation" -Needle '"global_event_log_mutation": "valid_hash_reference_retention_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_retained_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_retained_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_retained_recorded_event_id" -Needle '"recorded_event_id": "event.current_boot.' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_retained_matches" -Needle '"matches_current_reference": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_policy_present" -Needle '"reservation_reference_present": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_policy_no_reserved_slot" -Needle '"service_slot_reserved": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_policy_can_load_false" -Needle '"can_load_now": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_diag_policy_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContainsFields -NamePrefix "protocol:module_service_slot_diag_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "valid_status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "valid_reason"; Needle = '"validation_reason": "service_slot_reservation_valid_but_allocator_and_loader_missing"' },
+        @{ Suffix = "reservation_hash_echo"; Needle = "`"reservation_hash`": `"sha256:$moduleServiceSlotReservationHash`"" },
+        @{ Suffix = "grant_hash_echo"; Needle = "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" },
+        @{ Suffix = "audit_hash_echo"; Needle = "`"audit_record_hash`": `"sha256:$moduleAuditHash`"" },
+        @{ Suffix = "rollback_hash_echo"; Needle = "`"rollback_plan_hash`": `"sha256:$moduleRollbackHash`"" },
+        @{ Suffix = "inventory_hash_echo"; Needle = "`"pre_load_service_inventory_hash`": `"sha256:$moduleAuditPreInventoryHash`"" },
+        @{ Suffix = "slot_echo"; Needle = "`"ram_only_service_slot_id`": `"$moduleAuditRamOnlyServiceSlotId`"" },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "retained_recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "policy_present"; Needle = '"reservation_reference_present": true' },
+        @{ Suffix = "policy_no_reserved_slot"; Needle = '"service_slot_reserved": false' },
+        @{ Suffix = "policy_can_load_false"; Needle = '"can_load_now": false' },
+        @{ Suffix = "policy_inventory_none"; Needle = '"service_inventory_change": "none"' }
+    )
 
     Send-AgentCommand -Command "agent module.grant_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic_selftest"
     Assert-LogContains -Name "protocol:module_grant_selftest_schema" -Needle '"schema": "raios.module_computed_grant_diagnostic_selftest.v0"' -TimeoutSeconds 1
