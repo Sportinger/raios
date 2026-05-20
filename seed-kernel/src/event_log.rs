@@ -78,6 +78,7 @@ const MODULE_LOAD_GATE_EVIDENCE: &[&str] = &[
     "module_load_gate_evaluated",
     "module_manifest_reference_checked",
     "candidate_artifact_reference_checked",
+    "vm_test_report_reference_checked",
     "computed_capability_grant_reference_checked",
     "durable_audit_record_required",
     "rollback_plan_required",
@@ -102,6 +103,18 @@ const MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE: &[&str] = &[
     "candidate_artifact_hash",
     "computed_capability_grant_hash",
     "hash_reference_only",
+    "artifact_bytes_not_accepted",
+    "load_not_attempted",
+];
+const MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE: &[&str] = &[
+    "vm_test_report_reference",
+    "vm_test_report_reference_hash",
+    "vm_test_report_hash",
+    "manifest_reference_hash",
+    "artifact_reference_hash",
+    "computed_capability_grant_hash",
+    "hash_reference_only",
+    "vm_report_json_not_accepted",
     "artifact_bytes_not_accepted",
     "load_not_attempted",
 ];
@@ -251,6 +264,21 @@ pub struct ModuleCandidateArtifactReference {
     pub local_attestation_hash: [u8; 32],
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ModuleVmTestReportReference {
+    pub report_reference_hash: [u8; 32],
+    pub retained_manifest_reference_event_id: EventId,
+    pub retained_artifact_reference_event_id: EventId,
+    pub retained_reference_event_id: EventId,
+    pub manifest_reference_hash: [u8; 32],
+    pub artifact_reference_hash: [u8; 32],
+    pub manifest_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub computed_grant_hash: [u8; 32],
+    pub vm_report_hash: [u8; 32],
+    pub local_attestation_hash: [u8; 32],
+}
+
 #[derive(Clone, Copy)]
 pub struct ModuleComputedGrantReference {
     pub computed_grant_hash: [u8; 32],
@@ -324,6 +352,10 @@ pub struct ModuleLoadGateBinding {
     pub artifact_reference: Option<ModuleCandidateArtifactReference>,
     pub artifact_reference_status: &'static str,
     pub artifact_reference_reason: &'static str,
+    pub vm_report_reference_event_id: Option<EventId>,
+    pub vm_report_reference: Option<ModuleVmTestReportReference>,
+    pub vm_report_reference_status: &'static str,
+    pub vm_report_reference_reason: &'static str,
     pub retained_reference_event_id: Option<EventId>,
     pub retained_reference: Option<ModuleComputedGrantReference>,
     pub audit_rollback_reference_event_id: Option<EventId>,
@@ -348,6 +380,14 @@ struct ModuleManifestReferenceGateCheck {
 struct ModuleCandidateArtifactReferenceGateCheck {
     event_id: Option<EventId>,
     reference: Option<ModuleCandidateArtifactReference>,
+    status: &'static str,
+    reason: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct ModuleVmTestReportReferenceGateCheck {
+    event_id: Option<EventId>,
+    reference: Option<ModuleVmTestReportReference>,
     status: &'static str,
     reason: &'static str,
 }
@@ -433,6 +473,7 @@ pub enum EventBindings {
     ProviderExportDenialAudit(ProviderContextHashes),
     ModuleManifestReference(ModuleManifestReference),
     ModuleCandidateArtifactReference(ModuleCandidateArtifactReference),
+    ModuleVmTestReportReference(ModuleVmTestReportReference),
     ModuleComputedGrantReference(ModuleComputedGrantReference),
     ModuleAuditRollbackReference(ModuleAuditRollbackReference),
     ModuleServiceSlotReservation(ModuleServiceSlotReservation),
@@ -1140,6 +1181,31 @@ impl EventLog {
         None
     }
 
+    fn latest_module_vm_test_report_reference(
+        &self,
+    ) -> Option<(EventId, ModuleVmTestReportReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleVmTestReportReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
     fn latest_module_computed_grant_reference(
         &self,
     ) -> Option<(EventId, ModuleComputedGrantReference)> {
@@ -1390,6 +1456,146 @@ impl EventLog {
             reference: Some(artifact_reference),
             status: "retained_hash_reference_only",
             reason: "retained_candidate_artifact_reference_not_authorizing",
+        }
+    }
+
+    fn check_module_vm_test_report_reference_for_load(
+        &self,
+        report: Option<(EventId, ModuleVmTestReportReference)>,
+        manifest: Option<(EventId, ModuleManifestReference)>,
+        artifact: Option<(EventId, ModuleCandidateArtifactReference)>,
+        retained: Option<(EventId, ModuleComputedGrantReference)>,
+    ) -> ModuleVmTestReportReferenceGateCheck {
+        let Some((report_event_id, report_reference)) = report else {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: None,
+                reference: None,
+                status: "missing",
+                reason: "retained_vm_test_report_reference_missing",
+            };
+        };
+
+        let Some(report_event) = self.event_by_sequence(report_event_id) else {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_reference_stale_or_dropped_event_id",
+            };
+        };
+        let EventBindings::ModuleVmTestReportReference(report_event_reference) =
+            report_event.bindings
+        else {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_reference_wrong_schema_or_variant",
+            };
+        };
+        if !module_vm_test_report_reference_matches(report_reference, report_event_reference) {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_reference_substituted_record",
+            };
+        }
+        if !module_vm_test_report_reference_hashes_consistent(report_reference) {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_reference_hash_mismatch",
+            };
+        }
+        let Some((manifest_event_id, manifest_reference)) = manifest else {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_reference_manifest_reference_mismatch",
+            };
+        };
+        if report_reference.retained_manifest_reference_event_id != manifest_event_id
+            || report_reference.manifest_reference_hash
+                != manifest_reference.manifest_reference_hash
+            || report_reference.manifest_hash != manifest_reference.manifest_hash
+        {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_reference_manifest_reference_mismatch",
+            };
+        }
+        let Some((artifact_event_id, artifact_reference)) = artifact else {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_reference_artifact_reference_mismatch",
+            };
+        };
+        if report_reference.retained_artifact_reference_event_id != artifact_event_id
+            || report_reference.artifact_reference_hash
+                != artifact_reference.artifact_reference_hash
+            || report_reference.manifest_reference_hash
+                != artifact_reference.manifest_reference_hash
+            || report_reference.manifest_hash != artifact_reference.manifest_hash
+            || report_reference.artifact_hash != artifact_reference.artifact_hash
+            || report_reference.local_attestation_hash != artifact_reference.local_attestation_hash
+        {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_reference_artifact_reference_mismatch",
+            };
+        }
+        if report_reference.vm_report_hash != artifact_reference.vm_report_hash {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_hash_mismatch",
+            };
+        }
+        let Some((retained_event_id, retained_reference)) = retained else {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_reference_computed_grant_reference_mismatch",
+            };
+        };
+        if report_reference.retained_reference_event_id != retained_event_id
+            || report_reference.computed_grant_hash != retained_reference.computed_grant_hash
+            || report_reference.manifest_hash != retained_reference.manifest_hash
+            || report_reference.artifact_hash != retained_reference.artifact_hash
+            || report_reference.local_attestation_hash != retained_reference.local_attestation_hash
+        {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_reference_computed_grant_reference_mismatch",
+            };
+        }
+        if report_reference.vm_report_hash != retained_reference.vm_report_hash {
+            return ModuleVmTestReportReferenceGateCheck {
+                event_id: Some(report_event_id),
+                reference: Some(report_reference),
+                status: "rejected",
+                reason: "retained_vm_test_report_hash_mismatch",
+            };
+        }
+
+        ModuleVmTestReportReferenceGateCheck {
+            event_id: Some(report_event_id),
+            reference: Some(report_reference),
+            status: "retained_hash_reference_only",
+            reason: "retained_vm_test_report_reference_not_authorizing",
         }
     }
 
@@ -1878,6 +2084,41 @@ fn module_candidate_artifact_reference_hashes_consistent(
         )
 }
 
+fn module_vm_test_report_reference_matches(
+    left: ModuleVmTestReportReference,
+    right: ModuleVmTestReportReference,
+) -> bool {
+    left.report_reference_hash == right.report_reference_hash
+        && left.retained_manifest_reference_event_id == right.retained_manifest_reference_event_id
+        && left.retained_artifact_reference_event_id == right.retained_artifact_reference_event_id
+        && left.retained_reference_event_id == right.retained_reference_event_id
+        && left.manifest_reference_hash == right.manifest_reference_hash
+        && left.artifact_reference_hash == right.artifact_reference_hash
+        && left.manifest_hash == right.manifest_hash
+        && left.artifact_hash == right.artifact_hash
+        && left.computed_grant_hash == right.computed_grant_hash
+        && left.vm_report_hash == right.vm_report_hash
+        && left.local_attestation_hash == right.local_attestation_hash
+}
+
+fn module_vm_test_report_reference_hashes_consistent(
+    reference: ModuleVmTestReportReference,
+) -> bool {
+    reference.report_reference_hash
+        == module_evidence::computed_module_vm_test_report_reference_hash_from_sequences(
+            reference.retained_manifest_reference_event_id.sequence(),
+            reference.retained_artifact_reference_event_id.sequence(),
+            reference.retained_reference_event_id.sequence(),
+            reference.manifest_reference_hash,
+            reference.artifact_reference_hash,
+            reference.manifest_hash,
+            reference.artifact_hash,
+            reference.computed_grant_hash,
+            reference.vm_report_hash,
+            reference.local_attestation_hash,
+        )
+}
+
 fn module_computed_grant_reference_hashes_consistent(
     reference: ModuleComputedGrantReference,
 ) -> bool {
@@ -2095,6 +2336,7 @@ pub fn record_module_load_ephemeral_denied(
     let mut log = LOG.lock();
     let manifest_reference = log.latest_module_manifest_reference();
     let artifact_reference = log.latest_module_candidate_artifact_reference();
+    let vm_report_reference = log.latest_module_vm_test_report_reference();
     let retained = log.latest_module_computed_grant_reference();
     let audit_rollback = log.latest_module_audit_rollback_reference();
     let service_slot = log.latest_module_service_slot_reservation();
@@ -2102,6 +2344,12 @@ pub fn record_module_load_ephemeral_denied(
     let artifact_check = log.check_module_candidate_artifact_reference_for_load(
         artifact_reference,
         manifest_reference,
+        retained,
+    );
+    let vm_report_check = log.check_module_vm_test_report_reference_for_load(
+        vm_report_reference,
+        manifest_reference,
+        artifact_reference,
         retained,
     );
     let audit_rollback_check =
@@ -2120,6 +2368,10 @@ pub fn record_module_load_ephemeral_denied(
         artifact_reference: artifact_check.reference,
         artifact_reference_status: artifact_check.status,
         artifact_reference_reason: artifact_check.reason,
+        vm_report_reference_event_id: vm_report_check.event_id,
+        vm_report_reference: vm_report_check.reference,
+        vm_report_reference_status: vm_report_check.status,
+        vm_report_reference_reason: vm_report_check.reason,
         retained_reference_event_id: retained.map(|(event_id, _)| event_id),
         retained_reference: retained.map(|(_, reference)| reference),
         audit_rollback_reference_event_id: audit_rollback_check.event_id,
@@ -2184,6 +2436,24 @@ pub fn record_module_candidate_artifact_reference(
         reason: "candidate_artifact_reference_valid_for_current_boot",
         evidence: MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE,
         bindings: EventBindings::ModuleCandidateArtifactReference(binding),
+    })
+}
+
+pub fn record_module_vm_test_report_reference(binding: ModuleVmTestReportReference) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.vm_test_report_reference.retained",
+        source_method: "module.vm_report_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.module.grant_diagnostic.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "live_service_graph",
+        reason: "vm_test_report_reference_valid_for_current_boot",
+        evidence: MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE,
+        bindings: EventBindings::ModuleVmTestReportReference(binding),
     })
 }
 
@@ -2403,6 +2673,10 @@ pub fn latest_module_manifest_reference() -> Option<(EventId, ModuleManifestRefe
 pub fn latest_module_candidate_artifact_reference(
 ) -> Option<(EventId, ModuleCandidateArtifactReference)> {
     LOG.lock().latest_module_candidate_artifact_reference()
+}
+
+pub fn latest_module_vm_test_report_reference() -> Option<(EventId, ModuleVmTestReportReference)> {
+    LOG.lock().latest_module_vm_test_report_reference()
 }
 
 pub fn latest_module_computed_grant_reference() -> Option<(EventId, ModuleComputedGrantReference)> {

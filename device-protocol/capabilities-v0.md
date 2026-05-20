@@ -108,7 +108,7 @@ read-only protocol methods:
 | `cap.audit.events.read` | `audit.events` | `observe` | `current_boot` | Read bounded current-boot audit event records. |
 | `cap.provider.context_export.read` | `provider.context_gate`, `provider.context_gate_selftest` | `observe` | `current_boot` | Read provider context gate diagnostics and local predicate selftests. |
 | `cap.provider.context_injection.read` | `provider.context_injection_gate`, `provider.context_injection_gate_selftest` | `observe` | `current_boot` | Read final provider context injection gate diagnostics and local predicate selftests. |
-| `cap.module.grant_diagnostic.read` | `module.manifest_diagnostic`, `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`, `module.artifact_diagnostic_selftest`, `module.grant_diagnostic`, `module.grant_diagnostic_selftest`, `module.audit_rollback_diagnostic`, `module.audit_rollback_diagnostic_selftest`, `module.service_slot_diagnostic`, `module.service_slot_diagnostic_selftest`, `module.load_gate_manifest_selftest`, `module.load_gate_artifact_selftest`, `module.load_gate_retained_selftest`, `module.load_gate_audit_rollback_selftest`, `module.load_gate_service_slot_selftest` | `observe` | `current_boot` | Read module manifest, candidate-artifact, computed-grant, audit/rollback, service-slot reservation hash-reference diagnostics, and denied-load gate predicate selftests. |
+| `cap.module.grant_diagnostic.read` | `module.manifest_diagnostic`, `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`, `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`, `module.vm_report_diagnostic_selftest`, `module.grant_diagnostic`, `module.grant_diagnostic_selftest`, `module.audit_rollback_diagnostic`, `module.audit_rollback_diagnostic_selftest`, `module.service_slot_diagnostic`, `module.service_slot_diagnostic_selftest`, `module.load_gate_manifest_selftest`, `module.load_gate_artifact_selftest`, `module.load_gate_vm_report_selftest`, `module.load_gate_retained_selftest`, `module.load_gate_audit_rollback_selftest`, `module.load_gate_service_slot_selftest` | `observe` | `current_boot` | Read module manifest, candidate-artifact, VM-report, computed-grant, audit/rollback, service-slot reservation hash-reference diagnostics, and denied-load gate predicate selftests. |
 
 `system.snapshot` also reports `capability_denied.for_all_mutating_methods` so an
 agent can discover that mutation is intentionally unavailable.
@@ -180,6 +180,13 @@ artifact bytes or unsigned service code. A valid reference is retained as a
 local-only current-boot event binding, but it must still bind retained manifest
 and computed-grant event ids before the load gate reports artifact hash
 evidence.
+The read-only `module.vm_report_diagnostic` method can inspect the canonical
+`raios.module_vm_test_report_reference.v0` hash reference without accepting
+VM-report JSON, artifact bytes, or unsigned service code. A valid reference is
+retained as a local-only current-boot event binding, but it must still bind
+retained manifest, candidate-artifact, and computed-grant event ids before the
+load gate reports VM-report hash evidence. It keeps `can_load_now: false` and
+`load_attempted: false`.
 The read-only `module.audit_rollback_diagnostic` method can inspect canonical
 `raios.audit_record.v0` and `raios.rollback_plan.v0` hash references without
 accepting durable records or artifact bytes. A valid audit/rollback reference

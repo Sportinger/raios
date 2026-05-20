@@ -37,7 +37,7 @@ The serial error response reports:
   "gate_state": {
     "module_manifest": "missing | retained_hash_reference_only | rejected_retained_reference",
     "candidate_artifact": "missing | retained_hash_reference_only | rejected_retained_reference",
-    "vm_test_report": "missing",
+    "vm_test_report": "missing | retained_hash_reference_only | rejected_retained_reference",
     "local_attestation": "missing",
     "computed_capability_grant": "missing | retained_hash_reference_only",
     "local_approval": "missing",
@@ -73,6 +73,15 @@ retained_candidate_artifact_reference_manifest_reference_mismatch
 retained_candidate_artifact_reference_computed_grant_reference_mismatch
 retained_candidate_artifact_hash_mismatch
 vm_test_report_missing
+retained_vm_test_report_reference_not_authorizing
+retained_vm_test_report_reference_stale_or_dropped_event_id
+retained_vm_test_report_reference_wrong_schema_or_variant
+retained_vm_test_report_reference_substituted_record
+retained_vm_test_report_reference_hash_mismatch
+retained_vm_test_report_reference_manifest_reference_mismatch
+retained_vm_test_report_reference_artifact_reference_mismatch
+retained_vm_test_report_reference_computed_grant_reference_mismatch
+retained_vm_test_report_hash_mismatch
 local_attestation_missing
 computed_capability_grant_missing
 retained_computed_grant_reference_not_authorizing
@@ -138,6 +147,16 @@ after live current-boot event validation against the retained manifest and
 computed-grant references, then reports
 `candidate_artifact: retained_hash_reference_only` with reason
 `retained_candidate_artifact_reference_not_authorizing`.
+
+The read-only `module.vm_report_diagnostic` method can inspect only a canonical
+`raios.module_vm_test_report_reference.v0` hash reference. A valid reference is
+retained as local-only current-boot event evidence, but it accepts no
+VM-report JSON, loads no artifact, and keeps `load_attempted: false`. The
+mutating `module.load_ephemeral` gate snapshots that retained reference only
+after live current-boot event validation against the retained manifest,
+candidate-artifact, and computed-grant references, then reports
+`vm_test_report: retained_hash_reference_only` with reason
+`retained_vm_test_report_reference_not_authorizing`.
 
 `raios.computed_capability_grant.v0` now defines the first host-side diagnostic
 for that future grant. It can validate and hash an exact
@@ -262,6 +281,7 @@ evidence:
   module_load_gate_evaluated
   module_manifest_reference_checked
   candidate_artifact_reference_checked
+  vm_test_report_reference_checked
   computed_capability_grant_reference_checked
   durable_audit_record_required
   rollback_plan_required
@@ -278,6 +298,8 @@ retained_module_manifest_reference.state: missing | present | rejected
 retained_module_manifest_reference.schema: raios.module_manifest_reference.v0
 retained_candidate_artifact_reference.state: missing | present | rejected
 retained_candidate_artifact_reference.schema: raios.module_candidate_artifact_reference.v0
+retained_vm_test_report_reference.state: missing | present | rejected
+retained_vm_test_report_reference.schema: raios.module_vm_test_report_reference.v0
 retained_computed_grant_reference.state: missing | present
 retained_audit_rollback_reference.state: missing | present | rejected
 retained_audit_rollback_reference.schema: raios.module_audit_rollback_reference.v0
@@ -288,6 +310,7 @@ manifest_reference_hash: null | sha256:<retained manifest reference hash>
 manifest_hash: null | sha256:<retained manifest hash>
 artifact_reference_hash: null | sha256:<retained artifact reference hash>
 artifact_hash: null | sha256:<retained artifact hash>
+vm_test_report_reference_hash: null | sha256:<retained VM-report reference hash>
 vm_test_report_hash: null | sha256:<retained report hash>
 local_attestation_hash: null | sha256:<retained attestation hash>
 audit_record_hash: null | sha256:<retained audit record hash>
@@ -363,6 +386,36 @@ accepted-current-boot-but-denied, stale/dropped event id,
 previous-boot-or-unretained event id, wrong schema or variant, substituted
 record, artifact-reference hash mismatch, manifest-reference mismatch, and
 computed-grant-reference mismatch.
+
+## VM Test Report Reference Gate Selftest
+
+The read-only method:
+
+```text
+agent module.load_gate_vm_report_selftest
+```
+
+emits `raios.module_load_gate_vm_report_selftest.v0`. It is local test
+infrastructure over the retained VM-test-report predicate and must report:
+
+```text
+test_infrastructure: true
+mutates_global_event_log: false
+creates_retained_vm_test_report_reference_records: false
+accepts_vm_report_json: false
+accepts_artifact_bytes: false
+loads_artifact: false
+service_inventory_change: none
+load_attempted: false
+can_load: false
+```
+
+The current cases cover missing retained VM-test-report reference,
+accepted-current-boot-but-denied, stale/dropped event id,
+previous-boot-or-unretained event id, wrong schema or variant, substituted
+record, VM-test-report-reference hash mismatch, manifest-reference mismatch,
+artifact-reference mismatch, computed-grant-reference mismatch, and
+VM-test-report hash mismatch.
 
 ## Retained Reference Selftest
 
@@ -457,6 +510,27 @@ reservations. Rejected cases report `actual_service_slot_state:
 rejected_retained_reference` and `accepted_service_slot_reservation_hash:
 false`.
 
+## VM Test Report Hash-Reference Diagnostic
+
+The read-only method:
+
+```text
+agent module.vm_report_diagnostic
+agent module.vm_report_diagnostic <report_reference_hash> <retained_manifest_reference_event_id> <retained_artifact_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <artifact_reference_hash> <manifest_hash> <artifact_hash> <computed_grant_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
+agent module.vm_report_diagnostic_selftest
+```
+
+emits `raios.module_vm_test_report_reference_diagnostic.v0` and
+`raios.module_vm_test_report_reference_diagnostic_selftest.v0`. It validates
+only canonical hashes and current-boot ids. A valid command records a
+local-only `raios.module_vm_test_report_reference.v0` event binding with
+`global_event_log_mutation: valid_hash_reference_retention_only`, keeps
+`accepts_vm_report_json: false`, `accepts_artifact_bytes: false`,
+`loads_artifact: false`, `service_inventory_change: none`,
+`can_load_now: false`, and `load_attempted: false`. The selftest covers absent,
+accepted-current-boot, stale, mismatched, computed-grant-mismatched, and
+non-current-boot event-id references without mutating the global event log.
+
 ## Audit/Rollback Hash-Reference Diagnostic
 
 The read-only method:
@@ -509,6 +583,11 @@ accepted-current-boot, stale, mismatched reservation hash, and invalid
   loader token.
 - A valid `module.grant_diagnostic` hash reference is read-only evidence, not a
   loader token.
+- A valid `module.vm_report_diagnostic` hash reference is read-only evidence,
+  not VM-report JSON and not a loader token.
+- A retained `raios.module_vm_test_report_reference.v0` event binding is only a
+  current-boot hash reference; it is not report content, not a signature, and
+  not load authority.
 - A valid `module.service_slot_diagnostic` reservation reference is read-only
   evidence, not a service inventory row or allocated slot.
 - A retained `raios.module_computed_grant_reference.v0` event binding is

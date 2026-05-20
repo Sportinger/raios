@@ -119,6 +119,9 @@ The JSON report contains:
     "agent module.artifact_diagnostic",
     "agent module.artifact_diagnostic <valid hash reference>",
     "agent module.artifact_diagnostic_selftest",
+    "agent module.vm_report_diagnostic",
+    "agent module.vm_report_diagnostic <valid hash reference>",
+    "agent module.vm_report_diagnostic_selftest",
     "agent module.grant_diagnostic",
     "agent module.grant_diagnostic <valid hash reference>",
     "agent module.grant_diagnostic_selftest",
@@ -130,11 +133,12 @@ The JSON report contains:
     "agent module.service_slot_diagnostic_selftest",
     "agent module.load_gate_manifest_selftest",
     "agent module.load_gate_artifact_selftest",
+    "agent module.load_gate_vm_report_selftest",
     "agent module.load_gate_retained_selftest",
     "agent module.load_gate_audit_rollback_selftest",
     "agent module.load_gate_service_slot_selftest",
     "module.load_ephemeral",
-    "agent audit.events 8"
+    "agent audit.events 64"
   ],
   "predicates": [
     {
@@ -195,6 +199,13 @@ full hash-reference command that records
 `raios.module_computed_grant_reference.v0` in the current-boot event log, and
 `raios.module_computed_grant_diagnostic_selftest.v0` cases for accepted,
 absent, stale, mismatched, and wrong-policy computed grant references. It also
+checks the read-only
+`raios.module_vm_test_report_reference_diagnostic.v0` absent-reference state, a
+valid VM-report hash-reference command that records
+`raios.module_vm_test_report_reference.v0` in the current-boot event log, and
+`raios.module_vm_test_report_reference_diagnostic_selftest.v0` cases for
+accepted, absent, stale, mismatched, computed-grant-mismatched, and
+non-current-boot event-id references. It also
 checks `raios.module_load_gate_manifest_selftest.v0` cases for
 missing, accepted-current-boot-but-denied, stale/dropped,
 previous-boot-or-unretained, wrong-schema, substituted-record, and mismatched
@@ -204,6 +215,12 @@ accepted-current-boot-but-denied, stale/dropped, previous-boot-or-unretained,
 wrong-schema, substituted-record, artifact-reference hash mismatch,
 manifest-reference mismatch, and computed-grant-reference mismatch candidates.
 The current predicate set also checks
+`raios.module_load_gate_vm_report_selftest.v0` cases for missing,
+accepted-current-boot-but-denied, stale/dropped, previous-boot-or-unretained,
+wrong-schema, substituted-record, VM-report-reference hash mismatch,
+manifest-reference mismatch, artifact-reference mismatch,
+computed-grant-reference mismatch, and VM-report-hash mismatch candidates. The
+current predicate set also checks
 `raios.module_load_gate_retained_reference_selftest.v0` cases for missing,
 accepted-current-boot-but-denied, stale/dropped, previous-boot-or-unretained,
 wrong-schema, substituted-record, and mismatched-hash retained-reference
@@ -232,11 +249,32 @@ missing-evidence list, audit/rollback requirement schema, retained
 manifest hash evidence when a valid manifest reference was retained, retained
 artifact hash evidence when a valid candidate-artifact reference was retained,
 retained grant/report/attestation hashes when a valid grant reference was
-retained, live rejection of a wrong-schema retained audit/rollback reference,
+retained, retained VM-report reference state and hashes when a valid VM-report
+reference was retained, live rejection of a wrong-schema retained audit/rollback reference,
 retained audit/rollback reference state and hashes when a valid audit/rollback
 reference was retained, live retained service-slot reservation state and
 reservation hash when a valid reservation was retained, unchanged service
 inventory, and
 `load_attempted: false`. The latest verified report is
-`release/vm-reports/shadow-20260520-182402-20552.json` with 807/807
+`release/vm-reports/shadow-20260520-184635-28200.json` with 897/897
 predicates.
+
+## Guest Hash-Reference Diagnostic
+
+The report itself is not accepted by the guest as trusted JSON in this slice.
+Instead, the guest can retain a current-boot hash reference to report evidence:
+
+```text
+agent module.vm_report_diagnostic
+agent module.vm_report_diagnostic <report_reference_hash> <retained_manifest_reference_event_id> <retained_artifact_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <artifact_reference_hash> <manifest_hash> <artifact_hash> <computed_grant_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
+agent module.vm_report_diagnostic_selftest
+agent module.load_gate_vm_report_selftest
+```
+
+The retained schema is `raios.module_vm_test_report_reference.v0`; the
+diagnostic schema is
+`raios.module_vm_test_report_reference_diagnostic.v0`; the canonicalization is
+`raios.module_vm_test_report_reference.canonical.v0`. The method records only a
+local-only RAM event binding for valid current-boot hash references and keeps
+`accepts_vm_report_json: false`, `authorizes_guest_load: false`,
+`can_load_now: false`, and `load_attempted: false`.

@@ -32,6 +32,8 @@ agent module.manifest_diagnostic -> read-only manifest hash-reference diagnostic
 agent module.manifest_diagnostic_selftest -> local-only manifest diagnostic selftest
 agent module.artifact_diagnostic -> read-only candidate-artifact hash-reference diagnostic
 agent module.artifact_diagnostic_selftest -> local-only artifact diagnostic selftest
+agent module.vm_report_diagnostic -> read-only VM-test-report hash-reference diagnostic
+agent module.vm_report_diagnostic_selftest -> local-only VM-test-report diagnostic selftest
 agent module.grant_diagnostic -> read-only computed-grant hash-reference diagnostic
 agent module.grant_diagnostic_selftest -> local-only module grant diagnostic selftest
 agent module.audit_rollback_diagnostic -> audit/rollback hash-reference diagnostic with local-only retention for valid references
@@ -40,6 +42,7 @@ agent module.service_slot_diagnostic -> RAM-only service-slot reservation hash-r
 agent module.service_slot_diagnostic_selftest -> local-only service-slot reservation diagnostic selftest
 agent module.load_gate_manifest_selftest -> local-only manifest-reference gate selftest
 agent module.load_gate_artifact_selftest -> local-only artifact-reference gate selftest
+agent module.load_gate_vm_report_selftest -> local-only VM-report-reference gate selftest
 agent module.load_gate_retained_selftest -> local-only retained-reference gate selftest
 agent module.load_gate_audit_rollback_selftest -> local-only audit/rollback gate selftest
 agent module.load_gate_service_slot_selftest -> local-only service-slot gate selftest
@@ -94,6 +97,8 @@ module.manifest_diagnostic
 module.manifest_diagnostic_selftest
 module.artifact_diagnostic
 module.artifact_diagnostic_selftest
+module.vm_report_diagnostic
+module.vm_report_diagnostic_selftest
 module.grant_diagnostic
 module.grant_diagnostic_selftest
 module.audit_rollback_diagnostic
@@ -102,6 +107,7 @@ module.service_slot_diagnostic
 module.service_slot_diagnostic_selftest
 module.load_gate_manifest_selftest
 module.load_gate_artifact_selftest
+module.load_gate_vm_report_selftest
 module.load_gate_retained_selftest
 module.load_gate_audit_rollback_selftest
 module.load_gate_service_slot_selftest
@@ -210,6 +216,28 @@ through this method. A valid hash reference records a local-only current-boot
 infrastructure for absent, accepted-current-boot, stale, mismatched, malformed,
 and grant-mismatched artifact references.
 
+`module.vm_report_diagnostic` emits local-only
+`raios.module_vm_test_report_reference_diagnostic.v0`. With no arguments it
+reports the VM-test-report reference as absent. With hash arguments it checks
+only the canonical
+`raios.module_vm_test_report_reference.canonical.v0` hash reference:
+
+```text
+module.vm_report_diagnostic <report_reference_hash> <retained_manifest_reference_event_id> <retained_artifact_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <artifact_reference_hash> <manifest_hash> <artifact_hash> <computed_grant_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
+```
+
+The guest does not accept VM-report JSON, artifact bytes, manifest JSON, signed
+blobs, or service code through this method. A valid hash reference records a
+local-only current-boot `raios.module_vm_test_report_reference.v0` event binding
+and returns it as `retained_vm_test_report_reference`; that record keeps
+`accepts_vm_report_json: false`, `authorizes_guest_load: false`,
+`can_load_now: false`, `service_inventory_change: none`, and
+`load_attempted: false`.
+`module.vm_report_diagnostic_selftest` emits local-only
+`raios.module_vm_test_report_reference_diagnostic_selftest.v0` test
+infrastructure for absent, accepted-current-boot, stale, mismatched,
+computed-grant-mismatched, and non-current-boot event-id cases.
+
 `module.grant_diagnostic` emits local-only
 `raios.module_computed_grant_diagnostic.v0`. With no arguments it reports the
 computed grant as absent. With hash arguments it checks only the
@@ -303,6 +331,16 @@ previous-boot-or-unretained event id, wrong schema, substituted record, artifact
 hash mismatch, manifest-reference mismatch, and computed-grant-reference
 mismatch cases. It does not mutate the global event log, create retained
 records, accept artifact bytes, load artifacts, or mutate `service.inventory.v0`.
+`module.load_gate_vm_report_selftest` emits local-only
+`raios.module_load_gate_vm_report_selftest.v0` test infrastructure for the
+denied load gate's retained VM-test-report predicate. It covers missing,
+accepted-current-boot-but-denied, stale/dropped event id,
+previous-boot-or-unretained event id, wrong schema, substituted record,
+VM-report-reference hash mismatch, manifest-reference mismatch,
+artifact-reference mismatch, computed-grant-reference mismatch, and
+VM-report-hash mismatch cases. It does not mutate the global event log, create
+retained records, accept VM-report JSON, load artifacts, or mutate
+`service.inventory.v0`.
 `module.load_gate_retained_selftest` emits local-only
 `raios.module_load_gate_retained_reference_selftest.v0` test infrastructure for
 the denied load gate's retained-reference predicate. It covers missing,
@@ -371,8 +409,8 @@ durable audit record, rollback plan, and a ram-only service slot.
 `raios.module_load_gate.v0` denial schema. The gate reports
 `load_mode: ram_only`, `requested_capability: cap.module.load_ephemeral`,
 `target: live_service_graph`, missing required evidence plus any live-validated
-retained manifest, candidate-artifact, computed-grant, audit/rollback, and
-service-slot hash references, the loader as `unavailable`,
+retained manifest, candidate-artifact, VM-report, computed-grant,
+audit/rollback, and service-slot hash references, the loader as `unavailable`,
 service-slot state as `unallocated`,
 `retained_hash_reference_only_not_allocated`, or
 `rejected_retained_reference`, `can_load: false`, and
@@ -380,6 +418,10 @@ service-slot state as `unallocated`,
 manifest evidence only if the current-boot event and canonical reference hash
 validate; otherwise the manifest gate is missing or `rejected_retained_reference`.
 It reports retained
+VM-report references as accepted evidence only if the live predicate validates
+the retained manifest, candidate-artifact, and computed-grant event ids plus
+the canonical reference hash; otherwise the VM-report gate is
+`rejected_retained_reference`. It reports retained
 audit/rollback references as accepted evidence only if the live predicate
 validates the retained computed-grant event, prior denied load event, canonical
 hashes, and `ram_only:` service-slot id; otherwise the durable-audit and

@@ -3,6 +3,9 @@
 `raios.module_service_slot_reservation.v0` is the first current-boot evidence
 record for a future RAM-only service slot. It is a diagnostic hash reference,
 not an allocator and not load authority.
+It is downstream of VM-report evidence: a retained service-slot reservation
+does not substitute for `raios.module_vm_test_report_reference.v0`, local
+attestation, durable audit, rollback installation, or the loader.
 
 ## Guest Method
 

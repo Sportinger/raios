@@ -39,6 +39,10 @@ The command first re-runs the
 diagnostic must bind the same manifest, artifact, VM report, local attestation,
 approval phrase, retained grant hash, retained reference event id, denied load
 event id, rollback plan hash, and ram-only service slot id.
+When a guest-retained `raios.module_vm_test_report_reference.v0` exists, the
+live load gate requires the audit/rollback `vm_test_report_hash` to align with
+that retained VM-report reference before reporting the full chain as
+non-authorizing evidence.
 
 The tool exits non-zero for rejected evidence unless `--allow-invalid` is
 provided.

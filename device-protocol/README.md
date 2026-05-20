@@ -28,6 +28,8 @@ Current V0 docs:
   and the guest local-only manifest hash-reference diagnostic.
 - `module-candidate-artifact-v0.md` - guest local-only candidate-artifact
   hash-reference diagnostic and retained event binding.
+- `module-vm-test-report-reference-v0.md` - guest local-only VM-test-report
+  hash-reference diagnostic and retained event binding.
 - `computed-capability-grant-v0.md` - host-side non-authorizing computed
   grant diagnostic for `cap.module.load_ephemeral` evidence tuples.
 - `module-audit-rollback-diagnostic-v0.md` - host-side non-authorizing
@@ -37,8 +39,8 @@ Current V0 docs:
   reservation hash-reference diagnostic and local-only retained event binding.
 - `module-load-gate-v0.md` - denied-by-default current-boot gate for
   `module.load_ephemeral` and `service.load_ephemeral`, including retained
-  manifest, candidate-artifact, grant, live-validated retained audit/rollback
-  references, and audit/rollback requirement diagnostics.
+  manifest, candidate-artifact, VM-test-report, grant, live-validated retained
+  audit/rollback references, and audit/rollback requirement diagnostics.
 - `vm-test-report-v0.md` - Shadow-VM report emitted by
   `vm-harness\shadow-vm-smoke.ps1`.
 - `local-attestation-v0.md` - local evidence record binding manifest,

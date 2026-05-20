@@ -362,6 +362,9 @@ agent module.manifest_diagnostic_selftest
 agent module.artifact_diagnostic
 agent module.artifact_diagnostic <artifact_reference_hash> <retained_manifest_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <manifest_hash> <computed_grant_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
 agent module.artifact_diagnostic_selftest
+agent module.vm_report_diagnostic
+agent module.vm_report_diagnostic <report_reference_hash> <retained_manifest_reference_event_id> <retained_artifact_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <artifact_reference_hash> <manifest_hash> <artifact_hash> <computed_grant_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
+agent module.vm_report_diagnostic_selftest
 agent module.grant_diagnostic
 agent module.grant_diagnostic <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
 agent module.grant_diagnostic_selftest
@@ -373,6 +376,7 @@ agent module.service_slot_diagnostic <reservation_hash> <retained_reference_even
 agent module.service_slot_diagnostic_selftest
 agent module.load_gate_manifest_selftest
 agent module.load_gate_artifact_selftest
+agent module.load_gate_vm_report_selftest
 agent module.load_gate_retained_selftest
 agent module.load_gate_audit_rollback_selftest
 agent module.load_gate_service_slot_selftest
@@ -383,6 +387,8 @@ The expected guest schemas are
 `raios.module_manifest_reference_diagnostic_selftest.v0`,
 `raios.module_candidate_artifact_reference_diagnostic.v0`,
 `raios.module_candidate_artifact_reference_diagnostic_selftest.v0`,
+`raios.module_vm_test_report_reference_diagnostic.v0`,
+`raios.module_vm_test_report_reference_diagnostic_selftest.v0`,
 `raios.module_computed_grant_diagnostic.v0`, and
 `raios.module_computed_grant_diagnostic_selftest.v0`. The manifest-reference
 schemas must keep `accepts_manifest_json: false`,
@@ -424,6 +430,13 @@ report, attestation, and grant hashes; it accepts no artifact bytes and still
 keeps `artifact_loaded: false`, `can_load_now: false`, and
 `load_attempted: false`.
 
+A valid `module.vm_report_diagnostic` hash-reference command records a
+local-only current-boot `raios.module_vm_test_report_reference.v0` event
+binding. It binds retained manifest, candidate-artifact, and computed-grant
+event ids plus manifest/reference/artifact/report/attestation hashes; it
+accepts no VM-report JSON and still keeps `can_load_now: false`,
+`service_inventory_change: none`, and `load_attempted: false`.
+
 A valid `module.grant_diagnostic` full hash-reference command records a
 local-only current-boot `raios.module_computed_grant_reference.v0` event binding
 and the diagnostic response reports `retained_reference.status:
@@ -439,6 +452,9 @@ should report `module_manifest: retained_hash_reference_only`,
 `candidate_artifact: retained_hash_reference_only`,
 `retained_candidate_artifact_reference.state: present`,
 `retained_candidate_artifact_reference_not_authorizing`,
+`vm_test_report: retained_hash_reference_only`,
+`retained_vm_test_report_reference.state: present`,
+`retained_vm_test_report_reference_not_authorizing`,
 `computed_capability_grant: retained_hash_reference_only`,
 `retained_computed_grant_reference.state: present`, retained hashes, and
 `retained_computed_grant_reference_not_authorizing`. After a valid
@@ -476,6 +492,13 @@ stale, wrong-schema, substituted, hash-mismatched, or no longer matches the
 retained manifest/computed-grant references, the artifact gate reports
 `rejected_retained_reference`, accepted artifact hash fields stay `null`, and
 loading remains denied.
+
+The live denied load gate also revalidates a retained VM-test-report reference
+before reporting it as report evidence. If the retained record is stale,
+wrong-schema, substituted, hash-mismatched, or no longer matches the retained
+manifest, candidate-artifact, or computed-grant references, the VM-report gate
+reports `rejected_retained_reference`, accepted VM-report hash fields stay
+`null`, and loading remains denied.
 
 The live denied load gate also revalidates a retained service-slot reservation
 before reporting it as retained service-slot evidence. If the reservation points
@@ -535,6 +558,17 @@ substituted-record, and hash-mismatch retained manifest-reference candidates.
 previous-boot-or-unretained, wrong-schema, substituted-record, hash-mismatch,
 manifest-reference mismatch, and computed-grant-reference mismatch retained
 artifact-reference candidates.
+
+`module.load_gate_vm_report_selftest` emits
+`raios.module_load_gate_vm_report_selftest.v0`; it must keep
+`mutates_global_event_log: false`,
+`creates_retained_vm_test_report_reference_records: false`,
+`accepts_vm_report_json: false`, `accepts_artifact_bytes: false`,
+`loads_artifact: false`, and `can_load: false`. It covers missing,
+stale/dropped, previous-boot-or-unretained, wrong-schema, substituted-record,
+hash-mismatch, manifest-reference mismatch, artifact-reference mismatch,
+computed-grant-reference mismatch, and VM-report-hash mismatch retained
+VM-report-reference candidates.
 
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:

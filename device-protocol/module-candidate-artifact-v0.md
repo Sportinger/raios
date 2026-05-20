@@ -4,6 +4,10 @@
 current-boot hash reference for the candidate artifact named by an already
 retained manifest and computed-grant tuple. It is evidence for the denied load
 gate, not authority to load bytes.
+The `vm_test_report_sha256` field is a hash from the computed evidence tuple;
+the later `raios.module_vm_test_report_reference.v0` diagnostic binds that
+report hash to this retained artifact reference before the live load gate can
+report VM-report hash evidence.
 
 Guest commands:
 
@@ -43,3 +47,6 @@ A valid reference records `module.artifact_reference.retained` with
 `classification: local_only`. `module.load_ephemeral` may then report
 `candidate_artifact: retained_hash_reference_only`, but `artifact_loaded`,
 `service_started`, `can_load`, and `load_attempted` remain false.
+It is local-only current-boot hash evidence, not artifact content and not a
+substitute for the VM-report reference, local attestation, audit, rollback, or
+loader gates.

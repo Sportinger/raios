@@ -60,6 +60,11 @@ service_inventory_change=none
 load_attempted=false
 ```
 
+The grant binds the VM report by hash only. In the guest, the separate
+`raios.module_vm_test_report_reference.v0` diagnostic binds that report hash to
+retained manifest, candidate-artifact, and computed-grant event ids before the
+live load gate reports it as non-authorizing evidence.
+
 The output field is:
 
 ```json
