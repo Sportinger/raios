@@ -25,6 +25,35 @@ pub struct ModuleServiceSlotReservationHashInput<'a> {
     pub ram_only_service_slot_id: &'a str,
 }
 
+pub fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.module_manifest_reference.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.module_manifest_reference.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"requested_capability=cap.module.load_ephemeral",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=ram_only", true);
+    hash_static_line(&mut hash, b"subject=agent.session.serial", true);
+    hash_static_line(&mut hash, b"resource=live_service_graph", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_static_line(&mut hash, b"manifest_schema=raios.module_manifest.v0", true);
+    hash_hash_line(&mut hash, b"manifest_sha256", manifest_hash, true);
+    hash_static_line(&mut hash, b"authorizes_guest_load=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
 pub fn computed_module_grant_hash(
     manifest_hash: [u8; 32],
     artifact_hash: [u8; 32],

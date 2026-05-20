@@ -76,11 +76,21 @@ const MODULE_LOAD_GATE_EVIDENCE: &[&str] = &[
     "missing_required_evidence",
     "capability_denied",
     "module_load_gate_evaluated",
+    "module_manifest_reference_checked",
     "computed_capability_grant_reference_checked",
     "durable_audit_record_required",
     "rollback_plan_required",
     "rollback_bindings_required",
     "service_inventory_unchanged",
+    "load_not_attempted",
+];
+const MODULE_MANIFEST_REFERENCE_EVIDENCE: &[&str] = &[
+    "module_manifest_reference",
+    "manifest_reference_hash",
+    "manifest_hash",
+    "hash_reference_only",
+    "manifest_json_not_accepted",
+    "artifact_bytes_not_accepted",
     "load_not_attempted",
 ];
 const MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE: &[&str] = &[
@@ -210,6 +220,12 @@ pub struct ProviderContextInjectionAuthorization {
     pub context_attached_to_provider_body: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ModuleManifestReference {
+    pub manifest_reference_hash: [u8; 32],
+    pub manifest_hash: [u8; 32],
+}
+
 #[derive(Clone, Copy)]
 pub struct ModuleComputedGrantReference {
     pub computed_grant_hash: [u8; 32],
@@ -275,6 +291,10 @@ pub struct ModuleServiceSlotReservation {
 
 #[derive(Clone, Copy)]
 pub struct ModuleLoadGateBinding {
+    pub manifest_reference_event_id: Option<EventId>,
+    pub manifest_reference: Option<ModuleManifestReference>,
+    pub manifest_reference_status: &'static str,
+    pub manifest_reference_reason: &'static str,
     pub retained_reference_event_id: Option<EventId>,
     pub retained_reference: Option<ModuleComputedGrantReference>,
     pub audit_rollback_reference_event_id: Option<EventId>,
@@ -285,6 +305,14 @@ pub struct ModuleLoadGateBinding {
     pub service_slot_reservation: Option<ModuleServiceSlotReservation>,
     pub service_slot_reservation_status: &'static str,
     pub service_slot_reservation_reason: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct ModuleManifestReferenceGateCheck {
+    event_id: Option<EventId>,
+    reference: Option<ModuleManifestReference>,
+    status: &'static str,
+    reason: &'static str,
 }
 
 #[derive(Clone, Copy)]
@@ -366,6 +394,7 @@ pub enum EventBindings {
     ProviderContextInjectionAuthorization(ProviderContextInjectionAuthorization),
     ProviderRequestBindingDenied(ProviderContextHashes),
     ProviderExportDenialAudit(ProviderContextHashes),
+    ModuleManifestReference(ModuleManifestReference),
     ModuleComputedGrantReference(ModuleComputedGrantReference),
     ModuleAuditRollbackReference(ModuleAuditRollbackReference),
     ModuleServiceSlotReservation(ModuleServiceSlotReservation),
@@ -1025,6 +1054,29 @@ impl EventLog {
         None
     }
 
+    fn latest_module_manifest_reference(&self) -> Option<(EventId, ModuleManifestReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleManifestReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
     fn latest_module_computed_grant_reference(
         &self,
     ) -> Option<(EventId, ModuleComputedGrantReference)> {
@@ -1098,6 +1150,73 @@ impl EventLog {
             idx += 1;
         }
         None
+    }
+
+    fn check_module_manifest_reference_for_load(
+        &self,
+        manifest: Option<(EventId, ModuleManifestReference)>,
+        retained: Option<(EventId, ModuleComputedGrantReference)>,
+    ) -> ModuleManifestReferenceGateCheck {
+        let Some((manifest_event_id, manifest_reference)) = manifest else {
+            return ModuleManifestReferenceGateCheck {
+                event_id: None,
+                reference: None,
+                status: "missing",
+                reason: "retained_module_manifest_reference_missing",
+            };
+        };
+
+        let Some(manifest_event) = self.event_by_sequence(manifest_event_id) else {
+            return ModuleManifestReferenceGateCheck {
+                event_id: Some(manifest_event_id),
+                reference: Some(manifest_reference),
+                status: "rejected",
+                reason: "retained_module_manifest_reference_stale_or_dropped_event_id",
+            };
+        };
+        let EventBindings::ModuleManifestReference(manifest_event_reference) =
+            manifest_event.bindings
+        else {
+            return ModuleManifestReferenceGateCheck {
+                event_id: Some(manifest_event_id),
+                reference: Some(manifest_reference),
+                status: "rejected",
+                reason: "retained_module_manifest_reference_wrong_schema_or_variant",
+            };
+        };
+        if !module_manifest_reference_matches(manifest_reference, manifest_event_reference) {
+            return ModuleManifestReferenceGateCheck {
+                event_id: Some(manifest_event_id),
+                reference: Some(manifest_reference),
+                status: "rejected",
+                reason: "retained_module_manifest_reference_substituted_record",
+            };
+        }
+        if !module_manifest_reference_hashes_consistent(manifest_reference) {
+            return ModuleManifestReferenceGateCheck {
+                event_id: Some(manifest_event_id),
+                reference: Some(manifest_reference),
+                status: "rejected",
+                reason: "retained_module_manifest_reference_hash_mismatch",
+            };
+        }
+        if let Some((_, retained_reference)) = retained {
+            if manifest_reference.manifest_hash != retained_reference.manifest_hash {
+                return ModuleManifestReferenceGateCheck {
+                    event_id: Some(manifest_event_id),
+                    reference: Some(manifest_reference),
+                    status: "rejected",
+                    reason: "retained_module_manifest_reference_computed_grant_mismatch",
+                };
+            }
+        }
+
+        ModuleManifestReferenceGateCheck {
+            event_id: Some(manifest_event_id),
+            reference: Some(manifest_reference),
+            status: "retained_hash_reference_only",
+            reason: "retained_module_manifest_reference_not_authorizing",
+        }
     }
 
     fn check_module_audit_rollback_reference_for_load(
@@ -1541,6 +1660,19 @@ fn module_computed_grant_reference_matches(
         && left.local_attestation_hash == right.local_attestation_hash
 }
 
+fn module_manifest_reference_matches(
+    left: ModuleManifestReference,
+    right: ModuleManifestReference,
+) -> bool {
+    left.manifest_reference_hash == right.manifest_reference_hash
+        && left.manifest_hash == right.manifest_hash
+}
+
+fn module_manifest_reference_hashes_consistent(reference: ModuleManifestReference) -> bool {
+    reference.manifest_reference_hash
+        == module_evidence::computed_module_manifest_reference_hash(reference.manifest_hash)
+}
+
 fn module_computed_grant_reference_hashes_consistent(
     reference: ModuleComputedGrantReference,
 ) -> bool {
@@ -1756,9 +1888,11 @@ pub fn record_module_load_ephemeral_denied(
     source_method: &'static str,
 ) -> (EventId, ModuleLoadGateBinding) {
     let mut log = LOG.lock();
+    let manifest_reference = log.latest_module_manifest_reference();
     let retained = log.latest_module_computed_grant_reference();
     let audit_rollback = log.latest_module_audit_rollback_reference();
     let service_slot = log.latest_module_service_slot_reservation();
+    let manifest_check = log.check_module_manifest_reference_for_load(manifest_reference, retained);
     let audit_rollback_check =
         log.check_module_audit_rollback_reference_for_load(retained, audit_rollback);
     let service_slot_check = log.check_module_service_slot_reservation_for_load(
@@ -1767,6 +1901,10 @@ pub fn record_module_load_ephemeral_denied(
         service_slot,
     );
     let binding = ModuleLoadGateBinding {
+        manifest_reference_event_id: manifest_check.event_id,
+        manifest_reference: manifest_check.reference,
+        manifest_reference_status: manifest_check.status,
+        manifest_reference_reason: manifest_check.reason,
         retained_reference_event_id: retained.map(|(event_id, _)| event_id),
         retained_reference: retained.map(|(_, reference)| reference),
         audit_rollback_reference_event_id: audit_rollback_check.event_id,
@@ -1794,6 +1932,24 @@ pub fn record_module_load_ephemeral_denied(
         bindings: EventBindings::ModuleLoadGate(binding),
     });
     (event_id, binding)
+}
+
+pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.manifest_reference.retained",
+        source_method: "module.manifest_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.module.grant_diagnostic.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "live_service_graph",
+        reason: "module_manifest_reference_valid_for_current_boot",
+        evidence: MODULE_MANIFEST_REFERENCE_EVIDENCE,
+        bindings: EventBindings::ModuleManifestReference(binding),
+    })
 }
 
 pub fn record_module_computed_grant_reference(binding: ModuleComputedGrantReference) -> EventId {
@@ -2003,6 +2159,10 @@ pub fn record_provider_context_export_denial_audit(hashes: ProviderContextHashes
 
 pub fn snapshot_recent(limit: usize) -> EventSnapshot {
     LOG.lock().snapshot_recent(limit)
+}
+
+pub fn latest_module_manifest_reference() -> Option<(EventId, ModuleManifestReference)> {
+    LOG.lock().latest_module_manifest_reference()
 }
 
 pub fn latest_module_computed_grant_reference() -> Option<(EventId, ModuleComputedGrantReference)> {

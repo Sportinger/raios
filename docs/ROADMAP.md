@@ -2,16 +2,15 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-20 by Codex after adding local-only negative retained
-service-slot reservation selftests for the denied module load gate while
-keeping `cap.module.load_ephemeral` denied. The guest now live-validates valid
-`raios.module_service_slot_reservation.v0` references in
-`raios.module_load_gate.v0` and separately exercises stale/dropped,
-wrong-schema, substituted, hash-mismatched, inventory-mismatched, and
-slot-mismatched retained reservations without mutating the global event log.
-Valid reservations remain local-only current-boot evidence and still allocate no
-slot, create no service inventory records, load no artifact, and grant no live
-execution.
+Last updated: 2026-05-20 by Codex after adding local-only guest
+module-manifest hash-reference diagnostics and denied load-gate manifest
+reference validation while keeping `cap.module.load_ephemeral` denied. The guest
+now retains valid `raios.module_manifest_reference.v0` events as local-only
+current-boot evidence, reports them as non-authorizing manifest hash evidence in
+`raios.module_load_gate.v0`, and separately exercises stale/dropped,
+wrong-schema, substituted, and hash-mismatched manifest references without
+accepting manifest JSON, accepting artifact bytes, mutating service inventory,
+or loading artifacts.
 
 Latest maintenance verification:
 
@@ -26,20 +25,21 @@ Latest maintenance verification:
   passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260520-171035-17848.json` with 653/653
-  predicates, including `module.grant_diagnostic`,
+  `release\vm-reports\shadow-20260520-173957-23812.json` with 733/733
+  predicates, including `module.manifest_diagnostic`,
+  `module.manifest_diagnostic_selftest`, `module.grant_diagnostic`,
   `module.grant_diagnostic_selftest`, `module.audit_rollback_diagnostic`,
   `module.audit_rollback_diagnostic_selftest`,
   `module.service_slot_diagnostic`, `module.service_slot_diagnostic_selftest`,
-  retained
+  retained `raios.module_manifest_reference.v0`,
   `raios.module_computed_grant_reference.v0` and
   `raios.module_audit_rollback_reference.v0` plus
   `raios.module_service_slot_reservation.v0` audit/event binding coverage, and
-  retained-reference state plus live wrong-schema retained audit/rollback
+  manifest/reference state plus live wrong-schema retained audit/rollback
   rejection, live retained service-slot reservation visibility, negative
-  retained-reference, retained audit/rollback reference, audit/rollback
-  requirement, and retained service-slot reservation selftests in the denied
-  module load gate.
+  manifest-reference, retained-reference, retained audit/rollback reference,
+  audit/rollback requirement, and retained service-slot reservation selftests in
+  the denied module load gate.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
   positive request/export audit binding markers stayed absent. The local image
@@ -122,6 +122,17 @@ Current verified cursor:
   `raios.module_service_slot_reservation.v0` bindings, and keeps
   `allocates_service_slot`, `creates_service_inventory_records`,
   `can_load_now`, and `load_attempted` false.
+- `module.manifest_diagnostic` now exposes
+  `raios.module_manifest_reference_diagnostic.v0` as a read-only
+  hash-reference diagnostic. It accepts no manifest JSON, artifact bytes, or
+  unsigned service code, recomputes the canonical manifest-reference hash from a
+  supplied manifest hash, and keeps `authorizes_guest_load`, `can_load_now`, and
+  `load_attempted` false.
+- Valid `module.manifest_diagnostic` references are retained in the RAM-only
+  current-boot event log as local-only `raios.module_manifest_reference.v0`
+  bindings. The retained record stores hashes only, appears through
+  `retained_manifest_reference` and `audit.events`, and remains
+  non-authorizing.
 - `module.grant_diagnostic` now exposes
   `raios.module_computed_grant_diagnostic.v0` as a read-only hash-reference
   diagnostic. It accepts no artifact bytes, recomputes the canonical grant hash
@@ -137,6 +148,14 @@ Current verified cursor:
   for absent, accepted-current-boot, stale, mismatched, and wrong-policy
   computed grant references without loading artifacts or mutating
   `service.inventory.v0`.
+- `module.load_ephemeral` and `service.load_ephemeral` now snapshot the latest
+  retained manifest reference into their denied `raios.module_load_gate.v0`
+  response and event binding after validating the retained event, canonical
+  manifest-reference hash, and computed-grant manifest consistency. A retained
+  reference changes the manifest gate state to `retained_hash_reference_only`
+  with reason `retained_module_manifest_reference_not_authorizing`, while
+  `can_load`, `load_attempted`, and `service_inventory_change` remain false or
+  `none`.
 - `module.load_ephemeral` and `service.load_ephemeral` now snapshot the latest
   retained computed-grant reference into their denied
   `raios.module_load_gate.v0` response and event binding. A retained reference
@@ -201,6 +220,12 @@ Current verified cursor:
   service-slot reservation state without mutating the global event log,
   allocating service slots, creating service inventory records, or loading
   artifacts.
+- `module.load_gate_manifest_selftest` now exposes local-only
+  `raios.module_load_gate_manifest_selftest.v0` test infrastructure
+  for missing/stale/wrong-schema/substituted/hash-mismatched retained manifest
+  references and the accepted-but-still-denied manifest-reference state without
+  mutating the global event log, accepting manifest JSON, accepting artifact
+  bytes, or loading artifacts.
 - `system.snapshot.v0`, `system.capabilities.v0`, `problem.list.v0`,
   `service.inventory.v0`, provider trust docs, module manifest docs, VM test
   report docs, local attestation docs, and recovery protocol docs exist.
@@ -276,39 +301,42 @@ Current verified cursor:
 - The Shadow VM smoke validates the read-only protocol, memory context schemas,
   the local provider-minimal projection, the denied provider context export gate,
   provider export denial, event/audit log reads, memory mutation denials with
-  event ids, module computed-grant hash-reference diagnostics, module
-  audit/rollback hash-reference diagnostics with retained current-boot
+  event ids, module manifest, computed-grant, and audit/rollback
+  hash-reference diagnostics with retained current-boot
   references, and the denied module load gate, then emits
   `raios.vm_test_report.v0` reports.
 
 Current phase: Phase 6 has host-side computed grant plus audit/rollback
-evidence diagnostics, guest-side read-only computed-grant, audit/rollback, and
-service-slot reservation hash-reference diagnostics, current-boot retained
-computed-grant, audit/rollback, and service-slot reservation bindings, and a
-fail-closed module load gate that validates retained grant, audit/rollback, and
-service-slot reservation references before reporting them as non-authorizing
-evidence. Negative retained-reference, audit/rollback, and service-slot
-reservation selftests are covered, including the live service-slot reservation
-gate predicate. No code loading exists yet.
+evidence diagnostics, guest-side read-only manifest, computed-grant,
+audit/rollback, and service-slot reservation hash-reference diagnostics,
+current-boot retained manifest, computed-grant, audit/rollback, and service-slot
+reservation bindings, and a fail-closed module load gate that validates retained
+manifest, grant, audit/rollback, and service-slot reservation references before
+reporting them as non-authorizing evidence. Negative manifest,
+retained-reference, audit/rollback, and service-slot reservation selftests are
+covered, including the live service-slot reservation gate predicate. No code
+loading exists yet.
 
 Exact next task:
 
 ```text
-Define the first guest module-manifest hash-reference diagnostic.
+Define the first guest candidate-artifact hash-reference diagnostic.
 ```
 
-Start from the denied module load gate's `module_manifest: missing` state.
-Specify a local-only `raios.module_manifest_reference.v0` evidence record and a
-guest diagnostic that accepts only canonical manifest hash references, records
-valid current-boot references with provenance/classification, and keeps
-`module.load_ephemeral` denied. The live gate should report retained manifest
-hash evidence only after validating the retained event; no artifact bytes or
-unsigned service code should be accepted by this slice.
+Start from the denied module load gate's `candidate_artifact: missing` state.
+Specify a local-only artifact hash-reference evidence record and a guest
+diagnostic that accepts only canonical artifact hash references, records valid
+current-boot references with provenance/classification, and keeps
+`module.load_ephemeral` denied. The live gate should report retained artifact
+hash evidence only after validating the retained event and binding it to the
+already retained manifest/computed-grant evidence; artifact bytes and unsigned
+service code must still be rejected.
 
 Next three tasks:
 
-1. Specify and document `raios.module_manifest_reference.v0`.
-2. Add a read-only guest manifest hash-reference diagnostic and selftest.
+1. Specify and document the guest candidate-artifact hash-reference evidence
+   record.
+2. Add a read-only guest artifact hash-reference diagnostic and selftest.
 3. Keep `module.load_ephemeral` and `service.load_ephemeral` denied with
    loader unavailable, `service_inventory_change: none`, and
    `load_attempted: false`.

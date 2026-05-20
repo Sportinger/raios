@@ -35,7 +35,7 @@ The serial error response reports:
     "subject": "agent.session.serial"
   },
   "gate_state": {
-    "module_manifest": "missing",
+    "module_manifest": "missing | retained_hash_reference_only | rejected_retained_reference",
     "candidate_artifact": "missing",
     "vm_test_report": "missing",
     "local_attestation": "missing",
@@ -57,6 +57,12 @@ The denial must also expose `blocked_by` reasons for each missing gate:
 
 ```text
 module_manifest_missing
+retained_module_manifest_reference_not_authorizing
+retained_module_manifest_reference_stale_or_dropped_event_id
+retained_module_manifest_reference_wrong_schema_or_variant
+retained_module_manifest_reference_substituted_record
+retained_module_manifest_reference_hash_mismatch
+retained_module_manifest_reference_computed_grant_mismatch
 candidate_artifact_missing
 vm_test_report_missing
 local_attestation_missing
@@ -105,6 +111,15 @@ ram_only_service_slot
 The current guest does not accept those records as inputs yet. Host-side
 manifest validation, VM reports, registry evidence, and local attestations are
 evidence artifacts only until an in-guest policy path computes a grant.
+
+The read-only `module.manifest_diagnostic` method can inspect only a canonical
+`raios.module_manifest_reference.v0` hash reference. A valid reference is
+retained as local-only current-boot event evidence, but it still keeps
+`authorizes_guest_load: false`, `can_load_now: false`, and
+`load_attempted: false`. The mutating `module.load_ephemeral` gate snapshots
+that retained reference only after live current-boot event validation and
+reports `module_manifest: retained_hash_reference_only` with reason
+`retained_module_manifest_reference_not_authorizing`.
 
 `raios.computed_capability_grant.v0` now defines the first host-side diagnostic
 for that future grant. It can validate and hash an exact
@@ -227,6 +242,7 @@ evidence:
   missing_required_evidence
   capability_denied
   module_load_gate_evaluated
+  module_manifest_reference_checked
   computed_capability_grant_reference_checked
   durable_audit_record_required
   rollback_plan_required
@@ -239,12 +255,15 @@ bindings.schema: raios.module_load_gate.v0
 The binding repeats the gate state and evidence hashes:
 
 ```text
+retained_module_manifest_reference.state: missing | present | rejected
+retained_module_manifest_reference.schema: raios.module_manifest_reference.v0
 retained_computed_grant_reference.state: missing | present
 retained_audit_rollback_reference.state: missing | present | rejected
 retained_audit_rollback_reference.schema: raios.module_audit_rollback_reference.v0
 retained_service_slot_reservation.state: missing | present | rejected
 retained_service_slot_reservation.schema: raios.module_service_slot_reservation.v0
 computed_capability_grant_hash: null | sha256:<retained grant hash>
+manifest_reference_hash: null | sha256:<retained manifest reference hash>
 manifest_hash: null | sha256:<retained manifest hash>
 artifact_hash: null | sha256:<retained artifact hash>
 vm_test_report_hash: null | sha256:<retained report hash>
@@ -266,6 +285,34 @@ audit_rollback_requirements.writes_enabled: false
 service_inventory_change: none
 load_attempted: false
 ```
+
+## Manifest Reference Gate Selftest
+
+The read-only method:
+
+```text
+agent module.load_gate_manifest_selftest
+```
+
+emits `raios.module_load_gate_manifest_selftest.v0`. It is local test
+infrastructure over the retained manifest-reference predicate and must report:
+
+```text
+test_infrastructure: true
+mutates_global_event_log: false
+creates_retained_manifest_reference_records: false
+accepts_manifest_json: false
+accepts_artifact_bytes: false
+loads_artifact: false
+service_inventory_change: none
+load_attempted: false
+can_load: false
+```
+
+The current cases cover missing retained manifest reference,
+accepted-current-boot-but-denied, stale/dropped event id,
+previous-boot-or-unretained event id, wrong schema or variant, substituted
+record, and manifest-reference hash mismatch.
 
 ## Retained Reference Selftest
 
@@ -432,6 +479,9 @@ accepted-current-boot, stale, mismatched reservation hash, and invalid
   slots, loader state, or service inventory changes.
 - A valid `raios.module_manifest.v0` is only one input to a future computed
   grant.
+- A valid `raios.module_manifest_reference.v0` is only a current-boot hash
+  reference. It is not manifest content, not a signature, and not load
+  authority.
 - The normal module gate does not authorize recovery artifacts; recovery loads
   use `raios.recovery.v0` and a separate recovery trust boundary.
 - A future positive path must keep denial reasons explicit when any evidence is

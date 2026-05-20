@@ -83,3 +83,61 @@ After a passing `raios.vm_test_report.v0` and a matching
 `raios.computed_capability_grant.v0` for the exact evidence tuple. The manifest
 still does not grant its own `granted_caps`, and the computed diagnostic does
 not authorize Stage-0 loading.
+
+## Guest Hash-Reference Diagnostic
+
+The guest exposes the first manifest-only hash-reference diagnostic:
+
+```text
+agent module.manifest_diagnostic
+agent module.manifest_diagnostic <manifest_reference_hash> <manifest_hash> [current_boot]
+agent module.manifest_diagnostic_selftest
+```
+
+`module.manifest_diagnostic` emits
+`raios.module_manifest_reference_diagnostic.v0`. It accepts only SHA-256 hash
+references, never manifest JSON, artifact bytes, signed blobs, registry
+records, or service code. The canonical reference hash is:
+
+```text
+canonicalization=raios.module_manifest_reference.canonical.v0
+schema=raios.module_manifest_reference.v0
+requested_capability=cap.module.load_ephemeral
+load_mode=ram_only
+subject=agent.session.serial
+resource=live_service_graph
+scope=current_boot
+manifest_schema=raios.module_manifest.v0
+manifest_sha256=<64 lowercase hex chars>
+authorizes_guest_load=false
+service_inventory_change=none
+load_attempted=false
+```
+
+A valid command records one local-only RAM event binding:
+
+```json
+{
+  "schema": "raios.module_manifest_reference.v0",
+  "status": "retained_hash_reference_load_still_denied",
+  "classification": "local_only",
+  "scope": "current_boot",
+  "manifest_schema": "raios.module_manifest.v0",
+  "accepts_manifest_json": false,
+  "accepts_artifact_bytes": false,
+  "accepts_unsigned_service_code": false,
+  "authorizes_guest_load": false,
+  "can_load_now": false,
+  "service_inventory_change": "none",
+  "load_attempted": false,
+  "hashes": {
+    "manifest_reference_hash": "sha256:<64 hex chars>",
+    "manifest_hash": "sha256:<64 hex chars>"
+  }
+}
+```
+
+The retained reference is evidence only. Later `module.load_ephemeral` and
+`service.load_ephemeral` calls revalidate the retained current-boot event before
+reporting `module_manifest: retained_hash_reference_only`; loading remains
+denied.

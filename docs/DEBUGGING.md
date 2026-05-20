@@ -356,6 +356,9 @@ must still report `durable_audit_written: false`,
 Inside the guest, inspect only the hash reference with:
 
 ```text
+agent module.manifest_diagnostic
+agent module.manifest_diagnostic <manifest_reference_hash> <manifest_hash> [current_boot]
+agent module.manifest_diagnostic_selftest
 agent module.grant_diagnostic
 agent module.grant_diagnostic <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
 agent module.grant_diagnostic_selftest
@@ -365,15 +368,20 @@ agent module.audit_rollback_diagnostic_selftest
 agent module.service_slot_diagnostic
 agent module.service_slot_diagnostic <reservation_hash> <retained_reference_event_id> <retained_audit_rollback_reference_event_id> <computed_grant_hash> <audit_record_hash> <rollback_plan_hash> <pre_load_service_inventory_hash> <ram_only_service_slot_id> [current_boot]
 agent module.service_slot_diagnostic_selftest
+agent module.load_gate_manifest_selftest
 agent module.load_gate_retained_selftest
 agent module.load_gate_audit_rollback_selftest
 agent module.load_gate_service_slot_selftest
 ```
 
 The expected guest schemas are
-`raios.module_computed_grant_diagnostic.v0` and
-`raios.module_computed_grant_diagnostic_selftest.v0`. They must keep
-`accepts_artifact_bytes: false`, `service_inventory_change: none`, and
+`raios.module_manifest_reference_diagnostic.v0`,
+`raios.module_manifest_reference_diagnostic_selftest.v0`,
+`raios.module_computed_grant_diagnostic.v0`, and
+`raios.module_computed_grant_diagnostic_selftest.v0`. The manifest-reference
+schemas must keep `accepts_manifest_json: false`,
+`accepts_unsigned_service_code: false`, and `accepts_artifact_bytes: false`; all
+of these diagnostics must keep `service_inventory_change: none` and
 `load_attempted: false`.
 
 The audit/rollback diagnostic emits
@@ -397,6 +405,12 @@ retained_hash_reference_load_still_denied`; it still keeps
 `allocates_service_slot: false`, `creates_service_inventory_records: false`,
 `service_inventory_change: none`, and `load_attempted: false`.
 
+A valid `module.manifest_diagnostic` hash-reference command records a local-only
+current-boot `raios.module_manifest_reference.v0` event binding and reports
+`retained_manifest_reference.status: retained_hash_reference_only`. This
+retained reference stores only hashes and is not load authority:
+`authorizes_guest_load`, `can_load_now`, and `load_attempted` must remain false.
+
 A valid `module.grant_diagnostic` full hash-reference command records a
 local-only current-boot `raios.module_computed_grant_reference.v0` event binding
 and the diagnostic response reports `retained_reference.status:
@@ -406,7 +420,10 @@ non-authorizing: `grants_capability`, `grants_load_now`,
 false.
 
 After a valid reference is retained, `module.load_ephemeral` still denies but
-should report `computed_capability_grant: retained_hash_reference_only`,
+should report `module_manifest: retained_hash_reference_only`,
+`retained_module_manifest_reference.state: present`,
+`retained_module_manifest_reference_not_authorizing`,
+`computed_capability_grant: retained_hash_reference_only`,
 `retained_computed_grant_reference.state: present`, retained hashes, and
 `retained_computed_grant_reference_not_authorizing`. After a valid
 audit/rollback reference is retained, the same denial should also report
@@ -430,6 +447,12 @@ wrong-schema event, stale/dropped event, substituted record, mismatched
 canonical grant/audit/rollback hash, or invalid `ram_only:` service-slot id, the
 gate reports `rejected_retained_reference`; the accepted audit/rollback evidence
 hash fields stay `null`, and loading remains denied.
+
+The live denied load gate also revalidates a retained manifest reference before
+reporting it as manifest evidence. If the retained record is stale, wrong-schema,
+substituted, hash-mismatched, or tied to a different retained computed-grant
+manifest hash, the manifest gate reports `rejected_retained_reference`, accepted
+manifest hash fields stay `null`, and loading remains denied.
 
 The live denied load gate also revalidates a retained service-slot reservation
 before reporting it as retained service-slot evidence. If the reservation points
@@ -471,6 +494,14 @@ wrong-schema, substituted, computed-grant/audit/rollback hash mismatches,
 inventory mismatch, slot mismatch, and reservation-hash mismatch for retained
 service-slot reservations; rejected cases must keep
 `accepted_service_slot_reservation_hash: false`.
+
+`module.load_gate_manifest_selftest` emits
+`raios.module_load_gate_manifest_selftest.v0`; it must keep
+`mutates_global_event_log: false`,
+`creates_manifest_reference_records: false`, `accepts_manifest_json: false`,
+`accepts_artifact_bytes: false`, `loads_artifact: false`, and `can_load: false`.
+It covers missing, stale/dropped, previous-boot-or-unretained, wrong-schema,
+substituted-record, and hash-mismatch retained manifest-reference candidates.
 
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:

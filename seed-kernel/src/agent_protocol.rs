@@ -526,12 +526,15 @@ const READ_METHODS: &[&str] = &[
     "provider.context_gate_selftest",
     "provider.context_injection_gate",
     "provider.context_injection_gate_selftest",
+    "module.manifest_diagnostic",
+    "module.manifest_diagnostic_selftest",
     "module.grant_diagnostic",
     "module.grant_diagnostic_selftest",
     "module.audit_rollback_diagnostic",
     "module.audit_rollback_diagnostic_selftest",
     "module.service_slot_diagnostic",
     "module.service_slot_diagnostic_selftest",
+    "module.load_gate_manifest_selftest",
     "module.load_gate_retained_selftest",
     "module.load_gate_audit_rollback_selftest",
     "module.load_gate_service_slot_selftest",
@@ -668,6 +671,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_provider_context_injection_gate_selftest(runtime, method);
         return DispatchOutcome::Response("provider.context_injection_gate_selftest");
     }
+    if module_manifest_diagnostic_method(method) {
+        record_read("module.manifest_diagnostic");
+        emit_module_manifest_diagnostic(method);
+        return DispatchOutcome::Response("module.manifest_diagnostic");
+    }
+    if module_manifest_diagnostic_selftest_method(method) {
+        record_read("module.manifest_diagnostic_selftest");
+        emit_module_manifest_diagnostic_selftest();
+        return DispatchOutcome::Response("module.manifest_diagnostic_selftest");
+    }
     if module_grant_diagnostic_method(method) {
         record_read("module.grant_diagnostic");
         emit_module_grant_diagnostic(method);
@@ -697,6 +710,11 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("module.service_slot_diagnostic_selftest");
         emit_module_service_slot_diagnostic_selftest();
         return DispatchOutcome::Response("module.service_slot_diagnostic_selftest");
+    }
+    if module_load_gate_manifest_selftest_method(method) {
+        record_read("module.load_gate_manifest_selftest");
+        emit_module_load_gate_manifest_selftest();
+        return DispatchOutcome::Response("module.load_gate_manifest_selftest");
     }
     if module_load_gate_retained_selftest_method(method) {
         record_read("module.load_gate_retained_selftest");
@@ -1980,6 +1998,28 @@ fn emit_provider_context_injection_gate_selftest_case(
 }
 
 #[derive(Clone, Copy)]
+struct ModuleManifestReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    manifest_reference_hash: Option<[u8; 32]>,
+    manifest_hash: Option<[u8; 32]>,
+    expected_manifest_reference_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+struct ModuleManifestSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
 struct ModuleGrantReferenceCheck<'a> {
     has_reference: bool,
     arity_valid: bool,
@@ -2113,6 +2153,36 @@ struct ModuleLoadGateRetainedCheck {
 }
 
 #[derive(Clone, Copy)]
+struct ModuleLoadGateManifestReferenceCandidate {
+    scope: &'static str,
+    retained: bool,
+    schema_ok: bool,
+    event_reference: Option<event_log::ModuleManifestReference>,
+    candidate_reference: Option<event_log::ModuleManifestReference>,
+}
+
+#[derive(Clone, Copy)]
+struct ModuleLoadGateManifestEvaluation {
+    status: &'static str,
+    reason: &'static str,
+    module_manifest_state: &'static str,
+    accepted_manifest_hash: bool,
+    can_load: bool,
+    load_attempted: bool,
+}
+
+struct ModuleLoadGateManifestSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    actual_module_manifest_state: &'static str,
+    accepted_manifest_hash: bool,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
 struct ModuleLoadGateRetainedCandidate {
     scope: &'static str,
     retained: bool,
@@ -2219,9 +2289,11 @@ struct ModuleLoadGateServiceSlotSelfTestCase {
     passed: bool,
 }
 
+const MODULE_MANIFEST_SELFTEST_CASES: usize = 5;
 const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
+const MODULE_LOAD_GATE_MANIFEST_SELFTEST_CASES: usize = 7;
 const MODULE_LOAD_GATE_RETAINED_SELFTEST_CASES: usize = 7;
 const MODULE_LOAD_GATE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 23;
 const MODULE_LOAD_GATE_SERVICE_SLOT_SELFTEST_CASES: usize = 13;
@@ -2238,6 +2310,303 @@ const MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID: &str = "event.current_boot.
 const MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID: &str = "ram_only:svc.test.0001";
 const MODULE_SERVICE_SLOT_TEST_RETAINED_AUDIT_ROLLBACK_EVENT_ID: &str =
     "event.current_boot.00000033";
+
+fn emit_module_manifest_diagnostic(method: &str) {
+    let arg = module_manifest_diagnostic_arg(method);
+    let check = parse_module_manifest_reference(arg);
+    let recorded_event_id = if check.valid {
+        module_manifest_binding_from_check(&check).map(event_log::record_module_manifest_reference)
+    } else {
+        None
+    };
+    let retained = event_log::latest_module_manifest_reference();
+
+    begin_response("module.manifest_diagnostic");
+    raw_line("      \"schema\": \"raios.module_manifest_reference_diagnostic.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw_line("      \"accepts_manifest_json\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"accepts_unsigned_service_code\": false,");
+    raw_line("      \"loads_artifact\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"module.manifest_diagnostic <manifest_reference_hash> <manifest_hash> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
+    raw_line("        \"load_mode\": \"ram_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"live_service_graph\",");
+    raw_line("        \"manifest_schema\": \"raios.module_manifest.v0\",");
+    raw_line("        \"manifest_reference_schema\": \"raios.module_manifest_reference.v0\",");
+    raw_line("        \"manifest_reference_canonicalization\": \"raios.module_manifest_reference.canonical.v0\"");
+    raw_line("      },");
+    emit_module_manifest_reference_object(&check);
+    raw_line(",");
+    emit_module_manifest_retained_reference(&check, recorded_event_id, retained);
+    raw_line(",");
+    emit_module_manifest_gate_state(&check);
+    raw_line(",");
+    emit_module_manifest_policy_result(&check);
+    raw_line(",");
+    raw_line("      \"blocked_by\": [");
+    let mut wrote = false;
+    if !check.valid {
+        emit_export_gate(&mut wrote, "module_manifest", check.status, check.reason);
+    }
+    emit_export_gate(
+        &mut wrote,
+        "candidate_artifact",
+        "missing",
+        "candidate_artifact_missing",
+    );
+    emit_export_gate(
+        &mut wrote,
+        "vm_test_report",
+        "missing",
+        "vm_test_report_missing",
+    );
+    emit_export_gate(
+        &mut wrote,
+        "local_attestation",
+        "missing",
+        "local_attestation_missing",
+    );
+    emit_export_gate(
+        &mut wrote,
+        "computed_capability_grant",
+        "missing",
+        "computed_capability_grant_missing",
+    );
+    emit_export_gate(
+        &mut wrote,
+        "durable_audit_record",
+        "missing",
+        "durable_audit_record_missing",
+    );
+    emit_export_gate(
+        &mut wrote,
+        "rollback_plan",
+        "missing",
+        "rollback_plan_missing",
+    );
+    emit_export_gate(
+        &mut wrote,
+        "loader",
+        "unavailable",
+        "module_loader_unimplemented",
+    );
+    crlf();
+    raw_line("      ]");
+    end_response("module.manifest_diagnostic");
+}
+
+fn emit_module_manifest_reference_object(check: &ModuleManifestReferenceCheck<'_>) {
+    raw_line("      \"module_manifest_reference\": {");
+    raw("        \"state\": ");
+    json_str(if check.has_reference {
+        "present"
+    } else {
+        "absent"
+    });
+    raw_line(",");
+    raw("        \"validation_status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"validation_reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw_line("        \"manifest_schema\": \"raios.module_manifest.v0\",");
+    raw("        \"manifest_reference_hash\": ");
+    json_sha256_option(check.manifest_reference_hash);
+    raw_line(",");
+    raw("        \"expected_manifest_reference_hash\": ");
+    json_sha256_option(check.expected_manifest_reference_hash);
+    raw_line(",");
+    raw("        \"manifest_hash\": ");
+    json_sha256_option(check.manifest_hash);
+    crlf();
+    raw_line("      }");
+}
+
+fn emit_module_manifest_retained_reference(
+    check: &ModuleManifestReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(event_log::EventId, event_log::ModuleManifestReference)>,
+) {
+    raw_line("      \"retained_manifest_reference\": {");
+    if let Some((event_id, reference)) = retained {
+        raw_line("        \"state\": \"present\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw("        \"event_id\": ");
+        json_event_id(event_id);
+        raw_line(",");
+        raw("        \"recorded_event_id\": ");
+        json_event_id_option(recorded_event_id);
+        raw_line(",");
+        raw("        \"matches_current_reference\": ");
+        raw_bool(module_manifest_reference_matches(check, reference));
+        raw_line(",");
+        raw_line("        \"schema\": \"raios.module_manifest_reference.v0\",");
+        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
+        raw_line("        \"classification\": \"local_only\",");
+        raw_line("        \"accepts_manifest_json\": false,");
+        raw_line("        \"accepts_artifact_bytes\": false,");
+        raw_line("        \"accepts_unsigned_service_code\": false,");
+        raw_line("        \"authorizes_guest_load\": false,");
+        raw_line("        \"can_load_now\": false,");
+        raw_line("        \"service_inventory_change\": \"none\",");
+        raw_line("        \"load_attempted\": false,");
+        raw_line("        \"hashes\": {");
+        raw("          \"manifest_reference_hash\": ");
+        json_sha256(reference.manifest_reference_hash);
+        raw_line(",");
+        raw("          \"manifest_hash\": ");
+        json_sha256(reference.manifest_hash);
+        crlf();
+        raw_line("        }");
+    } else {
+        raw_line("        \"state\": \"missing\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw_line("        \"event_id\": null,");
+        raw_line("        \"recorded_event_id\": null,");
+        raw_line("        \"matches_current_reference\": false,");
+        raw_line("        \"schema\": \"raios.module_manifest_reference.v0\",");
+        raw_line("        \"status\": \"missing\",");
+        raw_line("        \"reason\": \"no_valid_module_manifest_reference_retained\",");
+        raw_line("        \"can_load_now\": false,");
+        raw_line("        \"load_attempted\": false");
+    }
+    raw("      }");
+}
+
+fn emit_module_manifest_gate_state(check: &ModuleManifestReferenceCheck<'_>) {
+    let state = if check.valid {
+        "hash_reference_valid"
+    } else if check.has_reference {
+        "hash_reference_invalid"
+    } else {
+        "missing"
+    };
+    raw_line("      \"gate_state\": {");
+    raw("        \"module_manifest\": ");
+    json_str(state);
+    raw_line(",");
+    raw_line("        \"candidate_artifact\": \"missing\",");
+    raw_line("        \"vm_test_report\": \"missing\",");
+    raw_line("        \"local_attestation\": \"missing\",");
+    raw_line("        \"computed_capability_grant\": \"missing\",");
+    raw_line("        \"local_approval\": \"missing\",");
+    raw_line("        \"rollback_plan\": \"missing\",");
+    raw_line("        \"durable_audit_record\": \"missing\",");
+    raw_line("        \"loader\": \"unavailable\",");
+    raw_line("        \"service_slot\": \"unallocated\",");
+    raw_line("        \"artifact_loaded\": false,");
+    raw_line("        \"service_started\": false,");
+    raw_line("        \"persistence\": \"none\",");
+    raw_line("        \"can_load\": false");
+    raw("      }");
+}
+
+fn emit_module_manifest_policy_result(check: &ModuleManifestReferenceCheck<'_>) {
+    raw_line("      \"policy_result\": {");
+    raw("        \"manifest_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"authorizes_guest_load\": false,");
+    raw_line("        \"can_load_now\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false,");
+    raw_line("        \"guest_evidence_authority\": \"hash_reference_only_no_manifest_json_or_artifact_bytes\",");
+    raw_line("        \"required_before_load\": [");
+    raw_line("          \"candidate_artifact_sha256\",");
+    raw_line("          \"raios.vm_test_report.v0\",");
+    raw_line("          \"raios.local_attestation.v0\",");
+    raw_line("          \"raios.computed_capability_grant.v0\",");
+    raw_line("          \"raios.audit_record.v0\",");
+    raw_line("          \"rollback_plan\",");
+    raw_line("          \"module_loader\",");
+    raw_line("          \"ram_only_service_slot\"");
+    raw_line("        ]");
+    raw("      }");
+}
+
+fn emit_module_manifest_diagnostic_selftest() {
+    let cases = module_manifest_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("module.manifest_diagnostic_selftest");
+    raw_line("      \"schema\": \"raios.module_manifest_reference_diagnostic_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_manifest_reference_records\": false,");
+    raw_line("      \"accepts_manifest_json\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"accepts_unsigned_service_code\": false,");
+    raw_line("      \"loads_artifact\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"loader\": \"unavailable\",");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_module_manifest_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_load\": false");
+    end_response("module.manifest_diagnostic_selftest");
+}
+
+fn emit_module_manifest_selftest_case(case: &ModuleManifestSelfTestCase, comma: bool) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"can_load\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
 
 fn emit_module_grant_diagnostic(method: &str) {
     let arg = module_grant_diagnostic_arg(method);
@@ -3049,6 +3418,77 @@ fn emit_module_service_slot_selftest_case(case: &ModuleServiceSlotSelfTestCase, 
     crlf();
 }
 
+fn emit_module_load_gate_manifest_selftest() {
+    let cases = module_load_gate_manifest_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("module.load_gate_manifest_selftest");
+    raw_line("      \"schema\": \"raios.module_load_gate_manifest_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_manifest_reference_records\": false,");
+    raw_line("      \"accepts_manifest_json\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"accepts_unsigned_service_code\": false,");
+    raw_line("      \"loads_artifact\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"loader\": \"unavailable\",");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"required_bindings\": [");
+    raw_line("        \"manifest_reference_hash\",");
+    raw_line("        \"manifest_hash\"");
+    raw_line("      ],");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_module_load_gate_manifest_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_load\": false");
+    end_response("module.load_gate_manifest_selftest");
+}
+
+fn emit_module_load_gate_manifest_selftest_case(
+    case: &ModuleLoadGateManifestSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"actual_module_manifest_state\": ");
+    json_str(case.actual_module_manifest_state);
+    raw(", \"accepted_manifest_hash\": ");
+    raw_bool(case.accepted_manifest_hash);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"can_load\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
 fn emit_module_load_gate_retained_selftest() {
     let cases = module_load_gate_retained_selftest_cases();
     let mut passed = true;
@@ -3429,6 +3869,220 @@ fn module_computed_grant_reference_hashes_consistent(
             reference.vm_report_hash,
             reference.local_attestation_hash,
         )
+}
+
+fn parse_module_manifest_reference(arg: &str) -> ModuleManifestReferenceCheck<'_> {
+    let arg = arg.trim();
+    if arg.is_empty() {
+        return evaluate_module_manifest_reference(false, true, "current_boot", None, None);
+    }
+
+    let mut tokens = arg.split_whitespace();
+    let manifest_reference_token = tokens.next();
+    let manifest_token = tokens.next();
+    let scope = tokens.next().unwrap_or("current_boot");
+    let extra = tokens.next().is_some();
+    let arity_valid = manifest_reference_token.is_some() && manifest_token.is_some() && !extra;
+
+    let manifest_reference_hash = manifest_reference_token.and_then(parse_sha256_ref);
+    let manifest_hash = manifest_token.and_then(parse_sha256_ref);
+
+    evaluate_module_manifest_reference(
+        true,
+        arity_valid,
+        scope,
+        manifest_reference_hash,
+        manifest_hash,
+    )
+}
+
+fn evaluate_module_manifest_reference<'a>(
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    manifest_reference_hash: Option<[u8; 32]>,
+    manifest_hash: Option<[u8; 32]>,
+) -> ModuleManifestReferenceCheck<'a> {
+    if !has_reference {
+        return ModuleManifestReferenceCheck {
+            has_reference,
+            arity_valid,
+            scope,
+            manifest_reference_hash,
+            manifest_hash,
+            expected_manifest_reference_hash: None,
+            status: "missing",
+            reason: "module_manifest_reference_absent",
+            valid: false,
+        };
+    }
+    if !arity_valid {
+        return ModuleManifestReferenceCheck {
+            has_reference,
+            arity_valid,
+            scope,
+            manifest_reference_hash,
+            manifest_hash,
+            expected_manifest_reference_hash: None,
+            status: "invalid_reference_arity",
+            reason: "module_manifest_reference_requires_two_hashes_and_optional_scope",
+            valid: false,
+        };
+    }
+    let (Some(manifest_reference_hash), Some(manifest_hash)) =
+        (manifest_reference_hash, manifest_hash)
+    else {
+        return ModuleManifestReferenceCheck {
+            has_reference,
+            arity_valid,
+            scope,
+            manifest_reference_hash,
+            manifest_hash,
+            expected_manifest_reference_hash: None,
+            status: "invalid_hash_reference",
+            reason: "all_module_manifest_references_must_be_sha256",
+            valid: false,
+        };
+    };
+    let expected_manifest_reference_hash = computed_module_manifest_reference_hash(manifest_hash);
+    if !method_eq(scope, "current_boot") {
+        return ModuleManifestReferenceCheck {
+            has_reference,
+            arity_valid,
+            scope,
+            manifest_reference_hash: Some(manifest_reference_hash),
+            manifest_hash: Some(manifest_hash),
+            expected_manifest_reference_hash: Some(expected_manifest_reference_hash),
+            status: "stale_or_non_current_boot_reference",
+            reason: "module_manifest_reference_scope_must_be_current_boot",
+            valid: false,
+        };
+    }
+    if manifest_reference_hash != expected_manifest_reference_hash {
+        return ModuleManifestReferenceCheck {
+            has_reference,
+            arity_valid,
+            scope,
+            manifest_reference_hash: Some(manifest_reference_hash),
+            manifest_hash: Some(manifest_hash),
+            expected_manifest_reference_hash: Some(expected_manifest_reference_hash),
+            status: "mismatched_manifest_reference_hash",
+            reason: "module_manifest_reference_hash_mismatch",
+            valid: false,
+        };
+    }
+    ModuleManifestReferenceCheck {
+        has_reference,
+        arity_valid,
+        scope,
+        manifest_reference_hash: Some(manifest_reference_hash),
+        manifest_hash: Some(manifest_hash),
+        expected_manifest_reference_hash: Some(expected_manifest_reference_hash),
+        status: "valid_hash_reference_load_still_denied",
+        reason: "module_manifest_reference_valid_but_loader_and_evidence_missing",
+        valid: true,
+    }
+}
+
+fn module_manifest_selftest_cases() -> [ModuleManifestSelfTestCase; MODULE_MANIFEST_SELFTEST_CASES]
+{
+    let valid_hash = computed_module_manifest_reference_hash(MODULE_GRANT_TEST_MANIFEST_HASH);
+    let absent = evaluate_module_manifest_reference(false, true, "current_boot", None, None);
+    let valid = evaluate_module_manifest_reference(
+        true,
+        true,
+        "current_boot",
+        Some(valid_hash),
+        Some(MODULE_GRANT_TEST_MANIFEST_HASH),
+    );
+    let stale = evaluate_module_manifest_reference(
+        true,
+        true,
+        "previous_boot",
+        Some(valid_hash),
+        Some(MODULE_GRANT_TEST_MANIFEST_HASH),
+    );
+    let mismatch = evaluate_module_manifest_reference(
+        true,
+        true,
+        "current_boot",
+        Some(valid_hash),
+        Some(MODULE_GRANT_MISMATCH_MANIFEST_HASH),
+    );
+    let invalid_hash = evaluate_module_manifest_reference(
+        true,
+        true,
+        "current_boot",
+        Some([0x99; 32]),
+        Some(MODULE_GRANT_TEST_MANIFEST_HASH),
+    );
+    [
+        module_manifest_selftest_case(
+            "absent_reference",
+            "missing",
+            "module_manifest_reference_absent",
+            absent,
+        ),
+        module_manifest_selftest_case(
+            "accepted_current_boot_manifest_still_denied",
+            "valid_hash_reference_load_still_denied",
+            "module_manifest_reference_valid_but_loader_and_evidence_missing",
+            valid,
+        ),
+        module_manifest_selftest_case(
+            "stale_previous_boot_reference",
+            "stale_or_non_current_boot_reference",
+            "module_manifest_reference_scope_must_be_current_boot",
+            stale,
+        ),
+        module_manifest_selftest_case(
+            "mismatched_manifest_hash_reference",
+            "mismatched_manifest_reference_hash",
+            "module_manifest_reference_hash_mismatch",
+            mismatch,
+        ),
+        module_manifest_selftest_case(
+            "invalid_manifest_reference_hash",
+            "mismatched_manifest_reference_hash",
+            "module_manifest_reference_hash_mismatch",
+            invalid_hash,
+        ),
+    ]
+}
+
+fn module_manifest_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: ModuleManifestReferenceCheck<'_>,
+) -> ModuleManifestSelfTestCase {
+    ModuleManifestSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason)
+            && check.valid == method_eq(expected_status, "valid_hash_reference_load_still_denied"),
+    }
+}
+
+fn module_manifest_binding_from_check(
+    check: &ModuleManifestReferenceCheck<'_>,
+) -> Option<event_log::ModuleManifestReference> {
+    Some(event_log::ModuleManifestReference {
+        manifest_reference_hash: check.manifest_reference_hash?,
+        manifest_hash: check.manifest_hash?,
+    })
+}
+
+fn module_manifest_reference_matches(
+    check: &ModuleManifestReferenceCheck<'_>,
+    reference: event_log::ModuleManifestReference,
+) -> bool {
+    check.manifest_reference_hash == Some(reference.manifest_reference_hash)
+        && check.manifest_hash == Some(reference.manifest_hash)
 }
 
 fn parse_module_grant_reference(arg: &str) -> ModuleGrantReferenceCheck<'_> {
@@ -4677,6 +5331,135 @@ fn module_audit_rollback_reference_matches(
         && check.ram_only_service_slot_id == Some(reference.ram_only_service_slot_id.as_str())
 }
 
+fn module_load_gate_manifest_selftest_cases(
+) -> [ModuleLoadGateManifestSelfTestCase; MODULE_LOAD_GATE_MANIFEST_SELFTEST_CASES] {
+    let valid_reference = module_load_gate_test_manifest_reference(MODULE_GRANT_TEST_MANIFEST_HASH);
+    let substituted_reference =
+        module_load_gate_test_manifest_reference(MODULE_GRANT_MISMATCH_MANIFEST_HASH);
+    let mismatched_hash_reference = event_log::ModuleManifestReference {
+        manifest_reference_hash: [0x99; 32],
+        manifest_hash: MODULE_GRANT_TEST_MANIFEST_HASH,
+    };
+
+    [
+        module_load_gate_manifest_selftest_case(
+            "missing_retained_manifest_reference",
+            "missing",
+            "retained_module_manifest_reference_missing",
+            ModuleLoadGateManifestReferenceCandidate {
+                scope: "current_boot",
+                retained: false,
+                schema_ok: true,
+                event_reference: None,
+                candidate_reference: None,
+            },
+        ),
+        module_load_gate_manifest_selftest_case(
+            "accepted_current_boot_manifest_still_denied",
+            "retained_hash_reference_only",
+            "retained_module_manifest_reference_not_authorizing",
+            ModuleLoadGateManifestReferenceCandidate {
+                scope: "current_boot",
+                retained: true,
+                schema_ok: true,
+                event_reference: Some(valid_reference),
+                candidate_reference: Some(valid_reference),
+            },
+        ),
+        module_load_gate_manifest_selftest_case(
+            "stale_dropped_manifest_reference_event_id",
+            "rejected",
+            "retained_module_manifest_reference_stale_or_dropped_event_id",
+            ModuleLoadGateManifestReferenceCandidate {
+                scope: "current_boot",
+                retained: false,
+                schema_ok: true,
+                event_reference: Some(valid_reference),
+                candidate_reference: Some(valid_reference),
+            },
+        ),
+        module_load_gate_manifest_selftest_case(
+            "previous_boot_or_unretained_manifest_reference",
+            "rejected",
+            "retained_module_manifest_reference_previous_boot_or_unretained",
+            ModuleLoadGateManifestReferenceCandidate {
+                scope: "previous_boot",
+                retained: true,
+                schema_ok: true,
+                event_reference: Some(valid_reference),
+                candidate_reference: Some(valid_reference),
+            },
+        ),
+        module_load_gate_manifest_selftest_case(
+            "wrong_schema_or_variant",
+            "rejected",
+            "retained_module_manifest_reference_wrong_schema_or_variant",
+            ModuleLoadGateManifestReferenceCandidate {
+                scope: "current_boot",
+                retained: true,
+                schema_ok: false,
+                event_reference: Some(valid_reference),
+                candidate_reference: Some(valid_reference),
+            },
+        ),
+        module_load_gate_manifest_selftest_case(
+            "substituted_manifest_reference_record",
+            "rejected",
+            "retained_module_manifest_reference_substituted_record",
+            ModuleLoadGateManifestReferenceCandidate {
+                scope: "current_boot",
+                retained: true,
+                schema_ok: true,
+                event_reference: Some(valid_reference),
+                candidate_reference: Some(substituted_reference),
+            },
+        ),
+        module_load_gate_manifest_selftest_case(
+            "manifest_reference_hash_mismatch",
+            "rejected",
+            "retained_module_manifest_reference_hash_mismatch",
+            ModuleLoadGateManifestReferenceCandidate {
+                scope: "current_boot",
+                retained: true,
+                schema_ok: true,
+                event_reference: Some(mismatched_hash_reference),
+                candidate_reference: Some(mismatched_hash_reference),
+            },
+        ),
+    ]
+}
+
+fn module_load_gate_manifest_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    candidate: ModuleLoadGateManifestReferenceCandidate,
+) -> ModuleLoadGateManifestSelfTestCase {
+    let actual = evaluate_module_load_gate_manifest_candidate(candidate);
+    ModuleLoadGateManifestSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: actual.status,
+        actual_reason: actual.reason,
+        actual_module_manifest_state: actual.module_manifest_state,
+        accepted_manifest_hash: actual.accepted_manifest_hash,
+        passed: method_eq(actual.status, expected_status)
+            && method_eq(actual.reason, expected_reason)
+            && !actual.can_load
+            && !actual.load_attempted,
+    }
+}
+
+fn module_load_gate_test_manifest_reference(
+    manifest_hash: [u8; 32],
+) -> event_log::ModuleManifestReference {
+    event_log::ModuleManifestReference {
+        manifest_reference_hash: computed_module_manifest_reference_hash(manifest_hash),
+        manifest_hash,
+    }
+}
+
 fn module_load_gate_retained_selftest_cases(
 ) -> [ModuleLoadGateRetainedSelfTestCase; MODULE_LOAD_GATE_RETAINED_SELFTEST_CASES] {
     let valid_reference = module_load_gate_test_reference(
@@ -5627,6 +6410,80 @@ fn module_load_gate_test_reference(
     }
 }
 
+fn evaluate_module_load_gate_manifest_candidate(
+    candidate: ModuleLoadGateManifestReferenceCandidate,
+) -> ModuleLoadGateManifestEvaluation {
+    if candidate.candidate_reference.is_none() {
+        return module_load_gate_manifest_check(
+            "missing",
+            "retained_module_manifest_reference_missing",
+        );
+    }
+    if !method_eq(candidate.scope, "current_boot") {
+        return module_load_gate_manifest_check(
+            "rejected",
+            "retained_module_manifest_reference_previous_boot_or_unretained",
+        );
+    }
+    if !candidate.retained {
+        return module_load_gate_manifest_check(
+            "rejected",
+            "retained_module_manifest_reference_stale_or_dropped_event_id",
+        );
+    }
+    if !candidate.schema_ok {
+        return module_load_gate_manifest_check(
+            "rejected",
+            "retained_module_manifest_reference_wrong_schema_or_variant",
+        );
+    }
+    if candidate.event_reference != candidate.candidate_reference {
+        return module_load_gate_manifest_check(
+            "rejected",
+            "retained_module_manifest_reference_substituted_record",
+        );
+    }
+    let Some(reference) = candidate.candidate_reference else {
+        return module_load_gate_manifest_check(
+            "missing",
+            "retained_module_manifest_reference_missing",
+        );
+    };
+    if reference.manifest_reference_hash
+        != computed_module_manifest_reference_hash(reference.manifest_hash)
+    {
+        return module_load_gate_manifest_check(
+            "rejected",
+            "retained_module_manifest_reference_hash_mismatch",
+        );
+    }
+    module_load_gate_manifest_check(
+        "retained_hash_reference_only",
+        "retained_module_manifest_reference_not_authorizing",
+    )
+}
+
+fn module_load_gate_manifest_check(
+    status: &'static str,
+    reason: &'static str,
+) -> ModuleLoadGateManifestEvaluation {
+    let accepted = method_eq(status, "retained_hash_reference_only");
+    ModuleLoadGateManifestEvaluation {
+        status,
+        reason,
+        module_manifest_state: if accepted {
+            "retained_hash_reference_only"
+        } else if method_eq(status, "rejected") {
+            "rejected_retained_reference"
+        } else {
+            "missing"
+        },
+        accepted_manifest_hash: accepted,
+        can_load: false,
+        load_attempted: false,
+    }
+}
+
 fn evaluate_module_load_gate_retained_candidate(
     candidate: ModuleLoadGateRetainedCandidate,
 ) -> ModuleLoadGateRetainedCheck {
@@ -6172,6 +7029,10 @@ fn module_load_gate_audit_rollback_check(
     }
 }
 
+fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
+    module_evidence::computed_module_manifest_reference_hash(manifest_hash)
+}
+
 fn computed_module_grant_hash(
     manifest_hash: [u8; 32],
     artifact_hash: [u8; 32],
@@ -6294,6 +7155,26 @@ fn emit_capability_denied(method: &'static str, event_id: event_log::EventId) {
     serial::write_raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
 }
 
+fn module_load_gate_manifest_state(binding: event_log::ModuleLoadGateBinding) -> &'static str {
+    if module_load_gate_manifest_reference_valid(binding) {
+        "retained_hash_reference_only"
+    } else if module_load_gate_manifest_reference_rejected(binding) {
+        "rejected_retained_reference"
+    } else {
+        "missing"
+    }
+}
+
+fn module_load_gate_manifest_reason(binding: event_log::ModuleLoadGateBinding) -> &'static str {
+    if module_load_gate_manifest_reference_valid(binding) {
+        "retained_module_manifest_reference_not_authorizing"
+    } else if module_load_gate_manifest_reference_rejected(binding) {
+        binding.manifest_reference_reason
+    } else {
+        "module_manifest_missing"
+    }
+}
+
 fn module_load_gate_computed_grant_state(
     binding: event_log::ModuleLoadGateBinding,
 ) -> &'static str {
@@ -6404,6 +7285,81 @@ fn module_load_gate_service_slot_reservation_rejected(
     binding: event_log::ModuleLoadGateBinding,
 ) -> bool {
     method_eq(binding.service_slot_reservation_status, "rejected")
+}
+
+fn module_load_gate_manifest_reference_valid(binding: event_log::ModuleLoadGateBinding) -> bool {
+    method_eq(
+        binding.manifest_reference_status,
+        "retained_hash_reference_only",
+    )
+}
+
+fn module_load_gate_manifest_reference_rejected(binding: event_log::ModuleLoadGateBinding) -> bool {
+    method_eq(binding.manifest_reference_status, "rejected")
+}
+
+fn emit_module_load_gate_manifest_reference(binding: event_log::ModuleLoadGateBinding) {
+    raw_line("    \"retained_module_manifest_reference\": {");
+    if let Some(reference) = binding.manifest_reference {
+        if module_load_gate_manifest_reference_rejected(binding) {
+            raw_line("      \"state\": \"rejected\",");
+            raw_line("      \"retention\": \"current_boot_ram_event_log\",");
+            raw("      \"event_id\": ");
+            json_event_id_option(binding.manifest_reference_event_id);
+            raw_line(",");
+            raw_line("      \"schema\": \"raios.module_manifest_reference.v0\",");
+            raw("      \"status\": ");
+            json_str(binding.manifest_reference_status);
+            raw_line(",");
+            raw("      \"reason\": ");
+            json_str(binding.manifest_reference_reason);
+            raw_line(",");
+            raw_line("      \"classification\": \"local_only\",");
+            raw_line("      \"authorizes_guest_load\": false,");
+            raw_line("      \"can_load_now\": false,");
+            raw_line("      \"load_attempted\": false");
+            raw("    }");
+            return;
+        }
+
+        raw_line("      \"state\": \"present\",");
+        raw_line("      \"retention\": \"current_boot_ram_event_log\",");
+        raw("      \"event_id\": ");
+        json_event_id_option(binding.manifest_reference_event_id);
+        raw_line(",");
+        raw_line("      \"schema\": \"raios.module_manifest_reference.v0\",");
+        raw_line("      \"status\": \"retained_hash_reference_load_still_denied\",");
+        raw_line("      \"classification\": \"local_only\",");
+        raw_line("      \"accepts_manifest_json\": false,");
+        raw_line("      \"accepts_artifact_bytes\": false,");
+        raw_line("      \"accepts_unsigned_service_code\": false,");
+        raw_line("      \"authorizes_guest_load\": false,");
+        raw_line("      \"can_load_now\": false,");
+        raw_line("      \"service_inventory_change\": \"none\",");
+        raw_line("      \"load_attempted\": false,");
+        raw_line("      \"hashes\": {");
+        raw("        \"manifest_reference_hash\": ");
+        json_sha256(reference.manifest_reference_hash);
+        raw_line(",");
+        raw("        \"manifest_hash\": ");
+        json_sha256(reference.manifest_hash);
+        crlf();
+        raw_line("      }");
+    } else {
+        raw_line("      \"state\": \"missing\",");
+        raw_line("      \"retention\": \"current_boot_ram_event_log\",");
+        raw_line("      \"event_id\": null,");
+        raw_line("      \"schema\": \"raios.module_manifest_reference.v0\",");
+        raw("      \"status\": ");
+        json_str(binding.manifest_reference_status);
+        raw_line(",");
+        raw("      \"reason\": ");
+        json_str(binding.manifest_reference_reason);
+        raw_line(",");
+        raw_line("      \"can_load_now\": false,");
+        raw_line("      \"load_attempted\": false");
+    }
+    raw("    }");
 }
 
 fn emit_module_load_gate_retained_reference(binding: event_log::ModuleLoadGateBinding) {
@@ -6638,9 +7594,6 @@ fn emit_module_load_gate_evidence_hashes(binding: event_log::ModuleLoadGateBindi
         raw("      \"computed_capability_grant_hash\": ");
         json_sha256(reference.computed_grant_hash);
         raw_line(",");
-        raw("      \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw_line(",");
         raw("      \"artifact_hash\": ");
         json_sha256(reference.artifact_hash);
         raw_line(",");
@@ -6652,10 +7605,23 @@ fn emit_module_load_gate_evidence_hashes(binding: event_log::ModuleLoadGateBindi
         raw_line(",");
     } else {
         raw_line("      \"computed_capability_grant_hash\": null,");
-        raw_line("      \"manifest_hash\": null,");
         raw_line("      \"artifact_hash\": null,");
         raw_line("      \"vm_test_report_hash\": null,");
         raw_line("      \"local_attestation_hash\": null,");
+    }
+    if let Some(reference) = binding
+        .manifest_reference
+        .filter(|_| module_load_gate_manifest_reference_valid(binding))
+    {
+        raw("      \"manifest_reference_hash\": ");
+        json_sha256(reference.manifest_reference_hash);
+        raw_line(",");
+        raw("      \"manifest_hash\": ");
+        json_sha256(reference.manifest_hash);
+        raw_line(",");
+    } else {
+        raw_line("      \"manifest_reference_hash\": null,");
+        raw_line("      \"manifest_hash\": null,");
     }
     if let Some(reference) = binding
         .audit_rollback_reference
@@ -6745,6 +7711,9 @@ fn emit_module_load_gate_audit_rollback_requirements(binding: event_log::ModuleL
     raw("      \"retained_reference_event_id\": ");
     json_event_id_option(binding.retained_reference_event_id);
     raw_line(",");
+    raw("      \"retained_manifest_reference_event_id\": ");
+    json_event_id_option(binding.manifest_reference_event_id);
+    raw_line(",");
     raw("      \"retained_audit_rollback_reference_event_id\": ");
     json_event_id_option(binding.audit_rollback_reference_event_id);
     raw_line(",");
@@ -6768,9 +7737,6 @@ fn emit_module_load_gate_required_hashes(binding: event_log::ModuleLoadGateBindi
         raw("        \"computed_capability_grant_hash\": ");
         json_sha256(reference.computed_grant_hash);
         raw_line(",");
-        raw("        \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw_line(",");
         raw("        \"artifact_hash\": ");
         json_sha256(reference.artifact_hash);
         raw_line(",");
@@ -6782,10 +7748,23 @@ fn emit_module_load_gate_required_hashes(binding: event_log::ModuleLoadGateBindi
         raw_line(",");
     } else {
         raw_line("        \"computed_capability_grant_hash\": null,");
-        raw_line("        \"manifest_hash\": null,");
         raw_line("        \"artifact_hash\": null,");
         raw_line("        \"vm_test_report_hash\": null,");
         raw_line("        \"local_attestation_hash\": null,");
+    }
+    if let Some(reference) = binding
+        .manifest_reference
+        .filter(|_| module_load_gate_manifest_reference_valid(binding))
+    {
+        raw("        \"manifest_reference_hash\": ");
+        json_sha256(reference.manifest_reference_hash);
+        raw_line(",");
+        raw("        \"manifest_hash\": ");
+        json_sha256(reference.manifest_hash);
+        raw_line(",");
+    } else {
+        raw_line("        \"manifest_reference_hash\": null,");
+        raw_line("        \"manifest_hash\": null,");
     }
     if let Some(reference) = binding
         .audit_rollback_reference
@@ -6862,7 +7841,9 @@ fn emit_module_load_ephemeral_denied(
     raw_line("      \"subject\": \"agent.session.serial\"");
     raw_line("    },");
     raw_line("    \"gate_state\": {");
-    raw_line("      \"module_manifest\": \"missing\",");
+    raw("      \"module_manifest\": ");
+    json_str(module_load_gate_manifest_state(gate_binding));
+    raw_line(",");
     raw_line("      \"candidate_artifact\": \"missing\",");
     raw_line("      \"vm_test_report\": \"missing\",");
     raw_line("      \"local_attestation\": \"missing\",");
@@ -6885,6 +7866,8 @@ fn emit_module_load_ephemeral_denied(
     raw_line("      \"persistence\": \"none\",");
     raw_line("      \"can_load\": false");
     raw_line("    },");
+    emit_module_load_gate_manifest_reference(gate_binding);
+    raw_line(",");
     emit_module_load_gate_retained_reference(gate_binding);
     raw_line(",");
     emit_module_load_gate_audit_rollback_reference(gate_binding);
@@ -6894,9 +7877,11 @@ fn emit_module_load_ephemeral_denied(
     emit_module_load_gate_audit_rollback_requirements(gate_binding);
     raw_line(",");
     raw_line("    \"blocked_by\": [");
-    raw_line(
-        "      {\"gate\": \"module_manifest\", \"state\": \"missing\", \"reason\": \"module_manifest_missing\"},",
-    );
+    raw("      {\"gate\": \"module_manifest\", \"state\": ");
+    json_str(module_load_gate_manifest_state(gate_binding));
+    raw(", \"reason\": ");
+    json_str(module_load_gate_manifest_reason(gate_binding));
+    raw_line("},");
     raw_line(
         "      {\"gate\": \"candidate_artifact\", \"state\": \"missing\", \"reason\": \"candidate_artifact_missing\"},",
     );
@@ -7491,6 +8476,13 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             emit_provider_context_hashes(hashes);
             raw("}");
         }
+        event_log::EventBindings::ModuleManifestReference(binding) => {
+            raw(", \"bindings\": {\"schema\": \"raios.module_manifest_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"manifest_schema\": \"raios.module_manifest.v0\", \"accepts_manifest_json\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"hashes\": {\"manifest_reference_hash\": ");
+            json_sha256(binding.manifest_reference_hash);
+            raw(", \"manifest_hash\": ");
+            json_sha256(binding.manifest_hash);
+            raw("}}");
+        }
         event_log::EventBindings::ModuleComputedGrantReference(binding) => {
             raw(", \"bindings\": {\"schema\": \"raios.module_computed_grant_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"grants_capability\": false, \"grants_load_now\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"hashes\": {\"computed_capability_grant_hash\": ");
             json_sha256(binding.computed_grant_hash);
@@ -7559,7 +8551,9 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
 }
 
 fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoadGateBinding) {
-    raw(", \"bindings\": {\"schema\": \"raios.module_load_gate.v0\", \"status\": \"denied_missing_evidence\", \"load_mode\": \"ram_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"risk\": \"modify_ram\", \"target\": \"live_service_graph\", \"subject\": \"agent.session.serial\", \"gate_state\": {\"module_manifest\": \"missing\", \"candidate_artifact\": \"missing\", \"vm_test_report\": \"missing\", \"local_attestation\": \"missing\", \"computed_capability_grant\": ");
+    raw(", \"bindings\": {\"schema\": \"raios.module_load_gate.v0\", \"status\": \"denied_missing_evidence\", \"load_mode\": \"ram_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"risk\": \"modify_ram\", \"target\": \"live_service_graph\", \"subject\": \"agent.session.serial\", \"gate_state\": {\"module_manifest\": ");
+    json_str(module_load_gate_manifest_state(binding));
+    raw(", \"candidate_artifact\": \"missing\", \"vm_test_report\": \"missing\", \"local_attestation\": \"missing\", \"computed_capability_grant\": ");
     json_str(module_load_gate_computed_grant_state(binding));
     raw(", \"local_approval\": \"missing\", \"rollback_plan\": ");
     json_str(module_load_gate_rollback_state(binding));
@@ -7567,7 +8561,9 @@ fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoadGateBinding
     json_str(module_load_gate_durable_audit_state(binding));
     raw(", \"loader\": \"unavailable\", \"service_slot\": ");
     json_str(module_load_gate_service_slot_state(binding));
-    raw(", \"artifact_loaded\": false, \"service_started\": false, \"persistence\": \"none\", \"can_load\": false}, \"retained_computed_grant_reference\": ");
+    raw(", \"artifact_loaded\": false, \"service_started\": false, \"persistence\": \"none\", \"can_load\": false}, \"retained_module_manifest_reference\": ");
+    emit_module_load_gate_manifest_reference_compact(binding);
+    raw(", \"retained_computed_grant_reference\": ");
     emit_module_load_gate_retained_reference_compact(binding);
     raw(", \"retained_audit_rollback_reference\": ");
     emit_module_load_gate_audit_rollback_reference_compact(binding);
@@ -7575,7 +8571,11 @@ fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoadGateBinding
     emit_module_load_gate_service_slot_reservation_compact(binding);
     raw(", \"audit_rollback_requirements\": ");
     emit_module_load_gate_audit_rollback_requirements_compact(binding);
-    raw(", \"blocked_by\": [{\"gate\": \"module_manifest\", \"state\": \"missing\", \"reason\": \"module_manifest_missing\"}, {\"gate\": \"candidate_artifact\", \"state\": \"missing\", \"reason\": \"candidate_artifact_missing\"}, {\"gate\": \"vm_test_report\", \"state\": \"missing\", \"reason\": \"vm_test_report_missing\"}, {\"gate\": \"local_attestation\", \"state\": \"missing\", \"reason\": \"local_attestation_missing\"}, {\"gate\": \"computed_capability_grant\", \"state\": ");
+    raw(", \"blocked_by\": [{\"gate\": \"module_manifest\", \"state\": ");
+    json_str(module_load_gate_manifest_state(binding));
+    raw(", \"reason\": ");
+    json_str(module_load_gate_manifest_reason(binding));
+    raw("}, {\"gate\": \"candidate_artifact\", \"state\": \"missing\", \"reason\": \"candidate_artifact_missing\"}, {\"gate\": \"vm_test_report\", \"state\": \"missing\", \"reason\": \"vm_test_report_missing\"}, {\"gate\": \"local_attestation\", \"state\": \"missing\", \"reason\": \"local_attestation_missing\"}, {\"gate\": \"computed_capability_grant\", \"state\": ");
     json_str(module_load_gate_computed_grant_state(binding));
     raw(", \"reason\": ");
     json_str(module_load_gate_computed_grant_reason(binding));
@@ -7594,6 +8594,35 @@ fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoadGateBinding
     raw("}, {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}], \"required\": [\"raios.module_manifest.v0\", \"candidate_artifact_sha256\", \"raios.vm_test_report.v0\", \"raios.local_attestation.v0\", \"raios.computed_capability_grant.v0\", \"local_approval\", \"raios.audit_record.v0\", \"rollback_plan\", \"ram_only_service_slot\"], \"evidence\": {\"event_scope\": \"current_boot\", ");
     emit_module_load_gate_evidence_hashes_compact(binding);
     raw(", \"service_inventory_change\": \"none\", \"load_attempted\": false}}");
+}
+
+fn emit_module_load_gate_manifest_reference_compact(binding: event_log::ModuleLoadGateBinding) {
+    if let Some(reference) = binding.manifest_reference {
+        if module_load_gate_manifest_reference_rejected(binding) {
+            raw("{\"state\": \"rejected\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
+            json_event_id_option(binding.manifest_reference_event_id);
+            raw(", \"schema\": \"raios.module_manifest_reference.v0\", \"status\": ");
+            json_str(binding.manifest_reference_status);
+            raw(", \"reason\": ");
+            json_str(binding.manifest_reference_reason);
+            raw(", \"classification\": \"local_only\", \"authorizes_guest_load\": false, \"can_load_now\": false, \"load_attempted\": false}");
+            return;
+        }
+
+        raw("{\"state\": \"present\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": ");
+        json_event_id_option(binding.manifest_reference_event_id);
+        raw(", \"schema\": \"raios.module_manifest_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"classification\": \"local_only\", \"accepts_manifest_json\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"hashes\": {\"manifest_reference_hash\": ");
+        json_sha256(reference.manifest_reference_hash);
+        raw(", \"manifest_hash\": ");
+        json_sha256(reference.manifest_hash);
+        raw("}}");
+    } else {
+        raw("{\"state\": \"missing\", \"retention\": \"current_boot_ram_event_log\", \"event_id\": null, \"schema\": \"raios.module_manifest_reference.v0\", \"status\": ");
+        json_str(binding.manifest_reference_status);
+        raw(", \"reason\": ");
+        json_str(binding.manifest_reference_reason);
+        raw(", \"can_load_now\": false, \"load_attempted\": false}");
+    }
 }
 
 fn emit_module_load_gate_retained_reference_compact(binding: event_log::ModuleLoadGateBinding) {
@@ -7716,8 +8745,6 @@ fn emit_module_load_gate_evidence_hashes_compact(binding: event_log::ModuleLoadG
     if let Some(reference) = binding.retained_reference {
         raw("\"computed_capability_grant_hash\": ");
         json_sha256(reference.computed_grant_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
         raw(", \"artifact_hash\": ");
         json_sha256(reference.artifact_hash);
         raw(", \"vm_test_report_hash\": ");
@@ -7725,7 +8752,18 @@ fn emit_module_load_gate_evidence_hashes_compact(binding: event_log::ModuleLoadG
         raw(", \"local_attestation_hash\": ");
         json_sha256(reference.local_attestation_hash);
     } else {
-        raw("\"computed_capability_grant_hash\": null, \"manifest_hash\": null, \"artifact_hash\": null, \"vm_test_report_hash\": null, \"local_attestation_hash\": null");
+        raw("\"computed_capability_grant_hash\": null, \"artifact_hash\": null, \"vm_test_report_hash\": null, \"local_attestation_hash\": null");
+    }
+    if let Some(reference) = binding
+        .manifest_reference
+        .filter(|_| module_load_gate_manifest_reference_valid(binding))
+    {
+        raw(", \"manifest_reference_hash\": ");
+        json_sha256(reference.manifest_reference_hash);
+        raw(", \"manifest_hash\": ");
+        json_sha256(reference.manifest_hash);
+    } else {
+        raw(", \"manifest_reference_hash\": null, \"manifest_hash\": null");
     }
     if let Some(reference) = binding
         .audit_rollback_reference
@@ -7768,6 +8806,8 @@ fn emit_module_load_gate_audit_rollback_requirements_compact(
     emit_module_load_gate_required_hashes_compact(binding);
     raw("}, \"retained_reference_event_id\": ");
     json_event_id_option(binding.retained_reference_event_id);
+    raw(", \"retained_manifest_reference_event_id\": ");
+    json_event_id_option(binding.manifest_reference_event_id);
     raw(", \"retained_audit_rollback_reference_event_id\": ");
     json_event_id_option(binding.audit_rollback_reference_event_id);
     raw(", \"retained_service_slot_reservation_event_id\": ");
@@ -7783,8 +8823,6 @@ fn emit_module_load_gate_required_hashes_compact(binding: event_log::ModuleLoadG
     if let Some(reference) = binding.retained_reference {
         raw("\"computed_capability_grant_hash\": ");
         json_sha256(reference.computed_grant_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
         raw(", \"artifact_hash\": ");
         json_sha256(reference.artifact_hash);
         raw(", \"vm_test_report_hash\": ");
@@ -7792,7 +8830,18 @@ fn emit_module_load_gate_required_hashes_compact(binding: event_log::ModuleLoadG
         raw(", \"local_attestation_hash\": ");
         json_sha256(reference.local_attestation_hash);
     } else {
-        raw("\"computed_capability_grant_hash\": null, \"manifest_hash\": null, \"artifact_hash\": null, \"vm_test_report_hash\": null, \"local_attestation_hash\": null");
+        raw("\"computed_capability_grant_hash\": null, \"artifact_hash\": null, \"vm_test_report_hash\": null, \"local_attestation_hash\": null");
+    }
+    if let Some(reference) = binding
+        .manifest_reference
+        .filter(|_| module_load_gate_manifest_reference_valid(binding))
+    {
+        raw(", \"manifest_reference_hash\": ");
+        json_sha256(reference.manifest_reference_hash);
+        raw(", \"manifest_hash\": ");
+        json_sha256(reference.manifest_hash);
+    } else {
+        raw(", \"manifest_reference_hash\": null, \"manifest_hash\": null");
     }
     if let Some(reference) = binding
         .audit_rollback_reference
@@ -9016,12 +10065,15 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         } else {
             "cap.provider.context_export.read"
         }
-    } else if method_eq(method, "module.grant_diagnostic")
+    } else if method_eq(method, "module.manifest_diagnostic")
+        || method_eq(method, "module.manifest_diagnostic_selftest")
+        || method_eq(method, "module.grant_diagnostic")
         || method_eq(method, "module.grant_diagnostic_selftest")
         || method_eq(method, "module.audit_rollback_diagnostic")
         || method_eq(method, "module.audit_rollback_diagnostic_selftest")
         || method_eq(method, "module.service_slot_diagnostic")
         || method_eq(method, "module.service_slot_diagnostic_selftest")
+        || method_eq(method, "module.load_gate_manifest_selftest")
         || method_eq(method, "module.load_gate_retained_selftest")
         || method_eq(method, "module.load_gate_audit_rollback_selftest")
         || method_eq(method, "module.load_gate_service_slot_selftest")
@@ -9105,6 +10157,14 @@ fn provider_context_injection_gate_selftest_method(method: &str) -> bool {
     method_head_eq(method, "provider.context_injection_gate_selftest")
 }
 
+fn module_manifest_diagnostic_method(method: &str) -> bool {
+    method_head_eq(method, "module.manifest_diagnostic")
+}
+
+fn module_manifest_diagnostic_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "module.manifest_diagnostic_selftest")
+}
+
 fn module_grant_diagnostic_method(method: &str) -> bool {
     method_head_eq(method, "module.grant_diagnostic")
         || method_head_eq(method, "module.load_gate_diagnostic")
@@ -9130,6 +10190,11 @@ fn module_service_slot_diagnostic_method(method: &str) -> bool {
 
 fn module_service_slot_diagnostic_selftest_method(method: &str) -> bool {
     method_head_eq(method, "module.service_slot_diagnostic_selftest")
+}
+
+fn module_load_gate_manifest_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "module.load_gate_manifest_selftest")
+        || method_head_eq(method, "module.manifest_gate_selftest")
 }
 
 fn module_load_gate_retained_selftest_method(method: &str) -> bool {
@@ -9245,6 +10310,16 @@ fn provider_context_export_arg(method: &str) -> &str {
         "provider.context_injection_gate".len()
     } else if method_head_eq(method, "provider.context_injection_gate_selftest") {
         "provider.context_injection_gate_selftest".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn module_manifest_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(method, "module.manifest_diagnostic") {
+        "module.manifest_diagnostic".len()
     } else {
         return "";
     };

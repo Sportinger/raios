@@ -21,6 +21,8 @@ V0 records:
 - read-only `raios.agent.v0` responses
 - `capability_denied` outcomes for known mutating methods
 - `raios.module_load_gate.v0` bindings for denied module/service load attempts
+- local-only `raios.module_manifest_reference.v0` bindings for valid
+  current-boot module manifest hash references
 - local-only `raios.module_computed_grant_reference.v0` bindings for valid
   current-boot module computed-grant hash references
 - local-only `raios.module_audit_rollback_reference.v0` bindings for valid
@@ -136,10 +138,15 @@ evidence: missing_required_evidence, capability_denied
 ```
 
 `module.load_ephemeral` and `service.load_ephemeral` denials add
-`module_load_gate_evaluated`, `computed_capability_grant_reference_checked`,
-`durable_audit_record_required`, `rollback_plan_required`,
+`module_load_gate_evaluated`, `module_manifest_reference_checked`,
+`computed_capability_grant_reference_checked`, `durable_audit_record_required`,
+`rollback_plan_required`,
 `rollback_bindings_required`, `service_inventory_unchanged`, and
 `load_not_attempted` evidence and attach a `raios.module_load_gate.v0` binding.
+If valid manifest hash-reference evidence was retained earlier in the same
+boot, the denial snapshots that reference as non-authorizing current-boot
+evidence only after the live gate validates the retained event and canonical
+reference hash.
 If valid audit/rollback hash-reference evidence was retained earlier in the
 same boot, the denial snapshots that reference as non-authorizing current-boot
 evidence only after the live gate validates the retained reference against the
@@ -198,6 +205,7 @@ structured non-authorizing binding:
     "missing_required_evidence",
     "capability_denied",
     "module_load_gate_evaluated",
+    "module_manifest_reference_checked",
     "computed_capability_grant_reference_checked",
     "durable_audit_record_required",
     "rollback_plan_required",
@@ -213,7 +221,7 @@ structured non-authorizing binding:
     "risk": "modify_ram",
     "target": "live_service_graph",
     "gate_state": {
-      "module_manifest": "missing",
+      "module_manifest": "missing | retained_hash_reference_only | rejected_retained_reference",
       "candidate_artifact": "missing",
       "vm_test_report": "missing",
       "local_attestation": "missing",
@@ -227,6 +235,11 @@ structured non-authorizing binding:
       "service_started": false,
       "persistence": "none",
       "can_load": false
+    },
+    "retained_module_manifest_reference": {
+      "state": "missing | present | rejected",
+      "schema": "raios.module_manifest_reference.v0",
+      "status": "missing | retained_hash_reference_load_still_denied | rejected"
     },
     "retained_computed_grant_reference": {
       "state": "missing | present",
@@ -258,6 +271,7 @@ structured non-authorizing binding:
     },
     "evidence": {
       "computed_capability_grant_hash": "null | sha256:<retained grant hash>",
+      "manifest_reference_hash": "null | sha256:<retained manifest reference hash>",
       "manifest_hash": "null | sha256:<retained manifest hash>",
       "artifact_hash": "null | sha256:<retained artifact hash>",
       "vm_test_report_hash": "null | sha256:<retained report hash>",
@@ -289,6 +303,55 @@ The same binding also exposes
 shape names the future `raios.audit_record.v0` and `raios.rollback_plan.v0`
 bindings, reports retained hash-reference-only states when available, disables
 writes, and does not create durable state.
+
+## Module Manifest Reference Event
+
+When `module.manifest_diagnostic` receives a valid current-boot hash reference,
+Stage-0 records one local-only RAM event. This event retains hashes only; it
+does not retain manifest JSON, artifact bytes, signed module data, or registry
+records.
+
+```json
+{
+  "schema": "audit.event.v0",
+  "kind": "module.manifest_reference.retained",
+  "source_method": "module.manifest_diagnostic",
+  "classification": "local_only",
+  "outcome": "retained_hash_reference_load_still_denied",
+  "requested_capability": "cap.module.grant_diagnostic.read",
+  "risk": "observe",
+  "resource": "live_service_graph",
+  "reason": "module_manifest_reference_valid_for_current_boot",
+  "bindings": {
+    "schema": "raios.module_manifest_reference.v0",
+    "status": "retained_hash_reference_load_still_denied",
+    "scope": "current_boot",
+    "classification": "local_only",
+    "requested_capability": "cap.module.load_ephemeral",
+    "load_mode": "ram_only",
+    "manifest_schema": "raios.module_manifest.v0",
+    "accepts_manifest_json": false,
+    "accepts_artifact_bytes": false,
+    "accepts_unsigned_service_code": false,
+    "authorizes_guest_load": false,
+    "can_load_now": false,
+    "service_inventory_change": "none",
+    "load_attempted": false,
+    "hashes": {
+      "manifest_reference_hash": "sha256:<64 hex chars>",
+      "manifest_hash": "sha256:<64 hex chars>"
+    }
+  },
+  "persistence": "none"
+}
+```
+
+The latest retained manifest reference is visible through
+`module.manifest_diagnostic` as `retained_manifest_reference` and through later
+denied `module.load_ephemeral` bindings after live validation. It remains
+diagnostic evidence only and cannot satisfy candidate artifact, VM report,
+local attestation, computed grant, audit, rollback, service-slot, or loader
+gates.
 
 When the latest retained `raios.module_audit_rollback_reference.v0` fails the
 live predicate, the load-gate binding retains only its event id, schema,
@@ -785,6 +848,9 @@ positive export authority by itself.
   `context_attached_to_provider_body: false`.
 - Module computed-grant reference events must keep `grants_capability: false`,
   `grants_load_now: false`, `authorizes_guest_load: false`,
+  `can_load_now: false`, and `load_attempted: false`.
+- Module manifest reference events must keep `accepts_manifest_json: false`,
+  `accepts_artifact_bytes: false`, `authorizes_guest_load: false`,
   `can_load_now: false`, and `load_attempted: false`.
 - Future persistent audit records must bind hashes, approvals, rollback state,
   and durable timestamps separately. This V0 log is not that ledger.

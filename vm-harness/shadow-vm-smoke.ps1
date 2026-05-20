@@ -378,6 +378,9 @@ function Write-Report {
             "agent memory.supersede_fact",
             "agent memory.redact",
             "agent memory.compact",
+            "agent module.manifest_diagnostic",
+            "agent module.manifest_diagnostic <valid hash reference>",
+            "agent module.manifest_diagnostic_selftest",
             "agent module.grant_diagnostic",
             "agent module.grant_diagnostic <valid hash reference>",
             "agent module.grant_diagnostic_selftest",
@@ -387,6 +390,7 @@ function Write-Report {
             "agent module.service_slot_diagnostic",
             "agent module.service_slot_diagnostic <valid hash reference>",
             "agent module.service_slot_diagnostic_selftest",
+            "agent module.load_gate_manifest_selftest",
             "agent module.load_gate_retained_selftest",
             "agent module.load_gate_audit_rollback_selftest",
             "agent module.load_gate_service_slot_selftest",
@@ -746,6 +750,66 @@ try {
     Assert-LogContains -Name "policy:memory_audit_required" -Needle "raios.audit_record.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:memory_persistence_required" -Needle "raios.memory_persistence.v0" -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "agent module.manifest_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.manifest_diagnostic"
+    Assert-LogContains -Name "protocol:module_manifest_diag_schema" -Needle '"schema": "raios.module_manifest_reference_diagnostic.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_no_manifest_json" -Needle '"accepts_manifest_json": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_no_unsigned_code" -Needle '"accepts_unsigned_service_code": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_absent" -Needle '"validation_status": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_absent_reason" -Needle '"validation_reason": "module_manifest_reference_absent"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_manifest_missing" -Needle '"module_manifest": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_can_load_false" -Needle '"can_load_now": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    $moduleGrantManifestHash = "1111111111111111111111111111111111111111111111111111111111111111"
+    $moduleManifestReferenceCanonical = @(
+        "canonicalization=raios.module_manifest_reference.canonical.v0",
+        "schema=raios.module_manifest_reference.v0",
+        "requested_capability=cap.module.load_ephemeral",
+        "load_mode=ram_only",
+        "subject=agent.session.serial",
+        "resource=live_service_graph",
+        "scope=current_boot",
+        "manifest_schema=raios.module_manifest.v0",
+        "manifest_sha256=$moduleGrantManifestHash",
+        "authorizes_guest_load=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $moduleManifestReferenceHash = Get-TextSha256 -Text $moduleManifestReferenceCanonical
+    $moduleManifestCommand = "agent module.manifest_diagnostic $moduleManifestReferenceHash $moduleGrantManifestHash"
+
+    Send-AgentCommand -Command $moduleManifestCommand -ExpectedMarker "RAIOS_AGENT_END module.manifest_diagnostic"
+    Assert-LogContains -Name "protocol:module_manifest_diag_valid_status" -Needle '"validation_status": "valid_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_valid_reason" -Needle '"validation_reason": "module_manifest_reference_valid_but_loader_and_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_retention_mutation" -Needle '"global_event_log_mutation": "valid_hash_reference_retention_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_retained_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_retained_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_recorded_event_id" -Needle '"recorded_event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_retained_matches" -Needle '"matches_current_reference": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_manifest_present" -Needle '"manifest_reference_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_ref_hash_echo" -Needle "`"manifest_reference_hash`": `"sha256:$moduleManifestReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_manifest_hash_echo" -Needle "`"manifest_hash`": `"sha256:$moduleGrantManifestHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_diag_still_no_load" -Needle '"can_load_now": false' -TimeoutSeconds 1
+
+    $moduleManifestResponse = Get-LastAgentResponseJson -Method "module.manifest_diagnostic"
+    $moduleManifestRetainedReferenceEventId = [string]$moduleManifestResponse.body.result.retained_manifest_reference.event_id
+    Assert-CurrentBootEventId -Name "protocol:module_manifest_retained_reference_event_id_captured" -Value $moduleManifestRetainedReferenceEventId
+
+    Send-AgentCommand -Command "agent module.manifest_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.manifest_diagnostic_selftest"
+    Assert-LogContains -Name "protocol:module_manifest_selftest_schema" -Needle '"schema": "raios.module_manifest_reference_diagnostic_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_selftest_no_records" -Needle '"creates_retained_manifest_reference_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_selftest_count" -Needle '"case_count": 5' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_selftest_absent_case" -Needle '"case": "absent_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_selftest_valid_case" -Needle '"case": "accepted_current_boot_manifest_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_selftest_stale_case" -Needle '"case": "stale_previous_boot_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_selftest_mismatch_case" -Needle '"case": "mismatched_manifest_hash_reference"' -TimeoutSeconds 1
+
     Send-AgentCommand -Command "agent module.grant_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic"
     Assert-LogContains -Name "protocol:module_grant_diag_schema" -Needle '"schema": "raios.module_computed_grant_diagnostic.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_diag_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
@@ -762,7 +826,6 @@ try {
     Assert-LogContains -Name "protocol:module_grant_diag_loader_unavailable" -Needle '"loader", "state": "unavailable"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_diag_slot_unallocated" -Needle '"service_slot", "state": "unallocated"' -TimeoutSeconds 1
 
-    $moduleGrantManifestHash = "1111111111111111111111111111111111111111111111111111111111111111"
     $moduleGrantArtifactHash = "2222222222222222222222222222222222222222222222222222222222222222"
     $moduleGrantReportHash = "3333333333333333333333333333333333333333333333333333333333333333"
     $moduleGrantAttestationHash = "4444444444444444444444444444444444444444444444444444444444444444"
@@ -1037,6 +1100,39 @@ try {
     Assert-LogContains -Name "protocol:module_service_slot_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "agent module.load_gate_manifest_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_manifest_selftest"
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_schema" -Needle '"schema": "raios.module_load_gate_manifest_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_records" -Needle '"creates_retained_manifest_reference_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_manifest_json" -Needle '"accepts_manifest_json": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_unsigned_code" -Needle '"accepts_unsigned_service_code": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_count" -Needle '"case_count": 7' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_missing_case" -Needle '"case": "missing_retained_manifest_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_missing_reason" -Needle '"actual_reason": "retained_module_manifest_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_valid_case" -Needle '"case": "accepted_current_boot_manifest_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_valid_status" -Needle '"actual_status": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_valid_state" -Needle '"actual_module_manifest_state": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_valid_hash_exposed" -Needle '"accepted_manifest_hash": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_stale_case" -Needle '"case": "stale_dropped_manifest_reference_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_stale_reason" -Needle '"actual_reason": "retained_module_manifest_reference_stale_or_dropped_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_previous_case" -Needle '"case": "previous_boot_or_unretained_manifest_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_previous_reason" -Needle '"actual_reason": "retained_module_manifest_reference_previous_boot_or_unretained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_wrong_schema_case" -Needle '"case": "wrong_schema_or_variant"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_wrong_schema_reason" -Needle '"actual_reason": "retained_module_manifest_reference_wrong_schema_or_variant"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_substituted_case" -Needle '"case": "substituted_manifest_reference_record"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_substituted_reason" -Needle '"actual_reason": "retained_module_manifest_reference_substituted_record"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_hash_case" -Needle '"case": "manifest_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_hash_reason" -Needle '"actual_reason": "retained_module_manifest_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_rejected_state" -Needle '"actual_module_manifest_state": "rejected_retained_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_rejected_hash_not_exposed" -Needle '"accepted_manifest_hash": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
     Send-AgentCommand -Command "agent module.load_gate_retained_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_retained_selftest"
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_schema" -Needle '"schema": "raios.module_load_gate_retained_reference_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
@@ -1167,7 +1263,12 @@ try {
     Assert-LogContains -Name "policy:module_load_mode_ram_only" -Needle '"load_mode": "ram_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_load_capability" -Needle '"requested_capability": "cap.module.load_ephemeral"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_load_target" -Needle '"target": "live_service_graph"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_manifest_missing" -Needle '"module_manifest": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_manifest_retained" -Needle '"module_manifest": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_manifest_reference" -Needle '"retained_module_manifest_reference": {' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_manifest_present" -Needle '"schema": "raios.module_manifest_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_manifest_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_manifest_event_id" -Needle '"retained_manifest_reference_event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_manifest_ref_hash" -Needle "`"manifest_reference_hash`": `"sha256:$moduleManifestReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:candidate_artifact_missing" -Needle '"candidate_artifact": "missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_vm_report_missing" -Needle '"vm_test_report": "missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_local_attestation_missing" -Needle '"local_attestation": "missing"' -TimeoutSeconds 1
@@ -1199,7 +1300,7 @@ try {
     Assert-LogContains -Name "policy:module_artifact_not_loaded" -Needle '"artifact_loaded": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_service_not_started" -Needle '"service_started": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_manifest_missing_reason" -Needle '"reason": "module_manifest_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_manifest_retained_reason" -Needle '"reason": "retained_module_manifest_reference_not_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:candidate_artifact_missing_reason" -Needle '"reason": "candidate_artifact_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_vm_report_missing_reason" -Needle '"reason": "vm_test_report_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_local_attestation_missing_reason" -Needle '"reason": "local_attestation_missing"' -TimeoutSeconds 1
@@ -1236,6 +1337,13 @@ try {
     Assert-LogContains -Name "policy:module_service_inventory_unchanged" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent audit.events 32" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+    Assert-LogContains -Name "protocol:module_manifest_audit_source" -Needle '"source_method": "module.manifest_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_audit_kind" -Needle '"kind": "module.manifest_reference.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_manifest_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_audit_ref_hash" -Needle "`"manifest_reference_hash`": `"sha256:$moduleManifestReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_audit_hash" -Needle "`"manifest_hash`": `"sha256:$moduleGrantManifestHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_manifest_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_source" -Needle '"source_method": "module.grant_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_kind" -Needle '"kind": "module.computed_grant_reference.retained"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1

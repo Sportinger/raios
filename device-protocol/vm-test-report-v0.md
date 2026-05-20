@@ -113,6 +113,9 @@ The JSON report contains:
     "agent memory.supersede_fact",
     "agent memory.redact",
     "agent memory.compact",
+    "agent module.manifest_diagnostic",
+    "agent module.manifest_diagnostic <valid hash reference>",
+    "agent module.manifest_diagnostic_selftest",
     "agent module.grant_diagnostic",
     "agent module.grant_diagnostic <valid hash reference>",
     "agent module.grant_diagnostic_selftest",
@@ -122,6 +125,7 @@ The JSON report contains:
     "agent module.service_slot_diagnostic",
     "agent module.service_slot_diagnostic <valid hash reference>",
     "agent module.service_slot_diagnostic_selftest",
+    "agent module.load_gate_manifest_selftest",
     "agent module.load_gate_retained_selftest",
     "agent module.load_gate_audit_rollback_selftest",
     "agent module.load_gate_service_slot_selftest",
@@ -163,19 +167,28 @@ denied `provider.context_export` gate with provider writes still
 read-only `provider.context_gate` missing-binding state, the local-only
 `provider.context_gate_selftest` negative predicate cases, the separate
 `provider.context_injection_gate` missing-final-authorization state, the
-  `provider.context_injection_gate_selftest` negative final-authorization cases,
+`provider.context_injection_gate_selftest` negative final-authorization cases,
 denial audit records that do not satisfy those gates, structured event-log
 denial bindings with packet and field-list hashes, negative checks for positive
 provider binding schemas, positive export authorization, and fake provider
 request envelopes from `provider.context_export`, query/trace locators, RAM-only
 event/audit reads, denied memory mutations, and denied module loading through
 `raios.module_load_gate.v0`. It also checks the read-only
+`raios.module_manifest_reference_diagnostic.v0` absent-reference state, a valid
+manifest hash-reference command that records
+`raios.module_manifest_reference.v0` in the current-boot event log, and
+`raios.module_manifest_reference_diagnostic_selftest.v0` cases for accepted,
+absent, stale, mismatched, and invalid manifest references. The current
+predicate set also checks the read-only
 `raios.module_computed_grant_diagnostic.v0` absent-reference state, a valid
 full hash-reference command that records
 `raios.module_computed_grant_reference.v0` in the current-boot event log, and
 `raios.module_computed_grant_diagnostic_selftest.v0` cases for accepted,
-absent, stale, mismatched, and wrong-policy computed grant references. The
-current predicate set also checks
+absent, stale, mismatched, and wrong-policy computed grant references. It also
+checks `raios.module_load_gate_manifest_selftest.v0` cases for
+missing, accepted-current-boot-but-denied, stale/dropped,
+previous-boot-or-unretained, wrong-schema, substituted-record, and mismatched
+manifest-reference candidates. The current predicate set also checks
 `raios.module_load_gate_retained_reference_selftest.v0` cases for missing,
 accepted-current-boot-but-denied, stale/dropped, previous-boot-or-unretained,
 wrong-schema, substituted-record, and mismatched-hash retained-reference
@@ -201,12 +214,13 @@ hash-reference commands, RAM-only retention as
 accepted, stale, mismatched-hash, and invalid-slot cases. The
 module-load assertions verify the current-boot audit event binding, full
 missing-evidence list, audit/rollback requirement schema, retained
-grant/manifest/artifact/report/attestation hashes when a valid grant reference
-was retained, live rejection of a wrong-schema retained audit/rollback
-reference, retained audit/rollback reference state and hashes when a valid
-audit/rollback reference was retained, live retained service-slot reservation
-state and reservation hash when a valid reservation was retained, unchanged
-service inventory, and
+manifest hash evidence when a valid manifest reference was retained, retained
+grant/artifact/report/attestation hashes when a valid grant reference was
+retained, live rejection of a wrong-schema retained audit/rollback reference,
+retained audit/rollback reference state and hashes when a valid audit/rollback
+reference was retained, live retained service-slot reservation state and
+reservation hash when a valid reservation was retained, unchanged service
+inventory, and
 `load_attempted: false`. The latest verified report is
-`release/vm-reports/shadow-20260520-171035-17848.json` with 653/653
+`release/vm-reports/shadow-20260520-173957-23812.json` with 733/733
 predicates.
