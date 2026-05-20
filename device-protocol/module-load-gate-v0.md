@@ -174,6 +174,27 @@ event, stale/dropped event, substituted record, mismatched hash, or mismatched
 slot, the denied response reports `rejected_retained_reference`; audit and
 rollback hashes stay `null` in accepted evidence fields.
 
+`raios.module_service_slot_reservation.v0` now defines the first
+non-authorizing service-slot reservation evidence. The guest-side
+`module.service_slot_diagnostic` method validates only a canonical hash
+reference over:
+
+```text
+retained_reference_event_id
+retained_audit_rollback_reference_event_id
+computed_capability_grant_sha256
+audit_record_sha256
+rollback_plan_sha256
+pre_load_service_inventory_sha256
+ram_only_service_slot_id
+```
+
+A valid reference is retained as local-only current-boot event evidence, but it
+does not allocate the slot, create service inventory records, load an artifact,
+or grant execution. The next gate slice should revalidate the retained
+reservation before exposing it inside `raios.module_load_gate.v0`; until then
+the live load gate still reports `service_slot: unallocated`.
+
 ## Event Binding
 
 The current-boot event record uses:
@@ -308,6 +329,27 @@ and `load_attempted: false`. The selftest covers stale, previous-boot,
 wrong-schema, substituted, and mismatched audit/rollback references without
 mutating the global event log.
 
+## Service-Slot Reservation Diagnostic
+
+The read-only method:
+
+```text
+agent module.service_slot_diagnostic
+agent module.service_slot_diagnostic <reservation_hash> <retained_reference_event_id> <retained_audit_rollback_reference_event_id> <computed_grant_hash> <audit_record_hash> <rollback_plan_hash> <pre_load_service_inventory_hash> <ram_only_service_slot_id> [current_boot]
+agent module.service_slot_diagnostic_selftest
+```
+
+emits `raios.module_service_slot_reservation_diagnostic.v0` and
+`raios.module_service_slot_reservation_diagnostic_selftest.v0`. It validates
+only canonical hashes and current-boot ids. A valid command records a
+local-only `raios.module_service_slot_reservation.v0` event binding with
+`global_event_log_mutation: valid_hash_reference_retention_only`, keeps
+`allocates_service_slot: false`, `creates_service_inventory_records: false`,
+`loads_artifact: false`, `service_inventory_change: none`,
+`can_load_now: false`, and `load_attempted: false`. The selftest covers absent,
+accepted-current-boot, stale, mismatched reservation hash, and invalid
+`ram_only:` slot references without mutating the global event log.
+
 ## Invariants
 
 - No artifact bytes are loaded by this gate.
@@ -318,6 +360,8 @@ mutating the global event log.
   loader token.
 - A valid `module.grant_diagnostic` hash reference is read-only evidence, not a
   loader token.
+- A valid `module.service_slot_diagnostic` reservation reference is read-only
+  evidence, not a service inventory row or allocated slot.
 - A retained `raios.module_computed_grant_reference.v0` event binding is
   current-boot diagnostic evidence only; it is not durable audit authority.
 - `raios.module_load_gate_audit_rollback_requirements.v0` is a requirement

@@ -116,6 +116,12 @@ The JSON report contains:
     "agent module.grant_diagnostic",
     "agent module.grant_diagnostic <valid hash reference>",
     "agent module.grant_diagnostic_selftest",
+    "agent module.audit_rollback_diagnostic",
+    "agent module.audit_rollback_diagnostic <valid hash reference>",
+    "agent module.audit_rollback_diagnostic_selftest",
+    "agent module.service_slot_diagnostic",
+    "agent module.service_slot_diagnostic <valid hash reference>",
+    "agent module.service_slot_diagnostic_selftest",
     "agent module.load_gate_retained_selftest",
     "agent module.load_gate_audit_rollback_selftest",
     "module.load_ephemeral",
@@ -181,7 +187,12 @@ references, retained computed-grant, audit, and rollback hash mismatches,
 retained service-slot mismatch, retained grant hash mismatch,
 manifest/artifact/VM-report/local-attestation mismatches, local approval
 mismatch, rollback-plan hash mismatch, rollback artifact mismatch, and rollback
-service-slot mismatch. The
+service-slot mismatch. It also checks
+`raios.module_service_slot_reservation_diagnostic.v0` absent and valid
+hash-reference commands, RAM-only retention as
+`raios.module_service_slot_reservation.v0`, and
+`raios.module_service_slot_reservation_diagnostic_selftest.v0` absent,
+accepted, stale, mismatched-hash, and invalid-slot cases. The
 module-load assertions verify the current-boot audit event binding, full
 missing-evidence list, audit/rollback requirement schema, retained
 grant/manifest/artifact/report/attestation hashes when a valid grant reference
@@ -189,5 +200,5 @@ was retained, live rejection of a wrong-schema retained audit/rollback
 reference, retained audit/rollback reference state and hashes when a valid
 audit/rollback reference was retained, unchanged service inventory, and
 `load_attempted: false`. The latest verified report is
-`release/vm-reports/shadow-20260520-162329-23696.json` with 534/534
+`release/vm-reports/shadow-20260520-164131-22208.json` with 593/593
 predicates.

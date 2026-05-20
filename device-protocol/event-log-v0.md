@@ -25,6 +25,8 @@ V0 records:
   current-boot module computed-grant hash references
 - local-only `raios.module_audit_rollback_reference.v0` bindings for valid
   current-boot module audit/rollback hash references
+- local-only `raios.module_service_slot_reservation.v0` bindings for valid
+  current-boot RAM-only service-slot reservation hash references
 - `capability_denied` outcomes for provider context export attempts
 - local provider request envelope creation on the real direct OpenAI request path
 - positive provider request binding records after pinned/WebPKI provider trust
@@ -143,6 +145,15 @@ same boot, the denial snapshots that reference as non-authorizing current-boot
 evidence only after the live gate validates the retained reference against the
 retained computed-grant event, a prior denied load event, canonical hashes, and
 the `ram_only:` service-slot id.
+
+`module.service_slot_diagnostic` can record a separate local-only
+`raios.module_service_slot_reservation.v0` binding after validating a canonical
+reservation hash over the retained computed-grant reference id, retained
+audit/rollback reference id, computed-grant hash, audit-record hash,
+rollback-plan hash, pre-load service-inventory hash, and `ram_only:` slot id.
+The binding is hash evidence only: it reports `allocates_service_slot: false`,
+`creates_service_inventory_records: false`, `can_load_now: false`, and
+`load_attempted: false`.
 
 Most denial responses include `event_id` and `audit_event_id`, both pointing at
 the current-boot denial record id. `provider.context_export` is stricter: its

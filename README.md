@@ -262,6 +262,10 @@ What boots and works in the VM right now:
 - Guest audit/rollback hash-reference diagnostics for those host
   candidates, retained only as RAM-only current-boot event evidence and still
   non-authorizing
+- Guest service-slot reservation hash-reference diagnostics that bind a
+  `ram_only:` slot id to retained computed-grant and audit/rollback references,
+  canonical hashes, and the pre-load service-inventory hash while allocating no
+  slot and loading nothing
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - The denied module load gate reports retained computed-grant references as

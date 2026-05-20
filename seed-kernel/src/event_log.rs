@@ -104,6 +104,19 @@ const MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE: &[&str] = &[
     "hash_reference_only",
     "load_not_attempted",
 ];
+const MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE: &[&str] = &[
+    "module_service_slot_reservation",
+    "reservation_hash",
+    "retained_reference_event_id",
+    "retained_audit_rollback_reference_event_id",
+    "computed_capability_grant_hash",
+    "audit_record_hash",
+    "rollback_plan_hash",
+    "pre_load_service_inventory_hash",
+    "ram_only_service_slot_id",
+    "hash_reference_only",
+    "load_not_attempted",
+];
 
 static LOG: Mutex<EventLog> = Mutex::new(EventLog::new());
 
@@ -249,6 +262,18 @@ pub struct ModuleAuditRollbackReference {
 }
 
 #[derive(Clone, Copy)]
+pub struct ModuleServiceSlotReservation {
+    pub reservation_hash: [u8; 32],
+    pub retained_reference_event_id: EventId,
+    pub retained_audit_rollback_reference_event_id: EventId,
+    pub computed_grant_hash: [u8; 32],
+    pub audit_record_hash: [u8; 32],
+    pub rollback_plan_hash: [u8; 32],
+    pub pre_load_service_inventory_hash: [u8; 32],
+    pub ram_only_service_slot_id: ModuleServiceSlotId,
+}
+
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateBinding {
     pub retained_reference_event_id: Option<EventId>,
     pub retained_reference: Option<ModuleComputedGrantReference>,
@@ -331,6 +356,7 @@ pub enum EventBindings {
     ProviderExportDenialAudit(ProviderContextHashes),
     ModuleComputedGrantReference(ModuleComputedGrantReference),
     ModuleAuditRollbackReference(ModuleAuditRollbackReference),
+    ModuleServiceSlotReservation(ModuleServiceSlotReservation),
     ModuleLoadGate(ModuleLoadGateBinding),
 }
 
@@ -1037,6 +1063,31 @@ impl EventLog {
         None
     }
 
+    fn latest_module_service_slot_reservation(
+        &self,
+    ) -> Option<(EventId, ModuleServiceSlotReservation)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleServiceSlotReservation(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
     fn check_module_audit_rollback_reference_for_load(
         &self,
         retained: Option<(EventId, ModuleComputedGrantReference)>,
@@ -1514,6 +1565,24 @@ pub fn record_module_audit_rollback_reference(binding: ModuleAuditRollbackRefere
     })
 }
 
+pub fn record_module_service_slot_reservation(binding: ModuleServiceSlotReservation) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.service_slot_reservation.retained",
+        source_method: "module.service_slot_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.module.grant_diagnostic.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "live_service_graph",
+        reason: "service_slot_reservation_valid_for_current_boot",
+        evidence: MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE,
+        bindings: EventBindings::ModuleServiceSlotReservation(binding),
+    })
+}
+
 pub fn record_provider_request_binding_denied(hashes: ProviderContextHashes) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -1675,6 +1744,10 @@ pub fn latest_module_computed_grant_reference() -> Option<(EventId, ModuleComput
 
 pub fn latest_module_audit_rollback_reference() -> Option<(EventId, ModuleAuditRollbackReference)> {
     LOG.lock().latest_module_audit_rollback_reference()
+}
+
+pub fn latest_module_service_slot_reservation() -> Option<(EventId, ModuleServiceSlotReservation)> {
+    LOG.lock().latest_module_service_slot_reservation()
 }
 
 fn normalize_limit(limit: usize) -> usize {

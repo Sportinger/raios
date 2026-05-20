@@ -88,6 +88,11 @@ current boot, not durable authority: it does not write durable audit records,
 install rollback plans, allocate service slots, load artifacts, or change
 `service.inventory.v0`.
 
+The follow-on guest `module.service_slot_diagnostic` path may bind this retained
+audit/rollback reference to a canonical
+`raios.module_service_slot_reservation.v0` hash reference. That service-slot
+reservation record is also non-authorizing and still allocates no slot.
+
 Invalid or absent references keep `mutates_global_event_log: false` and
 `global_event_log_mutation: none`.
 

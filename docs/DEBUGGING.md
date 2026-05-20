@@ -362,6 +362,9 @@ agent module.grant_diagnostic_selftest
 agent module.audit_rollback_diagnostic
 agent module.audit_rollback_diagnostic <audit_record_hash> <rollback_plan_hash> <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> <local_approval_hash> <pre_load_service_inventory_hash> <cleanup_actions_hash> <denial_event_id> <retained_reference_event_id> <ram_only_service_slot_id> [current_boot]
 agent module.audit_rollback_diagnostic_selftest
+agent module.service_slot_diagnostic
+agent module.service_slot_diagnostic <reservation_hash> <retained_reference_event_id> <retained_audit_rollback_reference_event_id> <computed_grant_hash> <audit_record_hash> <rollback_plan_hash> <pre_load_service_inventory_hash> <ram_only_service_slot_id> [current_boot]
+agent module.service_slot_diagnostic_selftest
 agent module.load_gate_retained_selftest
 agent module.load_gate_audit_rollback_selftest
 ```
@@ -381,6 +384,17 @@ When the full hash reference is valid, it records only a local-only current-boot
 `raios.module_audit_rollback_reference.v0` event binding and reports
 `retained_audit_rollback_reference.status:
 retained_hash_reference_load_still_denied`.
+
+The service-slot diagnostic emits
+`raios.module_service_slot_reservation_diagnostic.v0`. It validates a canonical
+reservation hash over retained computed-grant and audit/rollback event ids,
+their hashes, the pre-load service-inventory hash, and a `ram_only:` slot id.
+When valid, it records only a local-only current-boot
+`raios.module_service_slot_reservation.v0` event binding and reports
+`retained_service_slot_reservation.status:
+retained_hash_reference_load_still_denied`; it still keeps
+`allocates_service_slot: false`, `creates_service_inventory_records: false`,
+`service_inventory_change: none`, and `load_attempted: false`.
 
 A valid `module.grant_diagnostic` full hash-reference command records a
 local-only current-boot `raios.module_computed_grant_reference.v0` event binding

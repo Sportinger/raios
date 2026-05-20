@@ -108,7 +108,7 @@ read-only protocol methods:
 | `cap.audit.events.read` | `audit.events` | `observe` | `current_boot` | Read bounded current-boot audit event records. |
 | `cap.provider.context_export.read` | `provider.context_gate`, `provider.context_gate_selftest` | `observe` | `current_boot` | Read provider context gate diagnostics and local predicate selftests. |
 | `cap.provider.context_injection.read` | `provider.context_injection_gate`, `provider.context_injection_gate_selftest` | `observe` | `current_boot` | Read final provider context injection gate diagnostics and local predicate selftests. |
-| `cap.module.grant_diagnostic.read` | `module.grant_diagnostic`, `module.grant_diagnostic_selftest`, `module.audit_rollback_diagnostic`, `module.audit_rollback_diagnostic_selftest`, `module.load_gate_retained_selftest`, `module.load_gate_audit_rollback_selftest` | `observe` | `current_boot` | Read module computed-grant, audit/rollback hash-reference diagnostics, and denied-load gate predicate selftests. |
+| `cap.module.grant_diagnostic.read` | `module.grant_diagnostic`, `module.grant_diagnostic_selftest`, `module.audit_rollback_diagnostic`, `module.audit_rollback_diagnostic_selftest`, `module.service_slot_diagnostic`, `module.service_slot_diagnostic_selftest`, `module.load_gate_retained_selftest`, `module.load_gate_audit_rollback_selftest` | `observe` | `current_boot` | Read module computed-grant, audit/rollback, service-slot reservation hash-reference diagnostics, and denied-load gate predicate selftests. |
 
 `system.snapshot` also reports `capability_denied.for_all_mutating_methods` so an
 agent can discover that mutation is intentionally unavailable.
@@ -178,6 +178,12 @@ is retained as a local-only current-boot
 must revalidate that retained reference before reporting it as accepted
 evidence; rejected retained references remain non-authorizing and expose no
 accepted audit/rollback hashes.
+The read-only `module.service_slot_diagnostic` method can inspect canonical
+`raios.module_service_slot_reservation.v0` hash references without allocating a
+slot or accepting artifact bytes. A valid service-slot reservation reference is
+retained as a local-only current-boot event binding, but still keeps
+`allocates_service_slot: false`, `creates_service_inventory_records: false`,
+`can_load_now: false`, and `load_attempted: false`.
 
 Provider context export maps to `cap.provider.context_export` and risk
 `export`. It is denied until positive provider trust, the

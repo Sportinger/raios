@@ -15,6 +15,16 @@ pub struct ModuleAuditRecordHashInput<'a> {
     pub ram_only_service_slot_id: &'a str,
 }
 
+pub struct ModuleServiceSlotReservationHashInput<'a> {
+    pub retained_reference_event_id: &'a str,
+    pub retained_audit_rollback_reference_event_id: &'a str,
+    pub computed_grant_hash: [u8; 32],
+    pub audit_record_hash: [u8; 32],
+    pub rollback_plan_hash: [u8; 32],
+    pub pre_load_service_inventory_hash: [u8; 32],
+    pub ram_only_service_slot_id: &'a str,
+}
+
 pub fn computed_module_grant_hash(
     manifest_hash: [u8; 32],
     artifact_hash: [u8; 32],
@@ -165,6 +175,69 @@ pub fn computed_module_audit_record_hash(input: ModuleAuditRecordHashInput<'_>) 
     );
     hash_static_line(&mut hash, b"grants_load_now=false", true);
     hash_static_line(&mut hash, b"authorizes_guest_load=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_module_service_slot_reservation_hash(
+    input: ModuleServiceSlotReservationHashInput<'_>,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.module_service_slot_reservation.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.module_service_slot_reservation.v0",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=ram_only", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_str_line(
+        &mut hash,
+        b"retained_reference_event_id",
+        input.retained_reference_event_id,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"retained_audit_rollback_reference_event_id",
+        input.retained_audit_rollback_reference_event_id,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"computed_capability_grant_sha256",
+        input.computed_grant_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"audit_record_sha256",
+        input.audit_record_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"rollback_plan_sha256",
+        input.rollback_plan_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"pre_load_service_inventory_sha256",
+        input.pre_load_service_inventory_hash,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"ram_only_service_slot_id",
+        input.ram_only_service_slot_id,
+        true,
+    );
     hash_static_line(&mut hash, b"service_inventory_change=none", true);
     hash_static_line(&mut hash, b"load_attempted=false", false);
     finalize_sha256(hash)

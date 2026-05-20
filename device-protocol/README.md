@@ -30,6 +30,8 @@ Current V0 docs:
 - `module-audit-rollback-diagnostic-v0.md` - host-side non-authorizing
   audit/rollback diagnostic plus the guest hash-reference diagnostic and
   RAM-only retained reference for future module load gate evidence.
+- `module-service-slot-reservation-v0.md` - guest RAM-only service-slot
+  reservation hash-reference diagnostic and local-only retained event binding.
 - `module-load-gate-v0.md` - denied-by-default current-boot gate for
   `module.load_ephemeral` and `service.load_ephemeral`, including retained
   grant, live-validated retained audit/rollback references, and
