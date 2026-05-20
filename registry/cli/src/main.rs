@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use registry_core::module_audit::ModuleAuditRollbackDiagnosticRequest;
 use registry_core::module_grant::ComputeCapabilityGrantRequest;
 use registry_core::{EvidenceFile, ListFilter, PublishRequest, Registry};
 
@@ -79,6 +80,72 @@ enum Command {
         /// Exact local approval phrase for the evidence tuple
         #[arg(long)]
         approval: String,
+        /// Capability being evaluated
+        #[arg(long, default_value = "cap.module.load_ephemeral")]
+        requested_capability: String,
+        /// Requested load mode
+        #[arg(long, default_value = "ram_only")]
+        load_mode: String,
+        /// Subject for the diagnostic request
+        #[arg(long, default_value = "agent.session.serial")]
+        subject: String,
+        /// Resource being evaluated
+        #[arg(long, default_value = "live_service_graph")]
+        resource: String,
+        /// Scope for the diagnostic request
+        #[arg(long, default_value = "current_boot")]
+        scope: String,
+        /// Expected local attestation SHA-256, with or without sha256: prefix
+        #[arg(long)]
+        expected_local_attestation_sha256: Option<String>,
+        /// Print rejected diagnostics instead of exiting with an error
+        #[arg(long)]
+        allow_invalid: bool,
+    },
+    /// Compute non-authorizing module audit and rollback diagnostics
+    AuditRollbackDiagnostic {
+        /// raiOS module_manifest.v0 JSON
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Candidate artifact bytes bound by the manifest
+        #[arg(long)]
+        artifact: PathBuf,
+        /// Shadow VM test report JSON
+        #[arg(long = "vm-report")]
+        vm_report: PathBuf,
+        /// Local attestation JSON
+        #[arg(long = "local-attestation")]
+        local_attestation: PathBuf,
+        /// Exact local approval phrase for the evidence tuple
+        #[arg(long)]
+        approval: String,
+        /// Expected computed capability grant hash, with or without sha256: prefix
+        #[arg(long = "computed-grant-hash")]
+        computed_capability_grant_hash: String,
+        /// Denied module.load_ephemeral event id, e.g. event.current_boot.00000031
+        #[arg(long)]
+        denial_event_id: String,
+        /// Retained module computed-grant reference event id
+        #[arg(long)]
+        retained_reference_event_id: String,
+        /// Planned ram-only service slot id; must use ram_only: prefix
+        #[arg(long)]
+        ram_only_service_slot_id: String,
+        /// Service slot id bound inside rollback plan; defaults to ram-only service slot id
+        #[arg(long)]
+        rollback_service_slot_id: Option<String>,
+        /// Pre-load service.inventory hash, with or without sha256: prefix
+        #[arg(long)]
+        pre_load_service_inventory_hash: String,
+        /// Cleanup-actions hash, with or without sha256: prefix
+        #[arg(long)]
+        cleanup_actions_hash: String,
+        /// Optional expected rollback plan hash for negative validation
+        #[arg(long)]
+        expected_rollback_plan_hash: Option<String>,
+        /// Optional expected audit record hash for negative validation
+        #[arg(long)]
+        expected_audit_record_hash: Option<String>,
         /// Capability being evaluated
         #[arg(long, default_value = "cap.module.load_ephemeral")]
         requested_capability: String,
@@ -209,6 +276,64 @@ fn main() -> Result<()> {
             if !diagnostic.valid_evidence && !allow_invalid {
                 anyhow::bail!(
                     "computed grant diagnostic rejected evidence: {}",
+                    diagnostic.denial_reasons.join(", ")
+                );
+            }
+        }
+        Command::AuditRollbackDiagnostic {
+            manifest,
+            artifact,
+            vm_report,
+            local_attestation,
+            approval,
+            computed_capability_grant_hash,
+            denial_event_id,
+            retained_reference_event_id,
+            ram_only_service_slot_id,
+            rollback_service_slot_id,
+            pre_load_service_inventory_hash,
+            cleanup_actions_hash,
+            expected_rollback_plan_hash,
+            expected_audit_record_hash,
+            requested_capability,
+            load_mode,
+            subject,
+            resource,
+            scope,
+            expected_local_attestation_sha256,
+            allow_invalid,
+        } => {
+            let mut grant_request = ComputeCapabilityGrantRequest::new(
+                manifest,
+                artifact,
+                vm_report,
+                local_attestation,
+                approval,
+            );
+            grant_request.requested_capability = requested_capability;
+            grant_request.load_mode = load_mode;
+            grant_request.subject = subject;
+            grant_request.resource = resource;
+            grant_request.scope = scope;
+            grant_request.expected_local_attestation_sha256 = expected_local_attestation_sha256;
+            let diagnostic = registry_core::module_audit::compute_audit_rollback_diagnostic(
+                &ModuleAuditRollbackDiagnosticRequest {
+                    grant_request,
+                    computed_capability_grant_hash,
+                    denial_event_id,
+                    retained_reference_event_id,
+                    ram_only_service_slot_id,
+                    rollback_service_slot_id,
+                    pre_load_service_inventory_hash,
+                    cleanup_actions_hash,
+                    expected_rollback_plan_hash,
+                    expected_audit_record_hash,
+                },
+            )?;
+            println!("{}", serde_json::to_string_pretty(&diagnostic)?);
+            if !diagnostic.valid_evidence && !allow_invalid {
+                anyhow::bail!(
+                    "module audit/rollback diagnostic rejected evidence: {}",
                     diagnostic.denial_reasons.join(", ")
                 );
             }

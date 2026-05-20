@@ -256,6 +256,9 @@ What boots and works in the VM right now:
 - Host and guest read-only computed-grant diagnostics for
   `cap.module.load_ephemeral`, including canonical hash-reference checks while
   live loading remains disabled
+- Host-only canonical audit/rollback diagnostics for `raios.audit_record.v0`
+  and `raios.rollback_plan.v0`, still non-authorizing and not installed in the
+  guest
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - The denied module load gate reports retained computed-grant references as

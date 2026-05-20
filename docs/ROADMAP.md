@@ -2,10 +2,9 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-20 by Codex after adding guest-visible audit/rollback
-requirement bindings and local-only negative audit/rollback selftests for the
-denied `raios.module_load_gate.v0` while keeping `cap.module.load_ephemeral`
-denied. The host
+Last updated: 2026-05-20 by Codex after adding host-side canonical
+audit/rollback diagnostics for the denied `raios.module_load_gate.v0` while
+keeping `cap.module.load_ephemeral` denied. The host
 `raios.computed_capability_grant.v0` diagnostic validates and hashes an exact
 manifest/artifact/VM-report/local-attestation tuple, while the guest
 `module.grant_diagnostic` validates only the canonical hash reference, records
@@ -14,6 +13,9 @@ the module load gate reports retained references as non-authorizing evidence
 only, `module.load_gate_retained_selftest` covers negative retained reference
 candidates, and `module.load_gate_audit_rollback_selftest` covers missing and
 mismatched durable audit/rollback candidates without creating those records.
+`registry-tools audit-rollback-diagnostic` now emits non-authorizing
+`raios.module_audit_rollback_diagnostic.v0` with canonical
+`raios.audit_record.v0` and `raios.rollback_plan.v0` candidates.
 
 Latest maintenance verification:
 
@@ -22,7 +24,8 @@ Latest maintenance verification:
 - `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
   passed.
 - `cargo test --locked -p registry-core -p registry-tools` passed after adding
-  the computed grant diagnostic and its negative evidence tests.
+  the computed grant diagnostic, audit/rollback diagnostic, and their negative
+  evidence tests.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`
   passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
@@ -84,6 +87,17 @@ Current verified cursor:
 - `registry-core` unit tests cover mismatched manifest/artifact/report/
   attestation hashes, non-empty manifest `granted_caps`, wrong approval
   phrases, and attestations that set `limits.grants_load_now: true`.
+- `registry-tools audit-rollback-diagnostic` now emits
+  `raios.module_audit_rollback_diagnostic.v0` for host-side evidence review.
+  It creates canonical `raios.audit_record.v0` and `raios.rollback_plan.v0`
+  candidates that bind retained grant/reference ids, denied load event id,
+  local approval, rollback hash, ram-only service-slot id, manifest, artifact,
+  VM report, and local attestation. It remains non-authorizing:
+  `durable_audit_written`, `rollback_plan_installed`, `can_load_now`, and
+  `load_attempted` remain false.
+- `registry-core` unit tests cover audit/rollback mismatches for retained grant
+  hash, manifest, artifact, report, attestation, approval, rollback hash, and
+  service-slot ids.
 - `module.grant_diagnostic` now exposes
   `raios.module_computed_grant_diagnostic.v0` as a read-only hash-reference
   diagnostic. It accepts no artifact bytes, recomputes the canonical grant hash
@@ -205,36 +219,36 @@ Current verified cursor:
   event ids, module computed-grant hash-reference diagnostics, and the denied
   module load gate, then emits `raios.vm_test_report.v0` reports.
 
-Current phase: Phase 6 has host-side computed grant evidence diagnostics,
-guest-side read-only hash-reference diagnostics, current-boot retained
-computed-grant hash-reference bindings, and a fail-closed module load gate that
-reports retained references plus audit/rollback requirements as
-non-authorizing evidence with negative retained-reference and audit/rollback
-selftest coverage. No code loading exists yet.
+Current phase: Phase 6 has host-side computed grant plus audit/rollback
+evidence diagnostics, guest-side read-only computed-grant hash-reference
+diagnostics, current-boot retained computed-grant hash-reference bindings, and
+a fail-closed module load gate that reports retained references plus
+audit/rollback requirements as non-authorizing evidence with negative
+retained-reference and audit/rollback selftest coverage. No code loading exists
+yet.
 
 Exact next task:
 
 ```text
-Define host-side canonical audit and rollback diagnostic artifacts without
+Define a guest read-only audit/rollback hash-reference diagnostic without
 granting live load.
 ```
 
-Start by emitting non-authorizing `raios.audit_record.v0` and
-`raios.rollback_plan.v0` diagnostics that bind retained grant references to a
-local approval, ram-only service slot id, rollback plan, manifest, artifact
-hash, VM report, and local attestation. Do not add a loader, accept artifact
-bytes in the guest, or mutate `service.inventory.v0`.
+Start by accepting only hashes for `raios.audit_record.v0`,
+`raios.rollback_plan.v0`, retained grant references, manifest, artifact, VM
+report, local attestation, local approval, and ram-only service-slot id. Do not
+add a loader, accept artifact bytes in the guest, or mutate
+`service.inventory.v0`.
 
 Next three tasks:
 
-1. Add host-side canonical audit/rollback diagnostics and negative tests for
-   mismatched retained grant, manifest, artifact, report, attestation,
-   approval, rollback hash, and service-slot ids.
+1. Add guest-side audit/rollback hash-reference diagnostics and negative
+   selftests for missing, stale, wrong-schema, substituted, and mismatched
+   audit/rollback candidates.
 2. Keep `module.load_ephemeral` denied with loader unavailable,
    `service_inventory_change: none`, and `load_attempted: false`.
-3. Add a guest read-only hash-reference diagnostic for audit/rollback evidence
-   only after the host canonical records exist, still without artifact bytes or
-   loader behavior.
+3. Retain valid audit/rollback hash references as local-only current-boot
+   evidence only after the negative guest predicate exists.
 
 Current blockers and non-goals:
 

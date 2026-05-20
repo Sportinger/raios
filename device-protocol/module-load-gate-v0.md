@@ -147,6 +147,10 @@ The denial now exposes the first explicit audit/rollback requirement object:
 
 This object is a requirement schema, not persistence. Stage-0 does not create
 durable audit records, rollback plans, service slots, or loader entries.
+The host-side `raios.module_audit_rollback_diagnostic.v0` can now compute
+canonical `raios.audit_record.v0` and `raios.rollback_plan.v0` candidates for
+that evidence shape, but those candidates are not accepted by the guest yet and
+do not grant loading.
 
 ## Event Binding
 

@@ -27,6 +27,8 @@ Current V0 docs:
 - `module-manifest-v0.md` - manifest contract for agent-proposed artifacts.
 - `computed-capability-grant-v0.md` - host-side non-authorizing computed
   grant diagnostic for `cap.module.load_ephemeral` evidence tuples.
+- `module-audit-rollback-diagnostic-v0.md` - host-side non-authorizing
+  audit/rollback diagnostic for future module load gate evidence.
 - `module-load-gate-v0.md` - denied-by-default current-boot gate for
   `module.load_ephemeral` and `service.load_ephemeral`, including retained
   grant and audit/rollback requirement diagnostics.

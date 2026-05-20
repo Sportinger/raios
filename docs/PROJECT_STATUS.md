@@ -26,8 +26,9 @@ key remain previously verified from the prior handoff.
 Latest host-tool verification: 2026-05-20 on Windows with
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
 covering OTA/registry tooling plus the non-authorizing
-`raios.computed_capability_grant.v0` diagnostic and negative
-manifest/artifact/report/attestation evidence cases.
+`raios.computed_capability_grant.v0` diagnostic, host-side
+`raios.module_audit_rollback_diagnostic.v0` audit/rollback candidates, and
+negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-20 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
@@ -183,18 +184,18 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the first host-side canonical audit and rollback diagnostic artifacts
-that can satisfy the guest-visible requirement schema without granting load:
+Define the first guest-side read-only hash-reference diagnostic for host
+audit/rollback candidates without granting load:
 
-- emit canonical `raios.audit_record.v0` and `raios.rollback_plan.v0`
-  diagnostics that bind module manifest, artifact hash, VM report, local
-  attestation, retained grant reference, local approval, rollback plan, and
-  ram-only service slot identifiers
+- accept only hashes for `raios.audit_record.v0`,
+  `raios.rollback_plan.v0`, retained grant reference, manifest, artifact, VM
+  report, local attestation, local approval, and ram-only service slot
 - keep `module.load_ephemeral`/`service.load_ephemeral` denied with
   `can_load: false`, `load_attempted: false`,
   `service_inventory_change: none`, loader unavailable, and service slot
   unallocated
-- reject mismatched audit/rollback hashes before any artifact bytes are accepted
+- reject stale, mismatched, previous-boot, wrong-schema, and substituted
+  audit/rollback references
 - keep recovery artifact loading separate from the normal module gate
 
 The verified foundation for that task is:
@@ -326,6 +327,17 @@ The verified foundation for that task is:
   local approval mismatch, rollback hash mismatch, rollback artifact mismatch,
   and rollback service-slot mismatch. It creates no durable audit records,
   rollback plans, service slots, event-log records, or loads.
+- `registry-tools audit-rollback-diagnostic` now emits
+  `raios.module_audit_rollback_diagnostic.v0` with nested
+  `raios.audit_record.v0` and `raios.rollback_plan.v0` candidates. It binds
+  the retained computed-grant hash, retained-reference event id, denied load
+  event id, local approval, ram-only service-slot id, rollback plan hash,
+  manifest, artifact, VM report, and local attestation while keeping
+  `durable_audit_written: false`, `rollback_plan_installed: false`,
+  `can_load_now: false`, and `load_attempted: false`.
+- `registry-core` unit tests now reject audit/rollback candidate mismatches for
+  retained grant hash, manifest, artifact, report, attestation, approval,
+  rollback hash, and service-slot ids.
 - `module.grant_diagnostic_selftest` covers absent, accepted-current-boot,
   stale previous-boot, mismatched manifest-hash, and wrong-policy computed
   grant references without loading artifacts or mutating service inventory.

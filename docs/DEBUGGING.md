@@ -327,6 +327,31 @@ The output schema is `raios.computed_capability_grant.v0`. It may report
 `computed_candidate_present: true`, but `grants_capability`,
 `grants_load_now`, `can_load_now`, and `load_attempted` must remain false.
 
+After retaining the computed grant reference in the guest and collecting the
+denied `module.load_ephemeral` event id, build the host-only audit/rollback
+diagnostic with:
+
+```powershell
+cargo run -p registry-tools -- audit-rollback-diagnostic `
+  --manifest .\candidate.manifest.json `
+  --artifact .\candidate.bin `
+  --vm-report .\release\vm-reports\shadow-....json `
+  --local-attestation .\release\attestations\attest-....json `
+  --approval "APPROVE RAM_ONLY <tuple-prefix>" `
+  --computed-grant-hash sha256:<grant-hash> `
+  --denial-event-id event.current_boot.00000031 `
+  --retained-reference-event-id event.current_boot.00000027 `
+  --ram-only-service-slot-id ram_only:svc.example.0001 `
+  --pre-load-service-inventory-hash sha256:<inventory-hash> `
+  --cleanup-actions-hash sha256:<cleanup-actions-hash>
+```
+
+The output schema is `raios.module_audit_rollback_diagnostic.v0` and includes
+canonical `raios.audit_record.v0` and `raios.rollback_plan.v0` candidates. It
+must still report `durable_audit_written: false`,
+`rollback_plan_installed: false`, `can_load_now: false`, and
+`load_attempted: false`.
+
 Inside the guest, inspect only the hash reference with:
 
 ```text
