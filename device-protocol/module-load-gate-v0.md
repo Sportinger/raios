@@ -245,11 +245,13 @@ agent module.load_gate_audit_rollback_selftest
 ```
 
 emits `raios.module_load_gate_audit_rollback_selftest.v0`. It is local test
-infrastructure over the durable audit and rollback predicates and must report:
+infrastructure over the retained audit/rollback reference, durable audit, and
+rollback predicates and must report:
 
 ```text
 test_infrastructure: true
 mutates_global_event_log: false
+creates_retained_audit_rollback_reference_records: false
 creates_durable_audit_records: false
 creates_rollback_plans: false
 allocates_service_slot: false
@@ -259,12 +261,15 @@ load_attempted: false
 can_load: false
 ```
 
-The current cases cover missing durable audit record, missing rollback plan,
-matching audit/rollback evidence still denied by missing loader and service
-slot, audit/rollback schema mismatches, retained grant hash mismatch,
-audit-bound manifest/artifact/VM-report/local-attestation mismatches, local
-approval mismatch, audit-bound rollback hash mismatch, rollback artifact
-mismatch, and rollback service-slot mismatch.
+The current cases cover missing, stale/dropped, previous-boot-or-unretained,
+wrong-schema, substituted, computed-grant-hash-mismatched,
+audit-hash-mismatched, rollback-hash-mismatched, and service-slot-mismatched
+retained audit/rollback references; missing durable audit record; missing
+rollback plan; matching audit/rollback evidence still denied by missing loader
+and service slot; audit/rollback schema mismatches; retained grant hash
+mismatch; audit-bound manifest/artifact/VM-report/local-attestation mismatches;
+local approval mismatch; audit-bound rollback hash mismatch; rollback artifact
+mismatch; and rollback service-slot mismatch.
 
 ## Audit/Rollback Hash-Reference Diagnostic
 
@@ -305,8 +310,8 @@ mutating the global event log.
   `raios.module_audit_rollback_reference.v0` current-boot diagnostic evidence;
   it is not durable audit or rollback authority.
 - `module.load_gate_audit_rollback_selftest` is test infrastructure and must
-  not create audit records, rollback plans, service slots, loader state, or
-  service inventory changes.
+  not create retained reference records, audit records, rollback plans, service
+  slots, loader state, or service inventory changes.
 - A valid `raios.module_manifest.v0` is only one input to a future computed
   grant.
 - The normal module gate does not authorize recovery artifacts; recovery loads

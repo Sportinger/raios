@@ -36,11 +36,12 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-20 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260520-155623-3176.json` with 500/500
+`release\vm-reports\shadow-20260520-160353-24588.json` with 519/519
 predicates, covering absent/accepted/stale/mismatched/wrong-policy module
 computed-grant hash-reference diagnostics plus RAM-only retention of a valid
 computed-grant hash reference and its visibility in the denied module load gate
 while live loading remains denied, negative retained-reference gate selftests,
+negative retained audit/rollback reference gate selftests,
 missing/mismatched durable audit plus rollback evidence selftests, and guest
 audit/rollback hash-reference diagnostics over `raios.audit_record.v0` and
 `raios.rollback_plan.v0` candidates, including RAM-only retention of a valid
@@ -191,17 +192,18 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Add negative retained audit/rollback reference gate selftests for the denied
-module load gate:
+Apply the retained audit/rollback reference predicate to the live denied module
+load gate:
 
-- cover missing, stale/dropped, previous-boot-or-unretained, wrong-schema,
+- validate the retained `raios.module_audit_rollback_reference.v0` event against
+  the retained computed-grant reference, denied load event id, canonical hashes,
+  and ram-only service-slot id before reporting retained audit/rollback states
+- reject stale/dropped, previous-boot-or-unretained, wrong-schema,
   substituted, computed-grant/hash mismatch, audit/rollback hash mismatch, and
   service-slot mismatch retained audit/rollback references
-- keep `mutates_global_event_log: false`, `creates_durable_audit_records:
-  false`, `creates_rollback_plans: false`, `allocates_service_slot: false`,
-  `loads_artifact: false`, `can_load: false`, and `load_attempted: false`
-- continue reporting retained audit/rollback references only as current-boot
-  hash evidence from `module.load_ephemeral`/`service.load_ephemeral`
+- keep `module.load_ephemeral`/`service.load_ephemeral` denied with
+  `can_load: false`, `service_inventory_change: none`, and
+  `load_attempted: false`
 - keep recovery artifact loading separate from the normal module gate
 
 The verified foundation for that task is:
@@ -327,12 +329,15 @@ The verified foundation for that task is:
   required but missing, with writes disabled and `can_load: false`.
 - `module.load_gate_audit_rollback_selftest` now exposes local-only
   `raios.module_load_gate_audit_rollback_selftest.v0` test infrastructure for
-  missing durable audit, missing rollback plan, matching-but-still-denied
-  audit/rollback evidence, audit/rollback schema mismatches, retained grant
-  hash mismatch, manifest/artifact/VM-report/local-attestation mismatches,
-  local approval mismatch, rollback hash mismatch, rollback artifact mismatch,
-  and rollback service-slot mismatch. It creates no durable audit records,
-  rollback plans, service slots, event-log records, or loads.
+  missing/stale/previous-boot/wrong-schema/substituted retained
+  audit/rollback references, retained computed-grant/audit/rollback hash
+  mismatches, retained service-slot mismatch, missing durable audit, missing
+  rollback plan, matching-but-still-denied audit/rollback evidence,
+  audit/rollback schema mismatches, retained grant hash mismatch,
+  manifest/artifact/VM-report/local-attestation mismatches, local approval
+  mismatch, rollback hash mismatch, rollback artifact mismatch, and rollback
+  service-slot mismatch. It creates no retained references, durable audit
+  records, rollback plans, service slots, event-log records, or loads.
 - `registry-tools audit-rollback-diagnostic` now emits
   `raios.module_audit_rollback_diagnostic.v0` with nested
   `raios.audit_record.v0` and `raios.rollback_plan.v0` candidates. It binds
@@ -489,9 +494,10 @@ The verified foundation for that task is:
   `raios.module_audit_rollback_reference.v0` event bindings, and the denied
   module load gate including retained computed-grant plus retained
   audit/rollback reference state in the response and event-log binding plus
-  negative retained-reference and audit/rollback requirement selftests.
+  negative retained-reference, retained audit/rollback reference, and
+  audit/rollback requirement selftests.
   Latest report:
-  `release\vm-reports\shadow-20260520-155623-3176.json` with 500/500
+  `release\vm-reports\shadow-20260520-160353-24588.json` with 519/519
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

@@ -2,15 +2,18 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-20 by Codex after retaining valid guest audit/rollback
-hash references as RAM-only current-boot evidence while keeping
-`cap.module.load_ephemeral` denied. The guest now validates canonical
-`raios.audit_record.v0` and `raios.rollback_plan.v0` hash references through
+Last updated: 2026-05-20 by Codex after adding negative retained
+audit/rollback reference gate selftests while keeping `cap.module.load_ephemeral`
+denied. The guest now validates canonical `raios.audit_record.v0` and
+`raios.rollback_plan.v0` hash references through
 `module.audit_rollback_diagnostic`, records valid references as local-only
-`raios.module_audit_rollback_reference.v0` event bindings, and reports those
+`raios.module_audit_rollback_reference.v0` event bindings, reports those
 retained references from the denied module load gate as non-authorizing hash
-evidence. It still creates no durable audit records, rollback plans, service
-slots, loader state, or service inventory changes.
+evidence, and selftests missing, stale, previous-boot, wrong-schema,
+substituted, and hash-mismatched retained audit/rollback references. It still
+creates no durable
+audit records, rollback plans, service slots, loader state, or service
+inventory changes.
 
 Latest maintenance verification:
 
@@ -25,14 +28,15 @@ Latest maintenance verification:
   passed.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260520-155623-3176.json` with 500/500
+  `release\vm-reports\shadow-20260520-160353-24588.json` with 519/519
   predicates, including `module.grant_diagnostic`,
   `module.grant_diagnostic_selftest`, `module.audit_rollback_diagnostic`,
   `module.audit_rollback_diagnostic_selftest`, retained
   `raios.module_computed_grant_reference.v0` and
   `raios.module_audit_rollback_reference.v0` audit/event binding coverage, and
-  retained-reference state plus negative retained-reference and audit/rollback
-  requirement selftests in the denied module load gate.
+  retained-reference state plus negative retained-reference, retained
+  audit/rollback reference, and audit/rollback requirement selftests in the
+  denied module load gate.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
   positive request/export audit binding markers stayed absent. The local image
@@ -150,13 +154,16 @@ Current verified cursor:
   authority. Writes remain disabled.
 - `module.load_gate_audit_rollback_selftest` now exposes local-only
   `raios.module_load_gate_audit_rollback_selftest.v0` test infrastructure for
-  missing durable audit, missing rollback plan, matching-but-still-denied
-  audit/rollback evidence, audit/rollback schema mismatches, retained grant
-  hash mismatch, manifest/artifact/VM-report/local-attestation mismatches,
-  local approval mismatch, rollback hash mismatch, rollback artifact mismatch,
-  and rollback service-slot mismatch without mutating the global event log,
-  creating audit/rollback records, allocating service slots, or loading
-  artifacts.
+  missing/stale/previous-boot/wrong-schema/substituted retained
+  audit/rollback references, retained computed-grant/audit/rollback hash
+  mismatches, retained service-slot mismatch, missing durable audit, missing
+  rollback plan, matching-but-still-denied audit/rollback evidence,
+  audit/rollback schema mismatches, retained grant hash mismatch,
+  manifest/artifact/VM-report/local-attestation mismatches, local approval
+  mismatch, rollback hash mismatch, rollback artifact mismatch, and rollback
+  service-slot mismatch without mutating the global event log, creating retained
+  references, creating audit/rollback records, allocating service slots, or
+  loading artifacts.
 - `system.snapshot.v0`, `system.capabilities.v0`, `problem.list.v0`,
   `service.inventory.v0`, provider trust docs, module manifest docs, VM test
   report docs, local attestation docs, and recovery protocol docs exist.
@@ -249,24 +256,25 @@ yet.
 Exact next task:
 
 ```text
-Add negative retained audit/rollback reference gate selftests for the denied
-module load gate.
+Apply the retained audit/rollback reference predicate to the live denied module
+load gate.
 ```
 
-Start from the retained `raios.module_audit_rollback_reference.v0` evidence.
-Exercise missing, stale/dropped, previous-boot-or-unretained, wrong-schema,
-substituted, computed-grant/hash mismatch, audit/rollback hash mismatch, and
-service-slot mismatch candidates without mutating the global event log or
-granting load.
+Start from the retained `raios.module_audit_rollback_reference.v0` selftest
+predicate. Make the live `module.load_ephemeral`/`service.load_ephemeral` gate
+validate retained audit/rollback references against the retained computed-grant
+reference, denied load event id, canonical hashes, and ram-only service-slot id
+before reporting hash-reference-only states. Keep all failures denied and
+non-mutating.
 
 Next three tasks:
 
-1. Add negative retained audit/rollback reference gate selftests for the denied
+1. Apply the retained audit/rollback reference predicate to the live denied
    module load gate.
 2. Keep `module.load_ephemeral` and `service.load_ephemeral` denied with
    retained audit/rollback references treated only as hash evidence.
-3. Keep loader unavailable,
-   `service_inventory_change: none`, and `load_attempted: false`.
+3. Keep loader unavailable, `service_inventory_change: none`, and
+   `load_attempted: false`.
 
 Current blockers and non-goals:
 

@@ -175,10 +175,13 @@ wrong-schema, substituted-record, and mismatched-hash retained-reference
 candidates. It also checks
 `raios.module_load_gate_audit_rollback_selftest.v0` cases for missing durable
 audit, missing rollback plan, matching audit/rollback evidence still denied by
-missing loader and service slot, audit/rollback schema mismatches, retained
-grant hash mismatch, manifest/artifact/VM-report/local-attestation mismatches,
-local approval mismatch, rollback-plan hash mismatch, rollback artifact
-mismatch, and rollback service-slot mismatch. The
+missing loader and service slot, audit/rollback schema mismatches, missing,
+stale, previous-boot, wrong-schema, and substituted retained audit/rollback
+references, retained computed-grant, audit, and rollback hash mismatches,
+retained service-slot mismatch, retained grant hash mismatch,
+manifest/artifact/VM-report/local-attestation mismatches, local approval
+mismatch, rollback-plan hash mismatch, rollback artifact mismatch, and rollback
+service-slot mismatch. The
 module-load assertions verify the current-boot audit event binding, full
 missing-evidence list, audit/rollback requirement schema, retained
 grant/manifest/artifact/report/attestation hashes when a valid grant reference

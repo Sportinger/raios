@@ -210,14 +210,17 @@ mismatch cases. It does not mutate the global event log, create retained
 records, load artifacts, or mutate `service.inventory.v0`.
 `module.load_gate_audit_rollback_selftest` emits local-only
 `raios.module_load_gate_audit_rollback_selftest.v0` test infrastructure for the
-denied load gate's durable audit and rollback predicates. It covers missing
-audit record, missing rollback plan, matching audit/rollback evidence that is
-still denied by missing loader and service slot, audit/rollback schema
-mismatches, retained grant hash mismatch, manifest/artifact/VM-report/
-local-attestation mismatches, local approval mismatch, rollback-plan hash
-mismatch, rollback artifact mismatch, and rollback service-slot mismatch. It
-does not mutate the global event log, create durable audit records, create
-rollback plans, allocate service slots, load artifacts, or mutate
+denied load gate's retained audit/rollback reference, durable audit, and
+rollback predicates. It covers missing, stale, previous-boot, wrong-schema, and
+substituted retained audit/rollback references; retained computed-grant, audit,
+and rollback hash mismatches; retained service-slot mismatch; missing audit
+record; missing rollback plan; matching audit/rollback evidence that is still
+denied by missing loader and service slot, audit/rollback schema mismatches, retained
+grant hash mismatch, manifest/artifact/VM-report/local-attestation mismatches,
+local approval mismatch, rollback-plan hash mismatch, rollback artifact
+mismatch, and rollback service-slot mismatch. It does not mutate the global
+event log, create retained reference records, create durable audit records,
+create rollback plans, allocate service slots, load artifacts, or mutate
 `service.inventory.v0`.
 
 ## Denied-By-Default Methods

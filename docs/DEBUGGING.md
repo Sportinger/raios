@@ -416,10 +416,14 @@ hash-mismatch retained-reference cases.
 non-installed even when retained hash references exist; record writes remain
 disabled. `module.load_gate_audit_rollback_selftest` emits
 `raios.module_load_gate_audit_rollback_selftest.v0`; it must keep
-`mutates_global_event_log: false`, `creates_durable_audit_records: false`,
-`creates_rollback_plans: false`, `allocates_service_slot: false`,
-`loads_artifact: false`, and `can_load: false` while covering missing and
-mismatched audit/rollback evidence.
+`mutates_global_event_log: false`,
+`creates_retained_audit_rollback_reference_records: false`,
+`creates_durable_audit_records: false`, `creates_rollback_plans: false`,
+`allocates_service_slot: false`, `loads_artifact: false`, and
+`can_load: false`. It covers missing, stale, previous-boot, wrong-schema, and
+substituted retained audit/rollback references; retained
+computed-grant/audit/rollback hash mismatches; retained service-slot mismatch;
+and the existing missing/mismatched durable audit plus rollback evidence cases.
 
 To require the legacy leaf-certificate pinned-trust path, package a local image
 with both `OPENAI_API_KEY` and `OPENAI_CERT_SHA256`, then run:

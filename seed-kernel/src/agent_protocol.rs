@@ -2068,8 +2068,18 @@ struct ModuleLoadGateRetainedSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+struct ModuleLoadGateAuditRollbackReferenceCandidate {
+    scope: &'static str,
+    retained: bool,
+    schema_ok: bool,
+    event_reference: Option<event_log::ModuleAuditRollbackReference>,
+    candidate_reference: Option<event_log::ModuleAuditRollbackReference>,
+}
+
+#[derive(Clone, Copy)]
 struct ModuleLoadGateAuditRollbackCandidate {
     retained_reference: bool,
+    retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate,
     durable_audit_record: bool,
     rollback_plan: bool,
     audit_schema_ok: bool,
@@ -2107,7 +2117,7 @@ struct ModuleLoadGateAuditRollbackSelfTestCase {
 const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 const MODULE_LOAD_GATE_RETAINED_SELFTEST_CASES: usize = 7;
-const MODULE_LOAD_GATE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 14;
+const MODULE_LOAD_GATE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 23;
 const MODULE_GRANT_TEST_MANIFEST_HASH: [u8; 32] = [0x11; 32];
 const MODULE_GRANT_TEST_ARTIFACT_HASH: [u8; 32] = [0x22; 32];
 const MODULE_GRANT_TEST_VM_REPORT_HASH: [u8; 32] = [0x33; 32];
@@ -2632,6 +2642,7 @@ fn emit_module_audit_rollback_diagnostic_selftest() {
     raw_line("      \"classification\": \"local_only\",");
     raw_line("      \"test_infrastructure\": true,");
     raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_audit_rollback_reference_records\": false,");
     raw_line("      \"creates_durable_audit_records\": false,");
     raw_line("      \"creates_rollback_plans\": false,");
     raw_line("      \"allocates_service_slot\": false,");
@@ -2785,6 +2796,8 @@ fn emit_module_load_gate_audit_rollback_selftest() {
     raw_line(",");
     raw_line("      \"required_bindings\": [");
     raw_line("        \"retained_computed_grant_reference_event_id\",");
+    raw_line("        \"retained_audit_rollback_reference_event_id\",");
+    raw_line("        \"audit_record_hash\",");
     raw_line("        \"computed_capability_grant_hash\",");
     raw_line("        \"manifest_hash\",");
     raw_line("        \"artifact_hash\",");
@@ -3941,7 +3954,172 @@ fn module_load_gate_retained_selftest_cases(
 fn module_load_gate_audit_rollback_selftest_cases(
 ) -> [ModuleLoadGateAuditRollbackSelfTestCase; MODULE_LOAD_GATE_AUDIT_ROLLBACK_SELFTEST_CASES] {
     let valid_requirements = module_load_gate_test_audit_rollback_candidate();
+    let valid_audit_rollback_reference =
+        module_load_gate_test_audit_rollback_reference(MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID);
+    let substituted_audit_rollback_reference =
+        module_load_gate_test_audit_rollback_reference_with_manifest(
+            MODULE_GRANT_MISMATCH_MANIFEST_HASH,
+            MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID,
+        );
+    let computed_grant_mismatch_reference =
+        module_load_gate_test_audit_rollback_reference_with_override(
+            MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID,
+            Some([0x99; 32]),
+            None,
+            None,
+        );
+    let audit_hash_mismatch_reference =
+        module_load_gate_test_audit_rollback_reference_with_override(
+            MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID,
+            None,
+            None,
+            Some([0xaa; 32]),
+        );
+    let rollback_hash_mismatch_reference =
+        module_load_gate_test_audit_rollback_reference_with_override(
+            MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID,
+            None,
+            Some([0xbb; 32]),
+            None,
+        );
+    let service_slot_mismatch_reference =
+        module_load_gate_test_audit_rollback_reference("ram_only:svc.test.other");
     [
+        module_load_gate_audit_rollback_selftest_case(
+            "missing_retained_audit_rollback_reference",
+            "missing",
+            "retained_audit_rollback_reference_missing",
+            ModuleLoadGateAuditRollbackCandidate {
+                retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+                    scope: "current_boot",
+                    retained: false,
+                    schema_ok: true,
+                    event_reference: None,
+                    candidate_reference: None,
+                },
+                ..valid_requirements
+            },
+        ),
+        module_load_gate_audit_rollback_selftest_case(
+            "stale_dropped_retained_audit_rollback_reference_event_id",
+            "rejected",
+            "retained_audit_rollback_reference_stale_or_dropped_event_id",
+            ModuleLoadGateAuditRollbackCandidate {
+                retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+                    scope: "current_boot",
+                    retained: false,
+                    schema_ok: true,
+                    event_reference: valid_audit_rollback_reference,
+                    candidate_reference: valid_audit_rollback_reference,
+                },
+                ..valid_requirements
+            },
+        ),
+        module_load_gate_audit_rollback_selftest_case(
+            "previous_boot_or_unretained_audit_rollback_reference",
+            "rejected",
+            "retained_audit_rollback_reference_previous_boot_or_unretained",
+            ModuleLoadGateAuditRollbackCandidate {
+                retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+                    scope: "previous_boot",
+                    retained: true,
+                    schema_ok: true,
+                    event_reference: valid_audit_rollback_reference,
+                    candidate_reference: valid_audit_rollback_reference,
+                },
+                ..valid_requirements
+            },
+        ),
+        module_load_gate_audit_rollback_selftest_case(
+            "retained_audit_rollback_wrong_schema_or_variant",
+            "rejected",
+            "retained_audit_rollback_reference_wrong_schema_or_variant",
+            ModuleLoadGateAuditRollbackCandidate {
+                retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+                    scope: "current_boot",
+                    retained: true,
+                    schema_ok: false,
+                    event_reference: valid_audit_rollback_reference,
+                    candidate_reference: valid_audit_rollback_reference,
+                },
+                ..valid_requirements
+            },
+        ),
+        module_load_gate_audit_rollback_selftest_case(
+            "substituted_retained_audit_rollback_reference",
+            "rejected",
+            "retained_audit_rollback_reference_substituted_record",
+            ModuleLoadGateAuditRollbackCandidate {
+                retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+                    scope: "current_boot",
+                    retained: true,
+                    schema_ok: true,
+                    event_reference: valid_audit_rollback_reference,
+                    candidate_reference: substituted_audit_rollback_reference,
+                },
+                ..valid_requirements
+            },
+        ),
+        module_load_gate_audit_rollback_selftest_case(
+            "retained_audit_rollback_computed_grant_hash_mismatch",
+            "rejected",
+            "retained_audit_rollback_computed_grant_hash_mismatch",
+            ModuleLoadGateAuditRollbackCandidate {
+                retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+                    scope: "current_boot",
+                    retained: true,
+                    schema_ok: true,
+                    event_reference: computed_grant_mismatch_reference,
+                    candidate_reference: computed_grant_mismatch_reference,
+                },
+                ..valid_requirements
+            },
+        ),
+        module_load_gate_audit_rollback_selftest_case(
+            "retained_audit_record_hash_mismatch",
+            "rejected",
+            "retained_audit_record_hash_mismatch",
+            ModuleLoadGateAuditRollbackCandidate {
+                retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+                    scope: "current_boot",
+                    retained: true,
+                    schema_ok: true,
+                    event_reference: audit_hash_mismatch_reference,
+                    candidate_reference: audit_hash_mismatch_reference,
+                },
+                ..valid_requirements
+            },
+        ),
+        module_load_gate_audit_rollback_selftest_case(
+            "retained_rollback_plan_hash_mismatch",
+            "rejected",
+            "retained_rollback_plan_hash_mismatch",
+            ModuleLoadGateAuditRollbackCandidate {
+                retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+                    scope: "current_boot",
+                    retained: true,
+                    schema_ok: true,
+                    event_reference: rollback_hash_mismatch_reference,
+                    candidate_reference: rollback_hash_mismatch_reference,
+                },
+                ..valid_requirements
+            },
+        ),
+        module_load_gate_audit_rollback_selftest_case(
+            "retained_audit_rollback_service_slot_mismatch",
+            "rejected",
+            "retained_audit_rollback_service_slot_mismatch",
+            ModuleLoadGateAuditRollbackCandidate {
+                retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+                    scope: "current_boot",
+                    retained: true,
+                    schema_ok: true,
+                    event_reference: service_slot_mismatch_reference,
+                    candidate_reference: service_slot_mismatch_reference,
+                },
+                ..valid_requirements
+            },
+        ),
         module_load_gate_audit_rollback_selftest_case(
             "missing_durable_audit_record",
             "missing",
@@ -4131,8 +4309,17 @@ fn module_grant_check_can_load(_check: &ModuleGrantReferenceCheck<'_>) -> bool {
 }
 
 fn module_load_gate_test_audit_rollback_candidate() -> ModuleLoadGateAuditRollbackCandidate {
+    let audit_rollback_reference =
+        module_load_gate_test_audit_rollback_reference(MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID);
     ModuleLoadGateAuditRollbackCandidate {
         retained_reference: true,
+        retained_audit_rollback_reference: ModuleLoadGateAuditRollbackReferenceCandidate {
+            scope: "current_boot",
+            retained: true,
+            schema_ok: true,
+            event_reference: audit_rollback_reference,
+            candidate_reference: audit_rollback_reference,
+        },
         durable_audit_record: true,
         rollback_plan: true,
         audit_schema_ok: true,
@@ -4149,6 +4336,100 @@ fn module_load_gate_test_audit_rollback_candidate() -> ModuleLoadGateAuditRollba
         ram_only_service_slot_allocated: false,
         loader_available: false,
     }
+}
+
+fn module_load_gate_test_audit_rollback_reference(
+    ram_only_service_slot_id: &'static str,
+) -> Option<event_log::ModuleAuditRollbackReference> {
+    module_load_gate_test_audit_rollback_reference_with_manifest(
+        MODULE_GRANT_TEST_MANIFEST_HASH,
+        ram_only_service_slot_id,
+    )
+}
+
+fn module_load_gate_test_audit_rollback_reference_with_manifest(
+    manifest_hash: [u8; 32],
+    ram_only_service_slot_id: &'static str,
+) -> Option<event_log::ModuleAuditRollbackReference> {
+    module_load_gate_test_audit_rollback_reference_with_override(
+        ram_only_service_slot_id,
+        None,
+        None,
+        None,
+    )
+    .map(|mut reference| {
+        reference.manifest_hash = manifest_hash;
+        reference.computed_grant_hash = computed_module_grant_hash(
+            manifest_hash,
+            reference.artifact_hash,
+            reference.vm_report_hash,
+            reference.local_attestation_hash,
+        );
+        reference.audit_record_hash =
+            computed_module_audit_record_hash(ModuleAuditRecordHashInput {
+                denial_event_id: MODULE_AUDIT_TEST_DENIAL_EVENT_ID,
+                retained_reference_event_id: MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID,
+                computed_grant_hash: reference.computed_grant_hash,
+                manifest_hash: reference.manifest_hash,
+                artifact_hash: reference.artifact_hash,
+                vm_report_hash: reference.vm_report_hash,
+                local_attestation_hash: reference.local_attestation_hash,
+                local_approval_hash: reference.local_approval_hash,
+                rollback_plan_hash: reference.rollback_plan_hash,
+                ram_only_service_slot_id: reference.ram_only_service_slot_id.as_str(),
+            });
+        reference
+    })
+}
+
+fn module_load_gate_test_audit_rollback_reference_with_override(
+    ram_only_service_slot_id: &'static str,
+    computed_grant_hash_override: Option<[u8; 32]>,
+    rollback_plan_hash_override: Option<[u8; 32]>,
+    audit_record_hash_override: Option<[u8; 32]>,
+) -> Option<event_log::ModuleAuditRollbackReference> {
+    let computed_grant_hash = computed_module_grant_hash(
+        MODULE_GRANT_TEST_MANIFEST_HASH,
+        MODULE_GRANT_TEST_ARTIFACT_HASH,
+        MODULE_GRANT_TEST_VM_REPORT_HASH,
+        MODULE_GRANT_TEST_ATTESTATION_HASH,
+    );
+    let rollback_plan_hash = computed_module_rollback_plan_hash(
+        MODULE_GRANT_TEST_ARTIFACT_HASH,
+        MODULE_AUDIT_TEST_PRE_INVENTORY_HASH,
+        ram_only_service_slot_id,
+        MODULE_AUDIT_TEST_CLEANUP_HASH,
+    );
+    let audit_record_hash = computed_module_audit_record_hash(ModuleAuditRecordHashInput {
+        denial_event_id: MODULE_AUDIT_TEST_DENIAL_EVENT_ID,
+        retained_reference_event_id: MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID,
+        computed_grant_hash,
+        manifest_hash: MODULE_GRANT_TEST_MANIFEST_HASH,
+        artifact_hash: MODULE_GRANT_TEST_ARTIFACT_HASH,
+        vm_report_hash: MODULE_GRANT_TEST_VM_REPORT_HASH,
+        local_attestation_hash: MODULE_GRANT_TEST_ATTESTATION_HASH,
+        local_approval_hash: MODULE_AUDIT_TEST_LOCAL_APPROVAL_HASH,
+        rollback_plan_hash,
+        ram_only_service_slot_id,
+    });
+
+    Some(event_log::ModuleAuditRollbackReference {
+        audit_record_hash: audit_record_hash_override.unwrap_or(audit_record_hash),
+        rollback_plan_hash: rollback_plan_hash_override.unwrap_or(rollback_plan_hash),
+        computed_grant_hash: computed_grant_hash_override.unwrap_or(computed_grant_hash),
+        manifest_hash: MODULE_GRANT_TEST_MANIFEST_HASH,
+        artifact_hash: MODULE_GRANT_TEST_ARTIFACT_HASH,
+        vm_report_hash: MODULE_GRANT_TEST_VM_REPORT_HASH,
+        local_attestation_hash: MODULE_GRANT_TEST_ATTESTATION_HASH,
+        local_approval_hash: MODULE_AUDIT_TEST_LOCAL_APPROVAL_HASH,
+        pre_load_service_inventory_hash: MODULE_AUDIT_TEST_PRE_INVENTORY_HASH,
+        cleanup_actions_hash: MODULE_AUDIT_TEST_CLEANUP_HASH,
+        denial_event_id: parse_current_boot_event_id(MODULE_AUDIT_TEST_DENIAL_EVENT_ID)?,
+        retained_reference_event_id: parse_current_boot_event_id(
+            MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID,
+        )?,
+        ram_only_service_slot_id: event_log::ModuleServiceSlotId::new(ram_only_service_slot_id)?,
+    })
 }
 
 fn module_load_gate_test_reference(
@@ -4240,6 +4521,19 @@ fn evaluate_module_load_gate_audit_rollback_candidate(
             "retained_computed_grant_reference_missing",
         );
     }
+    let retained_audit_rollback_check =
+        evaluate_module_load_gate_audit_rollback_reference_candidate(
+            candidate.retained_audit_rollback_reference,
+        );
+    if !method_eq(
+        retained_audit_rollback_check.status,
+        "retained_hash_reference_only",
+    ) {
+        return module_load_gate_audit_rollback_check(
+            retained_audit_rollback_check.status,
+            retained_audit_rollback_check.reason,
+        );
+    }
     if !candidate.durable_audit_record {
         return module_load_gate_audit_rollback_check("missing", "durable_audit_record_missing");
     }
@@ -4319,6 +4613,135 @@ fn evaluate_module_load_gate_audit_rollback_candidate(
         );
     }
     module_load_gate_audit_rollback_check("rejected", "positive_loader_path_unimplemented")
+}
+
+fn evaluate_module_load_gate_audit_rollback_reference_candidate(
+    candidate: ModuleLoadGateAuditRollbackReferenceCandidate,
+) -> ModuleLoadGateRetainedCheck {
+    let Some(candidate_reference) = candidate.candidate_reference else {
+        return module_load_gate_retained_check(
+            "missing",
+            "retained_audit_rollback_reference_missing",
+        );
+    };
+    if !method_eq(candidate.scope, "current_boot") {
+        return module_load_gate_retained_check(
+            "rejected",
+            "retained_audit_rollback_reference_previous_boot_or_unretained",
+        );
+    }
+    if !candidate.retained {
+        return module_load_gate_retained_check(
+            "rejected",
+            "retained_audit_rollback_reference_stale_or_dropped_event_id",
+        );
+    }
+    if !candidate.schema_ok {
+        return module_load_gate_retained_check(
+            "rejected",
+            "retained_audit_rollback_reference_wrong_schema_or_variant",
+        );
+    }
+    let Some(event_reference) = candidate.event_reference else {
+        return module_load_gate_retained_check(
+            "rejected",
+            "retained_audit_rollback_reference_stale_or_dropped_event_id",
+        );
+    };
+    if !module_audit_rollback_event_reference_matches(event_reference, candidate_reference) {
+        return module_load_gate_retained_check(
+            "rejected",
+            "retained_audit_rollback_reference_substituted_record",
+        );
+    }
+    if candidate_reference.ram_only_service_slot_id.as_str()
+        != MODULE_AUDIT_TEST_RAM_ONLY_SERVICE_SLOT_ID
+    {
+        return module_load_gate_retained_check(
+            "rejected",
+            "retained_audit_rollback_service_slot_mismatch",
+        );
+    }
+    if let Some(reason) = module_audit_rollback_reference_hash_mismatch(candidate_reference) {
+        return module_load_gate_retained_check("rejected", reason);
+    }
+    module_load_gate_retained_check(
+        "retained_hash_reference_only",
+        "retained_audit_rollback_reference_not_authorizing",
+    )
+}
+
+fn module_audit_rollback_event_reference_matches(
+    event_reference: event_log::ModuleAuditRollbackReference,
+    candidate_reference: event_log::ModuleAuditRollbackReference,
+) -> bool {
+    event_reference.audit_record_hash == candidate_reference.audit_record_hash
+        && event_reference.rollback_plan_hash == candidate_reference.rollback_plan_hash
+        && event_reference.computed_grant_hash == candidate_reference.computed_grant_hash
+        && event_reference.manifest_hash == candidate_reference.manifest_hash
+        && event_reference.artifact_hash == candidate_reference.artifact_hash
+        && event_reference.vm_report_hash == candidate_reference.vm_report_hash
+        && event_reference.local_attestation_hash == candidate_reference.local_attestation_hash
+        && event_reference.local_approval_hash == candidate_reference.local_approval_hash
+        && event_reference.pre_load_service_inventory_hash
+            == candidate_reference.pre_load_service_inventory_hash
+        && event_reference.cleanup_actions_hash == candidate_reference.cleanup_actions_hash
+        && event_reference.denial_event_id == candidate_reference.denial_event_id
+        && event_reference.retained_reference_event_id
+            == candidate_reference.retained_reference_event_id
+        && event_reference.ram_only_service_slot_id.as_str()
+            == candidate_reference.ram_only_service_slot_id.as_str()
+}
+
+fn module_audit_rollback_reference_hash_mismatch(
+    reference: event_log::ModuleAuditRollbackReference,
+) -> Option<&'static str> {
+    if parse_current_boot_event_id(MODULE_AUDIT_TEST_DENIAL_EVENT_ID)
+        != Some(reference.denial_event_id)
+        || parse_current_boot_event_id(MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID)
+            != Some(reference.retained_reference_event_id)
+    {
+        return Some("retained_audit_rollback_reference_substituted_record");
+    }
+
+    let expected_computed_grant_hash = computed_module_grant_hash(
+        reference.manifest_hash,
+        reference.artifact_hash,
+        reference.vm_report_hash,
+        reference.local_attestation_hash,
+    );
+    if reference.computed_grant_hash != expected_computed_grant_hash {
+        return Some("retained_audit_rollback_computed_grant_hash_mismatch");
+    }
+
+    let expected_rollback_plan_hash = computed_module_rollback_plan_hash(
+        reference.artifact_hash,
+        reference.pre_load_service_inventory_hash,
+        reference.ram_only_service_slot_id.as_str(),
+        reference.cleanup_actions_hash,
+    );
+    if reference.rollback_plan_hash != expected_rollback_plan_hash {
+        return Some("retained_rollback_plan_hash_mismatch");
+    }
+
+    let expected_audit_record_hash =
+        computed_module_audit_record_hash(ModuleAuditRecordHashInput {
+            denial_event_id: MODULE_AUDIT_TEST_DENIAL_EVENT_ID,
+            retained_reference_event_id: MODULE_AUDIT_TEST_RETAINED_REFERENCE_EVENT_ID,
+            computed_grant_hash: reference.computed_grant_hash,
+            manifest_hash: reference.manifest_hash,
+            artifact_hash: reference.artifact_hash,
+            vm_report_hash: reference.vm_report_hash,
+            local_attestation_hash: reference.local_attestation_hash,
+            local_approval_hash: reference.local_approval_hash,
+            rollback_plan_hash: reference.rollback_plan_hash,
+            ram_only_service_slot_id: reference.ram_only_service_slot_id.as_str(),
+        });
+    if reference.audit_record_hash != expected_audit_record_hash {
+        return Some("retained_audit_record_hash_mismatch");
+    }
+
+    None
 }
 
 fn module_load_gate_audit_rollback_check(
