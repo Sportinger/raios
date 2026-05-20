@@ -156,3 +156,66 @@ pub(crate) fn json_opt_str(value: Option<&str>) {
         None => raw("null"),
     }
 }
+
+pub(crate) fn emit_static_string_array(values: &[&str], spaces: usize) {
+    let mut idx = 0usize;
+    while idx < values.len() {
+        indent(spaces);
+        json_str(values[idx]);
+        if idx + 1 != values.len() {
+            raw(",");
+        }
+        crlf();
+        idx += 1;
+    }
+}
+
+pub(crate) fn emit_inline_string_array(values: &[&str]) {
+    let mut idx = 0usize;
+    while idx < values.len() {
+        if idx != 0 {
+            raw(", ");
+        }
+        json_str(values[idx]);
+        idx += 1;
+    }
+}
+
+pub(crate) fn emit_export_gate(
+    wrote: &mut bool,
+    gate: &'static str,
+    state: &'static str,
+    reason: &'static str,
+) {
+    if *wrote {
+        raw_line(",");
+    }
+    raw("      {\"gate\": ");
+    json_str(gate);
+    raw(", \"state\": ");
+    json_str(state);
+    raw(", \"reason\": ");
+    json_str(reason);
+    raw("}");
+    *wrote = true;
+}
+
+pub(crate) fn begin_response(method: &'static str) {
+    raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
+    raw_line("{");
+    raw_line("  \"v\": \"raios.agent.v0\",");
+    raw_line("  \"t\": \"response\",");
+    raw_line("  \"id\": \"serial\",");
+    raw_line("  \"body\": {");
+    raw("    \"method\": ");
+    json_str(method);
+    raw_line(",");
+    raw_line("    \"result\": {");
+}
+
+pub(crate) fn end_response(method: &'static str) {
+    raw_line("    }");
+    raw_line("  }");
+    raw_line("}");
+    raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
+}
