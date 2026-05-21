@@ -17,8 +17,9 @@ The current Stage-0 gate already keeps module loading denied while exposing
 retained manifest, candidate-artifact, VM-test-report, computed-grant,
 audit/rollback, and RAM-only service-slot reservation evidence as
 non-authorizing current-boot facts, with a separate write-boundary diagnostic
-that consumes missing persistence-device, storage-layout, append-engine, and
-append/storage contracts while still denying durable audit and rollback writes.
+that consumes missing persistence-device, storage-layout, append-engine,
+append/storage contracts, and append-intent requests while still denying
+durable audit and rollback writes.
 
 It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
@@ -316,14 +317,20 @@ What boots and works in the VM right now:
   both as missing/non-authorizing while consuming the storage-layout and
   append-engine facts separately from availability and policy facts and naming
   explicit stable-id/provenance bindings for future append envelopes
+- Guest read-only audit/rollback append-intent diagnostics for typed
+  `raios.audit_record_append_intent.v0` and
+  `raios.rollback_transaction_append_intent.v0` current-boot facts, reporting
+  both as missing/non-authorizing while consuming the bound append contract and
+  naming required append-contract, append-engine, storage-layout, write-policy,
+  availability, payload-hash, and provenance bindings for future append requests
 - Guest read-only audit/rollback write-boundary diagnostics that consume the
   retained module evidence chain, service-slot reservation, availability facts,
   write-policy facts, storage-layout facts, append-engine facts through the
-  append contract, and append/storage contract facts, emit
+  append contract, append/storage contract facts, and append-intent facts, emit
   `raios.module_pre_load_audit_rollback_write_request.v0` plus explicit denial
   evidence, and keep durable audit writes, rollback installs, storage-layout
-  availability, and append engines missing rather than treating hash references
-  as authority
+  availability, append engines, and append intents missing rather than treating
+  hash references as authority
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,

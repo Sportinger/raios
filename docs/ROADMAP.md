@@ -13,6 +13,8 @@ Last updated: 2026-05-21 by Codex after adding guest
 `module.audit_rollback_append_engine_selftest`,
 `module.audit_rollback_append_contract`,
 `module.audit_rollback_append_contract_selftest`,
+`module.audit_rollback_append_intent`,
+`module.audit_rollback_append_intent_selftest`,
 `module.audit_rollback_write_boundary`, and
 `module.audit_rollback_write_boundary_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` facts, typed missing
@@ -22,9 +24,12 @@ typed missing `raios.persistence_device_inventory.v0`/
 typed missing `raios.audit_ledger_append_engine.v0`/
 `raios.rollback_store_transaction_engine.v0` facts,
 typed missing `raios.audit_ledger_append_envelope.v0`/
-`raios.rollback_store_transaction_envelope.v0` facts, and explicit missing
-storage-layout, append-engine, append-contract, and append-envelope
-stable-id/provenance binding inputs over the retained module evidence chain.
+`raios.rollback_store_transaction_envelope.v0` facts, typed missing
+`raios.audit_record_append_intent.v0`/
+`raios.rollback_transaction_append_intent.v0` facts, and explicit missing
+storage-layout, append-engine, append-contract, append-envelope, append-intent
+stable-id, payload-hash, and provenance binding inputs over the retained module
+evidence chain.
 
 Latest maintenance verification:
 
@@ -39,7 +44,7 @@ Latest maintenance verification:
   passed on 2026-05-21.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260521-204240-7764.json` with 1460/1460
+  `release\vm-reports\shadow-20260521-211227-9508.json` with 1549/1549
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -62,6 +67,8 @@ Latest maintenance verification:
   `module.audit_rollback_append_engine_selftest`,
   `module.audit_rollback_append_contract`,
   `module.audit_rollback_append_contract_selftest`,
+  `module.audit_rollback_append_intent`,
+  `module.audit_rollback_append_intent_selftest`,
   `module.audit_rollback_write_boundary`,
   `module.audit_rollback_write_boundary_selftest`,
   retained `raios.module_manifest_reference.v0`,
@@ -202,13 +209,22 @@ Current verified cursor:
   storage-layout plus append-engine readiness separately, and names explicit
   storage-layout, append-engine, write-policy, availability, and provenance
   bindings for future append envelopes.
+- `module.audit_rollback_append_intent` now exposes
+  `raios.module_audit_rollback_append_intent.v0` as a read-only current-boot
+  diagnostic over typed `raios.audit_record_append_intent.v0` and
+  `raios.rollback_transaction_append_intent.v0` facts. The live slice reports
+  both as missing, local-only, non-durable, and non-authorizing, consumes the
+  bound append-contract facts, and names explicit append-contract,
+  append-engine, storage-layout, write-policy, availability, payload-hash, and
+  provenance bindings for future append requests.
 - `module.audit_rollback_write_boundary` now exposes
   `raios.module_audit_rollback_write_boundary.v0` as a read-only guest
   pre-load write-boundary diagnostic. It consumes the retained manifest,
   candidate-artifact, VM-report, computed-grant, local-attestation,
   local-approval, audit/rollback, service-slot reservation, and
   audit/rollback availability, write-policy, storage-layout, append-engine
-  readiness through the append contract, and append-contract facts, emits a typed
+  readiness through the append contract, append-contract facts, and
+  append-intent facts, emits a typed
   `raios.module_pre_load_audit_rollback_write_request.v0` plus
   `raios.module_audit_rollback_write_denial_evidence.v0`, creates no durable
   records or rollback plans, and reports explicit
@@ -469,22 +485,25 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Define append-intent request facts over the bound append contract.
+Define canonical append-intent payload hash envelopes.
 ```
 
-Start from `module.audit_rollback_append_contract`, which now exposes explicit
-append-envelope binding fields while still reporting append envelopes missing in
-the live kernel. Define the first local-only append-intent facts for audit-record
-and rollback-transaction writes over that bound contract; do not create fake
-persistent memory, fallback stores, durable records, or rollback transactions.
+Start from `module.audit_rollback_append_intent`, which now exposes explicit
+append-intent binding fields while still reporting append intents missing in the
+live kernel. Define the first local-only payload-hash envelope inputs for
+audit-record and rollback-transaction append intents over retained current-boot
+audit/rollback and service-slot evidence; do not create fake persistent memory,
+fallback stores, durable records, or rollback transactions.
 
 Next three tasks:
 
-1. Add typed append-intent request facts for audit-record append and
-   rollback-transaction append, with stable ids, provenance, classification,
-   and explicit non-authority fields.
-2. Feed append-intent readiness into `module.audit_rollback_write_boundary`
-   without attempting writes or treating append intents as durable authority.
+1. Add typed append-intent payload-hash envelope diagnostics for audit-record
+   append and rollback-transaction append, with stable ids, provenance,
+   classification, retained-evidence bindings, and explicit non-authority
+   fields.
+2. Feed payload-hash envelope readiness into `module.audit_rollback_append_intent`
+   and then `module.audit_rollback_write_boundary` without attempting writes or
+   treating payload hashes as durable authority.
 3. Keep recovery artifact loading separate from normal module loading and keep
    `module.load_ephemeral` denied with `service_inventory_change: none` and
    `load_attempted: false`.

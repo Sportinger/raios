@@ -11,6 +11,8 @@ Last verified locally: 2026-05-21 on Windows with QEMU 11 after adding guest
 `module.audit_rollback_append_engine_selftest`,
 `module.audit_rollback_append_contract`,
 `module.audit_rollback_append_contract_selftest`,
+`module.audit_rollback_append_intent`,
+`module.audit_rollback_append_intent_selftest`,
 `module.audit_rollback_write_boundary`, and
 `module.audit_rollback_write_boundary_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
@@ -21,10 +23,12 @@ typed missing `raios.durable_audit_write_policy.v0`/
 `raios.audit_ledger_append_engine.v0`/
 `raios.rollback_store_transaction_engine.v0` append-engine facts, typed missing
 `raios.audit_ledger_append_envelope.v0`/
-`raios.rollback_store_transaction_envelope.v0` append-contract facts, and
-explicit missing storage-layout, append-engine, append-contract, and
-append-envelope stable-id/provenance binding inputs over the retained module
-evidence chain, via headless Shadow VM smoke covering
+`raios.rollback_store_transaction_envelope.v0` append-contract facts, typed
+missing `raios.audit_record_append_intent.v0`/
+`raios.rollback_transaction_append_intent.v0` append-intent facts, and explicit
+missing storage-layout, append-engine, append-contract, append-envelope,
+append-intent stable-id, payload-hash, and provenance binding inputs over the
+retained module evidence chain, via headless Shadow VM smoke covering
 deterministic `provider_minimal`
 packet/field-list evidence, explicit provider request-binding denial and
 export-denial audit records, the denied `provider.context_export` gate, the
@@ -86,7 +90,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-21 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260521-204240-7764.json` with 1460/1460
+`release\vm-reports\shadow-20260521-211227-9508.json` with 1549/1549
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
@@ -120,18 +124,26 @@ append-engine readiness selftests, read-only
 `module.audit_rollback_append_contract` exposing typed
 missing audit-ledger append-envelope and rollback-store transaction-envelope
 facts plus explicit storage-layout, append-engine, write-policy, availability,
-and provenance binding fields while consuming those diagnostics, and read-only
-`module.audit_rollback_write_boundary`
+and provenance binding fields while consuming those diagnostics, read-only
+`module.audit_rollback_append_intent` exposing typed missing audit-record and
+rollback-transaction append-intent facts plus explicit append-contract,
+append-engine, storage-layout, write-policy, availability, payload-hash, and
+provenance binding fields while consuming the bound append contract, and
+read-only `module.audit_rollback_write_boundary`
 consuming those availability, policy, storage-layout, append-engine through
-append-contract, and append-contract facts plus the retained module evidence
-chain and returning
+append-contract, append-contract facts, and append-intent facts plus the
+retained module evidence chain and returning
 `denied_missing_durable_write_boundary` with
 `durable_audit_write_missing`, `rollback_install_missing`,
 `storage_layout_missing`, and `append_engine_missing`, plus
+`module.audit_rollback_append_intent_selftest` coverage for missing,
+previous-boot, wrong-schema, provenance, append-contract, append-engine,
+storage-layout, write-policy, availability, payload-hash, and
+available-but-non-authorizing append-intent candidates, plus
 `module.audit_rollback_write_boundary_selftest` negative coverage for missing,
 stale, substituted, previous-boot, wrong-schema, mismatched,
 availability-missing, policy-missing, append-contract-missing,
-writer-unimplemented, and recovery-separated candidates,
+append-intent-missing, writer-unimplemented, and recovery-separated candidates,
 missing/mismatched durable audit plus rollback evidence selftests, and guest
 audit/rollback hash-reference diagnostics over `raios.audit_record.v0` and
 `raios.rollback_plan.v0` candidates, including RAM-only retention of a valid
@@ -289,19 +301,22 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define append-intent request facts over the bound append contract:
+Define canonical append-intent payload hash envelopes:
 
 - keep writes denied until a concrete persistence/rollback architecture exists
-- define the first typed current-boot append-intent facts for audit-record and
-  rollback-transaction writes over the bound append contract
+- define the first typed current-boot payload-hash envelope inputs for
+  audit-record and rollback-transaction append intents
+- derive those payload-hash envelopes only from retained current-boot
+  audit/rollback candidates, service-slot reservation evidence, pre-load write
+  request shape, and bound append-contract ids
 - require append-contract, append-engine, storage-layout, write-policy,
-  availability, and provenance bindings before any future append intent can be
-  evaluated as structurally ready
+  availability, payload-hash, and provenance bindings before any future append
+  intent can be evaluated as structurally ready
 - keep append intents non-durable, local-only, and non-authorizing until a real
   append engine and persistence/rollback architecture exist
 - keep retained hash references, append-engine readiness, append-envelope
-  facts, and append intents separate from durable audit or rollback-store
-  authority
+  facts, append-intent facts, and payload-hash envelopes separate from durable
+  audit or rollback-store authority
 - keep recovery artifact loading on its own capability path
 - preserve `module.load_ephemeral` as denied with `service_inventory_change:
   none` and `load_attempted: false`
@@ -368,8 +383,8 @@ The verified foundation for that task is:
   `memory.query`, `memory.trace`, `memory.recent_events`, `audit.events`,
   `module.manifest_diagnostic`, `module.artifact_diagnostic`,
   `module.vm_report_diagnostic`, `module.grant_diagnostic`,
-  `module.attestation_diagnostic`, `module.approval_diagnostic`, and their
-  current selftest methods.
+  `module.attestation_diagnostic`, `module.approval_diagnostic`,
+  `module.audit_rollback_append_intent`, and their current selftest methods.
 - mutating or potentially mutating methods such as `module.load_ephemeral`,
   `service.restart`, `config.apply`, `provider.configure`, and `wifi.configure`
   return structured `capability_denied` until manifest, VM test report, local
@@ -685,13 +700,28 @@ The verified foundation for that task is:
   binding and id gaps, storage-layout id gaps, append-engine id gaps,
   storage-layout gaps, and append-engine-missing cases without mutating the
   global event log, enabling writes, or installing rollback plans.
+- `module.audit_rollback_append_intent` now exposes
+  `raios.module_audit_rollback_append_intent.v0` as a read-only current-boot
+  diagnostic over typed `raios.audit_record_append_intent.v0` and
+  `raios.rollback_transaction_append_intent.v0` facts. The live slice reports
+  both facts as missing, local-only, non-durable, and non-authorizing; it
+  consumes the bound append-contract facts while naming explicit
+  append-contract, append-engine, storage-layout, write-policy, availability,
+  payload-hash, and provenance bindings for future append requests.
+- `module.audit_rollback_append_intent_selftest` covers missing append-intent
+  pairs, previous-boot, schema mismatch, missing provenance,
+  provenance-binding gaps, append-contract binding gaps, append-engine id gaps,
+  storage-layout id gaps, write-policy id gaps, availability id gaps,
+  payload-hash gaps, append-contract-missing cases, and
+  available-but-still-non-authorizing append-intent cases without mutating the
+  global event log, enabling writes, or installing rollback plans.
 - `module.audit_rollback_write_boundary` now exposes
   `raios.module_audit_rollback_write_boundary.v0` as a read-only guest
   diagnostic over the retained manifest, candidate-artifact, VM-report,
   computed-grant, local-attestation, local-approval, audit/rollback, and
   service-slot reservation chain plus the audit/rollback availability,
   durable-write policy, storage-layout, append-engine through append-contract,
-  and append-contract facts. It emits a typed
+  append-contract facts, and append-intent facts. It emits a typed
   `raios.module_pre_load_audit_rollback_write_request.v0` plus
   `raios.module_audit_rollback_write_denial_evidence.v0`, keeps
   `writes_enabled`, `creates_durable_audit_records`, `creates_rollback_plans`,
@@ -703,10 +733,10 @@ The verified foundation for that task is:
   substituted, previous-boot, wrong-schema, mismatched hash, service-slot
   mismatch, recovery-artifact separation, one-sided missing availability,
   available-facts-but-policy-missing, rollback-policy-missing,
-  append-contract-missing, rollback-transaction-missing, writer-unimplemented,
-  and accepted-current-boot-but-denied cases without mutating the global event
-  log, creating durable records, installing rollback plans, or loading
-  artifacts.
+  append-contract-missing, rollback-transaction-missing, append-intent-missing,
+  writer-unimplemented, and accepted-current-boot-but-denied cases without
+  mutating the global event log, creating durable records, installing rollback
+  plans, or loading artifacts.
 - `module.load_ephemeral` and `service.load_ephemeral` now also validate the
   latest retained audit/rollback reference before snapshotting it into the
   denied `raios.module_load_gate.v0` response and event binding. The live
@@ -877,10 +907,10 @@ The verified foundation for that task is:
   visibility of valid retained service-slot reservation evidence, negative
   retained service-slot reservation gate selftests, and read-only
   audit/rollback availability, write-policy, storage-layout, append-engine,
-  append-contract, plus write-boundary
+  append-contract, append-intent, plus write-boundary
   diagnostics/selftests.
   Latest report:
-  `release\vm-reports\shadow-20260521-204240-7764.json` with 1460/1460
+  `release\vm-reports\shadow-20260521-211227-9508.json` with 1549/1549
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

@@ -480,6 +480,8 @@ function Write-Report {
             "agent module.audit_rollback_append_engine_selftest",
             "agent module.audit_rollback_append_contract",
             "agent module.audit_rollback_append_contract_selftest",
+            "agent module.audit_rollback_append_intent",
+            "agent module.audit_rollback_append_intent_selftest",
             "agent module.audit_rollback_write_boundary",
             "agent module.audit_rollback_write_boundary_selftest",
             "agent module.load_gate_manifest_selftest",
@@ -1604,6 +1606,54 @@ try {
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    Send-AgentCommand -Command "agent module.audit_rollback_append_intent" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_append_intent"
+    Assert-LogContainsFields -NamePrefix "protocol:module_audit_rollback_append_intent_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.module_audit_rollback_append_intent.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "writes_disabled"; Needle = '"writes_enabled": false' },
+        @{ Suffix = "append_contract_inputs"; Needle = '"append_contract_inputs": {' },
+        @{ Suffix = "audit_contract_input"; Needle = '"audit_append_envelope": {"schema": "raios.audit_ledger_append_envelope.v0", "status": "missing", "reason": "audit_append_envelope_missing"' },
+        @{ Suffix = "rollback_contract_input"; Needle = '"rollback_transaction_envelope": {"schema": "raios.rollback_store_transaction_envelope.v0", "status": "missing", "reason": "rollback_transaction_envelope_missing"' },
+        @{ Suffix = "contract_available_false"; Needle = '"append_contract_available": false' },
+        @{ Suffix = "contract_not_intent_authority"; Needle = '"append_contract_facts_are_append_intent_authority": false' },
+        @{ Suffix = "append_intent_facts"; Needle = '"append_intent_facts": {' },
+        @{ Suffix = "audit_intent_schema"; Needle = '"schema": "raios.audit_record_append_intent.v0"' },
+        @{ Suffix = "audit_intent_id"; Needle = '"id": "append_intent.audit_record.current_boot"' },
+        @{ Suffix = "audit_intent_target"; Needle = '"target_schema": "raios.audit_record.v0"' },
+        @{ Suffix = "audit_intent_contract_id"; Needle = '"append_contract_id": "append.audit_ledger.current_boot"' },
+        @{ Suffix = "audit_intent_engine_id"; Needle = '"append_engine_id": "append_engine.audit_ledger.current_boot"' },
+        @{ Suffix = "audit_intent_storage_id"; Needle = '"storage_layout_id": "storage.audit_rollback_layout.current_boot"' },
+        @{ Suffix = "audit_intent_policy_id"; Needle = '"write_policy_id": "policy.durable_audit_write.current_boot"' },
+        @{ Suffix = "audit_intent_availability_id"; Needle = '"availability_id": "availability.durable_audit_ledger.current_boot"' },
+        @{ Suffix = "intent_provenance_schema"; Needle = '"intent_provenance_schema": "raios.append_intent_provenance.v0"' },
+        @{ Suffix = "payload_hash_schema"; Needle = '"payload_hash_schema": "raios.append_intent_payload_hash.v0"' },
+        @{ Suffix = "audit_intent_reason"; Needle = '"reason": "audit_record_append_intent_missing"' },
+        @{ Suffix = "audit_contract_binding_false"; Needle = '"binds_append_contract_id": false' },
+        @{ Suffix = "audit_engine_binding_false"; Needle = '"binds_append_engine_id": false' },
+        @{ Suffix = "audit_storage_binding_false"; Needle = '"binds_storage_layout_id": false' },
+        @{ Suffix = "audit_policy_binding_false"; Needle = '"binds_write_policy_id": false' },
+        @{ Suffix = "audit_availability_binding_false"; Needle = '"binds_availability_id": false' },
+        @{ Suffix = "audit_payload_binding_false"; Needle = '"binds_payload_hash": false' },
+        @{ Suffix = "audit_provenance_binding_false"; Needle = '"binds_intent_provenance": false' },
+        @{ Suffix = "rollback_intent_schema"; Needle = '"schema": "raios.rollback_transaction_append_intent.v0"' },
+        @{ Suffix = "rollback_intent_id"; Needle = '"id": "append_intent.rollback_transaction.current_boot"' },
+        @{ Suffix = "rollback_intent_target"; Needle = '"target_schema": "raios.rollback_plan.v0"' },
+        @{ Suffix = "rollback_intent_contract_id"; Needle = '"append_contract_id": "append.rollback_store.current_boot"' },
+        @{ Suffix = "rollback_intent_engine_id"; Needle = '"append_engine_id": "append_engine.rollback_store.current_boot"' },
+        @{ Suffix = "rollback_intent_policy_id"; Needle = '"write_policy_id": "policy.rollback_install.current_boot"' },
+        @{ Suffix = "rollback_intent_availability_id"; Needle = '"availability_id": "availability.rollback_store.current_boot"' },
+        @{ Suffix = "rollback_intent_reason"; Needle = '"reason": "rollback_transaction_append_intent_missing"' },
+        @{ Suffix = "intent_status"; Needle = '"append_intent_status": "missing"' },
+        @{ Suffix = "intent_reason"; Needle = '"append_intent_reason": "audit_record_append_intent_missing_and_rollback_transaction_append_intent_missing"' },
+        @{ Suffix = "intent_available_false"; Needle = '"append_intent_available": false' },
+        @{ Suffix = "intent_missing_true"; Needle = '"append_intent_missing": true' },
+        @{ Suffix = "intent_not_writer_authority"; Needle = '"append_intent_facts_are_writer_authority": false' },
+        @{ Suffix = "retained_not_intent_authority"; Needle = '"retained_hash_refs_are_append_intent_authority": false' },
+        @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
     Send-AgentCommand -Command "agent module.audit_rollback_write_boundary" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_write_boundary"
     Assert-LogContainsFields -NamePrefix "protocol:module_write_boundary_" -TimeoutSeconds 1 -Fields @(
         @{ Suffix = "schema"; Needle = '"schema": "raios.module_audit_rollback_write_boundary.v0"' },
@@ -1624,6 +1674,11 @@ try {
         @{ Suffix = "append_contract_inputs"; Needle = '"append_contract_inputs": {' },
         @{ Suffix = "audit_append_input"; Needle = '"audit_append_envelope": {"schema": "raios.audit_ledger_append_envelope.v0", "status": "missing", "reason": "audit_append_envelope_missing"' },
         @{ Suffix = "rollback_transaction_input"; Needle = '"rollback_transaction_envelope": {"schema": "raios.rollback_store_transaction_envelope.v0", "status": "missing", "reason": "rollback_transaction_envelope_missing"' },
+        @{ Suffix = "append_intent_inputs"; Needle = '"append_intent_inputs": {' },
+        @{ Suffix = "audit_append_intent_input"; Needle = '"audit_record_append_intent": {"schema": "raios.audit_record_append_intent.v0", "status": "missing", "reason": "audit_record_append_intent_missing"' },
+        @{ Suffix = "rollback_append_intent_input"; Needle = '"rollback_transaction_append_intent": {"schema": "raios.rollback_transaction_append_intent.v0", "status": "missing", "reason": "rollback_transaction_append_intent_missing"' },
+        @{ Suffix = "append_intent_available_false"; Needle = '"append_intent_available": false' },
+        @{ Suffix = "append_intent_not_writer_authority"; Needle = '"append_intent_facts_are_writer_authority": false' },
         @{ Suffix = "denial_schema"; Needle = '"schema": "raios.module_audit_rollback_write_denial_evidence.v0"' },
         @{ Suffix = "validation_status"; Needle = '"validation_status": "denied_missing_durable_write_boundary"' },
         @{ Suffix = "validation_reason"; Needle = '"validation_reason": "durable_audit_write_missing_and_rollback_install_missing"' },
@@ -1633,9 +1688,13 @@ try {
         @{ Suffix = "rollback_policy_missing"; Needle = '"rollback_install_policy_missing": true' },
         @{ Suffix = "audit_append_missing"; Needle = '"audit_append_status": "missing"' },
         @{ Suffix = "rollback_transaction_missing"; Needle = '"rollback_transaction_status": "missing"' },
+        @{ Suffix = "audit_append_intent_missing"; Needle = '"audit_append_intent_status": "missing"' },
+        @{ Suffix = "rollback_transaction_intent_missing"; Needle = '"rollback_transaction_append_intent_status": "missing"' },
+        @{ Suffix = "append_intent_missing"; Needle = '"append_intent_missing": true' },
         @{ Suffix = "storage_layout_missing"; Needle = '"storage_layout_missing": true' },
         @{ Suffix = "append_engine_missing"; Needle = '"append_engine_missing": true' },
         @{ Suffix = "not_append_authority"; Needle = '"retained_hash_refs_are_append_authority": false' },
+        @{ Suffix = "not_append_intent_authority"; Needle = '"retained_hash_refs_are_append_intent_authority": false' },
         @{ Suffix = "not_durable_authority"; Needle = '"retained_hash_refs_are_durable_authority": false' },
         @{ Suffix = "manifest_event"; Needle = '"module_manifest": {"event_id": "event.current_boot.' },
         @{ Suffix = "artifact_event"; Needle = '"candidate_artifact": {"event_id": "event.current_boot.' },
@@ -1871,6 +1930,39 @@ try {
     Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "agent module.audit_rollback_append_intent_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_append_intent_selftest"
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_append_intent_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_no_install" -Needle '"installs_rollback_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_count" -Needle '"case_count": 18' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_missing_case" -Needle '"case": "missing_append_intent_pair_current_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_missing_reason" -Needle '"actual_reason": "audit_record_append_intent_missing_and_rollback_transaction_append_intent_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_scope_case" -Needle '"case": "audit_record_append_intent_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_schema_case" -Needle '"case": "audit_record_append_intent_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_provenance_case" -Needle '"case": "audit_record_append_intent_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_provenance_binding_case" -Needle '"case": "audit_record_append_intent_provenance_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_contract_binding_case" -Needle '"case": "audit_record_append_intent_append_contract_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_engine_binding_case" -Needle '"case": "audit_record_append_intent_append_engine_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_storage_binding_case" -Needle '"case": "audit_record_append_intent_storage_layout_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_policy_binding_case" -Needle '"case": "audit_record_append_intent_write_policy_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_availability_binding_case" -Needle '"case": "audit_record_append_intent_availability_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_payload_case" -Needle '"case": "audit_record_append_intent_payload_hash_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_audit_contract_missing_case" -Needle '"case": "audit_record_append_intent_append_contract_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_rollback_scope_case" -Needle '"case": "rollback_transaction_append_intent_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_rollback_schema_case" -Needle '"case": "rollback_transaction_append_intent_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_rollback_provenance_case" -Needle '"case": "rollback_transaction_append_intent_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_rollback_contract_binding_case" -Needle '"case": "rollback_transaction_append_intent_append_contract_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_rollback_payload_case" -Needle '"case": "rollback_transaction_append_intent_payload_hash_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_available_case" -Needle '"case": "available_append_intents_still_non_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_available_status" -Needle '"actual_status": "available"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_available_reason" -Needle '"actual_reason": "audit_rollback_append_intent_available"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_intent_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
     Send-AgentCommand -Command "agent module.audit_rollback_write_boundary_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_write_boundary_selftest"
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_write_boundary_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
@@ -1879,7 +1971,7 @@ try {
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_no_install" -Needle '"installs_rollback_plan": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_no_recovery_artifact" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_write_boundary_selftest_count" -Needle '"case_count": 20' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_count" -Needle '"case_count": 21' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_missing_manifest" -Needle '"case": "missing_manifest_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_stale_artifact" -Needle '"case": "stale_artifact_reference"' -TimeoutSeconds 1
@@ -1906,7 +1998,10 @@ try {
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_append_missing_reason" -Needle '"actual_reason": "audit_append_envelope_missing_and_rollback_transaction_envelope_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_rollback_transaction_missing_case" -Needle '"case": "audit_append_available_rollback_transaction_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_rollback_transaction_missing_reason" -Needle '"actual_reason": "rollback_transaction_envelope_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_write_boundary_selftest_writer_case" -Needle '"case": "policy_facts_available_writer_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_intent_missing_case" -Needle '"case": "append_contract_available_append_intent_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_intent_missing_status" -Needle '"actual_status": "denied_missing_append_intent"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_intent_missing_reason" -Needle '"actual_reason": "audit_record_append_intent_missing_and_rollback_transaction_append_intent_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_writer_case" -Needle '"case": "append_intents_available_writer_still_denied"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_writer_status" -Needle '"actual_status": "denied_write_path_unimplemented"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_writer_reason" -Needle '"actual_reason": "durable_audit_rollback_writer_unimplemented"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_write_boundary_selftest_valid_denied" -Needle '"case": "accepted_current_boot_preconditions_write_still_denied"' -TimeoutSeconds 1

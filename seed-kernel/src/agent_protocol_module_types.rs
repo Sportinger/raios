@@ -594,6 +594,55 @@ pub(crate) struct ModuleAuditRollbackAppendContractSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct ModuleAuditRollbackAppendIntentFact {
+    pub(crate) present: bool,
+    pub(crate) schema_ok: bool,
+    pub(crate) scope: &'static str,
+    pub(crate) provenance_ok: bool,
+    pub(crate) classification: &'static str,
+    pub(crate) binds_append_contract: bool,
+    pub(crate) binds_append_contract_id: bool,
+    pub(crate) binds_append_engine_id: bool,
+    pub(crate) binds_storage_layout_id: bool,
+    pub(crate) binds_write_policy_id: bool,
+    pub(crate) binds_availability_id: bool,
+    pub(crate) binds_payload_hash: bool,
+    pub(crate) binds_intent_provenance: bool,
+    pub(crate) append_contract_available: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleAuditRollbackAppendIntentCandidate {
+    pub(crate) audit_record_append_intent: ModuleAuditRollbackAppendIntentFact,
+    pub(crate) rollback_transaction_append_intent: ModuleAuditRollbackAppendIntentFact,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleAuditRollbackAppendIntentEvaluation {
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
+    pub(crate) audit_intent_status: &'static str,
+    pub(crate) audit_intent_reason: &'static str,
+    pub(crate) rollback_intent_status: &'static str,
+    pub(crate) rollback_intent_reason: &'static str,
+    pub(crate) append_contract_available: bool,
+    pub(crate) append_intent_available: bool,
+    pub(crate) writes_enabled: bool,
+    pub(crate) installs_rollback_plan: bool,
+    pub(crate) can_load: bool,
+    pub(crate) load_attempted: bool,
+}
+
+pub(crate) struct ModuleAuditRollbackAppendIntentSelfTestCase {
+    pub(crate) name: &'static str,
+    pub(crate) expected_status: &'static str,
+    pub(crate) expected_reason: &'static str,
+    pub(crate) actual_status: &'static str,
+    pub(crate) actual_reason: &'static str,
+    pub(crate) passed: bool,
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct ModuleAuditRollbackWriteBoundaryCandidate {
     pub(crate) scope: &'static str,
     pub(crate) request_schema_ok: bool,
@@ -633,6 +682,10 @@ pub(crate) struct ModuleAuditRollbackWriteBoundaryCandidate {
     pub(crate) audit_append_reason: &'static str,
     pub(crate) rollback_transaction_status: &'static str,
     pub(crate) rollback_transaction_reason: &'static str,
+    pub(crate) audit_append_intent_status: &'static str,
+    pub(crate) audit_append_intent_reason: &'static str,
+    pub(crate) rollback_transaction_append_intent_status: &'static str,
+    pub(crate) rollback_transaction_append_intent_reason: &'static str,
     pub(crate) recovery_artifact_loader_requested: bool,
 }
 
@@ -963,7 +1016,8 @@ pub(crate) const MODULE_AUDIT_ROLLBACK_WRITE_POLICY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_SELFTEST_CASES: usize = 15;
 pub(crate) const MODULE_AUDIT_ROLLBACK_APPEND_ENGINE_SELFTEST_CASES: usize = 16;
 pub(crate) const MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_SELFTEST_CASES: usize = 24;
-pub(crate) const MODULE_AUDIT_ROLLBACK_WRITE_BOUNDARY_SELFTEST_CASES: usize = 20;
+pub(crate) const MODULE_AUDIT_ROLLBACK_APPEND_INTENT_SELFTEST_CASES: usize = 18;
+pub(crate) const MODULE_AUDIT_ROLLBACK_WRITE_BOUNDARY_SELFTEST_CASES: usize = 21;
 pub(crate) const MODULE_LOAD_GATE_MANIFEST_SELFTEST_CASES: usize = 7;
 pub(crate) const MODULE_LOAD_GATE_ARTIFACT_SELFTEST_CASES: usize = 9;
 pub(crate) const MODULE_LOAD_GATE_VM_REPORT_SELFTEST_CASES: usize = 11;

@@ -390,6 +390,8 @@ agent module.audit_rollback_append_engine
 agent module.audit_rollback_append_engine_selftest
 agent module.audit_rollback_append_contract
 agent module.audit_rollback_append_contract_selftest
+agent module.audit_rollback_append_intent
+agent module.audit_rollback_append_intent_selftest
 agent module.audit_rollback_write_boundary
 agent module.audit_rollback_write_boundary_selftest
 agent module.load_gate_manifest_selftest
@@ -493,21 +495,34 @@ availability, and provenance bindings for future append envelopes, and
 `append_engine_missing` must remain true while writes and rollback installs
 remain disabled.
 
+The audit/rollback append-intent diagnostic emits
+`raios.module_audit_rollback_append_intent.v0` and the selftest emits
+`raios.module_audit_rollback_append_intent_selftest.v0`. It reports typed
+`raios.audit_record_append_intent.v0` and
+`raios.rollback_transaction_append_intent.v0` current-boot facts. In the current
+kernel both facts are `missing`, `local_only`, non-durable, and
+non-authorizing; the diagnostic consumes the bound append-contract facts and
+names required append-contract, append-engine, storage-layout, write-policy,
+availability, payload-hash, and provenance bindings for future append requests.
+`append_intent_missing` must remain true while writes and rollback installs
+remain disabled.
+
 The write-boundary diagnostic emits
 `raios.module_audit_rollback_write_boundary.v0` and the selftest emits
 `raios.module_audit_rollback_write_boundary_selftest.v0`. It consumes only the
 retained current-boot module evidence chain plus the retained service-slot
 reservation plus the audit/rollback availability, write-policy, storage-layout,
-append-engine readiness through the append contract, and append-contract facts,
-emits
+append-engine readiness through the append contract, append-contract facts, and
+append-intent facts, emits
 `raios.module_pre_load_audit_rollback_write_request.v0` and
 `raios.module_audit_rollback_write_denial_evidence.v0`, and keeps
 `writes_enabled: false`, `creates_durable_audit_records: false`,
 `creates_rollback_plans: false`, `installs_rollback_plan: false`,
-`loads_artifact: false`, and `loads_recovery_artifact: false`. A fully valid
-current-boot precondition set must still report
+`loads_artifact: false`, and `loads_recovery_artifact: false`. The current live
+kernel must still report
 `durable_audit_write_missing`, `rollback_install_missing`,
-`storage_layout_missing`, and `append_engine_missing`.
+`storage_layout_missing`, `append_engine_missing`, and
+`append_intent_missing`.
 
 A valid `module.manifest_diagnostic` hash-reference command records a local-only
 current-boot `raios.module_manifest_reference.v0` event binding and reports
