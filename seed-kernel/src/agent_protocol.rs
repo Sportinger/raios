@@ -4,6 +4,14 @@ use crate::{
         emit_memory_profile, emit_memory_query, emit_memory_trace, emit_recent_events,
         memory_mutation_method,
     },
+    agent_protocol_module_approval::{
+        emit_module_approval_diagnostic, emit_module_approval_diagnostic_selftest,
+        module_approval_diagnostic_method, module_approval_diagnostic_selftest_method,
+    },
+    agent_protocol_module_attestation::{
+        emit_module_attestation_diagnostic, emit_module_attestation_diagnostic_selftest,
+        module_attestation_diagnostic_method, module_attestation_diagnostic_selftest_method,
+    },
     agent_protocol_module_audit::{
         emit_module_audit_rollback_diagnostic, emit_module_audit_rollback_diagnostic_selftest,
         module_audit_rollback_diagnostic_method, module_audit_rollback_diagnostic_selftest_method,
@@ -13,10 +21,12 @@ use crate::{
         module_grant_diagnostic_method, module_grant_diagnostic_selftest_method,
     },
     agent_protocol_module_load_gate::{
-        emit_module_load_ephemeral_denied, emit_module_load_gate_artifact_selftest,
+        emit_module_load_ephemeral_denied, emit_module_load_gate_approval_selftest,
+        emit_module_load_gate_artifact_selftest, emit_module_load_gate_attestation_selftest,
         emit_module_load_gate_audit_rollback_selftest, emit_module_load_gate_manifest_selftest,
         emit_module_load_gate_retained_selftest, emit_module_load_gate_service_slot_selftest,
-        emit_module_load_gate_vm_report_selftest, module_load_gate_artifact_selftest_method,
+        emit_module_load_gate_vm_report_selftest, module_load_gate_approval_selftest_method,
+        module_load_gate_artifact_selftest_method, module_load_gate_attestation_selftest_method,
         module_load_gate_audit_rollback_selftest_method, module_load_gate_manifest_selftest_method,
         module_load_gate_retained_selftest_method, module_load_gate_service_slot_selftest_method,
         module_load_gate_vm_report_selftest_method,
@@ -32,6 +42,30 @@ use crate::{
     agent_protocol_module_service_slot::{
         emit_module_service_slot_diagnostic, emit_module_service_slot_diagnostic_selftest,
         module_service_slot_diagnostic_method, module_service_slot_diagnostic_selftest_method,
+    },
+    agent_protocol_module_write_boundary::{
+        emit_module_audit_rollback_append_contract,
+        emit_module_audit_rollback_append_contract_selftest,
+        emit_module_audit_rollback_append_engine,
+        emit_module_audit_rollback_append_engine_selftest, emit_module_audit_rollback_availability,
+        emit_module_audit_rollback_availability_selftest,
+        emit_module_audit_rollback_storage_layout,
+        emit_module_audit_rollback_storage_layout_selftest,
+        emit_module_audit_rollback_write_boundary,
+        emit_module_audit_rollback_write_boundary_selftest,
+        emit_module_audit_rollback_write_policy, emit_module_audit_rollback_write_policy_selftest,
+        module_audit_rollback_append_contract_method,
+        module_audit_rollback_append_contract_selftest_method,
+        module_audit_rollback_append_engine_method,
+        module_audit_rollback_append_engine_selftest_method,
+        module_audit_rollback_availability_method,
+        module_audit_rollback_availability_selftest_method,
+        module_audit_rollback_storage_layout_method,
+        module_audit_rollback_storage_layout_selftest_method,
+        module_audit_rollback_write_boundary_method,
+        module_audit_rollback_write_boundary_selftest_method,
+        module_audit_rollback_write_policy_method,
+        module_audit_rollback_write_policy_selftest_method,
     },
     agent_protocol_policy::{
         canonical_denied_method, canonical_module_load_ephemeral_method, denied_method,
@@ -185,6 +219,26 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_module_vm_report_diagnostic_selftest();
         return DispatchOutcome::Response("module.vm_report_diagnostic_selftest");
     }
+    if module_attestation_diagnostic_method(method) {
+        record_read("module.attestation_diagnostic");
+        emit_module_attestation_diagnostic(method);
+        return DispatchOutcome::Response("module.attestation_diagnostic");
+    }
+    if module_attestation_diagnostic_selftest_method(method) {
+        record_read("module.attestation_diagnostic_selftest");
+        emit_module_attestation_diagnostic_selftest();
+        return DispatchOutcome::Response("module.attestation_diagnostic_selftest");
+    }
+    if module_approval_diagnostic_method(method) {
+        record_read("module.approval_diagnostic");
+        emit_module_approval_diagnostic(method);
+        return DispatchOutcome::Response("module.approval_diagnostic");
+    }
+    if module_approval_diagnostic_selftest_method(method) {
+        record_read("module.approval_diagnostic_selftest");
+        emit_module_approval_diagnostic_selftest();
+        return DispatchOutcome::Response("module.approval_diagnostic_selftest");
+    }
     if module_grant_diagnostic_method(method) {
         record_read("module.grant_diagnostic");
         emit_module_grant_diagnostic(method);
@@ -215,6 +269,66 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_module_service_slot_diagnostic_selftest();
         return DispatchOutcome::Response("module.service_slot_diagnostic_selftest");
     }
+    if module_audit_rollback_availability_method(method) {
+        record_read("module.audit_rollback_availability");
+        emit_module_audit_rollback_availability();
+        return DispatchOutcome::Response("module.audit_rollback_availability");
+    }
+    if module_audit_rollback_availability_selftest_method(method) {
+        record_read("module.audit_rollback_availability_selftest");
+        emit_module_audit_rollback_availability_selftest();
+        return DispatchOutcome::Response("module.audit_rollback_availability_selftest");
+    }
+    if module_audit_rollback_write_policy_method(method) {
+        record_read("module.audit_rollback_write_policy");
+        emit_module_audit_rollback_write_policy();
+        return DispatchOutcome::Response("module.audit_rollback_write_policy");
+    }
+    if module_audit_rollback_write_policy_selftest_method(method) {
+        record_read("module.audit_rollback_write_policy_selftest");
+        emit_module_audit_rollback_write_policy_selftest();
+        return DispatchOutcome::Response("module.audit_rollback_write_policy_selftest");
+    }
+    if module_audit_rollback_storage_layout_method(method) {
+        record_read("module.audit_rollback_storage_layout");
+        emit_module_audit_rollback_storage_layout();
+        return DispatchOutcome::Response("module.audit_rollback_storage_layout");
+    }
+    if module_audit_rollback_storage_layout_selftest_method(method) {
+        record_read("module.audit_rollback_storage_layout_selftest");
+        emit_module_audit_rollback_storage_layout_selftest();
+        return DispatchOutcome::Response("module.audit_rollback_storage_layout_selftest");
+    }
+    if module_audit_rollback_append_engine_method(method) {
+        record_read("module.audit_rollback_append_engine");
+        emit_module_audit_rollback_append_engine();
+        return DispatchOutcome::Response("module.audit_rollback_append_engine");
+    }
+    if module_audit_rollback_append_engine_selftest_method(method) {
+        record_read("module.audit_rollback_append_engine_selftest");
+        emit_module_audit_rollback_append_engine_selftest();
+        return DispatchOutcome::Response("module.audit_rollback_append_engine_selftest");
+    }
+    if module_audit_rollback_append_contract_method(method) {
+        record_read("module.audit_rollback_append_contract");
+        emit_module_audit_rollback_append_contract();
+        return DispatchOutcome::Response("module.audit_rollback_append_contract");
+    }
+    if module_audit_rollback_append_contract_selftest_method(method) {
+        record_read("module.audit_rollback_append_contract_selftest");
+        emit_module_audit_rollback_append_contract_selftest();
+        return DispatchOutcome::Response("module.audit_rollback_append_contract_selftest");
+    }
+    if module_audit_rollback_write_boundary_method(method) {
+        record_read("module.audit_rollback_write_boundary");
+        emit_module_audit_rollback_write_boundary();
+        return DispatchOutcome::Response("module.audit_rollback_write_boundary");
+    }
+    if module_audit_rollback_write_boundary_selftest_method(method) {
+        record_read("module.audit_rollback_write_boundary_selftest");
+        emit_module_audit_rollback_write_boundary_selftest();
+        return DispatchOutcome::Response("module.audit_rollback_write_boundary_selftest");
+    }
     if module_load_gate_manifest_selftest_method(method) {
         record_read("module.load_gate_manifest_selftest");
         emit_module_load_gate_manifest_selftest();
@@ -229,6 +343,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("module.load_gate_vm_report_selftest");
         emit_module_load_gate_vm_report_selftest();
         return DispatchOutcome::Response("module.load_gate_vm_report_selftest");
+    }
+    if module_load_gate_attestation_selftest_method(method) {
+        record_read("module.load_gate_attestation_selftest");
+        emit_module_load_gate_attestation_selftest();
+        return DispatchOutcome::Response("module.load_gate_attestation_selftest");
+    }
+    if module_load_gate_approval_selftest_method(method) {
+        record_read("module.load_gate_approval_selftest");
+        emit_module_load_gate_approval_selftest();
+        return DispatchOutcome::Response("module.load_gate_approval_selftest");
     }
     if module_load_gate_retained_selftest_method(method) {
         record_read("module.load_gate_retained_selftest");

@@ -38,9 +38,9 @@ The serial error response reports:
     "module_manifest": "missing | retained_hash_reference_only | rejected_retained_reference",
     "candidate_artifact": "missing | retained_hash_reference_only | rejected_retained_reference",
     "vm_test_report": "missing | retained_hash_reference_only | rejected_retained_reference",
-    "local_attestation": "missing",
+    "local_attestation": "missing | retained_hash_reference_only | rejected_retained_reference",
     "computed_capability_grant": "missing | retained_hash_reference_only",
-    "local_approval": "missing",
+    "local_approval": "missing | retained_hash_reference_only | rejected_retained_reference",
     "rollback_plan": "missing | retained_hash_reference_only_not_installed | rejected_retained_reference",
     "durable_audit_record": "missing | retained_hash_reference_only_not_durable | rejected_retained_reference",
     "loader": "unavailable",
@@ -83,12 +83,32 @@ retained_vm_test_report_reference_artifact_reference_mismatch
 retained_vm_test_report_reference_computed_grant_reference_mismatch
 retained_vm_test_report_hash_mismatch
 local_attestation_missing
+retained_local_attestation_reference_not_authorizing
+retained_local_attestation_reference_stale_or_dropped_event_id
+retained_local_attestation_reference_previous_boot_or_unretained
+retained_local_attestation_reference_wrong_schema_or_variant
+retained_local_attestation_reference_substituted_record
+retained_local_attestation_reference_hash_mismatch
+retained_local_attestation_reference_manifest_reference_mismatch
+retained_local_attestation_reference_artifact_reference_mismatch
+retained_local_attestation_reference_vm_report_reference_mismatch
+retained_local_attestation_reference_computed_grant_reference_mismatch
+local_approval_missing
+retained_local_approval_reference_not_authorizing
+retained_local_approval_reference_stale_or_dropped_event_id
+retained_local_approval_reference_previous_boot_or_unretained
+retained_local_approval_reference_wrong_schema_or_variant
+retained_local_approval_reference_substituted_record
+retained_local_approval_reference_hash_mismatch
+retained_local_approval_reference_manifest_reference_mismatch
+retained_local_approval_reference_artifact_reference_mismatch
+retained_local_approval_reference_vm_report_reference_mismatch
+retained_local_approval_reference_local_attestation_reference_mismatch
+retained_local_approval_reference_computed_grant_reference_mismatch
 computed_capability_grant_missing
 retained_computed_grant_reference_not_authorizing
-durable_audit_record_missing
-rollback_plan_missing
-retained_audit_record_reference_not_durable
-retained_rollback_plan_reference_not_installed
+durable_audit_write_missing
+rollback_install_missing
 retained_audit_rollback_reference_wrong_schema_or_variant
 retained_audit_rollback_reference_substituted_record
 retained_audit_rollback_computed_grant_hash_mismatch
@@ -125,9 +145,11 @@ rollback_plan
 ram_only_service_slot
 ```
 
-The current guest does not accept those records as inputs yet. Host-side
-manifest validation, VM reports, registry evidence, and local attestations are
-evidence artifacts only until an in-guest policy path computes a grant.
+The current guest accepts some of these only as canonical hash references and
+current-boot event ids. Host-side manifest validation, VM reports, registry
+evidence, and local attestations remain evidence artifacts only until an
+in-guest policy path computes a grant; raw JSON or artifact bytes are not
+trusted authority.
 
 The read-only `module.manifest_diagnostic` method can inspect only a canonical
 `raios.module_manifest_reference.v0` hash reference. A valid reference is
@@ -157,6 +179,26 @@ after live current-boot event validation against the retained manifest,
 candidate-artifact, and computed-grant references, then reports
 `vm_test_report: retained_hash_reference_only` with reason
 `retained_vm_test_report_reference_not_authorizing`.
+
+The read-only `module.attestation_diagnostic` method can inspect only a
+canonical `raios.module_local_attestation_reference.v0` hash reference. A valid
+reference is retained as local-only current-boot event evidence, but it accepts
+no local-attestation JSON, loads no artifact, and keeps `load_attempted: false`.
+The mutating `module.load_ephemeral` gate snapshots that retained reference
+only after live current-boot event validation against the retained manifest,
+candidate-artifact, VM-report, and computed-grant references, then reports
+`local_attestation: retained_hash_reference_only` with reason
+`retained_local_attestation_reference_not_authorizing`.
+
+The read-only `module.approval_diagnostic` method can inspect only a canonical
+`raios.module_local_approval_reference.v0` hash reference. A valid reference is
+retained as local-only current-boot event evidence, but it accepts no approval
+text, loads no artifact, and keeps `load_attempted: false`. The mutating
+`module.load_ephemeral` gate snapshots that retained reference only after live
+current-boot event validation against the retained manifest, candidate-artifact,
+VM-report, local-attestation, and computed-grant references, then reports
+`local_approval: retained_hash_reference_only` with reason
+`retained_local_approval_reference_not_authorizing`.
 
 `raios.computed_capability_grant.v0` now defines the first host-side diagnostic
 for that future grant. It can validate and hash an exact
@@ -196,7 +238,7 @@ The denial now exposes the first explicit audit/rollback requirement object:
       "artifact_hash",
       "vm_test_report_hash",
       "local_attestation_hash",
-      "local_approval",
+      "local_approval_hash",
       "rollback_plan_hash",
       "ram_only_service_slot_id"
     ]
@@ -212,7 +254,8 @@ The denial now exposes the first explicit audit/rollback requirement object:
       "cleanup_actions_hash"
     ]
   },
-  "retained_audit_rollback_reference_event_id": "null | event.current_boot.00000032"
+  "retained_local_approval_reference_event_id": "null | event.current_boot.00000032",
+  "retained_audit_rollback_reference_event_id": "null | event.current_boot.00000033"
 }
 ```
 
@@ -282,6 +325,8 @@ evidence:
   module_manifest_reference_checked
   candidate_artifact_reference_checked
   vm_test_report_reference_checked
+  local_attestation_reference_checked
+  local_approval_reference_checked
   computed_capability_grant_reference_checked
   durable_audit_record_required
   rollback_plan_required
@@ -300,6 +345,10 @@ retained_candidate_artifact_reference.state: missing | present | rejected
 retained_candidate_artifact_reference.schema: raios.module_candidate_artifact_reference.v0
 retained_vm_test_report_reference.state: missing | present | rejected
 retained_vm_test_report_reference.schema: raios.module_vm_test_report_reference.v0
+retained_local_attestation_reference.state: missing | present | rejected
+retained_local_attestation_reference.schema: raios.module_local_attestation_reference.v0
+retained_local_approval_reference.state: missing | present | rejected
+retained_local_approval_reference.schema: raios.module_local_approval_reference.v0
 retained_computed_grant_reference.state: missing | present
 retained_audit_rollback_reference.state: missing | present | rejected
 retained_audit_rollback_reference.schema: raios.module_audit_rollback_reference.v0
@@ -312,10 +361,12 @@ artifact_reference_hash: null | sha256:<retained artifact reference hash>
 artifact_hash: null | sha256:<retained artifact hash>
 vm_test_report_reference_hash: null | sha256:<retained VM-report reference hash>
 vm_test_report_hash: null | sha256:<retained report hash>
+local_attestation_reference_hash: null | sha256:<retained local-attestation reference hash>
 local_attestation_hash: null | sha256:<retained attestation hash>
+local_approval_reference_hash: null | sha256:<retained local-approval reference hash>
+local_approval_hash: null | sha256:<retained approval hash>
 audit_record_hash: null | sha256:<retained audit record hash>
 rollback_plan_hash: null | sha256:<retained rollback plan hash>
-local_approval_hash: null | sha256:<retained approval hash>
 pre_load_service_inventory_hash: null | sha256:<retained inventory hash>
 cleanup_actions_hash: null | sha256:<retained cleanup hash>
 ram_only_service_slot_id: null | ram_only:<service slot id>
@@ -531,6 +582,89 @@ local-only `raios.module_vm_test_report_reference.v0` event binding with
 accepted-current-boot, stale, mismatched, computed-grant-mismatched, and
 non-current-boot event-id references without mutating the global event log.
 
+## Local Attestation Hash-Reference Diagnostic
+
+The read-only method:
+
+```text
+agent module.attestation_diagnostic
+agent module.attestation_diagnostic <local_attestation_reference_hash> <retained_manifest_reference_event_id> <retained_artifact_reference_event_id> <retained_vm_report_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <artifact_reference_hash> <vm_test_report_reference_hash> <manifest_hash> <artifact_hash> <computed_grant_hash> <vm_report_hash> <local_attestation_hash> [current_boot]
+agent module.attestation_diagnostic_selftest
+```
+
+emits `raios.module_local_attestation_reference_diagnostic.v0` and
+`raios.module_local_attestation_reference_diagnostic_selftest.v0`. It validates
+only canonical hashes and current-boot ids. A valid command records a
+local-only `raios.module_local_attestation_reference.v0` event binding with
+`global_event_log_mutation: valid_hash_reference_retention_only`, keeps
+`accepts_local_attestation_json: false`, `accepts_artifact_bytes: false`,
+`loads_artifact: false`, `service_inventory_change: none`,
+`can_load_now: false`, and `load_attempted: false`. The selftest covers absent,
+accepted-current-boot, stale, mismatched, computed-grant-mismatched, and
+non-current-boot event-id references without mutating the global event log.
+
+## Local Attestation Reference Gate Selftest
+
+The read-only method:
+
+```text
+agent module.load_gate_attestation_selftest
+```
+
+emits `raios.module_load_gate_local_attestation_selftest.v0`. It is local test
+infrastructure over the retained local-attestation-reference predicate and must
+keep `mutates_global_event_log: false`,
+`creates_retained_local_attestation_reference_records: false`,
+`accepts_local_attestation_json: false`, `accepts_artifact_bytes: false`,
+`loads_artifact: false`, `service_inventory_change: none`, `can_load: false`,
+and `load_attempted: false`. The current cases cover missing,
+accepted-current-boot-but-denied, stale/dropped,
+previous-boot-or-unretained, wrong-schema, substituted, hash-mismatch,
+manifest-reference mismatch, artifact-reference mismatch, VM-report-reference
+mismatch, and computed-grant-reference mismatch candidates.
+
+## Local Approval Hash-Reference Diagnostic
+
+The read-only method:
+
+```text
+agent module.approval_diagnostic
+agent module.approval_diagnostic <local_approval_reference_hash> <retained_manifest_reference_event_id> <retained_artifact_reference_event_id> <retained_vm_report_reference_event_id> <retained_local_attestation_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <artifact_reference_hash> <vm_test_report_reference_hash> <local_attestation_reference_hash> <manifest_hash> <artifact_hash> <computed_grant_hash> <vm_report_hash> <local_attestation_hash> <local_approval_hash> [current_boot]
+agent module.approval_diagnostic_selftest
+```
+
+emits `raios.module_local_approval_reference_diagnostic.v0` and
+`raios.module_local_approval_reference_diagnostic_selftest.v0`. It validates
+only canonical hashes and current-boot ids. A valid command records a
+local-only `raios.module_local_approval_reference.v0` event binding with
+`global_event_log_mutation: valid_hash_reference_retention_only`, keeps
+`accepts_local_approval_text: false`, `accepts_artifact_bytes: false`,
+`loads_artifact: false`, `service_inventory_change: none`,
+`can_load_now: false`, and `load_attempted: false`. The selftest covers absent,
+accepted-current-boot, stale, mismatched, computed-grant-mismatched, and
+non-current-boot event-id references without mutating the global event log.
+
+## Local Approval Reference Gate Selftest
+
+The read-only method:
+
+```text
+agent module.load_gate_approval_selftest
+```
+
+emits `raios.module_load_gate_local_approval_selftest.v0`. It is local test
+infrastructure over the retained local-approval-reference predicate and must
+keep `mutates_global_event_log: false`,
+`creates_retained_local_approval_reference_records: false`,
+`accepts_local_approval_text: false`, `accepts_artifact_bytes: false`,
+`loads_artifact: false`, `service_inventory_change: none`, `can_load: false`,
+and `load_attempted: false`. The current cases cover missing,
+accepted-current-boot-but-denied, stale/dropped,
+previous-boot-or-unretained, wrong-schema, substituted, hash-mismatch,
+manifest-reference mismatch, artifact-reference mismatch, VM-report-reference
+mismatch, local-attestation-reference mismatch, and computed-grant-reference
+mismatch candidates.
+
 ## Audit/Rollback Hash-Reference Diagnostic
 
 The read-only method:
@@ -573,12 +707,128 @@ local-only `raios.module_service_slot_reservation.v0` event binding with
 accepted-current-boot, stale, mismatched reservation hash, and invalid
 `ram_only:` slot references without mutating the global event log.
 
+## Audit/Rollback Write Boundary Diagnostic
+
+The read-only method:
+
+```text
+agent module.audit_rollback_availability
+agent module.audit_rollback_availability_selftest
+agent module.audit_rollback_write_policy
+agent module.audit_rollback_write_policy_selftest
+agent module.audit_rollback_storage_layout
+agent module.audit_rollback_storage_layout_selftest
+agent module.audit_rollback_append_engine
+agent module.audit_rollback_append_engine_selftest
+agent module.audit_rollback_append_contract
+agent module.audit_rollback_append_contract_selftest
+agent module.audit_rollback_write_boundary
+agent module.audit_rollback_write_boundary_selftest
+```
+
+`module.audit_rollback_availability` emits
+`raios.module_audit_rollback_availability.v0` and
+`module.audit_rollback_availability_selftest` emits
+`raios.module_audit_rollback_availability_selftest.v0`. The live diagnostic
+reports typed `raios.durable_audit_ledger.v0` and `raios.rollback_store.v0`
+current-boot availability facts as missing, local-only, non-durable, and
+non-authorizing. The selftest covers missing ledger/store, previous-boot, schema
+mismatch, missing provenance, and available-facts-but-policy-missing cases.
+
+`module.audit_rollback_write_policy` emits
+`raios.module_audit_rollback_write_policy.v0` and
+`module.audit_rollback_write_policy_selftest` emits
+`raios.module_audit_rollback_write_policy_selftest.v0`. The live diagnostic
+reports typed `raios.durable_audit_write_policy.v0` and
+`raios.rollback_install_policy.v0` current-boot policy facts as missing,
+local-only, non-durable, and non-authorizing. The selftest covers missing
+policy pairs, previous-boot, schema mismatch, missing provenance, retained
+evidence binding gaps, availability binding gaps, and
+available-policy-but-writer-missing cases.
+
+`module.audit_rollback_storage_layout` emits
+`raios.module_audit_rollback_storage_layout.v0` and
+`module.audit_rollback_storage_layout_selftest` emits
+`raios.module_audit_rollback_storage_layout_selftest.v0`. The live diagnostic
+reports typed `raios.persistence_device_inventory.v0` and
+`raios.audit_rollback_storage_layout.v0` current-boot facts as missing,
+local-only, non-durable, and non-authorizing. It separates persistence device
+identity, partition inventory, write-path availability, audit-ledger and
+rollback-store layout regions, append slots, and recovery-region separation
+from write or append authority.
+
+`module.audit_rollback_append_engine` emits
+`raios.module_audit_rollback_append_engine.v0` and
+`module.audit_rollback_append_engine_selftest` emits
+`raios.module_audit_rollback_append_engine_selftest.v0`. The live diagnostic
+reports typed `raios.audit_ledger_append_engine.v0` and
+`raios.rollback_store_transaction_engine.v0` current-boot facts as missing,
+local-only, non-durable, and non-authorizing. It consumes the storage-layout
+diagnostic as input while keeping append-only behavior, flush support, replay
+support, storage-layout binding, write-policy binding, and recovery separation
+separate from write authority.
+
+`module.audit_rollback_append_contract` emits
+`raios.module_audit_rollback_append_contract.v0` and
+`module.audit_rollback_append_contract_selftest` emits
+`raios.module_audit_rollback_append_contract_selftest.v0`. The live diagnostic
+reports typed `raios.audit_ledger_append_envelope.v0` and
+`raios.rollback_store_transaction_envelope.v0` current-boot facts as missing,
+local-only, non-durable, and non-authorizing. It consumes the storage-layout
+and append-engine diagnostics separately from availability and policy, and the
+selftest covers missing, stale/scope, schema, provenance, explicit stable-id
+binding, storage-layout, and append-engine-missing cases. Future append
+envelopes must bind storage-layout, append-engine, write-policy, availability,
+and provenance ids before any write path can evaluate them as structurally
+ready.
+
+`module.audit_rollback_write_boundary` emits
+`raios.module_audit_rollback_write_boundary.v0` and
+`module.audit_rollback_write_boundary_selftest` emits
+`raios.module_audit_rollback_write_boundary_selftest.v0`. It consumes the
+retained current-boot manifest, candidate-artifact, VM-report, computed-grant,
+local-attestation, local-approval, audit/rollback, service-slot reservation, and
+audit/rollback availability plus write-policy, storage-layout, append-engine
+readiness through the append contract, and append-contract facts through
+the same live gate snapshot used by denied `module.load_ephemeral`. It emits a typed
+`raios.module_pre_load_audit_rollback_write_request.v0` plus
+`raios.module_audit_rollback_write_denial_evidence.v0`.
+
+The diagnostic must keep:
+
+```text
+mutates_global_event_log: false
+writes_enabled: false
+creates_durable_audit_records: false
+creates_rollback_plans: false
+installs_rollback_plan: false
+allocates_service_slot: false
+loads_artifact: false
+loads_recovery_artifact: false
+service_inventory_change: none
+load_attempted: false
+```
+
+A fully valid retained evidence chain still returns
+`validation_status: denied_missing_durable_write_boundary` with
+`durable_audit_write_missing`, `rollback_install_missing`,
+`storage_layout_missing`, and `append_engine_missing`. Retained hash references
+remain current-boot evidence only; they are not durable audit authority,
+rollback-store authority, append authority, loader authority, or recovery
+artifact authority. The selftest covers missing, stale, substituted,
+previous-boot, wrong-schema, mismatched hash, service-slot mismatch,
+recovery-artifact separation, one-sided missing availability,
+available-facts-but-policy-missing, rollback-policy-missing,
+append-contract-missing, writer-unimplemented, and
+accepted-current-boot-but-denied candidates without creating durable records or
+loading artifacts.
+
 ## Invariants
 
 - No artifact bytes are loaded by this gate.
 - No service inventory row is added, removed, or changed.
 - No provider response, manifest claim, test report, registry entry, or local
-  attestation grants execution by itself.
+  attestation/local-approval record grants execution by itself.
 - A host-side `raios.computed_capability_grant.v0` diagnostic is evidence, not a
   loader token.
 - A valid `module.grant_diagnostic` hash reference is read-only evidence, not a
@@ -588,6 +838,15 @@ accepted-current-boot, stale, mismatched reservation hash, and invalid
 - A retained `raios.module_vm_test_report_reference.v0` event binding is only a
   current-boot hash reference; it is not report content, not a signature, and
   not load authority.
+- A valid `module.attestation_diagnostic` hash reference is read-only evidence,
+  not local-attestation JSON and not a loader token.
+- A retained `raios.module_local_attestation_reference.v0` event binding is
+  only a current-boot hash reference; it is not attestation content, not a
+  signature, and not load authority.
+- A valid `module.approval_diagnostic` hash reference is read-only evidence,
+  not free-form approval text and not a loader token.
+- A retained `raios.module_local_approval_reference.v0` event binding is only a
+  current-boot hash reference; it is not durable consent and not load authority.
 - A valid `module.service_slot_diagnostic` reservation reference is read-only
   evidence, not a service inventory row or allocated slot.
 - A retained `raios.module_computed_grant_reference.v0` event binding is
@@ -603,6 +862,27 @@ accepted-current-boot, stale, mismatched reservation hash, and invalid
 - A retained service-slot reservation must pass the live load-gate predicate
   before its reservation hash appears as accepted service-slot evidence in
   `module.load_ephemeral` or `service.load_ephemeral`.
+- `module.audit_rollback_write_boundary` is read-only pre-load denial evidence;
+  it does not create durable audit records, install rollback plans, allocate
+  service slots, load normal artifacts, or load recovery artifacts.
+- `module.audit_rollback_availability` reports availability facts only; missing
+  durable audit-ledger and rollback-store facts must not be silently replaced by
+  fake durable records or fallback stores.
+- `module.audit_rollback_write_policy` reports policy facts only; missing
+  durable-write and rollback-install policies must not be silently treated as
+  writer authority.
+- `module.audit_rollback_storage_layout` reports persistence-device and
+  storage-layout facts only; missing device identity, partition inventory,
+  layout regions, append slots, or recovery separation must not be silently
+  treated as storage or append authority.
+- `module.audit_rollback_append_engine` reports append-engine readiness facts
+  only; missing append-only, flush, replay, storage-layout binding,
+  write-policy binding, or recovery separation must not be silently treated as
+  writer authority.
+- `module.audit_rollback_append_contract` reports append-envelope and
+  storage-layout plus append-engine readiness facts only; missing append
+  contracts, storage layouts, append engines, stable-id bindings, or provenance
+  bindings must not be silently treated as writer authority.
 - `module.load_gate_audit_rollback_selftest` is test infrastructure and must
   not create retained reference records, audit records, rollback plans, service
   slots, loader state, or service inventory changes.

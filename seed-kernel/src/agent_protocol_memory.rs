@@ -620,6 +620,70 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_sha256(binding.local_attestation_hash);
             raw("}}");
         }
+        event_log::EventBindings::ModuleLocalAttestationReference(binding) => {
+            raw(", \"bindings\": {\"schema\": \"raios.module_local_attestation_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"local_attestation_schema\": \"raios.local_attestation.v0\", \"accepts_local_attestation_json\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_manifest_reference_event_id\": ");
+            json_event_id(binding.retained_manifest_reference_event_id);
+            raw(", \"retained_candidate_artifact_reference_event_id\": ");
+            json_event_id(binding.retained_artifact_reference_event_id);
+            raw(", \"retained_vm_test_report_reference_event_id\": ");
+            json_event_id(binding.retained_vm_report_reference_event_id);
+            raw(", \"retained_computed_grant_reference_event_id\": ");
+            json_event_id(binding.retained_reference_event_id);
+            raw(", \"hashes\": {\"local_attestation_reference_hash\": ");
+            json_sha256(binding.attestation_reference_hash);
+            raw(", \"manifest_reference_hash\": ");
+            json_sha256(binding.manifest_reference_hash);
+            raw(", \"artifact_reference_hash\": ");
+            json_sha256(binding.artifact_reference_hash);
+            raw(", \"vm_test_report_reference_hash\": ");
+            json_sha256(binding.vm_report_reference_hash);
+            raw(", \"manifest_hash\": ");
+            json_sha256(binding.manifest_hash);
+            raw(", \"artifact_hash\": ");
+            json_sha256(binding.artifact_hash);
+            raw(", \"computed_capability_grant_hash\": ");
+            json_sha256(binding.computed_grant_hash);
+            raw(", \"vm_test_report_hash\": ");
+            json_sha256(binding.vm_report_hash);
+            raw(", \"local_attestation_hash\": ");
+            json_sha256(binding.local_attestation_hash);
+            raw("}}");
+        }
+        event_log::EventBindings::ModuleLocalApprovalReference(binding) => {
+            raw(", \"bindings\": {\"schema\": \"raios.module_local_approval_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"local_approval_schema\": \"raios.local_approval.v0\", \"accepts_local_approval_text\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_manifest_reference_event_id\": ");
+            json_event_id(binding.retained_manifest_reference_event_id);
+            raw(", \"retained_candidate_artifact_reference_event_id\": ");
+            json_event_id(binding.retained_artifact_reference_event_id);
+            raw(", \"retained_vm_test_report_reference_event_id\": ");
+            json_event_id(binding.retained_vm_report_reference_event_id);
+            raw(", \"retained_local_attestation_reference_event_id\": ");
+            json_event_id(binding.retained_local_attestation_reference_event_id);
+            raw(", \"retained_computed_grant_reference_event_id\": ");
+            json_event_id(binding.retained_reference_event_id);
+            raw(", \"hashes\": {\"local_approval_reference_hash\": ");
+            json_sha256(binding.approval_reference_hash);
+            raw(", \"manifest_reference_hash\": ");
+            json_sha256(binding.manifest_reference_hash);
+            raw(", \"artifact_reference_hash\": ");
+            json_sha256(binding.artifact_reference_hash);
+            raw(", \"vm_test_report_reference_hash\": ");
+            json_sha256(binding.vm_report_reference_hash);
+            raw(", \"local_attestation_reference_hash\": ");
+            json_sha256(binding.local_attestation_reference_hash);
+            raw(", \"manifest_hash\": ");
+            json_sha256(binding.manifest_hash);
+            raw(", \"artifact_hash\": ");
+            json_sha256(binding.artifact_hash);
+            raw(", \"computed_capability_grant_hash\": ");
+            json_sha256(binding.computed_grant_hash);
+            raw(", \"vm_test_report_hash\": ");
+            json_sha256(binding.vm_report_hash);
+            raw(", \"local_attestation_hash\": ");
+            json_sha256(binding.local_attestation_hash);
+            raw(", \"local_approval_hash\": ");
+            json_sha256(binding.local_approval_hash);
+            raw("}}");
+        }
         event_log::EventBindings::ModuleComputedGrantReference(binding) => {
             raw(", \"bindings\": {\"schema\": \"raios.module_computed_grant_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"grants_capability\": false, \"grants_load_now\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"hashes\": {\"computed_capability_grant_hash\": ");
             json_sha256(binding.computed_grant_hash);

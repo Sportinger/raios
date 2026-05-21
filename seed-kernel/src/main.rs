@@ -18,6 +18,8 @@ use linked_list_allocator::LockedHeap;
 
 mod agent_protocol;
 mod agent_protocol_memory;
+mod agent_protocol_module_approval;
+mod agent_protocol_module_attestation;
 mod agent_protocol_module_audit;
 mod agent_protocol_module_grant;
 mod agent_protocol_module_load_gate;
@@ -29,6 +31,7 @@ mod agent_protocol_module_load_gate_selftest_reference_cases;
 mod agent_protocol_module_reference;
 mod agent_protocol_module_service_slot;
 mod agent_protocol_module_types;
+mod agent_protocol_module_write_boundary;
 mod agent_protocol_policy;
 mod agent_protocol_provider;
 mod agent_protocol_support;

@@ -90,13 +90,13 @@ pub(crate) fn emit_module_manifest_diagnostic(method: &str) {
         &mut wrote,
         "durable_audit_record",
         "missing",
-        "durable_audit_record_missing",
+        "durable_audit_write_missing",
     );
     emit_export_gate(
         &mut wrote,
         "rollback_plan",
         "missing",
-        "rollback_plan_missing",
+        "rollback_install_missing",
     );
     emit_export_gate(
         &mut wrote,
@@ -380,13 +380,13 @@ pub(crate) fn emit_module_artifact_diagnostic(method: &str) {
         &mut wrote,
         "durable_audit_record",
         "missing",
-        "durable_audit_record_missing",
+        "durable_audit_write_missing",
     );
     emit_export_gate(
         &mut wrote,
         "rollback_plan",
         "missing",
-        "rollback_plan_missing",
+        "rollback_install_missing",
     );
     emit_export_gate(
         &mut wrote,
@@ -1412,13 +1412,13 @@ pub(crate) fn emit_module_vm_report_diagnostic(method: &str) {
         &mut wrote,
         "durable_audit_record",
         "missing",
-        "durable_audit_record_missing",
+        "durable_audit_write_missing",
     );
     emit_export_gate(
         &mut wrote,
         "rollback_plan",
         "missing",
-        "rollback_plan_missing",
+        "rollback_install_missing",
     );
     emit_export_gate(
         &mut wrote,

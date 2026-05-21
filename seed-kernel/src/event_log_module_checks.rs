@@ -2,8 +2,8 @@ use core::str;
 
 use crate::event_log_types::{
     EventId, ModuleAuditRollbackReference, ModuleCandidateArtifactReference,
-    ModuleComputedGrantReference, ModuleManifestReference, ModuleServiceSlotReservation,
-    ModuleVmTestReportReference,
+    ModuleComputedGrantReference, ModuleLocalApprovalReference, ModuleLocalAttestationReference,
+    ModuleManifestReference, ModuleServiceSlotReservation, ModuleVmTestReportReference,
 };
 use crate::module_evidence;
 
@@ -96,6 +96,93 @@ pub(crate) fn module_vm_test_report_reference_hashes_consistent(
             reference.computed_grant_hash,
             reference.vm_report_hash,
             reference.local_attestation_hash,
+        )
+}
+
+pub(crate) fn module_local_attestation_reference_matches(
+    left: ModuleLocalAttestationReference,
+    right: ModuleLocalAttestationReference,
+) -> bool {
+    left.attestation_reference_hash == right.attestation_reference_hash
+        && left.retained_manifest_reference_event_id == right.retained_manifest_reference_event_id
+        && left.retained_artifact_reference_event_id == right.retained_artifact_reference_event_id
+        && left.retained_vm_report_reference_event_id == right.retained_vm_report_reference_event_id
+        && left.retained_reference_event_id == right.retained_reference_event_id
+        && left.manifest_reference_hash == right.manifest_reference_hash
+        && left.artifact_reference_hash == right.artifact_reference_hash
+        && left.vm_report_reference_hash == right.vm_report_reference_hash
+        && left.manifest_hash == right.manifest_hash
+        && left.artifact_hash == right.artifact_hash
+        && left.computed_grant_hash == right.computed_grant_hash
+        && left.vm_report_hash == right.vm_report_hash
+        && left.local_attestation_hash == right.local_attestation_hash
+}
+
+pub(crate) fn module_local_attestation_reference_hashes_consistent(
+    reference: ModuleLocalAttestationReference,
+) -> bool {
+    reference.attestation_reference_hash
+        == module_evidence::computed_module_local_attestation_reference_hash_from_sequences(
+            reference.retained_manifest_reference_event_id.sequence(),
+            reference.retained_artifact_reference_event_id.sequence(),
+            reference.retained_vm_report_reference_event_id.sequence(),
+            reference.retained_reference_event_id.sequence(),
+            reference.manifest_reference_hash,
+            reference.artifact_reference_hash,
+            reference.vm_report_reference_hash,
+            reference.manifest_hash,
+            reference.artifact_hash,
+            reference.computed_grant_hash,
+            reference.vm_report_hash,
+            reference.local_attestation_hash,
+        )
+}
+
+pub(crate) fn module_local_approval_reference_matches(
+    left: ModuleLocalApprovalReference,
+    right: ModuleLocalApprovalReference,
+) -> bool {
+    left.approval_reference_hash == right.approval_reference_hash
+        && left.retained_manifest_reference_event_id == right.retained_manifest_reference_event_id
+        && left.retained_artifact_reference_event_id == right.retained_artifact_reference_event_id
+        && left.retained_vm_report_reference_event_id == right.retained_vm_report_reference_event_id
+        && left.retained_local_attestation_reference_event_id
+            == right.retained_local_attestation_reference_event_id
+        && left.retained_reference_event_id == right.retained_reference_event_id
+        && left.manifest_reference_hash == right.manifest_reference_hash
+        && left.artifact_reference_hash == right.artifact_reference_hash
+        && left.vm_report_reference_hash == right.vm_report_reference_hash
+        && left.local_attestation_reference_hash == right.local_attestation_reference_hash
+        && left.manifest_hash == right.manifest_hash
+        && left.artifact_hash == right.artifact_hash
+        && left.computed_grant_hash == right.computed_grant_hash
+        && left.vm_report_hash == right.vm_report_hash
+        && left.local_attestation_hash == right.local_attestation_hash
+        && left.local_approval_hash == right.local_approval_hash
+}
+
+pub(crate) fn module_local_approval_reference_hashes_consistent(
+    reference: ModuleLocalApprovalReference,
+) -> bool {
+    reference.approval_reference_hash
+        == module_evidence::computed_module_local_approval_reference_hash_from_sequences(
+            reference.retained_manifest_reference_event_id.sequence(),
+            reference.retained_artifact_reference_event_id.sequence(),
+            reference.retained_vm_report_reference_event_id.sequence(),
+            reference
+                .retained_local_attestation_reference_event_id
+                .sequence(),
+            reference.retained_reference_event_id.sequence(),
+            reference.manifest_reference_hash,
+            reference.artifact_reference_hash,
+            reference.vm_report_reference_hash,
+            reference.local_attestation_reference_hash,
+            reference.manifest_hash,
+            reference.artifact_hash,
+            reference.computed_grant_hash,
+            reference.vm_report_hash,
+            reference.local_attestation_hash,
+            reference.local_approval_hash,
         )
 }
 

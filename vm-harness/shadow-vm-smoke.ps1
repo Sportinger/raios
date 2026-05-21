@@ -148,6 +148,56 @@ function Wait-ForLogText {
     return $false
 }
 
+function Get-SerialLogOffset {
+    if (Test-Path -LiteralPath $SerialLog) {
+        $content = Get-Content -Raw -LiteralPath $SerialLog -ErrorAction SilentlyContinue
+        if ($null -ne $content) {
+            return [int64]$content.Length
+        }
+    }
+    return [int64]0
+}
+
+function Wait-ForLogTextAfterOffset {
+    param(
+        [string]$Path,
+        [string]$Needle,
+        [int64]$Offset,
+        [int]$TimeoutSeconds
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        if (Test-Path -LiteralPath $Path) {
+            $content = Get-Content -Raw -LiteralPath $Path -ErrorAction SilentlyContinue
+            if ($null -ne $content) {
+                $start = [int64]$Offset
+                if ($start -lt 0) {
+                    $start = [int64]0
+                }
+                if ($start -gt [int64]$content.Length) {
+                    $start = [int64]$content.Length
+                }
+                $after = if ($start -eq [int64]0) {
+                    $content
+                }
+                elseif ($start -lt [int64]$content.Length) {
+                    $content.Substring([int]$start)
+                }
+                else {
+                    ""
+                }
+                if ($after -clike "*$Needle*") {
+                    return $true
+                }
+            }
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    return $false
+}
+
 function Add-Predicate {
     param(
         [string]$Name,
@@ -253,9 +303,15 @@ function Send-AgentCommand {
         [string]$Name = ""
     )
 
+    $startOffset = Get-SerialLogOffset
     Send-SerialText -Port $SerialTcpPort -Text "$Command`r" -TimeoutSeconds $TimeoutSeconds
     $predicateName = if ($Name.Length -gt 0) { $Name } else { "command:$Command" }
-    Assert-LogContains -Name $predicateName -Needle $ExpectedMarker -TimeoutSeconds $TimeoutSeconds
+    $passed = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $ExpectedMarker -Offset $startOffset -TimeoutSeconds $TimeoutSeconds
+    $actual = if ($passed) { "found_after_offset:$startOffset" } else { Get-SerialLogTail -Path $SerialLog }
+    Add-Predicate -Name $predicateName -Expected "serial_contains_after_offset:$ExpectedMarker" -Passed $passed -Actual $actual
+    if (-not $passed) {
+        throw "Timed out waiting for '$ExpectedMarker' in $SerialLog after offset $startOffset"
+    }
 }
 
 function Get-LastAgentResponseJson {
@@ -399,6 +455,12 @@ function Write-Report {
             "agent module.vm_report_diagnostic",
             "agent module.vm_report_diagnostic <valid hash reference>",
             "agent module.vm_report_diagnostic_selftest",
+            "agent module.attestation_diagnostic",
+            "agent module.attestation_diagnostic <valid hash reference>",
+            "agent module.attestation_diagnostic_selftest",
+            "agent module.approval_diagnostic",
+            "agent module.approval_diagnostic <valid hash reference>",
+            "agent module.approval_diagnostic_selftest",
             "agent module.grant_diagnostic",
             "agent module.grant_diagnostic <valid hash reference>",
             "agent module.grant_diagnostic_selftest",
@@ -408,9 +470,23 @@ function Write-Report {
             "agent module.service_slot_diagnostic",
             "agent module.service_slot_diagnostic <valid hash reference>",
             "agent module.service_slot_diagnostic_selftest",
+            "agent module.audit_rollback_availability",
+            "agent module.audit_rollback_availability_selftest",
+            "agent module.audit_rollback_write_policy",
+            "agent module.audit_rollback_write_policy_selftest",
+            "agent module.audit_rollback_storage_layout",
+            "agent module.audit_rollback_storage_layout_selftest",
+            "agent module.audit_rollback_append_engine",
+            "agent module.audit_rollback_append_engine_selftest",
+            "agent module.audit_rollback_append_contract",
+            "agent module.audit_rollback_append_contract_selftest",
+            "agent module.audit_rollback_write_boundary",
+            "agent module.audit_rollback_write_boundary_selftest",
             "agent module.load_gate_manifest_selftest",
             "agent module.load_gate_artifact_selftest",
             "agent module.load_gate_vm_report_selftest",
+            "agent module.load_gate_attestation_selftest",
+            "agent module.load_gate_approval_selftest",
             "agent module.load_gate_retained_selftest",
             "agent module.load_gate_audit_rollback_selftest",
             "agent module.load_gate_service_slot_selftest",
@@ -1027,6 +1103,156 @@ try {
     Assert-LogContains -Name "protocol:module_vm_report_selftest_mismatch_case" -Needle '"case": "vm_report_reference_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_vm_report_selftest_grant_mismatch_case" -Needle '"case": "computed_grant_hash_mismatch"' -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "agent module.attestation_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.attestation_diagnostic"
+    Assert-LogContains -Name "protocol:module_attestation_diag_schema" -Needle '"schema": "raios.module_local_attestation_reference_diagnostic.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_diag_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_diag_no_attestation_json" -Needle '"accepts_local_attestation_json": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_diag_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_diag_no_unsigned_code" -Needle '"accepts_unsigned_service_code": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_diag_absent" -Needle '"validation_status": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_diag_absent_reason" -Needle '"validation_reason": "local_attestation_reference_absent"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_diag_attestation_missing" -Needle '"local_attestation": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_diag_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    $moduleAttestationReferenceCanonical = @(
+        "canonicalization=raios.module_local_attestation_reference.canonical.v0",
+        "schema=raios.module_local_attestation_reference.v0",
+        "requested_capability=cap.module.load_ephemeral",
+        "load_mode=ram_only",
+        "subject=agent.session.serial",
+        "resource=live_service_graph",
+        "scope=current_boot",
+        "retained_manifest_reference_event_id=$moduleManifestRetainedReferenceEventId",
+        "retained_artifact_reference_event_id=$moduleArtifactRetainedReferenceEventId",
+        "retained_vm_report_reference_event_id=$moduleVmReportRetainedReferenceEventId",
+        "retained_reference_event_id=$moduleAuditRetainedReferenceEventId",
+        "manifest_reference_sha256=$moduleManifestReferenceHash",
+        "artifact_reference_sha256=$moduleArtifactReferenceHash",
+        "vm_test_report_reference_sha256=$moduleVmReportReferenceHash",
+        "manifest_sha256=$moduleGrantManifestHash",
+        "candidate_artifact_sha256=$moduleGrantArtifactHash",
+        "computed_capability_grant_sha256=$moduleGrantHash",
+        "vm_test_report_sha256=$moduleGrantReportHash",
+        "local_attestation_sha256=$moduleGrantAttestationHash",
+        "accepts_local_attestation_json=false",
+        "accepts_artifact_bytes=false",
+        "loads_artifact=false",
+        "authorizes_guest_load=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $moduleAttestationReferenceHash = Get-TextSha256 -Text $moduleAttestationReferenceCanonical
+    $moduleAttestationCommand = "agent module.attestation_diagnostic $moduleAttestationReferenceHash $moduleManifestRetainedReferenceEventId $moduleArtifactRetainedReferenceEventId $moduleVmReportRetainedReferenceEventId $moduleAuditRetainedReferenceEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleVmReportReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash"
+
+    Send-AgentCommand -Command $moduleAttestationCommand -ExpectedMarker "RAIOS_AGENT_END module.attestation_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:module_attestation_diag_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "valid_status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "valid_reason"; Needle = '"validation_reason": "local_attestation_reference_valid_but_loader_and_evidence_missing"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "present"; Needle = '"local_attestation_reference_present": true' },
+        @{ Suffix = "ref_hash_echo"; Needle = "`"local_attestation_reference_hash`": `"sha256:$moduleAttestationReferenceHash`"" },
+        @{ Suffix = "attestation_hash_echo"; Needle = "`"local_attestation_hash`": `"sha256:$moduleGrantAttestationHash`"" },
+        @{ Suffix = "vm_ref_hash_echo"; Needle = "`"vm_test_report_reference_hash`": `"sha256:$moduleVmReportReferenceHash`"" },
+        @{ Suffix = "still_no_load"; Needle = '"can_load_now": false' }
+    )
+
+    $moduleAttestationResponse = Get-LastAgentResponseJson -Method "module.attestation_diagnostic"
+    $moduleAttestationRetainedReferenceEventId = [string]$moduleAttestationResponse.body.result.retained_local_attestation_reference.event_id
+    Assert-CurrentBootEventId -Name "protocol:module_attestation_retained_reference_event_id_captured" -Value $moduleAttestationRetainedReferenceEventId
+
+    Send-AgentCommand -Command "agent module.attestation_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.attestation_diagnostic_selftest"
+    Assert-LogContains -Name "protocol:module_attestation_selftest_schema" -Needle '"schema": "raios.module_local_attestation_reference_diagnostic_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_selftest_no_records" -Needle '"creates_retained_local_attestation_reference_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_selftest_no_attestation_json" -Needle '"accepts_local_attestation_json": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_selftest_count" -Needle '"case_count": 9' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_selftest_absent_case" -Needle '"case": "absent_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_selftest_valid_case" -Needle '"case": "accepted_current_boot_attestation_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_selftest_mismatch_case" -Needle '"case": "local_attestation_reference_hash_mismatch"' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.approval_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.approval_diagnostic"
+    Assert-LogContains -Name "protocol:module_approval_diag_schema" -Needle '"schema": "raios.module_local_approval_reference_diagnostic.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_diag_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_diag_no_approval_text" -Needle '"accepts_local_approval_text": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_diag_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_diag_no_unsigned_code" -Needle '"accepts_unsigned_service_code": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_diag_absent" -Needle '"validation_status": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_diag_absent_reason" -Needle '"validation_reason": "local_approval_reference_absent"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_diag_approval_missing" -Needle '"local_approval": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_diag_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    $moduleAuditLocalApprovalHash = "6666666666666666666666666666666666666666666666666666666666666666"
+    $moduleApprovalReferenceCanonical = @(
+        "canonicalization=raios.module_local_approval_reference.canonical.v0",
+        "schema=raios.module_local_approval_reference.v0",
+        "requested_capability=cap.module.load_ephemeral",
+        "load_mode=ram_only",
+        "subject=agent.session.serial",
+        "resource=live_service_graph",
+        "scope=current_boot",
+        "retained_manifest_reference_event_id=$moduleManifestRetainedReferenceEventId",
+        "retained_artifact_reference_event_id=$moduleArtifactRetainedReferenceEventId",
+        "retained_vm_report_reference_event_id=$moduleVmReportRetainedReferenceEventId",
+        "retained_local_attestation_reference_event_id=$moduleAttestationRetainedReferenceEventId",
+        "retained_reference_event_id=$moduleAuditRetainedReferenceEventId",
+        "manifest_reference_sha256=$moduleManifestReferenceHash",
+        "artifact_reference_sha256=$moduleArtifactReferenceHash",
+        "vm_test_report_reference_sha256=$moduleVmReportReferenceHash",
+        "local_attestation_reference_sha256=$moduleAttestationReferenceHash",
+        "manifest_sha256=$moduleGrantManifestHash",
+        "candidate_artifact_sha256=$moduleGrantArtifactHash",
+        "computed_capability_grant_sha256=$moduleGrantHash",
+        "vm_test_report_sha256=$moduleGrantReportHash",
+        "local_attestation_sha256=$moduleGrantAttestationHash",
+        "local_approval_sha256=$moduleAuditLocalApprovalHash",
+        "accepts_local_approval_text=false",
+        "accepts_artifact_bytes=false",
+        "loads_artifact=false",
+        "authorizes_guest_load=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $moduleApprovalReferenceHash = Get-TextSha256 -Text $moduleApprovalReferenceCanonical
+    $moduleApprovalCommand = "agent module.approval_diagnostic $moduleApprovalReferenceHash $moduleManifestRetainedReferenceEventId $moduleArtifactRetainedReferenceEventId $moduleVmReportRetainedReferenceEventId $moduleAttestationRetainedReferenceEventId $moduleAuditRetainedReferenceEventId $moduleManifestReferenceHash $moduleArtifactReferenceHash $moduleVmReportReferenceHash $moduleAttestationReferenceHash $moduleGrantManifestHash $moduleGrantArtifactHash $moduleGrantHash $moduleGrantReportHash $moduleGrantAttestationHash $moduleAuditLocalApprovalHash"
+
+    Send-AgentCommand -Command $moduleApprovalCommand -ExpectedMarker "RAIOS_AGENT_END module.approval_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:module_approval_diag_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "valid_status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "valid_reason"; Needle = '"validation_reason": "local_approval_reference_valid_but_loader_and_evidence_missing"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "present"; Needle = '"local_approval_reference_present": true' },
+        @{ Suffix = "ref_hash_echo"; Needle = "`"local_approval_reference_hash`": `"sha256:$moduleApprovalReferenceHash`"" },
+        @{ Suffix = "approval_hash_echo"; Needle = "`"local_approval_hash`": `"sha256:$moduleAuditLocalApprovalHash`"" },
+        @{ Suffix = "attestation_ref_hash_echo"; Needle = "`"local_attestation_reference_hash`": `"sha256:$moduleAttestationReferenceHash`"" },
+        @{ Suffix = "still_no_load"; Needle = '"can_load_now": false' }
+    )
+
+    $moduleApprovalResponse = Get-LastAgentResponseJson -Method "module.approval_diagnostic"
+    $moduleApprovalRetainedReferenceEventId = [string]$moduleApprovalResponse.body.result.retained_local_approval_reference.event_id
+    Assert-CurrentBootEventId -Name "protocol:module_approval_retained_reference_event_id_captured" -Value $moduleApprovalRetainedReferenceEventId
+
+    Send-AgentCommand -Command "agent module.approval_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.approval_diagnostic_selftest"
+    Assert-LogContains -Name "protocol:module_approval_selftest_schema" -Needle '"schema": "raios.module_local_approval_reference_diagnostic_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_selftest_no_records" -Needle '"creates_retained_local_approval_reference_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_selftest_no_approval_text" -Needle '"accepts_local_approval_text": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_selftest_count" -Needle '"case_count": 10' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_selftest_absent_case" -Needle '"case": "absent_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_selftest_valid_case" -Needle '"case": "accepted_current_boot_approval_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_selftest_mismatch_case" -Needle '"case": "local_approval_reference_hash_mismatch"' -TimeoutSeconds 1
+
     Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "command:module.load_ephemeral.pre_audit"
     $modulePreAuditLoadResponse = Get-LastAgentResponseJson -Method "module.load_ephemeral"
     $moduleAuditDenialEventId = [string]$modulePreAuditLoadResponse.body.event_id
@@ -1034,7 +1260,9 @@ try {
     Assert-LogContains -Name "policy:module_pre_audit_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_pre_audit_artifact_retained" -Needle '"candidate_artifact": "retained_hash_reference_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_pre_audit_vm_report_retained" -Needle '"vm_test_report": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_attestation_retained" -Needle '"local_attestation": "retained_hash_reference_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_pre_audit_grant_retained" -Needle '"computed_capability_grant": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_pre_audit_approval_retained" -Needle '"local_approval": "retained_hash_reference_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_pre_audit_audit_missing" -Needle '"durable_audit_record": "missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_pre_audit_rollback_missing" -Needle '"rollback_plan": "missing"' -TimeoutSeconds 1
 
@@ -1050,7 +1278,6 @@ try {
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_absent_reason" -Needle '"validation_reason": "audit_rollback_reference_absent"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_diag_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
-    $moduleAuditLocalApprovalHash = "6666666666666666666666666666666666666666666666666666666666666666"
     $moduleAuditPreInventoryHash = "7777777777777777777777777777777777777777777777777777777777777777"
     $moduleAuditCleanupHash = "8888888888888888888888888888888888888888888888888888888888888888"
     $moduleAuditRamOnlyServiceSlotId = "ram_only:svc.test.0001"
@@ -1204,6 +1431,233 @@ try {
         @{ Suffix = "policy_inventory_none"; Needle = '"service_inventory_change": "none"' }
     )
 
+    Send-AgentCommand -Command "agent module.audit_rollback_availability" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_availability"
+    Assert-LogContainsFields -NamePrefix "protocol:module_audit_rollback_availability_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.module_audit_rollback_availability.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "writes_disabled"; Needle = '"writes_enabled": false' },
+        @{ Suffix = "no_audit_records"; Needle = '"creates_durable_audit_records": false' },
+        @{ Suffix = "no_rollback_plans"; Needle = '"creates_rollback_plans": false' },
+        @{ Suffix = "no_rollback_install"; Needle = '"installs_rollback_plan": false' },
+        @{ Suffix = "ledger_schema"; Needle = '"schema": "raios.durable_audit_ledger.v0"' },
+        @{ Suffix = "ledger_id"; Needle = '"id": "availability.durable_audit_ledger.current_boot"' },
+        @{ Suffix = "ledger_reason"; Needle = '"reason": "durable_audit_ledger_missing"' },
+        @{ Suffix = "ledger_present_false"; Needle = '"present": false' },
+        @{ Suffix = "ledger_provenance_false"; Needle = '"provenance_valid": false' },
+        @{ Suffix = "rollback_schema"; Needle = '"schema": "raios.rollback_store.v0"' },
+        @{ Suffix = "rollback_id"; Needle = '"id": "availability.rollback_store.current_boot"' },
+        @{ Suffix = "rollback_reason"; Needle = '"reason": "rollback_store_missing"' },
+        @{ Suffix = "availability_status"; Needle = '"availability_status": "missing"' },
+        @{ Suffix = "availability_reason"; Needle = '"availability_reason": "durable_audit_ledger_missing_and_rollback_store_missing"' },
+        @{ Suffix = "audit_write_missing"; Needle = '"durable_audit_write_missing": true' },
+        @{ Suffix = "rollback_install_missing"; Needle = '"rollback_install_missing": true' },
+        @{ Suffix = "policy_missing"; Needle = '"durable_write_policy_available": false' },
+        @{ Suffix = "rollback_policy_missing"; Needle = '"rollback_install_policy_available": false' },
+        @{ Suffix = "not_durable_authority"; Needle = '"retained_hash_refs_are_durable_authority": false' },
+        @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent module.audit_rollback_write_policy" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_write_policy"
+    Assert-LogContainsFields -NamePrefix "protocol:module_audit_rollback_write_policy_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.module_audit_rollback_write_policy.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "writes_disabled"; Needle = '"writes_enabled": false' },
+        @{ Suffix = "no_audit_records"; Needle = '"creates_durable_audit_records": false' },
+        @{ Suffix = "no_rollback_plans"; Needle = '"creates_rollback_plans": false' },
+        @{ Suffix = "no_rollback_install"; Needle = '"installs_rollback_plan": false' },
+        @{ Suffix = "durable_policy_schema"; Needle = '"schema": "raios.durable_audit_write_policy.v0"' },
+        @{ Suffix = "durable_policy_id"; Needle = '"id": "policy.durable_audit_write.current_boot"' },
+        @{ Suffix = "durable_policy_reason"; Needle = '"reason": "durable_write_policy_missing"' },
+        @{ Suffix = "durable_policy_present_false"; Needle = '"present": false' },
+        @{ Suffix = "durable_policy_binding_false"; Needle = '"binds_retained_evidence": false' },
+        @{ Suffix = "durable_policy_availability_false"; Needle = '"binds_availability": false' },
+        @{ Suffix = "rollback_policy_schema"; Needle = '"schema": "raios.rollback_install_policy.v0"' },
+        @{ Suffix = "rollback_policy_id"; Needle = '"id": "policy.rollback_install.current_boot"' },
+        @{ Suffix = "rollback_policy_reason"; Needle = '"reason": "rollback_install_policy_missing"' },
+        @{ Suffix = "policy_status"; Needle = '"policy_status": "missing"' },
+        @{ Suffix = "policy_reason"; Needle = '"policy_reason": "durable_write_policy_missing_and_rollback_install_policy_missing"' },
+        @{ Suffix = "policy_missing"; Needle = '"durable_write_policy_missing": true' },
+        @{ Suffix = "rollback_policy_missing"; Needle = '"rollback_install_policy_missing": true' },
+        @{ Suffix = "policy_authority_false"; Needle = '"retained_hash_refs_are_policy_authority": false' },
+        @{ Suffix = "availability_authority_false"; Needle = '"availability_facts_are_policy_authority": false' },
+        @{ Suffix = "required_manifest"; Needle = '"module_manifest": "raios.module_manifest_reference.v0"' },
+        @{ Suffix = "required_availability"; Needle = '"durable_audit_ledger": "raios.durable_audit_ledger.v0"' },
+        @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent module.audit_rollback_storage_layout" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_storage_layout"
+    Assert-LogContainsFields -NamePrefix "protocol:module_audit_rollback_storage_layout_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.module_audit_rollback_storage_layout.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "writes_disabled"; Needle = '"writes_enabled": false' },
+        @{ Suffix = "no_audit_records"; Needle = '"creates_durable_audit_records": false' },
+        @{ Suffix = "no_rollback_plans"; Needle = '"creates_rollback_plans": false' },
+        @{ Suffix = "device_schema"; Needle = '"schema": "raios.persistence_device_inventory.v0"' },
+        @{ Suffix = "device_id"; Needle = '"id": "storage.persistence_device_inventory.current_boot"' },
+        @{ Suffix = "device_reason"; Needle = '"reason": "persistence_device_inventory_missing"' },
+        @{ Suffix = "device_present_false"; Needle = '"present": false' },
+        @{ Suffix = "device_stable_false"; Needle = '"stable_identity": false' },
+        @{ Suffix = "partition_inventory_false"; Needle = '"partition_inventory_available": false' },
+        @{ Suffix = "write_path_false"; Needle = '"write_path_available": false' },
+        @{ Suffix = "layout_schema"; Needle = '"schema": "raios.audit_rollback_storage_layout.v0"' },
+        @{ Suffix = "layout_id"; Needle = '"id": "storage.audit_rollback_layout.current_boot"' },
+        @{ Suffix = "layout_reason"; Needle = '"reason": "audit_rollback_storage_layout_missing"' },
+        @{ Suffix = "layout_binding_false"; Needle = '"binds_persistence_device": false' },
+        @{ Suffix = "audit_region_false"; Needle = '"has_audit_ledger_region": false' },
+        @{ Suffix = "rollback_region_false"; Needle = '"has_rollback_store_region": false' },
+        @{ Suffix = "append_slots_false"; Needle = '"append_slots_available": false' },
+        @{ Suffix = "storage_status"; Needle = '"storage_layout_status": "missing"' },
+        @{ Suffix = "storage_reason"; Needle = '"storage_layout_reason": "persistence_device_inventory_missing_and_storage_layout_missing"' },
+        @{ Suffix = "storage_available_false"; Needle = '"storage_layout_available": false' },
+        @{ Suffix = "storage_missing_true"; Needle = '"storage_layout_missing": true' },
+        @{ Suffix = "append_engine_missing"; Needle = '"append_engine_missing": true' },
+        @{ Suffix = "not_storage_authority"; Needle = '"retained_hash_refs_are_storage_authority": false' },
+        @{ Suffix = "storage_not_append_authority"; Needle = '"storage_layout_facts_are_append_authority": false' },
+        @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent module.audit_rollback_append_engine" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_append_engine"
+    Assert-LogContainsFields -NamePrefix "protocol:module_audit_rollback_append_engine_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.module_audit_rollback_append_engine.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "writes_disabled"; Needle = '"writes_enabled": false' },
+        @{ Suffix = "storage_inputs"; Needle = '"storage_layout_inputs": {' },
+        @{ Suffix = "storage_available_false"; Needle = '"storage_layout_available": false' },
+        @{ Suffix = "storage_missing_true"; Needle = '"storage_layout_missing": true' },
+        @{ Suffix = "storage_not_engine_authority"; Needle = '"storage_layout_facts_are_append_engine_authority": false' },
+        @{ Suffix = "audit_engine_schema"; Needle = '"schema": "raios.audit_ledger_append_engine.v0"' },
+        @{ Suffix = "audit_engine_id"; Needle = '"id": "append_engine.audit_ledger.current_boot"' },
+        @{ Suffix = "audit_engine_target"; Needle = '"target_schema": "raios.audit_record.v0"' },
+        @{ Suffix = "audit_engine_reason"; Needle = '"reason": "audit_ledger_append_engine_missing"' },
+        @{ Suffix = "audit_engine_present_false"; Needle = '"present": false' },
+        @{ Suffix = "audit_engine_storage_binding_false"; Needle = '"binds_storage_layout": false' },
+        @{ Suffix = "audit_engine_policy_binding_false"; Needle = '"binds_write_policy": false' },
+        @{ Suffix = "audit_engine_append_only_false"; Needle = '"supports_append_only": false' },
+        @{ Suffix = "rollback_engine_schema"; Needle = '"schema": "raios.rollback_store_transaction_engine.v0"' },
+        @{ Suffix = "rollback_engine_id"; Needle = '"id": "append_engine.rollback_store.current_boot"' },
+        @{ Suffix = "rollback_engine_target"; Needle = '"target_schema": "raios.rollback_plan.v0"' },
+        @{ Suffix = "rollback_engine_reason"; Needle = '"reason": "rollback_store_transaction_engine_missing"' },
+        @{ Suffix = "append_engine_status"; Needle = '"append_engine_status": "missing"' },
+        @{ Suffix = "append_engine_reason"; Needle = '"append_engine_reason": "audit_ledger_append_engine_missing_and_rollback_store_transaction_engine_missing"' },
+        @{ Suffix = "append_engine_available_false"; Needle = '"append_engine_available": false' },
+        @{ Suffix = "append_engine_missing_true"; Needle = '"append_engine_missing": true' },
+        @{ Suffix = "retained_not_engine_authority"; Needle = '"retained_hash_refs_are_append_engine_authority": false' },
+        @{ Suffix = "engine_not_append_authority"; Needle = '"append_engine_facts_are_append_authority": false' },
+        @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent module.audit_rollback_append_contract" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_append_contract"
+    Assert-LogContainsFields -NamePrefix "protocol:module_audit_rollback_append_contract_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.module_audit_rollback_append_contract.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "writes_disabled"; Needle = '"writes_enabled": false' },
+        @{ Suffix = "storage_inputs"; Needle = '"storage_layout_inputs": {' },
+        @{ Suffix = "storage_input_device"; Needle = '"persistence_device_inventory": {' },
+        @{ Suffix = "storage_input_layout"; Needle = '"audit_rollback_storage_layout": {' },
+        @{ Suffix = "storage_input_available_false"; Needle = '"storage_layout_available": false' },
+        @{ Suffix = "storage_input_authority_false"; Needle = '"storage_layout_facts_are_append_authority": false' },
+        @{ Suffix = "append_engine_inputs"; Needle = '"append_engine_inputs": {' },
+        @{ Suffix = "append_engine_input_audit"; Needle = '"audit_ledger_append_engine": {' },
+        @{ Suffix = "append_engine_input_rollback"; Needle = '"rollback_store_transaction_engine": {' },
+        @{ Suffix = "append_engine_input_available_false"; Needle = '"append_engine_available": false' },
+        @{ Suffix = "append_engine_input_authority_false"; Needle = '"append_engine_facts_are_append_authority": false' },
+        @{ Suffix = "audit_append_schema"; Needle = '"schema": "raios.audit_ledger_append_envelope.v0"' },
+        @{ Suffix = "audit_append_id"; Needle = '"id": "append.audit_ledger.current_boot"' },
+        @{ Suffix = "audit_append_target"; Needle = '"target_schema": "raios.audit_record.v0"' },
+        @{ Suffix = "audit_append_storage_schema"; Needle = '"storage_layout_schema": "raios.audit_rollback_storage_layout.v0"' },
+        @{ Suffix = "audit_append_storage_id"; Needle = '"storage_layout_id": "storage.audit_rollback_layout.current_boot"' },
+        @{ Suffix = "audit_append_engine_id"; Needle = '"append_engine_id": "append_engine.audit_ledger.current_boot"' },
+        @{ Suffix = "audit_append_policy_id"; Needle = '"write_policy_id": "policy.durable_audit_write.current_boot"' },
+        @{ Suffix = "audit_append_availability_id"; Needle = '"availability_id": "availability.durable_audit_ledger.current_boot"' },
+        @{ Suffix = "audit_append_provenance_schema"; Needle = '"append_contract_provenance_schema": "raios.append_contract_envelope_provenance.v0"' },
+        @{ Suffix = "audit_append_reason"; Needle = '"reason": "audit_append_envelope_missing"' },
+        @{ Suffix = "audit_append_storage_binding_false"; Needle = '"binds_storage_layout_id": false' },
+        @{ Suffix = "audit_append_engine_binding_false"; Needle = '"binds_append_engine_id": false' },
+        @{ Suffix = "audit_append_policy_id_binding_false"; Needle = '"binds_write_policy_id": false' },
+        @{ Suffix = "audit_append_availability_id_binding_false"; Needle = '"binds_availability_id": false' },
+        @{ Suffix = "audit_append_provenance_binding_false"; Needle = '"binds_envelope_provenance": false' },
+        @{ Suffix = "storage_layout_false"; Needle = '"storage_layout_available": false' },
+        @{ Suffix = "append_engine_false"; Needle = '"append_engine_available": false' },
+        @{ Suffix = "rollback_transaction_schema"; Needle = '"schema": "raios.rollback_store_transaction_envelope.v0"' },
+        @{ Suffix = "rollback_transaction_id"; Needle = '"id": "append.rollback_store.current_boot"' },
+        @{ Suffix = "rollback_transaction_target"; Needle = '"target_schema": "raios.rollback_plan.v0"' },
+        @{ Suffix = "rollback_transaction_engine_id"; Needle = '"append_engine_id": "append_engine.rollback_store.current_boot"' },
+        @{ Suffix = "rollback_transaction_policy_id"; Needle = '"write_policy_id": "policy.rollback_install.current_boot"' },
+        @{ Suffix = "rollback_transaction_availability_id"; Needle = '"availability_id": "availability.rollback_store.current_boot"' },
+        @{ Suffix = "rollback_transaction_reason"; Needle = '"reason": "rollback_transaction_envelope_missing"' },
+        @{ Suffix = "contract_status"; Needle = '"append_contract_status": "missing"' },
+        @{ Suffix = "contract_reason"; Needle = '"append_contract_reason": "audit_append_envelope_missing_and_rollback_transaction_envelope_missing"' },
+        @{ Suffix = "storage_layout_missing"; Needle = '"storage_layout_missing": true' },
+        @{ Suffix = "append_engine_missing"; Needle = '"append_engine_missing": true' },
+        @{ Suffix = "not_append_authority"; Needle = '"retained_hash_refs_are_append_authority": false' },
+        @{ Suffix = "policy_not_append_authority"; Needle = '"policy_facts_are_append_authority": false' },
+        @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent module.audit_rollback_write_boundary" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_write_boundary"
+    Assert-LogContainsFields -NamePrefix "protocol:module_write_boundary_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.module_audit_rollback_write_boundary.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "writes_disabled"; Needle = '"writes_enabled": false' },
+        @{ Suffix = "no_audit_records"; Needle = '"creates_durable_audit_records": false' },
+        @{ Suffix = "no_rollback_plans"; Needle = '"creates_rollback_plans": false' },
+        @{ Suffix = "no_rollback_install"; Needle = '"installs_rollback_plan": false' },
+        @{ Suffix = "no_recovery_artifact"; Needle = '"loads_recovery_artifact": false' },
+        @{ Suffix = "request_schema"; Needle = '"schema": "raios.module_pre_load_audit_rollback_write_request.v0"' },
+        @{ Suffix = "availability_inputs"; Needle = '"availability_inputs": {' },
+        @{ Suffix = "ledger_availability_input"; Needle = '"durable_audit_ledger": {"schema": "raios.durable_audit_ledger.v0", "status": "missing", "reason": "durable_audit_ledger_missing"' },
+        @{ Suffix = "rollback_availability_input"; Needle = '"rollback_store": {"schema": "raios.rollback_store.v0", "status": "missing", "reason": "rollback_store_missing"' },
+        @{ Suffix = "policy_inputs"; Needle = '"policy_inputs": {' },
+        @{ Suffix = "durable_policy_input"; Needle = '"durable_write_policy": {"schema": "raios.durable_audit_write_policy.v0", "status": "missing", "reason": "durable_write_policy_missing"' },
+        @{ Suffix = "rollback_policy_input"; Needle = '"rollback_install_policy": {"schema": "raios.rollback_install_policy.v0", "status": "missing", "reason": "rollback_install_policy_missing"' },
+        @{ Suffix = "append_contract_inputs"; Needle = '"append_contract_inputs": {' },
+        @{ Suffix = "audit_append_input"; Needle = '"audit_append_envelope": {"schema": "raios.audit_ledger_append_envelope.v0", "status": "missing", "reason": "audit_append_envelope_missing"' },
+        @{ Suffix = "rollback_transaction_input"; Needle = '"rollback_transaction_envelope": {"schema": "raios.rollback_store_transaction_envelope.v0", "status": "missing", "reason": "rollback_transaction_envelope_missing"' },
+        @{ Suffix = "denial_schema"; Needle = '"schema": "raios.module_audit_rollback_write_denial_evidence.v0"' },
+        @{ Suffix = "validation_status"; Needle = '"validation_status": "denied_missing_durable_write_boundary"' },
+        @{ Suffix = "validation_reason"; Needle = '"validation_reason": "durable_audit_write_missing_and_rollback_install_missing"' },
+        @{ Suffix = "audit_write_missing"; Needle = '"reason": "durable_audit_write_missing"' },
+        @{ Suffix = "rollback_install_missing"; Needle = '"reason": "rollback_install_missing"' },
+        @{ Suffix = "durable_policy_missing"; Needle = '"durable_write_policy_missing": true' },
+        @{ Suffix = "rollback_policy_missing"; Needle = '"rollback_install_policy_missing": true' },
+        @{ Suffix = "audit_append_missing"; Needle = '"audit_append_status": "missing"' },
+        @{ Suffix = "rollback_transaction_missing"; Needle = '"rollback_transaction_status": "missing"' },
+        @{ Suffix = "storage_layout_missing"; Needle = '"storage_layout_missing": true' },
+        @{ Suffix = "append_engine_missing"; Needle = '"append_engine_missing": true' },
+        @{ Suffix = "not_append_authority"; Needle = '"retained_hash_refs_are_append_authority": false' },
+        @{ Suffix = "not_durable_authority"; Needle = '"retained_hash_refs_are_durable_authority": false' },
+        @{ Suffix = "manifest_event"; Needle = '"module_manifest": {"event_id": "event.current_boot.' },
+        @{ Suffix = "artifact_event"; Needle = '"candidate_artifact": {"event_id": "event.current_boot.' },
+        @{ Suffix = "vm_report_event"; Needle = '"vm_test_report": {"event_id": "event.current_boot.' },
+        @{ Suffix = "grant_event"; Needle = '"computed_capability_grant": {"event_id": "event.current_boot.' },
+        @{ Suffix = "attestation_event"; Needle = '"local_attestation": {"event_id": "event.current_boot.' },
+        @{ Suffix = "approval_event"; Needle = '"local_approval": {"event_id": "event.current_boot.' },
+        @{ Suffix = "audit_event"; Needle = '"audit_rollback": {"event_id": "event.current_boot.' },
+        @{ Suffix = "service_slot_event"; Needle = '"service_slot_reservation": {"event_id": "event.current_boot.' },
+        @{ Suffix = "manifest_hash"; Needle = "`"manifest_hash`": `"sha256:$moduleGrantManifestHash`"" },
+        @{ Suffix = "artifact_hash"; Needle = "`"candidate_artifact_hash`": `"sha256:$moduleGrantArtifactHash`"" },
+        @{ Suffix = "vm_report_hash"; Needle = "`"vm_test_report_hash`": `"sha256:$moduleGrantReportHash`"" },
+        @{ Suffix = "attestation_hash"; Needle = "`"local_attestation_hash`": `"sha256:$moduleGrantAttestationHash`"" },
+        @{ Suffix = "approval_hash"; Needle = "`"local_approval_hash`": `"sha256:$moduleAuditLocalApprovalHash`"" },
+        @{ Suffix = "audit_hash"; Needle = "`"audit_record_hash`": `"sha256:$moduleAuditHash`"" },
+        @{ Suffix = "rollback_hash"; Needle = "`"rollback_plan_hash`": `"sha256:$moduleRollbackHash`"" },
+        @{ Suffix = "service_slot_hash"; Needle = "`"service_slot_reservation_hash`": `"sha256:$moduleServiceSlotReservationHash`"" },
+        @{ Suffix = "slot_id"; Needle = "`"ram_only_service_slot_id`": `"$moduleAuditRamOnlyServiceSlotId`"" },
+        @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
     Send-AgentCommand -Command "agent module.grant_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.grant_diagnostic_selftest"
     Assert-LogContains -Name "protocol:module_grant_selftest_schema" -Needle '"schema": "raios.module_computed_grant_diagnostic_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
@@ -1268,6 +1722,198 @@ try {
     Assert-LogContains -Name "protocol:module_service_slot_selftest_slot_reason" -Needle '"actual_reason": "ram_only_service_slot_id_invalid"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.audit_rollback_availability_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_availability_selftest"
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_availability_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_no_install" -Needle '"installs_rollback_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_count" -Needle '"case_count": 8' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_missing_case" -Needle '"case": "missing_ledger_and_store_current_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_ledger_scope_case" -Needle '"case": "durable_audit_ledger_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_ledger_schema_case" -Needle '"case": "durable_audit_ledger_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_ledger_provenance_case" -Needle '"case": "durable_audit_ledger_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_rollback_scope_case" -Needle '"case": "rollback_store_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_rollback_schema_case" -Needle '"case": "rollback_store_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_rollback_provenance_case" -Needle '"case": "rollback_store_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_policy_case" -Needle '"case": "available_facts_policy_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_policy_status" -Needle '"actual_status": "denied_missing_durable_write_policy"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_policy_reason" -Needle '"actual_reason": "durable_write_policy_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.audit_rollback_write_policy_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_write_policy_selftest"
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_write_policy_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_no_install" -Needle '"installs_rollback_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_count" -Needle '"case_count": 12' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_missing_case" -Needle '"case": "missing_policy_pair_current_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_durable_scope_case" -Needle '"case": "durable_write_policy_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_durable_schema_case" -Needle '"case": "durable_write_policy_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_durable_provenance_case" -Needle '"case": "durable_write_policy_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_durable_binding_case" -Needle '"case": "durable_write_policy_retained_evidence_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_durable_availability_case" -Needle '"case": "durable_write_policy_availability_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_rollback_scope_case" -Needle '"case": "rollback_install_policy_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_rollback_schema_case" -Needle '"case": "rollback_install_policy_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_rollback_provenance_case" -Needle '"case": "rollback_install_policy_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_rollback_binding_case" -Needle '"case": "rollback_install_policy_retained_evidence_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_rollback_availability_case" -Needle '"case": "rollback_install_policy_availability_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_writer_case" -Needle '"case": "available_policy_facts_writer_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_writer_status" -Needle '"actual_status": "denied_write_path_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_writer_reason" -Needle '"actual_reason": "durable_audit_rollback_writer_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_write_policy_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.audit_rollback_storage_layout_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_storage_layout_selftest"
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_storage_layout_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_no_install" -Needle '"installs_rollback_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_count" -Needle '"case_count": 15' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_missing_case" -Needle '"case": "missing_storage_inputs_current_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_missing_reason" -Needle '"actual_reason": "persistence_device_inventory_missing_and_storage_layout_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_device_scope_case" -Needle '"case": "persistence_device_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_device_schema_case" -Needle '"case": "persistence_device_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_device_provenance_case" -Needle '"case": "persistence_device_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_device_identity_case" -Needle '"case": "persistence_device_stable_identity_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_partition_case" -Needle '"case": "persistence_partition_inventory_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_layout_scope_case" -Needle '"case": "audit_rollback_storage_layout_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_layout_schema_case" -Needle '"case": "audit_rollback_storage_layout_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_layout_provenance_case" -Needle '"case": "audit_rollback_storage_layout_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_binding_case" -Needle '"case": "storage_layout_device_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_audit_region_case" -Needle '"case": "audit_ledger_layout_region_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_rollback_region_case" -Needle '"case": "rollback_store_layout_region_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_append_slots_case" -Needle '"case": "storage_layout_append_slots_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_recovery_case" -Needle '"case": "storage_layout_recovery_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_available_case" -Needle '"case": "available_storage_layout_still_non_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_available_status" -Needle '"actual_status": "available"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_available_reason" -Needle '"actual_reason": "audit_rollback_storage_layout_available"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_storage_layout_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.audit_rollback_append_engine_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_append_engine_selftest"
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_append_engine_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_no_install" -Needle '"installs_rollback_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_count" -Needle '"case_count": 16' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_missing_case" -Needle '"case": "missing_append_engine_pair_current_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_missing_reason" -Needle '"actual_reason": "audit_ledger_append_engine_missing_and_rollback_store_transaction_engine_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_audit_scope_case" -Needle '"case": "audit_ledger_append_engine_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_audit_schema_case" -Needle '"case": "audit_ledger_append_engine_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_audit_provenance_case" -Needle '"case": "audit_ledger_append_engine_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_audit_storage_case" -Needle '"case": "audit_ledger_append_engine_storage_layout_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_audit_policy_case" -Needle '"case": "audit_ledger_append_engine_write_policy_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_audit_append_only_case" -Needle '"case": "audit_ledger_append_engine_append_only_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_audit_flush_case" -Needle '"case": "audit_ledger_append_engine_flush_support_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_audit_recovery_case" -Needle '"case": "audit_ledger_append_engine_recovery_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_rollback_scope_case" -Needle '"case": "rollback_store_transaction_engine_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_rollback_schema_case" -Needle '"case": "rollback_store_transaction_engine_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_rollback_provenance_case" -Needle '"case": "rollback_store_transaction_engine_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_rollback_storage_case" -Needle '"case": "rollback_store_transaction_engine_storage_layout_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_rollback_policy_case" -Needle '"case": "rollback_store_transaction_engine_write_policy_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_rollback_replay_case" -Needle '"case": "rollback_store_transaction_engine_replay_support_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_available_case" -Needle '"case": "available_append_engines_still_non_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_available_status" -Needle '"actual_status": "available"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_available_reason" -Needle '"actual_reason": "audit_rollback_append_engine_available"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_engine_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.audit_rollback_append_contract_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_append_contract_selftest"
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_append_contract_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_no_install" -Needle '"installs_rollback_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_count" -Needle '"case_count": 24' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_missing_case" -Needle '"case": "missing_append_envelope_pair_current_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_missing_reason" -Needle '"actual_reason": "audit_append_envelope_missing_and_rollback_transaction_envelope_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_scope_case" -Needle '"case": "audit_append_envelope_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_schema_case" -Needle '"case": "audit_append_envelope_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_provenance_case" -Needle '"case": "audit_append_envelope_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_provenance_binding_case" -Needle '"case": "audit_append_envelope_provenance_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_policy_binding_case" -Needle '"case": "audit_append_envelope_policy_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_policy_id_case" -Needle '"case": "audit_append_envelope_write_policy_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_availability_case" -Needle '"case": "audit_append_envelope_availability_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_availability_id_case" -Needle '"case": "audit_append_envelope_availability_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_storage_id_case" -Needle '"case": "audit_append_envelope_storage_layout_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_engine_id_case" -Needle '"case": "audit_append_envelope_append_engine_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_audit_storage_case" -Needle '"case": "audit_ledger_storage_layout_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_scope_case" -Needle '"case": "rollback_transaction_envelope_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_schema_case" -Needle '"case": "rollback_transaction_envelope_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_provenance_case" -Needle '"case": "rollback_transaction_envelope_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_provenance_binding_case" -Needle '"case": "rollback_transaction_envelope_provenance_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_policy_binding_case" -Needle '"case": "rollback_transaction_envelope_policy_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_policy_id_case" -Needle '"case": "rollback_transaction_envelope_write_policy_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_availability_case" -Needle '"case": "rollback_transaction_envelope_availability_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_availability_id_case" -Needle '"case": "rollback_transaction_envelope_availability_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_storage_id_case" -Needle '"case": "rollback_transaction_envelope_storage_layout_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_engine_id_case" -Needle '"case": "rollback_transaction_envelope_append_engine_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_rollback_storage_case" -Needle '"case": "rollback_store_storage_layout_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_engine_case" -Needle '"case": "available_envelopes_append_engine_still_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_engine_status" -Needle '"actual_status": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_engine_reason" -Needle '"actual_reason": "audit_ledger_append_engine_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_audit_rollback_append_contract_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.audit_rollback_write_boundary_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_write_boundary_selftest"
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_write_boundary_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_no_audit_records" -Needle '"creates_durable_audit_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_no_rollback_plans" -Needle '"creates_rollback_plans": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_no_install" -Needle '"installs_rollback_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_no_recovery_artifact" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_count" -Needle '"case_count": 20' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_missing_manifest" -Needle '"case": "missing_manifest_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_stale_artifact" -Needle '"case": "stale_artifact_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_substituted_vm_report" -Needle '"case": "substituted_vm_report_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_previous_boot" -Needle '"case": "previous_boot_write_request"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_schema_mismatch" -Needle '"case": "write_request_schema_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_missing_grant" -Needle '"case": "missing_computed_grant_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_attestation_mismatch" -Needle '"case": "local_attestation_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_approval_mismatch" -Needle '"case": "local_approval_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_audit_hash_mismatch" -Needle '"case": "audit_record_service_slot_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_rollback_hash_mismatch" -Needle '"case": "rollback_plan_service_slot_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_service_slot_substituted" -Needle '"case": "substituted_service_slot_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_recovery_separate" -Needle '"case": "recovery_artifact_loader_requested"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_ledger_available_case" -Needle '"case": "durable_audit_ledger_available_rollback_store_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_rollback_available_case" -Needle '"case": "rollback_store_available_durable_audit_ledger_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_policy_denied_case" -Needle '"case": "availability_facts_present_policy_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_policy_status" -Needle '"actual_status": "denied_missing_durable_write_policy"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_policy_reason" -Needle '"actual_reason": "durable_write_policy_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_rollback_policy_case" -Needle '"case": "durable_write_policy_available_rollback_policy_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_rollback_policy_status" -Needle '"actual_status": "denied_missing_rollback_install_policy"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_rollback_policy_reason" -Needle '"actual_reason": "rollback_install_policy_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_append_missing_case" -Needle '"case": "policy_facts_available_append_contract_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_append_missing_status" -Needle '"actual_status": "denied_missing_append_contract"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_append_missing_reason" -Needle '"actual_reason": "audit_append_envelope_missing_and_rollback_transaction_envelope_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_rollback_transaction_missing_case" -Needle '"case": "audit_append_available_rollback_transaction_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_rollback_transaction_missing_reason" -Needle '"actual_reason": "rollback_transaction_envelope_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_writer_case" -Needle '"case": "policy_facts_available_writer_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_writer_status" -Needle '"actual_status": "denied_write_path_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_writer_reason" -Needle '"actual_reason": "durable_audit_rollback_writer_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_valid_denied" -Needle '"case": "accepted_current_boot_preconditions_write_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_valid_status" -Needle '"actual_status": "denied_missing_durable_write_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_valid_reason" -Needle '"actual_reason": "durable_audit_write_missing_and_rollback_install_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_write_boundary_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_manifest_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_manifest_selftest"
     Assert-LogContains -Name "protocol:module_load_gate_manifest_selftest_schema" -Needle '"schema": "raios.module_load_gate_manifest_selftest.v0"' -TimeoutSeconds 1
@@ -1366,6 +2012,68 @@ try {
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_vm_report_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "agent module.load_gate_attestation_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_attestation_selftest"
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_schema" -Needle '"schema": "raios.module_load_gate_local_attestation_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_records" -Needle '"creates_retained_local_attestation_reference_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_attestation_json" -Needle '"accepts_local_attestation_json": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_count" -Needle '"case_count": 11' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_missing_case" -Needle '"case": "missing_retained_local_attestation_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_missing_reason" -Needle '"actual_reason": "retained_local_attestation_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_case" -Needle '"case": "accepted_current_boot_attestation_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_status" -Needle '"actual_status": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_reason" -Needle '"actual_reason": "retained_local_attestation_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_state" -Needle '"actual_local_attestation_state": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_valid_hash_exposed" -Needle '"accepted_local_attestation_hash": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_stale_case" -Needle '"case": "stale_dropped_retained_local_attestation_reference_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_wrong_schema_case" -Needle '"case": "wrong_schema_or_variant"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_substituted_case" -Needle '"case": "substituted_local_attestation_reference_record"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_hash_case" -Needle '"case": "local_attestation_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_hash_reason" -Needle '"actual_reason": "retained_local_attestation_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_manifest_case" -Needle '"case": "manifest_reference_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_artifact_case" -Needle '"case": "artifact_reference_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_vm_report_case" -Needle '"case": "vm_report_reference_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_grant_case" -Needle '"case": "computed_grant_reference_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_rejected_state" -Needle '"actual_local_attestation_state": "rejected_retained_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_rejected_hash_not_exposed" -Needle '"accepted_local_attestation_hash": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_attestation_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.load_gate_approval_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_approval_selftest"
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_schema" -Needle '"schema": "raios.module_load_gate_local_approval_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_records" -Needle '"creates_retained_local_approval_reference_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_approval_text" -Needle '"accepts_local_approval_text": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_count" -Needle '"case_count": 12' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_missing_case" -Needle '"case": "missing_retained_local_approval_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_missing_reason" -Needle '"actual_reason": "retained_local_approval_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_case" -Needle '"case": "accepted_current_boot_approval_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_status" -Needle '"actual_status": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_reason" -Needle '"actual_reason": "retained_local_approval_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_state" -Needle '"actual_local_approval_state": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_valid_hash_exposed" -Needle '"accepted_local_approval_hash": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_stale_case" -Needle '"case": "stale_dropped_retained_local_approval_reference_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_wrong_schema_case" -Needle '"case": "wrong_schema_or_variant"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_substituted_case" -Needle '"case": "substituted_local_approval_reference_record"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_hash_case" -Needle '"case": "local_approval_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_hash_reason" -Needle '"actual_reason": "retained_local_approval_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_attestation_case" -Needle '"case": "local_attestation_reference_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_grant_case" -Needle '"case": "computed_grant_reference_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_rejected_state" -Needle '"actual_local_approval_state": "rejected_retained_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_rejected_hash_not_exposed" -Needle '"accepted_local_approval_hash": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_approval_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
     Send-AgentCommand -Command "agent module.load_gate_retained_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_retained_selftest"
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_schema" -Needle '"schema": "raios.module_load_gate_retained_reference_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_retained_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
@@ -1423,9 +2131,9 @@ try {
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_slot_mismatch" -Needle '"case": "retained_audit_rollback_service_slot_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_retained_slot_mismatch_reason" -Needle '"actual_reason": "retained_audit_rollback_service_slot_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_audit" -Needle '"case": "missing_durable_audit_record"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_audit_reason" -Needle '"actual_reason": "durable_audit_record_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_audit_reason" -Needle '"actual_reason": "durable_audit_write_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_rollback" -Needle '"case": "missing_rollback_plan"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_rollback_reason" -Needle '"actual_reason": "rollback_plan_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_missing_rollback_reason" -Needle '"actual_reason": "rollback_install_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_audit_schema_mismatch" -Needle '"case": "durable_audit_record_schema_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_audit_schema_reason" -Needle '"actual_reason": "durable_audit_record_schema_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_audit_rollback_selftest_rollback_schema_mismatch" -Needle '"case": "rollback_plan_schema_mismatch"' -TimeoutSeconds 1
@@ -1526,14 +2234,31 @@ try {
     }
     Assert-LogContains -Name "policy:module_retained_vm_report_ref_hash" -Needle "`"vm_test_report_reference_hash`": `"sha256:$moduleVmReportReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_retained_vm_report_hash" -Needle "`"vm_test_report_hash`": `"sha256:$moduleGrantReportHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_local_attestation_missing" -Needle '"local_attestation": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_attestation_retained" -Needle '"local_attestation": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_attestation_reference" -Needle '"retained_local_attestation_reference": {' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_attestation_present" -Needle '"schema": "raios.module_local_attestation_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_attestation_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_attestation_event_id" -Needle '"retained_local_attestation_reference_event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_attestation_ref_hash" -Needle "`"local_attestation_reference_hash`": `"sha256:$moduleAttestationReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_computed_grant_retained" -Needle '"computed_capability_grant": "retained_hash_reference_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_retained_grant_reference" -Needle '"retained_computed_grant_reference": {' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_retained_grant_present" -Needle '"state": "present"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_retained_grant_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_retained_grant_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_retained_grant_hash" -Needle "`"computed_capability_grant_hash`": `"sha256:$moduleGrantHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_local_approval_missing" -Needle '"local_approval": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_approval_retained" -Needle '"local_approval": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_approval_reference" -Needle '"retained_local_approval_reference": {' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_approval_present" -Needle '"schema": "raios.module_local_approval_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_approval_status" -Needle '"status": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    $moduleLoadApprovalEventId = [string]$moduleFinalLoadResponse.body.retained_local_approval_reference.event_id
+    $moduleLoadApprovalEventIdMatches = $moduleLoadApprovalEventId -eq $moduleApprovalRetainedReferenceEventId
+    Add-Predicate -Name "policy:module_retained_approval_event_id" -Expected $moduleApprovalRetainedReferenceEventId -Passed $moduleLoadApprovalEventIdMatches -Actual $moduleLoadApprovalEventId
+    if (-not $moduleLoadApprovalEventIdMatches) {
+        throw "Expected retained approval event id $moduleApprovalRetainedReferenceEventId in module.load_ephemeral, got $moduleLoadApprovalEventId"
+    }
+    Assert-LogContains -Name "policy:module_retained_approval_reason" -Needle '"reason": "retained_local_approval_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_approval_ref_hash" -Needle "`"local_approval_reference_hash`": `"sha256:$moduleApprovalReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_retained_approval_hash" -Needle "`"local_approval_hash`": `"sha256:$moduleAuditLocalApprovalHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_rollback_reference_retained" -Needle '"rollback_plan": "retained_hash_reference_only_not_installed"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_reference_retained" -Needle '"durable_audit_record": "retained_hash_reference_only_not_durable"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_retained_audit_rollback_reference" -Needle '"retained_audit_rollback_reference": {' -TimeoutSeconds 1
@@ -1558,10 +2283,11 @@ try {
     Assert-LogContains -Name "policy:module_manifest_retained_reason" -Needle '"reason": "retained_module_manifest_reference_not_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:candidate_artifact_retained_reason" -Needle '"reason": "retained_candidate_artifact_reference_not_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_vm_report_retained_reason" -Needle '"reason": "retained_vm_test_report_reference_not_authorizing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_local_attestation_missing_reason" -Needle '"reason": "local_attestation_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_attestation_retained_reason" -Needle '"reason": "retained_local_attestation_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_approval_retained_reason" -Needle '"reason": "retained_local_approval_reference_not_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_computed_grant_retained_not_authorizing" -Needle '"reason": "retained_computed_grant_reference_not_authorizing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_audit_reference_reason" -Needle '"reason": "retained_audit_record_reference_not_durable"' -TimeoutSeconds 1
-    Assert-LogContains -Name "policy:module_rollback_reference_reason" -Needle '"reason": "retained_rollback_plan_reference_not_installed"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_audit_reference_reason" -Needle '"reason": "durable_audit_write_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_rollback_reference_reason" -Needle '"reason": "rollback_install_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_unimplemented_reason" -Needle '"reason": "module_loader_unimplemented"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_manifest_required" -Needle "raios.module_manifest.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:candidate_artifact_sha256_required" -Needle "candidate_artifact_sha256" -TimeoutSeconds 1
@@ -1581,6 +2307,7 @@ try {
     Assert-LogContains -Name "policy:module_audit_record_schema" -Needle '"schema": "raios.audit_record.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_rollback_plan_schema" -Needle '"schema": "raios.rollback_plan.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_retained_reference_required" -Needle '"retained_computed_grant_reference_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_audit_retained_approval_reference_required" -Needle '"retained_local_approval_reference_event_id": "event.current_boot.' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_rollback_hash_retained" -Needle "`"rollback_plan_hash`": `"sha256:$moduleRollbackHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_slot_id_retained" -Needle "`"ram_only_service_slot_id`": `"$moduleAuditRamOnlyServiceSlotId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_service_slot_hash_retained" -Needle "`"service_slot_reservation_hash`": `"sha256:$moduleServiceSlotReservationHash`"" -TimeoutSeconds 1
@@ -1589,6 +2316,8 @@ try {
     Assert-LogContains -Name "policy:module_artifact_hash_retained" -Needle "`"artifact_hash`": `"sha256:$moduleGrantArtifactHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_vm_report_hash_retained" -Needle "`"vm_test_report_hash`": `"sha256:$moduleGrantReportHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_local_attestation_hash_retained" -Needle "`"local_attestation_hash`": `"sha256:$moduleGrantAttestationHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_approval_reference_hash_retained" -Needle "`"local_approval_reference_hash`": `"sha256:$moduleApprovalReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_local_approval_hash_retained" -Needle "`"local_approval_hash`": `"sha256:$moduleAuditLocalApprovalHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_service_inventory_unchanged" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent audit.events 64" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
@@ -1613,6 +2342,20 @@ try {
     Assert-LogContains -Name "protocol:module_vm_report_audit_ref_hash" -Needle "`"vm_test_report_reference_hash`": `"sha256:$moduleVmReportReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_vm_report_audit_hash" -Needle "`"vm_test_report_hash`": `"sha256:$moduleGrantReportHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_vm_report_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_audit_source" -Needle '"source_method": "module.attestation_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_audit_kind" -Needle '"kind": "module.local_attestation_reference.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_local_attestation_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_audit_ref_hash" -Needle "`"local_attestation_reference_hash`": `"sha256:$moduleAttestationReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_audit_hash" -Needle "`"local_attestation_hash`": `"sha256:$moduleGrantAttestationHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_attestation_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_audit_source" -Needle '"source_method": "module.approval_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_audit_kind" -Needle '"kind": "module.local_approval_reference.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_audit_binding_schema" -Needle '"bindings": {"schema": "raios.module_local_approval_reference.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_audit_ref_hash" -Needle "`"local_approval_reference_hash`": `"sha256:$moduleApprovalReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_audit_hash" -Needle "`"local_approval_hash`": `"sha256:$moduleAuditLocalApprovalHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_approval_audit_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_source" -Needle '"source_method": "module.grant_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_kind" -Needle '"kind": "module.computed_grant_reference.retained"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
@@ -1642,6 +2385,8 @@ try {
     Assert-LogContains -Name "protocol:module_load_audit_resource" -Needle '"resource": "live_service_graph"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_reason" -Needle '"reason": "missing_evidence"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_evidence_gate" -Needle '"module_load_gate_evaluated"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_evidence_attestation_checked" -Needle '"local_attestation_reference_checked"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_evidence_approval_checked" -Needle '"local_approval_reference_checked"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_evidence_audit_required" -Needle '"durable_audit_record_required"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_evidence_rollback_required" -Needle '"rollback_plan_required"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_evidence_rollback_bindings" -Needle '"rollback_bindings_required"' -TimeoutSeconds 1
@@ -1658,6 +2403,10 @@ try {
     Assert-LogContains -Name "protocol:module_load_audit_retained_vm_report_state" -Needle '"vm_test_report": "retained_hash_reference_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_retained_vm_report_binding" -Needle '"retained_vm_test_report_reference": {"state": "present"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_retained_vm_report_reason" -Needle '"reason": "retained_vm_test_report_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_retained_attestation_state" -Needle '"local_attestation": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_retained_attestation_binding" -Needle '"retained_local_attestation_reference": {"state": "present"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_retained_attestation_reason" -Needle '"reason": "retained_local_attestation_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_retained_attestation_hash" -Needle "`"local_attestation_reference_hash`": `"sha256:$moduleAttestationReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_retained_vm_report_ref_hash" -Needle "`"vm_test_report_reference_hash`": `"sha256:$moduleVmReportReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_retained_vm_report_hash" -Needle "`"vm_test_report_hash`": `"sha256:$moduleGrantReportHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_retained_audit_rollback_binding" -Needle '"retained_audit_rollback_reference": {"state": "present"' -TimeoutSeconds 1

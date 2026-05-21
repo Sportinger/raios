@@ -16,7 +16,9 @@ capability-gated when it runs, and atomically reversible if it misbehaves.
 The current Stage-0 gate already keeps module loading denied while exposing
 retained manifest, candidate-artifact, VM-test-report, computed-grant,
 audit/rollback, and RAM-only service-slot reservation evidence as
-non-authorizing current-boot facts.
+non-authorizing current-boot facts, with a separate write-boundary diagnostic
+that consumes missing persistence-device, storage-layout, append-engine, and
+append/storage contracts while still denying durable audit and rollback writes.
 
 It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
@@ -269,6 +271,14 @@ What boots and works in the VM right now:
 - Guest read-only VM-test-report hash-reference diagnostics for
   `raios.module_vm_test_report_reference.v0`, binding retained manifest,
   candidate-artifact, and computed-grant events without accepting report JSON
+- Guest read-only local-attestation hash-reference diagnostics for
+  `raios.module_local_attestation_reference.v0`, binding retained manifest,
+  candidate-artifact, VM-test-report, and computed-grant events without
+  accepting attestation JSON
+- Guest read-only local-approval hash-reference diagnostics for
+  `raios.module_local_approval_reference.v0`, binding retained manifest,
+  candidate-artifact, VM-test-report, local-attestation, and computed-grant
+  events without accepting approval text
 - Host-only canonical audit/rollback diagnostics for `raios.audit_record.v0`
   and `raios.rollback_plan.v0`, still non-authorizing and not installed in the
   guest
@@ -279,6 +289,41 @@ What boots and works in the VM right now:
   `ram_only:` slot id to retained computed-grant and audit/rollback references,
   canonical hashes, and the pre-load service-inventory hash while allocating no
   slot and loading nothing
+- Guest read-only audit/rollback availability diagnostics for typed
+  `raios.durable_audit_ledger.v0` and `raios.rollback_store.v0` current-boot
+  facts, reporting both as missing/non-authorizing instead of creating fake
+  durable state
+- Guest read-only audit/rollback write-policy diagnostics for typed
+  `raios.durable_audit_write_policy.v0` and
+  `raios.rollback_install_policy.v0` current-boot facts, reporting both as
+  missing/non-authorizing while naming the retained-evidence and availability
+  bindings a future writer must prove
+- Guest read-only audit/rollback storage-layout diagnostics for typed
+  `raios.persistence_device_inventory.v0` and
+  `raios.audit_rollback_storage_layout.v0` current-boot facts, reporting both
+  as missing/non-authorizing and separating device identity, partition
+  inventory, layout regions, append slots, and recovery separation from write
+  authority
+- Guest read-only audit/rollback append-engine readiness diagnostics for typed
+  `raios.audit_ledger_append_engine.v0` and
+  `raios.rollback_store_transaction_engine.v0` current-boot facts, reporting
+  both as missing/non-authorizing while separating append-only, flush, replay,
+  storage-layout binding, write-policy binding, and recovery separation from
+  write authority
+- Guest read-only audit/rollback append/storage contract diagnostics for typed
+  `raios.audit_ledger_append_envelope.v0` and
+  `raios.rollback_store_transaction_envelope.v0` current-boot facts, reporting
+  both as missing/non-authorizing while consuming the storage-layout and
+  append-engine facts separately from availability and policy facts and naming
+  explicit stable-id/provenance bindings for future append envelopes
+- Guest read-only audit/rollback write-boundary diagnostics that consume the
+  retained module evidence chain, service-slot reservation, availability facts,
+  write-policy facts, storage-layout facts, append-engine facts through the
+  append contract, and append/storage contract facts, emit
+  `raios.module_pre_load_audit_rollback_write_request.v0` plus explicit denial
+  evidence, and keep durable audit writes, rollback installs, storage-layout
+  availability, and append engines missing rather than treating hash references
+  as authority
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,
@@ -286,6 +331,10 @@ What boots and works in the VM right now:
 - RAM-only current-boot event binding for valid candidate-artifact hash
   references, still non-authorizing and local-only
 - RAM-only current-boot event binding for valid VM-test-report hash references,
+  still non-authorizing and local-only
+- RAM-only current-boot event binding for valid local-attestation hash
+  references, still non-authorizing and local-only
+- RAM-only current-boot event binding for valid local-approval hash references,
   still non-authorizing and local-only
 - The denied module load gate reports retained computed-grant references as
   hash evidence while keeping `can_load: false`
@@ -295,6 +344,10 @@ What boots and works in the VM right now:
   before reporting them as non-authorizing artifact hash evidence
 - The denied module load gate validates retained VM-test-report references
   before reporting them as non-authorizing report hash evidence
+- The denied module load gate validates retained local-attestation references
+  before reporting them as non-authorizing attestation hash evidence
+- The denied module load gate validates retained local-approval references
+  before reporting them as non-authorizing approval hash evidence
 - The denied module load gate validates retained audit/rollback references
   against the current-boot event log and canonical hashes before reporting them
   as non-authorizing hash evidence

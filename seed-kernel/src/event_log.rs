@@ -3,7 +3,8 @@ use spin::Mutex;
 use crate::event_log_evidence::{
     DENIED_EVIDENCE, MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE,
     MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE, MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
-    MODULE_LOAD_GATE_EVIDENCE, MODULE_MANIFEST_REFERENCE_EVIDENCE,
+    MODULE_LOAD_GATE_EVIDENCE, MODULE_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
+    MODULE_LOCAL_ATTESTATION_REFERENCE_EVIDENCE, MODULE_MANIFEST_REFERENCE_EVIDENCE,
     MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE, MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE,
     PROVIDER_BINDING_CONSUMPTION_EVIDENCE, PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
     PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE, PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
@@ -13,21 +14,25 @@ use crate::event_log_module_checks::{
     module_audit_rollback_binds_computed_grant, module_audit_rollback_reference_hash_mismatch,
     module_audit_rollback_reference_matches, module_candidate_artifact_reference_hashes_consistent,
     module_candidate_artifact_reference_matches, module_computed_grant_reference_hashes_consistent,
-    module_computed_grant_reference_matches, module_manifest_reference_hashes_consistent,
+    module_computed_grant_reference_matches, module_local_approval_reference_hashes_consistent,
+    module_local_approval_reference_matches, module_local_attestation_reference_hashes_consistent,
+    module_local_attestation_reference_matches, module_manifest_reference_hashes_consistent,
     module_manifest_reference_matches, module_service_slot_reservation_hash_mismatch,
     module_vm_test_report_reference_hashes_consistent, module_vm_test_report_reference_matches,
 };
 use crate::event_log_types::{
     ConsumedProviderBinding, ModuleAuditRollbackReferenceGateCheck,
-    ModuleCandidateArtifactReferenceGateCheck, ModuleManifestReferenceGateCheck,
+    ModuleCandidateArtifactReferenceGateCheck, ModuleLocalApprovalReferenceGateCheck,
+    ModuleLocalAttestationReferenceGateCheck, ModuleManifestReferenceGateCheck,
     ModuleServiceSlotReservationGateCheck, ModuleVmTestReportReferenceGateCheck,
 };
 pub use crate::event_log_types::{
     Event, EventBindings, EventId, EventSnapshot, ModuleAuditRollbackReference,
     ModuleCandidateArtifactReference, ModuleComputedGrantReference, ModuleLoadGateBinding,
-    ModuleManifestReference, ModuleServiceSlotId, ModuleServiceSlotReservation,
-    ModuleVmTestReportReference, ProviderBindingConsumption, ProviderBindingGateCheck,
-    ProviderBindingGateSelfTestCase, ProviderContextHashes, ProviderContextInjectionAuthorization,
+    ModuleLocalApprovalReference, ModuleLocalAttestationReference, ModuleManifestReference,
+    ModuleServiceSlotId, ModuleServiceSlotReservation, ModuleVmTestReportReference,
+    ProviderBindingConsumption, ProviderBindingGateCheck, ProviderBindingGateSelfTestCase,
+    ProviderContextHashes, ProviderContextInjectionAuthorization,
     ProviderContextInjectionGateCheck, ProviderContextInjectionGateSelfTestCase,
     ProviderExportAuditBinding, ProviderRequestBinding, ProviderRequestEnvelopeBinding,
     DEFAULT_EVENT_LIMIT, EVENT_CAPACITY, PROVIDER_BINDING_GATE_SELFTEST_CASES,
@@ -736,6 +741,56 @@ impl EventLog {
         None
     }
 
+    fn latest_module_local_attestation_reference(
+        &self,
+    ) -> Option<(EventId, ModuleLocalAttestationReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLocalAttestationReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_local_approval_reference(
+        &self,
+    ) -> Option<(EventId, ModuleLocalApprovalReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLocalApprovalReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
     fn latest_module_computed_grant_reference(
         &self,
     ) -> Option<(EventId, ModuleComputedGrantReference)> {
@@ -1129,6 +1184,358 @@ impl EventLog {
         }
     }
 
+    fn check_module_local_attestation_reference_for_load(
+        &self,
+        attestation: Option<(EventId, ModuleLocalAttestationReference)>,
+        manifest: Option<(EventId, ModuleManifestReference)>,
+        artifact: Option<(EventId, ModuleCandidateArtifactReference)>,
+        report: Option<(EventId, ModuleVmTestReportReference)>,
+        retained: Option<(EventId, ModuleComputedGrantReference)>,
+    ) -> ModuleLocalAttestationReferenceGateCheck {
+        let Some((attestation_event_id, attestation_reference)) = attestation else {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: None,
+                reference: None,
+                status: "missing",
+                reason: "retained_local_attestation_reference_missing",
+            };
+        };
+
+        let Some(attestation_event) = self.event_by_sequence(attestation_event_id) else {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_stale_or_dropped_event_id",
+            };
+        };
+        let EventBindings::ModuleLocalAttestationReference(attestation_event_reference) =
+            attestation_event.bindings
+        else {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_wrong_schema_or_variant",
+            };
+        };
+        if !module_local_attestation_reference_matches(
+            attestation_reference,
+            attestation_event_reference,
+        ) {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_substituted_record",
+            };
+        }
+        if !module_local_attestation_reference_hashes_consistent(attestation_reference) {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_hash_mismatch",
+            };
+        }
+
+        let Some((manifest_event_id, manifest_reference)) = manifest else {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_manifest_reference_mismatch",
+            };
+        };
+        if attestation_reference.retained_manifest_reference_event_id != manifest_event_id
+            || attestation_reference.manifest_reference_hash
+                != manifest_reference.manifest_reference_hash
+            || attestation_reference.manifest_hash != manifest_reference.manifest_hash
+        {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_manifest_reference_mismatch",
+            };
+        }
+
+        let Some((artifact_event_id, artifact_reference)) = artifact else {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_artifact_reference_mismatch",
+            };
+        };
+        if attestation_reference.retained_artifact_reference_event_id != artifact_event_id
+            || attestation_reference.artifact_reference_hash
+                != artifact_reference.artifact_reference_hash
+            || attestation_reference.manifest_reference_hash
+                != artifact_reference.manifest_reference_hash
+            || attestation_reference.manifest_hash != artifact_reference.manifest_hash
+            || attestation_reference.artifact_hash != artifact_reference.artifact_hash
+            || attestation_reference.local_attestation_hash
+                != artifact_reference.local_attestation_hash
+        {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_artifact_reference_mismatch",
+            };
+        }
+
+        let Some((report_event_id, report_reference)) = report else {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_vm_report_reference_mismatch",
+            };
+        };
+        if attestation_reference.retained_vm_report_reference_event_id != report_event_id
+            || attestation_reference.vm_report_reference_hash
+                != report_reference.report_reference_hash
+            || attestation_reference.manifest_reference_hash
+                != report_reference.manifest_reference_hash
+            || attestation_reference.artifact_reference_hash
+                != report_reference.artifact_reference_hash
+            || attestation_reference.manifest_hash != report_reference.manifest_hash
+            || attestation_reference.artifact_hash != report_reference.artifact_hash
+            || attestation_reference.vm_report_hash != report_reference.vm_report_hash
+            || attestation_reference.local_attestation_hash
+                != report_reference.local_attestation_hash
+        {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_vm_report_reference_mismatch",
+            };
+        }
+
+        let Some((retained_event_id, retained_reference)) = retained else {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_computed_grant_reference_mismatch",
+            };
+        };
+        if attestation_reference.retained_reference_event_id != retained_event_id
+            || attestation_reference.computed_grant_hash != retained_reference.computed_grant_hash
+            || attestation_reference.manifest_hash != retained_reference.manifest_hash
+            || attestation_reference.artifact_hash != retained_reference.artifact_hash
+            || attestation_reference.vm_report_hash != retained_reference.vm_report_hash
+            || attestation_reference.local_attestation_hash
+                != retained_reference.local_attestation_hash
+        {
+            return ModuleLocalAttestationReferenceGateCheck {
+                event_id: Some(attestation_event_id),
+                reference: Some(attestation_reference),
+                status: "rejected",
+                reason: "retained_local_attestation_reference_computed_grant_reference_mismatch",
+            };
+        }
+
+        ModuleLocalAttestationReferenceGateCheck {
+            event_id: Some(attestation_event_id),
+            reference: Some(attestation_reference),
+            status: "retained_hash_reference_only",
+            reason: "retained_local_attestation_reference_not_authorizing",
+        }
+    }
+
+    fn check_module_local_approval_reference_for_load(
+        &self,
+        approval: Option<(EventId, ModuleLocalApprovalReference)>,
+        manifest: Option<(EventId, ModuleManifestReference)>,
+        artifact: Option<(EventId, ModuleCandidateArtifactReference)>,
+        report: Option<(EventId, ModuleVmTestReportReference)>,
+        attestation: ModuleLocalAttestationReferenceGateCheck,
+        retained: Option<(EventId, ModuleComputedGrantReference)>,
+    ) -> ModuleLocalApprovalReferenceGateCheck {
+        let Some((approval_event_id, approval_reference)) = approval else {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: None,
+                reference: None,
+                status: "missing",
+                reason: "retained_local_approval_reference_missing",
+            };
+        };
+
+        let Some(approval_event) = self.event_by_sequence(approval_event_id) else {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_stale_or_dropped_event_id",
+            };
+        };
+        let EventBindings::ModuleLocalApprovalReference(approval_event_reference) =
+            approval_event.bindings
+        else {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_wrong_schema_or_variant",
+            };
+        };
+        if !module_local_approval_reference_matches(approval_reference, approval_event_reference) {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_substituted_record",
+            };
+        }
+        if !module_local_approval_reference_hashes_consistent(approval_reference) {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_hash_mismatch",
+            };
+        }
+
+        let Some((manifest_event_id, manifest_reference)) = manifest else {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_manifest_reference_mismatch",
+            };
+        };
+        if approval_reference.retained_manifest_reference_event_id != manifest_event_id
+            || approval_reference.manifest_reference_hash
+                != manifest_reference.manifest_reference_hash
+            || approval_reference.manifest_hash != manifest_reference.manifest_hash
+        {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_manifest_reference_mismatch",
+            };
+        }
+
+        let Some((artifact_event_id, artifact_reference)) = artifact else {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_artifact_reference_mismatch",
+            };
+        };
+        if approval_reference.retained_artifact_reference_event_id != artifact_event_id
+            || approval_reference.artifact_reference_hash
+                != artifact_reference.artifact_reference_hash
+            || approval_reference.manifest_reference_hash
+                != artifact_reference.manifest_reference_hash
+            || approval_reference.manifest_hash != artifact_reference.manifest_hash
+            || approval_reference.artifact_hash != artifact_reference.artifact_hash
+            || approval_reference.local_attestation_hash
+                != artifact_reference.local_attestation_hash
+        {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_artifact_reference_mismatch",
+            };
+        }
+
+        let Some((report_event_id, report_reference)) = report else {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_vm_report_reference_mismatch",
+            };
+        };
+        if approval_reference.retained_vm_report_reference_event_id != report_event_id
+            || approval_reference.vm_report_reference_hash != report_reference.report_reference_hash
+            || approval_reference.artifact_reference_hash
+                != report_reference.artifact_reference_hash
+            || approval_reference.vm_report_hash != report_reference.vm_report_hash
+            || approval_reference.local_attestation_hash != report_reference.local_attestation_hash
+        {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_vm_report_reference_mismatch",
+            };
+        }
+
+        if attestation.status != "retained_hash_reference_only" {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_local_attestation_reference_mismatch",
+            };
+        }
+        let (Some(attestation_event_id), Some(attestation_reference)) =
+            (attestation.event_id, attestation.reference)
+        else {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_local_attestation_reference_mismatch",
+            };
+        };
+        if approval_reference.retained_local_attestation_reference_event_id != attestation_event_id
+            || approval_reference.local_attestation_reference_hash
+                != attestation_reference.attestation_reference_hash
+            || approval_reference.vm_report_reference_hash
+                != attestation_reference.vm_report_reference_hash
+            || approval_reference.local_attestation_hash
+                != attestation_reference.local_attestation_hash
+        {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_local_attestation_reference_mismatch",
+            };
+        }
+
+        let Some((retained_event_id, retained_reference)) = retained else {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_computed_grant_reference_mismatch",
+            };
+        };
+        if approval_reference.retained_reference_event_id != retained_event_id
+            || approval_reference.computed_grant_hash != retained_reference.computed_grant_hash
+            || approval_reference.manifest_hash != retained_reference.manifest_hash
+            || approval_reference.artifact_hash != retained_reference.artifact_hash
+            || approval_reference.vm_report_hash != retained_reference.vm_report_hash
+            || approval_reference.local_attestation_hash
+                != retained_reference.local_attestation_hash
+        {
+            return ModuleLocalApprovalReferenceGateCheck {
+                event_id: Some(approval_event_id),
+                reference: Some(approval_reference),
+                status: "rejected",
+                reason: "retained_local_approval_reference_computed_grant_reference_mismatch",
+            };
+        }
+
+        ModuleLocalApprovalReferenceGateCheck {
+            event_id: Some(approval_event_id),
+            reference: Some(approval_reference),
+            status: "retained_hash_reference_only",
+            reason: "retained_local_approval_reference_not_authorizing",
+        }
+    }
+
     fn check_module_audit_rollback_reference_for_load(
         &self,
         retained: Option<(EventId, ModuleComputedGrantReference)>,
@@ -1466,6 +1873,85 @@ impl EventLog {
         }
     }
 
+    fn module_load_gate_binding(&self) -> ModuleLoadGateBinding {
+        let manifest_reference = self.latest_module_manifest_reference();
+        let artifact_reference = self.latest_module_candidate_artifact_reference();
+        let vm_report_reference = self.latest_module_vm_test_report_reference();
+        let attestation_reference = self.latest_module_local_attestation_reference();
+        let approval_reference = self.latest_module_local_approval_reference();
+        let retained = self.latest_module_computed_grant_reference();
+        let audit_rollback = self.latest_module_audit_rollback_reference();
+        let service_slot = self.latest_module_service_slot_reservation();
+        let manifest_check =
+            self.check_module_manifest_reference_for_load(manifest_reference, retained);
+        let artifact_check = self.check_module_candidate_artifact_reference_for_load(
+            artifact_reference,
+            manifest_reference,
+            retained,
+        );
+        let vm_report_check = self.check_module_vm_test_report_reference_for_load(
+            vm_report_reference,
+            manifest_reference,
+            artifact_reference,
+            retained,
+        );
+        let attestation_check = self.check_module_local_attestation_reference_for_load(
+            attestation_reference,
+            manifest_reference,
+            artifact_reference,
+            vm_report_reference,
+            retained,
+        );
+        let approval_check = self.check_module_local_approval_reference_for_load(
+            approval_reference,
+            manifest_reference,
+            artifact_reference,
+            vm_report_reference,
+            attestation_check,
+            retained,
+        );
+        let audit_rollback_check =
+            self.check_module_audit_rollback_reference_for_load(retained, audit_rollback);
+        let service_slot_check = self.check_module_service_slot_reservation_for_load(
+            retained,
+            audit_rollback_check,
+            service_slot,
+        );
+
+        ModuleLoadGateBinding {
+            manifest_reference_event_id: manifest_check.event_id,
+            manifest_reference: manifest_check.reference,
+            manifest_reference_status: manifest_check.status,
+            manifest_reference_reason: manifest_check.reason,
+            artifact_reference_event_id: artifact_check.event_id,
+            artifact_reference: artifact_check.reference,
+            artifact_reference_status: artifact_check.status,
+            artifact_reference_reason: artifact_check.reason,
+            vm_report_reference_event_id: vm_report_check.event_id,
+            vm_report_reference: vm_report_check.reference,
+            vm_report_reference_status: vm_report_check.status,
+            vm_report_reference_reason: vm_report_check.reason,
+            attestation_reference_event_id: attestation_check.event_id,
+            attestation_reference: attestation_check.reference,
+            attestation_reference_status: attestation_check.status,
+            attestation_reference_reason: attestation_check.reason,
+            approval_reference_event_id: approval_check.event_id,
+            approval_reference: approval_check.reference,
+            approval_reference_status: approval_check.status,
+            approval_reference_reason: approval_check.reason,
+            retained_reference_event_id: retained.map(|(event_id, _)| event_id),
+            retained_reference: retained.map(|(_, reference)| reference),
+            audit_rollback_reference_event_id: audit_rollback_check.event_id,
+            audit_rollback_reference: audit_rollback_check.reference,
+            audit_rollback_reference_status: audit_rollback_check.status,
+            audit_rollback_reference_reason: audit_rollback_check.reason,
+            service_slot_reservation_event_id: service_slot_check.event_id,
+            service_slot_reservation: service_slot_check.reservation,
+            service_slot_reservation_status: service_slot_check.status,
+            service_slot_reservation_reason: service_slot_check.reason,
+        }
+    }
+
     fn event_by_sequence(&self, event_id: EventId) -> Option<Event> {
         let mut idx = 0usize;
         while idx < EVENT_CAPACITY {
@@ -1644,55 +2130,7 @@ pub fn record_module_load_ephemeral_denied(
     source_method: &'static str,
 ) -> (EventId, ModuleLoadGateBinding) {
     let mut log = LOG.lock();
-    let manifest_reference = log.latest_module_manifest_reference();
-    let artifact_reference = log.latest_module_candidate_artifact_reference();
-    let vm_report_reference = log.latest_module_vm_test_report_reference();
-    let retained = log.latest_module_computed_grant_reference();
-    let audit_rollback = log.latest_module_audit_rollback_reference();
-    let service_slot = log.latest_module_service_slot_reservation();
-    let manifest_check = log.check_module_manifest_reference_for_load(manifest_reference, retained);
-    let artifact_check = log.check_module_candidate_artifact_reference_for_load(
-        artifact_reference,
-        manifest_reference,
-        retained,
-    );
-    let vm_report_check = log.check_module_vm_test_report_reference_for_load(
-        vm_report_reference,
-        manifest_reference,
-        artifact_reference,
-        retained,
-    );
-    let audit_rollback_check =
-        log.check_module_audit_rollback_reference_for_load(retained, audit_rollback);
-    let service_slot_check = log.check_module_service_slot_reservation_for_load(
-        retained,
-        audit_rollback_check,
-        service_slot,
-    );
-    let binding = ModuleLoadGateBinding {
-        manifest_reference_event_id: manifest_check.event_id,
-        manifest_reference: manifest_check.reference,
-        manifest_reference_status: manifest_check.status,
-        manifest_reference_reason: manifest_check.reason,
-        artifact_reference_event_id: artifact_check.event_id,
-        artifact_reference: artifact_check.reference,
-        artifact_reference_status: artifact_check.status,
-        artifact_reference_reason: artifact_check.reason,
-        vm_report_reference_event_id: vm_report_check.event_id,
-        vm_report_reference: vm_report_check.reference,
-        vm_report_reference_status: vm_report_check.status,
-        vm_report_reference_reason: vm_report_check.reason,
-        retained_reference_event_id: retained.map(|(event_id, _)| event_id),
-        retained_reference: retained.map(|(_, reference)| reference),
-        audit_rollback_reference_event_id: audit_rollback_check.event_id,
-        audit_rollback_reference: audit_rollback_check.reference,
-        audit_rollback_reference_status: audit_rollback_check.status,
-        audit_rollback_reference_reason: audit_rollback_check.reason,
-        service_slot_reservation_event_id: service_slot_check.event_id,
-        service_slot_reservation: service_slot_check.reservation,
-        service_slot_reservation_status: service_slot_check.status,
-        service_slot_reservation_reason: service_slot_check.reason,
-    };
+    let binding = log.module_load_gate_binding();
     let event_id = log.record(Event {
         sequence: 0,
         kind: "agent_protocol.capability_denied",
@@ -1709,6 +2147,10 @@ pub fn record_module_load_ephemeral_denied(
         bindings: EventBindings::ModuleLoadGate(binding),
     });
     (event_id, binding)
+}
+
+pub fn module_load_gate_binding_snapshot() -> ModuleLoadGateBinding {
+    LOG.lock().module_load_gate_binding()
 }
 
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
@@ -1764,6 +2206,44 @@ pub fn record_module_vm_test_report_reference(binding: ModuleVmTestReportReferen
         reason: "vm_test_report_reference_valid_for_current_boot",
         evidence: MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE,
         bindings: EventBindings::ModuleVmTestReportReference(binding),
+    })
+}
+
+pub fn record_module_local_attestation_reference(
+    binding: ModuleLocalAttestationReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.local_attestation_reference.retained",
+        source_method: "module.attestation_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.module.grant_diagnostic.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "live_service_graph",
+        reason: "local_attestation_reference_valid_for_current_boot",
+        evidence: MODULE_LOCAL_ATTESTATION_REFERENCE_EVIDENCE,
+        bindings: EventBindings::ModuleLocalAttestationReference(binding),
+    })
+}
+
+pub fn record_module_local_approval_reference(binding: ModuleLocalApprovalReference) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.local_approval_reference.retained",
+        source_method: "module.approval_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.module.grant_diagnostic.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "live_service_graph",
+        reason: "local_approval_reference_valid_for_current_boot",
+        evidence: MODULE_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
+        bindings: EventBindings::ModuleLocalApprovalReference(binding),
     })
 }
 
@@ -1962,6 +2442,15 @@ pub fn latest_module_candidate_artifact_reference(
 
 pub fn latest_module_vm_test_report_reference() -> Option<(EventId, ModuleVmTestReportReference)> {
     LOG.lock().latest_module_vm_test_report_reference()
+}
+
+pub fn latest_module_local_attestation_reference(
+) -> Option<(EventId, ModuleLocalAttestationReference)> {
+    LOG.lock().latest_module_local_attestation_reference()
+}
+
+pub fn latest_module_local_approval_reference() -> Option<(EventId, ModuleLocalApprovalReference)> {
+    LOG.lock().latest_module_local_approval_reference()
 }
 
 pub fn latest_module_computed_grant_reference() -> Option<(EventId, ModuleComputedGrantReference)> {

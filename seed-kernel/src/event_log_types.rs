@@ -128,6 +128,43 @@ pub struct ModuleVmTestReportReference {
     pub local_attestation_hash: [u8; 32],
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ModuleLocalAttestationReference {
+    pub attestation_reference_hash: [u8; 32],
+    pub retained_manifest_reference_event_id: EventId,
+    pub retained_artifact_reference_event_id: EventId,
+    pub retained_vm_report_reference_event_id: EventId,
+    pub retained_reference_event_id: EventId,
+    pub manifest_reference_hash: [u8; 32],
+    pub artifact_reference_hash: [u8; 32],
+    pub vm_report_reference_hash: [u8; 32],
+    pub manifest_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub computed_grant_hash: [u8; 32],
+    pub vm_report_hash: [u8; 32],
+    pub local_attestation_hash: [u8; 32],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ModuleLocalApprovalReference {
+    pub approval_reference_hash: [u8; 32],
+    pub retained_manifest_reference_event_id: EventId,
+    pub retained_artifact_reference_event_id: EventId,
+    pub retained_vm_report_reference_event_id: EventId,
+    pub retained_local_attestation_reference_event_id: EventId,
+    pub retained_reference_event_id: EventId,
+    pub manifest_reference_hash: [u8; 32],
+    pub artifact_reference_hash: [u8; 32],
+    pub vm_report_reference_hash: [u8; 32],
+    pub local_attestation_reference_hash: [u8; 32],
+    pub manifest_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub computed_grant_hash: [u8; 32],
+    pub vm_report_hash: [u8; 32],
+    pub local_attestation_hash: [u8; 32],
+    pub local_approval_hash: [u8; 32],
+}
+
 #[derive(Clone, Copy)]
 pub struct ModuleComputedGrantReference {
     pub computed_grant_hash: [u8; 32],
@@ -205,6 +242,14 @@ pub struct ModuleLoadGateBinding {
     pub vm_report_reference: Option<ModuleVmTestReportReference>,
     pub vm_report_reference_status: &'static str,
     pub vm_report_reference_reason: &'static str,
+    pub attestation_reference_event_id: Option<EventId>,
+    pub attestation_reference: Option<ModuleLocalAttestationReference>,
+    pub attestation_reference_status: &'static str,
+    pub attestation_reference_reason: &'static str,
+    pub approval_reference_event_id: Option<EventId>,
+    pub approval_reference: Option<ModuleLocalApprovalReference>,
+    pub approval_reference_status: &'static str,
+    pub approval_reference_reason: &'static str,
     pub retained_reference_event_id: Option<EventId>,
     pub retained_reference: Option<ModuleComputedGrantReference>,
     pub audit_rollback_reference_event_id: Option<EventId>,
@@ -237,6 +282,22 @@ pub(crate) struct ModuleCandidateArtifactReferenceGateCheck {
 pub(crate) struct ModuleVmTestReportReferenceGateCheck {
     pub(crate) event_id: Option<EventId>,
     pub(crate) reference: Option<ModuleVmTestReportReference>,
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLocalAttestationReferenceGateCheck {
+    pub(crate) event_id: Option<EventId>,
+    pub(crate) reference: Option<ModuleLocalAttestationReference>,
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLocalApprovalReferenceGateCheck {
+    pub(crate) event_id: Option<EventId>,
+    pub(crate) reference: Option<ModuleLocalApprovalReference>,
     pub(crate) status: &'static str,
     pub(crate) reason: &'static str,
 }
@@ -323,6 +384,8 @@ pub enum EventBindings {
     ModuleManifestReference(ModuleManifestReference),
     ModuleCandidateArtifactReference(ModuleCandidateArtifactReference),
     ModuleVmTestReportReference(ModuleVmTestReportReference),
+    ModuleLocalAttestationReference(ModuleLocalAttestationReference),
+    ModuleLocalApprovalReference(ModuleLocalApprovalReference),
     ModuleComputedGrantReference(ModuleComputedGrantReference),
     ModuleAuditRollbackReference(ModuleAuditRollbackReference),
     ModuleServiceSlotReservation(ModuleServiceSlotReservation),

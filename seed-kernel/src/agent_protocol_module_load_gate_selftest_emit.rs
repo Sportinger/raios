@@ -4,7 +4,8 @@ use crate::{
         module_load_gate_service_slot_selftest_cases,
     },
     agent_protocol_module_load_gate_selftest_reference_cases::{
-        module_load_gate_artifact_selftest_cases, module_load_gate_manifest_selftest_cases,
+        module_load_gate_approval_selftest_cases, module_load_gate_artifact_selftest_cases,
+        module_load_gate_attestation_selftest_cases, module_load_gate_manifest_selftest_cases,
         module_load_gate_vm_report_selftest_cases,
     },
     agent_protocol_module_types::*,
@@ -214,6 +215,136 @@ pub(crate) fn emit_module_load_gate_vm_report_selftest() {
     raw_line("      ],");
     raw_line("      \"can_load\": false");
     end_response("module.load_gate_vm_report_selftest");
+}
+
+pub(crate) fn emit_module_load_gate_attestation_selftest() {
+    let cases = module_load_gate_attestation_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("module.load_gate_attestation_selftest");
+    raw_line("      \"schema\": \"raios.module_load_gate_local_attestation_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_local_attestation_reference_records\": false,");
+    raw_line("      \"accepts_local_attestation_json\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_artifact\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_module_load_gate_attestation_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_load\": false");
+    end_response("module.load_gate_attestation_selftest");
+}
+
+pub(crate) fn emit_module_load_gate_approval_selftest() {
+    let cases = module_load_gate_approval_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("module.load_gate_approval_selftest");
+    raw_line("      \"schema\": \"raios.module_load_gate_local_approval_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_local_approval_reference_records\": false,");
+    raw_line("      \"accepts_local_approval_text\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_artifact\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_module_load_gate_approval_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_load\": false");
+    end_response("module.load_gate_approval_selftest");
+}
+
+fn emit_module_load_gate_attestation_selftest_case(
+    case: &ModuleLoadGateLocalAttestationSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"actual_local_attestation_state\": ");
+    json_str(case.actual_local_attestation_state);
+    raw(", \"accepted_local_attestation_hash\": ");
+    raw_bool(case.accepted_local_attestation_hash);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"can_load\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_module_load_gate_approval_selftest_case(
+    case: &ModuleLoadGateLocalApprovalSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"actual_local_approval_state\": ");
+    json_str(case.actual_local_approval_state);
+    raw(", \"accepted_local_approval_hash\": ");
+    raw_bool(case.accepted_local_approval_hash);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"can_load\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
 }
 
 fn emit_module_load_gate_vm_report_selftest_case(

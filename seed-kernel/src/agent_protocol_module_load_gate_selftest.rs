@@ -293,7 +293,7 @@ pub(crate) fn module_load_gate_audit_rollback_selftest_cases(
         module_load_gate_audit_rollback_selftest_case(
             "missing_durable_audit_record",
             "missing",
-            "durable_audit_record_missing",
+            "durable_audit_write_missing",
             ModuleLoadGateAuditRollbackCandidate {
                 durable_audit_record: false,
                 ..valid_requirements
@@ -302,7 +302,7 @@ pub(crate) fn module_load_gate_audit_rollback_selftest_cases(
         module_load_gate_audit_rollback_selftest_case(
             "missing_rollback_plan",
             "missing",
-            "rollback_plan_missing",
+            "rollback_install_missing",
             ModuleLoadGateAuditRollbackCandidate {
                 rollback_plan: false,
                 ..valid_requirements
@@ -952,6 +952,16 @@ pub(crate) fn module_load_gate_artifact_selftest_method(method: &str) -> bool {
 pub(crate) fn module_load_gate_vm_report_selftest_method(method: &str) -> bool {
     method_head_eq(method, "module.load_gate_vm_report_selftest")
         || method_head_eq(method, "module.vm_report_gate_selftest")
+}
+
+pub(crate) fn module_load_gate_attestation_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "module.load_gate_attestation_selftest")
+        || method_head_eq(method, "module.attestation_gate_selftest")
+}
+
+pub(crate) fn module_load_gate_approval_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "module.load_gate_approval_selftest")
+        || method_head_eq(method, "module.approval_gate_selftest")
 }
 
 pub(crate) fn module_load_gate_retained_selftest_method(method: &str) -> bool {

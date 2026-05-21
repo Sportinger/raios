@@ -2,14 +2,29 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-21 by Codex after moving module load-gate selftest JSON
-emitters into `seed-kernel/src/agent_protocol_module_load_gate_selftest_emit.rs`,
-selftest candidate evaluators into
-`seed-kernel/src/agent_protocol_module_load_gate_selftest_eval.rs`, and
-manifest/artifact/VM-report case construction into
-`seed-kernel/src/agent_protocol_module_load_gate_selftest_reference_cases.rs`.
-This continues the maintenance pass after the event-log split and preserves the
-same `module.load_gate_*_selftest` method surface and response schemas.
+Last updated: 2026-05-21 by Codex after adding guest
+`module.audit_rollback_availability`,
+`module.audit_rollback_availability_selftest`,
+`module.audit_rollback_write_policy`,
+`module.audit_rollback_write_policy_selftest`,
+`module.audit_rollback_storage_layout`,
+`module.audit_rollback_storage_layout_selftest`,
+`module.audit_rollback_append_engine`,
+`module.audit_rollback_append_engine_selftest`,
+`module.audit_rollback_append_contract`,
+`module.audit_rollback_append_contract_selftest`,
+`module.audit_rollback_write_boundary`, and
+`module.audit_rollback_write_boundary_selftest`, plus typed missing
+`raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` facts, typed missing
+`raios.durable_audit_write_policy.v0`/`raios.rollback_install_policy.v0` facts,
+typed missing `raios.persistence_device_inventory.v0`/
+`raios.audit_rollback_storage_layout.v0` facts,
+typed missing `raios.audit_ledger_append_engine.v0`/
+`raios.rollback_store_transaction_engine.v0` facts,
+typed missing `raios.audit_ledger_append_envelope.v0`/
+`raios.rollback_store_transaction_envelope.v0` facts, and explicit missing
+storage-layout, append-engine, append-contract, and append-envelope
+stable-id/provenance binding inputs over the retained module evidence chain.
 
 Latest maintenance verification:
 
@@ -24,26 +39,52 @@ Latest maintenance verification:
   passed on 2026-05-21.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260521-131055-3868.json` with 897/897
+  `release\vm-reports\shadow-20260521-204240-7764.json` with 1460/1460
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
   `module.vm_report_diagnostic_selftest`, `module.grant_diagnostic`,
-  `module.grant_diagnostic_selftest`, `module.audit_rollback_diagnostic`,
+  `module.grant_diagnostic_selftest`, `module.attestation_diagnostic`,
+  `module.attestation_diagnostic_selftest`,
+  `module.load_gate_attestation_selftest`,
+  `module.approval_diagnostic`, `module.approval_diagnostic_selftest`,
+  `module.load_gate_approval_selftest`,
+  `module.audit_rollback_diagnostic`,
   `module.audit_rollback_diagnostic_selftest`,
   `module.service_slot_diagnostic`, `module.service_slot_diagnostic_selftest`,
+  `module.audit_rollback_availability`,
+  `module.audit_rollback_availability_selftest`,
+  `module.audit_rollback_write_policy`,
+  `module.audit_rollback_write_policy_selftest`,
+  `module.audit_rollback_storage_layout`,
+  `module.audit_rollback_storage_layout_selftest`,
+  `module.audit_rollback_append_engine`,
+  `module.audit_rollback_append_engine_selftest`,
+  `module.audit_rollback_append_contract`,
+  `module.audit_rollback_append_contract_selftest`,
+  `module.audit_rollback_write_boundary`,
+  `module.audit_rollback_write_boundary_selftest`,
   retained `raios.module_manifest_reference.v0`,
   `raios.module_candidate_artifact_reference.v0`,
   `raios.module_vm_test_report_reference.v0`,
   `raios.module_computed_grant_reference.v0` and
+  `raios.module_local_attestation_reference.v0`,
+  `raios.module_local_approval_reference.v0`,
   `raios.module_audit_rollback_reference.v0` plus
   `raios.module_service_slot_reservation.v0` audit/event binding coverage, and
-  manifest/reference state plus live wrong-schema retained audit/rollback
-  rejection, live retained service-slot reservation visibility, negative
-  manifest-reference, artifact-reference, VM-report-reference,
-  retained-reference, retained audit/rollback reference, audit/rollback
-  requirement, and retained
-  service-slot reservation selftests in the denied module load gate.
+  manifest/reference state plus live retained local-attestation visibility,
+  live wrong-schema retained audit/rollback rejection, live retained
+  service-slot reservation visibility, negative manifest-reference,
+  artifact-reference, VM-report-reference, retained-reference, retained
+  local-attestation-reference, retained audit/rollback reference,
+  retained local-approval-reference,
+  audit/rollback requirement, and retained
+  service-slot reservation selftests in the denied module load gate, plus
+  read-only audit/rollback write-boundary denial evidence with
+  typed missing availability, write-policy, storage-layout, append-engine, and
+  append-contract facts plus explicit append-envelope binding fields,
+  `durable_audit_write_missing`, `rollback_install_missing`,
+  `storage_layout_missing`, and `append_engine_missing`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
   positive request/export audit binding markers stayed absent. The local image
@@ -126,6 +167,53 @@ Current verified cursor:
   `raios.module_service_slot_reservation.v0` bindings, and keeps
   `allocates_service_slot`, `creates_service_inventory_records`,
   `can_load_now`, and `load_attempted` false.
+- `module.audit_rollback_availability` now exposes
+  `raios.module_audit_rollback_availability.v0` as a read-only current-boot
+  diagnostic over typed `raios.durable_audit_ledger.v0` and
+  `raios.rollback_store.v0` facts. The live slice reports both as missing,
+  local-only, non-durable, and non-authorizing, while its selftest covers
+  previous-boot, schema, provenance, and policy-missing cases.
+- `module.audit_rollback_write_policy` now exposes
+  `raios.module_audit_rollback_write_policy.v0` as a read-only current-boot
+  diagnostic over typed `raios.durable_audit_write_policy.v0` and
+  `raios.rollback_install_policy.v0` facts. The live slice reports both as
+  missing, local-only, non-durable, and non-authorizing, while its selftest
+  covers previous-boot, schema, provenance, retained-evidence binding,
+  availability binding, and writer-missing cases.
+- `module.audit_rollback_storage_layout` now exposes
+  `raios.module_audit_rollback_storage_layout.v0` as a read-only current-boot
+  diagnostic over typed `raios.persistence_device_inventory.v0` and
+  `raios.audit_rollback_storage_layout.v0` facts. The live slice reports both
+  as missing, local-only, non-durable, and non-authorizing, while its selftest
+  covers device identity, partition inventory, layout region, append-slot, and
+  recovery-boundary gaps.
+- `module.audit_rollback_append_engine` now exposes
+  `raios.module_audit_rollback_append_engine.v0` as a read-only current-boot
+  diagnostic over typed `raios.audit_ledger_append_engine.v0` and
+  `raios.rollback_store_transaction_engine.v0` facts. The live slice reports
+  both as missing, local-only, non-durable, and non-authorizing, consumes the
+  storage-layout diagnostic as input, and keeps append-only, flush, replay,
+  write-policy binding, and recovery separation separate from write authority.
+- `module.audit_rollback_append_contract` now exposes
+  `raios.module_audit_rollback_append_contract.v0` as a read-only current-boot
+  diagnostic over typed `raios.audit_ledger_append_envelope.v0` and
+  `raios.rollback_store_transaction_envelope.v0` facts. The live slice reports
+  both as missing, local-only, non-durable, and non-authorizing, consumes
+  storage-layout plus append-engine readiness separately, and names explicit
+  storage-layout, append-engine, write-policy, availability, and provenance
+  bindings for future append envelopes.
+- `module.audit_rollback_write_boundary` now exposes
+  `raios.module_audit_rollback_write_boundary.v0` as a read-only guest
+  pre-load write-boundary diagnostic. It consumes the retained manifest,
+  candidate-artifact, VM-report, computed-grant, local-attestation,
+  local-approval, audit/rollback, service-slot reservation, and
+  audit/rollback availability, write-policy, storage-layout, append-engine
+  readiness through the append contract, and append-contract facts, emits a typed
+  `raios.module_pre_load_audit_rollback_write_request.v0` plus
+  `raios.module_audit_rollback_write_denial_evidence.v0`, creates no durable
+  records or rollback plans, and reports explicit
+  `durable_audit_write_missing`, `rollback_install_missing`,
+  `storage_layout_missing`, and `append_engine_missing` gates.
 - `module.manifest_diagnostic` now exposes
   `raios.module_manifest_reference_diagnostic.v0` as a read-only
   hash-reference diagnostic. It accepts no manifest JSON, artifact bytes, or
@@ -165,6 +253,19 @@ Current verified cursor:
   for absent, accepted-current-boot, stale, mismatched, and wrong-policy
   computed grant references without loading artifacts or mutating
   `service.inventory.v0`.
+- `module.attestation_diagnostic` now exposes
+  `raios.module_local_attestation_reference_diagnostic.v0` as a read-only
+  hash-reference diagnostic. It accepts no local-attestation JSON, artifact
+  bytes, or unsigned service code, recomputes the canonical
+  local-attestation-reference hash from retained manifest/artifact/VM-report/
+  computed-grant event ids plus retained hashes, and keeps
+  `authorizes_guest_load`, `can_load_now`, and `load_attempted` false.
+- Valid `module.attestation_diagnostic` references are retained in the RAM-only
+  current-boot event log as local-only
+  `raios.module_local_attestation_reference.v0` bindings. The retained record
+  stores hashes only, appears through
+  `retained_local_attestation_reference` and `audit.events`, and remains
+  non-authorizing.
 - `module.load_ephemeral` and `service.load_ephemeral` now snapshot the latest
   retained manifest reference into their denied `raios.module_load_gate.v0`
   response and event binding after validating the retained event, canonical
@@ -189,6 +290,15 @@ Current verified cursor:
   wrong-schema, substituted, or hash-mismatched retained reference is reported
   as `rejected_retained_reference` and its VM-report hashes are not exposed as
   accepted evidence.
+- `module.load_ephemeral` and `service.load_ephemeral` now validate the latest
+  retained local-attestation reference before snapshotting it into the same
+  denied gate. A retained reference changes the local-attestation gate state to
+  `retained_hash_reference_only` with reason
+  `retained_local_attestation_reference_not_authorizing`, while `can_load`,
+  `load_attempted`, and `service_inventory_change` remain false or `none`. A
+  wrong-schema, substituted, hash-mismatched, or retained-event-mismatched
+  reference is reported as `rejected_retained_reference` and its attestation
+  hashes are not exposed as accepted evidence.
 - `module.load_ephemeral` and `service.load_ephemeral` now also validate the
   latest retained audit/rollback reference before snapshotting it into the same
   denied response and event binding. The live predicate checks the retained
@@ -218,6 +328,13 @@ Current verified cursor:
   previous-boot-or-unretained, wrong-schema, substituted-record, and
   hash-mismatch retained-reference candidates without mutating the global event
   log or creating retained records.
+- `module.load_gate_attestation_selftest` now exposes local-only
+  `raios.module_load_gate_local_attestation_selftest.v0` test infrastructure
+  for missing/stale/wrong-schema/substituted retained local-attestation
+  references, retained manifest/artifact/VM-report/computed-grant event
+  mismatches, hash mismatches, and the accepted-but-still-denied
+  local-attestation state without mutating the global event log, accepting
+  attestation JSON, accepting artifact bytes, or loading artifacts.
 - `module.load_ephemeral` and `service.load_ephemeral` also expose
   `raios.module_load_gate_audit_rollback_requirements.v0` in the denied
   response and event binding. The requirement schema names
@@ -328,45 +445,48 @@ Current verified cursor:
   the local provider-minimal projection, the denied provider context export gate,
   provider export denial, event/audit log reads, memory mutation denials with
   event ids, module manifest, candidate-artifact, VM-report, computed-grant,
-  and audit/rollback hash-reference diagnostics with retained current-boot
-  references, and the denied module load gate, then emits
+  local-attestation, local-approval, and audit/rollback hash-reference diagnostics with
+  retained current-boot references, and the denied module load gate, then emits
   `raios.vm_test_report.v0` reports.
 
 Current phase: Phase 6 has host-side computed grant plus audit/rollback
 evidence diagnostics, guest-side read-only manifest, candidate-artifact,
-VM-report, computed-grant, audit/rollback, and service-slot reservation
-hash-reference diagnostics, current-boot retained manifest, artifact,
-VM-report, computed-grant, audit/rollback, and service-slot reservation
-bindings, and a fail-closed module load gate that validates retained manifest,
-artifact, VM-report, grant, audit/rollback, and service-slot reservation
-references before reporting them as non-authorizing evidence. Negative
-manifest, artifact, VM-report, retained-reference, audit/rollback, and
-service-slot reservation selftests are covered, including the live VM-report and
-service-slot reservation gate predicates. No code loading exists yet.
+VM-report, computed-grant, local-attestation, local-approval, audit/rollback,
+and service-slot reservation hash-reference diagnostics, current-boot retained
+manifest, artifact, VM-report, computed-grant, local-attestation,
+local-approval, audit/rollback, and service-slot reservation bindings, and a
+fail-closed module load gate that validates retained manifest, artifact,
+VM-report, grant, local-attestation, local-approval, audit/rollback, and
+service-slot reservation references before reporting them
+as non-authorizing evidence. Negative manifest, artifact, VM-report,
+retained-reference, local-attestation, local-approval, audit/rollback,
+service-slot reservation, availability, write-policy, storage-layout,
+append-engine, and append-contract selftests are covered, including the live
+VM-report, local-attestation, local-approval, and service-slot reservation gate
+predicates.
+No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the first guest local-attestation hash-reference diagnostic.
+Define append-intent request facts over the bound append contract.
 ```
 
-Start from the denied module load gate's `local_attestation: missing` state.
-Specify a local-only local-attestation hash-reference evidence record and a
-guest diagnostic that accepts only canonical attestation hash references,
-records valid current-boot references with provenance/classification, and keeps
-`module.load_ephemeral` denied. The live gate should report retained
-local-attestation hash evidence only after validating the retained event and
-binding it to the already retained manifest/artifact/VM-report/computed-grant
-evidence; raw attestation JSON must not become trusted authority.
+Start from `module.audit_rollback_append_contract`, which now exposes explicit
+append-envelope binding fields while still reporting append envelopes missing in
+the live kernel. Define the first local-only append-intent facts for audit-record
+and rollback-transaction writes over that bound contract; do not create fake
+persistent memory, fallback stores, durable records, or rollback transactions.
 
 Next three tasks:
 
-1. Specify and document the guest local-attestation hash-reference evidence
-   record.
-2. Add a read-only guest local-attestation hash-reference diagnostic and
-   selftest.
-3. Keep `module.load_ephemeral` and `service.load_ephemeral` denied with
-   loader unavailable, `service_inventory_change: none`, and
+1. Add typed append-intent request facts for audit-record append and
+   rollback-transaction append, with stable ids, provenance, classification,
+   and explicit non-authority fields.
+2. Feed append-intent readiness into `module.audit_rollback_write_boundary`
+   without attempting writes or treating append intents as durable authority.
+3. Keep recovery artifact loading separate from normal module loading and keep
+   `module.load_ephemeral` denied with `service_inventory_change: none` and
    `load_attempted: false`.
 
 Current blockers and non-goals:

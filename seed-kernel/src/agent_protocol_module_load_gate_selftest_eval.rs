@@ -319,6 +319,330 @@ pub(crate) fn evaluate_module_load_gate_vm_report_candidate(
     )
 }
 
+pub(crate) fn evaluate_module_load_gate_local_attestation_candidate(
+    candidate: ModuleLoadGateLocalAttestationReferenceCandidate,
+) -> ModuleLoadGateLocalAttestationEvaluation {
+    let Some(candidate_reference) = candidate.candidate_reference else {
+        return module_load_gate_local_attestation_check(
+            "missing",
+            "retained_local_attestation_reference_missing",
+        );
+    };
+    if !method_eq(candidate.scope, "current_boot") {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_previous_boot_or_unretained",
+        );
+    }
+    if !candidate.retained {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_stale_or_dropped_event_id",
+        );
+    }
+    if !candidate.schema_ok {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_wrong_schema_or_variant",
+        );
+    }
+    if candidate.event_reference != candidate.candidate_reference {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_substituted_record",
+        );
+    }
+    if candidate_reference.attestation_reference_hash
+        != module_evidence::computed_module_local_attestation_reference_hash_from_sequences(
+            candidate_reference
+                .retained_manifest_reference_event_id
+                .sequence(),
+            candidate_reference
+                .retained_artifact_reference_event_id
+                .sequence(),
+            candidate_reference
+                .retained_vm_report_reference_event_id
+                .sequence(),
+            candidate_reference.retained_reference_event_id.sequence(),
+            candidate_reference.manifest_reference_hash,
+            candidate_reference.artifact_reference_hash,
+            candidate_reference.vm_report_reference_hash,
+            candidate_reference.manifest_hash,
+            candidate_reference.artifact_hash,
+            candidate_reference.computed_grant_hash,
+            candidate_reference.vm_report_hash,
+            candidate_reference.local_attestation_hash,
+        )
+    {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_hash_mismatch",
+        );
+    }
+
+    let (Some(manifest_event_id), Some(manifest_reference)) =
+        (candidate.manifest_event_id, candidate.manifest_reference)
+    else {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_manifest_reference_mismatch",
+        );
+    };
+    if candidate_reference.retained_manifest_reference_event_id != manifest_event_id
+        || candidate_reference.manifest_reference_hash != manifest_reference.manifest_reference_hash
+        || candidate_reference.manifest_hash != manifest_reference.manifest_hash
+    {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_manifest_reference_mismatch",
+        );
+    }
+
+    let (Some(artifact_event_id), Some(artifact_reference)) =
+        (candidate.artifact_event_id, candidate.artifact_reference)
+    else {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_artifact_reference_mismatch",
+        );
+    };
+    if candidate_reference.retained_artifact_reference_event_id != artifact_event_id
+        || candidate_reference.artifact_reference_hash != artifact_reference.artifact_reference_hash
+        || candidate_reference.manifest_reference_hash != artifact_reference.manifest_reference_hash
+        || candidate_reference.manifest_hash != artifact_reference.manifest_hash
+        || candidate_reference.artifact_hash != artifact_reference.artifact_hash
+        || candidate_reference.local_attestation_hash != artifact_reference.local_attestation_hash
+    {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_artifact_reference_mismatch",
+        );
+    }
+
+    let (Some(vm_report_event_id), Some(vm_report_reference)) =
+        (candidate.vm_report_event_id, candidate.vm_report_reference)
+    else {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_vm_report_reference_mismatch",
+        );
+    };
+    if candidate_reference.retained_vm_report_reference_event_id != vm_report_event_id
+        || candidate_reference.vm_report_reference_hash != vm_report_reference.report_reference_hash
+        || candidate_reference.artifact_reference_hash
+            != vm_report_reference.artifact_reference_hash
+        || candidate_reference.vm_report_hash != vm_report_reference.vm_report_hash
+        || candidate_reference.local_attestation_hash != vm_report_reference.local_attestation_hash
+    {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_vm_report_reference_mismatch",
+        );
+    }
+
+    let (Some(retained_event_id), Some(retained_reference)) =
+        (candidate.retained_event_id, candidate.retained_reference)
+    else {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_computed_grant_reference_mismatch",
+        );
+    };
+    if candidate_reference.retained_reference_event_id != retained_event_id
+        || candidate_reference.computed_grant_hash != retained_reference.computed_grant_hash
+        || candidate_reference.manifest_hash != retained_reference.manifest_hash
+        || candidate_reference.artifact_hash != retained_reference.artifact_hash
+        || candidate_reference.vm_report_hash != retained_reference.vm_report_hash
+        || candidate_reference.local_attestation_hash != retained_reference.local_attestation_hash
+    {
+        return module_load_gate_local_attestation_check(
+            "rejected",
+            "retained_local_attestation_reference_computed_grant_reference_mismatch",
+        );
+    }
+
+    module_load_gate_local_attestation_check(
+        "retained_hash_reference_only",
+        "retained_local_attestation_reference_not_authorizing",
+    )
+}
+
+pub(crate) fn evaluate_module_load_gate_local_approval_candidate(
+    candidate: ModuleLoadGateLocalApprovalReferenceCandidate,
+) -> ModuleLoadGateLocalApprovalEvaluation {
+    let Some(candidate_reference) = candidate.candidate_reference else {
+        return module_load_gate_local_approval_check(
+            "missing",
+            "retained_local_approval_reference_missing",
+        );
+    };
+    if !method_eq(candidate.scope, "current_boot") {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_previous_boot_or_unretained",
+        );
+    }
+    if !candidate.retained {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_stale_or_dropped_event_id",
+        );
+    }
+    if !candidate.schema_ok {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_wrong_schema_or_variant",
+        );
+    }
+    if candidate.event_reference != candidate.candidate_reference {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_substituted_record",
+        );
+    }
+    if candidate_reference.approval_reference_hash
+        != module_evidence::computed_module_local_approval_reference_hash_from_sequences(
+            candidate_reference
+                .retained_manifest_reference_event_id
+                .sequence(),
+            candidate_reference
+                .retained_artifact_reference_event_id
+                .sequence(),
+            candidate_reference
+                .retained_vm_report_reference_event_id
+                .sequence(),
+            candidate_reference
+                .retained_local_attestation_reference_event_id
+                .sequence(),
+            candidate_reference.retained_reference_event_id.sequence(),
+            candidate_reference.manifest_reference_hash,
+            candidate_reference.artifact_reference_hash,
+            candidate_reference.vm_report_reference_hash,
+            candidate_reference.local_attestation_reference_hash,
+            candidate_reference.manifest_hash,
+            candidate_reference.artifact_hash,
+            candidate_reference.computed_grant_hash,
+            candidate_reference.vm_report_hash,
+            candidate_reference.local_attestation_hash,
+            candidate_reference.local_approval_hash,
+        )
+    {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_hash_mismatch",
+        );
+    }
+
+    let (Some(manifest_event_id), Some(manifest_reference)) =
+        (candidate.manifest_event_id, candidate.manifest_reference)
+    else {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_manifest_reference_mismatch",
+        );
+    };
+    if candidate_reference.retained_manifest_reference_event_id != manifest_event_id
+        || candidate_reference.manifest_reference_hash != manifest_reference.manifest_reference_hash
+        || candidate_reference.manifest_hash != manifest_reference.manifest_hash
+    {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_manifest_reference_mismatch",
+        );
+    }
+
+    let (Some(artifact_event_id), Some(artifact_reference)) =
+        (candidate.artifact_event_id, candidate.artifact_reference)
+    else {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_artifact_reference_mismatch",
+        );
+    };
+    if candidate_reference.retained_artifact_reference_event_id != artifact_event_id
+        || candidate_reference.artifact_reference_hash != artifact_reference.artifact_reference_hash
+        || candidate_reference.manifest_reference_hash != artifact_reference.manifest_reference_hash
+        || candidate_reference.manifest_hash != artifact_reference.manifest_hash
+        || candidate_reference.artifact_hash != artifact_reference.artifact_hash
+        || candidate_reference.local_attestation_hash != artifact_reference.local_attestation_hash
+    {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_artifact_reference_mismatch",
+        );
+    }
+
+    let (Some(vm_report_event_id), Some(vm_report_reference)) =
+        (candidate.vm_report_event_id, candidate.vm_report_reference)
+    else {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_vm_report_reference_mismatch",
+        );
+    };
+    if candidate_reference.retained_vm_report_reference_event_id != vm_report_event_id
+        || candidate_reference.vm_report_reference_hash != vm_report_reference.report_reference_hash
+        || candidate_reference.artifact_reference_hash
+            != vm_report_reference.artifact_reference_hash
+        || candidate_reference.vm_report_hash != vm_report_reference.vm_report_hash
+        || candidate_reference.local_attestation_hash != vm_report_reference.local_attestation_hash
+    {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_vm_report_reference_mismatch",
+        );
+    }
+
+    let (Some(attestation_event_id), Some(attestation_reference)) = (
+        candidate.attestation_event_id,
+        candidate.attestation_reference,
+    ) else {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_local_attestation_reference_mismatch",
+        );
+    };
+    if candidate_reference.retained_local_attestation_reference_event_id != attestation_event_id
+        || candidate_reference.local_attestation_reference_hash
+            != attestation_reference.attestation_reference_hash
+        || candidate_reference.vm_report_reference_hash
+            != attestation_reference.vm_report_reference_hash
+        || candidate_reference.local_attestation_hash
+            != attestation_reference.local_attestation_hash
+    {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_local_attestation_reference_mismatch",
+        );
+    }
+
+    let (Some(retained_event_id), Some(retained_reference)) =
+        (candidate.retained_event_id, candidate.retained_reference)
+    else {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_computed_grant_reference_mismatch",
+        );
+    };
+    if candidate_reference.retained_reference_event_id != retained_event_id
+        || candidate_reference.computed_grant_hash != retained_reference.computed_grant_hash
+        || candidate_reference.manifest_hash != retained_reference.manifest_hash
+        || candidate_reference.artifact_hash != retained_reference.artifact_hash
+        || candidate_reference.vm_report_hash != retained_reference.vm_report_hash
+        || candidate_reference.local_attestation_hash != retained_reference.local_attestation_hash
+    {
+        return module_load_gate_local_approval_check(
+            "rejected",
+            "retained_local_approval_reference_computed_grant_reference_mismatch",
+        );
+    }
+
+    module_load_gate_local_approval_check(
+        "retained_hash_reference_only",
+        "retained_local_approval_reference_not_authorizing",
+    )
+}
+
 fn module_load_gate_artifact_check(
     status: &'static str,
     reason: &'static str,
@@ -356,6 +680,48 @@ fn module_load_gate_vm_report_check(
             "missing"
         },
         accepted_vm_report_hash: accepted,
+        can_load: false,
+        load_attempted: false,
+    }
+}
+
+fn module_load_gate_local_attestation_check(
+    status: &'static str,
+    reason: &'static str,
+) -> ModuleLoadGateLocalAttestationEvaluation {
+    let accepted = method_eq(status, "retained_hash_reference_only");
+    ModuleLoadGateLocalAttestationEvaluation {
+        status,
+        reason,
+        local_attestation_state: if accepted {
+            "retained_hash_reference_only"
+        } else if method_eq(status, "rejected") {
+            "rejected_retained_reference"
+        } else {
+            "missing"
+        },
+        accepted_local_attestation_hash: accepted,
+        can_load: false,
+        load_attempted: false,
+    }
+}
+
+fn module_load_gate_local_approval_check(
+    status: &'static str,
+    reason: &'static str,
+) -> ModuleLoadGateLocalApprovalEvaluation {
+    let accepted = method_eq(status, "retained_hash_reference_only");
+    ModuleLoadGateLocalApprovalEvaluation {
+        status,
+        reason,
+        local_approval_state: if accepted {
+            "retained_hash_reference_only"
+        } else if method_eq(status, "rejected") {
+            "rejected_retained_reference"
+        } else {
+            "missing"
+        },
+        accepted_local_approval_hash: accepted,
         can_load: false,
         load_attempted: false,
     }
@@ -444,10 +810,10 @@ pub(crate) fn evaluate_module_load_gate_audit_rollback_candidate(
         );
     }
     if !candidate.durable_audit_record {
-        return module_load_gate_audit_rollback_check("missing", "durable_audit_record_missing");
+        return module_load_gate_audit_rollback_check("missing", "durable_audit_write_missing");
     }
     if !candidate.rollback_plan {
-        return module_load_gate_audit_rollback_check("missing", "rollback_plan_missing");
+        return module_load_gate_audit_rollback_check("missing", "rollback_install_missing");
     }
     if !candidate.audit_schema_ok {
         return module_load_gate_audit_rollback_check(

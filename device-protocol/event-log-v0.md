@@ -29,6 +29,8 @@ V0 records:
   current-boot VM-test-report hash references
 - local-only `raios.module_computed_grant_reference.v0` bindings for valid
   current-boot module computed-grant hash references
+- local-only `raios.module_local_approval_reference.v0` bindings for valid
+  current-boot module local-approval hash references
 - local-only `raios.module_audit_rollback_reference.v0` bindings for valid
   current-boot module audit/rollback hash references
 - local-only `raios.module_service_slot_reservation.v0` bindings for valid
@@ -145,6 +147,8 @@ evidence: missing_required_evidence, capability_denied
 `module_load_gate_evaluated`, `module_manifest_reference_checked`,
 `candidate_artifact_reference_checked`,
 `vm_test_report_reference_checked`,
+`local_attestation_reference_checked`,
+`local_approval_reference_checked`,
 `computed_capability_grant_reference_checked`, `durable_audit_record_required`,
 `rollback_plan_required`,
 `rollback_bindings_required`, `service_inventory_unchanged`, and
@@ -158,6 +162,16 @@ same boot, the denial snapshots that reference as non-authorizing current-boot
 evidence only after the live gate validates the retained reference against the
 retained manifest, candidate-artifact, and computed-grant events plus canonical
 hashes.
+If valid local-attestation hash-reference evidence was retained earlier in the
+same boot, the denial snapshots that reference as non-authorizing current-boot
+evidence only after the live gate validates the retained reference against the
+retained manifest, candidate-artifact, VM-report, and computed-grant events plus
+canonical hashes.
+If valid local-approval hash-reference evidence was retained earlier in the
+same boot, the denial snapshots that reference as non-authorizing current-boot
+evidence only after the live gate validates the retained reference against the
+retained manifest, candidate-artifact, VM-report, local-attestation, and
+computed-grant events plus canonical hashes.
 If valid audit/rollback hash-reference evidence was retained earlier in the
 same boot, the denial snapshots that reference as non-authorizing current-boot
 evidence only after the live gate validates the retained reference against the
@@ -219,6 +233,8 @@ structured non-authorizing binding:
     "module_manifest_reference_checked",
     "candidate_artifact_reference_checked",
     "vm_test_report_reference_checked",
+    "local_attestation_reference_checked",
+    "local_approval_reference_checked",
     "computed_capability_grant_reference_checked",
     "durable_audit_record_required",
     "rollback_plan_required",
@@ -237,9 +253,9 @@ structured non-authorizing binding:
       "module_manifest": "missing | retained_hash_reference_only | rejected_retained_reference",
       "candidate_artifact": "missing | retained_hash_reference_only | rejected_retained_reference",
       "vm_test_report": "missing | retained_hash_reference_only | rejected_retained_reference",
-      "local_attestation": "missing",
+      "local_attestation": "missing | retained_hash_reference_only | rejected_retained_reference",
       "computed_capability_grant": "missing | retained_hash_reference_only",
-      "local_approval": "missing",
+      "local_approval": "missing | retained_hash_reference_only | rejected_retained_reference",
       "rollback_plan": "missing | retained_hash_reference_only_not_installed | rejected_retained_reference",
       "durable_audit_record": "missing | retained_hash_reference_only_not_durable | rejected_retained_reference",
       "loader": "unavailable",
@@ -262,6 +278,16 @@ structured non-authorizing binding:
     "retained_vm_test_report_reference": {
       "state": "missing | present | rejected",
       "schema": "raios.module_vm_test_report_reference.v0",
+      "status": "missing | retained_hash_reference_load_still_denied | rejected"
+    },
+    "retained_local_attestation_reference": {
+      "state": "missing | present | rejected",
+      "schema": "raios.module_local_attestation_reference.v0",
+      "status": "missing | retained_hash_reference_load_still_denied | rejected"
+    },
+    "retained_local_approval_reference": {
+      "state": "missing | present | rejected",
+      "schema": "raios.module_local_approval_reference.v0",
       "status": "missing | retained_hash_reference_load_still_denied | rejected"
     },
     "retained_computed_grant_reference": {
@@ -300,10 +326,12 @@ structured non-authorizing binding:
       "artifact_hash": "null | sha256:<retained artifact hash>",
       "vm_test_report_reference_hash": "null | sha256:<retained VM-report reference hash>",
       "vm_test_report_hash": "null | sha256:<retained report hash>",
+      "local_attestation_reference_hash": "null | sha256:<retained attestation reference hash>",
       "local_attestation_hash": "null | sha256:<retained attestation hash>",
+      "local_approval_reference_hash": "null | sha256:<retained approval reference hash>",
+      "local_approval_hash": "null | sha256:<retained approval hash>",
       "audit_record_hash": "null | sha256:<retained audit record hash>",
       "rollback_plan_hash": "null | sha256:<retained rollback plan hash>",
-      "local_approval_hash": "null | sha256:<retained approval hash>",
       "pre_load_service_inventory_hash": "null | sha256:<retained inventory hash>",
       "cleanup_actions_hash": "null | sha256:<retained cleanup hash>",
       "ram_only_service_slot_id": "null | ram_only:<service slot id>",
@@ -467,6 +495,127 @@ The latest retained VM-test-report reference is visible through
 `module.vm_report_diagnostic` as `retained_vm_test_report_reference` and through
 later denied `module.load_ephemeral` bindings after live validation against the
 retained manifest, candidate-artifact, and computed-grant references.
+
+## Module Local Attestation Reference Event
+
+When `module.attestation_diagnostic` receives a valid current-boot hash
+reference, Stage-0 records one local-only RAM event. This event retains hashes
+and retained event ids only; it does not retain local-attestation JSON,
+artifact bytes, manifests, VM reports, signed module data, or registry records.
+
+```json
+{
+  "schema": "audit.event.v0",
+  "kind": "module.local_attestation_reference.retained",
+  "source_method": "module.attestation_diagnostic",
+  "classification": "local_only",
+  "outcome": "retained_hash_reference_load_still_denied",
+  "requested_capability": "cap.module.grant_diagnostic.read",
+  "risk": "observe",
+  "resource": "live_service_graph",
+  "reason": "local_attestation_reference_valid_for_current_boot",
+  "bindings": {
+    "schema": "raios.module_local_attestation_reference.v0",
+    "status": "retained_hash_reference_load_still_denied",
+    "scope": "current_boot",
+    "classification": "local_only",
+    "requested_capability": "cap.module.load_ephemeral",
+    "load_mode": "ram_only",
+    "local_attestation_schema": "raios.local_attestation.v0",
+    "accepts_local_attestation_json": false,
+    "accepts_artifact_bytes": false,
+    "accepts_unsigned_service_code": false,
+    "authorizes_guest_load": false,
+    "can_load_now": false,
+    "service_inventory_change": "none",
+    "load_attempted": false,
+    "retained_manifest_reference_event_id": "event.current_boot.<retained-manifest-id>",
+    "retained_candidate_artifact_reference_event_id": "event.current_boot.<retained-artifact-id>",
+    "retained_vm_test_report_reference_event_id": "event.current_boot.<retained-report-id>",
+    "retained_computed_grant_reference_event_id": "event.current_boot.<retained-grant-id>",
+    "hashes": {
+      "local_attestation_reference_hash": "sha256:<64 hex chars>",
+      "manifest_reference_hash": "sha256:<64 hex chars>",
+      "artifact_reference_hash": "sha256:<64 hex chars>",
+      "vm_test_report_reference_hash": "sha256:<64 hex chars>",
+      "manifest_hash": "sha256:<64 hex chars>",
+      "artifact_hash": "sha256:<64 hex chars>",
+      "computed_capability_grant_hash": "sha256:<64 hex chars>",
+      "vm_test_report_hash": "sha256:<64 hex chars>",
+      "local_attestation_hash": "sha256:<64 hex chars>"
+    }
+  },
+  "persistence": "none"
+}
+```
+
+The latest retained local-attestation reference is visible through
+`module.attestation_diagnostic` as `retained_local_attestation_reference` and
+through later denied `module.load_ephemeral` bindings after live validation
+against the retained manifest, candidate-artifact, VM-report, and
+computed-grant references.
+
+## Module Local Approval Reference Event
+
+When `module.approval_diagnostic` receives a valid current-boot hash reference,
+Stage-0 records one local-only RAM event. This event retains hashes and retained
+event ids only; it does not retain approval text, artifact bytes, manifests, VM
+reports, attestations, signed module data, or registry records.
+
+```json
+{
+  "schema": "audit.event.v0",
+  "kind": "module.local_approval_reference.retained",
+  "source_method": "module.approval_diagnostic",
+  "classification": "local_only",
+  "outcome": "retained_hash_reference_load_still_denied",
+  "requested_capability": "cap.module.grant_diagnostic.read",
+  "risk": "observe",
+  "resource": "live_service_graph",
+  "reason": "local_approval_reference_valid_for_current_boot",
+  "bindings": {
+    "schema": "raios.module_local_approval_reference.v0",
+    "status": "retained_hash_reference_load_still_denied",
+    "scope": "current_boot",
+    "classification": "local_only",
+    "requested_capability": "cap.module.load_ephemeral",
+    "load_mode": "ram_only",
+    "local_approval_schema": "raios.local_approval.v0",
+    "accepts_local_approval_text": false,
+    "accepts_artifact_bytes": false,
+    "accepts_unsigned_service_code": false,
+    "authorizes_guest_load": false,
+    "can_load_now": false,
+    "service_inventory_change": "none",
+    "load_attempted": false,
+    "retained_manifest_reference_event_id": "event.current_boot.<retained-manifest-id>",
+    "retained_candidate_artifact_reference_event_id": "event.current_boot.<retained-artifact-id>",
+    "retained_vm_test_report_reference_event_id": "event.current_boot.<retained-report-id>",
+    "retained_local_attestation_reference_event_id": "event.current_boot.<retained-attestation-id>",
+    "retained_computed_grant_reference_event_id": "event.current_boot.<retained-grant-id>",
+    "hashes": {
+      "local_approval_reference_hash": "sha256:<64 hex chars>",
+      "manifest_reference_hash": "sha256:<64 hex chars>",
+      "artifact_reference_hash": "sha256:<64 hex chars>",
+      "vm_test_report_reference_hash": "sha256:<64 hex chars>",
+      "local_attestation_reference_hash": "sha256:<64 hex chars>",
+      "manifest_hash": "sha256:<64 hex chars>",
+      "artifact_hash": "sha256:<64 hex chars>",
+      "computed_capability_grant_hash": "sha256:<64 hex chars>",
+      "vm_test_report_hash": "sha256:<64 hex chars>",
+      "local_attestation_hash": "sha256:<64 hex chars>",
+      "local_approval_hash": "sha256:<64 hex chars>"
+    }
+  },
+  "persistence": "none"
+}
+```
+
+The latest retained local-approval reference is visible through
+`module.approval_diagnostic` as `retained_local_approval_reference` and through
+later denied `module.load_ephemeral` bindings after live validation against the
+retained manifest, candidate-artifact, VM-report, local-attestation, and
+computed-grant references.
 
 When the latest retained `raios.module_audit_rollback_reference.v0` fails the
 live predicate, the load-gate binding retains only its event id, schema,
