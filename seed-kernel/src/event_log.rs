@@ -9,7 +9,8 @@ use crate::event_log_evidence::{
     PROVIDER_BINDING_CONSUMPTION_EVIDENCE, PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
     PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE, PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
     PROVIDER_REQUEST_BINDING_EVIDENCE, PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
-    RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE,
+    RECOVERY_ARTIFACT_IDENTITY_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE,
+    RECOVERY_ARTIFACT_TRUST_REFERENCE_EVIDENCE,
 };
 use crate::event_log_module_checks::{
     module_audit_rollback_binds_computed_grant, module_audit_rollback_reference_hash_mismatch,
@@ -36,7 +37,8 @@ pub use crate::event_log_types::{
     ProviderContextHashes, ProviderContextInjectionAuthorization,
     ProviderContextInjectionGateCheck, ProviderContextInjectionGateSelfTestCase,
     ProviderExportAuditBinding, ProviderRequestBinding, ProviderRequestEnvelopeBinding,
-    RecoveryArtifactLoadDenialBinding, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
+    RecoveryArtifactIdentityReference, RecoveryArtifactLoadDenialBinding,
+    RecoveryArtifactTrustReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
     PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::module_evidence;
@@ -679,6 +681,56 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::ModuleManifestReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_artifact_identity_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryArtifactIdentityReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryArtifactIdentityReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_artifact_trust_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryArtifactTrustReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryArtifactTrustReference(binding) = event.bindings {
                     return Some((
                         EventId {
                             sequence: event.sequence,
@@ -2179,6 +2231,46 @@ pub fn module_load_gate_binding_snapshot() -> ModuleLoadGateBinding {
     LOG.lock().module_load_gate_binding()
 }
 
+pub fn record_recovery_artifact_identity_reference(
+    binding: RecoveryArtifactIdentityReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.artifact_identity_reference.retained",
+        source_method: "recovery.identity_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.recovery.load_artifact.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline",
+        reason: "recovery_artifact_identity_reference_valid_for_current_boot",
+        evidence: RECOVERY_ARTIFACT_IDENTITY_REFERENCE_EVIDENCE,
+        bindings: EventBindings::RecoveryArtifactIdentityReference(binding),
+    })
+}
+
+pub fn record_recovery_artifact_trust_reference(
+    binding: RecoveryArtifactTrustReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.artifact_trust_reference.retained",
+        source_method: "recovery.trust_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.recovery.load_artifact.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline",
+        reason: "recovery_artifact_trust_reference_valid_for_current_boot",
+        evidence: RECOVERY_ARTIFACT_TRUST_REFERENCE_EVIDENCE,
+        bindings: EventBindings::RecoveryArtifactTrustReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -2459,6 +2551,16 @@ pub fn snapshot_recent(limit: usize) -> EventSnapshot {
 
 pub fn latest_module_manifest_reference() -> Option<(EventId, ModuleManifestReference)> {
     LOG.lock().latest_module_manifest_reference()
+}
+
+pub fn latest_recovery_artifact_identity_reference(
+) -> Option<(EventId, RecoveryArtifactIdentityReference)> {
+    LOG.lock().latest_recovery_artifact_identity_reference()
+}
+
+pub fn latest_recovery_artifact_trust_reference(
+) -> Option<(EventId, RecoveryArtifactTrustReference)> {
+    LOG.lock().latest_recovery_artifact_trust_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(

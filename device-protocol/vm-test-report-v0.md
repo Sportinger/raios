@@ -138,7 +138,7 @@ The JSON report contains:
     "agent module.load_gate_audit_rollback_selftest",
     "agent module.load_gate_service_slot_selftest",
     "module.load_ephemeral",
-    "agent audit.events 64"
+    "agent audit.events 128"
   ],
   "predicates": [
     {

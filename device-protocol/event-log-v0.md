@@ -87,7 +87,7 @@ The response result shape is:
   "provider_export": "disabled",
   "bounded": true,
   "limit": 32,
-  "capacity": 64,
+  "capacity": 128,
   "event_count": 12,
   "returned": 12,
   "dropped_before_sequence": 0,

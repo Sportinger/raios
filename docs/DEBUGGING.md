@@ -561,9 +561,21 @@ missing `raios.recovery_artifact_identity.v0`,
 The read-only binding diagnostic is:
 
 ```text
+recovery.identity_diagnostic
+recovery.identity_diagnostic <identity_reference_hash> <artifact_hash> [current_boot]
+recovery.identity_diagnostic_selftest
+recovery.trust_diagnostic
+recovery.trust_diagnostic <trust_reference_hash> <retained_identity_event_id> <identity_reference_hash> <artifact_hash> <trust_hash> [current_boot]
+recovery.trust_diagnostic_selftest
 recovery.load_binding
 recovery.load_binding_selftest
 ```
+
+The identity/trust diagnostics emit
+`raios.recovery_artifact_identity_diagnostic.v0` and
+`raios.recovery_artifact_trust_diagnostic.v0`. Valid references are retained
+only as local-only current-boot hash evidence, accept no artifact bytes, and do
+not authorize recovery loading.
 
 It emits `raios.recovery_artifact_load_binding.v0` and
 `raios.recovery_artifact_load_binding_selftest.v0`, requires retained

@@ -87,10 +87,15 @@ use crate::{
         provider_context_injection_gate_method, provider_context_injection_gate_selftest_method,
     },
     agent_protocol_recovery::{
-        canonical_recovery_artifact_load_method, emit_recovery_artifact_load_binding,
+        canonical_recovery_artifact_load_method, emit_recovery_artifact_identity_diagnostic,
+        emit_recovery_artifact_identity_diagnostic_selftest, emit_recovery_artifact_load_binding,
         emit_recovery_artifact_load_binding_selftest, emit_recovery_artifact_load_denied,
+        emit_recovery_artifact_trust_diagnostic, emit_recovery_artifact_trust_diagnostic_selftest,
+        recovery_artifact_identity_diagnostic_method,
+        recovery_artifact_identity_diagnostic_selftest_method,
         recovery_artifact_load_binding_method, recovery_artifact_load_binding_selftest_method,
-        recovery_artifact_load_method,
+        recovery_artifact_load_method, recovery_artifact_trust_diagnostic_method,
+        recovery_artifact_trust_diagnostic_selftest_method,
     },
     agent_protocol_support::{method_eq, method_head_eq},
     agent_protocol_system::{
@@ -402,6 +407,26 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("module.load_gate_service_slot_selftest");
         emit_module_load_gate_service_slot_selftest();
         return DispatchOutcome::Response("module.load_gate_service_slot_selftest");
+    }
+    if recovery_artifact_identity_diagnostic_method(method) {
+        record_read("recovery.identity_diagnostic");
+        emit_recovery_artifact_identity_diagnostic(method);
+        return DispatchOutcome::Response("recovery.identity_diagnostic");
+    }
+    if recovery_artifact_identity_diagnostic_selftest_method(method) {
+        record_read("recovery.identity_diagnostic_selftest");
+        emit_recovery_artifact_identity_diagnostic_selftest();
+        return DispatchOutcome::Response("recovery.identity_diagnostic_selftest");
+    }
+    if recovery_artifact_trust_diagnostic_method(method) {
+        record_read("recovery.trust_diagnostic");
+        emit_recovery_artifact_trust_diagnostic(method);
+        return DispatchOutcome::Response("recovery.trust_diagnostic");
+    }
+    if recovery_artifact_trust_diagnostic_selftest_method(method) {
+        record_read("recovery.trust_diagnostic_selftest");
+        emit_recovery_artifact_trust_diagnostic_selftest();
+        return DispatchOutcome::Response("recovery.trust_diagnostic_selftest");
     }
     if recovery_artifact_load_binding_method(method) {
         record_read("recovery.load_binding");

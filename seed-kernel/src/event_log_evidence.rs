@@ -91,6 +91,24 @@ pub(crate) const RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE: &[&str] = &[
     "normal_module_load_path_not_used",
     "load_not_attempted",
 ];
+pub(crate) const RECOVERY_ARTIFACT_IDENTITY_REFERENCE_EVIDENCE: &[&str] = &[
+    "recovery_artifact_identity_reference",
+    "identity_reference_hash",
+    "artifact_hash",
+    "hash_reference_only",
+    "artifact_bytes_not_accepted",
+    "recovery_load_not_attempted",
+];
+pub(crate) const RECOVERY_ARTIFACT_TRUST_REFERENCE_EVIDENCE: &[&str] = &[
+    "recovery_artifact_trust_reference",
+    "trust_reference_hash",
+    "retained_identity_reference_event_id",
+    "identity_reference_hash",
+    "artifact_hash",
+    "trust_hash",
+    "hash_reference_only",
+    "recovery_load_not_attempted",
+];
 pub(crate) const MODULE_MANIFEST_REFERENCE_EVIDENCE: &[&str] = &[
     "module_manifest_reference",
     "manifest_reference_hash",

@@ -1,6 +1,6 @@
 use core::str;
 
-pub const EVENT_CAPACITY: usize = 64;
+pub const EVENT_CAPACITY: usize = 128;
 pub const DEFAULT_EVENT_LIMIT: usize = 32;
 pub use crate::module_evidence::MODULE_SERVICE_SLOT_ID_MAX;
 
@@ -272,6 +272,21 @@ pub struct RecoveryArtifactLoadDenialBinding {
     pub recovery_rollback_evidence_missing: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryArtifactIdentityReference {
+    pub identity_reference_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryArtifactTrustReference {
+    pub trust_reference_hash: [u8; 32],
+    pub retained_identity_reference_event_id: EventId,
+    pub identity_reference_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub trust_hash: [u8; 32],
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ModuleManifestReferenceGateCheck {
     pub(crate) event_id: Option<EventId>,
@@ -401,6 +416,8 @@ pub enum EventBindings {
     ModuleServiceSlotReservation(ModuleServiceSlotReservation),
     ModuleLoadGate(ModuleLoadGateBinding),
     RecoveryArtifactLoadDenied(RecoveryArtifactLoadDenialBinding),
+    RecoveryArtifactIdentityReference(RecoveryArtifactIdentityReference),
+    RecoveryArtifactTrustReference(RecoveryArtifactTrustReference),
 }
 
 #[derive(Clone, Copy)]

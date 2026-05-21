@@ -82,6 +82,13 @@ pub struct ModuleLocalApprovalReferenceHashInput<'a> {
     pub local_approval_hash: [u8; 32],
 }
 
+pub struct RecoveryArtifactTrustReferenceHashInput<'a> {
+    pub retained_identity_reference_event_id: &'a str,
+    pub identity_reference_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub trust_hash: [u8; 32],
+}
+
 pub fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash_static_line(
@@ -106,6 +113,77 @@ pub fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 
     hash_static_line(&mut hash, b"manifest_schema=raios.module_manifest.v0", true);
     hash_hash_line(&mut hash, b"manifest_sha256", manifest_hash, true);
     hash_static_line(&mut hash, b"authorizes_guest_load=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_recovery_artifact_identity_reference_hash(artifact_hash: [u8; 32]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.recovery_artifact_identity.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.recovery_artifact_identity.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"requested_capability=cap.recovery.load_artifact",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=recovery_only", true);
+    hash_static_line(&mut hash, b"subject=agent.session.serial", true);
+    hash_static_line(&mut hash, b"resource=recovery_lifeline", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_hash_line(&mut hash, b"artifact_sha256", artifact_hash, true);
+    hash_static_line(&mut hash, b"accepts_artifact_bytes=false", true);
+    hash_static_line(&mut hash, b"loads_recovery_artifact=false", true);
+    hash_static_line(&mut hash, b"authorizes_recovery_load=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_recovery_artifact_trust_reference_hash(
+    input: RecoveryArtifactTrustReferenceHashInput<'_>,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.recovery_artifact_trust.canonical.v0",
+        true,
+    );
+    hash_static_line(&mut hash, b"schema=raios.recovery_artifact_trust.v0", true);
+    hash_static_line(
+        &mut hash,
+        b"requested_capability=cap.recovery.load_artifact",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=recovery_only", true);
+    hash_static_line(&mut hash, b"subject=agent.session.serial", true);
+    hash_static_line(&mut hash, b"resource=recovery_lifeline", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_str_line(
+        &mut hash,
+        b"retained_recovery_artifact_identity_event_id",
+        input.retained_identity_reference_event_id,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"identity_reference_sha256",
+        input.identity_reference_hash,
+        true,
+    );
+    hash_hash_line(&mut hash, b"artifact_sha256", input.artifact_hash, true);
+    hash_hash_line(&mut hash, b"trust_sha256", input.trust_hash, true);
+    hash_static_line(&mut hash, b"accepts_artifact_bytes=false", true);
+    hash_static_line(&mut hash, b"loads_recovery_artifact=false", true);
+    hash_static_line(&mut hash, b"authorizes_recovery_load=false", true);
     hash_static_line(&mut hash, b"service_inventory_change=none", true);
     hash_static_line(&mut hash, b"load_attempted=false", false);
     finalize_sha256(hash)

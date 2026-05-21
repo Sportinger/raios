@@ -349,12 +349,16 @@ What boots and works in the VM right now:
   exposing typed current-boot denial evidence for missing recovery artifact
   identity, trust, VM-test, local approval, loader, and rollback evidence while
   keeping normal module append-intent and writer facts non-authorizing
+- Guest read-only recovery artifact identity/trust hash-reference diagnostics
+  that retain valid `raios.recovery_artifact_identity.v0` and
+  `raios.recovery_artifact_trust.v0` references only as local-only,
+  current-boot, non-authorizing event evidence without accepting artifact bytes
 - Read-only `recovery.load_binding` and `recovery.load_binding_selftest`
-  diagnostics that require recovery-only identity/trust/VM-test/approval/
-  loader/rollback event ids, reject normal module append-intent,
-  append-payload, writer, service-slot, and `module.load_ephemeral` authority,
-  and keep recovery artifacts non-loaded, non-durable, local-only, and
-  non-authorizing
+  diagnostics that bind retained recovery identity/trust references when
+  present, still require recovery-only VM-test/approval/loader/rollback event
+  ids, reject normal module append-intent, append-payload, writer,
+  service-slot, and `module.load_ephemeral` authority, and keep recovery
+  artifacts non-loaded, non-durable, local-only, and non-authorizing
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,
