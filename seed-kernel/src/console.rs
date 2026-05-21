@@ -1127,8 +1127,10 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
         | "module.test_request"
         | "module.test_result"
         | "module.load_ephemeral"
+        | "module.load_recovery_artifact"
         | "module.persist"
         | "module.rollback"
+        | "recovery.load_artifact"
         | "service.load_ephemeral"
         | "service.restart"
         | "service.start"
@@ -1156,6 +1158,9 @@ fn command_help() {
     ));
     write_output(format_args!(
         "AGENT RAW: memory.context provider.context_export provider.context_gate provider.context_gate_selftest provider.context_injection_gate provider.context_injection_gate_selftest memory.query memory.trace memory.recent_events"
+    ));
+    write_output(format_args!(
+        "RECOVERY: recovery.load_artifact module.load_recovery_artifact"
     ));
 }
 

@@ -1,6 +1,7 @@
 use crate::{
     agent_protocol_memory::memory_mutation_method,
     agent_protocol_provider::provider_context_export_method,
+    agent_protocol_recovery::recovery_artifact_load_method,
     agent_protocol_support::{json_event_id, json_str, method_eq, raw, raw_line},
     agent_protocol_system::DENIED_METHODS,
     event_log, serial,
@@ -119,6 +120,10 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         } else {
             "cap.provider.context_export.read"
         }
+    } else if method_eq(method, "recovery.load_binding")
+        || method_eq(method, "recovery.load_binding_selftest")
+    {
+        "cap.recovery.load_artifact.read"
     } else if method_eq(method, "module.manifest_diagnostic")
         || method_eq(method, "module.manifest_diagnostic_selftest")
         || method_eq(method, "module.artifact_diagnostic")
@@ -181,6 +186,8 @@ fn requested_capability_for_denial(method: &str) -> &'static str {
         || method_eq(method, "service.load_ephemeral")
     {
         "cap.module.load_ephemeral"
+    } else if recovery_artifact_load_method(method) {
+        "cap.recovery.load_artifact"
     } else if method_eq(method, "module.persist") {
         "cap.module.persist"
     } else if method_eq(method, "module.rollback") {
@@ -199,6 +206,8 @@ fn requested_capability_for_denial(method: &str) -> &'static str {
 fn risk_for_denial(method: &str) -> &'static str {
     if provider_context_export_method(method) {
         "export"
+    } else if recovery_artifact_load_method(method) {
+        "recovery_modify_ram"
     } else if method_eq(method, "module.persist")
         || method_eq(method, "module.rollback")
         || method_eq(method, "config.apply")

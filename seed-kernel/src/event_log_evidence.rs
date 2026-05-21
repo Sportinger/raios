@@ -78,6 +78,19 @@ pub(crate) const MODULE_LOAD_GATE_EVIDENCE: &[&str] = &[
     "service_inventory_unchanged",
     "load_not_attempted",
 ];
+pub(crate) const RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE: &[&str] = &[
+    "missing_required_evidence",
+    "capability_denied",
+    "recovery_artifact_load_boundary_evaluated",
+    "recovery_artifact_identity_required",
+    "recovery_artifact_trust_required",
+    "recovery_vm_test_required",
+    "recovery_local_approval_required",
+    "recovery_loader_required",
+    "recovery_rollback_evidence_required",
+    "normal_module_load_path_not_used",
+    "load_not_attempted",
+];
 pub(crate) const MODULE_MANIFEST_REFERENCE_EVIDENCE: &[&str] = &[
     "module_manifest_reference",
     "manifest_reference_hash",

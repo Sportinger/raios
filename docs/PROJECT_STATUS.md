@@ -16,7 +16,9 @@ Last verified locally: 2026-05-21 on Windows with QEMU 11 after adding guest
 `module.audit_rollback_append_intent`,
 `module.audit_rollback_append_intent_selftest`,
 `module.audit_rollback_write_boundary`, and
-`module.audit_rollback_write_boundary_selftest`, plus typed missing
+`module.audit_rollback_write_boundary_selftest`, plus denied
+`recovery.load_artifact`/`module.load_recovery_artifact`, read-only
+`recovery.load_binding`/`recovery.load_binding_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
 typed missing `raios.durable_audit_write_policy.v0`/
 `raios.rollback_install_policy.v0` policy facts, typed missing
@@ -34,7 +36,13 @@ missing `raios.audit_record_append_intent.v0`/
 `raios.rollback_transaction_append_intent.v0` append-intent facts, and explicit
 missing storage-layout, append-engine, append-contract, append-envelope,
 append-payload, append-intent stable-id, payload-hash, and provenance binding
-inputs over the retained module evidence chain, via headless Shadow VM smoke
+inputs over the retained module evidence chain, and typed current-boot
+`raios.recovery_artifact_load_denial_evidence.v0` facts for missing recovery
+artifact identity, trust, VM-test, local approval, loader, and rollback
+evidence on the separate `cap.recovery.load_artifact` path, plus retained
+recovery-only evidence-id binding diagnostics that
+reject normal module append-intent, append-payload, writer, service-slot, and
+`module.load_ephemeral` authority, via headless Shadow VM smoke
 covering
 deterministic `provider_minimal`
 packet/field-list evidence, explicit provider request-binding denial and
@@ -97,7 +105,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-21 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260521-213852-32572.json` with 1649/1649
+`release\vm-reports\shadow-20260521-223810-8312.json` with 1766/1766
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
@@ -173,8 +181,16 @@ denied module load gate, plus RAM-only service-slot reservation diagnostics and
 selftests over retained computed-grant/audit/rollback event ids, canonical
 reservation hashes, pre-load service-inventory hashes, and `ram_only:` slot ids,
 including live denied load-gate visibility of valid retained service-slot
-reservation evidence without allocation and local-only negative service-slot
-gate selftests.
+reservation evidence without allocation, local-only negative service-slot gate
+selftests, and the separate denied recovery artifact load boundary proving
+`cap.recovery.load_artifact`, typed missing recovery identity/trust/VM-test/
+approval/loader/rollback facts, event-log binding, no normal module capability
+reuse, no recovery artifact load, and no service inventory change, plus
+read-only `recovery.load_binding` and `recovery.load_binding_selftest` proving
+required recovery-only evidence ids, normal module append-intent, append-payload,
+writer, service-slot, and `module.load_ephemeral` facts are non-authority,
+append payload-hash envelopes remain non-authority inputs, and recovery artifacts
+stay non-loaded, non-durable, local-only, and non-authorizing.
 
 ## Verified Boot State
 
@@ -321,23 +337,20 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the first separate recovery-artifact loading boundary:
+Define recovery artifact identity and trust reference diagnostics:
 
-- keep recovery artifact loading on its own capability path, separate from
-  normal `module.load_ephemeral`
-- expose typed current-boot denial evidence for missing recovery artifact
-  identity, trust, VM-test, local approval, loader, and rollback evidence
-- bind any future recovery load request to retained evidence ids and explicit
-  recovery-only capability ids, not to normal module append-intent or writer
-  facts
-- keep recovery artifacts non-loaded, non-durable, local-only, and
-  non-authorizing until a concrete recovery lifeline protocol and
-  persistence/rollback architecture exist
-- preserve the existing audit/rollback append payload-hash envelopes as
-  non-authority inputs only; do not treat payload hashes as durable audit or
-  rollback-store authority
-- preserve `module.load_ephemeral` as denied with `service_inventory_change:
-  none` and `load_attempted: false`
+- add read-only current-boot diagnostics for
+  `raios.recovery_artifact_identity.v0` and
+  `raios.recovery_artifact_trust.v0` hash references
+- retain only local-only, current-boot, non-authorizing identity/trust
+  references and bind their event ids into `recovery.load_binding`
+- reject missing, stale, previous-boot, wrong-schema, substituted, and
+  mismatched identity/trust candidates with explicit local-only selftests
+- keep `recovery.load_artifact`, `recovery.load_binding`,
+  `module.load_ephemeral`, append payload-hash envelopes, durable audit writes,
+  rollback installs, and service-slot allocation non-authorizing
+- do not create fake persistent memory, fallback stores, durable records,
+  rollback transactions, loaders, or recovery lifeline behavior
 
 The verified foundation for that task is:
 
@@ -947,9 +960,12 @@ The verified foundation for that task is:
   retained service-slot reservation gate selftests, and read-only
   audit/rollback availability, write-policy, storage-layout, append-engine,
   append-contract, append payload-hash, append-intent, plus write-boundary
-  diagnostics/selftests.
+  diagnostics/selftests, and the separate denied recovery artifact load
+  boundary with typed missing recovery identity, trust, VM-test, approval,
+  loader, and rollback evidence, plus read-only recovery load binding and
+  binding selftest coverage.
   Latest report:
-  `release\vm-reports\shadow-20260521-213852-32572.json` with 1649/1649
+  `release\vm-reports\shadow-20260521-223810-8312.json` with 1766/1766
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

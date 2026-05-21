@@ -19,7 +19,10 @@ audit/rollback, and RAM-only service-slot reservation evidence as
 non-authorizing current-boot facts, with a separate write-boundary diagnostic
 that consumes missing persistence-device, storage-layout, append-engine,
 append/storage contracts, and append-intent requests while still denying
-durable audit and rollback writes.
+durable audit and rollback writes, plus a distinct recovery-artifact load
+boundary that uses `cap.recovery.load_artifact` instead of the normal ephemeral
+module capability, exposes a read-only retained-evidence binding diagnostic,
+and still refuses to load anything.
 
 It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
@@ -340,6 +343,18 @@ What boots and works in the VM right now:
   evidence, and keep durable audit writes, rollback installs, storage-layout
   availability, append engines, and append intents missing rather than treating
   hash references as authority
+- A separate denied `recovery.load_artifact` /
+  `module.load_recovery_artifact` boundary for recovery artifacts, using
+  `cap.recovery.load_artifact` instead of `cap.module.load_ephemeral` and
+  exposing typed current-boot denial evidence for missing recovery artifact
+  identity, trust, VM-test, local approval, loader, and rollback evidence while
+  keeping normal module append-intent and writer facts non-authorizing
+- Read-only `recovery.load_binding` and `recovery.load_binding_selftest`
+  diagnostics that require recovery-only identity/trust/VM-test/approval/
+  loader/rollback event ids, reject normal module append-intent,
+  append-payload, writer, service-slot, and `module.load_ephemeral` authority,
+  and keep recovery artifacts non-loaded, non-durable, local-only, and
+  non-authorizing
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,

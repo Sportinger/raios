@@ -539,6 +539,41 @@ kernel must still report
 `append_intent_missing`; append payload-hash envelopes must not be treated as
 durable audit or rollback-store authority.
 
+The recovery artifact load boundary is a separate denied path:
+
+```text
+recovery.load_artifact
+module.load_recovery_artifact
+```
+
+It emits `raios.recovery_artifact_load_boundary.v0` with a
+`raios.recovery_artifact_load_denial_evidence.v0` binding, uses
+`cap.recovery.load_artifact` rather than `cap.module.load_ephemeral`, reports
+missing `raios.recovery_artifact_identity.v0`,
+`raios.recovery_artifact_trust.v0`, `raios.recovery_artifact_vm_test.v0`,
+`raios.recovery_artifact_local_approval.v0`,
+`raios.recovery_artifact_loader.v0`, and
+`raios.recovery_artifact_rollback_evidence.v0`, and keeps
+`loads_recovery_artifact: false`, `loads_normal_module: false`,
+`normal_module_load_path_used: false`, `service_inventory_change: none`, and
+`load_attempted: false`.
+
+The read-only binding diagnostic is:
+
+```text
+recovery.load_binding
+recovery.load_binding_selftest
+```
+
+It emits `raios.recovery_artifact_load_binding.v0` and
+`raios.recovery_artifact_load_binding_selftest.v0`, requires retained
+`recovery_artifact_identity_event_id`, `recovery_artifact_trust_event_id`,
+`recovery_vm_test_event_id`, `recovery_local_approval_event_id`,
+`recovery_loader_event_id`, and `recovery_rollback_evidence_event_id`, and
+keeps normal module append-intent, append-payload, writer, service-slot, and
+`module.load_ephemeral` facts non-authorizing for recovery loads. Payload-hash
+envelopes remain non-authority inputs only.
+
 A valid `module.manifest_diagnostic` hash-reference command records a local-only
 current-boot `raios.module_manifest_reference.v0` event binding and reports
 `retained_manifest_reference.status: retained_hash_reference_only`. This

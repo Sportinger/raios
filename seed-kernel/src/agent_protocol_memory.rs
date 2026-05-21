@@ -4,6 +4,7 @@ use crate::{
         emit_provider_context_hashes, emit_provider_minimal_projection,
         provider_context_block_reason,
     },
+    agent_protocol_recovery::emit_recovery_artifact_load_denial_event_binding,
     agent_protocol_support::{
         begin_response, crlf, emit_inline_string_array, end_response, indent, json_event_id,
         json_event_sequence, json_sha256, json_str, method_eq, method_head_eq, raw, raw_bool,
@@ -747,6 +748,9 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
         }
         event_log::EventBindings::ModuleLoadGate(binding) => {
             emit_module_load_gate_event_binding(binding);
+        }
+        event_log::EventBindings::RecoveryArtifactLoadDenied(binding) => {
+            emit_recovery_artifact_load_denial_event_binding(binding);
         }
     }
 }

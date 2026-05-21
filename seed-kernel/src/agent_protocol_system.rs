@@ -129,6 +129,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         summary: "read module grant, audit, rollback, and denied-load diagnostics",
     },
     Capability {
+        id: "cap.recovery.load_artifact.read",
+        risk: "observe",
+        granted: true,
+        scope: "current_boot",
+        summary: "read recovery artifact load binding diagnostics",
+    },
+    Capability {
         id: "cap.memory.mutate",
         risk: "persist",
         granted: false,
@@ -155,6 +162,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         granted: false,
         scope: "denied_until_vm_test_report_and_attestation",
         summary: "load current-boot-only artifact",
+    },
+    Capability {
+        id: "cap.recovery.load_artifact",
+        risk: "recovery_modify_ram",
+        granted: false,
+        scope: "denied_until_recovery_identity_trust_vm_test_approval_loader_and_rollback_evidence",
+        summary: "load a recovery-only artifact through the recovery lifeline",
     },
     Capability {
         id: "cap.module.persist",
@@ -237,6 +251,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "module.load_gate_retained_selftest",
     "module.load_gate_audit_rollback_selftest",
     "module.load_gate_service_slot_selftest",
+    "recovery.load_binding",
+    "recovery.load_binding_selftest",
 ];
 
 pub(crate) const DENIED_METHODS: &[&str] = &[
@@ -251,6 +267,8 @@ pub(crate) const DENIED_METHODS: &[&str] = &[
     "module.test_request",
     "module.test_result",
     "module.load_ephemeral",
+    "module.load_recovery_artifact",
+    "recovery.load_artifact",
     "module.persist",
     "module.rollback",
     "service.load_ephemeral",

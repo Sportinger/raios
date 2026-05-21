@@ -86,6 +86,12 @@ use crate::{
         provider_context_gate_method, provider_context_gate_selftest_method,
         provider_context_injection_gate_method, provider_context_injection_gate_selftest_method,
     },
+    agent_protocol_recovery::{
+        canonical_recovery_artifact_load_method, emit_recovery_artifact_load_binding,
+        emit_recovery_artifact_load_binding_selftest, emit_recovery_artifact_load_denied,
+        recovery_artifact_load_binding_method, recovery_artifact_load_binding_selftest_method,
+        recovery_artifact_load_method,
+    },
     agent_protocol_support::{method_eq, method_head_eq},
     agent_protocol_system::{
         emit_boot_log, emit_capabilities, emit_describe, emit_device_graph, emit_problem_list,
@@ -397,6 +403,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_module_load_gate_service_slot_selftest();
         return DispatchOutcome::Response("module.load_gate_service_slot_selftest");
     }
+    if recovery_artifact_load_binding_method(method) {
+        record_read("recovery.load_binding");
+        emit_recovery_artifact_load_binding();
+        return DispatchOutcome::Response("recovery.load_binding");
+    }
+    if recovery_artifact_load_binding_selftest_method(method) {
+        record_read("recovery.load_binding_selftest");
+        emit_recovery_artifact_load_binding_selftest();
+        return DispatchOutcome::Response("recovery.load_binding_selftest");
+    }
 
     if provider_context_export_method(method) {
         let event_id = record_denial("provider.context_export");
@@ -408,6 +424,13 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         let method = canonical_module_load_ephemeral_method(method);
         let (event_id, gate_binding) = event_log::record_module_load_ephemeral_denied(method);
         emit_module_load_ephemeral_denied(method, event_id, gate_binding);
+        return DispatchOutcome::Denied(method);
+    }
+
+    if recovery_artifact_load_method(method) {
+        let method = canonical_recovery_artifact_load_method(method);
+        let event_id = event_log::record_recovery_artifact_load_denied(method);
+        emit_recovery_artifact_load_denied(method, event_id);
         return DispatchOutcome::Denied(method);
     }
 

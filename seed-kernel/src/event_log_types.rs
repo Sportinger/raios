@@ -263,6 +263,16 @@ pub struct ModuleLoadGateBinding {
 }
 
 #[derive(Clone, Copy)]
+pub struct RecoveryArtifactLoadDenialBinding {
+    pub recovery_artifact_identity_missing: bool,
+    pub recovery_artifact_trust_missing: bool,
+    pub recovery_vm_test_missing: bool,
+    pub recovery_local_approval_missing: bool,
+    pub recovery_loader_missing: bool,
+    pub recovery_rollback_evidence_missing: bool,
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct ModuleManifestReferenceGateCheck {
     pub(crate) event_id: Option<EventId>,
     pub(crate) reference: Option<ModuleManifestReference>,
@@ -390,6 +400,7 @@ pub enum EventBindings {
     ModuleAuditRollbackReference(ModuleAuditRollbackReference),
     ModuleServiceSlotReservation(ModuleServiceSlotReservation),
     ModuleLoadGate(ModuleLoadGateBinding),
+    RecoveryArtifactLoadDenied(RecoveryArtifactLoadDenialBinding),
 }
 
 #[derive(Clone, Copy)]

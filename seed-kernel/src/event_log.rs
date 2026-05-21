@@ -9,6 +9,7 @@ use crate::event_log_evidence::{
     PROVIDER_BINDING_CONSUMPTION_EVIDENCE, PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
     PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE, PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
     PROVIDER_REQUEST_BINDING_EVIDENCE, PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
+    RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE,
 };
 use crate::event_log_module_checks::{
     module_audit_rollback_binds_computed_grant, module_audit_rollback_reference_hash_mismatch,
@@ -35,8 +36,8 @@ pub use crate::event_log_types::{
     ProviderContextHashes, ProviderContextInjectionAuthorization,
     ProviderContextInjectionGateCheck, ProviderContextInjectionGateSelfTestCase,
     ProviderExportAuditBinding, ProviderRequestBinding, ProviderRequestEnvelopeBinding,
-    DEFAULT_EVENT_LIMIT, EVENT_CAPACITY, PROVIDER_BINDING_GATE_SELFTEST_CASES,
-    PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
+    RecoveryArtifactLoadDenialBinding, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
+    PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::module_evidence;
 
@@ -2147,6 +2148,31 @@ pub fn record_module_load_ephemeral_denied(
         bindings: EventBindings::ModuleLoadGate(binding),
     });
     (event_id, binding)
+}
+
+pub fn record_recovery_artifact_load_denied(source_method: &'static str) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "agent_protocol.capability_denied",
+        source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "capability_denied",
+        requested_capability: "cap.recovery.load_artifact",
+        risk: "recovery_modify_ram",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline",
+        reason: "missing_recovery_artifact_evidence",
+        evidence: RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE,
+        bindings: EventBindings::RecoveryArtifactLoadDenied(RecoveryArtifactLoadDenialBinding {
+            recovery_artifact_identity_missing: true,
+            recovery_artifact_trust_missing: true,
+            recovery_vm_test_missing: true,
+            recovery_local_approval_missing: true,
+            recovery_loader_missing: true,
+            recovery_rollback_evidence_missing: true,
+        }),
+    })
 }
 
 pub fn module_load_gate_binding_snapshot() -> ModuleLoadGateBinding {

@@ -495,6 +495,10 @@ function Write-Report {
             "agent module.load_gate_audit_rollback_selftest",
             "agent module.load_gate_service_slot_selftest",
             "module.load_ephemeral",
+            "recovery.load_artifact",
+            "agent recovery.load_binding",
+            "agent recovery.load_binding_selftest",
+            "module.load_recovery_artifact",
             "agent audit.events 64"
         )
         predicates = @($Predicates.ToArray())
@@ -602,6 +606,7 @@ try {
     Assert-LogContains -Name "protocol:audit_events_capability" -Needle '"id": "cap.audit.events.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_export_read_capability" -Needle '"id": "cap.provider.context_export.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_read_capability" -Needle '"id": "cap.provider.context_injection.read"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_read_capability" -Needle '"id": "cap.recovery.load_artifact.read"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_export_capability_listed" -Needle '"id": "cap.provider.context_export"' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
@@ -2521,6 +2526,114 @@ try {
     Assert-LogContains -Name "policy:module_local_approval_hash_retained" -Needle "`"local_approval_hash`": `"sha256:$moduleAuditLocalApprovalHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_service_inventory_unchanged" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "recovery.load_artifact" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact"
+    $recoveryLoadResponse = Get-LastAgentResponseJson -Method "recovery.load_artifact"
+    Assert-LogContains -Name "policy:recovery_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_load_schema" -Needle '"schema": "raios.recovery_artifact_load_boundary.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_load_event_id" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_load_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_load_separate_capability" -Needle '"separate_from": "cap.module.load_ephemeral"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_load_normal_path_not_used" -Needle '"normal_module_load_path_used": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_load_normal_cap_not_used" -Needle '"normal_module_capability_used": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_load_denial_evidence_schema" -Needle '"schema": "raios.recovery_artifact_load_denial_evidence.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_load_status" -Needle '"status": "denied_missing_recovery_artifact_evidence"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_identity_missing" -Needle '"recovery_artifact_identity": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_trust_missing" -Needle '"recovery_artifact_trust": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_vm_test_missing" -Needle '"recovery_vm_test": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_approval_missing" -Needle '"recovery_local_approval": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_loader_missing" -Needle '"recovery_loader": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_rollback_missing" -Needle '"recovery_rollback_evidence": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_identity_schema" -Needle '"schema": "raios.recovery_artifact_identity.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_trust_schema" -Needle '"schema": "raios.recovery_artifact_trust.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_vm_test_schema" -Needle '"schema": "raios.recovery_artifact_vm_test.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_approval_schema" -Needle '"schema": "raios.recovery_artifact_local_approval.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_loader_schema" -Needle '"schema": "raios.recovery_artifact_loader.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_rollback_schema" -Needle '"schema": "raios.recovery_artifact_rollback_evidence.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_no_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_no_normal_load" -Needle '"loads_normal_module": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_append_payload_not_authority" -Needle '"append_payload_hash_authority": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:recovery_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    $recoveryLoadEventId = [string]$recoveryLoadResponse.body.event_id
+    $recoveryLoadEventIdPresent = $recoveryLoadEventId.StartsWith("event.current_boot.")
+    Add-Predicate -Name "policy:recovery_load_current_boot_event_id" -Expected "event.current_boot.*" -Passed $recoveryLoadEventIdPresent -Actual $recoveryLoadEventId
+    if (-not $recoveryLoadEventIdPresent) {
+        throw "Expected current-boot event id for recovery.load_artifact, got $recoveryLoadEventId"
+    }
+
+    Send-AgentCommand -Command "agent recovery.load_binding" -ExpectedMarker "RAIOS_AGENT_END recovery.load_binding"
+    Assert-LogContains -Name "protocol:recovery_binding_schema" -Needle '"schema": "raios.recovery_artifact_load_binding.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_status" -Needle '"status": "denied_missing_recovery_binding"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_no_records" -Needle '"creates_retained_recovery_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_load_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_read_capability" -Needle '"read_capability": "cap.recovery.load_artifact.read"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_recovery_capability" -Needle '"recovery_only_capability_used": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_normal_capability_false" -Needle '"normal_module_capability_used": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_separate_from_module" -Needle '"separate_from": "cap.module.load_ephemeral"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_identity_id_required" -Needle '"recovery_artifact_identity_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_trust_id_required" -Needle '"recovery_artifact_trust_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_vm_test_id_required" -Needle '"recovery_vm_test_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_approval_id_required" -Needle '"recovery_local_approval_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_loader_id_required" -Needle '"recovery_loader_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_rollback_id_required" -Needle '"recovery_rollback_evidence_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_identity_missing_reason" -Needle '"reason": "recovery_artifact_identity_event_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_trust_missing_reason" -Needle '"reason": "recovery_artifact_trust_event_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_vm_test_missing_reason" -Needle '"reason": "recovery_vm_test_event_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_approval_missing_reason" -Needle '"reason": "recovery_local_approval_event_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_loader_missing_reason" -Needle '"reason": "recovery_loader_event_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_rollback_missing_reason" -Needle '"reason": "recovery_rollback_evidence_event_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_module_intent_rejected" -Needle '"module_append_intent_used": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_module_payload_not_authority" -Needle '"module_append_payload_hash_used_as_authority": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_module_writer_rejected" -Needle '"module_writer_facts_used": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_module_slot_rejected" -Needle '"module_service_slot_used": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_payload_non_authority" -Needle '"non_authority_input_only": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_payload_authority_false" -Needle '"append_payload_hash_authority": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_no_beyond_denial" -Needle '"can_move_beyond_denial": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_no_recovery_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_no_normal_load" -Needle '"loads_normal_module": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_no_durable_records" -Needle '"creates_durable_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_no_rollback_install" -Needle '"installs_rollback_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_service_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent recovery.load_binding_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.load_binding_selftest"
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_schema" -Needle '"schema": "raios.recovery_artifact_load_binding_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_no_records" -Needle '"creates_retained_recovery_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_no_durable" -Needle '"creates_durable_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_no_install" -Needle '"installs_rollback_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_no_recovery_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_no_normal_load" -Needle '"loads_normal_module": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_count" -Needle '"case_count": 14' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_missing_identity" -Needle '"case": "missing_recovery_artifact_identity_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_previous_identity" -Needle '"case": "previous_boot_recovery_artifact_identity_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_wrong_identity_schema" -Needle '"case": "wrong_schema_recovery_artifact_identity_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_missing_trust" -Needle '"case": "missing_recovery_artifact_trust_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_missing_vm_test" -Needle '"case": "missing_recovery_vm_test_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_missing_approval" -Needle '"case": "missing_recovery_local_approval_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_missing_loader" -Needle '"case": "missing_recovery_loader_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_missing_rollback" -Needle '"case": "missing_recovery_rollback_evidence_event_id"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_module_capability" -Needle '"case": "module_load_ephemeral_capability_substituted"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_module_intent" -Needle '"case": "normal_module_append_intent_substituted"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_payload_authority" -Needle '"case": "append_payload_hash_claimed_as_authority"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_writer" -Needle '"case": "normal_module_writer_facts_substituted"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_service_slot" -Needle '"case": "normal_module_service_slot_substituted"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_available_denied" -Needle '"case": "available_recovery_binding_still_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_module_capability_reason" -Needle '"actual_reason": "recovery_load_requires_cap_recovery_load_artifact"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_module_intent_reason" -Needle '"actual_reason": "normal_module_append_intent_not_recovery_authority"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_payload_reason" -Needle '"actual_reason": "append_payload_hash_not_recovery_authority"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_writer_reason" -Needle '"actual_reason": "normal_module_writer_facts_not_recovery_authority"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_service_slot_reason" -Needle '"actual_reason": "normal_module_service_slot_not_recovery_authority"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_available_reason" -Needle '"actual_reason": "recovery_lifeline_protocol_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_can_move_false" -Needle '"can_move_beyond_denial": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_module_cap_not_accepted" -Needle '"normal_module_capability_accepted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_payload_authority_false" -Needle '"append_payload_hash_authority": false' -TimeoutSeconds 1
+
     Send-AgentCommand -Command "agent audit.events 64" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
     Assert-LogContains -Name "protocol:module_manifest_audit_source" -Needle '"source_method": "module.manifest_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_manifest_audit_kind" -Needle '"kind": "module.manifest_reference.retained"' -TimeoutSeconds 1
@@ -2625,6 +2738,23 @@ try {
     Assert-LogContains -Name "protocol:module_load_audit_retained_service_slot_no_allocation" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_retained_service_slot_no_inventory" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_binding_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_risk" -Needle '"risk": "recovery_modify_ram"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_resource" -Needle '"resource": "recovery_lifeline"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_reason" -Needle '"reason": "missing_recovery_artifact_evidence"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_evidence_boundary" -Needle '"recovery_artifact_load_boundary_evaluated"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_evidence_identity" -Needle '"recovery_artifact_identity_required"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_evidence_normal_path" -Needle '"normal_module_load_path_not_used"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_artifact_load_denial_evidence.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_binding_status" -Needle '"status": "denied_missing_recovery_artifact_evidence"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_binding_normal_path" -Needle '"normal_module_load_path_used": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_binding_missing_identity" -Needle '"recovery_artifact_identity": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_binding_missing_rollback" -Needle '"recovery_rollback_evidence": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_audit_binding_no_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_audit_source" -Needle '"source_method": "recovery.load_binding"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_selftest_audit_source" -Needle '"source_method": "recovery.load_binding_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact.read"' -TimeoutSeconds 1
 
     $Result = "passed"
 }
