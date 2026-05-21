@@ -2,7 +2,14 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-21 by Codex after adding guest
+Last updated: 2026-05-21 by Codex after extending guest recovery artifact
+diagnostics with `recovery.loader_diagnostic`,
+`recovery.loader_diagnostic_selftest`, `recovery.rollback_evidence_diagnostic`,
+and `recovery.rollback_evidence_diagnostic_selftest`, retaining valid
+local-only current-boot `raios.recovery_artifact_loader.v0` and
+`raios.recovery_artifact_rollback_evidence.v0` hash references, and binding all
+six retained recovery evidence ids into `recovery.load_binding` while still
+denying recovery loads; previous milestone also added guest
 `module.audit_rollback_availability`,
 `module.audit_rollback_availability_selftest`,
 `module.audit_rollback_write_policy`,
@@ -60,7 +67,7 @@ Latest maintenance verification:
   passed on 2026-05-21.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260521-232959-10980.json` with 1986/1986
+  `release\vm-reports\shadow-20260521-235356-11108.json` with 2094/2094
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -120,10 +127,15 @@ Latest maintenance verification:
   `recovery.local_approval_diagnostic`, and
   `recovery.local_approval_diagnostic_selftest` retaining valid recovery
   identity/trust/VM-test/local-approval hash references as local-only
-  current-boot event evidence, plus `recovery.load_binding` and
-  `recovery.load_binding_selftest` proving required recovery-only evidence ids,
-  payload-hash non-authority, no durable records, no rollback install, and no
-  recovery or normal module load.
+  current-boot event evidence, `recovery.loader_diagnostic`,
+  `recovery.loader_diagnostic_selftest`,
+  `recovery.rollback_evidence_diagnostic`, and
+  `recovery.rollback_evidence_diagnostic_selftest` retaining valid
+  loader/rollback-evidence hash references as local-only current-boot event
+  evidence, plus `recovery.load_binding` and
+  `recovery.load_binding_selftest` proving all six required recovery-only
+  evidence ids, payload-hash non-authority, no durable records, no rollback
+  install, and no recovery or normal module load.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
   positive request/export audit binding markers stayed absent. The local image
@@ -535,30 +547,28 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Define recovery artifact loader and rollback-evidence reference diagnostics.
+Define the recovery lifeline request boundary over the fully retained recovery
+evidence chain.
 ```
 
-Start from `recovery.load_binding`, which now names the required recovery-only
-identity, trust, VM-test, local approval, loader, and rollback event ids while
-keeping loading denied. Identity/trust/VM-test/local-approval references are now
-retained as local-only current-boot hash evidence and consumed by the binding
-diagnostic. Add the next read-only diagnostics for
-`raios.recovery_artifact_loader.v0` and
-`raios.recovery_artifact_rollback_evidence.v0` hash references, retain only
-local-only non-authorizing references, and cover missing, stale, wrong-schema,
-substituted, and mismatched cases without creating fake persistent memory,
-fallback stores, durable records, loaders, or rollback transactions.
+Start from `recovery.load_binding`, which now binds retained recovery-only
+identity, trust, VM-test, local approval, loader, and rollback-evidence event
+ids while keeping loading denied. Add the next read-only diagnostic for a
+`raios.recovery_lifeline_request.v0` shape over that fully retained evidence
+chain. It should validate current-boot event ids and retained-reference hashes,
+return explicit local-only denial for missing, stale, wrong-schema,
+substituted, and mismatched chains, and still avoid fake persistent memory,
+fallback stores, durable records, loaders, rollback transactions, or recovery
+lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only recovery artifact loader and rollback-evidence
-   hash-reference diagnostics plus local-only negative selftests.
-2. Bind accepted loader/rollback-evidence references into
-   `recovery.load_binding` as retained current-boot ids while keeping
-   `can_move_beyond_denial: false`.
-3. Define the recovery lifeline protocol request shape over the fully retained
-   non-authorizing recovery evidence chain without implementing a loader,
-   rollback transaction, or persistent recovery memory.
+1. Define read-only `recovery.lifeline_request_diagnostic` and selftest schemas
+   over the fully retained recovery evidence chain.
+2. Bind accepted lifeline request hashes to the six retained recovery evidence
+   ids while keeping `can_move_beyond_denial: false`.
+3. Define the recovery lifeline protocol state/provenance gaps without
+   implementing a loader, rollback transaction, or persistent recovery memory.
 
 Current blockers and non-goals:
 

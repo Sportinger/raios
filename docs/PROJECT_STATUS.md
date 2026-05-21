@@ -115,7 +115,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-21 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260521-232959-10980.json` with 1986/1986
+`release\vm-reports\shadow-20260521-235356-11108.json` with 2094/2094
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
@@ -203,13 +203,18 @@ load authority, read-only recovery artifact VM-test/local-approval
 hash-reference diagnostics retaining valid local-only current-boot
 `raios.recovery_artifact_vm_test.v0` and
 `raios.recovery_artifact_local_approval.v0` event bindings without accepting
-VM-test JSON, approval text, artifact bytes, or load authority, plus read-only
-`recovery.load_binding` and `recovery.load_binding_selftest` proving required
-recovery-only evidence ids,
-normal module append-intent, append-payload, writer, service-slot, and
+VM-test JSON, approval text, artifact bytes, or load authority, read-only
+recovery artifact loader/rollback-evidence hash-reference diagnostics retaining
+valid local-only current-boot `raios.recovery_artifact_loader.v0` and
+`raios.recovery_artifact_rollback_evidence.v0` event bindings without accepting
+loader descriptors, rollback evidence JSON, artifact bytes, or load authority,
+plus read-only `recovery.load_binding` and `recovery.load_binding_selftest`
+proving all six required recovery-only evidence ids, normal module
+append-intent, append-payload, writer, service-slot, and
 `module.load_ephemeral` facts are non-authority, append payload-hash envelopes
 remain non-authority inputs, and recovery artifacts stay non-loaded,
-non-durable, local-only, and non-authorizing.
+non-durable, local-only, and non-authorizing until a recovery lifeline protocol
+exists.
 
 ## Verified Boot State
 
@@ -356,21 +361,25 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define recovery artifact loader and rollback-evidence reference diagnostics:
+Define the recovery lifeline request boundary over the fully retained recovery
+evidence chain:
 
-- add read-only current-boot diagnostics for
-  `raios.recovery_artifact_loader.v0` and
-  `raios.recovery_artifact_rollback_evidence.v0` hash references
-- retain only local-only, current-boot, non-authorizing loader/rollback-evidence
-  references and bind their event ids into `recovery.load_binding`
-- reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched loader/rollback-evidence candidates with explicit local-only
-  selftests
+- add a read-only current-boot diagnostic for
+  `raios.recovery_lifeline_request.v0` that consumes retained recovery
+  identity, trust, VM-test, local-approval, loader, and rollback-evidence event
+  ids
+- bind only local-only/current-boot/non-authorizing hash references and expose a
+  typed denial when any retained evidence is missing, stale, wrong-schema,
+  substituted, or mismatched
 - keep `recovery.load_artifact`, `recovery.load_binding`,
   `module.load_ephemeral`, append payload-hash envelopes, durable audit writes,
-  rollback installs, and service-slot allocation non-authorizing
+  rollback installs, service-slot allocation, and the lifeline request itself
+  non-authorizing
+- make selftests cover missing/stale/previous-boot/wrong-schema/substituted/
+  mismatched retained chains plus the accepted-current-boot-but-denied request
 - do not create fake persistent memory, fallback stores, durable records,
-  rollback transactions, loaders, or recovery lifeline behavior
+  rollback transactions, loaders, recovery lifeline behavior, or service-slot
+  side effects
 
 The verified foundation for that task is:
 
@@ -982,10 +991,12 @@ The verified foundation for that task is:
   append-contract, append payload-hash, append-intent, plus write-boundary
   diagnostics/selftests, and the separate denied recovery artifact load
   boundary with typed missing recovery identity, trust, VM-test, approval,
-  loader, and rollback evidence, plus read-only recovery load binding and
-  binding selftest coverage.
+  loader, and rollback evidence, plus read-only recovery loader and
+  rollback-evidence hash-reference diagnostics, all six retained recovery
+  evidence ids bound into `recovery.load_binding`, and binding selftest
+  coverage.
   Latest report:
-  `release\vm-reports\shadow-20260521-232959-10980.json` with 1986/1986
+  `release\vm-reports\shadow-20260521-235356-11108.json` with 2094/2094
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

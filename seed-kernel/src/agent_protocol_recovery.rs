@@ -24,6 +24,8 @@ const RECOVERY_IDENTITY_SELFTEST_CASES: usize = 6;
 const RECOVERY_TRUST_SELFTEST_CASES: usize = 8;
 const RECOVERY_VM_TEST_SELFTEST_CASES: usize = 10;
 const RECOVERY_LOCAL_APPROVAL_SELFTEST_CASES: usize = 11;
+const RECOVERY_LOADER_SELFTEST_CASES: usize = 10;
+const RECOVERY_ROLLBACK_EVIDENCE_SELFTEST_CASES: usize = 10;
 
 #[derive(Clone, Copy)]
 struct RecoveryIdentityReferenceCheck<'a> {
@@ -177,6 +179,122 @@ struct RecoveryLocalApprovalSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+struct RecoveryLoaderReferenceInput<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    loader_reference_hash: Option<[u8; 32]>,
+    retained_identity_reference_event_id: Option<&'a str>,
+    retained_trust_reference_event_id: Option<&'a str>,
+    retained_vm_test_reference_event_id: Option<&'a str>,
+    retained_local_approval_reference_event_id: Option<&'a str>,
+    identity_reference_hash: Option<[u8; 32]>,
+    trust_reference_hash: Option<[u8; 32]>,
+    vm_test_reference_hash: Option<[u8; 32]>,
+    local_approval_reference_hash: Option<[u8; 32]>,
+    artifact_hash: Option<[u8; 32]>,
+    trust_hash: Option<[u8; 32]>,
+    vm_test_hash: Option<[u8; 32]>,
+    local_approval_hash: Option<[u8; 32]>,
+    loader_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLoaderReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    loader_reference_hash: Option<[u8; 32]>,
+    retained_identity_reference_event_id: Option<&'a str>,
+    retained_trust_reference_event_id: Option<&'a str>,
+    retained_vm_test_reference_event_id: Option<&'a str>,
+    retained_local_approval_reference_event_id: Option<&'a str>,
+    identity_reference_hash: Option<[u8; 32]>,
+    trust_reference_hash: Option<[u8; 32]>,
+    vm_test_reference_hash: Option<[u8; 32]>,
+    local_approval_reference_hash: Option<[u8; 32]>,
+    artifact_hash: Option<[u8; 32]>,
+    trust_hash: Option<[u8; 32]>,
+    vm_test_hash: Option<[u8; 32]>,
+    local_approval_hash: Option<[u8; 32]>,
+    loader_hash: Option<[u8; 32]>,
+    expected_loader_reference_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+struct RecoveryLoaderSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryRollbackEvidenceReferenceInput<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    rollback_evidence_reference_hash: Option<[u8; 32]>,
+    retained_identity_reference_event_id: Option<&'a str>,
+    retained_trust_reference_event_id: Option<&'a str>,
+    retained_vm_test_reference_event_id: Option<&'a str>,
+    retained_local_approval_reference_event_id: Option<&'a str>,
+    retained_loader_reference_event_id: Option<&'a str>,
+    identity_reference_hash: Option<[u8; 32]>,
+    trust_reference_hash: Option<[u8; 32]>,
+    vm_test_reference_hash: Option<[u8; 32]>,
+    local_approval_reference_hash: Option<[u8; 32]>,
+    loader_reference_hash: Option<[u8; 32]>,
+    artifact_hash: Option<[u8; 32]>,
+    trust_hash: Option<[u8; 32]>,
+    vm_test_hash: Option<[u8; 32]>,
+    local_approval_hash: Option<[u8; 32]>,
+    loader_hash: Option<[u8; 32]>,
+    rollback_evidence_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryRollbackEvidenceReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    rollback_evidence_reference_hash: Option<[u8; 32]>,
+    retained_identity_reference_event_id: Option<&'a str>,
+    retained_trust_reference_event_id: Option<&'a str>,
+    retained_vm_test_reference_event_id: Option<&'a str>,
+    retained_local_approval_reference_event_id: Option<&'a str>,
+    retained_loader_reference_event_id: Option<&'a str>,
+    identity_reference_hash: Option<[u8; 32]>,
+    trust_reference_hash: Option<[u8; 32]>,
+    vm_test_reference_hash: Option<[u8; 32]>,
+    local_approval_reference_hash: Option<[u8; 32]>,
+    loader_reference_hash: Option<[u8; 32]>,
+    artifact_hash: Option<[u8; 32]>,
+    trust_hash: Option<[u8; 32]>,
+    vm_test_hash: Option<[u8; 32]>,
+    local_approval_hash: Option<[u8; 32]>,
+    loader_hash: Option<[u8; 32]>,
+    rollback_evidence_hash: Option<[u8; 32]>,
+    expected_rollback_evidence_reference_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+struct RecoveryRollbackEvidenceSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
 struct RecoveryEvidenceCandidate {
     retained: bool,
     current_boot: bool,
@@ -261,6 +379,22 @@ pub(crate) fn recovery_artifact_local_approval_diagnostic_method(method: &str) -
 
 pub(crate) fn recovery_artifact_local_approval_diagnostic_selftest_method(method: &str) -> bool {
     method_head_eq(method, "recovery.local_approval_diagnostic_selftest")
+}
+
+pub(crate) fn recovery_artifact_loader_diagnostic_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.loader_diagnostic")
+}
+
+pub(crate) fn recovery_artifact_loader_diagnostic_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.loader_diagnostic_selftest")
+}
+
+pub(crate) fn recovery_artifact_rollback_evidence_diagnostic_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.rollback_evidence_diagnostic")
+}
+
+pub(crate) fn recovery_artifact_rollback_evidence_diagnostic_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.rollback_evidence_diagnostic_selftest")
 }
 
 pub(crate) fn recovery_artifact_load_binding_method(method: &str) -> bool {
@@ -675,16 +809,233 @@ pub(crate) fn emit_recovery_artifact_local_approval_diagnostic_selftest() {
     end_response("recovery.local_approval_diagnostic_selftest");
 }
 
+pub(crate) fn emit_recovery_artifact_loader_diagnostic(method: &str) {
+    let check = parse_recovery_loader_reference(recovery_loader_diagnostic_arg(method), true);
+    let recorded_event_id = if check.valid {
+        recovery_loader_binding_from_check(&check)
+            .map(event_log::record_recovery_artifact_loader_reference)
+    } else {
+        None
+    };
+    let retained = event_log::latest_recovery_artifact_loader_reference();
+
+    begin_response("recovery.loader_diagnostic");
+    raw_line("      \"schema\": \"raios.recovery_artifact_loader_diagnostic.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw_line("      \"accepts_loader_descriptor\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"loads_normal_module\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"recovery.loader_diagnostic <loader_reference_hash> <retained_identity_event_id> <retained_trust_event_id> <retained_vm_test_event_id> <retained_local_approval_event_id> <identity_reference_hash> <trust_reference_hash> <vm_test_reference_hash> <local_approval_reference_hash> <artifact_hash> <trust_hash> <vm_test_hash> <local_approval_hash> <loader_hash> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"requested_capability\": \"cap.recovery.load_artifact\",");
+    raw_line("        \"read_capability\": \"cap.recovery.load_artifact.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline\",");
+    raw_line("        \"loader_schema\": \"raios.recovery_artifact_loader.v0\",");
+    raw_line(
+        "        \"loader_canonicalization\": \"raios.recovery_artifact_loader.canonical.v0\"",
+    );
+    raw_line("      },");
+    emit_recovery_loader_reference_object(&check);
+    raw_line(",");
+    emit_recovery_loader_retained_reference(&check, recorded_event_id, retained);
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"loader_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"can_move_beyond_denial\": false,");
+    raw_line("        \"loads_recovery_loader\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.loader_diagnostic");
+}
+
+pub(crate) fn emit_recovery_artifact_loader_diagnostic_selftest() {
+    let cases = recovery_loader_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.loader_diagnostic_selftest");
+    raw_line("      \"schema\": \"raios.recovery_artifact_loader_diagnostic_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_loader_records\": false,");
+    raw_line("      \"accepts_loader_descriptor\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_loader_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.loader_diagnostic_selftest");
+}
+
+pub(crate) fn emit_recovery_artifact_rollback_evidence_diagnostic(method: &str) {
+    let check = parse_recovery_rollback_evidence_reference(
+        recovery_rollback_evidence_diagnostic_arg(method),
+        true,
+    );
+    let recorded_event_id = if check.valid {
+        recovery_rollback_evidence_binding_from_check(&check)
+            .map(event_log::record_recovery_artifact_rollback_evidence_reference)
+    } else {
+        None
+    };
+    let retained = event_log::latest_recovery_artifact_rollback_evidence_reference();
+
+    begin_response("recovery.rollback_evidence_diagnostic");
+    raw_line("      \"schema\": \"raios.recovery_artifact_rollback_evidence_diagnostic.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw_line("      \"accepts_rollback_evidence_json\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"loads_normal_module\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"recovery.rollback_evidence_diagnostic <rollback_evidence_reference_hash> <retained_identity_event_id> <retained_trust_event_id> <retained_vm_test_event_id> <retained_local_approval_event_id> <retained_loader_event_id> <identity_reference_hash> <trust_reference_hash> <vm_test_reference_hash> <local_approval_reference_hash> <loader_reference_hash> <artifact_hash> <trust_hash> <vm_test_hash> <local_approval_hash> <loader_hash> <rollback_evidence_hash> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"requested_capability\": \"cap.recovery.load_artifact\",");
+    raw_line("        \"read_capability\": \"cap.recovery.load_artifact.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline\",");
+    raw_line(
+        "        \"rollback_evidence_schema\": \"raios.recovery_artifact_rollback_evidence.v0\",",
+    );
+    raw_line(
+        "        \"rollback_evidence_canonicalization\": \"raios.recovery_artifact_rollback_evidence.canonical.v0\"",
+    );
+    raw_line("      },");
+    emit_recovery_rollback_evidence_reference_object(&check);
+    raw_line(",");
+    emit_recovery_rollback_evidence_retained_reference(&check, recorded_event_id, retained);
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"rollback_evidence_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"can_move_beyond_denial\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"creates_durable_records\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.rollback_evidence_diagnostic");
+}
+
+pub(crate) fn emit_recovery_artifact_rollback_evidence_diagnostic_selftest() {
+    let cases = recovery_rollback_evidence_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.rollback_evidence_diagnostic_selftest");
+    raw_line(
+        "      \"schema\": \"raios.recovery_artifact_rollback_evidence_diagnostic_selftest.v0\",",
+    );
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_rollback_evidence_records\": false,");
+    raw_line("      \"accepts_rollback_evidence_json\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_rollback_evidence_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.rollback_evidence_diagnostic_selftest");
+}
+
 pub(crate) fn emit_recovery_artifact_load_binding() {
     let retained_identity = event_log::latest_recovery_artifact_identity_reference();
     let retained_trust = event_log::latest_recovery_artifact_trust_reference();
     let retained_vm_test = event_log::latest_recovery_artifact_vm_test_reference();
     let retained_local_approval = event_log::latest_recovery_artifact_local_approval_reference();
+    let retained_loader = event_log::latest_recovery_artifact_loader_reference();
+    let retained_rollback_evidence =
+        event_log::latest_recovery_artifact_rollback_evidence_reference();
     let live = evaluate_recovery_load_binding(recovery_load_binding_candidate_from_retained(
         retained_identity,
         retained_trust,
         retained_vm_test,
         retained_local_approval,
+        retained_loader,
+        retained_rollback_evidence,
     ));
 
     begin_response(RECOVERY_ARTIFACT_LOAD_BINDING_METHOD);
@@ -735,16 +1086,21 @@ pub(crate) fn emit_recovery_artifact_load_binding() {
         retained_local_approval,
         true,
     );
-    emit_recovery_artifact_load_missing_fact(
-        "recovery_loader_event_id",
-        "raios.recovery_artifact_loader.v0",
-        "recovery_loader_event_id_missing",
+    emit_recovery_load_loader_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
         true,
     );
-    emit_recovery_artifact_load_missing_fact(
-        "recovery_rollback_evidence_event_id",
-        "raios.recovery_artifact_rollback_evidence.v0",
-        "recovery_rollback_evidence_event_id_missing",
+    emit_recovery_load_rollback_evidence_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        retained_rollback_evidence,
         false,
     );
     raw_line("      },");
@@ -831,18 +1187,49 @@ pub(crate) fn emit_recovery_artifact_load_binding() {
             reason,
         );
     }
-    emit_recovery_load_blocker(
-        &mut wrote_blocker,
-        "recovery_loader_event_id",
-        "missing",
-        "recovery_loader_event_id_missing",
-    );
-    emit_recovery_load_blocker(
-        &mut wrote_blocker,
-        "recovery_rollback_evidence_event_id",
-        "missing",
-        "recovery_rollback_evidence_event_id_missing",
-    );
+    if retained_loader.is_none() {
+        emit_recovery_load_blocker(
+            &mut wrote_blocker,
+            "recovery_loader_event_id",
+            "missing",
+            "recovery_loader_event_id_missing",
+        );
+    } else if let Some(reason) = recovery_load_binding_retained_loader_mismatch(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+    ) {
+        emit_recovery_load_blocker(
+            &mut wrote_blocker,
+            "recovery_loader_event_id",
+            "rejected",
+            reason,
+        );
+    }
+    if retained_rollback_evidence.is_none() {
+        emit_recovery_load_blocker(
+            &mut wrote_blocker,
+            "recovery_rollback_evidence_event_id",
+            "missing",
+            "recovery_rollback_evidence_event_id_missing",
+        );
+    } else if let Some(reason) = recovery_load_binding_retained_rollback_evidence_mismatch(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        retained_rollback_evidence,
+    ) {
+        emit_recovery_load_blocker(
+            &mut wrote_blocker,
+            "recovery_rollback_evidence_event_id",
+            "rejected",
+            reason,
+        );
+    }
     crlf();
     raw_line("      ]");
     end_response(RECOVERY_ARTIFACT_LOAD_BINDING_METHOD);
@@ -1505,6 +1892,370 @@ fn emit_recovery_local_approval_retained_reference(
     raw("      }");
 }
 
+fn emit_recovery_loader_reference_object(check: &RecoveryLoaderReferenceCheck<'_>) {
+    raw_line("      \"recovery_artifact_loader_reference\": {");
+    raw_line("        \"schema\": \"raios.recovery_artifact_loader.v0\",");
+    raw("        \"validation_status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"validation_reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"present\": ");
+    raw_bool(check.has_reference);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"hash_reference_only\": true,");
+    raw_line("        \"accepts_loader_descriptor\": false,");
+    raw_line("        \"accepts_artifact_bytes\": false,");
+    raw_line("        \"loads_recovery_loader\": false,");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"can_move_beyond_denial\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false,");
+    raw("        \"retained_recovery_artifact_identity_event_id\": ");
+    json_opt_str(check.retained_identity_reference_event_id);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_trust_event_id\": ");
+    json_opt_str(check.retained_trust_reference_event_id);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_vm_test_event_id\": ");
+    json_opt_str(check.retained_vm_test_reference_event_id);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_local_approval_event_id\": ");
+    json_opt_str(check.retained_local_approval_reference_event_id);
+    raw_line(",");
+    raw_line("        \"hashes\": {");
+    raw("          \"loader_reference_hash\": ");
+    json_sha256_option(check.loader_reference_hash);
+    raw_line(",");
+    raw("          \"expected_loader_reference_hash\": ");
+    json_sha256_option(check.expected_loader_reference_hash);
+    raw_line(",");
+    raw("          \"identity_reference_hash\": ");
+    json_sha256_option(check.identity_reference_hash);
+    raw_line(",");
+    raw("          \"trust_reference_hash\": ");
+    json_sha256_option(check.trust_reference_hash);
+    raw_line(",");
+    raw("          \"vm_test_reference_hash\": ");
+    json_sha256_option(check.vm_test_reference_hash);
+    raw_line(",");
+    raw("          \"local_approval_reference_hash\": ");
+    json_sha256_option(check.local_approval_reference_hash);
+    raw_line(",");
+    raw("          \"artifact_hash\": ");
+    json_sha256_option(check.artifact_hash);
+    raw_line(",");
+    raw("          \"trust_hash\": ");
+    json_sha256_option(check.trust_hash);
+    raw_line(",");
+    raw("          \"vm_test_hash\": ");
+    json_sha256_option(check.vm_test_hash);
+    raw_line(",");
+    raw("          \"local_approval_hash\": ");
+    json_sha256_option(check.local_approval_hash);
+    raw_line(",");
+    raw("          \"loader_hash\": ");
+    json_sha256_option(check.loader_hash);
+    crlf();
+    raw_line("        }");
+    raw_line("      }");
+}
+
+fn emit_recovery_loader_retained_reference(
+    check: &RecoveryLoaderReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLoaderReference,
+    )>,
+) {
+    raw_line("      \"retained_recovery_artifact_loader_reference\": {");
+    if let Some((event_id, reference)) = retained {
+        raw_line("        \"state\": \"present\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw("        \"event_id\": ");
+        json_event_id(event_id);
+        raw_line(",");
+        raw("        \"recorded_event_id\": ");
+        json_event_id_option(recorded_event_id);
+        raw_line(",");
+        raw("        \"matches_current_reference\": ");
+        raw_bool(recovery_loader_reference_matches(check, reference));
+        raw_line(",");
+        raw_line("        \"schema\": \"raios.recovery_artifact_loader.v0\",");
+        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
+        raw_line("        \"classification\": \"local_only\",");
+        raw_line("        \"accepts_loader_descriptor\": false,");
+        raw_line("        \"accepts_artifact_bytes\": false,");
+        raw_line("        \"loads_recovery_loader\": false,");
+        raw_line("        \"authorizes_recovery_load\": false,");
+        raw_line("        \"can_move_beyond_denial\": false,");
+        raw_line("        \"loads_recovery_artifact\": false,");
+        raw_line("        \"service_inventory_change\": \"none\",");
+        raw_line("        \"load_attempted\": false,");
+        raw("        \"retained_recovery_artifact_identity_event_id\": ");
+        json_event_id(reference.retained_identity_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_trust_event_id\": ");
+        json_event_id(reference.retained_trust_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_vm_test_event_id\": ");
+        json_event_id(reference.retained_vm_test_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_local_approval_event_id\": ");
+        json_event_id(reference.retained_local_approval_reference_event_id);
+        raw_line(",");
+        raw_line("        \"hashes\": {");
+        raw("          \"loader_reference_hash\": ");
+        json_sha256(reference.loader_reference_hash);
+        raw_line(",");
+        raw("          \"identity_reference_hash\": ");
+        json_sha256(reference.identity_reference_hash);
+        raw_line(",");
+        raw("          \"trust_reference_hash\": ");
+        json_sha256(reference.trust_reference_hash);
+        raw_line(",");
+        raw("          \"vm_test_reference_hash\": ");
+        json_sha256(reference.vm_test_reference_hash);
+        raw_line(",");
+        raw("          \"local_approval_reference_hash\": ");
+        json_sha256(reference.local_approval_reference_hash);
+        raw_line(",");
+        raw("          \"artifact_hash\": ");
+        json_sha256(reference.artifact_hash);
+        raw_line(",");
+        raw("          \"trust_hash\": ");
+        json_sha256(reference.trust_hash);
+        raw_line(",");
+        raw("          \"vm_test_hash\": ");
+        json_sha256(reference.vm_test_hash);
+        raw_line(",");
+        raw("          \"local_approval_hash\": ");
+        json_sha256(reference.local_approval_hash);
+        raw_line(",");
+        raw("          \"loader_hash\": ");
+        json_sha256(reference.loader_hash);
+        crlf();
+        raw_line("        }");
+    } else {
+        raw_line("        \"state\": \"missing\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw_line("        \"event_id\": null,");
+        raw_line("        \"recorded_event_id\": null,");
+        raw_line("        \"matches_current_reference\": false,");
+        raw_line("        \"schema\": \"raios.recovery_artifact_loader.v0\",");
+        raw_line("        \"status\": \"missing\",");
+        raw_line("        \"reason\": \"no_valid_recovery_artifact_loader_reference_retained\",");
+        raw_line("        \"can_move_beyond_denial\": false,");
+        raw_line("        \"load_attempted\": false");
+    }
+    raw("      }");
+}
+
+fn emit_recovery_rollback_evidence_reference_object(
+    check: &RecoveryRollbackEvidenceReferenceCheck<'_>,
+) {
+    raw_line("      \"recovery_artifact_rollback_evidence_reference\": {");
+    raw_line("        \"schema\": \"raios.recovery_artifact_rollback_evidence.v0\",");
+    raw("        \"validation_status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"validation_reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"present\": ");
+    raw_bool(check.has_reference);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"hash_reference_only\": true,");
+    raw_line("        \"accepts_rollback_evidence_json\": false,");
+    raw_line("        \"accepts_artifact_bytes\": false,");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"can_move_beyond_denial\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"creates_durable_records\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false,");
+    raw("        \"retained_recovery_artifact_identity_event_id\": ");
+    json_opt_str(check.retained_identity_reference_event_id);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_trust_event_id\": ");
+    json_opt_str(check.retained_trust_reference_event_id);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_vm_test_event_id\": ");
+    json_opt_str(check.retained_vm_test_reference_event_id);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_local_approval_event_id\": ");
+    json_opt_str(check.retained_local_approval_reference_event_id);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_loader_event_id\": ");
+    json_opt_str(check.retained_loader_reference_event_id);
+    raw_line(",");
+    raw_line("        \"hashes\": {");
+    raw("          \"rollback_evidence_reference_hash\": ");
+    json_sha256_option(check.rollback_evidence_reference_hash);
+    raw_line(",");
+    raw("          \"expected_rollback_evidence_reference_hash\": ");
+    json_sha256_option(check.expected_rollback_evidence_reference_hash);
+    raw_line(",");
+    raw("          \"identity_reference_hash\": ");
+    json_sha256_option(check.identity_reference_hash);
+    raw_line(",");
+    raw("          \"trust_reference_hash\": ");
+    json_sha256_option(check.trust_reference_hash);
+    raw_line(",");
+    raw("          \"vm_test_reference_hash\": ");
+    json_sha256_option(check.vm_test_reference_hash);
+    raw_line(",");
+    raw("          \"local_approval_reference_hash\": ");
+    json_sha256_option(check.local_approval_reference_hash);
+    raw_line(",");
+    raw("          \"loader_reference_hash\": ");
+    json_sha256_option(check.loader_reference_hash);
+    raw_line(",");
+    raw("          \"artifact_hash\": ");
+    json_sha256_option(check.artifact_hash);
+    raw_line(",");
+    raw("          \"trust_hash\": ");
+    json_sha256_option(check.trust_hash);
+    raw_line(",");
+    raw("          \"vm_test_hash\": ");
+    json_sha256_option(check.vm_test_hash);
+    raw_line(",");
+    raw("          \"local_approval_hash\": ");
+    json_sha256_option(check.local_approval_hash);
+    raw_line(",");
+    raw("          \"loader_hash\": ");
+    json_sha256_option(check.loader_hash);
+    raw_line(",");
+    raw("          \"rollback_evidence_hash\": ");
+    json_sha256_option(check.rollback_evidence_hash);
+    crlf();
+    raw_line("        }");
+    raw_line("      }");
+}
+
+fn emit_recovery_rollback_evidence_retained_reference(
+    check: &RecoveryRollbackEvidenceReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactRollbackEvidenceReference,
+    )>,
+) {
+    raw_line("      \"retained_recovery_artifact_rollback_evidence_reference\": {");
+    if let Some((event_id, reference)) = retained {
+        raw_line("        \"state\": \"present\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw("        \"event_id\": ");
+        json_event_id(event_id);
+        raw_line(",");
+        raw("        \"recorded_event_id\": ");
+        json_event_id_option(recorded_event_id);
+        raw_line(",");
+        raw("        \"matches_current_reference\": ");
+        raw_bool(recovery_rollback_evidence_reference_matches(
+            check, reference,
+        ));
+        raw_line(",");
+        raw_line("        \"schema\": \"raios.recovery_artifact_rollback_evidence.v0\",");
+        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
+        raw_line("        \"classification\": \"local_only\",");
+        raw_line("        \"accepts_rollback_evidence_json\": false,");
+        raw_line("        \"accepts_artifact_bytes\": false,");
+        raw_line("        \"authorizes_recovery_load\": false,");
+        raw_line("        \"can_move_beyond_denial\": false,");
+        raw_line("        \"loads_recovery_artifact\": false,");
+        raw_line("        \"creates_durable_records\": false,");
+        raw_line("        \"installs_rollback_plan\": false,");
+        raw_line("        \"service_inventory_change\": \"none\",");
+        raw_line("        \"load_attempted\": false,");
+        raw("        \"retained_recovery_artifact_identity_event_id\": ");
+        json_event_id(reference.retained_identity_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_trust_event_id\": ");
+        json_event_id(reference.retained_trust_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_vm_test_event_id\": ");
+        json_event_id(reference.retained_vm_test_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_local_approval_event_id\": ");
+        json_event_id(reference.retained_local_approval_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_loader_event_id\": ");
+        json_event_id(reference.retained_loader_reference_event_id);
+        raw_line(",");
+        raw_line("        \"hashes\": {");
+        raw("          \"rollback_evidence_reference_hash\": ");
+        json_sha256(reference.rollback_evidence_reference_hash);
+        raw_line(",");
+        raw("          \"identity_reference_hash\": ");
+        json_sha256(reference.identity_reference_hash);
+        raw_line(",");
+        raw("          \"trust_reference_hash\": ");
+        json_sha256(reference.trust_reference_hash);
+        raw_line(",");
+        raw("          \"vm_test_reference_hash\": ");
+        json_sha256(reference.vm_test_reference_hash);
+        raw_line(",");
+        raw("          \"local_approval_reference_hash\": ");
+        json_sha256(reference.local_approval_reference_hash);
+        raw_line(",");
+        raw("          \"loader_reference_hash\": ");
+        json_sha256(reference.loader_reference_hash);
+        raw_line(",");
+        raw("          \"artifact_hash\": ");
+        json_sha256(reference.artifact_hash);
+        raw_line(",");
+        raw("          \"trust_hash\": ");
+        json_sha256(reference.trust_hash);
+        raw_line(",");
+        raw("          \"vm_test_hash\": ");
+        json_sha256(reference.vm_test_hash);
+        raw_line(",");
+        raw("          \"local_approval_hash\": ");
+        json_sha256(reference.local_approval_hash);
+        raw_line(",");
+        raw("          \"loader_hash\": ");
+        json_sha256(reference.loader_hash);
+        raw_line(",");
+        raw("          \"rollback_evidence_hash\": ");
+        json_sha256(reference.rollback_evidence_hash);
+        crlf();
+        raw_line("        }");
+    } else {
+        raw_line("        \"state\": \"missing\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw_line("        \"event_id\": null,");
+        raw_line("        \"recorded_event_id\": null,");
+        raw_line("        \"matches_current_reference\": false,");
+        raw_line("        \"schema\": \"raios.recovery_artifact_rollback_evidence.v0\",");
+        raw_line("        \"status\": \"missing\",");
+        raw_line(
+            "        \"reason\": \"no_valid_recovery_artifact_rollback_evidence_reference_retained\",",
+        );
+        raw_line("        \"can_move_beyond_denial\": false,");
+        raw_line("        \"load_attempted\": false");
+    }
+    raw("      }");
+}
+
 fn emit_recovery_identity_selftest_case(case: &RecoveryIdentitySelfTestCase, comma: bool) {
     raw("        {\"case\": ");
     json_str(case.name);
@@ -1582,6 +2333,49 @@ fn emit_recovery_local_approval_selftest_case(
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_loader_selftest_case(case: &RecoveryLoaderSelfTestCase, comma: bool) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_rollback_evidence_selftest_case(
+    case: &RecoveryRollbackEvidenceSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"load_attempted\": false}");
     if comma {
         raw(",");
     }
@@ -1808,6 +2602,185 @@ fn emit_recovery_load_local_approval_binding_fact(
         raw("}");
     } else {
         raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_local_approval_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
+    }
+    raw("}");
+    if comma {
+        raw_line(",");
+    } else {
+        raw_line("");
+    }
+}
+
+fn emit_recovery_load_loader_binding_fact(
+    retained_identity: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactIdentityReference,
+    )>,
+    retained_trust: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactTrustReference,
+    )>,
+    retained_vm_test: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+    retained_local_approval: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLocalApprovalReference,
+    )>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLoaderReference,
+    )>,
+    comma: bool,
+) {
+    raw("      \"recovery_loader_event_id\": {\"schema\": \"raios.recovery_artifact_loader.v0\"");
+    if let Some((event_id, reference)) = retained {
+        let mismatch = recovery_load_binding_retained_loader_mismatch(
+            retained_identity,
+            retained_trust,
+            retained_vm_test,
+            retained_local_approval,
+            retained,
+        );
+        raw(", \"status\": ");
+        json_str(if mismatch.is_some() {
+            "rejected_retained_reference"
+        } else {
+            "retained_hash_reference_only"
+        });
+        raw(", \"event_id\": ");
+        json_event_id(event_id);
+        raw(", \"retained\": true, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
+        json_str(mismatch.unwrap_or("retained_recovery_artifact_loader_reference_not_authorizing"));
+        raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
+        json_event_id(reference.retained_identity_reference_event_id);
+        raw(", \"retained_recovery_artifact_trust_event_id\": ");
+        json_event_id(reference.retained_trust_reference_event_id);
+        raw(", \"retained_recovery_artifact_vm_test_event_id\": ");
+        json_event_id(reference.retained_vm_test_reference_event_id);
+        raw(", \"retained_recovery_artifact_local_approval_event_id\": ");
+        json_event_id(reference.retained_local_approval_reference_event_id);
+        raw(", \"hashes\": {\"loader_reference_hash\": ");
+        json_sha256(reference.loader_reference_hash);
+        raw(", \"identity_reference_hash\": ");
+        json_sha256(reference.identity_reference_hash);
+        raw(", \"trust_reference_hash\": ");
+        json_sha256(reference.trust_reference_hash);
+        raw(", \"vm_test_reference_hash\": ");
+        json_sha256(reference.vm_test_reference_hash);
+        raw(", \"local_approval_reference_hash\": ");
+        json_sha256(reference.local_approval_reference_hash);
+        raw(", \"artifact_hash\": ");
+        json_sha256(reference.artifact_hash);
+        raw(", \"trust_hash\": ");
+        json_sha256(reference.trust_hash);
+        raw(", \"vm_test_hash\": ");
+        json_sha256(reference.vm_test_hash);
+        raw(", \"local_approval_hash\": ");
+        json_sha256(reference.local_approval_hash);
+        raw(", \"loader_hash\": ");
+        json_sha256(reference.loader_hash);
+        raw("}");
+    } else {
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_loader_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
+    }
+    raw("}");
+    if comma {
+        raw_line(",");
+    } else {
+        raw_line("");
+    }
+}
+
+fn emit_recovery_load_rollback_evidence_binding_fact(
+    retained_identity: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactIdentityReference,
+    )>,
+    retained_trust: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactTrustReference,
+    )>,
+    retained_vm_test: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+    retained_local_approval: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLocalApprovalReference,
+    )>,
+    retained_loader: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLoaderReference,
+    )>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactRollbackEvidenceReference,
+    )>,
+    comma: bool,
+) {
+    raw("      \"recovery_rollback_evidence_event_id\": {\"schema\": \"raios.recovery_artifact_rollback_evidence.v0\"");
+    if let Some((event_id, reference)) = retained {
+        let mismatch = recovery_load_binding_retained_rollback_evidence_mismatch(
+            retained_identity,
+            retained_trust,
+            retained_vm_test,
+            retained_local_approval,
+            retained_loader,
+            retained,
+        );
+        raw(", \"status\": ");
+        json_str(if mismatch.is_some() {
+            "rejected_retained_reference"
+        } else {
+            "retained_hash_reference_only"
+        });
+        raw(", \"event_id\": ");
+        json_event_id(event_id);
+        raw(", \"retained\": true, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
+        json_str(
+            mismatch.unwrap_or(
+                "retained_recovery_artifact_rollback_evidence_reference_not_authorizing",
+            ),
+        );
+        raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
+        json_event_id(reference.retained_identity_reference_event_id);
+        raw(", \"retained_recovery_artifact_trust_event_id\": ");
+        json_event_id(reference.retained_trust_reference_event_id);
+        raw(", \"retained_recovery_artifact_vm_test_event_id\": ");
+        json_event_id(reference.retained_vm_test_reference_event_id);
+        raw(", \"retained_recovery_artifact_local_approval_event_id\": ");
+        json_event_id(reference.retained_local_approval_reference_event_id);
+        raw(", \"retained_recovery_artifact_loader_event_id\": ");
+        json_event_id(reference.retained_loader_reference_event_id);
+        raw(", \"hashes\": {\"rollback_evidence_reference_hash\": ");
+        json_sha256(reference.rollback_evidence_reference_hash);
+        raw(", \"identity_reference_hash\": ");
+        json_sha256(reference.identity_reference_hash);
+        raw(", \"trust_reference_hash\": ");
+        json_sha256(reference.trust_reference_hash);
+        raw(", \"vm_test_reference_hash\": ");
+        json_sha256(reference.vm_test_reference_hash);
+        raw(", \"local_approval_reference_hash\": ");
+        json_sha256(reference.local_approval_reference_hash);
+        raw(", \"loader_reference_hash\": ");
+        json_sha256(reference.loader_reference_hash);
+        raw(", \"artifact_hash\": ");
+        json_sha256(reference.artifact_hash);
+        raw(", \"trust_hash\": ");
+        json_sha256(reference.trust_hash);
+        raw(", \"vm_test_hash\": ");
+        json_sha256(reference.vm_test_hash);
+        raw(", \"local_approval_hash\": ");
+        json_sha256(reference.local_approval_hash);
+        raw(", \"loader_hash\": ");
+        json_sha256(reference.loader_hash);
+        raw(", \"rollback_evidence_hash\": ");
+        json_sha256(reference.rollback_evidence_hash);
+        raw("}");
+    } else {
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_rollback_evidence_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
     }
     raw("}");
     if comma {
@@ -2195,6 +3168,14 @@ fn recovery_load_binding_candidate_from_retained(
         event_log::EventId,
         event_log::RecoveryArtifactLocalApprovalReference,
     )>,
+    retained_loader: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLoaderReference,
+    )>,
+    retained_rollback_evidence: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactRollbackEvidenceReference,
+    )>,
 ) -> RecoveryLoadBindingCandidate {
     let mut candidate = recovery_load_binding_missing_candidate();
     if retained_identity.is_some() {
@@ -2227,6 +3208,34 @@ fn recovery_load_binding_candidate_from_retained(
                 retained_trust,
                 retained_vm_test,
                 retained_local_approval,
+            ) {
+            recovery_evidence_rejected(reason)
+        } else {
+            recovery_evidence_available()
+        };
+    }
+    if retained_loader.is_some() {
+        candidate.loader = if let Some(reason) = recovery_load_binding_retained_loader_mismatch(
+            retained_identity,
+            retained_trust,
+            retained_vm_test,
+            retained_local_approval,
+            retained_loader,
+        ) {
+            recovery_evidence_rejected(reason)
+        } else {
+            recovery_evidence_available()
+        };
+    }
+    if retained_rollback_evidence.is_some() {
+        candidate.rollback_evidence = if let Some(reason) =
+            recovery_load_binding_retained_rollback_evidence_mismatch(
+                retained_identity,
+                retained_trust,
+                retained_vm_test,
+                retained_local_approval,
+                retained_loader,
+                retained_rollback_evidence,
             ) {
             recovery_evidence_rejected(reason)
         } else {
@@ -2376,6 +3385,226 @@ fn recovery_load_binding_retained_local_approval_mismatch(
     }
     if approval_reference.vm_test_hash != vm_test_reference.vm_test_hash {
         return Some("recovery_artifact_local_approval_vm_test_hash_mismatch");
+    }
+    None
+}
+
+fn recovery_load_binding_retained_loader_mismatch(
+    retained_identity: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactIdentityReference,
+    )>,
+    retained_trust: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactTrustReference,
+    )>,
+    retained_vm_test: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+    retained_local_approval: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLocalApprovalReference,
+    )>,
+    retained_loader: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLoaderReference,
+    )>,
+) -> Option<&'static str> {
+    let Some((identity_event_id, identity_reference)) = retained_identity else {
+        return None;
+    };
+    let Some((trust_event_id, trust_reference)) = retained_trust else {
+        return None;
+    };
+    let Some((vm_test_event_id, vm_test_reference)) = retained_vm_test else {
+        return None;
+    };
+    let Some((local_approval_event_id, approval_reference)) = retained_local_approval else {
+        return None;
+    };
+    let Some((_loader_event_id, loader_reference)) = retained_loader else {
+        return None;
+    };
+    if loader_reference.retained_identity_reference_event_id != identity_event_id {
+        return Some("recovery_artifact_loader_identity_event_id_mismatch");
+    }
+    if loader_reference.retained_trust_reference_event_id != trust_event_id {
+        return Some("recovery_artifact_loader_trust_event_id_mismatch");
+    }
+    if loader_reference.retained_vm_test_reference_event_id != vm_test_event_id {
+        return Some("recovery_artifact_loader_vm_test_event_id_mismatch");
+    }
+    if loader_reference.retained_local_approval_reference_event_id != local_approval_event_id {
+        return Some("recovery_artifact_loader_local_approval_event_id_mismatch");
+    }
+    if loader_reference.identity_reference_hash != identity_reference.identity_reference_hash {
+        return Some("recovery_artifact_loader_identity_reference_hash_mismatch");
+    }
+    if loader_reference.trust_reference_hash != trust_reference.trust_reference_hash {
+        return Some("recovery_artifact_loader_trust_reference_hash_mismatch");
+    }
+    if loader_reference.vm_test_reference_hash != vm_test_reference.vm_test_reference_hash {
+        return Some("recovery_artifact_loader_vm_test_reference_hash_mismatch");
+    }
+    if loader_reference.local_approval_reference_hash
+        != approval_reference.local_approval_reference_hash
+    {
+        return Some("recovery_artifact_loader_local_approval_reference_hash_mismatch");
+    }
+    if loader_reference.artifact_hash != identity_reference.artifact_hash {
+        return Some("recovery_artifact_loader_artifact_hash_mismatch");
+    }
+    if loader_reference.artifact_hash != trust_reference.artifact_hash {
+        return Some("recovery_artifact_loader_trust_artifact_hash_mismatch");
+    }
+    if loader_reference.artifact_hash != vm_test_reference.artifact_hash {
+        return Some("recovery_artifact_loader_vm_test_artifact_hash_mismatch");
+    }
+    if loader_reference.artifact_hash != approval_reference.artifact_hash {
+        return Some("recovery_artifact_loader_local_approval_artifact_hash_mismatch");
+    }
+    if loader_reference.trust_hash != trust_reference.trust_hash {
+        return Some("recovery_artifact_loader_trust_hash_mismatch");
+    }
+    if loader_reference.trust_hash != vm_test_reference.trust_hash {
+        return Some("recovery_artifact_loader_vm_test_trust_hash_mismatch");
+    }
+    if loader_reference.trust_hash != approval_reference.trust_hash {
+        return Some("recovery_artifact_loader_local_approval_trust_hash_mismatch");
+    }
+    if loader_reference.vm_test_hash != vm_test_reference.vm_test_hash {
+        return Some("recovery_artifact_loader_vm_test_hash_mismatch");
+    }
+    if loader_reference.vm_test_hash != approval_reference.vm_test_hash {
+        return Some("recovery_artifact_loader_local_approval_vm_test_hash_mismatch");
+    }
+    if loader_reference.local_approval_hash != approval_reference.local_approval_hash {
+        return Some("recovery_artifact_loader_local_approval_hash_mismatch");
+    }
+    None
+}
+
+fn recovery_load_binding_retained_rollback_evidence_mismatch(
+    retained_identity: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactIdentityReference,
+    )>,
+    retained_trust: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactTrustReference,
+    )>,
+    retained_vm_test: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+    retained_local_approval: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLocalApprovalReference,
+    )>,
+    retained_loader: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLoaderReference,
+    )>,
+    retained_rollback_evidence: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactRollbackEvidenceReference,
+    )>,
+) -> Option<&'static str> {
+    let Some((identity_event_id, identity_reference)) = retained_identity else {
+        return None;
+    };
+    let Some((trust_event_id, trust_reference)) = retained_trust else {
+        return None;
+    };
+    let Some((vm_test_event_id, vm_test_reference)) = retained_vm_test else {
+        return None;
+    };
+    let Some((local_approval_event_id, approval_reference)) = retained_local_approval else {
+        return None;
+    };
+    let Some((loader_event_id, loader_reference)) = retained_loader else {
+        return None;
+    };
+    let Some((_rollback_event_id, rollback_reference)) = retained_rollback_evidence else {
+        return None;
+    };
+    if rollback_reference.retained_identity_reference_event_id != identity_event_id {
+        return Some("recovery_artifact_rollback_evidence_identity_event_id_mismatch");
+    }
+    if rollback_reference.retained_trust_reference_event_id != trust_event_id {
+        return Some("recovery_artifact_rollback_evidence_trust_event_id_mismatch");
+    }
+    if rollback_reference.retained_vm_test_reference_event_id != vm_test_event_id {
+        return Some("recovery_artifact_rollback_evidence_vm_test_event_id_mismatch");
+    }
+    if rollback_reference.retained_local_approval_reference_event_id != local_approval_event_id {
+        return Some("recovery_artifact_rollback_evidence_local_approval_event_id_mismatch");
+    }
+    if rollback_reference.retained_loader_reference_event_id != loader_event_id {
+        return Some("recovery_artifact_rollback_evidence_loader_event_id_mismatch");
+    }
+    if rollback_reference.identity_reference_hash != identity_reference.identity_reference_hash {
+        return Some("recovery_artifact_rollback_evidence_identity_reference_hash_mismatch");
+    }
+    if rollback_reference.trust_reference_hash != trust_reference.trust_reference_hash {
+        return Some("recovery_artifact_rollback_evidence_trust_reference_hash_mismatch");
+    }
+    if rollback_reference.vm_test_reference_hash != vm_test_reference.vm_test_reference_hash {
+        return Some("recovery_artifact_rollback_evidence_vm_test_reference_hash_mismatch");
+    }
+    if rollback_reference.local_approval_reference_hash
+        != approval_reference.local_approval_reference_hash
+    {
+        return Some("recovery_artifact_rollback_evidence_local_approval_reference_hash_mismatch");
+    }
+    if rollback_reference.loader_reference_hash != loader_reference.loader_reference_hash {
+        return Some("recovery_artifact_rollback_evidence_loader_reference_hash_mismatch");
+    }
+    if rollback_reference.artifact_hash != identity_reference.artifact_hash {
+        return Some("recovery_artifact_rollback_evidence_artifact_hash_mismatch");
+    }
+    if rollback_reference.artifact_hash != trust_reference.artifact_hash {
+        return Some("recovery_artifact_rollback_evidence_trust_artifact_hash_mismatch");
+    }
+    if rollback_reference.artifact_hash != vm_test_reference.artifact_hash {
+        return Some("recovery_artifact_rollback_evidence_vm_test_artifact_hash_mismatch");
+    }
+    if rollback_reference.artifact_hash != approval_reference.artifact_hash {
+        return Some("recovery_artifact_rollback_evidence_local_approval_artifact_hash_mismatch");
+    }
+    if rollback_reference.artifact_hash != loader_reference.artifact_hash {
+        return Some("recovery_artifact_rollback_evidence_loader_artifact_hash_mismatch");
+    }
+    if rollback_reference.trust_hash != trust_reference.trust_hash {
+        return Some("recovery_artifact_rollback_evidence_trust_hash_mismatch");
+    }
+    if rollback_reference.trust_hash != vm_test_reference.trust_hash {
+        return Some("recovery_artifact_rollback_evidence_vm_test_trust_hash_mismatch");
+    }
+    if rollback_reference.trust_hash != approval_reference.trust_hash {
+        return Some("recovery_artifact_rollback_evidence_local_approval_trust_hash_mismatch");
+    }
+    if rollback_reference.trust_hash != loader_reference.trust_hash {
+        return Some("recovery_artifact_rollback_evidence_loader_trust_hash_mismatch");
+    }
+    if rollback_reference.vm_test_hash != vm_test_reference.vm_test_hash {
+        return Some("recovery_artifact_rollback_evidence_vm_test_hash_mismatch");
+    }
+    if rollback_reference.vm_test_hash != approval_reference.vm_test_hash {
+        return Some("recovery_artifact_rollback_evidence_local_approval_vm_test_hash_mismatch");
+    }
+    if rollback_reference.vm_test_hash != loader_reference.vm_test_hash {
+        return Some("recovery_artifact_rollback_evidence_loader_vm_test_hash_mismatch");
+    }
+    if rollback_reference.local_approval_hash != approval_reference.local_approval_hash {
+        return Some("recovery_artifact_rollback_evidence_local_approval_hash_mismatch");
+    }
+    if rollback_reference.local_approval_hash != loader_reference.local_approval_hash {
+        return Some("recovery_artifact_rollback_evidence_loader_local_approval_hash_mismatch");
+    }
+    if rollback_reference.loader_hash != loader_reference.loader_hash {
+        return Some("recovery_artifact_rollback_evidence_loader_hash_mismatch");
     }
     None
 }
@@ -3358,6 +4587,749 @@ fn recovery_local_approval_live_chain_mismatch(
     None
 }
 
+fn parse_recovery_loader_reference(
+    arg: &str,
+    require_live_retained: bool,
+) -> RecoveryLoaderReferenceCheck<'_> {
+    let mut parts = arg.split_whitespace();
+    let loader_reference_hash = parts.next();
+    let retained_identity_reference_event_id = parts.next();
+    let retained_trust_reference_event_id = parts.next();
+    let retained_vm_test_reference_event_id = parts.next();
+    let retained_local_approval_reference_event_id = parts.next();
+    let identity_reference_hash = parts.next();
+    let trust_reference_hash = parts.next();
+    let vm_test_reference_hash = parts.next();
+    let local_approval_reference_hash = parts.next();
+    let artifact_hash = parts.next();
+    let trust_hash = parts.next();
+    let vm_test_hash = parts.next();
+    let local_approval_hash = parts.next();
+    let loader_hash = parts.next();
+    let scope = parts.next().unwrap_or("current_boot");
+    let extra = parts.next();
+    let input = RecoveryLoaderReferenceInput {
+        has_reference: loader_reference_hash.is_some(),
+        arity_valid: loader_reference_hash.is_some()
+            && retained_identity_reference_event_id.is_some()
+            && retained_trust_reference_event_id.is_some()
+            && retained_vm_test_reference_event_id.is_some()
+            && retained_local_approval_reference_event_id.is_some()
+            && identity_reference_hash.is_some()
+            && trust_reference_hash.is_some()
+            && vm_test_reference_hash.is_some()
+            && local_approval_reference_hash.is_some()
+            && artifact_hash.is_some()
+            && trust_hash.is_some()
+            && vm_test_hash.is_some()
+            && local_approval_hash.is_some()
+            && loader_hash.is_some()
+            && extra.is_none(),
+        scope,
+        loader_reference_hash: loader_reference_hash.and_then(parse_sha256_ref),
+        retained_identity_reference_event_id,
+        retained_trust_reference_event_id,
+        retained_vm_test_reference_event_id,
+        retained_local_approval_reference_event_id,
+        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
+        trust_reference_hash: trust_reference_hash.and_then(parse_sha256_ref),
+        vm_test_reference_hash: vm_test_reference_hash.and_then(parse_sha256_ref),
+        local_approval_reference_hash: local_approval_reference_hash.and_then(parse_sha256_ref),
+        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
+        trust_hash: trust_hash.and_then(parse_sha256_ref),
+        vm_test_hash: vm_test_hash.and_then(parse_sha256_ref),
+        local_approval_hash: local_approval_hash.and_then(parse_sha256_ref),
+        loader_hash: loader_hash.and_then(parse_sha256_ref),
+    };
+    evaluate_recovery_loader_reference(input, require_live_retained)
+}
+
+fn evaluate_recovery_loader_reference(
+    input: RecoveryLoaderReferenceInput<'_>,
+    require_live_retained: bool,
+) -> RecoveryLoaderReferenceCheck<'_> {
+    if !input.has_reference {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "missing",
+            "recovery_artifact_loader_reference_absent",
+            false,
+        );
+    }
+    let Some(identity_event_id) = input.retained_identity_reference_event_id else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(trust_event_id) = input.retained_trust_reference_event_id else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(vm_test_event_id) = input.retained_vm_test_reference_event_id else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(local_approval_event_id) = input.retained_local_approval_reference_event_id else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(identity_reference_hash) = input.identity_reference_hash else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(trust_reference_hash) = input.trust_reference_hash else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(vm_test_reference_hash) = input.vm_test_reference_hash else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(local_approval_reference_hash) = input.local_approval_reference_hash else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(artifact_hash) = input.artifact_hash else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(trust_hash) = input.trust_hash else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(vm_test_hash) = input.vm_test_hash else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(local_approval_hash) = input.local_approval_hash else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(loader_hash) = input.loader_hash else {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_invalid_hash",
+            false,
+        );
+    };
+    if !input.arity_valid {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_loader_reference_arity_invalid",
+            false,
+        );
+    }
+    if !method_eq(input.scope, "current_boot") {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "stale_or_non_current_boot_reference",
+            "recovery_artifact_loader_reference_scope_must_be_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(identity_event_id) {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_identity_event_id_not_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(trust_event_id) {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_trust_event_id_not_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(vm_test_event_id) {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_vm_test_event_id_not_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(local_approval_event_id) {
+        return recovery_loader_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_local_approval_event_id_not_current_boot",
+            false,
+        );
+    }
+    let expected = module_evidence::computed_recovery_artifact_loader_reference_hash(
+        module_evidence::RecoveryArtifactLoaderReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            retained_vm_test_reference_event_id: vm_test_event_id,
+            retained_local_approval_reference_event_id: local_approval_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            vm_test_reference_hash,
+            local_approval_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+            local_approval_hash,
+            loader_hash,
+        },
+    );
+    if input.loader_reference_hash != Some(expected) {
+        return recovery_loader_reference_check(
+            input,
+            Some(expected),
+            "mismatched_loader_reference_hash",
+            "recovery_artifact_loader_reference_hash_mismatch",
+            false,
+        );
+    }
+    if require_live_retained {
+        if let Some(reason) = recovery_loader_live_chain_mismatch(&input) {
+            return recovery_loader_reference_check(
+                input,
+                Some(expected),
+                "rejected",
+                reason,
+                false,
+            );
+        }
+    }
+    recovery_loader_reference_check(
+        input,
+        Some(expected),
+        "valid_hash_reference_load_still_denied",
+        "recovery_artifact_loader_reference_valid_but_rollback_evidence_missing",
+        true,
+    )
+}
+
+fn recovery_loader_reference_check<'a>(
+    input: RecoveryLoaderReferenceInput<'a>,
+    expected_loader_reference_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+) -> RecoveryLoaderReferenceCheck<'a> {
+    RecoveryLoaderReferenceCheck {
+        has_reference: input.has_reference,
+        arity_valid: input.arity_valid,
+        scope: input.scope,
+        loader_reference_hash: input.loader_reference_hash,
+        retained_identity_reference_event_id: input.retained_identity_reference_event_id,
+        retained_trust_reference_event_id: input.retained_trust_reference_event_id,
+        retained_vm_test_reference_event_id: input.retained_vm_test_reference_event_id,
+        retained_local_approval_reference_event_id: input
+            .retained_local_approval_reference_event_id,
+        identity_reference_hash: input.identity_reference_hash,
+        trust_reference_hash: input.trust_reference_hash,
+        vm_test_reference_hash: input.vm_test_reference_hash,
+        local_approval_reference_hash: input.local_approval_reference_hash,
+        artifact_hash: input.artifact_hash,
+        trust_hash: input.trust_hash,
+        vm_test_hash: input.vm_test_hash,
+        local_approval_hash: input.local_approval_hash,
+        loader_hash: input.loader_hash,
+        expected_loader_reference_hash,
+        status,
+        reason,
+        valid,
+    }
+}
+
+fn recovery_loader_live_chain_mismatch(
+    input: &RecoveryLoaderReferenceInput<'_>,
+) -> Option<&'static str> {
+    let retained_identity_reference_event_id =
+        parse_current_boot_event_id(input.retained_identity_reference_event_id?)?;
+    let retained_trust_reference_event_id =
+        parse_current_boot_event_id(input.retained_trust_reference_event_id?)?;
+    let retained_vm_test_reference_event_id =
+        parse_current_boot_event_id(input.retained_vm_test_reference_event_id?)?;
+    let retained_local_approval_reference_event_id =
+        parse_current_boot_event_id(input.retained_local_approval_reference_event_id?)?;
+    let retained_identity = event_log::latest_recovery_artifact_identity_reference();
+    let retained_trust = event_log::latest_recovery_artifact_trust_reference();
+    let retained_vm_test = event_log::latest_recovery_artifact_vm_test_reference();
+    let retained_local_approval = event_log::latest_recovery_artifact_local_approval_reference();
+    let Some((latest_identity_event_id, identity_reference)) = retained_identity else {
+        return Some("recovery_artifact_identity_reference_missing");
+    };
+    let Some((latest_trust_event_id, trust_reference)) = retained_trust else {
+        return Some("recovery_artifact_trust_reference_missing");
+    };
+    let Some((latest_vm_test_event_id, vm_test_reference)) = retained_vm_test else {
+        return Some("recovery_artifact_vm_test_reference_missing");
+    };
+    let Some((latest_local_approval_event_id, approval_reference)) = retained_local_approval else {
+        return Some("recovery_artifact_local_approval_reference_missing");
+    };
+    if latest_identity_event_id != retained_identity_reference_event_id {
+        return Some("recovery_artifact_identity_reference_event_id_mismatch");
+    }
+    if latest_trust_event_id != retained_trust_reference_event_id {
+        return Some("recovery_artifact_trust_reference_event_id_mismatch");
+    }
+    if latest_vm_test_event_id != retained_vm_test_reference_event_id {
+        return Some("recovery_artifact_vm_test_reference_event_id_mismatch");
+    }
+    if latest_local_approval_event_id != retained_local_approval_reference_event_id {
+        return Some("recovery_artifact_local_approval_reference_event_id_mismatch");
+    }
+    recovery_load_binding_retained_local_approval_mismatch(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+    )
+    .or_else(|| {
+        if Some(identity_reference.identity_reference_hash) != input.identity_reference_hash {
+            Some("recovery_artifact_identity_reference_hash_mismatch")
+        } else if Some(trust_reference.trust_reference_hash) != input.trust_reference_hash {
+            Some("recovery_artifact_trust_reference_hash_mismatch")
+        } else if Some(vm_test_reference.vm_test_reference_hash) != input.vm_test_reference_hash {
+            Some("recovery_artifact_vm_test_reference_hash_mismatch")
+        } else if Some(approval_reference.local_approval_reference_hash)
+            != input.local_approval_reference_hash
+        {
+            Some("recovery_artifact_local_approval_reference_hash_mismatch")
+        } else if Some(approval_reference.local_approval_hash) != input.local_approval_hash {
+            Some("recovery_artifact_local_approval_hash_mismatch")
+        } else {
+            None
+        }
+    })
+}
+
+fn parse_recovery_rollback_evidence_reference(
+    arg: &str,
+    require_live_retained: bool,
+) -> RecoveryRollbackEvidenceReferenceCheck<'_> {
+    let mut parts = arg.split_whitespace();
+    let rollback_evidence_reference_hash = parts.next();
+    let retained_identity_reference_event_id = parts.next();
+    let retained_trust_reference_event_id = parts.next();
+    let retained_vm_test_reference_event_id = parts.next();
+    let retained_local_approval_reference_event_id = parts.next();
+    let retained_loader_reference_event_id = parts.next();
+    let identity_reference_hash = parts.next();
+    let trust_reference_hash = parts.next();
+    let vm_test_reference_hash = parts.next();
+    let local_approval_reference_hash = parts.next();
+    let loader_reference_hash = parts.next();
+    let artifact_hash = parts.next();
+    let trust_hash = parts.next();
+    let vm_test_hash = parts.next();
+    let local_approval_hash = parts.next();
+    let loader_hash = parts.next();
+    let rollback_evidence_hash = parts.next();
+    let scope = parts.next().unwrap_or("current_boot");
+    let extra = parts.next();
+    let input = RecoveryRollbackEvidenceReferenceInput {
+        has_reference: rollback_evidence_reference_hash.is_some(),
+        arity_valid: rollback_evidence_reference_hash.is_some()
+            && retained_identity_reference_event_id.is_some()
+            && retained_trust_reference_event_id.is_some()
+            && retained_vm_test_reference_event_id.is_some()
+            && retained_local_approval_reference_event_id.is_some()
+            && retained_loader_reference_event_id.is_some()
+            && identity_reference_hash.is_some()
+            && trust_reference_hash.is_some()
+            && vm_test_reference_hash.is_some()
+            && local_approval_reference_hash.is_some()
+            && loader_reference_hash.is_some()
+            && artifact_hash.is_some()
+            && trust_hash.is_some()
+            && vm_test_hash.is_some()
+            && local_approval_hash.is_some()
+            && loader_hash.is_some()
+            && rollback_evidence_hash.is_some()
+            && extra.is_none(),
+        scope,
+        rollback_evidence_reference_hash: rollback_evidence_reference_hash
+            .and_then(parse_sha256_ref),
+        retained_identity_reference_event_id,
+        retained_trust_reference_event_id,
+        retained_vm_test_reference_event_id,
+        retained_local_approval_reference_event_id,
+        retained_loader_reference_event_id,
+        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
+        trust_reference_hash: trust_reference_hash.and_then(parse_sha256_ref),
+        vm_test_reference_hash: vm_test_reference_hash.and_then(parse_sha256_ref),
+        local_approval_reference_hash: local_approval_reference_hash.and_then(parse_sha256_ref),
+        loader_reference_hash: loader_reference_hash.and_then(parse_sha256_ref),
+        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
+        trust_hash: trust_hash.and_then(parse_sha256_ref),
+        vm_test_hash: vm_test_hash.and_then(parse_sha256_ref),
+        local_approval_hash: local_approval_hash.and_then(parse_sha256_ref),
+        loader_hash: loader_hash.and_then(parse_sha256_ref),
+        rollback_evidence_hash: rollback_evidence_hash.and_then(parse_sha256_ref),
+    };
+    evaluate_recovery_rollback_evidence_reference(input, require_live_retained)
+}
+
+fn evaluate_recovery_rollback_evidence_reference(
+    input: RecoveryRollbackEvidenceReferenceInput<'_>,
+    require_live_retained: bool,
+) -> RecoveryRollbackEvidenceReferenceCheck<'_> {
+    if !input.has_reference {
+        return recovery_rollback_evidence_reference_check(
+            input,
+            None,
+            "missing",
+            "recovery_artifact_rollback_evidence_reference_absent",
+            false,
+        );
+    }
+    let Some(identity_event_id) = input.retained_identity_reference_event_id else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(trust_event_id) = input.retained_trust_reference_event_id else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(vm_test_event_id) = input.retained_vm_test_reference_event_id else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(local_approval_event_id) = input.retained_local_approval_reference_event_id else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(loader_event_id) = input.retained_loader_reference_event_id else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(identity_reference_hash) = input.identity_reference_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(trust_reference_hash) = input.trust_reference_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(vm_test_reference_hash) = input.vm_test_reference_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(local_approval_reference_hash) = input.local_approval_reference_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(loader_reference_hash) = input.loader_reference_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(artifact_hash) = input.artifact_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(trust_hash) = input.trust_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(vm_test_hash) = input.vm_test_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(local_approval_hash) = input.local_approval_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(loader_hash) = input.loader_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    let Some(rollback_evidence_hash) = input.rollback_evidence_hash else {
+        return recovery_rollback_evidence_invalid(input);
+    };
+    if !input.arity_valid {
+        return recovery_rollback_evidence_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_rollback_evidence_reference_arity_invalid",
+            false,
+        );
+    }
+    if !method_eq(input.scope, "current_boot") {
+        return recovery_rollback_evidence_reference_check(
+            input,
+            None,
+            "stale_or_non_current_boot_reference",
+            "recovery_artifact_rollback_evidence_reference_scope_must_be_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(identity_event_id) {
+        return recovery_rollback_evidence_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_identity_event_id_not_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(trust_event_id) {
+        return recovery_rollback_evidence_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_trust_event_id_not_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(vm_test_event_id) {
+        return recovery_rollback_evidence_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_vm_test_event_id_not_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(local_approval_event_id) {
+        return recovery_rollback_evidence_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_local_approval_event_id_not_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(loader_event_id) {
+        return recovery_rollback_evidence_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_loader_event_id_not_current_boot",
+            false,
+        );
+    }
+    let expected = module_evidence::computed_recovery_artifact_rollback_evidence_reference_hash(
+        module_evidence::RecoveryArtifactRollbackEvidenceReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            retained_vm_test_reference_event_id: vm_test_event_id,
+            retained_local_approval_reference_event_id: local_approval_event_id,
+            retained_loader_reference_event_id: loader_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            vm_test_reference_hash,
+            local_approval_reference_hash,
+            loader_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+            local_approval_hash,
+            loader_hash,
+            rollback_evidence_hash,
+        },
+    );
+    if input.rollback_evidence_reference_hash != Some(expected) {
+        return recovery_rollback_evidence_reference_check(
+            input,
+            Some(expected),
+            "mismatched_rollback_evidence_reference_hash",
+            "recovery_artifact_rollback_evidence_reference_hash_mismatch",
+            false,
+        );
+    }
+    if require_live_retained {
+        if let Some(reason) = recovery_rollback_evidence_live_chain_mismatch(&input) {
+            return recovery_rollback_evidence_reference_check(
+                input,
+                Some(expected),
+                "rejected",
+                reason,
+                false,
+            );
+        }
+    }
+    recovery_rollback_evidence_reference_check(
+        input,
+        Some(expected),
+        "valid_hash_reference_load_still_denied",
+        "recovery_artifact_rollback_evidence_reference_valid_but_lifeline_protocol_missing",
+        true,
+    )
+}
+
+fn recovery_rollback_evidence_invalid(
+    input: RecoveryRollbackEvidenceReferenceInput<'_>,
+) -> RecoveryRollbackEvidenceReferenceCheck<'_> {
+    recovery_rollback_evidence_reference_check(
+        input,
+        None,
+        "invalid_reference",
+        "recovery_artifact_rollback_evidence_reference_invalid_hash",
+        false,
+    )
+}
+
+fn recovery_rollback_evidence_reference_check<'a>(
+    input: RecoveryRollbackEvidenceReferenceInput<'a>,
+    expected_rollback_evidence_reference_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+) -> RecoveryRollbackEvidenceReferenceCheck<'a> {
+    RecoveryRollbackEvidenceReferenceCheck {
+        has_reference: input.has_reference,
+        arity_valid: input.arity_valid,
+        scope: input.scope,
+        rollback_evidence_reference_hash: input.rollback_evidence_reference_hash,
+        retained_identity_reference_event_id: input.retained_identity_reference_event_id,
+        retained_trust_reference_event_id: input.retained_trust_reference_event_id,
+        retained_vm_test_reference_event_id: input.retained_vm_test_reference_event_id,
+        retained_local_approval_reference_event_id: input
+            .retained_local_approval_reference_event_id,
+        retained_loader_reference_event_id: input.retained_loader_reference_event_id,
+        identity_reference_hash: input.identity_reference_hash,
+        trust_reference_hash: input.trust_reference_hash,
+        vm_test_reference_hash: input.vm_test_reference_hash,
+        local_approval_reference_hash: input.local_approval_reference_hash,
+        loader_reference_hash: input.loader_reference_hash,
+        artifact_hash: input.artifact_hash,
+        trust_hash: input.trust_hash,
+        vm_test_hash: input.vm_test_hash,
+        local_approval_hash: input.local_approval_hash,
+        loader_hash: input.loader_hash,
+        rollback_evidence_hash: input.rollback_evidence_hash,
+        expected_rollback_evidence_reference_hash,
+        status,
+        reason,
+        valid,
+    }
+}
+
+fn recovery_rollback_evidence_live_chain_mismatch(
+    input: &RecoveryRollbackEvidenceReferenceInput<'_>,
+) -> Option<&'static str> {
+    let retained_identity_reference_event_id =
+        parse_current_boot_event_id(input.retained_identity_reference_event_id?)?;
+    let retained_trust_reference_event_id =
+        parse_current_boot_event_id(input.retained_trust_reference_event_id?)?;
+    let retained_vm_test_reference_event_id =
+        parse_current_boot_event_id(input.retained_vm_test_reference_event_id?)?;
+    let retained_local_approval_reference_event_id =
+        parse_current_boot_event_id(input.retained_local_approval_reference_event_id?)?;
+    let retained_loader_reference_event_id =
+        parse_current_boot_event_id(input.retained_loader_reference_event_id?)?;
+    let retained_identity = event_log::latest_recovery_artifact_identity_reference();
+    let retained_trust = event_log::latest_recovery_artifact_trust_reference();
+    let retained_vm_test = event_log::latest_recovery_artifact_vm_test_reference();
+    let retained_local_approval = event_log::latest_recovery_artifact_local_approval_reference();
+    let retained_loader = event_log::latest_recovery_artifact_loader_reference();
+    let Some((latest_identity_event_id, _identity_reference)) = retained_identity else {
+        return Some("recovery_artifact_identity_reference_missing");
+    };
+    let Some((latest_trust_event_id, _trust_reference)) = retained_trust else {
+        return Some("recovery_artifact_trust_reference_missing");
+    };
+    let Some((latest_vm_test_event_id, _vm_test_reference)) = retained_vm_test else {
+        return Some("recovery_artifact_vm_test_reference_missing");
+    };
+    let Some((latest_local_approval_event_id, _approval_reference)) = retained_local_approval
+    else {
+        return Some("recovery_artifact_local_approval_reference_missing");
+    };
+    let Some((latest_loader_event_id, _loader_reference)) = retained_loader else {
+        return Some("recovery_artifact_loader_reference_missing");
+    };
+    if latest_identity_event_id != retained_identity_reference_event_id {
+        return Some("recovery_artifact_identity_reference_event_id_mismatch");
+    }
+    if latest_trust_event_id != retained_trust_reference_event_id {
+        return Some("recovery_artifact_trust_reference_event_id_mismatch");
+    }
+    if latest_vm_test_event_id != retained_vm_test_reference_event_id {
+        return Some("recovery_artifact_vm_test_reference_event_id_mismatch");
+    }
+    if latest_local_approval_event_id != retained_local_approval_reference_event_id {
+        return Some("recovery_artifact_local_approval_reference_event_id_mismatch");
+    }
+    if latest_loader_event_id != retained_loader_reference_event_id {
+        return Some("recovery_artifact_loader_reference_event_id_mismatch");
+    }
+    recovery_load_binding_retained_loader_mismatch(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+    )
+    .or_else(|| {
+        if let Some((_loader_event_id, loader_reference)) = retained_loader {
+            if Some(loader_reference.loader_reference_hash) != input.loader_reference_hash {
+                Some("recovery_artifact_loader_reference_hash_mismatch")
+            } else if Some(loader_reference.loader_hash) != input.loader_hash {
+                Some("recovery_artifact_loader_hash_mismatch")
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    })
+}
+
 fn recovery_identity_selftest_cases(
 ) -> [RecoveryIdentitySelfTestCase; RECOVERY_IDENTITY_SELFTEST_CASES] {
     let artifact_hash = [0x91; 32];
@@ -3972,6 +5944,471 @@ fn recovery_local_approval_selftest_case(
     }
 }
 
+fn recovery_loader_selftest_cases() -> [RecoveryLoaderSelfTestCase; RECOVERY_LOADER_SELFTEST_CASES]
+{
+    let artifact_hash = [0x91; 32];
+    let trust_hash = [0x93; 32];
+    let vm_test_hash = [0x95; 32];
+    let local_approval_hash = [0x97; 32];
+    let loader_hash = [0x99; 32];
+    let identity_event_id = "event.current_boot.00000031";
+    let trust_event_id = "event.current_boot.00000032";
+    let vm_test_event_id = "event.current_boot.00000033";
+    let local_approval_event_id = "event.current_boot.00000034";
+    let identity_reference_hash =
+        module_evidence::computed_recovery_artifact_identity_reference_hash(artifact_hash);
+    let trust_reference_hash = module_evidence::computed_recovery_artifact_trust_reference_hash(
+        module_evidence::RecoveryArtifactTrustReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            identity_reference_hash,
+            artifact_hash,
+            trust_hash,
+        },
+    );
+    let vm_test_reference_hash = module_evidence::computed_recovery_artifact_vm_test_reference_hash(
+        module_evidence::RecoveryArtifactVmTestReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+        },
+    );
+    let local_approval_reference_hash =
+        module_evidence::computed_recovery_artifact_local_approval_reference_hash(
+            module_evidence::RecoveryArtifactLocalApprovalReferenceHashInput {
+                retained_identity_reference_event_id: identity_event_id,
+                retained_trust_reference_event_id: trust_event_id,
+                retained_vm_test_reference_event_id: vm_test_event_id,
+                identity_reference_hash,
+                trust_reference_hash,
+                vm_test_reference_hash,
+                artifact_hash,
+                trust_hash,
+                vm_test_hash,
+                local_approval_hash,
+            },
+        );
+    let valid_hash = module_evidence::computed_recovery_artifact_loader_reference_hash(
+        module_evidence::RecoveryArtifactLoaderReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            retained_vm_test_reference_event_id: vm_test_event_id,
+            retained_local_approval_reference_event_id: local_approval_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            vm_test_reference_hash,
+            local_approval_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+            local_approval_hash,
+            loader_hash,
+        },
+    );
+    let valid = RecoveryLoaderReferenceInput {
+        has_reference: true,
+        arity_valid: true,
+        scope: "current_boot",
+        loader_reference_hash: Some(valid_hash),
+        retained_identity_reference_event_id: Some(identity_event_id),
+        retained_trust_reference_event_id: Some(trust_event_id),
+        retained_vm_test_reference_event_id: Some(vm_test_event_id),
+        retained_local_approval_reference_event_id: Some(local_approval_event_id),
+        identity_reference_hash: Some(identity_reference_hash),
+        trust_reference_hash: Some(trust_reference_hash),
+        vm_test_reference_hash: Some(vm_test_reference_hash),
+        local_approval_reference_hash: Some(local_approval_reference_hash),
+        artifact_hash: Some(artifact_hash),
+        trust_hash: Some(trust_hash),
+        vm_test_hash: Some(vm_test_hash),
+        local_approval_hash: Some(local_approval_hash),
+        loader_hash: Some(loader_hash),
+    };
+    [
+        recovery_loader_selftest_case(
+            "absent_reference",
+            "missing",
+            "recovery_artifact_loader_reference_absent",
+            evaluate_recovery_loader_reference(
+                RecoveryLoaderReferenceInput {
+                    has_reference: false,
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_loader_selftest_case(
+            "accepted_current_boot_loader_still_denied",
+            "valid_hash_reference_load_still_denied",
+            "recovery_artifact_loader_reference_valid_but_rollback_evidence_missing",
+            evaluate_recovery_loader_reference(valid, false),
+        ),
+        recovery_loader_selftest_case(
+            "stale_previous_boot_reference",
+            "stale_or_non_current_boot_reference",
+            "recovery_artifact_loader_reference_scope_must_be_current_boot",
+            evaluate_recovery_loader_reference(
+                RecoveryLoaderReferenceInput {
+                    scope: "previous_boot",
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_loader_selftest_case(
+            "retained_local_approval_event_not_current_boot",
+            "rejected",
+            "retained_recovery_artifact_local_approval_event_id_not_current_boot",
+            evaluate_recovery_loader_reference(
+                RecoveryLoaderReferenceInput {
+                    retained_local_approval_reference_event_id: Some(
+                        "event.previous_boot.00000034",
+                    ),
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_loader_selftest_case(
+            "retained_local_approval_missing",
+            "rejected",
+            "recovery_artifact_local_approval_reference_missing",
+            recovery_loader_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_local_approval_reference_missing",
+                false,
+            ),
+        ),
+        recovery_loader_selftest_case(
+            "retained_local_approval_wrong_schema_or_variant",
+            "rejected",
+            "recovery_artifact_local_approval_reference_wrong_schema_or_variant",
+            recovery_loader_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_local_approval_reference_wrong_schema_or_variant",
+                false,
+            ),
+        ),
+        recovery_loader_selftest_case(
+            "substituted_local_approval_reference_record",
+            "rejected",
+            "recovery_artifact_local_approval_reference_substituted_record",
+            recovery_loader_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_local_approval_reference_substituted_record",
+                false,
+            ),
+        ),
+        recovery_loader_selftest_case(
+            "loader_reference_hash_mismatch",
+            "mismatched_loader_reference_hash",
+            "recovery_artifact_loader_reference_hash_mismatch",
+            evaluate_recovery_loader_reference(
+                RecoveryLoaderReferenceInput {
+                    loader_reference_hash: Some([0x9a; 32]),
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_loader_selftest_case(
+            "local_approval_reference_hash_mismatch",
+            "rejected",
+            "recovery_artifact_local_approval_reference_hash_mismatch",
+            recovery_loader_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_local_approval_reference_hash_mismatch",
+                false,
+            ),
+        ),
+        recovery_loader_selftest_case(
+            "retained_chain_mismatch",
+            "rejected",
+            "recovery_artifact_loader_local_approval_event_id_mismatch",
+            recovery_loader_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_loader_local_approval_event_id_mismatch",
+                false,
+            ),
+        ),
+    ]
+}
+
+fn recovery_loader_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryLoaderReferenceCheck<'_>,
+) -> RecoveryLoaderSelfTestCase {
+    RecoveryLoaderSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason)
+            && check.valid == method_eq(expected_status, "valid_hash_reference_load_still_denied"),
+    }
+}
+
+fn recovery_rollback_evidence_selftest_cases(
+) -> [RecoveryRollbackEvidenceSelfTestCase; RECOVERY_ROLLBACK_EVIDENCE_SELFTEST_CASES] {
+    let artifact_hash = [0x91; 32];
+    let trust_hash = [0x93; 32];
+    let vm_test_hash = [0x95; 32];
+    let local_approval_hash = [0x97; 32];
+    let loader_hash = [0x99; 32];
+    let rollback_evidence_hash = [0x9b; 32];
+    let identity_event_id = "event.current_boot.00000031";
+    let trust_event_id = "event.current_boot.00000032";
+    let vm_test_event_id = "event.current_boot.00000033";
+    let local_approval_event_id = "event.current_boot.00000034";
+    let loader_event_id = "event.current_boot.00000035";
+    let identity_reference_hash =
+        module_evidence::computed_recovery_artifact_identity_reference_hash(artifact_hash);
+    let trust_reference_hash = module_evidence::computed_recovery_artifact_trust_reference_hash(
+        module_evidence::RecoveryArtifactTrustReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            identity_reference_hash,
+            artifact_hash,
+            trust_hash,
+        },
+    );
+    let vm_test_reference_hash = module_evidence::computed_recovery_artifact_vm_test_reference_hash(
+        module_evidence::RecoveryArtifactVmTestReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+        },
+    );
+    let local_approval_reference_hash =
+        module_evidence::computed_recovery_artifact_local_approval_reference_hash(
+            module_evidence::RecoveryArtifactLocalApprovalReferenceHashInput {
+                retained_identity_reference_event_id: identity_event_id,
+                retained_trust_reference_event_id: trust_event_id,
+                retained_vm_test_reference_event_id: vm_test_event_id,
+                identity_reference_hash,
+                trust_reference_hash,
+                vm_test_reference_hash,
+                artifact_hash,
+                trust_hash,
+                vm_test_hash,
+                local_approval_hash,
+            },
+        );
+    let loader_reference_hash = module_evidence::computed_recovery_artifact_loader_reference_hash(
+        module_evidence::RecoveryArtifactLoaderReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            retained_vm_test_reference_event_id: vm_test_event_id,
+            retained_local_approval_reference_event_id: local_approval_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            vm_test_reference_hash,
+            local_approval_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+            local_approval_hash,
+            loader_hash,
+        },
+    );
+    let valid_hash = module_evidence::computed_recovery_artifact_rollback_evidence_reference_hash(
+        module_evidence::RecoveryArtifactRollbackEvidenceReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            retained_vm_test_reference_event_id: vm_test_event_id,
+            retained_local_approval_reference_event_id: local_approval_event_id,
+            retained_loader_reference_event_id: loader_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            vm_test_reference_hash,
+            local_approval_reference_hash,
+            loader_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+            local_approval_hash,
+            loader_hash,
+            rollback_evidence_hash,
+        },
+    );
+    let valid = RecoveryRollbackEvidenceReferenceInput {
+        has_reference: true,
+        arity_valid: true,
+        scope: "current_boot",
+        rollback_evidence_reference_hash: Some(valid_hash),
+        retained_identity_reference_event_id: Some(identity_event_id),
+        retained_trust_reference_event_id: Some(trust_event_id),
+        retained_vm_test_reference_event_id: Some(vm_test_event_id),
+        retained_local_approval_reference_event_id: Some(local_approval_event_id),
+        retained_loader_reference_event_id: Some(loader_event_id),
+        identity_reference_hash: Some(identity_reference_hash),
+        trust_reference_hash: Some(trust_reference_hash),
+        vm_test_reference_hash: Some(vm_test_reference_hash),
+        local_approval_reference_hash: Some(local_approval_reference_hash),
+        loader_reference_hash: Some(loader_reference_hash),
+        artifact_hash: Some(artifact_hash),
+        trust_hash: Some(trust_hash),
+        vm_test_hash: Some(vm_test_hash),
+        local_approval_hash: Some(local_approval_hash),
+        loader_hash: Some(loader_hash),
+        rollback_evidence_hash: Some(rollback_evidence_hash),
+    };
+    [
+        recovery_rollback_evidence_selftest_case(
+            "absent_reference",
+            "missing",
+            "recovery_artifact_rollback_evidence_reference_absent",
+            evaluate_recovery_rollback_evidence_reference(
+                RecoveryRollbackEvidenceReferenceInput {
+                    has_reference: false,
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_rollback_evidence_selftest_case(
+            "accepted_current_boot_rollback_evidence_still_denied",
+            "valid_hash_reference_load_still_denied",
+            "recovery_artifact_rollback_evidence_reference_valid_but_lifeline_protocol_missing",
+            evaluate_recovery_rollback_evidence_reference(valid, false),
+        ),
+        recovery_rollback_evidence_selftest_case(
+            "stale_previous_boot_reference",
+            "stale_or_non_current_boot_reference",
+            "recovery_artifact_rollback_evidence_reference_scope_must_be_current_boot",
+            evaluate_recovery_rollback_evidence_reference(
+                RecoveryRollbackEvidenceReferenceInput {
+                    scope: "previous_boot",
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_rollback_evidence_selftest_case(
+            "retained_loader_event_not_current_boot",
+            "rejected",
+            "retained_recovery_artifact_loader_event_id_not_current_boot",
+            evaluate_recovery_rollback_evidence_reference(
+                RecoveryRollbackEvidenceReferenceInput {
+                    retained_loader_reference_event_id: Some("event.previous_boot.00000035"),
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_rollback_evidence_selftest_case(
+            "retained_loader_missing",
+            "rejected",
+            "recovery_artifact_loader_reference_missing",
+            recovery_rollback_evidence_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_loader_reference_missing",
+                false,
+            ),
+        ),
+        recovery_rollback_evidence_selftest_case(
+            "retained_loader_wrong_schema_or_variant",
+            "rejected",
+            "recovery_artifact_loader_reference_wrong_schema_or_variant",
+            recovery_rollback_evidence_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_loader_reference_wrong_schema_or_variant",
+                false,
+            ),
+        ),
+        recovery_rollback_evidence_selftest_case(
+            "substituted_loader_reference_record",
+            "rejected",
+            "recovery_artifact_loader_reference_substituted_record",
+            recovery_rollback_evidence_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_loader_reference_substituted_record",
+                false,
+            ),
+        ),
+        recovery_rollback_evidence_selftest_case(
+            "rollback_evidence_reference_hash_mismatch",
+            "mismatched_rollback_evidence_reference_hash",
+            "recovery_artifact_rollback_evidence_reference_hash_mismatch",
+            evaluate_recovery_rollback_evidence_reference(
+                RecoveryRollbackEvidenceReferenceInput {
+                    rollback_evidence_reference_hash: Some([0x9c; 32]),
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_rollback_evidence_selftest_case(
+            "loader_reference_hash_mismatch",
+            "rejected",
+            "recovery_artifact_loader_reference_hash_mismatch",
+            recovery_rollback_evidence_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_loader_reference_hash_mismatch",
+                false,
+            ),
+        ),
+        recovery_rollback_evidence_selftest_case(
+            "retained_chain_mismatch",
+            "rejected",
+            "recovery_artifact_rollback_evidence_loader_event_id_mismatch",
+            recovery_rollback_evidence_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_rollback_evidence_loader_event_id_mismatch",
+                false,
+            ),
+        ),
+    ]
+}
+
+fn recovery_rollback_evidence_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryRollbackEvidenceReferenceCheck<'_>,
+) -> RecoveryRollbackEvidenceSelfTestCase {
+    RecoveryRollbackEvidenceSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason)
+            && check.valid == method_eq(expected_status, "valid_hash_reference_load_still_denied"),
+    }
+}
+
 fn recovery_identity_binding_from_check(
     check: &RecoveryIdentityReferenceCheck<'_>,
 ) -> Option<event_log::RecoveryArtifactIdentityReference> {
@@ -4035,6 +6472,69 @@ fn recovery_local_approval_binding_from_check(
         trust_hash: check.trust_hash?,
         vm_test_hash: check.vm_test_hash?,
         local_approval_hash: check.local_approval_hash?,
+    })
+}
+
+fn recovery_loader_binding_from_check(
+    check: &RecoveryLoaderReferenceCheck<'_>,
+) -> Option<event_log::RecoveryArtifactLoaderReference> {
+    Some(event_log::RecoveryArtifactLoaderReference {
+        loader_reference_hash: check.loader_reference_hash?,
+        retained_identity_reference_event_id: parse_current_boot_event_id(
+            check.retained_identity_reference_event_id?,
+        )?,
+        retained_trust_reference_event_id: parse_current_boot_event_id(
+            check.retained_trust_reference_event_id?,
+        )?,
+        retained_vm_test_reference_event_id: parse_current_boot_event_id(
+            check.retained_vm_test_reference_event_id?,
+        )?,
+        retained_local_approval_reference_event_id: parse_current_boot_event_id(
+            check.retained_local_approval_reference_event_id?,
+        )?,
+        identity_reference_hash: check.identity_reference_hash?,
+        trust_reference_hash: check.trust_reference_hash?,
+        vm_test_reference_hash: check.vm_test_reference_hash?,
+        local_approval_reference_hash: check.local_approval_reference_hash?,
+        artifact_hash: check.artifact_hash?,
+        trust_hash: check.trust_hash?,
+        vm_test_hash: check.vm_test_hash?,
+        local_approval_hash: check.local_approval_hash?,
+        loader_hash: check.loader_hash?,
+    })
+}
+
+fn recovery_rollback_evidence_binding_from_check(
+    check: &RecoveryRollbackEvidenceReferenceCheck<'_>,
+) -> Option<event_log::RecoveryArtifactRollbackEvidenceReference> {
+    Some(event_log::RecoveryArtifactRollbackEvidenceReference {
+        rollback_evidence_reference_hash: check.rollback_evidence_reference_hash?,
+        retained_identity_reference_event_id: parse_current_boot_event_id(
+            check.retained_identity_reference_event_id?,
+        )?,
+        retained_trust_reference_event_id: parse_current_boot_event_id(
+            check.retained_trust_reference_event_id?,
+        )?,
+        retained_vm_test_reference_event_id: parse_current_boot_event_id(
+            check.retained_vm_test_reference_event_id?,
+        )?,
+        retained_local_approval_reference_event_id: parse_current_boot_event_id(
+            check.retained_local_approval_reference_event_id?,
+        )?,
+        retained_loader_reference_event_id: parse_current_boot_event_id(
+            check.retained_loader_reference_event_id?,
+        )?,
+        identity_reference_hash: check.identity_reference_hash?,
+        trust_reference_hash: check.trust_reference_hash?,
+        vm_test_reference_hash: check.vm_test_reference_hash?,
+        local_approval_reference_hash: check.local_approval_reference_hash?,
+        loader_reference_hash: check.loader_reference_hash?,
+        artifact_hash: check.artifact_hash?,
+        trust_hash: check.trust_hash?,
+        vm_test_hash: check.vm_test_hash?,
+        local_approval_hash: check.local_approval_hash?,
+        loader_hash: check.loader_hash?,
+        rollback_evidence_hash: check.rollback_evidence_hash?,
     })
 }
 
@@ -4106,6 +6606,76 @@ fn recovery_local_approval_reference_matches(
         && check.local_approval_hash == Some(reference.local_approval_hash)
 }
 
+fn recovery_loader_reference_matches(
+    check: &RecoveryLoaderReferenceCheck<'_>,
+    reference: event_log::RecoveryArtifactLoaderReference,
+) -> bool {
+    check.loader_reference_hash == Some(reference.loader_reference_hash)
+        && check
+            .retained_identity_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_identity_reference_event_id)
+        && check
+            .retained_trust_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_trust_reference_event_id)
+        && check
+            .retained_vm_test_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_vm_test_reference_event_id)
+        && check
+            .retained_local_approval_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_local_approval_reference_event_id)
+        && check.identity_reference_hash == Some(reference.identity_reference_hash)
+        && check.trust_reference_hash == Some(reference.trust_reference_hash)
+        && check.vm_test_reference_hash == Some(reference.vm_test_reference_hash)
+        && check.local_approval_reference_hash == Some(reference.local_approval_reference_hash)
+        && check.artifact_hash == Some(reference.artifact_hash)
+        && check.trust_hash == Some(reference.trust_hash)
+        && check.vm_test_hash == Some(reference.vm_test_hash)
+        && check.local_approval_hash == Some(reference.local_approval_hash)
+        && check.loader_hash == Some(reference.loader_hash)
+}
+
+fn recovery_rollback_evidence_reference_matches(
+    check: &RecoveryRollbackEvidenceReferenceCheck<'_>,
+    reference: event_log::RecoveryArtifactRollbackEvidenceReference,
+) -> bool {
+    check.rollback_evidence_reference_hash == Some(reference.rollback_evidence_reference_hash)
+        && check
+            .retained_identity_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_identity_reference_event_id)
+        && check
+            .retained_trust_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_trust_reference_event_id)
+        && check
+            .retained_vm_test_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_vm_test_reference_event_id)
+        && check
+            .retained_local_approval_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_local_approval_reference_event_id)
+        && check
+            .retained_loader_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_loader_reference_event_id)
+        && check.identity_reference_hash == Some(reference.identity_reference_hash)
+        && check.trust_reference_hash == Some(reference.trust_reference_hash)
+        && check.vm_test_reference_hash == Some(reference.vm_test_reference_hash)
+        && check.local_approval_reference_hash == Some(reference.local_approval_reference_hash)
+        && check.loader_reference_hash == Some(reference.loader_reference_hash)
+        && check.artifact_hash == Some(reference.artifact_hash)
+        && check.trust_hash == Some(reference.trust_hash)
+        && check.vm_test_hash == Some(reference.vm_test_hash)
+        && check.local_approval_hash == Some(reference.local_approval_hash)
+        && check.loader_hash == Some(reference.loader_hash)
+        && check.rollback_evidence_hash == Some(reference.rollback_evidence_hash)
+}
+
 fn recovery_identity_diagnostic_arg(method: &str) -> &str {
     let method = method.trim();
     let head_len = if method_head_eq(method, "recovery.identity_diagnostic") {
@@ -4140,6 +6710,26 @@ fn recovery_local_approval_diagnostic_arg(method: &str) -> &str {
     let method = method.trim();
     let head_len = if method_head_eq(method, "recovery.local_approval_diagnostic") {
         "recovery.local_approval_diagnostic".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn recovery_loader_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(method, "recovery.loader_diagnostic") {
+        "recovery.loader_diagnostic".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn recovery_rollback_evidence_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(method, "recovery.rollback_evidence_diagnostic") {
+        "recovery.rollback_evidence_diagnostic".len()
     } else {
         return "";
     };

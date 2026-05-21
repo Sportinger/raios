@@ -90,16 +90,24 @@ use crate::{
         canonical_recovery_artifact_load_method, emit_recovery_artifact_identity_diagnostic,
         emit_recovery_artifact_identity_diagnostic_selftest, emit_recovery_artifact_load_binding,
         emit_recovery_artifact_load_binding_selftest, emit_recovery_artifact_load_denied,
+        emit_recovery_artifact_loader_diagnostic,
+        emit_recovery_artifact_loader_diagnostic_selftest,
         emit_recovery_artifact_local_approval_diagnostic,
         emit_recovery_artifact_local_approval_diagnostic_selftest,
+        emit_recovery_artifact_rollback_evidence_diagnostic,
+        emit_recovery_artifact_rollback_evidence_diagnostic_selftest,
         emit_recovery_artifact_trust_diagnostic, emit_recovery_artifact_trust_diagnostic_selftest,
         emit_recovery_artifact_vm_test_diagnostic,
         emit_recovery_artifact_vm_test_diagnostic_selftest,
         recovery_artifact_identity_diagnostic_method,
         recovery_artifact_identity_diagnostic_selftest_method,
         recovery_artifact_load_binding_method, recovery_artifact_load_binding_selftest_method,
-        recovery_artifact_load_method, recovery_artifact_local_approval_diagnostic_method,
+        recovery_artifact_load_method, recovery_artifact_loader_diagnostic_method,
+        recovery_artifact_loader_diagnostic_selftest_method,
+        recovery_artifact_local_approval_diagnostic_method,
         recovery_artifact_local_approval_diagnostic_selftest_method,
+        recovery_artifact_rollback_evidence_diagnostic_method,
+        recovery_artifact_rollback_evidence_diagnostic_selftest_method,
         recovery_artifact_trust_diagnostic_method,
         recovery_artifact_trust_diagnostic_selftest_method,
         recovery_artifact_vm_test_diagnostic_method,
@@ -455,6 +463,26 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("recovery.local_approval_diagnostic_selftest");
         emit_recovery_artifact_local_approval_diagnostic_selftest();
         return DispatchOutcome::Response("recovery.local_approval_diagnostic_selftest");
+    }
+    if recovery_artifact_loader_diagnostic_method(method) {
+        record_read("recovery.loader_diagnostic");
+        emit_recovery_artifact_loader_diagnostic(method);
+        return DispatchOutcome::Response("recovery.loader_diagnostic");
+    }
+    if recovery_artifact_loader_diagnostic_selftest_method(method) {
+        record_read("recovery.loader_diagnostic_selftest");
+        emit_recovery_artifact_loader_diagnostic_selftest();
+        return DispatchOutcome::Response("recovery.loader_diagnostic_selftest");
+    }
+    if recovery_artifact_rollback_evidence_diagnostic_method(method) {
+        record_read("recovery.rollback_evidence_diagnostic");
+        emit_recovery_artifact_rollback_evidence_diagnostic(method);
+        return DispatchOutcome::Response("recovery.rollback_evidence_diagnostic");
+    }
+    if recovery_artifact_rollback_evidence_diagnostic_selftest_method(method) {
+        record_read("recovery.rollback_evidence_diagnostic_selftest");
+        emit_recovery_artifact_rollback_evidence_diagnostic_selftest();
+        return DispatchOutcome::Response("recovery.rollback_evidence_diagnostic_selftest");
     }
     if recovery_artifact_load_binding_method(method) {
         record_read("recovery.load_binding");

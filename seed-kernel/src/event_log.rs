@@ -9,8 +9,9 @@ use crate::event_log_evidence::{
     PROVIDER_BINDING_CONSUMPTION_EVIDENCE, PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
     PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE, PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
     PROVIDER_REQUEST_BINDING_EVIDENCE, PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
-    RECOVERY_ARTIFACT_IDENTITY_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE,
-    RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
+    RECOVERY_ARTIFACT_IDENTITY_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_LOADER_REFERENCE_EVIDENCE,
+    RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE, RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
+    RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_TRUST_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_VM_TEST_REFERENCE_EVIDENCE,
 };
 use crate::event_log_module_checks::{
@@ -39,7 +40,8 @@ pub use crate::event_log_types::{
     ProviderContextInjectionGateCheck, ProviderContextInjectionGateSelfTestCase,
     ProviderExportAuditBinding, ProviderRequestBinding, ProviderRequestEnvelopeBinding,
     RecoveryArtifactIdentityReference, RecoveryArtifactLoadDenialBinding,
-    RecoveryArtifactLocalApprovalReference, RecoveryArtifactTrustReference,
+    RecoveryArtifactLoaderReference, RecoveryArtifactLocalApprovalReference,
+    RecoveryArtifactRollbackEvidenceReference, RecoveryArtifactTrustReference,
     RecoveryArtifactVmTestReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
     PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
@@ -783,6 +785,58 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::RecoveryArtifactLocalApprovalReference(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_artifact_loader_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryArtifactLoaderReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryArtifactLoaderReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_artifact_rollback_evidence_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryArtifactRollbackEvidenceReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryArtifactRollbackEvidenceReference(binding) =
                     event.bindings
                 {
                     return Some((
@@ -2365,6 +2419,46 @@ pub fn record_recovery_artifact_local_approval_reference(
     })
 }
 
+pub fn record_recovery_artifact_loader_reference(
+    binding: RecoveryArtifactLoaderReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.artifact_loader_reference.retained",
+        source_method: "recovery.loader_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.recovery.load_artifact.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline",
+        reason: "recovery_artifact_loader_reference_valid_for_current_boot",
+        evidence: RECOVERY_ARTIFACT_LOADER_REFERENCE_EVIDENCE,
+        bindings: EventBindings::RecoveryArtifactLoaderReference(binding),
+    })
+}
+
+pub fn record_recovery_artifact_rollback_evidence_reference(
+    binding: RecoveryArtifactRollbackEvidenceReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.artifact_rollback_evidence_reference.retained",
+        source_method: "recovery.rollback_evidence_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.recovery.load_artifact.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline",
+        reason: "recovery_artifact_rollback_evidence_reference_valid_for_current_boot",
+        evidence: RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_EVIDENCE,
+        bindings: EventBindings::RecoveryArtifactRollbackEvidenceReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -2666,6 +2760,17 @@ pub fn latest_recovery_artifact_local_approval_reference(
 ) -> Option<(EventId, RecoveryArtifactLocalApprovalReference)> {
     LOG.lock()
         .latest_recovery_artifact_local_approval_reference()
+}
+
+pub fn latest_recovery_artifact_loader_reference(
+) -> Option<(EventId, RecoveryArtifactLoaderReference)> {
+    LOG.lock().latest_recovery_artifact_loader_reference()
+}
+
+pub fn latest_recovery_artifact_rollback_evidence_reference(
+) -> Option<(EventId, RecoveryArtifactRollbackEvidenceReference)> {
+    LOG.lock()
+        .latest_recovery_artifact_rollback_evidence_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(

@@ -22,8 +22,8 @@ append/storage contracts, and append-intent requests while still denying
 durable audit and rollback writes, plus a distinct recovery-artifact load
 boundary that uses `cap.recovery.load_artifact` instead of the normal ephemeral
 module capability, exposes read-only retained identity/trust/VM-test/
-local-approval evidence binding diagnostics, and still refuses to load
-anything.
+local-approval/loader/rollback-evidence binding diagnostics, and still refuses
+to load anything until a recovery lifeline protocol exists.
 
 It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
@@ -350,20 +350,25 @@ What boots and works in the VM right now:
   exposing typed current-boot denial evidence for missing recovery artifact
   identity, trust, VM-test, local approval, loader, and rollback evidence while
   keeping normal module append-intent and writer facts non-authorizing
-- Guest read-only recovery artifact identity/trust/VM-test/local-approval
+- Guest read-only recovery artifact identity/trust/VM-test/local-approval/
+  loader/rollback-evidence
   hash-reference diagnostics that retain valid
   `raios.recovery_artifact_identity.v0`,
   `raios.recovery_artifact_trust.v0`,
   `raios.recovery_artifact_vm_test.v0`, and
-  `raios.recovery_artifact_local_approval.v0` references only as local-only,
-  current-boot, non-authorizing event evidence without accepting artifact
-  bytes, VM-test JSON, or approval text
+  `raios.recovery_artifact_local_approval.v0`,
+  `raios.recovery_artifact_loader.v0`, and
+  `raios.recovery_artifact_rollback_evidence.v0` references only as
+  local-only, current-boot, non-authorizing event evidence without accepting
+  artifact bytes, VM-test JSON, approval text, loader descriptors, or rollback
+  evidence JSON
 - Read-only `recovery.load_binding` and `recovery.load_binding_selftest`
   diagnostics that bind retained recovery identity/trust/VM-test/local-approval
-  references when present, still require recovery-only loader/rollback event
-  ids, reject normal module append-intent, append-payload, writer,
-  service-slot, and `module.load_ephemeral` authority, and keep recovery
-  artifacts non-loaded, non-durable, local-only, and non-authorizing
+  loader/rollback-evidence references when present, reject normal module
+  append-intent, append-payload, writer, service-slot, and
+  `module.load_ephemeral` authority, and keep recovery artifacts non-loaded,
+  non-durable, local-only, and non-authorizing until the recovery lifeline
+  protocol exists
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,

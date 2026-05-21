@@ -573,28 +573,39 @@ recovery.vm_test_diagnostic_selftest
 recovery.local_approval_diagnostic
 recovery.local_approval_diagnostic <local_approval_reference_hash> <retained_identity_event_id> <retained_trust_event_id> <retained_vm_test_event_id> <identity_reference_hash> <trust_reference_hash> <vm_test_reference_hash> <artifact_hash> <trust_hash> <vm_test_hash> <local_approval_hash> [current_boot]
 recovery.local_approval_diagnostic_selftest
+recovery.loader_diagnostic
+recovery.loader_diagnostic <loader_reference_hash> <retained_identity_event_id> <retained_trust_event_id> <retained_vm_test_event_id> <retained_local_approval_event_id> <identity_reference_hash> <trust_reference_hash> <vm_test_reference_hash> <local_approval_reference_hash> <artifact_hash> <trust_hash> <vm_test_hash> <local_approval_hash> <loader_hash> [current_boot]
+recovery.loader_diagnostic_selftest
+recovery.rollback_evidence_diagnostic
+recovery.rollback_evidence_diagnostic <rollback_evidence_reference_hash> <retained_identity_event_id> <retained_trust_event_id> <retained_vm_test_event_id> <retained_local_approval_event_id> <retained_loader_event_id> <identity_reference_hash> <trust_reference_hash> <vm_test_reference_hash> <local_approval_reference_hash> <loader_reference_hash> <artifact_hash> <trust_hash> <vm_test_hash> <local_approval_hash> <loader_hash> <rollback_evidence_hash> [current_boot]
+recovery.rollback_evidence_diagnostic_selftest
 recovery.load_binding
 recovery.load_binding_selftest
 ```
 
-The identity/trust/VM-test/local-approval diagnostics emit
+The identity/trust/VM-test/local-approval/loader/rollback-evidence diagnostics emit
 `raios.recovery_artifact_identity_diagnostic.v0`,
 `raios.recovery_artifact_trust_diagnostic.v0`,
-`raios.recovery_artifact_vm_test_diagnostic.v0`, and
-`raios.recovery_artifact_local_approval_diagnostic.v0`. Valid references are
+`raios.recovery_artifact_vm_test_diagnostic.v0`,
+`raios.recovery_artifact_local_approval_diagnostic.v0`,
+`raios.recovery_artifact_loader_diagnostic.v0`, and
+`raios.recovery_artifact_rollback_evidence_diagnostic.v0`. Valid references are
 retained only as local-only current-boot hash evidence, accept no artifact
-bytes, VM-test JSON, or approval text, and do not authorize recovery loading.
+bytes, VM-test JSON, approval text, loader descriptors, or rollback evidence
+JSON, and do not authorize recovery loading.
 
 It emits `raios.recovery_artifact_load_binding.v0` and
 `raios.recovery_artifact_load_binding_selftest.v0`, requires retained
 `recovery_artifact_identity_event_id`, `recovery_artifact_trust_event_id`,
 `recovery_vm_test_event_id`, `recovery_local_approval_event_id`,
 `recovery_loader_event_id`, and `recovery_rollback_evidence_event_id`, and
-binds retained identity, trust, VM-test, and local-approval ids when their
-current-boot hash-reference chain matches. It keeps normal module append-intent,
+binds retained identity, trust, VM-test, local-approval, loader, and
+rollback-evidence ids when their current-boot hash-reference chain matches. It
+keeps normal module append-intent,
 append-payload, writer, service-slot, and `module.load_ephemeral` facts
 non-authorizing for recovery loads. Payload-hash envelopes remain non-authority
-inputs only.
+inputs only, and a fully retained chain still stops at
+`recovery_lifeline_protocol_missing`.
 
 A valid `module.manifest_diagnostic` hash-reference command records a local-only
 current-boot `raios.module_manifest_reference.v0` event binding and reports
