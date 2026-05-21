@@ -2,6 +2,16 @@ use core::str;
 
 use spin::Mutex;
 
+use crate::event_log_evidence::{
+    DENIED_EVIDENCE, MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE,
+    MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE, MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
+    MODULE_LOAD_GATE_EVIDENCE, MODULE_MANIFEST_REFERENCE_EVIDENCE,
+    MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE, MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE,
+    PROVIDER_BINDING_CONSUMPTION_EVIDENCE, PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_EVIDENCE,
+    PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE, PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE,
+    PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE, PROVIDER_REQUEST_BINDING_EVIDENCE,
+    PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
+};
 use crate::event_log_types::{
     ConsumedProviderBinding, ModuleAuditRollbackReferenceGateCheck,
     ModuleCandidateArtifactReferenceGateCheck, ModuleManifestReferenceGateCheck,
@@ -19,151 +29,6 @@ pub use crate::event_log_types::{
     PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::module_evidence;
-
-const READ_EVIDENCE: &[&str] = &["computed_capability_grant"];
-const DENIED_EVIDENCE: &[&str] = &["missing_required_evidence", "capability_denied"];
-const PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE: &[&str] = &[
-    "provider_request_binding_denied",
-    "projected_packet_hash",
-    "provider_write_not_attempted",
-];
-const PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE: &[&str] = &[
-    "provider_request_binding_denied",
-    "projected_packet_hash",
-    "exported_field_list_hash",
-    "omitted_field_list_hash",
-    "provider_write_not_attempted",
-];
-const PROVIDER_REQUEST_ENVELOPE_EVIDENCE: &[&str] = &[
-    "provider_request_envelope_created",
-    "request_body_hash",
-    "envelope_hash",
-    "provider_write_not_attempted",
-];
-const PROVIDER_REQUEST_BINDING_EVIDENCE: &[&str] = &[
-    "provider_request_binding",
-    "request_envelope_hash",
-    "request_body_hash",
-    "projected_packet_hash",
-    "exported_field_list_hash",
-    "omitted_field_list_hash",
-    "positive_provider_trust",
-    "provider_write_not_attempted",
-];
-const PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE: &[&str] = &[
-    "provider_context_export_audit_binding",
-    "provider_request_binding",
-    "request_envelope_hash",
-    "request_body_hash",
-    "projected_packet_hash",
-    "exported_field_list_hash",
-    "omitted_field_list_hash",
-    "positive_provider_trust",
-    "context_injection_disabled",
-];
-const PROVIDER_BINDING_CONSUMPTION_EVIDENCE: &[&str] = &[
-    "provider_binding_consumed_for_gate_evaluation",
-    "provider_request_binding",
-    "provider_context_export_audit_binding",
-    "request_binding_hash",
-    "export_audit_binding_hash",
-    "provider_write_not_attempted",
-    "context_injection_disabled",
-];
-const PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_EVIDENCE: &[&str] = &[
-    "provider_context_injection_authorization",
-    "provider_binding_consumption",
-    "request_binding_hash",
-    "export_audit_binding_hash",
-    "request_body_hash",
-    "request_envelope_hash",
-    "projected_packet_hash",
-    "exported_field_list_hash",
-    "omitted_field_list_hash",
-    "positive_provider_trust",
-    "provider_write_not_attempted",
-    "context_injection_disabled",
-];
-const MODULE_LOAD_GATE_EVIDENCE: &[&str] = &[
-    "missing_required_evidence",
-    "capability_denied",
-    "module_load_gate_evaluated",
-    "module_manifest_reference_checked",
-    "candidate_artifact_reference_checked",
-    "vm_test_report_reference_checked",
-    "computed_capability_grant_reference_checked",
-    "durable_audit_record_required",
-    "rollback_plan_required",
-    "rollback_bindings_required",
-    "service_inventory_unchanged",
-    "load_not_attempted",
-];
-const MODULE_MANIFEST_REFERENCE_EVIDENCE: &[&str] = &[
-    "module_manifest_reference",
-    "manifest_reference_hash",
-    "manifest_hash",
-    "hash_reference_only",
-    "manifest_json_not_accepted",
-    "artifact_bytes_not_accepted",
-    "load_not_attempted",
-];
-const MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE: &[&str] = &[
-    "candidate_artifact_reference",
-    "artifact_reference_hash",
-    "manifest_reference_hash",
-    "manifest_hash",
-    "candidate_artifact_hash",
-    "computed_capability_grant_hash",
-    "hash_reference_only",
-    "artifact_bytes_not_accepted",
-    "load_not_attempted",
-];
-const MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE: &[&str] = &[
-    "vm_test_report_reference",
-    "vm_test_report_reference_hash",
-    "vm_test_report_hash",
-    "manifest_reference_hash",
-    "artifact_reference_hash",
-    "computed_capability_grant_hash",
-    "hash_reference_only",
-    "vm_report_json_not_accepted",
-    "artifact_bytes_not_accepted",
-    "load_not_attempted",
-];
-const MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE: &[&str] = &[
-    "computed_capability_grant_reference",
-    "computed_capability_grant_hash",
-    "manifest_hash",
-    "candidate_artifact_hash",
-    "vm_test_report_hash",
-    "local_attestation_hash",
-    "hash_reference_only",
-    "load_not_attempted",
-];
-const MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE: &[&str] = &[
-    "audit_rollback_reference",
-    "audit_record_hash",
-    "rollback_plan_hash",
-    "computed_capability_grant_hash",
-    "retained_reference_event_id",
-    "denial_event_id",
-    "ram_only_service_slot_id",
-    "hash_reference_only",
-    "load_not_attempted",
-];
-const MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE: &[&str] = &[
-    "module_service_slot_reservation",
-    "reservation_hash",
-    "retained_reference_event_id",
-    "retained_audit_rollback_reference_event_id",
-    "computed_capability_grant_hash",
-    "audit_record_hash",
-    "rollback_plan_hash",
-    "pre_load_service_inventory_hash",
-    "ram_only_service_slot_id",
-    "hash_reference_only",
-    "load_not_attempted",
-];
 
 static LOG: Mutex<EventLog> = Mutex::new(EventLog::new());
 
