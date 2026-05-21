@@ -514,6 +514,9 @@ function Write-Report {
             "agent recovery.rollback_evidence_diagnostic",
             "agent recovery.rollback_evidence_diagnostic <valid hash reference>",
             "agent recovery.rollback_evidence_diagnostic_selftest",
+            "agent recovery.lifeline_request_diagnostic",
+            "agent recovery.lifeline_request_diagnostic <valid hash reference>",
+            "agent recovery.lifeline_request_diagnostic_selftest",
             "agent recovery.load_binding",
             "agent recovery.load_binding_selftest",
             "module.load_recovery_artifact",
@@ -3081,6 +3084,110 @@ try {
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    Send-AgentCommand -Command "agent recovery.lifeline_request_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_request_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_request_diag_absent_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_request_diagnostic.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_request_json"; Needle = '"accepts_lifeline_request_json": false' },
+        @{ Suffix = "no_loader_descriptor"; Needle = '"accepts_loader_descriptor": false' },
+        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
+        @{ Suffix = "no_slot"; Needle = '"allocates_service_slot": false' },
+        @{ Suffix = "status"; Needle = '"validation_status": "missing"' },
+        @{ Suffix = "reason"; Needle = '"validation_reason": "recovery_lifeline_request_reference_absent"' },
+        @{ Suffix = "retained_missing"; Needle = '"reason": "no_valid_recovery_lifeline_request_reference_retained"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryLifelineRequestCanonical = @(
+        "canonicalization=raios.recovery_lifeline_request.canonical.v0",
+        "schema=raios.recovery_lifeline_request.v0",
+        "requested_capability=cap.recovery.load_artifact",
+        "load_mode=recovery_only",
+        "subject=agent.session.serial",
+        "resource=recovery_lifeline",
+        "scope=current_boot",
+        "retained_recovery_artifact_identity_event_id=$recoveryIdentityEventId",
+        "retained_recovery_artifact_trust_event_id=$recoveryTrustEventId",
+        "retained_recovery_artifact_vm_test_event_id=$recoveryVmTestEventId",
+        "retained_recovery_artifact_local_approval_event_id=$recoveryLocalApprovalEventId",
+        "retained_recovery_artifact_loader_event_id=$recoveryLoaderEventId",
+        "retained_recovery_artifact_rollback_evidence_event_id=$recoveryRollbackEvidenceEventId",
+        "identity_reference_sha256=$recoveryIdentityReferenceHash",
+        "trust_reference_sha256=$recoveryTrustReferenceHash",
+        "vm_test_reference_sha256=$recoveryVmTestReferenceHash",
+        "local_approval_reference_sha256=$recoveryLocalApprovalReferenceHash",
+        "loader_reference_sha256=$recoveryLoaderReferenceHash",
+        "rollback_evidence_reference_sha256=$recoveryRollbackEvidenceReferenceHash",
+        "artifact_sha256=$recoveryArtifactHash",
+        "trust_sha256=$recoveryTrustHash",
+        "vm_test_sha256=$recoveryVmTestHash",
+        "local_approval_sha256=$recoveryLocalApprovalHash",
+        "loader_sha256=$recoveryLoaderHash",
+        "rollback_evidence_sha256=$recoveryRollbackEvidenceHash",
+        "accepts_lifeline_request_json=false",
+        "accepts_loader_descriptor=false",
+        "accepts_artifact_bytes=false",
+        "loads_recovery_loader=false",
+        "loads_recovery_artifact=false",
+        "authorizes_recovery_load=false",
+        "creates_durable_records=false",
+        "installs_rollback_plan=false",
+        "allocates_service_slot=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $recoveryLifelineRequestReferenceHash = Get-TextSha256 -Text $recoveryLifelineRequestCanonical
+    $recoveryLifelineRequestCommand = "agent recovery.lifeline_request_diagnostic $recoveryLifelineRequestReferenceHash $recoveryIdentityEventId $recoveryTrustEventId $recoveryVmTestEventId $recoveryLocalApprovalEventId $recoveryLoaderEventId $recoveryRollbackEvidenceEventId $recoveryIdentityReferenceHash $recoveryTrustReferenceHash $recoveryVmTestReferenceHash $recoveryLocalApprovalReferenceHash $recoveryLoaderReferenceHash $recoveryRollbackEvidenceReferenceHash $recoveryArtifactHash $recoveryTrustHash $recoveryVmTestHash $recoveryLocalApprovalHash $recoveryLoaderHash $recoveryRollbackEvidenceHash"
+
+    Send-AgentCommand -Command $recoveryLifelineRequestCommand -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_request_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_request_diag_valid_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "reason"; Needle = '"validation_reason": "recovery_lifeline_request_reference_valid_but_lifeline_protocol_missing"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "rollback_event"; Needle = "`"retained_recovery_artifact_rollback_evidence_event_id`": `"$recoveryRollbackEvidenceEventId`"" },
+        @{ Suffix = "request_ref_hash"; Needle = "`"lifeline_request_reference_hash`": `"sha256:$recoveryLifelineRequestReferenceHash`"" },
+        @{ Suffix = "rollback_ref_hash"; Needle = "`"rollback_evidence_reference_hash`": `"sha256:$recoveryRollbackEvidenceReferenceHash`"" },
+        @{ Suffix = "rollback_hash"; Needle = "`"rollback_evidence_hash`": `"sha256:$recoveryRollbackEvidenceHash`"" },
+        @{ Suffix = "no_loader_load"; Needle = '"loads_recovery_loader": false' },
+        @{ Suffix = "no_authority"; Needle = '"authorizes_recovery_load": false' },
+        @{ Suffix = "no_durable"; Needle = '"creates_durable_records": false' },
+        @{ Suffix = "no_install"; Needle = '"installs_rollback_plan": false' },
+        @{ Suffix = "no_slot"; Needle = '"allocates_service_slot": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryLifelineRequestResponse = Get-LastAgentResponseJson -Method "recovery.lifeline_request_diagnostic"
+    $recoveryLifelineRequestEventId = [string]$recoveryLifelineRequestResponse.body.result.retained_recovery_lifeline_request_reference.event_id
+    Assert-CurrentBootEventId -Name "protocol:recovery_lifeline_request_retained_reference_event_id_captured" -Value $recoveryLifelineRequestEventId
+
+    Send-AgentCommand -Command "agent recovery.lifeline_request_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_request_diagnostic_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_request_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_request_diagnostic_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_request_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 11' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "absent_case"; Needle = '"case": "absent_reference"' },
+        @{ Suffix = "valid_case"; Needle = '"case": "accepted_current_boot_lifeline_request_still_denied"' },
+        @{ Suffix = "stale_case"; Needle = '"case": "stale_previous_boot_reference"' },
+        @{ Suffix = "identity_not_current_case"; Needle = '"case": "retained_identity_event_not_current_boot"' },
+        @{ Suffix = "rollback_not_current_case"; Needle = '"case": "retained_rollback_evidence_event_not_current_boot"' },
+        @{ Suffix = "identity_missing_case"; Needle = '"case": "retained_identity_missing"' },
+        @{ Suffix = "rollback_schema_case"; Needle = '"case": "retained_rollback_evidence_wrong_schema_or_variant"' },
+        @{ Suffix = "substituted_case"; Needle = '"case": "substituted_rollback_evidence_reference_record"' },
+        @{ Suffix = "request_mismatch_case"; Needle = '"case": "lifeline_request_reference_hash_mismatch"' },
+        @{ Suffix = "rollback_mismatch_case"; Needle = '"case": "rollback_evidence_reference_hash_mismatch"' },
+        @{ Suffix = "chain_mismatch_case"; Needle = '"case": "retained_chain_mismatch"' },
+        @{ Suffix = "valid_reason"; Needle = '"actual_reason": "recovery_lifeline_request_reference_valid_but_lifeline_protocol_missing"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
     Send-AgentCommand -Command "agent recovery.load_binding" -ExpectedMarker "RAIOS_AGENT_END recovery.load_binding"
     $recoveryBindingResponse = Get-LastAgentResponseJson -Method "recovery.load_binding"
     Assert-LogContains -Name "protocol:recovery_binding_schema" -Needle '"schema": "raios.recovery_artifact_load_binding.v0"' -TimeoutSeconds 1
@@ -3353,6 +3460,13 @@ try {
     Assert-LogContains -Name "protocol:recovery_rollback_evidence_audit_loader_event" -Needle "`"retained_recovery_artifact_loader_event_id`": `"$recoveryLoaderEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_rollback_evidence_audit_hash" -Needle "`"rollback_evidence_reference_hash`": `"sha256:$recoveryRollbackEvidenceReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_rollback_evidence_audit_no_durable" -Needle '"creates_durable_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_request_audit_source" -Needle '"source_method": "recovery.lifeline_request_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_request_audit_kind" -Needle '"kind": "recovery.lifeline_request_reference.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_request_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_lifeline_request.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_request_audit_rollback_event" -Needle "`"retained_recovery_artifact_rollback_evidence_event_id`": `"$recoveryRollbackEvidenceEventId`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_request_audit_hash" -Needle "`"lifeline_request_reference_hash`": `"sha256:$recoveryLifelineRequestReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_request_audit_no_loader" -Needle '"loads_recovery_loader": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_request_audit_no_slot" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_risk" -Needle '"risk": "recovery_modify_ram"' -TimeoutSeconds 1

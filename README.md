@@ -369,6 +369,12 @@ What boots and works in the VM right now:
   `module.load_ephemeral` authority, and keep recovery artifacts non-loaded,
   non-durable, local-only, and non-authorizing until the recovery lifeline
   protocol exists
+- Read-only `recovery.lifeline_request_diagnostic` and
+  `recovery.lifeline_request_diagnostic_selftest` diagnostics that bind a
+  valid `raios.recovery_lifeline_request.v0` hash reference to all six retained
+  recovery evidence ids while keeping the request local-only, current-boot,
+  non-authorizing, non-durable, and unable to load a recovery artifact or
+  allocate a service slot
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,

@@ -99,6 +99,8 @@ use crate::{
         emit_recovery_artifact_trust_diagnostic, emit_recovery_artifact_trust_diagnostic_selftest,
         emit_recovery_artifact_vm_test_diagnostic,
         emit_recovery_artifact_vm_test_diagnostic_selftest,
+        emit_recovery_lifeline_request_diagnostic,
+        emit_recovery_lifeline_request_diagnostic_selftest,
         recovery_artifact_identity_diagnostic_method,
         recovery_artifact_identity_diagnostic_selftest_method,
         recovery_artifact_load_binding_method, recovery_artifact_load_binding_selftest_method,
@@ -112,6 +114,8 @@ use crate::{
         recovery_artifact_trust_diagnostic_selftest_method,
         recovery_artifact_vm_test_diagnostic_method,
         recovery_artifact_vm_test_diagnostic_selftest_method,
+        recovery_lifeline_request_diagnostic_method,
+        recovery_lifeline_request_diagnostic_selftest_method,
     },
     agent_protocol_support::{method_eq, method_head_eq},
     agent_protocol_system::{
@@ -483,6 +487,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("recovery.rollback_evidence_diagnostic_selftest");
         emit_recovery_artifact_rollback_evidence_diagnostic_selftest();
         return DispatchOutcome::Response("recovery.rollback_evidence_diagnostic_selftest");
+    }
+    if recovery_lifeline_request_diagnostic_method(method) {
+        record_read("recovery.lifeline_request_diagnostic");
+        emit_recovery_lifeline_request_diagnostic(method);
+        return DispatchOutcome::Response("recovery.lifeline_request_diagnostic");
+    }
+    if recovery_lifeline_request_diagnostic_selftest_method(method) {
+        record_read("recovery.lifeline_request_diagnostic_selftest");
+        emit_recovery_lifeline_request_diagnostic_selftest();
+        return DispatchOutcome::Response("recovery.lifeline_request_diagnostic_selftest");
     }
     if recovery_artifact_load_binding_method(method) {
         record_read("recovery.load_binding");

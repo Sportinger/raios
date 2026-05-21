@@ -353,6 +353,29 @@ pub struct RecoveryArtifactRollbackEvidenceReference {
     pub rollback_evidence_hash: [u8; 32],
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryLifelineRequestReference {
+    pub lifeline_request_reference_hash: [u8; 32],
+    pub retained_identity_reference_event_id: EventId,
+    pub retained_trust_reference_event_id: EventId,
+    pub retained_vm_test_reference_event_id: EventId,
+    pub retained_local_approval_reference_event_id: EventId,
+    pub retained_loader_reference_event_id: EventId,
+    pub retained_rollback_evidence_reference_event_id: EventId,
+    pub identity_reference_hash: [u8; 32],
+    pub trust_reference_hash: [u8; 32],
+    pub vm_test_reference_hash: [u8; 32],
+    pub local_approval_reference_hash: [u8; 32],
+    pub loader_reference_hash: [u8; 32],
+    pub rollback_evidence_reference_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub trust_hash: [u8; 32],
+    pub vm_test_hash: [u8; 32],
+    pub local_approval_hash: [u8; 32],
+    pub loader_hash: [u8; 32],
+    pub rollback_evidence_hash: [u8; 32],
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ModuleManifestReferenceGateCheck {
     pub(crate) event_id: Option<EventId>,
@@ -488,6 +511,7 @@ pub enum EventBindings {
     RecoveryArtifactLocalApprovalReference(RecoveryArtifactLocalApprovalReference),
     RecoveryArtifactLoaderReference(RecoveryArtifactLoaderReference),
     RecoveryArtifactRollbackEvidenceReference(RecoveryArtifactRollbackEvidenceReference),
+    RecoveryLifelineRequestReference(RecoveryLifelineRequestReference),
 }
 
 #[derive(Clone, Copy)]

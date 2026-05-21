@@ -2,14 +2,18 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-21 by Codex after extending guest recovery artifact
+Last updated: 2026-05-22 by Codex after extending guest recovery artifact
 diagnostics with `recovery.loader_diagnostic`,
 `recovery.loader_diagnostic_selftest`, `recovery.rollback_evidence_diagnostic`,
 and `recovery.rollback_evidence_diagnostic_selftest`, retaining valid
 local-only current-boot `raios.recovery_artifact_loader.v0` and
 `raios.recovery_artifact_rollback_evidence.v0` hash references, and binding all
-six retained recovery evidence ids into `recovery.load_binding` while still
-denying recovery loads; previous milestone also added guest
+six retained recovery evidence ids into `recovery.load_binding` plus
+`recovery.lifeline_request_diagnostic`/
+`recovery.lifeline_request_diagnostic_selftest` over
+`raios.recovery_lifeline_request.v0` while still denying recovery loads, loader
+execution, durable records, rollback installs, service-slot allocation, and
+lifeline behavior; previous milestone also added guest
 `module.audit_rollback_availability`,
 `module.audit_rollback_availability_selftest`,
 `module.audit_rollback_write_policy`,
@@ -67,7 +71,7 @@ Latest maintenance verification:
   passed on 2026-05-21.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260521-235356-11108.json` with 2094/2094
+  `release\vm-reports\shadow-20260522-002324-18788.json` with 2152/2152
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -135,7 +139,12 @@ Latest maintenance verification:
   evidence, plus `recovery.load_binding` and
   `recovery.load_binding_selftest` proving all six required recovery-only
   evidence ids, payload-hash non-authority, no durable records, no rollback
-  install, and no recovery or normal module load.
+  install, and no recovery or normal module load, plus
+  `recovery.lifeline_request_diagnostic` and
+  `recovery.lifeline_request_diagnostic_selftest` proving
+  `raios.recovery_lifeline_request.v0` consumes the retained recovery evidence
+  chain only as current-boot local-only hash references and still cannot move
+  beyond denial.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
   positive request/export audit binding markers stayed absent. The local image
@@ -542,33 +551,41 @@ of using `cap.module.load_ephemeral`. `recovery.load_binding` and
 `recovery.load_binding_selftest` now expose the retained recovery-only evidence
 id binding shape, including retained identity, trust, VM-test, and local
 approval hash references, while keeping it non-authorizing.
+`recovery.lifeline_request_diagnostic` and
+`recovery.lifeline_request_diagnostic_selftest` now expose a local-only
+current-boot `raios.recovery_lifeline_request.v0` hash-reference boundary over
+the fully retained recovery evidence chain, with negative coverage for missing,
+stale, previous-boot, wrong-schema, substituted, and mismatched chains.
 No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the recovery lifeline request boundary over the fully retained recovery
-evidence chain.
+Define the recovery lifeline protocol state/provenance gaps after a valid
+retained lifeline request.
 ```
 
-Start from `recovery.load_binding`, which now binds retained recovery-only
-identity, trust, VM-test, local approval, loader, and rollback-evidence event
-ids while keeping loading denied. Add the next read-only diagnostic for a
-`raios.recovery_lifeline_request.v0` shape over that fully retained evidence
-chain. It should validate current-boot event ids and retained-reference hashes,
-return explicit local-only denial for missing, stale, wrong-schema,
-substituted, and mismatched chains, and still avoid fake persistent memory,
-fallback stores, durable records, loaders, rollback transactions, or recovery
-lifeline behavior.
+Start from the retained `raios.recovery_lifeline_request.v0` event, which now
+binds retained recovery-only identity, trust, VM-test, local approval, loader,
+and rollback-evidence event ids while keeping loading denied. Add the next
+read-only diagnostic for protocol state and provenance gaps: missing recovery
+lifeline command vocabulary, loader runtime isolation, rollback transaction
+engine, durable audit/rollback persistence, and recovery memory provenance. It
+should reject stale, wrong-schema, substituted, and mismatched retained request
+chains before reporting readiness, and still avoid fake persistent memory,
+fallback stores, durable records, loaders, rollback transactions, service-slot
+side effects, direct-OpenAI recovery shortcuts, or recovery lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only `recovery.lifeline_request_diagnostic` and selftest schemas
-   over the fully retained recovery evidence chain.
-2. Bind accepted lifeline request hashes to the six retained recovery evidence
-   ids while keeping `can_move_beyond_denial: false`.
-3. Define the recovery lifeline protocol state/provenance gaps without
-   implementing a loader, rollback transaction, or persistent recovery memory.
+1. Define read-only recovery lifeline protocol state/provenance diagnostics
+   over the retained lifeline request event and its six bound evidence ids.
+2. Bind missing lifeline protocol state, command vocabulary, loader isolation,
+   rollback transaction engine, durable audit/rollback persistence, and recovery
+   memory provenance as typed local-only denial facts.
+3. Keep selftests proving stale/wrong-schema/substituted/mismatched retained
+   lifeline request chains stay rejected without implementing a loader,
+   rollback transaction, or persistent recovery memory.
 
 Current blockers and non-goals:
 

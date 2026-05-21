@@ -147,6 +147,27 @@ pub struct RecoveryArtifactRollbackEvidenceReferenceHashInput<'a> {
     pub rollback_evidence_hash: [u8; 32],
 }
 
+pub struct RecoveryLifelineRequestReferenceHashInput<'a> {
+    pub retained_identity_reference_event_id: &'a str,
+    pub retained_trust_reference_event_id: &'a str,
+    pub retained_vm_test_reference_event_id: &'a str,
+    pub retained_local_approval_reference_event_id: &'a str,
+    pub retained_loader_reference_event_id: &'a str,
+    pub retained_rollback_evidence_reference_event_id: &'a str,
+    pub identity_reference_hash: [u8; 32],
+    pub trust_reference_hash: [u8; 32],
+    pub vm_test_reference_hash: [u8; 32],
+    pub local_approval_reference_hash: [u8; 32],
+    pub loader_reference_hash: [u8; 32],
+    pub rollback_evidence_reference_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub trust_hash: [u8; 32],
+    pub vm_test_hash: [u8; 32],
+    pub local_approval_hash: [u8; 32],
+    pub loader_hash: [u8; 32],
+    pub rollback_evidence_hash: [u8; 32],
+}
+
 pub fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash_static_line(
@@ -575,6 +596,131 @@ pub fn computed_recovery_artifact_rollback_evidence_reference_hash(
     hash_static_line(&mut hash, b"authorizes_recovery_load=false", true);
     hash_static_line(&mut hash, b"creates_durable_records=false", true);
     hash_static_line(&mut hash, b"installs_rollback_plan=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_recovery_lifeline_request_reference_hash(
+    input: RecoveryLifelineRequestReferenceHashInput<'_>,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.recovery_lifeline_request.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.recovery_lifeline_request.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"requested_capability=cap.recovery.load_artifact",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=recovery_only", true);
+    hash_static_line(&mut hash, b"subject=agent.session.serial", true);
+    hash_static_line(&mut hash, b"resource=recovery_lifeline", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_str_line(
+        &mut hash,
+        b"retained_recovery_artifact_identity_event_id",
+        input.retained_identity_reference_event_id,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"retained_recovery_artifact_trust_event_id",
+        input.retained_trust_reference_event_id,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"retained_recovery_artifact_vm_test_event_id",
+        input.retained_vm_test_reference_event_id,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"retained_recovery_artifact_local_approval_event_id",
+        input.retained_local_approval_reference_event_id,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"retained_recovery_artifact_loader_event_id",
+        input.retained_loader_reference_event_id,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"retained_recovery_artifact_rollback_evidence_event_id",
+        input.retained_rollback_evidence_reference_event_id,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"identity_reference_sha256",
+        input.identity_reference_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"trust_reference_sha256",
+        input.trust_reference_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"vm_test_reference_sha256",
+        input.vm_test_reference_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"local_approval_reference_sha256",
+        input.local_approval_reference_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"loader_reference_sha256",
+        input.loader_reference_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"rollback_evidence_reference_sha256",
+        input.rollback_evidence_reference_hash,
+        true,
+    );
+    hash_hash_line(&mut hash, b"artifact_sha256", input.artifact_hash, true);
+    hash_hash_line(&mut hash, b"trust_sha256", input.trust_hash, true);
+    hash_hash_line(&mut hash, b"vm_test_sha256", input.vm_test_hash, true);
+    hash_hash_line(
+        &mut hash,
+        b"local_approval_sha256",
+        input.local_approval_hash,
+        true,
+    );
+    hash_hash_line(&mut hash, b"loader_sha256", input.loader_hash, true);
+    hash_hash_line(
+        &mut hash,
+        b"rollback_evidence_sha256",
+        input.rollback_evidence_hash,
+        true,
+    );
+    hash_static_line(&mut hash, b"accepts_lifeline_request_json=false", true);
+    hash_static_line(&mut hash, b"accepts_loader_descriptor=false", true);
+    hash_static_line(&mut hash, b"accepts_artifact_bytes=false", true);
+    hash_static_line(&mut hash, b"loads_recovery_loader=false", true);
+    hash_static_line(&mut hash, b"loads_recovery_artifact=false", true);
+    hash_static_line(&mut hash, b"authorizes_recovery_load=false", true);
+    hash_static_line(&mut hash, b"creates_durable_records=false", true);
+    hash_static_line(&mut hash, b"installs_rollback_plan=false", true);
+    hash_static_line(&mut hash, b"allocates_service_slot=false", true);
     hash_static_line(&mut hash, b"service_inventory_change=none", true);
     hash_static_line(&mut hash, b"load_attempted=false", false);
     finalize_sha256(hash)
