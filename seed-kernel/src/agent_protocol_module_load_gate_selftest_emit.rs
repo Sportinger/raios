@@ -1,8 +1,11 @@
 use crate::{
     agent_protocol_module_load_gate_selftest::{
-        module_load_gate_artifact_selftest_cases, module_load_gate_audit_rollback_selftest_cases,
-        module_load_gate_manifest_selftest_cases, module_load_gate_retained_selftest_cases,
-        module_load_gate_service_slot_selftest_cases, module_load_gate_vm_report_selftest_cases,
+        module_load_gate_audit_rollback_selftest_cases, module_load_gate_retained_selftest_cases,
+        module_load_gate_service_slot_selftest_cases,
+    },
+    agent_protocol_module_load_gate_selftest_reference_cases::{
+        module_load_gate_artifact_selftest_cases, module_load_gate_manifest_selftest_cases,
+        module_load_gate_vm_report_selftest_cases,
     },
     agent_protocol_module_types::*,
     agent_protocol_support::{
