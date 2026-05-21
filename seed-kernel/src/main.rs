@@ -24,6 +24,7 @@ mod agent_protocol_module_load_gate;
 mod agent_protocol_module_load_gate_render;
 mod agent_protocol_module_load_gate_selftest;
 mod agent_protocol_module_load_gate_selftest_emit;
+mod agent_protocol_module_load_gate_selftest_eval;
 mod agent_protocol_module_reference;
 mod agent_protocol_module_service_slot;
 mod agent_protocol_module_types;

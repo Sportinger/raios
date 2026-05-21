@@ -3,9 +3,11 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-21 by Codex after moving module load-gate selftest JSON
-emitters into `seed-kernel/src/agent_protocol_module_load_gate_selftest_emit.rs`.
-This continues the maintenance pass after the event-log split and preserves the
-same `module.load_gate_*_selftest` method surface and response schemas.
+emitters into `seed-kernel/src/agent_protocol_module_load_gate_selftest_emit.rs`
+and selftest candidate evaluators into
+`seed-kernel/src/agent_protocol_module_load_gate_selftest_eval.rs`. This
+continues the maintenance pass after the event-log split and preserves the same
+`module.load_gate_*_selftest` method surface and response schemas.
 
 Latest maintenance verification:
 
@@ -20,7 +22,7 @@ Latest maintenance verification:
   passed on 2026-05-21.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260521-130110-24064.json` with 897/897
+  `release\vm-reports\shadow-20260521-130544-15960.json` with 897/897
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,

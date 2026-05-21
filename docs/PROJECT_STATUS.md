@@ -2,7 +2,9 @@
 
 Last verified locally: 2026-05-21 on Windows with QEMU 11 after moving module
 load-gate selftest JSON emitters into
-`seed-kernel/src/agent_protocol_module_load_gate_selftest_emit.rs`,
+`seed-kernel/src/agent_protocol_module_load_gate_selftest_emit.rs` and selftest
+candidate evaluators into
+`seed-kernel/src/agent_protocol_module_load_gate_selftest_eval.rs`,
 via headless Shadow VM smoke covering deterministic `provider_minimal`
 packet/field-list evidence, explicit provider request-binding denial and
 export-denial audit records, the denied `provider.context_export` gate, the
@@ -55,7 +57,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-21 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260521-130110-24064.json` with 897/897
+`release\vm-reports\shadow-20260521-130544-15960.json` with 897/897
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
