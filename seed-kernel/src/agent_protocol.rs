@@ -49,8 +49,10 @@ use crate::{
         emit_module_audit_rollback_append_engine,
         emit_module_audit_rollback_append_engine_selftest,
         emit_module_audit_rollback_append_intent,
-        emit_module_audit_rollback_append_intent_selftest, emit_module_audit_rollback_availability,
-        emit_module_audit_rollback_availability_selftest,
+        emit_module_audit_rollback_append_intent_selftest,
+        emit_module_audit_rollback_append_payload_hash,
+        emit_module_audit_rollback_append_payload_hash_selftest,
+        emit_module_audit_rollback_availability, emit_module_audit_rollback_availability_selftest,
         emit_module_audit_rollback_storage_layout,
         emit_module_audit_rollback_storage_layout_selftest,
         emit_module_audit_rollback_write_boundary,
@@ -62,6 +64,8 @@ use crate::{
         module_audit_rollback_append_engine_selftest_method,
         module_audit_rollback_append_intent_method,
         module_audit_rollback_append_intent_selftest_method,
+        module_audit_rollback_append_payload_hash_method,
+        module_audit_rollback_append_payload_hash_selftest_method,
         module_audit_rollback_availability_method,
         module_audit_rollback_availability_selftest_method,
         module_audit_rollback_storage_layout_method,
@@ -322,6 +326,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("module.audit_rollback_append_contract_selftest");
         emit_module_audit_rollback_append_contract_selftest();
         return DispatchOutcome::Response("module.audit_rollback_append_contract_selftest");
+    }
+    if module_audit_rollback_append_payload_hash_method(method) {
+        record_read("module.audit_rollback_append_payload_hash");
+        emit_module_audit_rollback_append_payload_hash();
+        return DispatchOutcome::Response("module.audit_rollback_append_payload_hash");
+    }
+    if module_audit_rollback_append_payload_hash_selftest_method(method) {
+        record_read("module.audit_rollback_append_payload_hash_selftest");
+        emit_module_audit_rollback_append_payload_hash_selftest();
+        return DispatchOutcome::Response("module.audit_rollback_append_payload_hash_selftest");
     }
     if module_audit_rollback_append_intent_method(method) {
         record_read("module.audit_rollback_append_intent");

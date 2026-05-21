@@ -317,16 +317,25 @@ What boots and works in the VM right now:
   both as missing/non-authorizing while consuming the storage-layout and
   append-engine facts separately from availability and policy facts and naming
   explicit stable-id/provenance bindings for future append envelopes
+- Guest read-only audit/rollback append payload-hash diagnostics for typed
+  `raios.audit_record_append_payload_hash_envelope.v0` and
+  `raios.rollback_transaction_append_payload_hash_envelope.v0` current-boot
+  facts, deriving local-only envelope hashes from retained audit/rollback
+  candidates, retained service-slot evidence, the pre-load write-request shape,
+  and bound append-contract ids without treating those hashes as durable
+  authority
 - Guest read-only audit/rollback append-intent diagnostics for typed
   `raios.audit_record_append_intent.v0` and
   `raios.rollback_transaction_append_intent.v0` current-boot facts, reporting
-  both as missing/non-authorizing while consuming the bound append contract and
-  naming required append-contract, append-engine, storage-layout, write-policy,
-  availability, payload-hash, and provenance bindings for future append requests
+  both as missing/non-authorizing while consuming the bound append contract plus
+  payload-hash envelope readiness and naming required append-contract,
+  append-engine, storage-layout, write-policy, availability, payload-hash, and
+  provenance bindings for future append requests
 - Guest read-only audit/rollback write-boundary diagnostics that consume the
   retained module evidence chain, service-slot reservation, availability facts,
   write-policy facts, storage-layout facts, append-engine facts through the
-  append contract, append/storage contract facts, and append-intent facts, emit
+  append contract, append/storage contract facts, append payload-hash envelopes,
+  and append-intent facts, emit
   `raios.module_pre_load_audit_rollback_write_request.v0` plus explicit denial
   evidence, and keep durable audit writes, rollback installs, storage-layout
   availability, append engines, and append intents missing rather than treating

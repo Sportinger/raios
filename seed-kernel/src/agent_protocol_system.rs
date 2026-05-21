@@ -223,6 +223,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "module.audit_rollback_append_engine_selftest",
     "module.audit_rollback_append_contract",
     "module.audit_rollback_append_contract_selftest",
+    "module.audit_rollback_append_payload_hash",
+    "module.audit_rollback_append_payload_hash_selftest",
     "module.audit_rollback_append_intent",
     "module.audit_rollback_append_intent_selftest",
     "module.audit_rollback_write_boundary",

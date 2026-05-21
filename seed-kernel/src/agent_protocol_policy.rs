@@ -145,6 +145,8 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         || method_eq(method, "module.audit_rollback_append_engine_selftest")
         || method_eq(method, "module.audit_rollback_append_contract")
         || method_eq(method, "module.audit_rollback_append_contract_selftest")
+        || method_eq(method, "module.audit_rollback_append_payload_hash")
+        || method_eq(method, "module.audit_rollback_append_payload_hash_selftest")
         || method_eq(method, "module.audit_rollback_append_intent")
         || method_eq(method, "module.audit_rollback_append_intent_selftest")
         || method_eq(method, "module.audit_rollback_write_boundary")

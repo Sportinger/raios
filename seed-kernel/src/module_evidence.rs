@@ -1084,6 +1084,164 @@ pub fn computed_module_service_slot_reservation_hash(
     finalize_sha256(hash)
 }
 
+pub fn computed_module_audit_append_payload_hash_from_sequences(
+    retained_audit_rollback_reference_event_sequence: u64,
+    retained_service_slot_reservation_event_sequence: u64,
+    audit_record_hash: [u8; 32],
+    rollback_plan_hash: [u8; 32],
+    pre_load_service_inventory_hash: [u8; 32],
+    service_slot_reservation_hash: [u8; 32],
+    ram_only_service_slot_id: &str,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.append_payload_hash_envelope.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.audit_record_append_payload_hash_envelope.v0",
+        true,
+    );
+    hash_static_line(&mut hash, b"target_schema=raios.audit_record.v0", true);
+    hash_static_line(
+        &mut hash,
+        b"pre_load_write_request_schema=raios.module_pre_load_audit_rollback_write_request.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"append_contract_id=append.audit_ledger.current_boot",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=ram_only", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_event_id_line(
+        &mut hash,
+        b"retained_audit_rollback_reference_event_id",
+        retained_audit_rollback_reference_event_sequence,
+        true,
+    );
+    hash_event_id_line(
+        &mut hash,
+        b"retained_service_slot_reservation_event_id",
+        retained_service_slot_reservation_event_sequence,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"audit_record_payload_sha256",
+        audit_record_hash,
+        true,
+    );
+    hash_hash_line(&mut hash, b"rollback_plan_sha256", rollback_plan_hash, true);
+    hash_hash_line(
+        &mut hash,
+        b"pre_load_service_inventory_sha256",
+        pre_load_service_inventory_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"service_slot_reservation_sha256",
+        service_slot_reservation_hash,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"ram_only_service_slot_id",
+        ram_only_service_slot_id,
+        true,
+    );
+    hash_static_line(&mut hash, b"classification=local_only", true);
+    hash_static_line(&mut hash, b"authorizes_append_intent=false", true);
+    hash_static_line(&mut hash, b"authorizes_write=false", true);
+    hash_static_line(&mut hash, b"durable=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_module_rollback_append_payload_hash_from_sequences(
+    retained_audit_rollback_reference_event_sequence: u64,
+    retained_service_slot_reservation_event_sequence: u64,
+    audit_record_hash: [u8; 32],
+    rollback_plan_hash: [u8; 32],
+    pre_load_service_inventory_hash: [u8; 32],
+    service_slot_reservation_hash: [u8; 32],
+    ram_only_service_slot_id: &str,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.append_payload_hash_envelope.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.rollback_transaction_append_payload_hash_envelope.v0",
+        true,
+    );
+    hash_static_line(&mut hash, b"target_schema=raios.rollback_plan.v0", true);
+    hash_static_line(
+        &mut hash,
+        b"pre_load_write_request_schema=raios.module_pre_load_audit_rollback_write_request.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"append_contract_id=append.rollback_store.current_boot",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=ram_only", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_event_id_line(
+        &mut hash,
+        b"retained_audit_rollback_reference_event_id",
+        retained_audit_rollback_reference_event_sequence,
+        true,
+    );
+    hash_event_id_line(
+        &mut hash,
+        b"retained_service_slot_reservation_event_id",
+        retained_service_slot_reservation_event_sequence,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"rollback_plan_payload_sha256",
+        rollback_plan_hash,
+        true,
+    );
+    hash_hash_line(&mut hash, b"audit_record_sha256", audit_record_hash, true);
+    hash_hash_line(
+        &mut hash,
+        b"pre_load_service_inventory_sha256",
+        pre_load_service_inventory_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"service_slot_reservation_sha256",
+        service_slot_reservation_hash,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"ram_only_service_slot_id",
+        ram_only_service_slot_id,
+        true,
+    );
+    hash_static_line(&mut hash, b"classification=local_only", true);
+    hash_static_line(&mut hash, b"authorizes_append_intent=false", true);
+    hash_static_line(&mut hash, b"authorizes_write=false", true);
+    hash_static_line(&mut hash, b"durable=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
 pub fn ram_only_service_slot_id_valid(value: &str) -> bool {
     let Some(slot) = value.strip_prefix("ram_only:") else {
         return false;
