@@ -35,6 +35,7 @@ mod e1000;
 mod entropy;
 mod event_log;
 mod event_log_evidence;
+mod event_log_module_checks;
 mod event_log_provider_selftest;
 mod event_log_types;
 mod framebuffer;

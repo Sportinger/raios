@@ -6,10 +6,11 @@ Last updated: 2026-05-21 by Codex after extracting the event log's pure
 type/binding definitions into `seed-kernel/src/event_log_types.rs` and static
 evidence label lists into `seed-kernel/src/event_log_evidence.rs`, then moving
 the provider context binding/injection gate selftests into
-`seed-kernel/src/event_log_provider_selftest.rs` while preserving the existing
-`event_log::...` API through re-exports/wrappers. The changes are
-maintenance-only: event recording, provider gates, module load-gate denials, and
-current-boot evidence semantics remain unchanged.
+`seed-kernel/src/event_log_provider_selftest.rs`, and moving module
+reference/hash comparison helpers into `seed-kernel/src/event_log_module_checks.rs`
+while preserving the existing `event_log::...` API through re-exports/wrappers.
+The changes are maintenance-only: event recording, provider gates, module
+load-gate denials, and current-boot evidence semantics remain unchanged.
 
 Latest maintenance verification:
 
@@ -24,7 +25,7 @@ Latest maintenance verification:
   passed on 2026-05-21.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260521-125046-13424.json` with 897/897
+  `release\vm-reports\shadow-20260521-125458-1228.json` with 897/897
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
