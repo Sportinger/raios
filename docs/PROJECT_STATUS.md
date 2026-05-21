@@ -3,6 +3,8 @@
 Last verified locally: 2026-05-21 on Windows with QEMU 11 after extracting the
 event log's pure type/binding definitions into `seed-kernel/src/event_log_types.rs`
 and static evidence label lists into `seed-kernel/src/event_log_evidence.rs`,
+then moving provider gate selftests into
+`seed-kernel/src/event_log_provider_selftest.rs`,
 via headless Shadow VM smoke covering deterministic `provider_minimal`
 packet/field-list evidence, explicit provider request-binding denial and
 export-denial audit records, the denied `provider.context_export` gate, the
@@ -55,7 +57,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-21 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260521-124536-3244.json` with 897/897
+`release\vm-reports\shadow-20260521-125046-13424.json` with 897/897
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
