@@ -20,6 +20,9 @@ Last verified locally: 2026-05-21 on Windows with QEMU 11 after adding guest
 `recovery.load_artifact`/`module.load_recovery_artifact`, read-only
 `recovery.identity_diagnostic`/`recovery.identity_diagnostic_selftest`,
 `recovery.trust_diagnostic`/`recovery.trust_diagnostic_selftest`, and
+`recovery.vm_test_diagnostic`/`recovery.vm_test_diagnostic_selftest`,
+`recovery.local_approval_diagnostic`/
+`recovery.local_approval_diagnostic_selftest`, and
 `recovery.load_binding`/`recovery.load_binding_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
 typed missing `raios.durable_audit_write_policy.v0`/
@@ -43,8 +46,10 @@ inputs over the retained module evidence chain, and typed current-boot
 artifact identity, trust, VM-test, local approval, loader, and rollback
 evidence on the separate `cap.recovery.load_artifact` path, plus local-only
 retained `raios.recovery_artifact_identity.v0` and
-`raios.recovery_artifact_trust.v0` hash-reference diagnostics whose event ids
-are consumed by `recovery.load_binding`, plus retained recovery-only
+`raios.recovery_artifact_trust.v0`,
+`raios.recovery_artifact_vm_test.v0`, and
+`raios.recovery_artifact_local_approval.v0` hash-reference diagnostics whose
+event ids are consumed by `recovery.load_binding`, plus retained recovery-only
 evidence-id binding diagnostics that
 reject normal module append-intent, append-payload, writer, service-slot, and
 `module.load_ephemeral` authority, via headless Shadow VM smoke
@@ -110,7 +115,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-21 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260521-230811-19164.json` with 1872/1872
+`release\vm-reports\shadow-20260521-232959-10980.json` with 1986/1986
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
@@ -194,8 +199,13 @@ reuse, no recovery artifact load, and no service inventory change, plus
 read-only recovery artifact identity/trust hash-reference diagnostics retaining
 valid local-only current-boot `raios.recovery_artifact_identity.v0` and
 `raios.recovery_artifact_trust.v0` event bindings without artifact bytes or
-load authority, plus read-only `recovery.load_binding` and
-`recovery.load_binding_selftest` proving required recovery-only evidence ids,
+load authority, read-only recovery artifact VM-test/local-approval
+hash-reference diagnostics retaining valid local-only current-boot
+`raios.recovery_artifact_vm_test.v0` and
+`raios.recovery_artifact_local_approval.v0` event bindings without accepting
+VM-test JSON, approval text, artifact bytes, or load authority, plus read-only
+`recovery.load_binding` and `recovery.load_binding_selftest` proving required
+recovery-only evidence ids,
 normal module append-intent, append-payload, writer, service-slot, and
 `module.load_ephemeral` facts are non-authority, append payload-hash envelopes
 remain non-authority inputs, and recovery artifacts stay non-loaded,
@@ -346,15 +356,16 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define recovery artifact VM-test and local approval reference diagnostics:
+Define recovery artifact loader and rollback-evidence reference diagnostics:
 
 - add read-only current-boot diagnostics for
-  `raios.recovery_artifact_vm_test.v0` and
-  `raios.recovery_artifact_local_approval.v0` hash references
-- retain only local-only, current-boot, non-authorizing VM-test/local-approval
+  `raios.recovery_artifact_loader.v0` and
+  `raios.recovery_artifact_rollback_evidence.v0` hash references
+- retain only local-only, current-boot, non-authorizing loader/rollback-evidence
   references and bind their event ids into `recovery.load_binding`
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched VM-test/local-approval candidates with explicit local-only selftests
+  mismatched loader/rollback-evidence candidates with explicit local-only
+  selftests
 - keep `recovery.load_artifact`, `recovery.load_binding`,
   `module.load_ephemeral`, append payload-hash envelopes, durable audit writes,
   rollback installs, and service-slot allocation non-authorizing
@@ -974,7 +985,7 @@ The verified foundation for that task is:
   loader, and rollback evidence, plus read-only recovery load binding and
   binding selftest coverage.
   Latest report:
-  `release\vm-reports\shadow-20260521-230811-19164.json` with 1872/1872
+  `release\vm-reports\shadow-20260521-232959-10980.json` with 1986/1986
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

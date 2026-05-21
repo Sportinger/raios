@@ -10,7 +10,8 @@ use crate::event_log_evidence::{
     PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE, PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
     PROVIDER_REQUEST_BINDING_EVIDENCE, PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
     RECOVERY_ARTIFACT_IDENTITY_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE,
-    RECOVERY_ARTIFACT_TRUST_REFERENCE_EVIDENCE,
+    RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
+    RECOVERY_ARTIFACT_TRUST_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_VM_TEST_REFERENCE_EVIDENCE,
 };
 use crate::event_log_module_checks::{
     module_audit_rollback_binds_computed_grant, module_audit_rollback_reference_hash_mismatch,
@@ -38,7 +39,8 @@ pub use crate::event_log_types::{
     ProviderContextInjectionGateCheck, ProviderContextInjectionGateSelfTestCase,
     ProviderExportAuditBinding, ProviderRequestBinding, ProviderRequestEnvelopeBinding,
     RecoveryArtifactIdentityReference, RecoveryArtifactLoadDenialBinding,
-    RecoveryArtifactTrustReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
+    RecoveryArtifactLocalApprovalReference, RecoveryArtifactTrustReference,
+    RecoveryArtifactVmTestReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
     PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::module_evidence;
@@ -731,6 +733,58 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::RecoveryArtifactTrustReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_artifact_vm_test_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryArtifactVmTestReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryArtifactVmTestReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_artifact_local_approval_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryArtifactLocalApprovalReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryArtifactLocalApprovalReference(binding) =
+                    event.bindings
+                {
                     return Some((
                         EventId {
                             sequence: event.sequence,
@@ -2271,6 +2325,46 @@ pub fn record_recovery_artifact_trust_reference(
     })
 }
 
+pub fn record_recovery_artifact_vm_test_reference(
+    binding: RecoveryArtifactVmTestReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.artifact_vm_test_reference.retained",
+        source_method: "recovery.vm_test_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.recovery.load_artifact.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline",
+        reason: "recovery_artifact_vm_test_reference_valid_for_current_boot",
+        evidence: RECOVERY_ARTIFACT_VM_TEST_REFERENCE_EVIDENCE,
+        bindings: EventBindings::RecoveryArtifactVmTestReference(binding),
+    })
+}
+
+pub fn record_recovery_artifact_local_approval_reference(
+    binding: RecoveryArtifactLocalApprovalReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.artifact_local_approval_reference.retained",
+        source_method: "recovery.local_approval_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.recovery.load_artifact.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline",
+        reason: "recovery_artifact_local_approval_reference_valid_for_current_boot",
+        evidence: RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
+        bindings: EventBindings::RecoveryArtifactLocalApprovalReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -2561,6 +2655,17 @@ pub fn latest_recovery_artifact_identity_reference(
 pub fn latest_recovery_artifact_trust_reference(
 ) -> Option<(EventId, RecoveryArtifactTrustReference)> {
     LOG.lock().latest_recovery_artifact_trust_reference()
+}
+
+pub fn latest_recovery_artifact_vm_test_reference(
+) -> Option<(EventId, RecoveryArtifactVmTestReference)> {
+    LOG.lock().latest_recovery_artifact_vm_test_reference()
+}
+
+pub fn latest_recovery_artifact_local_approval_reference(
+) -> Option<(EventId, RecoveryArtifactLocalApprovalReference)> {
+    LOG.lock()
+        .latest_recovery_artifact_local_approval_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(

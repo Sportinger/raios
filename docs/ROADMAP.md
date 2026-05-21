@@ -21,7 +21,10 @@ Last updated: 2026-05-21 by Codex after adding guest
 `module.audit_rollback_write_boundary_selftest`, plus denied
 `recovery.load_artifact`/`module.load_recovery_artifact`, read-only
 `recovery.identity_diagnostic`/`recovery.identity_diagnostic_selftest`,
-`recovery.trust_diagnostic`/`recovery.trust_diagnostic_selftest`, and
+`recovery.trust_diagnostic`/`recovery.trust_diagnostic_selftest`,
+`recovery.vm_test_diagnostic`/`recovery.vm_test_diagnostic_selftest`,
+`recovery.local_approval_diagnostic`/
+`recovery.local_approval_diagnostic_selftest`, and
 `recovery.load_binding`/`recovery.load_binding_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` facts, typed missing
 `raios.durable_audit_write_policy.v0`/`raios.rollback_install_policy.v0` facts,
@@ -40,8 +43,8 @@ stable-id, payload-hash envelope, payload-hash, and provenance binding inputs
 over the retained module evidence chain, and typed missing recovery artifact
 identity, trust, VM-test, local approval, loader, and rollback evidence on the
 separate `cap.recovery.load_artifact` path, with local-only retained
-recovery identity/trust hash-reference diagnostics and retained recovery-only
-evidence-id binding diagnostics that reject normal module append-intent,
+recovery identity/trust/VM-test/local-approval hash-reference diagnostics and
+retained recovery-only evidence-id binding diagnostics that reject normal module append-intent,
 append-payload, writer, service-slot, and `module.load_ephemeral` authority.
 
 Latest maintenance verification:
@@ -57,7 +60,7 @@ Latest maintenance verification:
   passed on 2026-05-21.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260521-230811-19164.json` with 1872/1872
+  `release\vm-reports\shadow-20260521-232959-10980.json` with 1986/1986
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -112,8 +115,11 @@ Latest maintenance verification:
   missing recovery artifact identity, trust, VM-test, local approval, loader,
   and rollback evidence and no normal module capability reuse, plus
   `recovery.identity_diagnostic`, `recovery.identity_diagnostic_selftest`,
-  `recovery.trust_diagnostic`, and `recovery.trust_diagnostic_selftest`
-  retaining valid recovery identity/trust hash references as local-only
+  `recovery.trust_diagnostic`, `recovery.trust_diagnostic_selftest`,
+  `recovery.vm_test_diagnostic`, `recovery.vm_test_diagnostic_selftest`,
+  `recovery.local_approval_diagnostic`, and
+  `recovery.local_approval_diagnostic_selftest` retaining valid recovery
+  identity/trust/VM-test/local-approval hash references as local-only
   current-boot event evidence, plus `recovery.load_binding` and
   `recovery.load_binding_selftest` proving required recovery-only evidence ids,
   payload-hash non-authority, no durable records, no rollback install, and no
@@ -522,33 +528,37 @@ predicates. A separate recovery artifact load boundary now denies
 `cap.recovery.load_artifact` with typed current-boot missing evidence instead
 of using `cap.module.load_ephemeral`. `recovery.load_binding` and
 `recovery.load_binding_selftest` now expose the retained recovery-only evidence
-id binding shape while keeping it non-authorizing.
+id binding shape, including retained identity, trust, VM-test, and local
+approval hash references, while keeping it non-authorizing.
 No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define recovery artifact VM-test and local approval reference diagnostics.
+Define recovery artifact loader and rollback-evidence reference diagnostics.
 ```
 
 Start from `recovery.load_binding`, which now names the required recovery-only
 identity, trust, VM-test, local approval, loader, and rollback event ids while
-keeping loading denied. Identity/trust references are now retained as
-local-only current-boot hash evidence and consumed by the binding diagnostic.
-Add the next read-only diagnostics for `raios.recovery_artifact_vm_test.v0` and
-`raios.recovery_artifact_local_approval.v0` hash references, retain only
+keeping loading denied. Identity/trust/VM-test/local-approval references are now
+retained as local-only current-boot hash evidence and consumed by the binding
+diagnostic. Add the next read-only diagnostics for
+`raios.recovery_artifact_loader.v0` and
+`raios.recovery_artifact_rollback_evidence.v0` hash references, retain only
 local-only non-authorizing references, and cover missing, stale, wrong-schema,
 substituted, and mismatched cases without creating fake persistent memory,
 fallback stores, durable records, loaders, or rollback transactions.
 
 Next three tasks:
 
-1. Define read-only recovery artifact VM-test and local approval hash-reference
-   diagnostics plus local-only negative selftests.
-2. Bind accepted VM-test/local-approval references into `recovery.load_binding`
-   as retained current-boot ids while keeping `can_move_beyond_denial: false`.
-3. Define recovery loader and rollback-evidence hash-reference diagnostics as
-   retained current-boot ids while keeping `can_move_beyond_denial: false`.
+1. Define read-only recovery artifact loader and rollback-evidence
+   hash-reference diagnostics plus local-only negative selftests.
+2. Bind accepted loader/rollback-evidence references into
+   `recovery.load_binding` as retained current-boot ids while keeping
+   `can_move_beyond_denial: false`.
+3. Define the recovery lifeline protocol request shape over the fully retained
+   non-authorizing recovery evidence chain without implementing a loader,
+   rollback transaction, or persistent recovery memory.
 
 Current blockers and non-goals:
 

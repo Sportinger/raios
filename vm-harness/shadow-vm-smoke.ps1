@@ -502,6 +502,12 @@ function Write-Report {
             "agent recovery.trust_diagnostic",
             "agent recovery.trust_diagnostic <valid hash reference>",
             "agent recovery.trust_diagnostic_selftest",
+            "agent recovery.vm_test_diagnostic",
+            "agent recovery.vm_test_diagnostic <valid hash reference>",
+            "agent recovery.vm_test_diagnostic_selftest",
+            "agent recovery.local_approval_diagnostic",
+            "agent recovery.local_approval_diagnostic <valid hash reference>",
+            "agent recovery.local_approval_diagnostic_selftest",
             "agent recovery.load_binding",
             "agent recovery.load_binding_selftest",
             "module.load_recovery_artifact",
@@ -2715,6 +2721,178 @@ try {
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    Send-AgentCommand -Command "agent recovery.vm_test_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.vm_test_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_vm_test_diag_absent_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_artifact_vm_test_diagnostic.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_vm_test_json"; Needle = '"accepts_vm_test_json": false' },
+        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
+        @{ Suffix = "no_recovery_load"; Needle = '"loads_recovery_artifact": false' },
+        @{ Suffix = "status"; Needle = '"validation_status": "missing"' },
+        @{ Suffix = "reason"; Needle = '"validation_reason": "recovery_artifact_vm_test_reference_absent"' },
+        @{ Suffix = "retained_missing"; Needle = '"reason": "no_valid_recovery_artifact_vm_test_reference_retained"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryVmTestHash = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    $recoveryVmTestCanonical = @(
+        "canonicalization=raios.recovery_artifact_vm_test.canonical.v0",
+        "schema=raios.recovery_artifact_vm_test.v0",
+        "requested_capability=cap.recovery.load_artifact",
+        "load_mode=recovery_only",
+        "subject=agent.session.serial",
+        "resource=recovery_lifeline",
+        "scope=current_boot",
+        "retained_recovery_artifact_identity_event_id=$recoveryIdentityEventId",
+        "retained_recovery_artifact_trust_event_id=$recoveryTrustEventId",
+        "identity_reference_sha256=$recoveryIdentityReferenceHash",
+        "trust_reference_sha256=$recoveryTrustReferenceHash",
+        "artifact_sha256=$recoveryArtifactHash",
+        "trust_sha256=$recoveryTrustHash",
+        "vm_test_sha256=$recoveryVmTestHash",
+        "accepts_vm_test_json=false",
+        "accepts_artifact_bytes=false",
+        "loads_recovery_artifact=false",
+        "authorizes_recovery_load=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $recoveryVmTestReferenceHash = Get-TextSha256 -Text $recoveryVmTestCanonical
+    $recoveryVmTestCommand = "agent recovery.vm_test_diagnostic $recoveryVmTestReferenceHash $recoveryIdentityEventId $recoveryTrustEventId $recoveryIdentityReferenceHash $recoveryTrustReferenceHash $recoveryArtifactHash $recoveryTrustHash $recoveryVmTestHash"
+
+    Send-AgentCommand -Command $recoveryVmTestCommand -ExpectedMarker "RAIOS_AGENT_END recovery.vm_test_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_vm_test_diag_valid_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "reason"; Needle = '"validation_reason": "recovery_artifact_vm_test_reference_valid_but_local_approval_and_loader_missing"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "identity_event"; Needle = "`"retained_recovery_artifact_identity_event_id`": `"$recoveryIdentityEventId`"" },
+        @{ Suffix = "trust_event"; Needle = "`"retained_recovery_artifact_trust_event_id`": `"$recoveryTrustEventId`"" },
+        @{ Suffix = "vm_test_hash_echo"; Needle = "`"vm_test_reference_hash`": `"sha256:$recoveryVmTestReferenceHash`"" },
+        @{ Suffix = "trust_hash_echo"; Needle = "`"trust_reference_hash`": `"sha256:$recoveryTrustReferenceHash`"" },
+        @{ Suffix = "identity_hash_echo"; Needle = "`"identity_reference_hash`": `"sha256:$recoveryIdentityReferenceHash`"" },
+        @{ Suffix = "vm_test_material_hash_echo"; Needle = "`"vm_test_hash`": `"sha256:$recoveryVmTestHash`"" },
+        @{ Suffix = "no_authority"; Needle = '"authorizes_recovery_load": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryVmTestResponse = Get-LastAgentResponseJson -Method "recovery.vm_test_diagnostic"
+    $recoveryVmTestEventId = [string]$recoveryVmTestResponse.body.result.retained_recovery_artifact_vm_test_reference.event_id
+    Assert-CurrentBootEventId -Name "protocol:recovery_vm_test_retained_reference_event_id_captured" -Value $recoveryVmTestEventId
+
+    Send-AgentCommand -Command "agent recovery.vm_test_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.vm_test_diagnostic_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_vm_test_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_artifact_vm_test_diagnostic_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_vm_test_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 10' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "absent_case"; Needle = '"case": "absent_reference"' },
+        @{ Suffix = "valid_case"; Needle = '"case": "accepted_current_boot_vm_test_still_denied"' },
+        @{ Suffix = "stale_case"; Needle = '"case": "stale_previous_boot_reference"' },
+        @{ Suffix = "trust_not_current_case"; Needle = '"case": "retained_trust_event_not_current_boot"' },
+        @{ Suffix = "identity_missing_case"; Needle = '"case": "retained_identity_missing"' },
+        @{ Suffix = "trust_schema_case"; Needle = '"case": "retained_trust_wrong_schema_or_variant"' },
+        @{ Suffix = "substituted_case"; Needle = '"case": "substituted_trust_reference_record"' },
+        @{ Suffix = "mismatch_case"; Needle = '"case": "vm_test_reference_hash_mismatch"' },
+        @{ Suffix = "binding_mismatch_case"; Needle = '"case": "trust_binding_mismatch"' },
+        @{ Suffix = "valid_reason"; Needle = '"actual_reason": "recovery_artifact_vm_test_reference_valid_but_local_approval_and_loader_missing"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent recovery.local_approval_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.local_approval_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_local_approval_diag_absent_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_artifact_local_approval_diagnostic.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_approval_text"; Needle = '"accepts_local_approval_text": false' },
+        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
+        @{ Suffix = "no_recovery_load"; Needle = '"loads_recovery_artifact": false' },
+        @{ Suffix = "status"; Needle = '"validation_status": "missing"' },
+        @{ Suffix = "reason"; Needle = '"validation_reason": "recovery_artifact_local_approval_reference_absent"' },
+        @{ Suffix = "retained_missing"; Needle = '"reason": "no_valid_recovery_artifact_local_approval_reference_retained"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryLocalApprovalHash = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    $recoveryLocalApprovalCanonical = @(
+        "canonicalization=raios.recovery_artifact_local_approval.canonical.v0",
+        "schema=raios.recovery_artifact_local_approval.v0",
+        "requested_capability=cap.recovery.load_artifact",
+        "load_mode=recovery_only",
+        "subject=agent.session.serial",
+        "resource=recovery_lifeline",
+        "scope=current_boot",
+        "retained_recovery_artifact_identity_event_id=$recoveryIdentityEventId",
+        "retained_recovery_artifact_trust_event_id=$recoveryTrustEventId",
+        "retained_recovery_artifact_vm_test_event_id=$recoveryVmTestEventId",
+        "identity_reference_sha256=$recoveryIdentityReferenceHash",
+        "trust_reference_sha256=$recoveryTrustReferenceHash",
+        "vm_test_reference_sha256=$recoveryVmTestReferenceHash",
+        "artifact_sha256=$recoveryArtifactHash",
+        "trust_sha256=$recoveryTrustHash",
+        "vm_test_sha256=$recoveryVmTestHash",
+        "local_approval_sha256=$recoveryLocalApprovalHash",
+        "accepts_local_approval_text=false",
+        "accepts_artifact_bytes=false",
+        "loads_recovery_artifact=false",
+        "authorizes_recovery_load=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $recoveryLocalApprovalReferenceHash = Get-TextSha256 -Text $recoveryLocalApprovalCanonical
+    $recoveryLocalApprovalCommand = "agent recovery.local_approval_diagnostic $recoveryLocalApprovalReferenceHash $recoveryIdentityEventId $recoveryTrustEventId $recoveryVmTestEventId $recoveryIdentityReferenceHash $recoveryTrustReferenceHash $recoveryVmTestReferenceHash $recoveryArtifactHash $recoveryTrustHash $recoveryVmTestHash $recoveryLocalApprovalHash"
+
+    Send-AgentCommand -Command $recoveryLocalApprovalCommand -ExpectedMarker "RAIOS_AGENT_END recovery.local_approval_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_local_approval_diag_valid_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "status"; Needle = '"validation_status": "valid_hash_reference_load_still_denied"' },
+        @{ Suffix = "reason"; Needle = '"validation_reason": "recovery_artifact_local_approval_reference_valid_but_loader_missing"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_load_still_denied"' },
+        @{ Suffix = "retained_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_matches"; Needle = '"matches_current_reference": true' },
+        @{ Suffix = "identity_event"; Needle = "`"retained_recovery_artifact_identity_event_id`": `"$recoveryIdentityEventId`"" },
+        @{ Suffix = "trust_event"; Needle = "`"retained_recovery_artifact_trust_event_id`": `"$recoveryTrustEventId`"" },
+        @{ Suffix = "vm_test_event"; Needle = "`"retained_recovery_artifact_vm_test_event_id`": `"$recoveryVmTestEventId`"" },
+        @{ Suffix = "approval_hash_echo"; Needle = "`"local_approval_reference_hash`": `"sha256:$recoveryLocalApprovalReferenceHash`"" },
+        @{ Suffix = "vm_test_hash_echo"; Needle = "`"vm_test_reference_hash`": `"sha256:$recoveryVmTestReferenceHash`"" },
+        @{ Suffix = "local_approval_material_hash_echo"; Needle = "`"local_approval_hash`": `"sha256:$recoveryLocalApprovalHash`"" },
+        @{ Suffix = "no_authority"; Needle = '"authorizes_recovery_load": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryLocalApprovalResponse = Get-LastAgentResponseJson -Method "recovery.local_approval_diagnostic"
+    $recoveryLocalApprovalEventId = [string]$recoveryLocalApprovalResponse.body.result.retained_recovery_artifact_local_approval_reference.event_id
+    Assert-CurrentBootEventId -Name "protocol:recovery_local_approval_retained_reference_event_id_captured" -Value $recoveryLocalApprovalEventId
+
+    Send-AgentCommand -Command "agent recovery.local_approval_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.local_approval_diagnostic_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_local_approval_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_artifact_local_approval_diagnostic_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_local_approval_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 11' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "absent_case"; Needle = '"case": "absent_reference"' },
+        @{ Suffix = "valid_case"; Needle = '"case": "accepted_current_boot_local_approval_still_denied"' },
+        @{ Suffix = "stale_case"; Needle = '"case": "stale_previous_boot_reference"' },
+        @{ Suffix = "vm_not_current_case"; Needle = '"case": "retained_vm_test_event_not_current_boot"' },
+        @{ Suffix = "vm_missing_case"; Needle = '"case": "retained_vm_test_missing"' },
+        @{ Suffix = "vm_schema_case"; Needle = '"case": "retained_vm_test_wrong_schema_or_variant"' },
+        @{ Suffix = "substituted_case"; Needle = '"case": "substituted_vm_test_reference_record"' },
+        @{ Suffix = "approval_mismatch_case"; Needle = '"case": "local_approval_reference_hash_mismatch"' },
+        @{ Suffix = "vm_hash_mismatch_case"; Needle = '"case": "vm_test_reference_hash_mismatch"' },
+        @{ Suffix = "chain_mismatch_case"; Needle = '"case": "retained_chain_mismatch"' },
+        @{ Suffix = "valid_reason"; Needle = '"actual_reason": "recovery_artifact_local_approval_reference_valid_but_loader_missing"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
     Send-AgentCommand -Command "agent recovery.load_binding" -ExpectedMarker "RAIOS_AGENT_END recovery.load_binding"
     $recoveryBindingResponse = Get-LastAgentResponseJson -Method "recovery.load_binding"
     Assert-LogContains -Name "protocol:recovery_binding_schema" -Needle '"schema": "raios.recovery_artifact_load_binding.v0"' -TimeoutSeconds 1
@@ -2745,18 +2923,37 @@ try {
     if (-not $recoveryBindingTrustEventIdMatches) {
         throw "Expected recovery binding trust event id $recoveryTrustEventId, got $recoveryBindingTrustEventId"
     }
+    $recoveryBindingVmTestEventId = [string]$recoveryBindingResponse.body.result.required_retained_evidence.recovery_vm_test_event_id.event_id
+    $recoveryBindingVmTestEventIdMatches = $recoveryBindingVmTestEventId -eq $recoveryVmTestEventId
+    Add-Predicate -Name "protocol:recovery_binding_vm_test_event_id_matches_retained" -Expected $recoveryVmTestEventId -Passed $recoveryBindingVmTestEventIdMatches -Actual $recoveryBindingVmTestEventId
+    if (-not $recoveryBindingVmTestEventIdMatches) {
+        throw "Expected recovery binding VM-test event id $recoveryVmTestEventId, got $recoveryBindingVmTestEventId"
+    }
+    $recoveryBindingLocalApprovalEventId = [string]$recoveryBindingResponse.body.result.required_retained_evidence.recovery_local_approval_event_id.event_id
+    $recoveryBindingLocalApprovalEventIdMatches = $recoveryBindingLocalApprovalEventId -eq $recoveryLocalApprovalEventId
+    Add-Predicate -Name "protocol:recovery_binding_local_approval_event_id_matches_retained" -Expected $recoveryLocalApprovalEventId -Passed $recoveryBindingLocalApprovalEventIdMatches -Actual $recoveryBindingLocalApprovalEventId
+    if (-not $recoveryBindingLocalApprovalEventIdMatches) {
+        throw "Expected recovery binding local-approval event id $recoveryLocalApprovalEventId, got $recoveryBindingLocalApprovalEventId"
+    }
     Assert-LogContains -Name "protocol:recovery_binding_identity_retained_status" -Needle '"status": "retained_hash_reference_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_trust_retained_status" -Needle '"status": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_vm_test_retained_status" -Needle '"status": "retained_hash_reference_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_local_approval_retained_status" -Needle '"status": "retained_hash_reference_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_identity_retained_reason" -Needle '"reason": "retained_recovery_artifact_identity_reference_not_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_trust_retained_reason" -Needle '"reason": "retained_recovery_artifact_trust_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_vm_test_retained_reason" -Needle '"reason": "retained_recovery_artifact_vm_test_reference_not_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_local_approval_retained_reason" -Needle '"reason": "retained_recovery_artifact_local_approval_reference_not_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_identity_hash" -Needle "`"identity_reference_hash`": `"sha256:$recoveryIdentityReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_trust_hash" -Needle "`"trust_reference_hash`": `"sha256:$recoveryTrustReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_vm_test_hash" -Needle "`"vm_test_reference_hash`": `"sha256:$recoveryVmTestReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_local_approval_hash" -Needle "`"local_approval_reference_hash`": `"sha256:$recoveryLocalApprovalReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_artifact_hash" -Needle "`"artifact_hash`": `"sha256:$recoveryArtifactHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_trust_material_hash" -Needle "`"trust_hash`": `"sha256:$recoveryTrustHash`"" -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:recovery_binding_vm_test_missing_reason" -Needle '"reason": "recovery_vm_test_event_id_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:recovery_binding_approval_missing_reason" -Needle '"reason": "recovery_local_approval_event_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_vm_test_material_hash" -Needle "`"vm_test_hash`": `"sha256:$recoveryVmTestHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_local_approval_material_hash" -Needle "`"local_approval_hash`": `"sha256:$recoveryLocalApprovalHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_loader_missing_reason" -Needle '"reason": "recovery_loader_event_id_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_rollback_missing_reason" -Needle '"reason": "recovery_rollback_evidence_event_id_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_binding_boundary_loader_missing" -Needle '"reason": "recovery_loader_event_id_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_module_intent_rejected" -Needle '"module_append_intent_used": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_module_payload_not_authority" -Needle '"module_append_payload_hash_used_as_authority": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_module_writer_rejected" -Needle '"module_writer_facts_used": false' -TimeoutSeconds 1
@@ -2926,6 +3123,18 @@ try {
     Assert-LogContains -Name "protocol:recovery_trust_audit_identity_event" -Needle "`"retained_recovery_artifact_identity_event_id`": `"$recoveryIdentityEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_trust_audit_hash" -Needle "`"trust_reference_hash`": `"sha256:$recoveryTrustReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_trust_audit_no_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_vm_test_audit_source" -Needle '"source_method": "recovery.vm_test_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_vm_test_audit_kind" -Needle '"kind": "recovery.artifact_vm_test_reference.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_vm_test_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_artifact_vm_test.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_vm_test_audit_trust_event" -Needle "`"retained_recovery_artifact_trust_event_id`": `"$recoveryTrustEventId`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_vm_test_audit_hash" -Needle "`"vm_test_reference_hash`": `"sha256:$recoveryVmTestReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_vm_test_audit_no_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_local_approval_audit_source" -Needle '"source_method": "recovery.local_approval_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_local_approval_audit_kind" -Needle '"kind": "recovery.artifact_local_approval_reference.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_local_approval_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_artifact_local_approval.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_local_approval_audit_vm_event" -Needle "`"retained_recovery_artifact_vm_test_event_id`": `"$recoveryVmTestEventId`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_local_approval_audit_hash" -Needle "`"local_approval_reference_hash`": `"sha256:$recoveryLocalApprovalReferenceHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_local_approval_audit_no_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_risk" -Needle '"risk": "recovery_modify_ram"' -TimeoutSeconds 1

@@ -287,6 +287,33 @@ pub struct RecoveryArtifactTrustReference {
     pub trust_hash: [u8; 32],
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryArtifactVmTestReference {
+    pub vm_test_reference_hash: [u8; 32],
+    pub retained_identity_reference_event_id: EventId,
+    pub retained_trust_reference_event_id: EventId,
+    pub identity_reference_hash: [u8; 32],
+    pub trust_reference_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub trust_hash: [u8; 32],
+    pub vm_test_hash: [u8; 32],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryArtifactLocalApprovalReference {
+    pub local_approval_reference_hash: [u8; 32],
+    pub retained_identity_reference_event_id: EventId,
+    pub retained_trust_reference_event_id: EventId,
+    pub retained_vm_test_reference_event_id: EventId,
+    pub identity_reference_hash: [u8; 32],
+    pub trust_reference_hash: [u8; 32],
+    pub vm_test_reference_hash: [u8; 32],
+    pub artifact_hash: [u8; 32],
+    pub trust_hash: [u8; 32],
+    pub vm_test_hash: [u8; 32],
+    pub local_approval_hash: [u8; 32],
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ModuleManifestReferenceGateCheck {
     pub(crate) event_id: Option<EventId>,
@@ -418,6 +445,8 @@ pub enum EventBindings {
     RecoveryArtifactLoadDenied(RecoveryArtifactLoadDenialBinding),
     RecoveryArtifactIdentityReference(RecoveryArtifactIdentityReference),
     RecoveryArtifactTrustReference(RecoveryArtifactTrustReference),
+    RecoveryArtifactVmTestReference(RecoveryArtifactVmTestReference),
+    RecoveryArtifactLocalApprovalReference(RecoveryArtifactLocalApprovalReference),
 }
 
 #[derive(Clone, Copy)]

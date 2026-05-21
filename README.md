@@ -21,8 +21,9 @@ that consumes missing persistence-device, storage-layout, append-engine,
 append/storage contracts, and append-intent requests while still denying
 durable audit and rollback writes, plus a distinct recovery-artifact load
 boundary that uses `cap.recovery.load_artifact` instead of the normal ephemeral
-module capability, exposes a read-only retained-evidence binding diagnostic,
-and still refuses to load anything.
+module capability, exposes read-only retained identity/trust/VM-test/
+local-approval evidence binding diagnostics, and still refuses to load
+anything.
 
 It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
@@ -349,13 +350,17 @@ What boots and works in the VM right now:
   exposing typed current-boot denial evidence for missing recovery artifact
   identity, trust, VM-test, local approval, loader, and rollback evidence while
   keeping normal module append-intent and writer facts non-authorizing
-- Guest read-only recovery artifact identity/trust hash-reference diagnostics
-  that retain valid `raios.recovery_artifact_identity.v0` and
-  `raios.recovery_artifact_trust.v0` references only as local-only,
-  current-boot, non-authorizing event evidence without accepting artifact bytes
+- Guest read-only recovery artifact identity/trust/VM-test/local-approval
+  hash-reference diagnostics that retain valid
+  `raios.recovery_artifact_identity.v0`,
+  `raios.recovery_artifact_trust.v0`,
+  `raios.recovery_artifact_vm_test.v0`, and
+  `raios.recovery_artifact_local_approval.v0` references only as local-only,
+  current-boot, non-authorizing event evidence without accepting artifact
+  bytes, VM-test JSON, or approval text
 - Read-only `recovery.load_binding` and `recovery.load_binding_selftest`
-  diagnostics that bind retained recovery identity/trust references when
-  present, still require recovery-only VM-test/approval/loader/rollback event
+  diagnostics that bind retained recovery identity/trust/VM-test/local-approval
+  references when present, still require recovery-only loader/rollback event
   ids, reject normal module append-intent, append-payload, writer,
   service-slot, and `module.load_ephemeral` authority, and keep recovery
   artifacts non-loaded, non-durable, local-only, and non-authorizing

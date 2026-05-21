@@ -22,6 +22,8 @@ pub(crate) const MODULE_RECOVERY_ARTIFACT_LOAD_BINDING_SELFTEST_METHOD: &str =
 const RECOVERY_LOAD_BINDING_SELFTEST_CASES: usize = 14;
 const RECOVERY_IDENTITY_SELFTEST_CASES: usize = 6;
 const RECOVERY_TRUST_SELFTEST_CASES: usize = 8;
+const RECOVERY_VM_TEST_SELFTEST_CASES: usize = 10;
+const RECOVERY_LOCAL_APPROVAL_SELFTEST_CASES: usize = 11;
 
 #[derive(Clone, Copy)]
 struct RecoveryIdentityReferenceCheck<'a> {
@@ -74,6 +76,98 @@ struct RecoveryTrustReferenceCheck<'a> {
 }
 
 struct RecoveryTrustSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryVmTestReferenceInput<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    vm_test_reference_hash: Option<[u8; 32]>,
+    retained_identity_reference_event_id: Option<&'a str>,
+    retained_trust_reference_event_id: Option<&'a str>,
+    identity_reference_hash: Option<[u8; 32]>,
+    trust_reference_hash: Option<[u8; 32]>,
+    artifact_hash: Option<[u8; 32]>,
+    trust_hash: Option<[u8; 32]>,
+    vm_test_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryVmTestReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    vm_test_reference_hash: Option<[u8; 32]>,
+    retained_identity_reference_event_id: Option<&'a str>,
+    retained_trust_reference_event_id: Option<&'a str>,
+    identity_reference_hash: Option<[u8; 32]>,
+    trust_reference_hash: Option<[u8; 32]>,
+    artifact_hash: Option<[u8; 32]>,
+    trust_hash: Option<[u8; 32]>,
+    vm_test_hash: Option<[u8; 32]>,
+    expected_vm_test_reference_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+struct RecoveryVmTestSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLocalApprovalReferenceInput<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    local_approval_reference_hash: Option<[u8; 32]>,
+    retained_identity_reference_event_id: Option<&'a str>,
+    retained_trust_reference_event_id: Option<&'a str>,
+    retained_vm_test_reference_event_id: Option<&'a str>,
+    identity_reference_hash: Option<[u8; 32]>,
+    trust_reference_hash: Option<[u8; 32]>,
+    vm_test_reference_hash: Option<[u8; 32]>,
+    artifact_hash: Option<[u8; 32]>,
+    trust_hash: Option<[u8; 32]>,
+    vm_test_hash: Option<[u8; 32]>,
+    local_approval_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLocalApprovalReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    local_approval_reference_hash: Option<[u8; 32]>,
+    retained_identity_reference_event_id: Option<&'a str>,
+    retained_trust_reference_event_id: Option<&'a str>,
+    retained_vm_test_reference_event_id: Option<&'a str>,
+    identity_reference_hash: Option<[u8; 32]>,
+    trust_reference_hash: Option<[u8; 32]>,
+    vm_test_reference_hash: Option<[u8; 32]>,
+    artifact_hash: Option<[u8; 32]>,
+    trust_hash: Option<[u8; 32]>,
+    vm_test_hash: Option<[u8; 32]>,
+    local_approval_hash: Option<[u8; 32]>,
+    expected_local_approval_reference_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+struct RecoveryLocalApprovalSelfTestCase {
     name: &'static str,
     expected_status: &'static str,
     expected_reason: &'static str,
@@ -151,6 +245,22 @@ pub(crate) fn recovery_artifact_trust_diagnostic_method(method: &str) -> bool {
 
 pub(crate) fn recovery_artifact_trust_diagnostic_selftest_method(method: &str) -> bool {
     method_head_eq(method, "recovery.trust_diagnostic_selftest")
+}
+
+pub(crate) fn recovery_artifact_vm_test_diagnostic_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.vm_test_diagnostic")
+}
+
+pub(crate) fn recovery_artifact_vm_test_diagnostic_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.vm_test_diagnostic_selftest")
+}
+
+pub(crate) fn recovery_artifact_local_approval_diagnostic_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.local_approval_diagnostic")
+}
+
+pub(crate) fn recovery_artifact_local_approval_diagnostic_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.local_approval_diagnostic_selftest")
 }
 
 pub(crate) fn recovery_artifact_load_binding_method(method: &str) -> bool {
@@ -364,12 +474,217 @@ pub(crate) fn emit_recovery_artifact_trust_diagnostic_selftest() {
     end_response("recovery.trust_diagnostic_selftest");
 }
 
+pub(crate) fn emit_recovery_artifact_vm_test_diagnostic(method: &str) {
+    let check = parse_recovery_vm_test_reference(recovery_vm_test_diagnostic_arg(method), true);
+    let recorded_event_id = if check.valid {
+        recovery_vm_test_binding_from_check(&check)
+            .map(event_log::record_recovery_artifact_vm_test_reference)
+    } else {
+        None
+    };
+    let retained = event_log::latest_recovery_artifact_vm_test_reference();
+
+    begin_response("recovery.vm_test_diagnostic");
+    raw_line("      \"schema\": \"raios.recovery_artifact_vm_test_diagnostic.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw_line("      \"accepts_vm_test_json\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"loads_normal_module\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"recovery.vm_test_diagnostic <vm_test_reference_hash> <retained_identity_event_id> <retained_trust_event_id> <identity_reference_hash> <trust_reference_hash> <artifact_hash> <trust_hash> <vm_test_hash> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"requested_capability\": \"cap.recovery.load_artifact\",");
+    raw_line("        \"read_capability\": \"cap.recovery.load_artifact.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline\",");
+    raw_line("        \"vm_test_schema\": \"raios.recovery_artifact_vm_test.v0\",");
+    raw_line(
+        "        \"vm_test_canonicalization\": \"raios.recovery_artifact_vm_test.canonical.v0\"",
+    );
+    raw_line("      },");
+    emit_recovery_vm_test_reference_object(&check);
+    raw_line(",");
+    emit_recovery_vm_test_retained_reference(&check, recorded_event_id, retained);
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"vm_test_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"can_move_beyond_denial\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.vm_test_diagnostic");
+}
+
+pub(crate) fn emit_recovery_artifact_vm_test_diagnostic_selftest() {
+    let cases = recovery_vm_test_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.vm_test_diagnostic_selftest");
+    raw_line("      \"schema\": \"raios.recovery_artifact_vm_test_diagnostic_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_vm_test_records\": false,");
+    raw_line("      \"accepts_vm_test_json\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_vm_test_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.vm_test_diagnostic_selftest");
+}
+
+pub(crate) fn emit_recovery_artifact_local_approval_diagnostic(method: &str) {
+    let check = parse_recovery_local_approval_reference(
+        recovery_local_approval_diagnostic_arg(method),
+        true,
+    );
+    let recorded_event_id = if check.valid {
+        recovery_local_approval_binding_from_check(&check)
+            .map(event_log::record_recovery_artifact_local_approval_reference)
+    } else {
+        None
+    };
+    let retained = event_log::latest_recovery_artifact_local_approval_reference();
+
+    begin_response("recovery.local_approval_diagnostic");
+    raw_line("      \"schema\": \"raios.recovery_artifact_local_approval_diagnostic.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw_line("      \"accepts_local_approval_text\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"loads_normal_module\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"recovery.local_approval_diagnostic <local_approval_reference_hash> <retained_identity_event_id> <retained_trust_event_id> <retained_vm_test_event_id> <identity_reference_hash> <trust_reference_hash> <vm_test_reference_hash> <artifact_hash> <trust_hash> <vm_test_hash> <local_approval_hash> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"requested_capability\": \"cap.recovery.load_artifact\",");
+    raw_line("        \"read_capability\": \"cap.recovery.load_artifact.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline\",");
+    raw_line("        \"local_approval_schema\": \"raios.recovery_artifact_local_approval.v0\",");
+    raw_line(
+        "        \"local_approval_canonicalization\": \"raios.recovery_artifact_local_approval.canonical.v0\"",
+    );
+    raw_line("      },");
+    emit_recovery_local_approval_reference_object(&check);
+    raw_line(",");
+    emit_recovery_local_approval_retained_reference(&check, recorded_event_id, retained);
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"local_approval_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"can_move_beyond_denial\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.local_approval_diagnostic");
+}
+
+pub(crate) fn emit_recovery_artifact_local_approval_diagnostic_selftest() {
+    let cases = recovery_local_approval_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.local_approval_diagnostic_selftest");
+    raw_line(
+        "      \"schema\": \"raios.recovery_artifact_local_approval_diagnostic_selftest.v0\",",
+    );
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_local_approval_records\": false,");
+    raw_line("      \"accepts_local_approval_text\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_local_approval_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.local_approval_diagnostic_selftest");
+}
+
 pub(crate) fn emit_recovery_artifact_load_binding() {
     let retained_identity = event_log::latest_recovery_artifact_identity_reference();
     let retained_trust = event_log::latest_recovery_artifact_trust_reference();
+    let retained_vm_test = event_log::latest_recovery_artifact_vm_test_reference();
+    let retained_local_approval = event_log::latest_recovery_artifact_local_approval_reference();
     let live = evaluate_recovery_load_binding(recovery_load_binding_candidate_from_retained(
         retained_identity,
         retained_trust,
+        retained_vm_test,
+        retained_local_approval,
     ));
 
     begin_response(RECOVERY_ARTIFACT_LOAD_BINDING_METHOD);
@@ -407,16 +722,17 @@ pub(crate) fn emit_recovery_artifact_load_binding() {
     raw_line("      \"required_retained_evidence\": {");
     emit_recovery_load_identity_binding_fact(retained_identity, true);
     emit_recovery_load_trust_binding_fact(retained_identity, retained_trust, true);
-    emit_recovery_artifact_load_missing_fact(
-        "recovery_vm_test_event_id",
-        "raios.recovery_artifact_vm_test.v0",
-        "recovery_vm_test_event_id_missing",
+    emit_recovery_load_vm_test_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
         true,
     );
-    emit_recovery_artifact_load_missing_fact(
-        "recovery_local_approval_event_id",
-        "raios.recovery_artifact_local_approval.v0",
-        "recovery_local_approval_event_id_missing",
+    emit_recovery_load_local_approval_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
         true,
     );
     emit_recovery_artifact_load_missing_fact(
@@ -476,18 +792,45 @@ pub(crate) fn emit_recovery_artifact_load_binding() {
             reason,
         );
     }
-    emit_recovery_load_blocker(
-        &mut wrote_blocker,
-        "recovery_vm_test_event_id",
-        "missing",
-        "recovery_vm_test_event_id_missing",
-    );
-    emit_recovery_load_blocker(
-        &mut wrote_blocker,
-        "recovery_local_approval_event_id",
-        "missing",
-        "recovery_local_approval_event_id_missing",
-    );
+    if retained_vm_test.is_none() {
+        emit_recovery_load_blocker(
+            &mut wrote_blocker,
+            "recovery_vm_test_event_id",
+            "missing",
+            "recovery_vm_test_event_id_missing",
+        );
+    } else if let Some(reason) = recovery_load_binding_retained_vm_test_mismatch(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+    ) {
+        emit_recovery_load_blocker(
+            &mut wrote_blocker,
+            "recovery_vm_test_event_id",
+            "rejected",
+            reason,
+        );
+    }
+    if retained_local_approval.is_none() {
+        emit_recovery_load_blocker(
+            &mut wrote_blocker,
+            "recovery_local_approval_event_id",
+            "missing",
+            "recovery_local_approval_event_id_missing",
+        );
+    } else if let Some(reason) = recovery_load_binding_retained_local_approval_mismatch(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+    ) {
+        emit_recovery_load_blocker(
+            &mut wrote_blocker,
+            "recovery_local_approval_event_id",
+            "rejected",
+            reason,
+        );
+    }
     emit_recovery_load_blocker(
         &mut wrote_blocker,
         "recovery_loader_event_id",
@@ -890,6 +1233,278 @@ fn emit_recovery_trust_retained_reference(
     raw("      }");
 }
 
+fn emit_recovery_vm_test_reference_object(check: &RecoveryVmTestReferenceCheck<'_>) {
+    raw_line("      \"recovery_artifact_vm_test_reference\": {");
+    raw("        \"state\": ");
+    json_str(if check.has_reference {
+        "present"
+    } else {
+        "absent"
+    });
+    raw_line(",");
+    raw("        \"validation_status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"validation_reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_identity_event_id\": ");
+    json_opt_str(check.retained_identity_reference_event_id);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_trust_event_id\": ");
+    json_opt_str(check.retained_trust_reference_event_id);
+    raw_line(",");
+    raw_line("        \"vm_test_schema\": \"raios.recovery_artifact_vm_test.v0\",");
+    raw_line("        \"hashes\": {");
+    raw("          \"vm_test_reference_hash\": ");
+    json_sha256_option(check.vm_test_reference_hash);
+    raw_line(",");
+    raw("          \"expected_vm_test_reference_hash\": ");
+    json_sha256_option(check.expected_vm_test_reference_hash);
+    raw_line(",");
+    raw("          \"identity_reference_hash\": ");
+    json_sha256_option(check.identity_reference_hash);
+    raw_line(",");
+    raw("          \"trust_reference_hash\": ");
+    json_sha256_option(check.trust_reference_hash);
+    raw_line(",");
+    raw("          \"artifact_hash\": ");
+    json_sha256_option(check.artifact_hash);
+    raw_line(",");
+    raw("          \"trust_hash\": ");
+    json_sha256_option(check.trust_hash);
+    raw_line(",");
+    raw("          \"vm_test_hash\": ");
+    json_sha256_option(check.vm_test_hash);
+    crlf();
+    raw_line("        }");
+    raw_line("      }");
+}
+
+fn emit_recovery_vm_test_retained_reference(
+    check: &RecoveryVmTestReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+) {
+    raw_line("      \"retained_recovery_artifact_vm_test_reference\": {");
+    if let Some((event_id, reference)) = retained {
+        raw_line("        \"state\": \"present\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw("        \"event_id\": ");
+        json_event_id(event_id);
+        raw_line(",");
+        raw("        \"recorded_event_id\": ");
+        json_event_id_option(recorded_event_id);
+        raw_line(",");
+        raw("        \"matches_current_reference\": ");
+        raw_bool(recovery_vm_test_reference_matches(check, reference));
+        raw_line(",");
+        raw_line("        \"schema\": \"raios.recovery_artifact_vm_test.v0\",");
+        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
+        raw_line("        \"classification\": \"local_only\",");
+        raw_line("        \"accepts_vm_test_json\": false,");
+        raw_line("        \"accepts_artifact_bytes\": false,");
+        raw_line("        \"authorizes_recovery_load\": false,");
+        raw_line("        \"can_move_beyond_denial\": false,");
+        raw_line("        \"loads_recovery_artifact\": false,");
+        raw_line("        \"service_inventory_change\": \"none\",");
+        raw_line("        \"load_attempted\": false,");
+        raw("        \"retained_recovery_artifact_identity_event_id\": ");
+        json_event_id(reference.retained_identity_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_trust_event_id\": ");
+        json_event_id(reference.retained_trust_reference_event_id);
+        raw_line(",");
+        raw_line("        \"hashes\": {");
+        raw("          \"vm_test_reference_hash\": ");
+        json_sha256(reference.vm_test_reference_hash);
+        raw_line(",");
+        raw("          \"identity_reference_hash\": ");
+        json_sha256(reference.identity_reference_hash);
+        raw_line(",");
+        raw("          \"trust_reference_hash\": ");
+        json_sha256(reference.trust_reference_hash);
+        raw_line(",");
+        raw("          \"artifact_hash\": ");
+        json_sha256(reference.artifact_hash);
+        raw_line(",");
+        raw("          \"trust_hash\": ");
+        json_sha256(reference.trust_hash);
+        raw_line(",");
+        raw("          \"vm_test_hash\": ");
+        json_sha256(reference.vm_test_hash);
+        crlf();
+        raw_line("        }");
+    } else {
+        raw_line("        \"state\": \"missing\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw_line("        \"event_id\": null,");
+        raw_line("        \"recorded_event_id\": null,");
+        raw_line("        \"matches_current_reference\": false,");
+        raw_line("        \"schema\": \"raios.recovery_artifact_vm_test.v0\",");
+        raw_line("        \"status\": \"missing\",");
+        raw_line("        \"reason\": \"no_valid_recovery_artifact_vm_test_reference_retained\",");
+        raw_line("        \"can_move_beyond_denial\": false,");
+        raw_line("        \"load_attempted\": false");
+    }
+    raw("      }");
+}
+
+fn emit_recovery_local_approval_reference_object(check: &RecoveryLocalApprovalReferenceCheck<'_>) {
+    raw_line("      \"recovery_artifact_local_approval_reference\": {");
+    raw("        \"state\": ");
+    json_str(if check.has_reference {
+        "present"
+    } else {
+        "absent"
+    });
+    raw_line(",");
+    raw("        \"validation_status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"validation_reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_identity_event_id\": ");
+    json_opt_str(check.retained_identity_reference_event_id);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_trust_event_id\": ");
+    json_opt_str(check.retained_trust_reference_event_id);
+    raw_line(",");
+    raw("        \"retained_recovery_artifact_vm_test_event_id\": ");
+    json_opt_str(check.retained_vm_test_reference_event_id);
+    raw_line(",");
+    raw_line("        \"local_approval_schema\": \"raios.recovery_artifact_local_approval.v0\",");
+    raw_line("        \"hashes\": {");
+    raw("          \"local_approval_reference_hash\": ");
+    json_sha256_option(check.local_approval_reference_hash);
+    raw_line(",");
+    raw("          \"expected_local_approval_reference_hash\": ");
+    json_sha256_option(check.expected_local_approval_reference_hash);
+    raw_line(",");
+    raw("          \"identity_reference_hash\": ");
+    json_sha256_option(check.identity_reference_hash);
+    raw_line(",");
+    raw("          \"trust_reference_hash\": ");
+    json_sha256_option(check.trust_reference_hash);
+    raw_line(",");
+    raw("          \"vm_test_reference_hash\": ");
+    json_sha256_option(check.vm_test_reference_hash);
+    raw_line(",");
+    raw("          \"artifact_hash\": ");
+    json_sha256_option(check.artifact_hash);
+    raw_line(",");
+    raw("          \"trust_hash\": ");
+    json_sha256_option(check.trust_hash);
+    raw_line(",");
+    raw("          \"vm_test_hash\": ");
+    json_sha256_option(check.vm_test_hash);
+    raw_line(",");
+    raw("          \"local_approval_hash\": ");
+    json_sha256_option(check.local_approval_hash);
+    crlf();
+    raw_line("        }");
+    raw_line("      }");
+}
+
+fn emit_recovery_local_approval_retained_reference(
+    check: &RecoveryLocalApprovalReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLocalApprovalReference,
+    )>,
+) {
+    raw_line("      \"retained_recovery_artifact_local_approval_reference\": {");
+    if let Some((event_id, reference)) = retained {
+        raw_line("        \"state\": \"present\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw("        \"event_id\": ");
+        json_event_id(event_id);
+        raw_line(",");
+        raw("        \"recorded_event_id\": ");
+        json_event_id_option(recorded_event_id);
+        raw_line(",");
+        raw("        \"matches_current_reference\": ");
+        raw_bool(recovery_local_approval_reference_matches(check, reference));
+        raw_line(",");
+        raw_line("        \"schema\": \"raios.recovery_artifact_local_approval.v0\",");
+        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
+        raw_line("        \"classification\": \"local_only\",");
+        raw_line("        \"accepts_local_approval_text\": false,");
+        raw_line("        \"accepts_artifact_bytes\": false,");
+        raw_line("        \"authorizes_recovery_load\": false,");
+        raw_line("        \"can_move_beyond_denial\": false,");
+        raw_line("        \"loads_recovery_artifact\": false,");
+        raw_line("        \"service_inventory_change\": \"none\",");
+        raw_line("        \"load_attempted\": false,");
+        raw("        \"retained_recovery_artifact_identity_event_id\": ");
+        json_event_id(reference.retained_identity_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_trust_event_id\": ");
+        json_event_id(reference.retained_trust_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_vm_test_event_id\": ");
+        json_event_id(reference.retained_vm_test_reference_event_id);
+        raw_line(",");
+        raw_line("        \"hashes\": {");
+        raw("          \"local_approval_reference_hash\": ");
+        json_sha256(reference.local_approval_reference_hash);
+        raw_line(",");
+        raw("          \"identity_reference_hash\": ");
+        json_sha256(reference.identity_reference_hash);
+        raw_line(",");
+        raw("          \"trust_reference_hash\": ");
+        json_sha256(reference.trust_reference_hash);
+        raw_line(",");
+        raw("          \"vm_test_reference_hash\": ");
+        json_sha256(reference.vm_test_reference_hash);
+        raw_line(",");
+        raw("          \"artifact_hash\": ");
+        json_sha256(reference.artifact_hash);
+        raw_line(",");
+        raw("          \"trust_hash\": ");
+        json_sha256(reference.trust_hash);
+        raw_line(",");
+        raw("          \"vm_test_hash\": ");
+        json_sha256(reference.vm_test_hash);
+        raw_line(",");
+        raw("          \"local_approval_hash\": ");
+        json_sha256(reference.local_approval_hash);
+        crlf();
+        raw_line("        }");
+    } else {
+        raw_line("        \"state\": \"missing\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw_line("        \"event_id\": null,");
+        raw_line("        \"recorded_event_id\": null,");
+        raw_line("        \"matches_current_reference\": false,");
+        raw_line("        \"schema\": \"raios.recovery_artifact_local_approval.v0\",");
+        raw_line("        \"status\": \"missing\",");
+        raw_line(
+            "        \"reason\": \"no_valid_recovery_artifact_local_approval_reference_retained\",",
+        );
+        raw_line("        \"can_move_beyond_denial\": false,");
+        raw_line("        \"load_attempted\": false");
+    }
+    raw("      }");
+}
+
 fn emit_recovery_identity_selftest_case(case: &RecoveryIdentitySelfTestCase, comma: bool) {
     raw("        {\"case\": ");
     json_str(case.name);
@@ -911,6 +1526,49 @@ fn emit_recovery_identity_selftest_case(case: &RecoveryIdentitySelfTestCase, com
 }
 
 fn emit_recovery_trust_selftest_case(case: &RecoveryTrustSelfTestCase, comma: bool) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_vm_test_selftest_case(case: &RecoveryVmTestSelfTestCase, comma: bool) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_local_approval_selftest_case(
+    case: &RecoveryLocalApprovalSelfTestCase,
+    comma: bool,
+) {
     raw("        {\"case\": ");
     json_str(case.name);
     raw(", \"expected_status\": ");
@@ -1014,6 +1672,142 @@ fn emit_recovery_load_trust_binding_fact(
         raw("}");
     } else {
         raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_artifact_trust_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
+    }
+    raw("}");
+    if comma {
+        raw_line(",");
+    } else {
+        raw_line("");
+    }
+}
+
+fn emit_recovery_load_vm_test_binding_fact(
+    retained_identity: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactIdentityReference,
+    )>,
+    retained_trust: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactTrustReference,
+    )>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+    comma: bool,
+) {
+    raw("      \"recovery_vm_test_event_id\": {\"schema\": \"raios.recovery_artifact_vm_test.v0\"");
+    if let Some((event_id, reference)) = retained {
+        let mismatch = recovery_load_binding_retained_vm_test_mismatch(
+            retained_identity,
+            retained_trust,
+            retained,
+        );
+        raw(", \"status\": ");
+        json_str(if mismatch.is_some() {
+            "rejected_retained_reference"
+        } else {
+            "retained_hash_reference_only"
+        });
+        raw(", \"event_id\": ");
+        json_event_id(event_id);
+        raw(", \"retained\": true, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
+        json_str(
+            mismatch.unwrap_or("retained_recovery_artifact_vm_test_reference_not_authorizing"),
+        );
+        raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
+        json_event_id(reference.retained_identity_reference_event_id);
+        raw(", \"retained_recovery_artifact_trust_event_id\": ");
+        json_event_id(reference.retained_trust_reference_event_id);
+        raw(", \"hashes\": {\"vm_test_reference_hash\": ");
+        json_sha256(reference.vm_test_reference_hash);
+        raw(", \"identity_reference_hash\": ");
+        json_sha256(reference.identity_reference_hash);
+        raw(", \"trust_reference_hash\": ");
+        json_sha256(reference.trust_reference_hash);
+        raw(", \"artifact_hash\": ");
+        json_sha256(reference.artifact_hash);
+        raw(", \"trust_hash\": ");
+        json_sha256(reference.trust_hash);
+        raw(", \"vm_test_hash\": ");
+        json_sha256(reference.vm_test_hash);
+        raw("}");
+    } else {
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_vm_test_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
+    }
+    raw("}");
+    if comma {
+        raw_line(",");
+    } else {
+        raw_line("");
+    }
+}
+
+fn emit_recovery_load_local_approval_binding_fact(
+    retained_identity: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactIdentityReference,
+    )>,
+    retained_trust: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactTrustReference,
+    )>,
+    retained_vm_test: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLocalApprovalReference,
+    )>,
+    comma: bool,
+) {
+    raw("      \"recovery_local_approval_event_id\": {\"schema\": \"raios.recovery_artifact_local_approval.v0\"");
+    if let Some((event_id, reference)) = retained {
+        let mismatch = recovery_load_binding_retained_local_approval_mismatch(
+            retained_identity,
+            retained_trust,
+            retained_vm_test,
+            retained,
+        );
+        raw(", \"status\": ");
+        json_str(if mismatch.is_some() {
+            "rejected_retained_reference"
+        } else {
+            "retained_hash_reference_only"
+        });
+        raw(", \"event_id\": ");
+        json_event_id(event_id);
+        raw(", \"retained\": true, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
+        json_str(
+            mismatch
+                .unwrap_or("retained_recovery_artifact_local_approval_reference_not_authorizing"),
+        );
+        raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
+        json_event_id(reference.retained_identity_reference_event_id);
+        raw(", \"retained_recovery_artifact_trust_event_id\": ");
+        json_event_id(reference.retained_trust_reference_event_id);
+        raw(", \"retained_recovery_artifact_vm_test_event_id\": ");
+        json_event_id(reference.retained_vm_test_reference_event_id);
+        raw(", \"hashes\": {\"local_approval_reference_hash\": ");
+        json_sha256(reference.local_approval_reference_hash);
+        raw(", \"identity_reference_hash\": ");
+        json_sha256(reference.identity_reference_hash);
+        raw(", \"trust_reference_hash\": ");
+        json_sha256(reference.trust_reference_hash);
+        raw(", \"vm_test_reference_hash\": ");
+        json_sha256(reference.vm_test_reference_hash);
+        raw(", \"artifact_hash\": ");
+        json_sha256(reference.artifact_hash);
+        raw(", \"trust_hash\": ");
+        json_sha256(reference.trust_hash);
+        raw(", \"vm_test_hash\": ");
+        json_sha256(reference.vm_test_hash);
+        raw(", \"local_approval_hash\": ");
+        json_sha256(reference.local_approval_hash);
+        raw("}");
+    } else {
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_local_approval_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
     }
     raw("}");
     if comma {
@@ -1393,6 +2187,14 @@ fn recovery_load_binding_candidate_from_retained(
         event_log::EventId,
         event_log::RecoveryArtifactTrustReference,
     )>,
+    retained_vm_test: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+    retained_local_approval: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLocalApprovalReference,
+    )>,
 ) -> RecoveryLoadBindingCandidate {
     let mut candidate = recovery_load_binding_missing_candidate();
     if retained_identity.is_some() {
@@ -1402,6 +2204,30 @@ fn recovery_load_binding_candidate_from_retained(
         candidate.trust = if let Some(reason) =
             recovery_load_binding_retained_trust_mismatch(retained_identity, retained_trust)
         {
+            recovery_evidence_rejected(reason)
+        } else {
+            recovery_evidence_available()
+        };
+    }
+    if retained_vm_test.is_some() {
+        candidate.vm_test = if let Some(reason) = recovery_load_binding_retained_vm_test_mismatch(
+            retained_identity,
+            retained_trust,
+            retained_vm_test,
+        ) {
+            recovery_evidence_rejected(reason)
+        } else {
+            recovery_evidence_available()
+        };
+    }
+    if retained_local_approval.is_some() {
+        candidate.local_approval = if let Some(reason) =
+            recovery_load_binding_retained_local_approval_mismatch(
+                retained_identity,
+                retained_trust,
+                retained_vm_test,
+                retained_local_approval,
+            ) {
             recovery_evidence_rejected(reason)
         } else {
             recovery_evidence_available()
@@ -1434,6 +2260,122 @@ fn recovery_load_binding_retained_trust_mismatch(
     }
     if trust_reference.artifact_hash != identity_reference.artifact_hash {
         return Some("recovery_artifact_trust_artifact_hash_mismatch");
+    }
+    None
+}
+
+fn recovery_load_binding_retained_vm_test_mismatch(
+    retained_identity: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactIdentityReference,
+    )>,
+    retained_trust: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactTrustReference,
+    )>,
+    retained_vm_test: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+) -> Option<&'static str> {
+    let Some((identity_event_id, identity_reference)) = retained_identity else {
+        return None;
+    };
+    let Some((trust_event_id, trust_reference)) = retained_trust else {
+        return None;
+    };
+    let Some((_vm_test_event_id, vm_test_reference)) = retained_vm_test else {
+        return None;
+    };
+    if vm_test_reference.retained_identity_reference_event_id != identity_event_id {
+        return Some("recovery_artifact_vm_test_identity_event_id_mismatch");
+    }
+    if vm_test_reference.retained_trust_reference_event_id != trust_event_id {
+        return Some("recovery_artifact_vm_test_trust_event_id_mismatch");
+    }
+    if vm_test_reference.identity_reference_hash != identity_reference.identity_reference_hash {
+        return Some("recovery_artifact_vm_test_identity_reference_hash_mismatch");
+    }
+    if vm_test_reference.trust_reference_hash != trust_reference.trust_reference_hash {
+        return Some("recovery_artifact_vm_test_trust_reference_hash_mismatch");
+    }
+    if vm_test_reference.artifact_hash != identity_reference.artifact_hash {
+        return Some("recovery_artifact_vm_test_artifact_hash_mismatch");
+    }
+    if vm_test_reference.artifact_hash != trust_reference.artifact_hash {
+        return Some("recovery_artifact_vm_test_trust_artifact_hash_mismatch");
+    }
+    if vm_test_reference.trust_hash != trust_reference.trust_hash {
+        return Some("recovery_artifact_vm_test_trust_hash_mismatch");
+    }
+    None
+}
+
+fn recovery_load_binding_retained_local_approval_mismatch(
+    retained_identity: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactIdentityReference,
+    )>,
+    retained_trust: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactTrustReference,
+    )>,
+    retained_vm_test: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+    retained_local_approval: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLocalApprovalReference,
+    )>,
+) -> Option<&'static str> {
+    let Some((identity_event_id, identity_reference)) = retained_identity else {
+        return None;
+    };
+    let Some((trust_event_id, trust_reference)) = retained_trust else {
+        return None;
+    };
+    let Some((vm_test_event_id, vm_test_reference)) = retained_vm_test else {
+        return None;
+    };
+    let Some((_approval_event_id, approval_reference)) = retained_local_approval else {
+        return None;
+    };
+    if approval_reference.retained_identity_reference_event_id != identity_event_id {
+        return Some("recovery_artifact_local_approval_identity_event_id_mismatch");
+    }
+    if approval_reference.retained_trust_reference_event_id != trust_event_id {
+        return Some("recovery_artifact_local_approval_trust_event_id_mismatch");
+    }
+    if approval_reference.retained_vm_test_reference_event_id != vm_test_event_id {
+        return Some("recovery_artifact_local_approval_vm_test_event_id_mismatch");
+    }
+    if approval_reference.identity_reference_hash != identity_reference.identity_reference_hash {
+        return Some("recovery_artifact_local_approval_identity_reference_hash_mismatch");
+    }
+    if approval_reference.trust_reference_hash != trust_reference.trust_reference_hash {
+        return Some("recovery_artifact_local_approval_trust_reference_hash_mismatch");
+    }
+    if approval_reference.vm_test_reference_hash != vm_test_reference.vm_test_reference_hash {
+        return Some("recovery_artifact_local_approval_vm_test_reference_hash_mismatch");
+    }
+    if approval_reference.artifact_hash != identity_reference.artifact_hash {
+        return Some("recovery_artifact_local_approval_artifact_hash_mismatch");
+    }
+    if approval_reference.artifact_hash != trust_reference.artifact_hash {
+        return Some("recovery_artifact_local_approval_trust_artifact_hash_mismatch");
+    }
+    if approval_reference.artifact_hash != vm_test_reference.artifact_hash {
+        return Some("recovery_artifact_local_approval_vm_test_artifact_hash_mismatch");
+    }
+    if approval_reference.trust_hash != trust_reference.trust_hash {
+        return Some("recovery_artifact_local_approval_trust_hash_mismatch");
+    }
+    if approval_reference.trust_hash != vm_test_reference.trust_hash {
+        return Some("recovery_artifact_local_approval_vm_test_trust_hash_mismatch");
+    }
+    if approval_reference.vm_test_hash != vm_test_reference.vm_test_hash {
+        return Some("recovery_artifact_local_approval_vm_test_hash_mismatch");
     }
     None
 }
@@ -1803,6 +2745,619 @@ fn recovery_trust_live_identity_mismatch(
     None
 }
 
+fn parse_recovery_vm_test_reference(
+    arg: &str,
+    require_live_retained: bool,
+) -> RecoveryVmTestReferenceCheck<'_> {
+    let mut parts = arg.split_whitespace();
+    let vm_test_reference_hash = parts.next();
+    let retained_identity_reference_event_id = parts.next();
+    let retained_trust_reference_event_id = parts.next();
+    let identity_reference_hash = parts.next();
+    let trust_reference_hash = parts.next();
+    let artifact_hash = parts.next();
+    let trust_hash = parts.next();
+    let vm_test_hash = parts.next();
+    let scope = parts.next().unwrap_or("current_boot");
+    let extra = parts.next();
+    let input = RecoveryVmTestReferenceInput {
+        has_reference: vm_test_reference_hash.is_some(),
+        arity_valid: vm_test_reference_hash.is_some()
+            && retained_identity_reference_event_id.is_some()
+            && retained_trust_reference_event_id.is_some()
+            && identity_reference_hash.is_some()
+            && trust_reference_hash.is_some()
+            && artifact_hash.is_some()
+            && trust_hash.is_some()
+            && vm_test_hash.is_some()
+            && extra.is_none(),
+        scope,
+        vm_test_reference_hash: vm_test_reference_hash.and_then(parse_sha256_ref),
+        retained_identity_reference_event_id,
+        retained_trust_reference_event_id,
+        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
+        trust_reference_hash: trust_reference_hash.and_then(parse_sha256_ref),
+        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
+        trust_hash: trust_hash.and_then(parse_sha256_ref),
+        vm_test_hash: vm_test_hash.and_then(parse_sha256_ref),
+    };
+    evaluate_recovery_vm_test_reference(input, require_live_retained)
+}
+
+fn evaluate_recovery_vm_test_reference(
+    input: RecoveryVmTestReferenceInput<'_>,
+    require_live_retained: bool,
+) -> RecoveryVmTestReferenceCheck<'_> {
+    if !input.has_reference {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "missing",
+            "recovery_artifact_vm_test_reference_absent",
+            false,
+        );
+    }
+    let Some(identity_event_id) = input.retained_identity_reference_event_id else {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_vm_test_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(trust_event_id) = input.retained_trust_reference_event_id else {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_vm_test_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(identity_reference_hash) = input.identity_reference_hash else {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_vm_test_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(trust_reference_hash) = input.trust_reference_hash else {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_vm_test_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(artifact_hash) = input.artifact_hash else {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_vm_test_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(trust_hash) = input.trust_hash else {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_vm_test_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(vm_test_hash) = input.vm_test_hash else {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_vm_test_reference_invalid_hash",
+            false,
+        );
+    };
+    if !input.arity_valid {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_vm_test_reference_arity_invalid",
+            false,
+        );
+    }
+    if !method_eq(input.scope, "current_boot") {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "stale_or_non_current_boot_reference",
+            "recovery_artifact_vm_test_reference_scope_must_be_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(identity_event_id) {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_identity_event_id_not_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(trust_event_id) {
+        return recovery_vm_test_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_trust_event_id_not_current_boot",
+            false,
+        );
+    }
+    let expected = module_evidence::computed_recovery_artifact_vm_test_reference_hash(
+        module_evidence::RecoveryArtifactVmTestReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+        },
+    );
+    if input.vm_test_reference_hash != Some(expected) {
+        return recovery_vm_test_reference_check(
+            input,
+            Some(expected),
+            "mismatched_vm_test_reference_hash",
+            "recovery_artifact_vm_test_reference_hash_mismatch",
+            false,
+        );
+    }
+    if require_live_retained {
+        if let Some(reason) = recovery_vm_test_live_chain_mismatch(&input) {
+            return recovery_vm_test_reference_check(
+                input,
+                Some(expected),
+                "rejected",
+                reason,
+                false,
+            );
+        }
+    }
+    recovery_vm_test_reference_check(
+        input,
+        Some(expected),
+        "valid_hash_reference_load_still_denied",
+        "recovery_artifact_vm_test_reference_valid_but_local_approval_and_loader_missing",
+        true,
+    )
+}
+
+fn recovery_vm_test_reference_check<'a>(
+    input: RecoveryVmTestReferenceInput<'a>,
+    expected_vm_test_reference_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+) -> RecoveryVmTestReferenceCheck<'a> {
+    RecoveryVmTestReferenceCheck {
+        has_reference: input.has_reference,
+        arity_valid: input.arity_valid,
+        scope: input.scope,
+        vm_test_reference_hash: input.vm_test_reference_hash,
+        retained_identity_reference_event_id: input.retained_identity_reference_event_id,
+        retained_trust_reference_event_id: input.retained_trust_reference_event_id,
+        identity_reference_hash: input.identity_reference_hash,
+        trust_reference_hash: input.trust_reference_hash,
+        artifact_hash: input.artifact_hash,
+        trust_hash: input.trust_hash,
+        vm_test_hash: input.vm_test_hash,
+        expected_vm_test_reference_hash,
+        status,
+        reason,
+        valid,
+    }
+}
+
+fn recovery_vm_test_live_chain_mismatch(
+    input: &RecoveryVmTestReferenceInput<'_>,
+) -> Option<&'static str> {
+    let retained_identity_reference_event_id =
+        parse_current_boot_event_id(input.retained_identity_reference_event_id?)?;
+    let retained_trust_reference_event_id =
+        parse_current_boot_event_id(input.retained_trust_reference_event_id?)?;
+    let Some((latest_identity_event_id, identity_reference)) =
+        event_log::latest_recovery_artifact_identity_reference()
+    else {
+        return Some("recovery_artifact_identity_reference_missing");
+    };
+    let Some((latest_trust_event_id, trust_reference)) =
+        event_log::latest_recovery_artifact_trust_reference()
+    else {
+        return Some("recovery_artifact_trust_reference_missing");
+    };
+    if latest_identity_event_id != retained_identity_reference_event_id {
+        return Some("recovery_artifact_identity_reference_event_id_mismatch");
+    }
+    if latest_trust_event_id != retained_trust_reference_event_id {
+        return Some("recovery_artifact_trust_reference_event_id_mismatch");
+    }
+    if trust_reference.retained_identity_reference_event_id != latest_identity_event_id {
+        return Some("recovery_artifact_trust_identity_event_id_mismatch");
+    }
+    if Some(identity_reference.identity_reference_hash) != input.identity_reference_hash {
+        return Some("recovery_artifact_identity_reference_hash_mismatch");
+    }
+    if Some(identity_reference.artifact_hash) != input.artifact_hash {
+        return Some("recovery_artifact_identity_artifact_hash_mismatch");
+    }
+    if Some(trust_reference.trust_reference_hash) != input.trust_reference_hash {
+        return Some("recovery_artifact_trust_reference_hash_mismatch");
+    }
+    if Some(trust_reference.identity_reference_hash) != input.identity_reference_hash {
+        return Some("recovery_artifact_trust_identity_reference_hash_mismatch");
+    }
+    if Some(trust_reference.artifact_hash) != input.artifact_hash {
+        return Some("recovery_artifact_trust_artifact_hash_mismatch");
+    }
+    if Some(trust_reference.trust_hash) != input.trust_hash {
+        return Some("recovery_artifact_trust_hash_mismatch");
+    }
+    None
+}
+
+fn parse_recovery_local_approval_reference(
+    arg: &str,
+    require_live_retained: bool,
+) -> RecoveryLocalApprovalReferenceCheck<'_> {
+    let mut parts = arg.split_whitespace();
+    let local_approval_reference_hash = parts.next();
+    let retained_identity_reference_event_id = parts.next();
+    let retained_trust_reference_event_id = parts.next();
+    let retained_vm_test_reference_event_id = parts.next();
+    let identity_reference_hash = parts.next();
+    let trust_reference_hash = parts.next();
+    let vm_test_reference_hash = parts.next();
+    let artifact_hash = parts.next();
+    let trust_hash = parts.next();
+    let vm_test_hash = parts.next();
+    let local_approval_hash = parts.next();
+    let scope = parts.next().unwrap_or("current_boot");
+    let extra = parts.next();
+    let input = RecoveryLocalApprovalReferenceInput {
+        has_reference: local_approval_reference_hash.is_some(),
+        arity_valid: local_approval_reference_hash.is_some()
+            && retained_identity_reference_event_id.is_some()
+            && retained_trust_reference_event_id.is_some()
+            && retained_vm_test_reference_event_id.is_some()
+            && identity_reference_hash.is_some()
+            && trust_reference_hash.is_some()
+            && vm_test_reference_hash.is_some()
+            && artifact_hash.is_some()
+            && trust_hash.is_some()
+            && vm_test_hash.is_some()
+            && local_approval_hash.is_some()
+            && extra.is_none(),
+        scope,
+        local_approval_reference_hash: local_approval_reference_hash.and_then(parse_sha256_ref),
+        retained_identity_reference_event_id,
+        retained_trust_reference_event_id,
+        retained_vm_test_reference_event_id,
+        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
+        trust_reference_hash: trust_reference_hash.and_then(parse_sha256_ref),
+        vm_test_reference_hash: vm_test_reference_hash.and_then(parse_sha256_ref),
+        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
+        trust_hash: trust_hash.and_then(parse_sha256_ref),
+        vm_test_hash: vm_test_hash.and_then(parse_sha256_ref),
+        local_approval_hash: local_approval_hash.and_then(parse_sha256_ref),
+    };
+    evaluate_recovery_local_approval_reference(input, require_live_retained)
+}
+
+fn evaluate_recovery_local_approval_reference(
+    input: RecoveryLocalApprovalReferenceInput<'_>,
+    require_live_retained: bool,
+) -> RecoveryLocalApprovalReferenceCheck<'_> {
+    if !input.has_reference {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "missing",
+            "recovery_artifact_local_approval_reference_absent",
+            false,
+        );
+    }
+    let Some(identity_event_id) = input.retained_identity_reference_event_id else {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(trust_event_id) = input.retained_trust_reference_event_id else {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(vm_test_event_id) = input.retained_vm_test_reference_event_id else {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(identity_reference_hash) = input.identity_reference_hash else {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(trust_reference_hash) = input.trust_reference_hash else {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(vm_test_reference_hash) = input.vm_test_reference_hash else {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(artifact_hash) = input.artifact_hash else {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(trust_hash) = input.trust_hash else {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(vm_test_hash) = input.vm_test_hash else {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_invalid_hash",
+            false,
+        );
+    };
+    let Some(local_approval_hash) = input.local_approval_hash else {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_invalid_hash",
+            false,
+        );
+    };
+    if !input.arity_valid {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "invalid_reference",
+            "recovery_artifact_local_approval_reference_arity_invalid",
+            false,
+        );
+    }
+    if !method_eq(input.scope, "current_boot") {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "stale_or_non_current_boot_reference",
+            "recovery_artifact_local_approval_reference_scope_must_be_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(identity_event_id) {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_identity_event_id_not_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(trust_event_id) {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_trust_event_id_not_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(vm_test_event_id) {
+        return recovery_local_approval_reference_check(
+            input,
+            None,
+            "rejected",
+            "retained_recovery_artifact_vm_test_event_id_not_current_boot",
+            false,
+        );
+    }
+    let expected = module_evidence::computed_recovery_artifact_local_approval_reference_hash(
+        module_evidence::RecoveryArtifactLocalApprovalReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            retained_vm_test_reference_event_id: vm_test_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            vm_test_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+            local_approval_hash,
+        },
+    );
+    if input.local_approval_reference_hash != Some(expected) {
+        return recovery_local_approval_reference_check(
+            input,
+            Some(expected),
+            "mismatched_local_approval_reference_hash",
+            "recovery_artifact_local_approval_reference_hash_mismatch",
+            false,
+        );
+    }
+    if require_live_retained {
+        if let Some(reason) = recovery_local_approval_live_chain_mismatch(&input) {
+            return recovery_local_approval_reference_check(
+                input,
+                Some(expected),
+                "rejected",
+                reason,
+                false,
+            );
+        }
+    }
+    recovery_local_approval_reference_check(
+        input,
+        Some(expected),
+        "valid_hash_reference_load_still_denied",
+        "recovery_artifact_local_approval_reference_valid_but_loader_missing",
+        true,
+    )
+}
+
+fn recovery_local_approval_reference_check<'a>(
+    input: RecoveryLocalApprovalReferenceInput<'a>,
+    expected_local_approval_reference_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+) -> RecoveryLocalApprovalReferenceCheck<'a> {
+    RecoveryLocalApprovalReferenceCheck {
+        has_reference: input.has_reference,
+        arity_valid: input.arity_valid,
+        scope: input.scope,
+        local_approval_reference_hash: input.local_approval_reference_hash,
+        retained_identity_reference_event_id: input.retained_identity_reference_event_id,
+        retained_trust_reference_event_id: input.retained_trust_reference_event_id,
+        retained_vm_test_reference_event_id: input.retained_vm_test_reference_event_id,
+        identity_reference_hash: input.identity_reference_hash,
+        trust_reference_hash: input.trust_reference_hash,
+        vm_test_reference_hash: input.vm_test_reference_hash,
+        artifact_hash: input.artifact_hash,
+        trust_hash: input.trust_hash,
+        vm_test_hash: input.vm_test_hash,
+        local_approval_hash: input.local_approval_hash,
+        expected_local_approval_reference_hash,
+        status,
+        reason,
+        valid,
+    }
+}
+
+fn recovery_local_approval_live_chain_mismatch(
+    input: &RecoveryLocalApprovalReferenceInput<'_>,
+) -> Option<&'static str> {
+    let retained_identity_reference_event_id =
+        parse_current_boot_event_id(input.retained_identity_reference_event_id?)?;
+    let retained_trust_reference_event_id =
+        parse_current_boot_event_id(input.retained_trust_reference_event_id?)?;
+    let retained_vm_test_reference_event_id =
+        parse_current_boot_event_id(input.retained_vm_test_reference_event_id?)?;
+    let Some((latest_identity_event_id, identity_reference)) =
+        event_log::latest_recovery_artifact_identity_reference()
+    else {
+        return Some("recovery_artifact_identity_reference_missing");
+    };
+    let Some((latest_trust_event_id, trust_reference)) =
+        event_log::latest_recovery_artifact_trust_reference()
+    else {
+        return Some("recovery_artifact_trust_reference_missing");
+    };
+    let Some((latest_vm_test_event_id, vm_test_reference)) =
+        event_log::latest_recovery_artifact_vm_test_reference()
+    else {
+        return Some("recovery_artifact_vm_test_reference_missing");
+    };
+    if latest_identity_event_id != retained_identity_reference_event_id {
+        return Some("recovery_artifact_identity_reference_event_id_mismatch");
+    }
+    if latest_trust_event_id != retained_trust_reference_event_id {
+        return Some("recovery_artifact_trust_reference_event_id_mismatch");
+    }
+    if latest_vm_test_event_id != retained_vm_test_reference_event_id {
+        return Some("recovery_artifact_vm_test_reference_event_id_mismatch");
+    }
+    if trust_reference.retained_identity_reference_event_id != latest_identity_event_id {
+        return Some("recovery_artifact_trust_identity_event_id_mismatch");
+    }
+    if vm_test_reference.retained_identity_reference_event_id != latest_identity_event_id {
+        return Some("recovery_artifact_vm_test_identity_event_id_mismatch");
+    }
+    if vm_test_reference.retained_trust_reference_event_id != latest_trust_event_id {
+        return Some("recovery_artifact_vm_test_trust_event_id_mismatch");
+    }
+    if Some(identity_reference.identity_reference_hash) != input.identity_reference_hash {
+        return Some("recovery_artifact_identity_reference_hash_mismatch");
+    }
+    if Some(identity_reference.artifact_hash) != input.artifact_hash {
+        return Some("recovery_artifact_identity_artifact_hash_mismatch");
+    }
+    if Some(trust_reference.trust_reference_hash) != input.trust_reference_hash {
+        return Some("recovery_artifact_trust_reference_hash_mismatch");
+    }
+    if Some(trust_reference.identity_reference_hash) != input.identity_reference_hash {
+        return Some("recovery_artifact_trust_identity_reference_hash_mismatch");
+    }
+    if Some(trust_reference.artifact_hash) != input.artifact_hash {
+        return Some("recovery_artifact_trust_artifact_hash_mismatch");
+    }
+    if Some(trust_reference.trust_hash) != input.trust_hash {
+        return Some("recovery_artifact_trust_hash_mismatch");
+    }
+    if Some(vm_test_reference.vm_test_reference_hash) != input.vm_test_reference_hash {
+        return Some("recovery_artifact_vm_test_reference_hash_mismatch");
+    }
+    if Some(vm_test_reference.identity_reference_hash) != input.identity_reference_hash {
+        return Some("recovery_artifact_vm_test_identity_reference_hash_mismatch");
+    }
+    if Some(vm_test_reference.trust_reference_hash) != input.trust_reference_hash {
+        return Some("recovery_artifact_vm_test_trust_reference_hash_mismatch");
+    }
+    if Some(vm_test_reference.artifact_hash) != input.artifact_hash {
+        return Some("recovery_artifact_vm_test_artifact_hash_mismatch");
+    }
+    if Some(vm_test_reference.trust_hash) != input.trust_hash {
+        return Some("recovery_artifact_vm_test_trust_hash_mismatch");
+    }
+    if Some(vm_test_reference.vm_test_hash) != input.vm_test_hash {
+        return Some("recovery_artifact_vm_test_hash_mismatch");
+    }
+    None
+}
+
 fn recovery_identity_selftest_cases(
 ) -> [RecoveryIdentitySelfTestCase; RECOVERY_IDENTITY_SELFTEST_CASES] {
     let artifact_hash = [0x91; 32];
@@ -2032,6 +3587,391 @@ fn recovery_trust_selftest_case(
     }
 }
 
+fn recovery_vm_test_selftest_cases() -> [RecoveryVmTestSelfTestCase; RECOVERY_VM_TEST_SELFTEST_CASES]
+{
+    let artifact_hash = [0x91; 32];
+    let trust_hash = [0x93; 32];
+    let vm_test_hash = [0x95; 32];
+    let identity_reference_hash =
+        module_evidence::computed_recovery_artifact_identity_reference_hash(artifact_hash);
+    let identity_event_id = "event.current_boot.00000031";
+    let trust_event_id = "event.current_boot.00000032";
+    let trust_reference_hash = module_evidence::computed_recovery_artifact_trust_reference_hash(
+        module_evidence::RecoveryArtifactTrustReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            identity_reference_hash,
+            artifact_hash,
+            trust_hash,
+        },
+    );
+    let valid_hash = module_evidence::computed_recovery_artifact_vm_test_reference_hash(
+        module_evidence::RecoveryArtifactVmTestReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+        },
+    );
+    let valid = RecoveryVmTestReferenceInput {
+        has_reference: true,
+        arity_valid: true,
+        scope: "current_boot",
+        vm_test_reference_hash: Some(valid_hash),
+        retained_identity_reference_event_id: Some(identity_event_id),
+        retained_trust_reference_event_id: Some(trust_event_id),
+        identity_reference_hash: Some(identity_reference_hash),
+        trust_reference_hash: Some(trust_reference_hash),
+        artifact_hash: Some(artifact_hash),
+        trust_hash: Some(trust_hash),
+        vm_test_hash: Some(vm_test_hash),
+    };
+    [
+        recovery_vm_test_selftest_case(
+            "absent_reference",
+            "missing",
+            "recovery_artifact_vm_test_reference_absent",
+            evaluate_recovery_vm_test_reference(
+                RecoveryVmTestReferenceInput {
+                    has_reference: false,
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_vm_test_selftest_case(
+            "accepted_current_boot_vm_test_still_denied",
+            "valid_hash_reference_load_still_denied",
+            "recovery_artifact_vm_test_reference_valid_but_local_approval_and_loader_missing",
+            evaluate_recovery_vm_test_reference(valid, false),
+        ),
+        recovery_vm_test_selftest_case(
+            "stale_previous_boot_reference",
+            "stale_or_non_current_boot_reference",
+            "recovery_artifact_vm_test_reference_scope_must_be_current_boot",
+            evaluate_recovery_vm_test_reference(
+                RecoveryVmTestReferenceInput {
+                    scope: "previous_boot",
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_vm_test_selftest_case(
+            "retained_identity_event_not_current_boot",
+            "rejected",
+            "retained_recovery_artifact_identity_event_id_not_current_boot",
+            evaluate_recovery_vm_test_reference(
+                RecoveryVmTestReferenceInput {
+                    retained_identity_reference_event_id: Some("event.previous_boot.00000031"),
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_vm_test_selftest_case(
+            "retained_trust_event_not_current_boot",
+            "rejected",
+            "retained_recovery_artifact_trust_event_id_not_current_boot",
+            evaluate_recovery_vm_test_reference(
+                RecoveryVmTestReferenceInput {
+                    retained_trust_reference_event_id: Some("event.previous_boot.00000032"),
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_vm_test_selftest_case(
+            "retained_identity_missing",
+            "rejected",
+            "recovery_artifact_identity_reference_missing",
+            recovery_vm_test_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_identity_reference_missing",
+                false,
+            ),
+        ),
+        recovery_vm_test_selftest_case(
+            "retained_trust_wrong_schema_or_variant",
+            "rejected",
+            "recovery_artifact_trust_reference_wrong_schema_or_variant",
+            recovery_vm_test_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_trust_reference_wrong_schema_or_variant",
+                false,
+            ),
+        ),
+        recovery_vm_test_selftest_case(
+            "substituted_trust_reference_record",
+            "rejected",
+            "recovery_artifact_trust_reference_substituted_record",
+            recovery_vm_test_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_trust_reference_substituted_record",
+                false,
+            ),
+        ),
+        recovery_vm_test_selftest_case(
+            "vm_test_reference_hash_mismatch",
+            "mismatched_vm_test_reference_hash",
+            "recovery_artifact_vm_test_reference_hash_mismatch",
+            evaluate_recovery_vm_test_reference(
+                RecoveryVmTestReferenceInput {
+                    vm_test_reference_hash: Some([0x96; 32]),
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_vm_test_selftest_case(
+            "trust_binding_mismatch",
+            "rejected",
+            "recovery_artifact_trust_identity_event_id_mismatch",
+            recovery_vm_test_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_trust_identity_event_id_mismatch",
+                false,
+            ),
+        ),
+    ]
+}
+
+fn recovery_vm_test_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryVmTestReferenceCheck<'_>,
+) -> RecoveryVmTestSelfTestCase {
+    RecoveryVmTestSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason)
+            && check.valid == method_eq(expected_status, "valid_hash_reference_load_still_denied"),
+    }
+}
+
+fn recovery_local_approval_selftest_cases(
+) -> [RecoveryLocalApprovalSelfTestCase; RECOVERY_LOCAL_APPROVAL_SELFTEST_CASES] {
+    let artifact_hash = [0x91; 32];
+    let trust_hash = [0x93; 32];
+    let vm_test_hash = [0x95; 32];
+    let local_approval_hash = [0x97; 32];
+    let identity_reference_hash =
+        module_evidence::computed_recovery_artifact_identity_reference_hash(artifact_hash);
+    let identity_event_id = "event.current_boot.00000031";
+    let trust_event_id = "event.current_boot.00000032";
+    let vm_test_event_id = "event.current_boot.00000033";
+    let trust_reference_hash = module_evidence::computed_recovery_artifact_trust_reference_hash(
+        module_evidence::RecoveryArtifactTrustReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            identity_reference_hash,
+            artifact_hash,
+            trust_hash,
+        },
+    );
+    let vm_test_reference_hash = module_evidence::computed_recovery_artifact_vm_test_reference_hash(
+        module_evidence::RecoveryArtifactVmTestReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+        },
+    );
+    let valid_hash = module_evidence::computed_recovery_artifact_local_approval_reference_hash(
+        module_evidence::RecoveryArtifactLocalApprovalReferenceHashInput {
+            retained_identity_reference_event_id: identity_event_id,
+            retained_trust_reference_event_id: trust_event_id,
+            retained_vm_test_reference_event_id: vm_test_event_id,
+            identity_reference_hash,
+            trust_reference_hash,
+            vm_test_reference_hash,
+            artifact_hash,
+            trust_hash,
+            vm_test_hash,
+            local_approval_hash,
+        },
+    );
+    let valid = RecoveryLocalApprovalReferenceInput {
+        has_reference: true,
+        arity_valid: true,
+        scope: "current_boot",
+        local_approval_reference_hash: Some(valid_hash),
+        retained_identity_reference_event_id: Some(identity_event_id),
+        retained_trust_reference_event_id: Some(trust_event_id),
+        retained_vm_test_reference_event_id: Some(vm_test_event_id),
+        identity_reference_hash: Some(identity_reference_hash),
+        trust_reference_hash: Some(trust_reference_hash),
+        vm_test_reference_hash: Some(vm_test_reference_hash),
+        artifact_hash: Some(artifact_hash),
+        trust_hash: Some(trust_hash),
+        vm_test_hash: Some(vm_test_hash),
+        local_approval_hash: Some(local_approval_hash),
+    };
+    [
+        recovery_local_approval_selftest_case(
+            "absent_reference",
+            "missing",
+            "recovery_artifact_local_approval_reference_absent",
+            evaluate_recovery_local_approval_reference(
+                RecoveryLocalApprovalReferenceInput {
+                    has_reference: false,
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_local_approval_selftest_case(
+            "accepted_current_boot_local_approval_still_denied",
+            "valid_hash_reference_load_still_denied",
+            "recovery_artifact_local_approval_reference_valid_but_loader_missing",
+            evaluate_recovery_local_approval_reference(valid, false),
+        ),
+        recovery_local_approval_selftest_case(
+            "stale_previous_boot_reference",
+            "stale_or_non_current_boot_reference",
+            "recovery_artifact_local_approval_reference_scope_must_be_current_boot",
+            evaluate_recovery_local_approval_reference(
+                RecoveryLocalApprovalReferenceInput {
+                    scope: "previous_boot",
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_local_approval_selftest_case(
+            "retained_vm_test_event_not_current_boot",
+            "rejected",
+            "retained_recovery_artifact_vm_test_event_id_not_current_boot",
+            evaluate_recovery_local_approval_reference(
+                RecoveryLocalApprovalReferenceInput {
+                    retained_vm_test_reference_event_id: Some("event.previous_boot.00000033"),
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_local_approval_selftest_case(
+            "retained_vm_test_missing",
+            "rejected",
+            "recovery_artifact_vm_test_reference_missing",
+            recovery_local_approval_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_vm_test_reference_missing",
+                false,
+            ),
+        ),
+        recovery_local_approval_selftest_case(
+            "retained_vm_test_wrong_schema_or_variant",
+            "rejected",
+            "recovery_artifact_vm_test_reference_wrong_schema_or_variant",
+            recovery_local_approval_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_vm_test_reference_wrong_schema_or_variant",
+                false,
+            ),
+        ),
+        recovery_local_approval_selftest_case(
+            "substituted_vm_test_reference_record",
+            "rejected",
+            "recovery_artifact_vm_test_reference_substituted_record",
+            recovery_local_approval_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_vm_test_reference_substituted_record",
+                false,
+            ),
+        ),
+        recovery_local_approval_selftest_case(
+            "local_approval_reference_hash_mismatch",
+            "mismatched_local_approval_reference_hash",
+            "recovery_artifact_local_approval_reference_hash_mismatch",
+            evaluate_recovery_local_approval_reference(
+                RecoveryLocalApprovalReferenceInput {
+                    local_approval_reference_hash: Some([0x98; 32]),
+                    ..valid
+                },
+                false,
+            ),
+        ),
+        recovery_local_approval_selftest_case(
+            "vm_test_reference_hash_mismatch",
+            "rejected",
+            "recovery_artifact_vm_test_reference_hash_mismatch",
+            recovery_local_approval_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_vm_test_reference_hash_mismatch",
+                false,
+            ),
+        ),
+        recovery_local_approval_selftest_case(
+            "trust_reference_hash_mismatch",
+            "rejected",
+            "recovery_artifact_trust_reference_hash_mismatch",
+            recovery_local_approval_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_trust_reference_hash_mismatch",
+                false,
+            ),
+        ),
+        recovery_local_approval_selftest_case(
+            "retained_chain_mismatch",
+            "rejected",
+            "recovery_artifact_local_approval_vm_test_event_id_mismatch",
+            recovery_local_approval_reference_check(
+                valid,
+                Some(valid_hash),
+                "rejected",
+                "recovery_artifact_local_approval_vm_test_event_id_mismatch",
+                false,
+            ),
+        ),
+    ]
+}
+
+fn recovery_local_approval_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryLocalApprovalReferenceCheck<'_>,
+) -> RecoveryLocalApprovalSelfTestCase {
+    RecoveryLocalApprovalSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason)
+            && check.valid == method_eq(expected_status, "valid_hash_reference_load_still_denied"),
+    }
+}
+
 fn recovery_identity_binding_from_check(
     check: &RecoveryIdentityReferenceCheck<'_>,
 ) -> Option<event_log::RecoveryArtifactIdentityReference> {
@@ -2052,6 +3992,49 @@ fn recovery_trust_binding_from_check(
         identity_reference_hash: check.identity_reference_hash?,
         artifact_hash: check.artifact_hash?,
         trust_hash: check.trust_hash?,
+    })
+}
+
+fn recovery_vm_test_binding_from_check(
+    check: &RecoveryVmTestReferenceCheck<'_>,
+) -> Option<event_log::RecoveryArtifactVmTestReference> {
+    Some(event_log::RecoveryArtifactVmTestReference {
+        vm_test_reference_hash: check.vm_test_reference_hash?,
+        retained_identity_reference_event_id: parse_current_boot_event_id(
+            check.retained_identity_reference_event_id?,
+        )?,
+        retained_trust_reference_event_id: parse_current_boot_event_id(
+            check.retained_trust_reference_event_id?,
+        )?,
+        identity_reference_hash: check.identity_reference_hash?,
+        trust_reference_hash: check.trust_reference_hash?,
+        artifact_hash: check.artifact_hash?,
+        trust_hash: check.trust_hash?,
+        vm_test_hash: check.vm_test_hash?,
+    })
+}
+
+fn recovery_local_approval_binding_from_check(
+    check: &RecoveryLocalApprovalReferenceCheck<'_>,
+) -> Option<event_log::RecoveryArtifactLocalApprovalReference> {
+    Some(event_log::RecoveryArtifactLocalApprovalReference {
+        local_approval_reference_hash: check.local_approval_reference_hash?,
+        retained_identity_reference_event_id: parse_current_boot_event_id(
+            check.retained_identity_reference_event_id?,
+        )?,
+        retained_trust_reference_event_id: parse_current_boot_event_id(
+            check.retained_trust_reference_event_id?,
+        )?,
+        retained_vm_test_reference_event_id: parse_current_boot_event_id(
+            check.retained_vm_test_reference_event_id?,
+        )?,
+        identity_reference_hash: check.identity_reference_hash?,
+        trust_reference_hash: check.trust_reference_hash?,
+        vm_test_reference_hash: check.vm_test_reference_hash?,
+        artifact_hash: check.artifact_hash?,
+        trust_hash: check.trust_hash?,
+        vm_test_hash: check.vm_test_hash?,
+        local_approval_hash: check.local_approval_hash?,
     })
 }
 
@@ -2077,6 +4060,52 @@ fn recovery_trust_reference_matches(
         && check.trust_hash == Some(reference.trust_hash)
 }
 
+fn recovery_vm_test_reference_matches(
+    check: &RecoveryVmTestReferenceCheck<'_>,
+    reference: event_log::RecoveryArtifactVmTestReference,
+) -> bool {
+    check.vm_test_reference_hash == Some(reference.vm_test_reference_hash)
+        && check
+            .retained_identity_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_identity_reference_event_id)
+        && check
+            .retained_trust_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_trust_reference_event_id)
+        && check.identity_reference_hash == Some(reference.identity_reference_hash)
+        && check.trust_reference_hash == Some(reference.trust_reference_hash)
+        && check.artifact_hash == Some(reference.artifact_hash)
+        && check.trust_hash == Some(reference.trust_hash)
+        && check.vm_test_hash == Some(reference.vm_test_hash)
+}
+
+fn recovery_local_approval_reference_matches(
+    check: &RecoveryLocalApprovalReferenceCheck<'_>,
+    reference: event_log::RecoveryArtifactLocalApprovalReference,
+) -> bool {
+    check.local_approval_reference_hash == Some(reference.local_approval_reference_hash)
+        && check
+            .retained_identity_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_identity_reference_event_id)
+        && check
+            .retained_trust_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_trust_reference_event_id)
+        && check
+            .retained_vm_test_reference_event_id
+            .and_then(parse_current_boot_event_id)
+            == Some(reference.retained_vm_test_reference_event_id)
+        && check.identity_reference_hash == Some(reference.identity_reference_hash)
+        && check.trust_reference_hash == Some(reference.trust_reference_hash)
+        && check.vm_test_reference_hash == Some(reference.vm_test_reference_hash)
+        && check.artifact_hash == Some(reference.artifact_hash)
+        && check.trust_hash == Some(reference.trust_hash)
+        && check.vm_test_hash == Some(reference.vm_test_hash)
+        && check.local_approval_hash == Some(reference.local_approval_hash)
+}
+
 fn recovery_identity_diagnostic_arg(method: &str) -> &str {
     let method = method.trim();
     let head_len = if method_head_eq(method, "recovery.identity_diagnostic") {
@@ -2091,6 +4120,26 @@ fn recovery_trust_diagnostic_arg(method: &str) -> &str {
     let method = method.trim();
     let head_len = if method_head_eq(method, "recovery.trust_diagnostic") {
         "recovery.trust_diagnostic".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn recovery_vm_test_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(method, "recovery.vm_test_diagnostic") {
+        "recovery.vm_test_diagnostic".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn recovery_local_approval_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(method, "recovery.local_approval_diagnostic") {
+        "recovery.local_approval_diagnostic".len()
     } else {
         return "";
     };

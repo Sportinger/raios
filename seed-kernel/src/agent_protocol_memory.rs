@@ -772,6 +772,50 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_sha256(binding.trust_hash);
             raw("}}");
         }
+        event_log::EventBindings::RecoveryArtifactVmTestReference(binding) => {
+            raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_vm_test.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"accepts_vm_test_json\": false, \"accepts_artifact_bytes\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
+            json_event_id(binding.retained_identity_reference_event_id);
+            raw(", \"retained_recovery_artifact_trust_event_id\": ");
+            json_event_id(binding.retained_trust_reference_event_id);
+            raw(", \"hashes\": {\"vm_test_reference_hash\": ");
+            json_sha256(binding.vm_test_reference_hash);
+            raw(", \"identity_reference_hash\": ");
+            json_sha256(binding.identity_reference_hash);
+            raw(", \"trust_reference_hash\": ");
+            json_sha256(binding.trust_reference_hash);
+            raw(", \"artifact_hash\": ");
+            json_sha256(binding.artifact_hash);
+            raw(", \"trust_hash\": ");
+            json_sha256(binding.trust_hash);
+            raw(", \"vm_test_hash\": ");
+            json_sha256(binding.vm_test_hash);
+            raw("}}");
+        }
+        event_log::EventBindings::RecoveryArtifactLocalApprovalReference(binding) => {
+            raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_local_approval.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"accepts_local_approval_text\": false, \"accepts_artifact_bytes\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
+            json_event_id(binding.retained_identity_reference_event_id);
+            raw(", \"retained_recovery_artifact_trust_event_id\": ");
+            json_event_id(binding.retained_trust_reference_event_id);
+            raw(", \"retained_recovery_artifact_vm_test_event_id\": ");
+            json_event_id(binding.retained_vm_test_reference_event_id);
+            raw(", \"hashes\": {\"local_approval_reference_hash\": ");
+            json_sha256(binding.local_approval_reference_hash);
+            raw(", \"identity_reference_hash\": ");
+            json_sha256(binding.identity_reference_hash);
+            raw(", \"trust_reference_hash\": ");
+            json_sha256(binding.trust_reference_hash);
+            raw(", \"vm_test_reference_hash\": ");
+            json_sha256(binding.vm_test_reference_hash);
+            raw(", \"artifact_hash\": ");
+            json_sha256(binding.artifact_hash);
+            raw(", \"trust_hash\": ");
+            json_sha256(binding.trust_hash);
+            raw(", \"vm_test_hash\": ");
+            json_sha256(binding.vm_test_hash);
+            raw(", \"local_approval_hash\": ");
+            json_sha256(binding.local_approval_hash);
+            raw("}}");
+        }
     }
 }
 

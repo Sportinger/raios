@@ -567,24 +567,34 @@ recovery.identity_diagnostic_selftest
 recovery.trust_diagnostic
 recovery.trust_diagnostic <trust_reference_hash> <retained_identity_event_id> <identity_reference_hash> <artifact_hash> <trust_hash> [current_boot]
 recovery.trust_diagnostic_selftest
+recovery.vm_test_diagnostic
+recovery.vm_test_diagnostic <vm_test_reference_hash> <retained_identity_event_id> <retained_trust_event_id> <identity_reference_hash> <trust_reference_hash> <artifact_hash> <trust_hash> <vm_test_hash> [current_boot]
+recovery.vm_test_diagnostic_selftest
+recovery.local_approval_diagnostic
+recovery.local_approval_diagnostic <local_approval_reference_hash> <retained_identity_event_id> <retained_trust_event_id> <retained_vm_test_event_id> <identity_reference_hash> <trust_reference_hash> <vm_test_reference_hash> <artifact_hash> <trust_hash> <vm_test_hash> <local_approval_hash> [current_boot]
+recovery.local_approval_diagnostic_selftest
 recovery.load_binding
 recovery.load_binding_selftest
 ```
 
-The identity/trust diagnostics emit
-`raios.recovery_artifact_identity_diagnostic.v0` and
-`raios.recovery_artifact_trust_diagnostic.v0`. Valid references are retained
-only as local-only current-boot hash evidence, accept no artifact bytes, and do
-not authorize recovery loading.
+The identity/trust/VM-test/local-approval diagnostics emit
+`raios.recovery_artifact_identity_diagnostic.v0`,
+`raios.recovery_artifact_trust_diagnostic.v0`,
+`raios.recovery_artifact_vm_test_diagnostic.v0`, and
+`raios.recovery_artifact_local_approval_diagnostic.v0`. Valid references are
+retained only as local-only current-boot hash evidence, accept no artifact
+bytes, VM-test JSON, or approval text, and do not authorize recovery loading.
 
 It emits `raios.recovery_artifact_load_binding.v0` and
 `raios.recovery_artifact_load_binding_selftest.v0`, requires retained
 `recovery_artifact_identity_event_id`, `recovery_artifact_trust_event_id`,
 `recovery_vm_test_event_id`, `recovery_local_approval_event_id`,
 `recovery_loader_event_id`, and `recovery_rollback_evidence_event_id`, and
-keeps normal module append-intent, append-payload, writer, service-slot, and
-`module.load_ephemeral` facts non-authorizing for recovery loads. Payload-hash
-envelopes remain non-authority inputs only.
+binds retained identity, trust, VM-test, and local-approval ids when their
+current-boot hash-reference chain matches. It keeps normal module append-intent,
+append-payload, writer, service-slot, and `module.load_ephemeral` facts
+non-authorizing for recovery loads. Payload-hash envelopes remain non-authority
+inputs only.
 
 A valid `module.manifest_diagnostic` hash-reference command records a local-only
 current-boot `raios.module_manifest_reference.v0` event binding and reports

@@ -126,6 +126,10 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         || method_eq(method, "recovery.identity_diagnostic_selftest")
         || method_eq(method, "recovery.trust_diagnostic")
         || method_eq(method, "recovery.trust_diagnostic_selftest")
+        || method_eq(method, "recovery.vm_test_diagnostic")
+        || method_eq(method, "recovery.vm_test_diagnostic_selftest")
+        || method_eq(method, "recovery.local_approval_diagnostic")
+        || method_eq(method, "recovery.local_approval_diagnostic_selftest")
     {
         "cap.recovery.load_artifact.read"
     } else if method_eq(method, "module.manifest_diagnostic")

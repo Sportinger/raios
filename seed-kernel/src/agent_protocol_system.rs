@@ -255,6 +255,10 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.identity_diagnostic_selftest",
     "recovery.trust_diagnostic",
     "recovery.trust_diagnostic_selftest",
+    "recovery.vm_test_diagnostic",
+    "recovery.vm_test_diagnostic_selftest",
+    "recovery.local_approval_diagnostic",
+    "recovery.local_approval_diagnostic_selftest",
     "recovery.load_binding",
     "recovery.load_binding_selftest",
 ];

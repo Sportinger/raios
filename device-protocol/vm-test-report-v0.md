@@ -254,9 +254,10 @@ reference was retained, live rejection of a wrong-schema retained audit/rollback
 retained audit/rollback reference state and hashes when a valid audit/rollback
 reference was retained, live retained service-slot reservation state and
 reservation hash when a valid reservation was retained, unchanged service
-inventory, and
-`load_attempted: false`. The latest verified report is
-`release/vm-reports/shadow-20260520-184635-28200.json` with 897/897
+inventory, and `load_attempted: false`, plus separate recovery artifact
+identity/trust/VM-test/local-approval retained hash-reference diagnostics that
+remain non-authorizing. The latest verified report is
+`release/vm-reports/shadow-20260521-232959-10980.json` with 1986/1986
 predicates.
 
 ## Guest Hash-Reference Diagnostic
