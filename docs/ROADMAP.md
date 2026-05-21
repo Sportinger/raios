@@ -2,30 +2,26 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-20 by Codex after adding local-only guest VM-test-report
-hash-reference diagnostics and denied load-gate VM-report reference validation
-while keeping `cap.module.load_ephemeral` denied. The guest now retains valid
-`raios.module_vm_test_report_reference.v0` events as local-only current-boot
-evidence, reports them as non-authorizing VM-report hash evidence in
-`raios.module_load_gate.v0`, and separately exercises stale/dropped,
-wrong-schema, substituted, manifest/artifact/grant-mismatched, and
-hash-mismatched VM-report references without accepting report JSON, mutating
-service inventory, or loading artifacts.
+Last updated: 2026-05-21 by Codex after extracting the event log's pure
+type/binding definitions into `seed-kernel/src/event_log_types.rs` while
+preserving the existing `event_log::...` API through re-exports. The change is
+maintenance-only: event recording, provider gates, module load-gate denials, and
+current-boot evidence semantics remain unchanged.
 
 Latest maintenance verification:
 
 - `git diff --check` passed.
 - `cargo fmt --all -- --check` passed.
 - `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
-  passed.
+  passed on 2026-05-21.
 - `cargo test --locked -p registry-core -p registry-tools` passed after adding
   the computed grant diagnostic, audit/rollback diagnostic, and their negative
   evidence tests.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`
-  passed.
+  passed on 2026-05-21.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260520-184635-28200.json` with 897/897
+  `release\vm-reports\shadow-20260521-124104-7556.json` with 897/897
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,

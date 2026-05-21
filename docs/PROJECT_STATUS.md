@@ -1,14 +1,16 @@
 # Project Status
 
-Last verified locally: 2026-05-20 on Windows with QEMU 11 via headless Shadow
-VM smoke covering deterministic `provider_minimal` packet/field-list evidence,
-explicit provider request-binding denial and export-denial audit records, the
-denied `provider.context_export` gate, the local redaction projection, read-only
-memory context, the RAM-only current-boot event log with structured denial
-bindings, the runtime `raios.provider_request_envelope.v0` marker on the real
-OpenAI request path, positive local-only request/export audit binding records on
-the SPKI pinned OpenAI path, checked current-boot binding consumption with
-single-use rejection, a local-only negative gate selftest for stale/dropped,
+Last verified locally: 2026-05-21 on Windows with QEMU 11 after extracting the
+event log's pure type/binding definitions into `seed-kernel/src/event_log_types.rs`,
+via headless Shadow VM smoke covering deterministic `provider_minimal`
+packet/field-list evidence, explicit provider request-binding denial and
+export-denial audit records, the denied `provider.context_export` gate, the
+local redaction projection, read-only memory context, the RAM-only current-boot
+event log with structured denial bindings, the runtime
+`raios.provider_request_envelope.v0` marker on the real OpenAI request path,
+positive local-only request/export audit binding records on the SPKI pinned
+OpenAI path, checked current-boot binding consumption with single-use rejection,
+a local-only negative gate selftest for stale/dropped,
 previous-boot-or-unretained, substituted-schema, substituted-positive-record,
 and mismatched-hash cases, the separate fail-closed
 `raios.provider_context_injection_gate.v0` diagnostic, local-only negative
@@ -43,16 +45,16 @@ references.
 Direct OpenAI pin-mismatch plus SPKI pinned-trust smokes using a fake local API
 key remain previously verified from the prior handoff.
 
-Latest host-tool verification: 2026-05-20 on Windows with
+Latest host-tool verification: 2026-05-21 on Windows with
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
 covering OTA/registry tooling plus the non-authorizing
 `raios.computed_capability_grant.v0` diagnostic, host-side
 `raios.module_audit_rollback_diagnostic.v0` audit/rollback candidates, and
 negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
-Latest guest-protocol verification: 2026-05-20 on Windows with
+Latest guest-protocol verification: 2026-05-21 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260520-184635-28200.json` with 897/897
+`release\vm-reports\shadow-20260521-124104-7556.json` with 897/897
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
