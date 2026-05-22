@@ -50,7 +50,9 @@ Last verified locally: 2026-05-22 on Windows with QEMU 11 after adding guest
 `recovery.lifeline_status_read_handler_diagnostic`/
 `recovery.lifeline_status_read_handler_diagnostic_selftest`, plus
 `recovery.rollback_preview_authorization_diagnostic`/
-`recovery.rollback_preview_authorization_diagnostic_selftest`, plus typed missing
+`recovery.rollback_preview_authorization_diagnostic_selftest`, plus
+`recovery.rollback_apply_authorization_diagnostic`/
+`recovery.rollback_apply_authorization_diagnostic_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
 typed missing `raios.durable_audit_write_policy.v0`/
 `raios.rollback_install_policy.v0` policy facts, typed missing
@@ -161,7 +163,16 @@ reference hash, body-canonicalization hash, handler-binding hash, status-read
 handler hash, dispatch boundary id, rollback-preview authorization id, and
 preview projection hash, retains only local-only current-boot preview
 authorization evidence, and advances dispatch only to missing rollback-apply
-authorization while still executing no rollback preview or recovery command, via
+authorization while still executing no rollback preview or recovery command,
+plus a read-only `raios.recovery_rollback_apply_authorization.v0`
+hash-reference diagnostic that consumes the retained rollback-preview
+authorization reference, validates command id, argument schema, argument hash,
+target locator, command-envelope reference hash, body-canonicalization hash,
+handler-binding hash, status-read handler hash, rollback-preview authorization
+hash, dispatch boundary id, rollback-apply authorization id, and apply
+projection hash, retains only local-only current-boot apply authorization
+evidence, and advances dispatch only to missing disable-module target binding
+while still executing no rollback apply or recovery command, via
 headless
 Shadow VM smoke
 covering
@@ -601,25 +612,25 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline rollback-apply authorization hash-reference
-boundary after rollback-preview authorization:
+Define the recovery lifeline disable-module target-binding hash-reference
+boundary after rollback-apply authorization:
 
 - add a read-only current-boot diagnostic for
-  `raios.recovery_rollback_apply_authorization.v0`, consuming the retained
-  rollback-preview authorization reference and dispatch-denial boundary while
-  still accepting no raw command body and executing no rollback apply
-- validate only hash/reference shape for rollback-apply authorization metadata:
+  `raios.recovery_disable_module_target_binding.v0`, consuming the retained
+  rollback-apply authorization reference and dispatch-denial boundary while
+  still accepting no raw command body and disabling no module
+- validate only hash/reference shape for disable-module target metadata:
   command id, argument schema, argument hash, target locator, command-envelope
   reference hash, body-canonicalization hash, handler-binding hash,
-  status-read handler hash, rollback-preview authorization hash, dispatch
-  boundary id, apply authorization id, apply projection hash, and current-boot
-  scope
+  status-read handler hash, rollback-preview authorization hash,
+  rollback-apply authorization hash, dispatch boundary id, disable-target id,
+  disable-target projection hash, and current-boot scope
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched preview-authorization/status-read/handler-binding/
-  body-canonicalization/dispatch/envelope/admission/memory-provenance/
-  durable-persistence/rollback-engine/loader-isolation/command-vocabulary/
-  protocol-state/request inputs before retaining or reporting any
-  rollback-apply authorization reference
+  mismatched apply-authorization/preview-authorization/status-read/
+  handler-binding/body-canonicalization/dispatch/envelope/admission/
+  memory-provenance/durable-persistence/rollback-engine/loader-isolation/
+  command-vocabulary/protocol-state/request inputs before retaining or
+  reporting any disable-module target reference
 
 The verified foundation for that task is:
 

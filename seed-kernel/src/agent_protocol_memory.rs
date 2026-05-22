@@ -1046,6 +1046,37 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_sha256(binding.rollback_preview_projection_hash);
             raw("}}");
         }
+        event_log::EventBindings::RecoveryRollbackApplyAuthorizationReference(binding) => {
+            raw(", \"bindings\": {\"schema\": \"raios.recovery_rollback_apply_authorization.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_rollback_preview_authorization_event_id\": ");
+            json_event_id(binding.retained_rollback_preview_authorization_event_id);
+            raw(", \"command_id\": ");
+            json_str(binding.command_id);
+            raw(", \"argument_schema\": ");
+            json_str(binding.argument_schema);
+            raw(", \"target_locator\": ");
+            json_str(binding.target_locator.as_str());
+            raw(", \"command_dispatch_boundary_id\": ");
+            json_str(binding.command_dispatch_boundary_id);
+            raw(", \"rollback_apply_authorization_id\": ");
+            json_str(binding.rollback_apply_authorization_id);
+            raw(", \"hashes\": {\"rollback_apply_authorization_hash\": ");
+            json_sha256(binding.rollback_apply_authorization_hash);
+            raw(", \"argument_hash\": ");
+            json_sha256(binding.argument_hash);
+            raw(", \"command_envelope_reference_hash\": ");
+            json_sha256(binding.command_envelope_reference_hash);
+            raw(", \"command_body_canonicalization_hash\": ");
+            json_sha256(binding.command_body_canonicalization_hash);
+            raw(", \"handler_binding_hash\": ");
+            json_sha256(binding.handler_binding_hash);
+            raw(", \"status_read_handler_hash\": ");
+            json_sha256(binding.status_read_handler_hash);
+            raw(", \"rollback_preview_authorization_hash\": ");
+            json_sha256(binding.rollback_preview_authorization_hash);
+            raw(", \"rollback_apply_projection_hash\": ");
+            json_sha256(binding.rollback_apply_projection_hash);
+            raw("}}");
+        }
     }
 }
 

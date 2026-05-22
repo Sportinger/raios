@@ -1,6 +1,6 @@
 use core::str;
 
-pub const EVENT_CAPACITY: usize = 128;
+pub const EVENT_CAPACITY: usize = 256;
 pub const DEFAULT_EVENT_LIMIT: usize = 32;
 pub use crate::module_evidence::MODULE_SERVICE_SLOT_ID_MAX;
 
@@ -474,6 +474,24 @@ pub struct RecoveryRollbackPreviewAuthorizationReference {
     pub rollback_preview_projection_hash: [u8; 32],
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryRollbackApplyAuthorizationReference {
+    pub rollback_apply_authorization_hash: [u8; 32],
+    pub retained_rollback_preview_authorization_event_id: EventId,
+    pub command_id: &'static str,
+    pub argument_schema: &'static str,
+    pub argument_hash: [u8; 32],
+    pub target_locator: RecoveryCommandTargetLocator,
+    pub command_envelope_reference_hash: [u8; 32],
+    pub command_body_canonicalization_hash: [u8; 32],
+    pub handler_binding_hash: [u8; 32],
+    pub status_read_handler_hash: [u8; 32],
+    pub rollback_preview_authorization_hash: [u8; 32],
+    pub command_dispatch_boundary_id: &'static str,
+    pub rollback_apply_authorization_id: &'static str,
+    pub rollback_apply_projection_hash: [u8; 32],
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ModuleManifestReferenceGateCheck {
     pub(crate) event_id: Option<EventId>,
@@ -617,6 +635,7 @@ pub enum EventBindings {
     RecoveryLifelineCommandHandlerBindingReference(RecoveryLifelineCommandHandlerBindingReference),
     RecoveryLifelineStatusReadHandlerReference(RecoveryLifelineStatusReadHandlerReference),
     RecoveryRollbackPreviewAuthorizationReference(RecoveryRollbackPreviewAuthorizationReference),
+    RecoveryRollbackApplyAuthorizationReference(RecoveryRollbackApplyAuthorizationReference),
 }
 
 #[derive(Clone, Copy)]
