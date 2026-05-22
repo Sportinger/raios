@@ -2,7 +2,26 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-22 by Codex after extending guest recovery lifeline
+Last updated: 2026-05-22 by Codex after adding
+`recovery.durable_audit_rollback_write_authority_diagnostic` and
+`recovery.durable_audit_rollback_write_authority_diagnostic_selftest` over
+`raios.durable_audit_rollback_write_authority.v0`, consuming the retained
+recovery-memory write-authority reference and dispatch-denial boundary,
+validating only command id, argument schema, argument hash, target locator,
+command-envelope reference hash, body-canonicalization hash, handler-binding
+hash, status-read handler hash, rollback authorization hashes,
+disable/restart/load target hashes, recovery-memory write-authority hash,
+dispatch boundary id, durable-write-authority id, durable projection hash, and
+current-boot scope, retaining a valid status-command durable-write-authority
+hash reference only as local-only current-boot evidence, and proving dispatch
+advances only to missing service-inventory side-effect boundary while still
+accepting no raw command body, writing no durable audit or rollback records,
+and keeping command dispatch, memory writes, provider export, rollback replay,
+recovery-memory writes, rollback preview/apply, loader execution, artifact
+loading, rollback installs, service-slot allocation, direct-OpenAI recovery
+shortcuts, and service inventory changes disabled.
+
+Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
 diagnostics with
 `recovery.lifeline_command_body_canonicalization_diagnostic` and
 `recovery.lifeline_command_body_canonicalization_diagnostic_selftest` over
@@ -855,17 +874,19 @@ any module and a retained restart-last-good target reference to the disable
 target without restarting services, then binds a retained load-artifact-by-hash
 target reference to the restart target without loading artifacts, and retains a
 recovery-memory write-authority reference without writing memory. Dispatch now
-stops at missing durable-audit/rollback write authority.
+stops at missing service-inventory side-effect boundary after the retained
+durable-audit/rollback write-authority reference.
 No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the recovery lifeline durable-audit/rollback write-authority
-hash-reference boundary after recovery-memory write authority.
+Define the recovery lifeline service-inventory side-effect boundary after
+durable-audit/rollback write authority.
 ```
 
 Start from the retained
+`raios.durable_audit_rollback_write_authority.v0` event, retained
 `raios.recovery_memory_write_authority.v0` event, retained
 `raios.recovery_load_artifact_by_hash_target_binding.v0` event, retained
 `raios.recovery_restart_last_good_target_binding.v0` event, retained
@@ -882,17 +903,18 @@ Start from the retained
 runtime isolation diagnostic, rollback transaction-engine diagnostic, durable
 audit/rollback persistence diagnostic, and recovery memory provenance
 diagnostic. Add the next read-only hash-reference boundary for
-`raios.durable_audit_rollback_write_authority.v0`: validate only command id,
+`raios.recovery_service_inventory_side_effect_boundary.v0`: validate only command id,
 argument schema, argument hash, target locator, command-envelope reference
 hash, body-canonicalization hash, handler-binding hash, status-read handler
 hash, rollback-preview authorization hash, rollback-apply authorization hash,
 disable-module target-binding hash, restart-last-good target-binding hash,
 load-artifact-by-hash target-binding hash, recovery-memory write-authority
-hash, dispatch boundary id, durable-write-authority id, durable projection
-hash, and current-boot scope. It should reject stale/wrong-schema/substituted/
-mismatched memory-authority/load-target/restart-target/disable-target/
-apply-authorization/preview-authorization/status-read/handler-binding/
-body-canonicalization/dispatch/envelope/admission/memory-provenance/
+hash, durable-audit/rollback write-authority hash, dispatch boundary id,
+service-inventory side-effect boundary id, service-inventory projection hash,
+and current-boot scope. It should reject stale/wrong-schema/substituted/
+mismatched durable-write-authority/memory-authority/load-target/
+restart-target/disable-target/apply-authorization/preview-authorization/
+status-read/handler-binding/body-canonicalization/dispatch/envelope/admission/memory-provenance/
 durable-persistence/rollback-engine/loader-isolation/command-vocabulary/
 protocol-state/request chains and still avoid fake recovery shell behavior,
 fake command execution, fake persistent memory, fallback stores, durable
@@ -901,25 +923,27 @@ export, direct-OpenAI recovery shortcuts, or recovery lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only durable-audit/rollback write-authority hash-reference
-   diagnostics over the retained recovery-memory write-authority reference and
+1. Define read-only service-inventory side-effect hash-reference diagnostics
+   over the retained durable-audit/rollback write-authority reference and
    dispatch-denial boundary.
-2. Bind durable-audit/rollback write authority to command id, argument
+2. Bind service-inventory side-effect authority to command id, argument
    schema/hash, target locator, command-envelope reference hash,
    body-canonicalization hash, handler-binding hash, status-read handler hash,
    preview authorization hash, apply authorization hash, disable-module
    target-binding hash, restart-last-good target-binding hash,
    load-artifact-by-hash target-binding hash, recovery-memory write-authority
-   hash, durable-write-authority id, and durable projection hash while still
-   accepting no raw command body.
+   hash, durable-audit/rollback write-authority hash, side-effect boundary id,
+   and service-inventory projection hash while still accepting no raw command
+   body.
 3. Keep selftests proving stale/wrong-schema/substituted/mismatched
-   memory-authority, load-target, restart-target, disable-target,
-   apply-authorization, preview-authorization, status-read, handler-binding,
-   body-canonicalization, dispatch, command-envelope, command-admission,
-   memory provenance, persistence, rollback-engine, loader-isolation, command
-   vocabulary, protocol-state, and lifeline request chains stay rejected
-   without implementing recovery shell behavior, persistent memory writes,
-   provider export, or rollback execution.
+   durable-write-authority, memory-authority, load-target, restart-target,
+   disable-target, apply-authorization, preview-authorization, status-read,
+   handler-binding, body-canonicalization, dispatch, command-envelope,
+   command-admission, memory provenance, persistence, rollback-engine,
+   loader-isolation, command vocabulary, protocol-state, and lifeline request
+   chains stay rejected without implementing recovery shell behavior,
+   persistent memory writes, provider export, service inventory mutation, or
+   rollback execution.
 
 Current blockers and non-goals:
 

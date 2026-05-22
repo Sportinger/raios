@@ -1,14 +1,15 @@
 use spin::Mutex;
 
 use crate::event_log_evidence::{
-    DENIED_EVIDENCE, MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE,
-    MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE, MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
-    MODULE_LOAD_GATE_EVIDENCE, MODULE_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
-    MODULE_LOCAL_ATTESTATION_REFERENCE_EVIDENCE, MODULE_MANIFEST_REFERENCE_EVIDENCE,
-    MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE, MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE,
-    PROVIDER_BINDING_CONSUMPTION_EVIDENCE, PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
-    PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE, PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
-    PROVIDER_REQUEST_BINDING_EVIDENCE, PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
+    DENIED_EVIDENCE, DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE,
+    MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE, MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE,
+    MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE, MODULE_LOAD_GATE_EVIDENCE,
+    MODULE_LOCAL_APPROVAL_REFERENCE_EVIDENCE, MODULE_LOCAL_ATTESTATION_REFERENCE_EVIDENCE,
+    MODULE_MANIFEST_REFERENCE_EVIDENCE, MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE,
+    MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE, PROVIDER_BINDING_CONSUMPTION_EVIDENCE,
+    PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE, PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE,
+    PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE, PROVIDER_REQUEST_BINDING_EVIDENCE,
+    PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
     RECOVERY_ARTIFACT_IDENTITY_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_LOADER_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE, RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_EVIDENCE,
@@ -40,12 +41,12 @@ use crate::event_log_types::{
     ModuleServiceSlotReservationGateCheck, ModuleVmTestReportReferenceGateCheck,
 };
 pub use crate::event_log_types::{
-    Event, EventBindings, EventId, EventSnapshot, ModuleAuditRollbackReference,
-    ModuleCandidateArtifactReference, ModuleComputedGrantReference, ModuleLoadGateBinding,
-    ModuleLocalApprovalReference, ModuleLocalAttestationReference, ModuleManifestReference,
-    ModuleServiceSlotId, ModuleServiceSlotReservation, ModuleVmTestReportReference,
-    ProviderBindingConsumption, ProviderBindingGateCheck, ProviderBindingGateSelfTestCase,
-    ProviderContextHashes, ProviderContextInjectionAuthorization,
+    DurableAuditRollbackWriteAuthorityReference, Event, EventBindings, EventId, EventSnapshot,
+    ModuleAuditRollbackReference, ModuleCandidateArtifactReference, ModuleComputedGrantReference,
+    ModuleLoadGateBinding, ModuleLocalApprovalReference, ModuleLocalAttestationReference,
+    ModuleManifestReference, ModuleServiceSlotId, ModuleServiceSlotReservation,
+    ModuleVmTestReportReference, ProviderBindingConsumption, ProviderBindingGateCheck,
+    ProviderBindingGateSelfTestCase, ProviderContextHashes, ProviderContextInjectionAuthorization,
     ProviderContextInjectionGateCheck, ProviderContextInjectionGateSelfTestCase,
     ProviderExportAuditBinding, ProviderRequestBinding, ProviderRequestEnvelopeBinding,
     RecoveryArtifactIdentityReference, RecoveryArtifactLoadDenialBinding,
@@ -1152,6 +1153,33 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::RecoveryMemoryWriteAuthorityReference(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_durable_audit_rollback_write_authority_reference(
+        &self,
+    ) -> Option<(EventId, DurableAuditRollbackWriteAuthorityReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::DurableAuditRollbackWriteAuthorityReference(binding) =
                     event.bindings
                 {
                     return Some((
@@ -2994,6 +3022,26 @@ pub fn record_recovery_memory_write_authority_reference(
     })
 }
 
+pub fn record_durable_audit_rollback_write_authority_reference(
+    binding: DurableAuditRollbackWriteAuthorityReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.durable_audit_rollback_write_authority.retained",
+        source_method: "recovery.durable_audit_rollback_write_authority_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "durable_audit_rollback_write_authority",
+        reason: "durable_audit_rollback_write_authority_valid_for_current_boot",
+        evidence: DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE,
+        bindings: EventBindings::DurableAuditRollbackWriteAuthorityReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -3373,6 +3421,12 @@ pub fn latest_recovery_memory_write_authority_reference(
 ) -> Option<(EventId, RecoveryMemoryWriteAuthorityReference)> {
     LOG.lock()
         .latest_recovery_memory_write_authority_reference()
+}
+
+pub fn latest_durable_audit_rollback_write_authority_reference(
+) -> Option<(EventId, DurableAuditRollbackWriteAuthorityReference)> {
+    LOG.lock()
+        .latest_durable_audit_rollback_write_authority_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(

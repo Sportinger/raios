@@ -52,7 +52,17 @@ Last verified locally: 2026-05-22 on Windows with QEMU 11 after adding guest
 `recovery.rollback_preview_authorization_diagnostic`/
 `recovery.rollback_preview_authorization_diagnostic_selftest`, plus
 `recovery.rollback_apply_authorization_diagnostic`/
-`recovery.rollback_apply_authorization_diagnostic_selftest`, plus typed missing
+`recovery.rollback_apply_authorization_diagnostic_selftest`, plus
+`recovery.disable_module_target_binding_diagnostic`/
+`recovery.disable_module_target_binding_diagnostic_selftest`, plus
+`recovery.restart_last_good_target_binding_diagnostic`/
+`recovery.restart_last_good_target_binding_diagnostic_selftest`, plus
+`recovery.load_artifact_by_hash_target_binding_diagnostic`/
+`recovery.load_artifact_by_hash_target_binding_diagnostic_selftest`, plus
+`recovery.memory_write_authority_diagnostic`/
+`recovery.memory_write_authority_diagnostic_selftest`, plus
+`recovery.durable_audit_rollback_write_authority_diagnostic`/
+`recovery.durable_audit_rollback_write_authority_diagnostic_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
 typed missing `raios.durable_audit_write_policy.v0`/
 `raios.rollback_install_policy.v0` policy facts, typed missing
@@ -172,7 +182,21 @@ handler-binding hash, status-read handler hash, rollback-preview authorization
 hash, dispatch boundary id, rollback-apply authorization id, and apply
 projection hash, retains only local-only current-boot apply authorization
 evidence, and advances dispatch only to missing disable-module target binding
-while still executing no rollback apply or recovery command, via
+while still executing no rollback apply or recovery command, plus read-only
+`raios.recovery_disable_module_target_binding.v0`,
+`raios.recovery_restart_last_good_target_binding.v0`,
+`raios.recovery_load_artifact_by_hash_target_binding.v0`, and
+`raios.recovery_memory_write_authority.v0` hash-reference diagnostics that
+chain rollback-apply authorization through disable/restart/load/memory
+authority without disabling modules, restarting services, loading artifacts,
+or writing recovery memory, plus a read-only
+`raios.durable_audit_rollback_write_authority.v0` hash-reference diagnostic
+that consumes the retained recovery-memory write authority, validates the
+command/argument/target/envelope/body/handler/status/authorization/target/
+memory/dispatch/projection hashes, retains only local-only current-boot
+durable-write authority evidence, and advances dispatch only to the missing
+service-inventory side-effect boundary while still writing no durable audit or
+rollback records and dispatching no behavior, via
 headless
 Shadow VM smoke
 covering
@@ -612,33 +636,42 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline durable-audit/rollback write-authority
-hash-reference boundary after recovery-memory write authority:
+Define the recovery lifeline service-inventory side-effect boundary after
+durable-audit/rollback write authority:
 
 - add a read-only current-boot diagnostic for
-  `raios.durable_audit_rollback_write_authority.v0`, consuming the retained
-  recovery-memory write-authority reference and dispatch-denial boundary while
-  still accepting no raw command body and writing no durable audit or rollback
-  records
-- validate only hash/reference shape for durable-audit/rollback write
+  `raios.recovery_service_inventory_side_effect_boundary.v0`, consuming the
+  retained durable-audit/rollback write-authority reference and
+  dispatch-denial boundary while still accepting no raw command body,
+  allocating no service slot, and mutating no service inventory
+- validate only hash/reference shape for service-inventory side-effect
   authority:
   command id, argument schema, argument hash, target locator, command-envelope
   reference hash, body-canonicalization hash, handler-binding hash,
   status-read handler hash, rollback-preview authorization hash,
   rollback-apply authorization hash, disable-module target-binding hash,
   restart-last-good target-binding hash, load-artifact-by-hash target-binding
-  hash, recovery-memory write-authority hash, dispatch boundary id,
-  durable-write-authority id, durable projection hash, and current-boot scope
+  hash, recovery-memory write-authority hash, durable-audit/rollback
+  write-authority hash, dispatch boundary id, side-effect boundary id,
+  service-inventory projection hash, and current-boot scope
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched memory-authority/load-target/restart-target/disable-target/
-  apply-authorization/preview-authorization/status-read/handler-binding/
-  body-canonicalization/dispatch/envelope/admission/memory-provenance/
-  durable-persistence/rollback-engine/loader-isolation/command-vocabulary/
-  protocol-state/request inputs before retaining or reporting any
-  durable-audit/rollback write-authority reference
+  mismatched durable-write-authority/memory-authority/load-target/
+  restart-target/disable-target/apply-authorization/preview-authorization/
+  status-read/handler-binding/body-canonicalization/dispatch/envelope/
+  admission/memory-provenance/durable-persistence/rollback-engine/
+  loader-isolation/command-vocabulary/protocol-state/request inputs before
+  retaining or reporting any service-inventory side-effect reference
 
 The verified foundation for that task is:
 
+- `recovery.durable_audit_rollback_write_authority_diagnostic` and
+  `recovery.durable_audit_rollback_write_authority_diagnostic_selftest` now
+  retain only local-only current-boot durable-audit/rollback write-authority
+  hash references over the retained recovery-memory write-authority reference
+  and leave dispatch stopped at missing service-inventory side-effect
+  boundary. They do not dispatch commands, write durable audit/rollback state,
+  write recovery memory, load artifacts, allocate service slots, or change
+  service inventory.
 - `recovery.memory_write_authority_diagnostic` and
   `recovery.memory_write_authority_diagnostic_selftest` now retain only
   local-only current-boot recovery-memory write-authority hash references over

@@ -87,7 +87,12 @@ use crate::{
         provider_context_injection_gate_method, provider_context_injection_gate_selftest_method,
     },
     agent_protocol_recovery::{
-        canonical_recovery_artifact_load_method, emit_recovery_artifact_identity_diagnostic,
+        canonical_recovery_artifact_load_method,
+        durable_audit_rollback_write_authority_diagnostic_method,
+        durable_audit_rollback_write_authority_diagnostic_selftest_method,
+        emit_durable_audit_rollback_write_authority_diagnostic,
+        emit_durable_audit_rollback_write_authority_diagnostic_selftest,
+        emit_recovery_artifact_identity_diagnostic,
         emit_recovery_artifact_identity_diagnostic_selftest, emit_recovery_artifact_load_binding,
         emit_recovery_artifact_load_binding_selftest, emit_recovery_artifact_load_denied,
         emit_recovery_artifact_loader_diagnostic,
@@ -766,6 +771,20 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("recovery.memory_write_authority_diagnostic_selftest");
         emit_recovery_memory_write_authority_diagnostic_selftest();
         return DispatchOutcome::Response("recovery.memory_write_authority_diagnostic_selftest");
+    }
+    if durable_audit_rollback_write_authority_diagnostic_method(method) {
+        record_read("recovery.durable_audit_rollback_write_authority_diagnostic");
+        emit_durable_audit_rollback_write_authority_diagnostic(method);
+        return DispatchOutcome::Response(
+            "recovery.durable_audit_rollback_write_authority_diagnostic",
+        );
+    }
+    if durable_audit_rollback_write_authority_diagnostic_selftest_method(method) {
+        record_read("recovery.durable_audit_rollback_write_authority_diagnostic_selftest");
+        emit_durable_audit_rollback_write_authority_diagnostic_selftest();
+        return DispatchOutcome::Response(
+            "recovery.durable_audit_rollback_write_authority_diagnostic_selftest",
+        );
     }
     if recovery_artifact_load_binding_method(method) {
         record_read("recovery.load_binding");

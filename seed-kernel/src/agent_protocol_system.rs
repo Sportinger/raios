@@ -301,6 +301,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.load_artifact_by_hash_target_binding_diagnostic_selftest",
     "recovery.memory_write_authority_diagnostic",
     "recovery.memory_write_authority_diagnostic_selftest",
+    "recovery.durable_audit_rollback_write_authority_diagnostic",
+    "recovery.durable_audit_rollback_write_authority_diagnostic_selftest",
     "recovery.load_binding",
     "recovery.load_binding_selftest",
 ];
