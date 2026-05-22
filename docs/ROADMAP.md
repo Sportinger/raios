@@ -3,7 +3,70 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-22 by Codex after extending guest recovery lifeline
-diagnostics with `recovery.memory_provenance` and
+diagnostics with
+`recovery.lifeline_command_body_canonicalization_diagnostic` and
+`recovery.lifeline_command_body_canonicalization_diagnostic_selftest` over
+`raios.recovery_lifeline_command_body_canonicalization.v0`, consuming the
+retained command-envelope reference and the dispatch-denial boundary, validating
+only command id, argument schema, argument hash, target locator,
+command-envelope reference hash, dispatch boundary id, and current-boot scope,
+retaining a valid status-command body-canonicalization hash reference only as
+local-only current-boot evidence, exposing missing body schema
+canonicalization, redaction/classification, handler input binding, rollback
+authorization linkage, recovery-memory write linkage, durable audit/rollback
+write linkage, and service-inventory side-effect linkage facts, and proving the
+dispatch diagnostic advances only to missing handler binding while still
+accepting no raw command body and keeping command envelope acceptance, command
+dispatch, memory writes, provider export, durable writes, rollback replay,
+recovery-memory writes, rollback preview/apply, loader execution, artifact
+loading, rollback installs, service-slot allocation, direct-OpenAI recovery
+shortcuts, and service inventory changes disabled; prior work added diagnostics
+with `recovery.lifeline_command_dispatch_diagnostic` and
+`recovery.lifeline_command_dispatch_diagnostic_selftest` over
+`raios.recovery_lifeline_command_dispatch_denial.v0`, consuming the retained
+command-envelope reference, exposing missing command body canonicalization,
+command handler binding, status-read handler, rollback-preview/apply
+authorization, disable-module/restart-last-good/load-artifact-by-hash target
+bindings, recovery-memory write authority, durable audit/rollback write
+authority, and service-inventory side-effect facts, rejecting invalid
+request/protocol-state/command-vocabulary/loader-isolation/rollback-engine/
+durable-persistence/memory-provenance/command-admission/command-envelope chains
+while still accepting no command body and keeping command envelope acceptance,
+command dispatch, memory writes, provider export, durable writes, rollback
+replay, recovery-memory writes, rollback preview/apply, loader execution,
+artifact loading, rollback installs, service-slot allocation, direct-OpenAI
+recovery shortcuts, and service inventory changes disabled; prior work added
+diagnostics with `recovery.lifeline_command_envelope_diagnostic` and
+`recovery.lifeline_command_envelope_diagnostic_selftest` over
+`raios.recovery_lifeline_command_envelope_reference.v0`, consuming command
+admission after the retained lifeline request/evidence chain, validating only
+hash/reference shape for lifeline status, rollback preview/apply, disable
+module, restart last-good, and load-artifact-by-hash command ids, argument
+schemas, argument hashes, required capabilities, target locators,
+command-admission boundary ids, and retained request hashes, and rejecting
+invalid request/protocol-state/command-vocabulary/loader-isolation/
+rollback-engine/durable-persistence/memory-provenance/command-admission chains
+while still accepting no command body and keeping command envelope acceptance,
+command dispatch, memory writes, provider export, durable writes, rollback
+replay, recovery-memory writes, rollback preview/apply, loader execution,
+artifact loading, rollback installs, service-slot allocation, direct-OpenAI
+recovery shortcuts, and service inventory changes disabled; prior work added
+diagnostics with `recovery.lifeline_command_admission` and
+`recovery.lifeline_command_admission_selftest` over
+`raios.recovery_lifeline_command_admission.v0`, consuming recovery memory
+provenance after the retained lifeline request/evidence chain, command
+vocabulary envelope, loader runtime isolation boundary, rollback
+transaction-engine boundary, and durable audit/rollback persistence boundary,
+enumerating non-executing admission requirements for lifeline status, rollback
+preview, rollback apply, disable module, restart last-good, and load recovery
+artifact by hash command envelopes, and rejecting invalid request/
+protocol-state/command-vocabulary/loader-isolation/rollback-engine/
+durable-persistence/memory-provenance chains while still keeping command
+envelope acceptance, command dispatch, memory writes, provider export, durable
+writes, rollback replay, recovery-memory writes, rollback preview/apply, loader
+execution, artifact loading, rollback installs, service-slot allocation,
+direct-OpenAI recovery shortcuts, and service inventory changes disabled; prior
+work added diagnostics with `recovery.memory_provenance` and
 `recovery.memory_provenance_selftest` over
 `raios.recovery_memory_provenance.v0`, consuming the retained lifeline
 request/evidence chain, command-vocabulary envelope, loader runtime isolation
@@ -140,7 +203,7 @@ Latest maintenance verification:
   passed on 2026-05-22.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260522-105810-7128.json` with 2708/2708
+  `release\vm-reports\shadow-20260522-152441-25392.json` with 3060/3060
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -253,7 +316,28 @@ Latest maintenance verification:
   source schema hash, classification, authority, rollback-transaction binding,
   last-good checkpoint binding, recovery-only export profile, redaction,
   replay-window, and audit-linkage gaps while keeping memory writes and provider
-  export disabled.
+  export disabled, plus `recovery.lifeline_command_admission` and
+  `recovery.lifeline_command_admission_selftest` proving
+  `raios.recovery_lifeline_command_admission.v0` exposes non-executing
+  admission requirements for lifeline status, rollback preview, rollback apply,
+  disable module, restart last-good, and load recovery artifact by hash command
+  envelopes while rejecting invalid memory-provenance, persistence,
+  rollback-engine, loader-isolation, command-vocabulary, protocol-state, and
+  request chains, plus `recovery.lifeline_command_envelope_diagnostic` and
+  `recovery.lifeline_command_envelope_diagnostic_selftest` proving
+  `raios.recovery_lifeline_command_envelope_reference.v0` validates only
+  hash/reference shape for allowed lifeline command ids, argument schemas,
+  argument hashes, required capabilities, target locators,
+  command-admission boundary ids, and retained request hashes, including a
+  valid retained status-command hash reference, while accepting no command
+  bodies and dispatching no recovery behavior, plus
+  `recovery.lifeline_command_dispatch_diagnostic` and
+  `recovery.lifeline_command_dispatch_diagnostic_selftest` proving
+  `raios.recovery_lifeline_command_dispatch_denial.v0` consumes that retained
+  command-envelope reference, exposes missing body canonicalization, handler
+  binding, status-read handling, rollback authorization, per-command target
+  binding, memory/durable write authority, and service-inventory side-effect
+  facts, and still dispatches no recovery behavior.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
   positive request/export audit binding markers stayed absent. The local image
@@ -704,45 +788,84 @@ authority, rollback-transaction binding, last-good checkpoint binding,
 recovery-only export profile, redaction-state, replay-window, and audit-linkage
 facts without accepting memory records, writing memory, or exporting provider
 context.
+`recovery.lifeline_command_admission` and
+`recovery.lifeline_command_admission_selftest` now expose a local-only
+current-boot `raios.recovery_lifeline_command_admission.v0` boundary that
+consumes recovery memory provenance, enumerates admission requirements for
+lifeline status, rollback preview, rollback apply, disable module, restart
+last-good, and load recovery artifact by hash command envelopes, and rejects
+invalid request/protocol-state/command-vocabulary/loader-isolation/
+rollback-engine/durable-persistence/memory-provenance chains while accepting no
+command envelope and dispatching no recovery behavior.
+`recovery.lifeline_command_envelope_diagnostic` and
+`recovery.lifeline_command_envelope_diagnostic_selftest` now expose a
+local-only current-boot
+`raios.recovery_lifeline_command_envelope_reference.v0` boundary that validates
+allowed command ids, argument schemas, argument hashes, required capabilities,
+target locators, command-admission boundary ids, and retained request hashes
+without accepting command bodies.
+`recovery.lifeline_command_dispatch_diagnostic` and
+`recovery.lifeline_command_dispatch_diagnostic_selftest` now expose a
+local-only current-boot `raios.recovery_lifeline_command_dispatch_denial.v0`
+boundary that consumes a retained command-envelope reference and enumerates
+missing body-canonicalization, handler binding, status-read, rollback
+authorization, per-command target binding, memory/durable write authority, and
+service-inventory side-effect facts without dispatching recovery commands.
+`recovery.lifeline_command_body_canonicalization_diagnostic` and
+`recovery.lifeline_command_body_canonicalization_diagnostic_selftest` now expose
+a local-only current-boot
+`raios.recovery_lifeline_command_body_canonicalization.v0` hash-reference
+boundary that consumes the retained command-envelope reference plus the
+dispatch-denial boundary, validates canonical command-body metadata hashes,
+retains only local-only current-boot body-canonicalization evidence, and leaves
+dispatch stopped at missing handler binding.
 No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the recovery lifeline command-admission boundary after memory
-provenance.
+Define the recovery lifeline command-handler binding hash-reference boundary
+after body canonicalization.
 ```
 
-Start from the retained `raios.recovery_lifeline_request.v0` event, command
-vocabulary envelope, loader runtime isolation diagnostic, rollback
-transaction-engine diagnostic, durable audit/rollback persistence diagnostic,
-and recovery memory provenance diagnostic. Add the next read-only diagnostic for
-`raios.recovery_lifeline_command_admission.v0`: define admission gates for
-lifeline status, rollback preview, rollback apply, disable module, restart
-last-good, and load recovery artifact by hash command envelopes without
-dispatching any recovery behavior. It should reject stale, wrong-schema,
-substituted, and mismatched retained request/evidence/command-vocabulary/
-loader-isolation/rollback-engine/persistence/memory-provenance chains before
-reporting command-admission readiness, and still avoid fake recovery shell
-behavior, fake command execution, fake persistent memory, fallback stores,
-durable records, loaders, rollback transactions, service-slot side effects,
-provider export, direct-OpenAI recovery shortcuts, or recovery lifeline
-behavior.
+Start from the retained
+`raios.recovery_lifeline_command_body_canonicalization.v0` event, the read-only
+`raios.recovery_lifeline_command_dispatch_denial.v0` boundary, retained
+`raios.recovery_lifeline_command_envelope_reference.v0` event,
+`raios.recovery_lifeline_command_admission.v0`, retained
+`raios.recovery_lifeline_request.v0` event, command vocabulary envelope, loader
+runtime isolation diagnostic, rollback transaction-engine diagnostic, durable
+audit/rollback persistence diagnostic, and recovery memory provenance
+diagnostic. Add the next read-only hash-reference boundary for
+`raios.recovery_lifeline_command_handler_binding.v0`: validate only command id,
+argument schema, argument hash, target locator, command-envelope reference
+hash, body-canonicalization hash, dispatch boundary id, handler id, handler
+input binding hash, and current-boot scope. It should expose missing
+status-read handler, rollback preview/apply authorization linkage,
+disable-module/restart-last-good/load-artifact-by-hash target handlers,
+memory/durable write linkage, and service-inventory side-effect linkage, reject
+stale/wrong-schema/substituted/mismatched body-canonicalization/dispatch/
+envelope/admission/memory-provenance/durable-persistence/rollback-engine/
+loader-isolation/command-vocabulary/protocol-state/request chains, and still
+avoid fake recovery shell behavior, fake command execution, fake persistent
+memory, fallback stores, durable records, loaders, rollback transactions,
+service-slot side effects, provider export, direct-OpenAI recovery shortcuts,
+or recovery lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only recovery command-admission diagnostics over the retained
-   lifeline request event, command vocabulary, loader isolation, rollback
-   transaction engine, durable persistence, recovery memory provenance, and six
-   bound evidence ids.
-2. Bind allowed lifeline command ids to argument-envelope schemas, required
-   capabilities, readiness facts, and explicit denial reasons without executing
-   commands.
-3. Keep selftests proving stale/wrong-schema/substituted/mismatched memory
-   provenance, persistence, rollback-engine, loader isolation,
-   command-vocabulary, protocol-state, and lifeline request chains stay rejected
-   without implementing recovery shell behavior, persistent memory writes,
-   provider export, or rollback execution.
+1. Define read-only recovery command-handler binding hash-reference diagnostics
+   over the retained body-canonicalization reference and dispatch-denial
+   boundary.
+2. Bind handler references to command id, argument schema/hash, target locator,
+   command-envelope reference hash, body-canonicalization hash, handler id, and
+   handler input binding hash while still accepting no raw command body.
+3. Keep selftests proving stale/wrong-schema/substituted/mismatched
+   body-canonicalization, dispatch, command-envelope, command-admission, memory
+   provenance, persistence, rollback-engine, loader-isolation, command
+   vocabulary, protocol-state, and lifeline request chains stay rejected without
+   implementing recovery shell behavior, persistent memory writes, provider
+   export, or rollback execution.
 
 Current blockers and non-goals:
 

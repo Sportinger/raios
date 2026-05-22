@@ -101,6 +101,14 @@ use crate::{
         emit_recovery_artifact_vm_test_diagnostic_selftest,
         emit_recovery_durable_audit_rollback_persistence,
         emit_recovery_durable_audit_rollback_persistence_selftest,
+        emit_recovery_lifeline_command_admission,
+        emit_recovery_lifeline_command_admission_selftest,
+        emit_recovery_lifeline_command_body_canonicalization_diagnostic,
+        emit_recovery_lifeline_command_body_canonicalization_diagnostic_selftest,
+        emit_recovery_lifeline_command_dispatch_diagnostic,
+        emit_recovery_lifeline_command_dispatch_diagnostic_selftest,
+        emit_recovery_lifeline_command_envelope_diagnostic,
+        emit_recovery_lifeline_command_envelope_diagnostic_selftest,
         emit_recovery_lifeline_command_vocabulary,
         emit_recovery_lifeline_command_vocabulary_selftest,
         emit_recovery_lifeline_protocol_diagnostic,
@@ -125,6 +133,14 @@ use crate::{
         recovery_artifact_vm_test_diagnostic_selftest_method,
         recovery_durable_audit_rollback_persistence_method,
         recovery_durable_audit_rollback_persistence_selftest_method,
+        recovery_lifeline_command_admission_method,
+        recovery_lifeline_command_admission_selftest_method,
+        recovery_lifeline_command_body_canonicalization_diagnostic_method,
+        recovery_lifeline_command_body_canonicalization_diagnostic_selftest_method,
+        recovery_lifeline_command_dispatch_diagnostic_method,
+        recovery_lifeline_command_dispatch_diagnostic_selftest_method,
+        recovery_lifeline_command_envelope_diagnostic_method,
+        recovery_lifeline_command_envelope_diagnostic_selftest_method,
         recovery_lifeline_command_vocabulary_method,
         recovery_lifeline_command_vocabulary_selftest_method,
         recovery_lifeline_protocol_diagnostic_method,
@@ -576,6 +592,50 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("recovery.memory_provenance_selftest");
         emit_recovery_memory_provenance_selftest();
         return DispatchOutcome::Response("recovery.memory_provenance_selftest");
+    }
+    if recovery_lifeline_command_admission_method(method) {
+        record_read("recovery.lifeline_command_admission");
+        emit_recovery_lifeline_command_admission();
+        return DispatchOutcome::Response("recovery.lifeline_command_admission");
+    }
+    if recovery_lifeline_command_admission_selftest_method(method) {
+        record_read("recovery.lifeline_command_admission_selftest");
+        emit_recovery_lifeline_command_admission_selftest();
+        return DispatchOutcome::Response("recovery.lifeline_command_admission_selftest");
+    }
+    if recovery_lifeline_command_envelope_diagnostic_method(method) {
+        record_read("recovery.lifeline_command_envelope_diagnostic");
+        emit_recovery_lifeline_command_envelope_diagnostic(method);
+        return DispatchOutcome::Response("recovery.lifeline_command_envelope_diagnostic");
+    }
+    if recovery_lifeline_command_envelope_diagnostic_selftest_method(method) {
+        record_read("recovery.lifeline_command_envelope_diagnostic_selftest");
+        emit_recovery_lifeline_command_envelope_diagnostic_selftest();
+        return DispatchOutcome::Response("recovery.lifeline_command_envelope_diagnostic_selftest");
+    }
+    if recovery_lifeline_command_dispatch_diagnostic_method(method) {
+        record_read("recovery.lifeline_command_dispatch_diagnostic");
+        emit_recovery_lifeline_command_dispatch_diagnostic();
+        return DispatchOutcome::Response("recovery.lifeline_command_dispatch_diagnostic");
+    }
+    if recovery_lifeline_command_dispatch_diagnostic_selftest_method(method) {
+        record_read("recovery.lifeline_command_dispatch_diagnostic_selftest");
+        emit_recovery_lifeline_command_dispatch_diagnostic_selftest();
+        return DispatchOutcome::Response("recovery.lifeline_command_dispatch_diagnostic_selftest");
+    }
+    if recovery_lifeline_command_body_canonicalization_diagnostic_method(method) {
+        record_read("recovery.lifeline_command_body_canonicalization_diagnostic");
+        emit_recovery_lifeline_command_body_canonicalization_diagnostic(method);
+        return DispatchOutcome::Response(
+            "recovery.lifeline_command_body_canonicalization_diagnostic",
+        );
+    }
+    if recovery_lifeline_command_body_canonicalization_diagnostic_selftest_method(method) {
+        record_read("recovery.lifeline_command_body_canonicalization_diagnostic_selftest");
+        emit_recovery_lifeline_command_body_canonicalization_diagnostic_selftest();
+        return DispatchOutcome::Response(
+            "recovery.lifeline_command_body_canonicalization_diagnostic_selftest",
+        );
     }
     if recovery_artifact_load_binding_method(method) {
         record_read("recovery.load_binding");

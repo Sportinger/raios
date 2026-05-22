@@ -199,6 +199,31 @@ impl ModuleServiceSlotId {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryCommandTargetLocator {
+    bytes: [u8; MODULE_SERVICE_SLOT_ID_MAX],
+    len: usize,
+}
+
+impl RecoveryCommandTargetLocator {
+    pub fn new(value: &str) -> Option<Self> {
+        let bytes = value.as_bytes();
+        if bytes.is_empty() || bytes.len() > MODULE_SERVICE_SLOT_ID_MAX {
+            return None;
+        }
+        let mut out = Self {
+            bytes: [0; MODULE_SERVICE_SLOT_ID_MAX],
+            len: bytes.len(),
+        };
+        out.bytes[..bytes.len()].copy_from_slice(bytes);
+        Some(out)
+    }
+
+    pub fn as_str(&self) -> &str {
+        unsafe { str::from_utf8_unchecked(&self.bytes[..self.len]) }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct ModuleAuditRollbackReference {
     pub audit_record_hash: [u8; 32],
@@ -376,6 +401,31 @@ pub struct RecoveryLifelineRequestReference {
     pub rollback_evidence_hash: [u8; 32],
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryLifelineCommandEnvelopeReference {
+    pub command_envelope_reference_hash: [u8; 32],
+    pub retained_lifeline_request_event_id: EventId,
+    pub command_id: &'static str,
+    pub argument_schema: &'static str,
+    pub argument_hash: [u8; 32],
+    pub required_capability: &'static str,
+    pub target_locator: RecoveryCommandTargetLocator,
+    pub command_admission_boundary_id: &'static str,
+    pub lifeline_request_reference_hash: [u8; 32],
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryLifelineCommandBodyCanonicalizationReference {
+    pub command_body_canonicalization_hash: [u8; 32],
+    pub retained_command_envelope_reference_event_id: EventId,
+    pub command_id: &'static str,
+    pub argument_schema: &'static str,
+    pub argument_hash: [u8; 32],
+    pub target_locator: RecoveryCommandTargetLocator,
+    pub command_envelope_reference_hash: [u8; 32],
+    pub command_dispatch_boundary_id: &'static str,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ModuleManifestReferenceGateCheck {
     pub(crate) event_id: Option<EventId>,
@@ -512,6 +562,10 @@ pub enum EventBindings {
     RecoveryArtifactLoaderReference(RecoveryArtifactLoaderReference),
     RecoveryArtifactRollbackEvidenceReference(RecoveryArtifactRollbackEvidenceReference),
     RecoveryLifelineRequestReference(RecoveryLifelineRequestReference),
+    RecoveryLifelineCommandEnvelopeReference(RecoveryLifelineCommandEnvelopeReference),
+    RecoveryLifelineCommandBodyCanonicalizationReference(
+        RecoveryLifelineCommandBodyCanonicalizationReference,
+    ),
 }
 
 #[derive(Clone, Copy)]

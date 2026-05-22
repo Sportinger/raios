@@ -529,6 +529,14 @@ function Write-Report {
             "agent recovery.durable_audit_rollback_persistence_selftest",
             "agent recovery.memory_provenance",
             "agent recovery.memory_provenance_selftest",
+            "agent recovery.lifeline_command_admission",
+            "agent recovery.lifeline_command_admission_selftest",
+            "agent recovery.lifeline_command_envelope_diagnostic",
+            "agent recovery.lifeline_command_envelope_diagnostic_selftest",
+            "agent recovery.lifeline_command_dispatch_diagnostic",
+            "agent recovery.lifeline_command_dispatch_diagnostic_selftest",
+            "agent recovery.lifeline_command_body_canonicalization_diagnostic",
+            "agent recovery.lifeline_command_body_canonicalization_diagnostic_selftest",
             "agent recovery.load_binding",
             "agent recovery.load_binding_selftest",
             "module.load_recovery_artifact",
@@ -3816,6 +3824,467 @@ try {
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    Send-AgentCommand -Command "agent recovery.lifeline_command_admission" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_admission"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_admission_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_admission.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "status"; Needle = '"status": "denied_missing_lifeline_protocol_state"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_protocol_state_missing"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_admission_records": false' },
+        @{ Suffix = "no_command_envelope"; Needle = '"accepts_lifeline_command_envelope": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "no_status_exec"; Needle = '"executes_lifeline_status": false' },
+        @{ Suffix = "no_preview"; Needle = '"executes_rollback_preview": false' },
+        @{ Suffix = "no_apply"; Needle = '"executes_rollback_apply": false' },
+        @{ Suffix = "no_disable"; Needle = '"executes_disable_module": false' },
+        @{ Suffix = "no_restart"; Needle = '"executes_restart_last_good": false' },
+        @{ Suffix = "no_load_by_hash"; Needle = '"executes_load_recovery_artifact_by_hash": false' },
+        @{ Suffix = "request_valid"; Needle = '"request_chain_valid": true' },
+        @{ Suffix = "vocab_exposed"; Needle = '"command_vocabulary_envelope_exposed": true' },
+        @{ Suffix = "loader_boundary_exposed"; Needle = '"loader_runtime_isolation_boundary_exposed": true' },
+        @{ Suffix = "engine_boundary_exposed"; Needle = '"rollback_transaction_engine_boundary_exposed": true' },
+        @{ Suffix = "durable_boundary_exposed"; Needle = '"durable_audit_rollback_persistence_boundary_exposed": true' },
+        @{ Suffix = "memory_boundary_exposed"; Needle = '"recovery_memory_provenance_boundary_exposed": true' },
+        @{ Suffix = "memory_not_accepted"; Needle = '"recovery_memory_provenance_accepted": false' },
+        @{ Suffix = "requirements_not_exposed"; Needle = '"command_admission_requirements_exposed": false' },
+        @{ Suffix = "admission_not_ready"; Needle = '"command_admission_ready": false' },
+        @{ Suffix = "status_command"; Needle = '"command_id": "recovery.lifeline.status"' },
+        @{ Suffix = "preview_command"; Needle = '"command_id": "recovery.lifeline.rollback_preview"' },
+        @{ Suffix = "apply_command"; Needle = '"command_id": "recovery.lifeline.rollback_apply"' },
+        @{ Suffix = "disable_command"; Needle = '"command_id": "recovery.lifeline.disable_module"' },
+        @{ Suffix = "restart_command"; Needle = '"command_id": "recovery.lifeline.restart_last_good"' },
+        @{ Suffix = "load_hash_command"; Needle = '"command_id": "recovery.lifeline.load_artifact_by_hash"' },
+        @{ Suffix = "status_schema"; Needle = '"admission_schema": "raios.recovery_lifeline_status_admission.v0"' },
+        @{ Suffix = "preview_schema"; Needle = '"admission_schema": "raios.recovery_rollback_preview_admission.v0"' },
+        @{ Suffix = "apply_schema"; Needle = '"admission_schema": "raios.recovery_rollback_apply_admission.v0"' },
+        @{ Suffix = "disable_schema"; Needle = '"admission_schema": "raios.recovery_disable_module_admission.v0"' },
+        @{ Suffix = "restart_schema"; Needle = '"admission_schema": "raios.recovery_restart_last_good_admission.v0"' },
+        @{ Suffix = "load_hash_schema"; Needle = '"admission_schema": "raios.recovery_load_artifact_by_hash_admission.v0"' },
+        @{ Suffix = "request_event"; Needle = "`"event_id`": `"$recoveryLifelineRequestEventId`"" },
+        @{ Suffix = "request_hash"; Needle = "`"lifeline_request_reference_hash`": `"sha256:$recoveryLifelineRequestReferenceHash`"" },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "provider_export_false"; Needle = '"provider_export_enabled": false' },
+        @{ Suffix = "durable_writes_false"; Needle = '"durable_writes_enabled": false' },
+        @{ Suffix = "memory_writes_false"; Needle = '"memory_writes_enabled": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+    $recoveryCommandAdmissionResponse = Get-LastAgentResponseJson -Method "recovery.lifeline_command_admission"
+    $recoveryCommandAdmissionRequestEventId = [string]$recoveryCommandAdmissionResponse.body.result.retained_recovery_lifeline_request.event_id
+    $recoveryCommandAdmissionRequestMatches = $recoveryCommandAdmissionRequestEventId -eq $recoveryLifelineRequestEventId
+    Add-Predicate -Name "protocol:recovery_lifeline_command_admission_request_event_id_matches_retained" -Expected $recoveryLifelineRequestEventId -Passed $recoveryCommandAdmissionRequestMatches -Actual $recoveryCommandAdmissionRequestEventId
+    if (-not $recoveryCommandAdmissionRequestMatches) {
+        throw "Expected recovery command-admission request event id $recoveryLifelineRequestEventId, got $recoveryCommandAdmissionRequestEventId"
+    }
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_admission_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_admission_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_admission_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_admission_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_admission_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 45' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "missing_request_case"; Needle = '"case": "missing_lifeline_request_event_id"' },
+        @{ Suffix = "request_hash_case"; Needle = '"case": "lifeline_request_reference_hash_mismatch"' },
+        @{ Suffix = "protocol_state_missing_case"; Needle = '"case": "protocol_state_missing_after_valid_request"' },
+        @{ Suffix = "command_vocab_missing_case"; Needle = '"case": "command_vocabulary_missing_after_protocol_state"' },
+        @{ Suffix = "direct_openai_case"; Needle = '"case": "direct_openai_recovery_shortcut_rejected"' },
+        @{ Suffix = "loader_mismatch_case"; Needle = '"case": "mismatched_loader_runtime_isolation"' },
+        @{ Suffix = "engine_mismatch_case"; Needle = '"case": "mismatched_rollback_transaction_engine"' },
+        @{ Suffix = "durable_mismatch_case"; Needle = '"case": "mismatched_durable_persistence"' },
+        @{ Suffix = "memory_boundary_case"; Needle = '"case": "recovery_memory_provenance_boundary_missing"' },
+        @{ Suffix = "memory_mismatch_case"; Needle = '"case": "mismatched_recovery_memory_provenance"' },
+        @{ Suffix = "memory_facts_case"; Needle = '"case": "recovery_memory_provenance_facts_missing"' },
+        @{ Suffix = "admission_missing_case"; Needle = '"case": "command_admission_requirements_missing"' },
+        @{ Suffix = "status_missing_case"; Needle = '"case": "lifeline_status_command_admission_missing"' },
+        @{ Suffix = "preview_missing_case"; Needle = '"case": "rollback_preview_command_admission_missing"' },
+        @{ Suffix = "apply_missing_case"; Needle = '"case": "rollback_apply_command_admission_missing"' },
+        @{ Suffix = "disable_missing_case"; Needle = '"case": "disable_module_command_admission_missing"' },
+        @{ Suffix = "restart_missing_case"; Needle = '"case": "restart_last_good_command_admission_missing"' },
+        @{ Suffix = "load_hash_missing_case"; Needle = '"case": "load_artifact_by_hash_command_admission_missing"' },
+        @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_command_admission_still_non_executable"' },
+        @{ Suffix = "non_executable_reason"; Needle = '"actual_reason": "recovery_lifeline_command_admission_behavior_not_implemented"' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "dispatch_false"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_envelope_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_envelope_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_envelope_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_envelope_reference_diagnostic.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "mutation_none"; Needle = '"global_event_log_mutation": "none"' },
+        @{ Suffix = "no_command_envelope"; Needle = '"accepts_lifeline_command_envelope": false' },
+        @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "no_status_exec"; Needle = '"executes_lifeline_status": false' },
+        @{ Suffix = "no_preview"; Needle = '"executes_rollback_preview": false' },
+        @{ Suffix = "no_apply"; Needle = '"executes_rollback_apply": false' },
+        @{ Suffix = "no_disable"; Needle = '"executes_disable_module": false' },
+        @{ Suffix = "no_restart"; Needle = '"executes_restart_last_good": false' },
+        @{ Suffix = "no_load_by_hash"; Needle = '"executes_load_recovery_artifact_by_hash": false' },
+        @{ Suffix = "reference_format"; Needle = '"reference_format": "recovery.lifeline_command_envelope_diagnostic' },
+        @{ Suffix = "reference_hash_arg"; Needle = '<command_envelope_reference_hash>' },
+        @{ Suffix = "request_event_arg"; Needle = '<retained_lifeline_request_event_id>' },
+        @{ Suffix = "admission_boundary_arg"; Needle = '<command_admission_boundary_id>' },
+        @{ Suffix = "request_hash_arg"; Needle = '<lifeline_request_reference_hash>' },
+        @{ Suffix = "reference_schema"; Needle = '"command_reference_schema": "raios.recovery_lifeline_command_envelope_reference.v0"' },
+        @{ Suffix = "canonicalization"; Needle = '"command_reference_canonicalization": "raios.recovery_lifeline_command_envelope_reference.canonical.v0"' },
+        @{ Suffix = "boundary_id"; Needle = '"command_admission_boundary_id": "boundary.recovery_lifeline_command_admission.current_boot"' },
+        @{ Suffix = "status"; Needle = '"status": "missing"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_envelope_reference_absent"' },
+        @{ Suffix = "valid_false"; Needle = '"valid_hash_reference": false' },
+        @{ Suffix = "status_command"; Needle = '"command_id": "recovery.lifeline.status"' },
+        @{ Suffix = "preview_command"; Needle = '"command_id": "recovery.lifeline.rollback_preview"' },
+        @{ Suffix = "apply_command"; Needle = '"command_id": "recovery.lifeline.rollback_apply"' },
+        @{ Suffix = "disable_command"; Needle = '"command_id": "recovery.lifeline.disable_module"' },
+        @{ Suffix = "restart_command"; Needle = '"command_id": "recovery.lifeline.restart_last_good"' },
+        @{ Suffix = "load_hash_command"; Needle = '"command_id": "recovery.lifeline.load_artifact_by_hash"' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "provider_export_false"; Needle = '"exports_provider_context": false' },
+        @{ Suffix = "durable_writes_false"; Needle = '"writes_durable_audit_log": false' },
+        @{ Suffix = "memory_writes_false"; Needle = '"writes_recovery_memory": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_envelope_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_envelope_diagnostic_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_envelope_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_envelope_reference_diagnostic_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_envelope_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 47' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "missing_request_case"; Needle = '"case": "missing_lifeline_request_event_id"' },
+        @{ Suffix = "request_hash_case"; Needle = '"case": "lifeline_request_reference_hash_mismatch"' },
+        @{ Suffix = "protocol_state_missing_case"; Needle = '"case": "protocol_state_missing_after_valid_request"' },
+        @{ Suffix = "command_vocab_missing_case"; Needle = '"case": "command_vocabulary_missing_after_protocol_state"' },
+        @{ Suffix = "direct_openai_case"; Needle = '"case": "direct_openai_recovery_shortcut_rejected"' },
+        @{ Suffix = "loader_mismatch_case"; Needle = '"case": "mismatched_loader_runtime_isolation"' },
+        @{ Suffix = "engine_mismatch_case"; Needle = '"case": "mismatched_rollback_transaction_engine"' },
+        @{ Suffix = "durable_mismatch_case"; Needle = '"case": "mismatched_durable_persistence"' },
+        @{ Suffix = "memory_mismatch_case"; Needle = '"case": "mismatched_recovery_memory_provenance"' },
+        @{ Suffix = "admission_missing_case"; Needle = '"case": "recovery_lifeline_command_admission_missing"' },
+        @{ Suffix = "previous_admission_case"; Needle = '"case": "previous_boot_recovery_lifeline_command_admission"' },
+        @{ Suffix = "wrong_admission_case"; Needle = '"case": "wrong_schema_recovery_lifeline_command_admission"' },
+        @{ Suffix = "substituted_admission_case"; Needle = '"case": "substituted_recovery_lifeline_command_admission"' },
+        @{ Suffix = "mismatched_admission_case"; Needle = '"case": "mismatched_recovery_lifeline_command_admission"' },
+        @{ Suffix = "unsupported_command_case"; Needle = '"case": "unsupported_lifeline_command_id"' },
+        @{ Suffix = "schema_mismatch_case"; Needle = '"case": "argument_schema_mismatch"' },
+        @{ Suffix = "capability_mismatch_case"; Needle = '"case": "required_capability_mismatch"' },
+        @{ Suffix = "argument_hash_missing_case"; Needle = '"case": "argument_hash_missing"' },
+        @{ Suffix = "target_locator_missing_case"; Needle = '"case": "target_locator_missing"' },
+        @{ Suffix = "reference_hash_case"; Needle = '"case": "command_envelope_reference_hash_mismatch"' },
+        @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_command_envelope_still_non_executable"' },
+        @{ Suffix = "non_executable_reason"; Needle = '"actual_reason": "recovery_lifeline_command_envelope_reference_behavior_not_implemented"' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "dispatch_false"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryCommandAdmissionBoundaryId = "boundary.recovery_lifeline_command_admission.current_boot"
+    $recoveryCommandTargetLocator = "recovery.lifeline.status.current_boot"
+    $recoveryLifelineStatusArgumentCanonical = @(
+        "schema=raios.recovery_lifeline_command.status_args.v0",
+        "command_id=recovery.lifeline.status",
+        "target_locator=$recoveryCommandTargetLocator",
+        "body_present=false"
+    ) -join "`n"
+    $recoveryLifelineStatusArgumentHash = Get-TextSha256 -Text $recoveryLifelineStatusArgumentCanonical
+    $recoveryLifelineCommandEnvelopeCanonical = @(
+        "canonicalization=raios.recovery_lifeline_command_envelope_reference.canonical.v0",
+        "schema=raios.recovery_lifeline_command_envelope_reference.v0",
+        "load_mode=recovery_only",
+        "subject=agent.session.serial",
+        "resource=recovery_lifeline_command",
+        "scope=current_boot",
+        "retained_recovery_lifeline_request_event_id=$recoveryLifelineRequestEventId",
+        "command_id=recovery.lifeline.status",
+        "argument_schema=raios.recovery_lifeline_command.status_args.v0",
+        "argument_sha256=$recoveryLifelineStatusArgumentHash",
+        "required_capability=cap.recovery.load_artifact.read",
+        "target_locator=$recoveryCommandTargetLocator",
+        "command_admission_boundary_id=$recoveryCommandAdmissionBoundaryId",
+        "lifeline_request_reference_sha256=$recoveryLifelineRequestReferenceHash",
+        "accepts_lifeline_command_envelope=false",
+        "dispatches_lifeline_command=false",
+        "executes_rollback_preview=false",
+        "executes_rollback_apply=false",
+        "writes_recovery_memory=false",
+        "exports_provider_context=false",
+        "loads_recovery_artifact=false",
+        "authorizes_recovery_load=false",
+        "creates_durable_records=false",
+        "installs_rollback_plan=false",
+        "allocates_service_slot=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $recoveryLifelineCommandEnvelopeReferenceHash = Get-TextSha256 -Text $recoveryLifelineCommandEnvelopeCanonical
+    $recoveryLifelineCommandEnvelopeCommand = "agent recovery.lifeline_command_envelope_diagnostic $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineRequestEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash cap.recovery.load_artifact.read $recoveryCommandTargetLocator $recoveryCommandAdmissionBoundaryId $recoveryLifelineRequestReferenceHash"
+
+    Send-AgentCommand -Command $recoveryLifelineCommandEnvelopeCommand -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_envelope_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_envelope_valid_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "status"; Needle = '"status": "valid_hash_reference_command_still_denied"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_envelope_reference_valid_but_command_dispatch_disabled"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_command_still_denied"' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_latest_event"; Needle = '"latest_event_id": "event.current_boot.' },
+        @{ Suffix = "command_id"; Needle = '"command_id": "recovery.lifeline.status"' },
+        @{ Suffix = "argument_schema"; Needle = '"argument_schema": "raios.recovery_lifeline_command.status_args.v0"' },
+        @{ Suffix = "required_capability"; Needle = '"required_capability": "cap.recovery.load_artifact.read"' },
+        @{ Suffix = "target_locator"; Needle = "`"target_locator`": `"$recoveryCommandTargetLocator`"" },
+        @{ Suffix = "boundary_id"; Needle = "`"command_admission_boundary_id`": `"$recoveryCommandAdmissionBoundaryId`"" },
+        @{ Suffix = "argument_hash"; Needle = "`"argument_hash`": `"sha256:$recoveryLifelineStatusArgumentHash`"" },
+        @{ Suffix = "request_hash"; Needle = "`"lifeline_request_reference_hash`": `"sha256:$recoveryLifelineRequestReferenceHash`"" },
+        @{ Suffix = "command_reference_hash"; Needle = "`"command_envelope_reference_hash`": `"sha256:$recoveryLifelineCommandEnvelopeReferenceHash`"" },
+        @{ Suffix = "valid_hash"; Needle = '"valid_hash_reference": true' },
+        @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryLifelineCommandEnvelopeResponse = Get-LastAgentResponseJson -Method "recovery.lifeline_command_envelope_diagnostic"
+    $recoveryLifelineCommandEnvelopeEventId = [string]$recoveryLifelineCommandEnvelopeResponse.body.result.retained_command_envelope_reference.recorded_event_id
+    Assert-CurrentBootEventId -Name "protocol:recovery_lifeline_command_envelope_retained_reference_event_id_captured" -Value $recoveryLifelineCommandEnvelopeEventId
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_dispatch_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_dispatch_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_dispatch_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_dispatch_denial.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "status"; Needle = '"status": "denied_missing_lifeline_command_dispatch_boundary"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_body_canonicalization_missing"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_dispatch_records": false' },
+        @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
+        @{ Suffix = "no_command_envelope"; Needle = '"accepts_lifeline_command_envelope": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "no_status_exec"; Needle = '"executes_lifeline_status": false' },
+        @{ Suffix = "no_preview"; Needle = '"executes_rollback_preview": false' },
+        @{ Suffix = "no_apply"; Needle = '"executes_rollback_apply": false' },
+        @{ Suffix = "no_disable"; Needle = '"executes_disable_module": false' },
+        @{ Suffix = "no_restart"; Needle = '"executes_restart_last_good": false' },
+        @{ Suffix = "no_load_by_hash"; Needle = '"executes_load_recovery_artifact_by_hash": false' },
+        @{ Suffix = "reference_schema"; Needle = '"command_envelope_reference_schema": "raios.recovery_lifeline_command_envelope_reference.v0"' },
+        @{ Suffix = "admission_schema"; Needle = '"command_admission_schema": "raios.recovery_lifeline_command_admission.v0"' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_command_still_denied"' },
+        @{ Suffix = "retained_event"; Needle = "`"event_id`": `"$recoveryLifelineCommandEnvelopeEventId`"" },
+        @{ Suffix = "retained_matches"; Needle = '"matches_latest_lifeline_request": true' },
+        @{ Suffix = "command_id"; Needle = '"command_id": "recovery.lifeline.status"' },
+        @{ Suffix = "target_locator"; Needle = "`"target_locator`": `"$recoveryCommandTargetLocator`"" },
+        @{ Suffix = "command_reference_hash"; Needle = "`"command_envelope_reference_hash`": `"sha256:$recoveryLifelineCommandEnvelopeReferenceHash`"" },
+        @{ Suffix = "body_fact"; Needle = '"fact": "command_body_canonicalization"' },
+        @{ Suffix = "body_schema"; Needle = '"schema": "raios.recovery_lifeline_command_body_canonicalization.v0"' },
+        @{ Suffix = "handler_fact"; Needle = '"fact": "command_handler_binding"' },
+        @{ Suffix = "status_handler_fact"; Needle = '"fact": "status_read_handler"' },
+        @{ Suffix = "preview_auth_fact"; Needle = '"fact": "rollback_preview_authorization"' },
+        @{ Suffix = "apply_auth_fact"; Needle = '"fact": "rollback_apply_authorization"' },
+        @{ Suffix = "disable_target_fact"; Needle = '"fact": "disable_module_target_binding"' },
+        @{ Suffix = "restart_target_fact"; Needle = '"fact": "restart_last_good_target_binding"' },
+        @{ Suffix = "load_hash_target_fact"; Needle = '"fact": "load_artifact_by_hash_target_binding"' },
+        @{ Suffix = "memory_authority_fact"; Needle = '"fact": "recovery_memory_write_authority"' },
+        @{ Suffix = "durable_authority_fact"; Needle = '"fact": "durable_audit_rollback_write_authority"' },
+        @{ Suffix = "service_effect_fact"; Needle = '"fact": "service_inventory_side_effect_boundary"' },
+        @{ Suffix = "envelope_accepted"; Needle = '"command_envelope_reference_accepted": true' },
+        @{ Suffix = "body_missing"; Needle = '"command_body_canonicalization_present": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "memory_writes_false"; Needle = '"recovery_memory_writes_enabled": false' },
+        @{ Suffix = "provider_export_false"; Needle = '"provider_export_enabled": false' },
+        @{ Suffix = "durable_writes_false"; Needle = '"durable_writes_enabled": false' },
+        @{ Suffix = "service_inventory_none"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_dispatch_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_dispatch_diagnostic_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_dispatch_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_dispatch_denial_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_dispatch_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 40' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "request_missing_case"; Needle = '"case": "missing_lifeline_request_event_id"' },
+        @{ Suffix = "protocol_missing_case"; Needle = '"case": "protocol_state_missing_after_valid_request"' },
+        @{ Suffix = "command_vocab_case"; Needle = '"case": "command_vocabulary_missing_after_protocol_state"' },
+        @{ Suffix = "loader_mismatch_case"; Needle = '"case": "mismatched_loader_runtime_isolation"' },
+        @{ Suffix = "engine_mismatch_case"; Needle = '"case": "mismatched_rollback_transaction_engine"' },
+        @{ Suffix = "durable_mismatch_case"; Needle = '"case": "mismatched_durable_persistence"' },
+        @{ Suffix = "memory_mismatch_case"; Needle = '"case": "mismatched_recovery_memory_provenance"' },
+        @{ Suffix = "admission_mismatch_case"; Needle = '"case": "mismatched_recovery_lifeline_command_admission"' },
+        @{ Suffix = "envelope_missing_case"; Needle = '"case": "command_envelope_reference_missing"' },
+        @{ Suffix = "envelope_previous_case"; Needle = '"case": "previous_boot_command_envelope_reference"' },
+        @{ Suffix = "envelope_wrong_case"; Needle = '"case": "wrong_schema_command_envelope_reference"' },
+        @{ Suffix = "envelope_sub_case"; Needle = '"case": "substituted_command_envelope_reference"' },
+        @{ Suffix = "envelope_mismatch_case"; Needle = '"case": "mismatched_command_envelope_reference"' },
+        @{ Suffix = "body_missing_case"; Needle = '"case": "command_body_canonicalization_missing"' },
+        @{ Suffix = "handler_missing_case"; Needle = '"case": "command_handler_binding_missing"' },
+        @{ Suffix = "status_handler_missing_case"; Needle = '"case": "status_read_handler_missing"' },
+        @{ Suffix = "preview_auth_missing_case"; Needle = '"case": "rollback_preview_authorization_missing"' },
+        @{ Suffix = "apply_auth_missing_case"; Needle = '"case": "rollback_apply_authorization_missing"' },
+        @{ Suffix = "disable_target_missing_case"; Needle = '"case": "disable_module_target_binding_missing"' },
+        @{ Suffix = "restart_target_missing_case"; Needle = '"case": "restart_last_good_target_binding_missing"' },
+        @{ Suffix = "load_hash_target_missing_case"; Needle = '"case": "load_artifact_by_hash_target_binding_missing"' },
+        @{ Suffix = "memory_write_missing_case"; Needle = '"case": "recovery_memory_write_authority_missing"' },
+        @{ Suffix = "durable_write_missing_case"; Needle = '"case": "durable_audit_rollback_write_authority_missing"' },
+        @{ Suffix = "service_effect_missing_case"; Needle = '"case": "service_inventory_side_effect_boundary_missing"' },
+        @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_command_dispatch_still_non_executable"' },
+        @{ Suffix = "non_executable_reason"; Needle = '"actual_reason": "recovery_lifeline_command_dispatch_behavior_not_implemented"' },
+        @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
+        @{ Suffix = "dispatch_false"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_body_canonicalization_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_body_canonicalization_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_body_canonicalization_absent_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_body_canonicalization_diagnostic.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "status"; Needle = '"status": "missing"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_body_canonicalization_absent"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_body_canonicalization_records": false' },
+        @{ Suffix = "no_raw_body"; Needle = '"accepts_raw_command_body": false' },
+        @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
+        @{ Suffix = "no_command_envelope"; Needle = '"accepts_lifeline_command_envelope": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "reference_format"; Needle = '"reference_format": "recovery.lifeline_command_body_canonicalization_diagnostic' },
+        @{ Suffix = "body_schema"; Needle = '"command_body_schema": "raios.recovery_lifeline_command_body_canonicalization.v0"' },
+        @{ Suffix = "canonicalization"; Needle = '"command_body_canonicalization": "raios.recovery_lifeline_command_body_canonicalization.canonical.v0"' },
+        @{ Suffix = "dispatch_boundary"; Needle = '"command_dispatch_boundary_id": "boundary.recovery_lifeline_command_dispatch_denial.current_boot"' },
+        @{ Suffix = "dispatch_expected_reason"; Needle = '"expected_reason_before_body_canonicalization": "recovery_lifeline_command_body_canonicalization_missing"' },
+        @{ Suffix = "retained_event"; Needle = "`"event_id`": `"$recoveryLifelineCommandEnvelopeEventId`"" },
+        @{ Suffix = "envelope_accepted"; Needle = '"command_envelope_reference_accepted": true' },
+        @{ Suffix = "valid_false"; Needle = '"valid_hash_reference": false' },
+        @{ Suffix = "schema_fact"; Needle = '"fact": "per_command_body_schema_canonicalization"' },
+        @{ Suffix = "redaction_fact"; Needle = '"fact": "body_redaction_classification"' },
+        @{ Suffix = "handler_fact"; Needle = '"fact": "handler_input_binding"' },
+        @{ Suffix = "rollback_link_fact"; Needle = '"fact": "rollback_authorization_linkage"' },
+        @{ Suffix = "memory_link_fact"; Needle = '"fact": "recovery_memory_write_linkage"' },
+        @{ Suffix = "durable_link_fact"; Needle = '"fact": "durable_audit_rollback_write_linkage"' },
+        @{ Suffix = "service_link_fact"; Needle = '"fact": "service_inventory_side_effect_linkage"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_body_canonicalization_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_body_canonicalization_diagnostic_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_body_canonicalization_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_body_canonicalization_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_body_canonicalization_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 43' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "request_missing_case"; Needle = '"case": "missing_lifeline_request_event_id"' },
+        @{ Suffix = "protocol_missing_case"; Needle = '"case": "protocol_state_missing_after_valid_request"' },
+        @{ Suffix = "command_vocab_case"; Needle = '"case": "command_vocabulary_missing_after_protocol_state"' },
+        @{ Suffix = "loader_mismatch_case"; Needle = '"case": "mismatched_loader_runtime_isolation"' },
+        @{ Suffix = "engine_mismatch_case"; Needle = '"case": "mismatched_rollback_transaction_engine"' },
+        @{ Suffix = "durable_mismatch_case"; Needle = '"case": "mismatched_durable_persistence"' },
+        @{ Suffix = "memory_mismatch_case"; Needle = '"case": "mismatched_recovery_memory_provenance"' },
+        @{ Suffix = "admission_mismatch_case"; Needle = '"case": "mismatched_recovery_lifeline_command_admission"' },
+        @{ Suffix = "envelope_missing_case"; Needle = '"case": "command_envelope_reference_missing"' },
+        @{ Suffix = "envelope_mismatch_case"; Needle = '"case": "mismatched_command_envelope_reference"' },
+        @{ Suffix = "dispatch_boundary_case"; Needle = '"case": "dispatch_boundary_not_body_missing"' },
+        @{ Suffix = "body_missing_case"; Needle = '"case": "command_body_canonicalization_missing"' },
+        @{ Suffix = "body_wrong_schema_case"; Needle = '"case": "wrong_schema_command_body_canonicalization_reference"' },
+        @{ Suffix = "body_sub_case"; Needle = '"case": "substituted_command_body_canonicalization_reference"' },
+        @{ Suffix = "body_mismatch_case"; Needle = '"case": "mismatched_command_body_canonicalization_reference"' },
+        @{ Suffix = "unsupported_command_case"; Needle = '"case": "unsupported_command_id"' },
+        @{ Suffix = "schema_mismatch_case"; Needle = '"case": "argument_schema_mismatch"' },
+        @{ Suffix = "argument_hash_missing_case"; Needle = '"case": "argument_hash_missing"' },
+        @{ Suffix = "target_locator_missing_case"; Needle = '"case": "target_locator_missing"' },
+        @{ Suffix = "envelope_hash_case"; Needle = '"case": "command_envelope_reference_hash_mismatch"' },
+        @{ Suffix = "dispatch_id_case"; Needle = '"case": "command_dispatch_boundary_id_mismatch"' },
+        @{ Suffix = "body_hash_case"; Needle = '"case": "command_body_canonicalization_hash_mismatch"' },
+        @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_command_body_canonicalization_still_non_executable"' },
+        @{ Suffix = "non_executable_reason"; Needle = '"actual_reason": "recovery_lifeline_command_body_canonicalization_valid_but_command_dispatch_disabled"' },
+        @{ Suffix = "no_raw_body"; Needle = '"accepts_raw_command_body": false' },
+        @{ Suffix = "dispatch_false"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryCommandDispatchBoundaryId = "boundary.recovery_lifeline_command_dispatch_denial.current_boot"
+    $recoveryLifelineCommandBodyCanonical = @(
+        "canonicalization=raios.recovery_lifeline_command_body_canonicalization.canonical.v0",
+        "schema=raios.recovery_lifeline_command_body_canonicalization.v0",
+        "load_mode=recovery_only",
+        "subject=agent.session.serial",
+        "resource=recovery_lifeline_command_body",
+        "scope=current_boot",
+        "retained_recovery_lifeline_command_envelope_event_id=$recoveryLifelineCommandEnvelopeEventId",
+        "command_id=recovery.lifeline.status",
+        "argument_schema=raios.recovery_lifeline_command.status_args.v0",
+        "argument_sha256=$recoveryLifelineStatusArgumentHash",
+        "target_locator=$recoveryCommandTargetLocator",
+        "command_envelope_reference_sha256=$recoveryLifelineCommandEnvelopeReferenceHash",
+        "command_dispatch_boundary_id=$recoveryCommandDispatchBoundaryId",
+        "accepts_raw_command_body=false",
+        "accepts_lifeline_command_body=false",
+        "accepts_lifeline_command_envelope=false",
+        "dispatches_lifeline_command=false",
+        "executes_rollback_preview=false",
+        "executes_rollback_apply=false",
+        "writes_recovery_memory=false",
+        "writes_durable_audit_log=false",
+        "writes_rollback_store=false",
+        "exports_provider_context=false",
+        "loads_recovery_artifact=false",
+        "authorizes_recovery_load=false",
+        "creates_durable_records=false",
+        "installs_rollback_plan=false",
+        "allocates_service_slot=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $recoveryLifelineCommandBodyCanonicalizationHash = Get-TextSha256 -Text $recoveryLifelineCommandBodyCanonical
+    $recoveryLifelineCommandBodyCommand = "agent recovery.lifeline_command_body_canonicalization_diagnostic $recoveryLifelineCommandBodyCanonicalizationHash $recoveryLifelineCommandEnvelopeEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryCommandDispatchBoundaryId"
+
+    Send-AgentCommand -Command $recoveryLifelineCommandBodyCommand -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_body_canonicalization_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_body_canonicalization_valid_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "status"; Needle = '"status": "valid_hash_reference_command_still_denied"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_body_canonicalization_valid_but_command_dispatch_disabled"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "creates_record"; Needle = '"creates_retained_recovery_lifeline_command_body_canonicalization_records": true' },
+        @{ Suffix = "retained_status"; Needle = '"status": "retained_hash_reference_command_still_denied"' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "retained_latest_event"; Needle = '"latest_event_id": "event.current_boot.' },
+        @{ Suffix = "command_id"; Needle = '"command_id": "recovery.lifeline.status"' },
+        @{ Suffix = "argument_schema"; Needle = '"argument_schema": "raios.recovery_lifeline_command.status_args.v0"' },
+        @{ Suffix = "target_locator"; Needle = "`"target_locator`": `"$recoveryCommandTargetLocator`"" },
+        @{ Suffix = "boundary_id"; Needle = "`"command_dispatch_boundary_id`": `"$recoveryCommandDispatchBoundaryId`"" },
+        @{ Suffix = "argument_hash"; Needle = "`"argument_hash`": `"sha256:$recoveryLifelineStatusArgumentHash`"" },
+        @{ Suffix = "command_reference_hash"; Needle = "`"command_envelope_reference_hash`": `"sha256:$recoveryLifelineCommandEnvelopeReferenceHash`"" },
+        @{ Suffix = "body_hash"; Needle = "`"command_body_canonicalization_hash`": `"sha256:$recoveryLifelineCommandBodyCanonicalizationHash`"" },
+        @{ Suffix = "valid_hash"; Needle = '"valid_hash_reference": true' },
+        @{ Suffix = "no_raw_body"; Needle = '"accepts_raw_command_body": false' },
+        @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryLifelineCommandBodyResponse = Get-LastAgentResponseJson -Method "recovery.lifeline_command_body_canonicalization_diagnostic"
+    $recoveryLifelineCommandBodyEventId = [string]$recoveryLifelineCommandBodyResponse.body.result.retained_command_body_canonicalization_reference.recorded_event_id
+    Assert-CurrentBootEventId -Name "protocol:recovery_lifeline_command_body_retained_reference_event_id_captured" -Value $recoveryLifelineCommandBodyEventId
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_dispatch_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_dispatch_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_dispatch_after_body_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_dispatch_denial.v0"' },
+        @{ Suffix = "status"; Needle = '"status": "denied_missing_lifeline_command_dispatch_boundary"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_handler_binding_missing"' },
+        @{ Suffix = "body_present"; Needle = '"command_body_canonicalization_present": true' },
+        @{ Suffix = "handler_missing"; Needle = '"command_handler_binding_present": false' },
+        @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "memory_writes_false"; Needle = '"recovery_memory_writes_enabled": false' },
+        @{ Suffix = "durable_writes_false"; Needle = '"durable_writes_enabled": false' },
+        @{ Suffix = "service_inventory_none"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
     Send-AgentCommand -Command "agent recovery.load_binding" -ExpectedMarker "RAIOS_AGENT_END recovery.load_binding"
     $recoveryBindingResponse = Get-LastAgentResponseJson -Method "recovery.load_binding"
     Assert-LogContains -Name "protocol:recovery_binding_schema" -Needle '"schema": "raios.recovery_artifact_load_binding.v0"' -TimeoutSeconds 1
@@ -4107,6 +4576,19 @@ try {
     Assert-LogContains -Name "protocol:recovery_durable_audit_rollback_persistence_selftest_audit_source" -Needle '"source_method": "recovery.durable_audit_rollback_persistence_selftest"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_memory_provenance_audit_source" -Needle '"source_method": "recovery.memory_provenance"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_memory_provenance_selftest_audit_source" -Needle '"source_method": "recovery.memory_provenance_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_admission_audit_source" -Needle '"source_method": "recovery.lifeline_command_admission"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_admission_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_admission_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_envelope_audit_source" -Needle '"source_method": "recovery.lifeline_command_envelope_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_envelope_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_envelope_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_audit_source" -Needle '"source_method": "recovery.lifeline_command_dispatch_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_dispatch_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_body_audit_source" -Needle '"source_method": "recovery.lifeline_command_body_canonicalization_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_body_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_body_canonicalization_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_body_audit_kind" -Needle '"kind": "recovery.lifeline_command_body_canonicalization.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_body_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_lifeline_command_body_canonicalization.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_body_audit_envelope_event" -Needle "`"retained_recovery_lifeline_command_envelope_event_id`": `"$recoveryLifelineCommandEnvelopeEventId`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_body_audit_hash" -Needle "`"command_body_canonicalization_hash`": `"sha256:$recoveryLifelineCommandBodyCanonicalizationHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_body_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_risk" -Needle '"risk": "recovery_modify_ram"' -TimeoutSeconds 1

@@ -168,6 +168,27 @@ pub struct RecoveryLifelineRequestReferenceHashInput<'a> {
     pub rollback_evidence_hash: [u8; 32],
 }
 
+pub struct RecoveryLifelineCommandEnvelopeReferenceHashInput<'a> {
+    pub retained_lifeline_request_event_id: &'a str,
+    pub command_id: &'a str,
+    pub argument_schema: &'a str,
+    pub argument_hash: [u8; 32],
+    pub required_capability: &'a str,
+    pub target_locator: &'a str,
+    pub command_admission_boundary_id: &'a str,
+    pub lifeline_request_reference_hash: [u8; 32],
+}
+
+pub struct RecoveryLifelineCommandBodyCanonicalizationHashInput<'a> {
+    pub retained_command_envelope_reference_event_id: &'a str,
+    pub command_id: &'a str,
+    pub argument_schema: &'a str,
+    pub argument_hash: [u8; 32],
+    pub target_locator: &'a str,
+    pub command_envelope_reference_hash: [u8; 32],
+    pub command_dispatch_boundary_id: &'a str,
+}
+
 pub fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash_static_line(
@@ -716,6 +737,128 @@ pub fn computed_recovery_lifeline_request_reference_hash(
     hash_static_line(&mut hash, b"accepts_loader_descriptor=false", true);
     hash_static_line(&mut hash, b"accepts_artifact_bytes=false", true);
     hash_static_line(&mut hash, b"loads_recovery_loader=false", true);
+    hash_static_line(&mut hash, b"loads_recovery_artifact=false", true);
+    hash_static_line(&mut hash, b"authorizes_recovery_load=false", true);
+    hash_static_line(&mut hash, b"creates_durable_records=false", true);
+    hash_static_line(&mut hash, b"installs_rollback_plan=false", true);
+    hash_static_line(&mut hash, b"allocates_service_slot=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_recovery_lifeline_command_body_canonicalization_hash(
+    input: RecoveryLifelineCommandBodyCanonicalizationHashInput<'_>,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.recovery_lifeline_command_body_canonicalization.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.recovery_lifeline_command_body_canonicalization.v0",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=recovery_only", true);
+    hash_static_line(&mut hash, b"subject=agent.session.serial", true);
+    hash_static_line(&mut hash, b"resource=recovery_lifeline_command_body", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_str_line(
+        &mut hash,
+        b"retained_recovery_lifeline_command_envelope_event_id",
+        input.retained_command_envelope_reference_event_id,
+        true,
+    );
+    hash_str_line(&mut hash, b"command_id", input.command_id, true);
+    hash_str_line(&mut hash, b"argument_schema", input.argument_schema, true);
+    hash_hash_line(&mut hash, b"argument_sha256", input.argument_hash, true);
+    hash_str_line(&mut hash, b"target_locator", input.target_locator, true);
+    hash_hash_line(
+        &mut hash,
+        b"command_envelope_reference_sha256",
+        input.command_envelope_reference_hash,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"command_dispatch_boundary_id",
+        input.command_dispatch_boundary_id,
+        true,
+    );
+    hash_static_line(&mut hash, b"accepts_raw_command_body=false", true);
+    hash_static_line(&mut hash, b"accepts_lifeline_command_body=false", true);
+    hash_static_line(&mut hash, b"accepts_lifeline_command_envelope=false", true);
+    hash_static_line(&mut hash, b"dispatches_lifeline_command=false", true);
+    hash_static_line(&mut hash, b"executes_rollback_preview=false", true);
+    hash_static_line(&mut hash, b"executes_rollback_apply=false", true);
+    hash_static_line(&mut hash, b"writes_recovery_memory=false", true);
+    hash_static_line(&mut hash, b"writes_durable_audit_log=false", true);
+    hash_static_line(&mut hash, b"writes_rollback_store=false", true);
+    hash_static_line(&mut hash, b"exports_provider_context=false", true);
+    hash_static_line(&mut hash, b"loads_recovery_artifact=false", true);
+    hash_static_line(&mut hash, b"authorizes_recovery_load=false", true);
+    hash_static_line(&mut hash, b"creates_durable_records=false", true);
+    hash_static_line(&mut hash, b"installs_rollback_plan=false", true);
+    hash_static_line(&mut hash, b"allocates_service_slot=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_recovery_lifeline_command_envelope_reference_hash(
+    input: RecoveryLifelineCommandEnvelopeReferenceHashInput<'_>,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.recovery_lifeline_command_envelope_reference.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.recovery_lifeline_command_envelope_reference.v0",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=recovery_only", true);
+    hash_static_line(&mut hash, b"subject=agent.session.serial", true);
+    hash_static_line(&mut hash, b"resource=recovery_lifeline_command", true);
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_str_line(
+        &mut hash,
+        b"retained_recovery_lifeline_request_event_id",
+        input.retained_lifeline_request_event_id,
+        true,
+    );
+    hash_str_line(&mut hash, b"command_id", input.command_id, true);
+    hash_str_line(&mut hash, b"argument_schema", input.argument_schema, true);
+    hash_hash_line(&mut hash, b"argument_sha256", input.argument_hash, true);
+    hash_str_line(
+        &mut hash,
+        b"required_capability",
+        input.required_capability,
+        true,
+    );
+    hash_str_line(&mut hash, b"target_locator", input.target_locator, true);
+    hash_str_line(
+        &mut hash,
+        b"command_admission_boundary_id",
+        input.command_admission_boundary_id,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"lifeline_request_reference_sha256",
+        input.lifeline_request_reference_hash,
+        true,
+    );
+    hash_static_line(&mut hash, b"accepts_lifeline_command_envelope=false", true);
+    hash_static_line(&mut hash, b"dispatches_lifeline_command=false", true);
+    hash_static_line(&mut hash, b"executes_rollback_preview=false", true);
+    hash_static_line(&mut hash, b"executes_rollback_apply=false", true);
+    hash_static_line(&mut hash, b"writes_recovery_memory=false", true);
+    hash_static_line(&mut hash, b"exports_provider_context=false", true);
     hash_static_line(&mut hash, b"loads_recovery_artifact=false", true);
     hash_static_line(&mut hash, b"authorizes_recovery_load=false", true);
     hash_static_line(&mut hash, b"creates_durable_records=false", true);

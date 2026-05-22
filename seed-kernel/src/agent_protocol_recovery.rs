@@ -33,6 +33,14 @@ const RECOVERY_LOADER_RUNTIME_ISOLATION_SELFTEST_CASES: usize = 27;
 const RECOVERY_ROLLBACK_TRANSACTION_ENGINE_SELFTEST_CASES: usize = 38;
 const RECOVERY_DURABLE_AUDIT_ROLLBACK_PERSISTENCE_SELFTEST_CASES: usize = 51;
 const RECOVERY_MEMORY_PROVENANCE_SELFTEST_CASES: usize = 65;
+const RECOVERY_LIFELINE_COMMAND_ADMISSION_SELFTEST_CASES: usize = 45;
+const RECOVERY_LIFELINE_COMMAND_ENVELOPE_SELFTEST_CASES: usize = 47;
+const RECOVERY_LIFELINE_COMMAND_DISPATCH_SELFTEST_CASES: usize = 40;
+const RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_SELFTEST_CASES: usize = 43;
+const RECOVERY_COMMAND_ADMISSION_BOUNDARY_ID: &str =
+    "boundary.recovery_lifeline_command_admission.current_boot";
+const RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID: &str =
+    "boundary.recovery_lifeline_command_dispatch_denial.current_boot";
 
 #[derive(Clone, Copy)]
 struct RecoveryIdentityReferenceCheck<'a> {
@@ -686,6 +694,367 @@ struct RecoveryMemoryProvenanceSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+struct RecoveryLifelineCommandAdmissionCandidate {
+    memory_candidate: RecoveryMemoryProvenanceCandidate,
+    recovery_memory_provenance_available: bool,
+    recovery_memory_provenance_current_boot: bool,
+    recovery_memory_provenance_schema_ok: bool,
+    recovery_memory_provenance_binding_ok: bool,
+    recovery_memory_provenance_binding_reason: &'static str,
+    direct_openai_recovery_shortcut_used: bool,
+    lifeline_status_admission_present: bool,
+    rollback_preview_admission_present: bool,
+    rollback_apply_admission_present: bool,
+    disable_module_admission_present: bool,
+    restart_last_good_admission_present: bool,
+    load_recovery_artifact_by_hash_admission_present: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandAdmissionCheck {
+    status: &'static str,
+    reason: &'static str,
+    memory_check: RecoveryMemoryProvenanceCheck,
+    recovery_memory_provenance_boundary_exposed: bool,
+    recovery_memory_provenance_accepted: bool,
+    command_admission_requirements_exposed: bool,
+    command_admission_ready: bool,
+    lifeline_status_admission_present: bool,
+    rollback_preview_admission_present: bool,
+    rollback_apply_admission_present: bool,
+    disable_module_admission_present: bool,
+    restart_last_good_admission_present: bool,
+    load_recovery_artifact_by_hash_admission_present: bool,
+    command_execution_enabled: bool,
+    accepts_lifeline_command_envelope: bool,
+    dispatches_lifeline_command: bool,
+    authorizes_recovery_load: bool,
+    can_move_beyond_denial: bool,
+    loads_recovery_loader: bool,
+    loads_recovery_artifact: bool,
+    creates_durable_records: bool,
+    installs_rollback_plan: bool,
+    allocates_service_slot: bool,
+    service_inventory_change: &'static str,
+    load_attempted: bool,
+}
+
+struct RecoveryLifelineCommandAdmissionSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandSpec {
+    command_id: &'static str,
+    argument_schema: &'static str,
+    required_capability: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandEnvelopeReferenceInput<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    retained_lifeline_request_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    required_capability: Option<&'a str>,
+    target_locator: Option<&'a str>,
+    command_admission_boundary_id: Option<&'a str>,
+    lifeline_request_reference_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandEnvelopeReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    expected_command_envelope_reference_hash: Option<[u8; 32]>,
+    retained_lifeline_request_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    required_capability: Option<&'a str>,
+    target_locator: Option<&'a str>,
+    command_admission_boundary_id: Option<&'a str>,
+    lifeline_request_reference_hash: Option<[u8; 32]>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandEnvelopeCandidate {
+    admission_candidate: RecoveryLifelineCommandAdmissionCandidate,
+    command_admission_available: bool,
+    command_admission_current_boot: bool,
+    command_admission_schema_ok: bool,
+    command_admission_binding_ok: bool,
+    command_admission_binding_reason: &'static str,
+    direct_openai_recovery_shortcut_used: bool,
+    command_id_supported: bool,
+    argument_schema_matches: bool,
+    argument_hash_present: bool,
+    required_capability_matches: bool,
+    target_locator_present: bool,
+    reference_hash_matches: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandEnvelopeCheck {
+    status: &'static str,
+    reason: &'static str,
+    admission_check: RecoveryLifelineCommandAdmissionCheck,
+    command_admission_boundary_exposed: bool,
+    command_admission_accepted: bool,
+    command_envelope_reference_present: bool,
+    command_id_supported: bool,
+    argument_schema_matches: bool,
+    argument_hash_present: bool,
+    required_capability_matches: bool,
+    target_locator_present: bool,
+    reference_hash_matches: bool,
+    command_execution_enabled: bool,
+    accepts_lifeline_command_envelope: bool,
+    dispatches_lifeline_command: bool,
+    authorizes_recovery_load: bool,
+    can_move_beyond_denial: bool,
+    loads_recovery_loader: bool,
+    loads_recovery_artifact: bool,
+    creates_durable_records: bool,
+    installs_rollback_plan: bool,
+    allocates_service_slot: bool,
+    service_inventory_change: &'static str,
+    load_attempted: bool,
+}
+
+struct RecoveryLifelineCommandEnvelopeSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    actual_admission_status: &'static str,
+    actual_admission_reason: &'static str,
+    command_admission_boundary_exposed: bool,
+    command_admission_accepted: bool,
+    command_envelope_reference_present: bool,
+    command_id_supported: bool,
+    argument_schema_matches: bool,
+    argument_hash_present: bool,
+    required_capability_matches: bool,
+    target_locator_present: bool,
+    reference_hash_matches: bool,
+    command_execution_enabled: bool,
+    accepts_lifeline_command_envelope: bool,
+    dispatches_lifeline_command: bool,
+    authorizes_recovery_load: bool,
+    can_move_beyond_denial: bool,
+    loads_recovery_loader: bool,
+    loads_recovery_artifact: bool,
+    creates_durable_records: bool,
+    installs_rollback_plan: bool,
+    allocates_service_slot: bool,
+    service_inventory_change: &'static str,
+    load_attempted: bool,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandDispatchCandidate {
+    envelope_candidate: RecoveryLifelineCommandEnvelopeCandidate,
+    command_envelope_reference_available: bool,
+    command_envelope_reference_current_boot: bool,
+    command_envelope_reference_schema_ok: bool,
+    command_envelope_reference_binding_ok: bool,
+    command_envelope_reference_binding_reason: &'static str,
+    direct_openai_recovery_shortcut_used: bool,
+    command_body_canonicalization_present: bool,
+    command_handler_binding_present: bool,
+    status_read_handler_present: bool,
+    rollback_preview_authorization_present: bool,
+    rollback_apply_authorization_present: bool,
+    disable_module_target_binding_present: bool,
+    restart_last_good_target_binding_present: bool,
+    load_artifact_by_hash_target_binding_present: bool,
+    recovery_memory_write_authority_present: bool,
+    durable_audit_rollback_write_authority_present: bool,
+    service_inventory_side_effect_boundary_present: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandDispatchCheck {
+    status: &'static str,
+    reason: &'static str,
+    envelope_check: RecoveryLifelineCommandEnvelopeCheck,
+    command_envelope_reference_available: bool,
+    command_envelope_reference_accepted: bool,
+    command_body_canonicalization_present: bool,
+    command_handler_binding_present: bool,
+    status_read_handler_present: bool,
+    rollback_preview_authorization_present: bool,
+    rollback_apply_authorization_present: bool,
+    disable_module_target_binding_present: bool,
+    restart_last_good_target_binding_present: bool,
+    load_artifact_by_hash_target_binding_present: bool,
+    recovery_memory_write_authority_present: bool,
+    durable_audit_rollback_write_authority_present: bool,
+    service_inventory_side_effect_boundary_present: bool,
+    accepts_lifeline_command_body: bool,
+    accepts_lifeline_command_envelope: bool,
+    dispatches_lifeline_command: bool,
+    command_execution_enabled: bool,
+    rollback_preview_enabled: bool,
+    rollback_apply_enabled: bool,
+    recovery_memory_writes_enabled: bool,
+    durable_writes_enabled: bool,
+    rollback_replay_enabled: bool,
+    provider_export_enabled: bool,
+    authorizes_recovery_load: bool,
+    can_move_beyond_denial: bool,
+    loads_recovery_loader: bool,
+    loads_recovery_artifact: bool,
+    creates_durable_records: bool,
+    installs_rollback_plan: bool,
+    allocates_service_slot: bool,
+    service_inventory_change: &'static str,
+    load_attempted: bool,
+}
+
+struct RecoveryLifelineCommandDispatchSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    actual_envelope_status: &'static str,
+    actual_envelope_reason: &'static str,
+    command_envelope_reference_accepted: bool,
+    command_body_canonicalization_present: bool,
+    command_handler_binding_present: bool,
+    dispatches_lifeline_command: bool,
+    command_execution_enabled: bool,
+    load_attempted: bool,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandBodyCanonicalizationInput<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    command_body_canonicalization_hash: Option<[u8; 32]>,
+    retained_command_envelope_reference_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    target_locator: Option<&'a str>,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    command_dispatch_boundary_id: Option<&'a str>,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    command_body_canonicalization_hash: Option<[u8; 32]>,
+    expected_command_body_canonicalization_hash: Option<[u8; 32]>,
+    retained_command_envelope_reference_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    target_locator: Option<&'a str>,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    command_dispatch_boundary_id: Option<&'a str>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandBodyCanonicalizationCandidate {
+    dispatch_candidate: RecoveryLifelineCommandDispatchCandidate,
+    command_body_reference_present: bool,
+    command_body_reference_current_boot: bool,
+    command_body_reference_schema_ok: bool,
+    command_body_reference_binding_ok: bool,
+    command_body_reference_binding_reason: &'static str,
+    command_id_supported: bool,
+    argument_schema_matches: bool,
+    argument_hash_present: bool,
+    target_locator_present: bool,
+    command_envelope_reference_hash_matches: bool,
+    command_dispatch_boundary_id_matches: bool,
+    body_hash_matches: bool,
+    direct_openai_recovery_shortcut_used: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandBodyCanonicalizationCheck {
+    status: &'static str,
+    reason: &'static str,
+    dispatch_check: RecoveryLifelineCommandDispatchCheck,
+    command_body_reference_present: bool,
+    command_body_reference_accepted: bool,
+    command_id_supported: bool,
+    argument_schema_matches: bool,
+    argument_hash_present: bool,
+    target_locator_present: bool,
+    command_envelope_reference_hash_matches: bool,
+    command_dispatch_boundary_id_matches: bool,
+    body_hash_matches: bool,
+    accepts_raw_command_body: bool,
+    accepts_lifeline_command_body: bool,
+    accepts_lifeline_command_envelope: bool,
+    dispatches_lifeline_command: bool,
+    command_execution_enabled: bool,
+    rollback_preview_enabled: bool,
+    rollback_apply_enabled: bool,
+    recovery_memory_writes_enabled: bool,
+    durable_writes_enabled: bool,
+    rollback_replay_enabled: bool,
+    provider_export_enabled: bool,
+    authorizes_recovery_load: bool,
+    can_move_beyond_denial: bool,
+    loads_recovery_loader: bool,
+    loads_recovery_artifact: bool,
+    creates_durable_records: bool,
+    installs_rollback_plan: bool,
+    allocates_service_slot: bool,
+    service_inventory_change: &'static str,
+    load_attempted: bool,
+}
+
+struct RecoveryLifelineCommandBodyCanonicalizationSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    actual_dispatch_status: &'static str,
+    actual_dispatch_reason: &'static str,
+    command_body_reference_accepted: bool,
+    body_hash_matches: bool,
+    dispatches_lifeline_command: bool,
+    command_execution_enabled: bool,
+    load_attempted: bool,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
 struct RecoveryEvidenceCandidate {
     retained: bool,
     current_boot: bool,
@@ -869,6 +1238,67 @@ pub(crate) fn recovery_memory_provenance_method(method: &str) -> bool {
 pub(crate) fn recovery_memory_provenance_selftest_method(method: &str) -> bool {
     method_head_eq(method, "recovery.memory_provenance_selftest")
         || method_head_eq(method, "recovery.memory_provenance_diagnostic_selftest")
+}
+
+pub(crate) fn recovery_lifeline_command_admission_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.lifeline_command_admission")
+        || method_head_eq(method, "recovery.lifeline_command_admission_diagnostic")
+}
+
+pub(crate) fn recovery_lifeline_command_admission_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.lifeline_command_admission_selftest")
+        || method_head_eq(
+            method,
+            "recovery.lifeline_command_admission_diagnostic_selftest",
+        )
+}
+
+pub(crate) fn recovery_lifeline_command_envelope_diagnostic_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.lifeline_command_envelope_diagnostic")
+        || method_head_eq(method, "recovery.lifeline_command_envelope_reference")
+}
+
+pub(crate) fn recovery_lifeline_command_envelope_diagnostic_selftest_method(method: &str) -> bool {
+    method_head_eq(
+        method,
+        "recovery.lifeline_command_envelope_diagnostic_selftest",
+    ) || method_head_eq(
+        method,
+        "recovery.lifeline_command_envelope_reference_selftest",
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_dispatch_diagnostic_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.lifeline_command_dispatch_diagnostic")
+        || method_head_eq(method, "recovery.lifeline_command_dispatch_denial")
+}
+
+pub(crate) fn recovery_lifeline_command_dispatch_diagnostic_selftest_method(method: &str) -> bool {
+    method_head_eq(
+        method,
+        "recovery.lifeline_command_dispatch_diagnostic_selftest",
+    ) || method_head_eq(method, "recovery.lifeline_command_dispatch_denial_selftest")
+}
+
+pub(crate) fn recovery_lifeline_command_body_canonicalization_diagnostic_method(
+    method: &str,
+) -> bool {
+    method_head_eq(
+        method,
+        "recovery.lifeline_command_body_canonicalization_diagnostic",
+    ) || method_head_eq(method, "recovery.lifeline_command_body_canonicalization")
+}
+
+pub(crate) fn recovery_lifeline_command_body_canonicalization_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    method_head_eq(
+        method,
+        "recovery.lifeline_command_body_canonicalization_diagnostic_selftest",
+    ) || method_head_eq(
+        method,
+        "recovery.lifeline_command_body_canonicalization_selftest",
+    )
 }
 
 pub(crate) fn recovery_artifact_load_binding_method(method: &str) -> bool {
@@ -3060,6 +3490,908 @@ pub(crate) fn emit_recovery_memory_provenance_selftest() {
     raw_line("      \"provider_export_enabled\": false,");
     raw_line("      \"can_move_beyond_denial\": false");
     end_response("recovery.memory_provenance_selftest");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_admission() {
+    let retained_request = event_log::latest_recovery_lifeline_request_reference();
+    let retained_identity = event_log::latest_recovery_artifact_identity_reference();
+    let retained_trust = event_log::latest_recovery_artifact_trust_reference();
+    let retained_vm_test = event_log::latest_recovery_artifact_vm_test_reference();
+    let retained_local_approval = event_log::latest_recovery_artifact_local_approval_reference();
+    let retained_loader = event_log::latest_recovery_artifact_loader_reference();
+    let retained_rollback_evidence =
+        event_log::latest_recovery_artifact_rollback_evidence_reference();
+    let protocol_candidate = recovery_lifeline_protocol_candidate_from_retained(
+        retained_request,
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        retained_rollback_evidence,
+    );
+    let protocol_check = evaluate_recovery_lifeline_protocol(protocol_candidate);
+    let command_candidate =
+        recovery_lifeline_command_vocabulary_candidate_from_protocol(protocol_candidate);
+    let command_check = evaluate_recovery_lifeline_command_vocabulary(command_candidate);
+    let isolation_candidate =
+        recovery_loader_runtime_isolation_candidate_from_command_vocabulary(command_candidate);
+    let isolation_check = evaluate_recovery_loader_runtime_isolation(isolation_candidate);
+    let transaction_candidate =
+        recovery_rollback_transaction_engine_candidate_from_loader(isolation_candidate);
+    let transaction_check = evaluate_recovery_rollback_transaction_engine(transaction_candidate);
+    let persistence_candidate =
+        recovery_durable_audit_rollback_persistence_candidate_from_transaction(
+            transaction_candidate,
+        );
+    let persistence_check =
+        evaluate_recovery_durable_audit_rollback_persistence(persistence_candidate);
+    let memory_candidate =
+        recovery_memory_provenance_candidate_from_persistence(persistence_candidate);
+    let memory_check = evaluate_recovery_memory_provenance(memory_candidate);
+    let admission_candidate =
+        recovery_lifeline_command_admission_candidate_from_memory(memory_candidate);
+    let check = evaluate_recovery_lifeline_command_admission(admission_candidate);
+
+    begin_response("recovery.lifeline_command_admission");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_command_admission.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_lifeline_command_admission_records\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"accepts_memory_record_json\": false,");
+    raw_line("      \"accepts_provider_context_export\": false,");
+    raw_line("      \"accepts_rollback_transaction_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"executes_lifeline_status\": false,");
+    raw_line("      \"executes_rollback_preview\": false,");
+    raw_line("      \"executes_rollback_apply\": false,");
+    raw_line("      \"executes_disable_module\": false,");
+    raw_line("      \"executes_restart_last_good\": false,");
+    raw_line("      \"executes_load_recovery_artifact_by_hash\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"exports_provider_context\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"replays_rollback_transactions\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"uses_direct_openai_recovery_path\": false,");
+    raw_line("      \"provider_shortcut_used\": false,");
+    raw_line("      \"request\": {");
+    raw_line("        \"requested_capability\": \"cap.recovery.load_artifact\",");
+    raw_line("        \"read_capability\": \"cap.recovery.load_artifact.read\",");
+    raw_line("        \"command_read_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"command_admission_capability\": \"cap.recovery.command.admit\",");
+    raw_line("        \"lifeline_request_schema\": \"raios.recovery_lifeline_request.v0\",");
+    raw_line("        \"lifeline_protocol_state_schema\": \"raios.recovery_lifeline_protocol_state.v0\",");
+    raw_line("        \"lifeline_command_vocabulary_schema\": \"raios.recovery_lifeline_command_vocabulary.v0\",");
+    raw_line("        \"loader_runtime_isolation_schema\": \"raios.recovery_loader_runtime_isolation.v0\",");
+    raw_line("        \"rollback_transaction_engine_schema\": \"raios.recovery_rollback_transaction_engine.v0\",");
+    raw_line("        \"durable_audit_rollback_persistence_schema\": \"raios.durable_audit_rollback_persistence.v0\",");
+    raw_line(
+        "        \"recovery_memory_provenance_schema\": \"raios.recovery_memory_provenance.v0\",",
+    );
+    raw_line(
+        "        \"command_admission_schema\": \"raios.recovery_lifeline_command_admission.v0\"",
+    );
+    raw_line("      },");
+    emit_recovery_lifeline_protocol_request_state(retained_request, &protocol_check, true);
+    raw_line("      \"required_retained_evidence\": {");
+    emit_recovery_load_identity_binding_fact(retained_identity, true);
+    emit_recovery_load_trust_binding_fact(retained_identity, retained_trust, true);
+    emit_recovery_load_vm_test_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        true,
+    );
+    emit_recovery_load_local_approval_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        true,
+    );
+    emit_recovery_load_loader_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        true,
+    );
+    emit_recovery_load_rollback_evidence_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        retained_rollback_evidence,
+        false,
+    );
+    raw_line("      },");
+    emit_recovery_lifeline_command_vocabulary_object(&command_check, true);
+    raw_line("      \"loader_runtime_isolation\": {");
+    emit_recovery_loader_runtime_isolation_boundary(&isolation_check);
+    raw_line("      },");
+    raw_line("      \"rollback_transaction_engine\": {");
+    emit_recovery_rollback_transaction_engine_boundary(&transaction_check);
+    raw_line("      },");
+    raw_line("      \"durable_audit_rollback_persistence\": {");
+    emit_recovery_durable_audit_rollback_persistence_boundary(&persistence_check);
+    raw_line("      },");
+    raw_line("      \"recovery_memory_provenance\": {");
+    emit_recovery_memory_provenance_boundary(&memory_check);
+    raw_line("      },");
+    emit_recovery_lifeline_command_admission_input_state(
+        &admission_candidate,
+        &memory_check,
+        &check,
+        true,
+    );
+    raw_line("      \"command_admission_requirements\": [");
+    emit_recovery_lifeline_command_admission_requirement(
+        "recovery.lifeline.status",
+        "raios.recovery_lifeline_command.status_args.v0",
+        "cap.recovery.load_artifact.read",
+        "raios.recovery_lifeline_status_admission.v0",
+        admission_candidate.lifeline_status_admission_present,
+        "recovery_lifeline_status_command_admission_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_admission_requirement(
+        "recovery.lifeline.rollback_preview",
+        "raios.recovery_lifeline_command.rollback_preview_args.v0",
+        "cap.recovery.rollback.read",
+        "raios.recovery_rollback_preview_admission.v0",
+        admission_candidate.rollback_preview_admission_present,
+        "recovery_rollback_preview_command_admission_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_admission_requirement(
+        "recovery.lifeline.rollback_apply",
+        "raios.recovery_lifeline_command.rollback_apply_args.v0",
+        "cap.recovery.rollback",
+        "raios.recovery_rollback_apply_admission.v0",
+        admission_candidate.rollback_apply_admission_present,
+        "recovery_rollback_apply_command_admission_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_admission_requirement(
+        "recovery.lifeline.disable_module",
+        "raios.recovery_lifeline_command.disable_module_args.v0",
+        "cap.recovery.module.disable",
+        "raios.recovery_disable_module_admission.v0",
+        admission_candidate.disable_module_admission_present,
+        "recovery_disable_module_command_admission_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_admission_requirement(
+        "recovery.lifeline.restart_last_good",
+        "raios.recovery_lifeline_command.restart_last_good_args.v0",
+        "cap.recovery.service.restart",
+        "raios.recovery_restart_last_good_admission.v0",
+        admission_candidate.restart_last_good_admission_present,
+        "recovery_restart_last_good_command_admission_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_admission_requirement(
+        "recovery.lifeline.load_artifact_by_hash",
+        "raios.recovery_lifeline_command.load_artifact_by_hash_args.v0",
+        "cap.recovery.load_artifact",
+        "raios.recovery_load_artifact_by_hash_admission.v0",
+        admission_candidate.load_recovery_artifact_by_hash_admission_present,
+        "recovery_load_artifact_by_hash_command_admission_missing",
+        &check,
+        false,
+    );
+    raw_line("      ],");
+    raw_line("      \"command_admission_boundary\": {");
+    emit_recovery_lifeline_command_admission_boundary(&check);
+    raw_line("      },");
+    raw_line("      \"boundary\": {");
+    emit_recovery_lifeline_command_admission_check(&check);
+    raw_line("      }");
+    end_response("recovery.lifeline_command_admission");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_admission_selftest() {
+    let cases = recovery_lifeline_command_admission_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.lifeline_command_admission_selftest");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_command_admission_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_lifeline_command_admission_records\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"rollback_preview_enabled\": false,");
+    raw_line("      \"rollback_apply_enabled\": false,");
+    raw_line("      \"durable_writes_enabled\": false,");
+    raw_line("      \"rollback_replay_enabled\": false,");
+    raw_line("      \"recovery_memory_writes_enabled\": false,");
+    raw_line("      \"memory_writes_enabled\": false,");
+    raw_line("      \"provider_export_enabled\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_lifeline_command_admission_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.lifeline_command_admission_selftest");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_envelope_diagnostic(method: &str) {
+    let check = parse_recovery_lifeline_command_envelope_reference(
+        recovery_lifeline_command_envelope_diagnostic_arg(method),
+        true,
+    );
+    let recorded_event_id = if check.valid {
+        recovery_lifeline_command_envelope_binding_from_check(&check)
+            .map(event_log::record_recovery_lifeline_command_envelope_reference)
+    } else {
+        None
+    };
+    let retained = event_log::latest_recovery_lifeline_command_envelope_reference();
+    let retained_request = event_log::latest_recovery_lifeline_request_reference();
+    let protocol_candidate = recovery_lifeline_protocol_candidate_from_retained(
+        retained_request,
+        event_log::latest_recovery_artifact_identity_reference(),
+        event_log::latest_recovery_artifact_trust_reference(),
+        event_log::latest_recovery_artifact_vm_test_reference(),
+        event_log::latest_recovery_artifact_local_approval_reference(),
+        event_log::latest_recovery_artifact_loader_reference(),
+        event_log::latest_recovery_artifact_rollback_evidence_reference(),
+    );
+    let protocol_check = evaluate_recovery_lifeline_protocol(protocol_candidate);
+
+    begin_response("recovery.lifeline_command_envelope_diagnostic");
+    raw_line(
+        "      \"schema\": \"raios.recovery_lifeline_command_envelope_reference_diagnostic.v0\",",
+    );
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"executes_lifeline_status\": false,");
+    raw_line("      \"executes_rollback_preview\": false,");
+    raw_line("      \"executes_rollback_apply\": false,");
+    raw_line("      \"executes_disable_module\": false,");
+    raw_line("      \"executes_restart_last_good\": false,");
+    raw_line("      \"executes_load_recovery_artifact_by_hash\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"exports_provider_context\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"replays_rollback_transactions\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"recovery.lifeline_command_envelope_diagnostic <command_envelope_reference_hash> <retained_lifeline_request_event_id> <command_id> <argument_schema> <argument_hash> <required_capability> <target_locator> <command_admission_boundary_id> <lifeline_request_reference_hash> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline_command\",");
+    raw_line("        \"command_reference_schema\": \"raios.recovery_lifeline_command_envelope_reference.v0\",");
+    raw_line("        \"command_reference_canonicalization\": \"raios.recovery_lifeline_command_envelope_reference.canonical.v0\",");
+    raw_line("        \"command_admission_boundary_id\": \"boundary.recovery_lifeline_command_admission.current_boot\"");
+    raw_line("      },");
+    emit_recovery_lifeline_protocol_request_state(retained_request, &protocol_check, true);
+    raw_line("      \"command_admission_boundary\": {");
+    raw_line("        \"schema\": \"raios.recovery_lifeline_command_admission.v0\",");
+    raw_line("        \"state\": \"defined_read_only_boundary\",");
+    raw_line(
+        "        \"boundary_id\": \"boundary.recovery_lifeline_command_admission.current_boot\",",
+    );
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"authorizes_command_execution\": false");
+    raw_line("      },");
+    raw_line("      \"allowed_command_ids\": [");
+    emit_recovery_lifeline_command_envelope_allowed_command(
+        recovery_lifeline_status_command_spec(),
+        true,
+    );
+    emit_recovery_lifeline_command_envelope_allowed_command(
+        recovery_lifeline_rollback_preview_command_spec(),
+        true,
+    );
+    emit_recovery_lifeline_command_envelope_allowed_command(
+        recovery_lifeline_rollback_apply_command_spec(),
+        true,
+    );
+    emit_recovery_lifeline_command_envelope_allowed_command(
+        recovery_lifeline_disable_module_command_spec(),
+        true,
+    );
+    emit_recovery_lifeline_command_envelope_allowed_command(
+        recovery_lifeline_restart_last_good_command_spec(),
+        true,
+    );
+    emit_recovery_lifeline_command_envelope_allowed_command(
+        recovery_lifeline_load_artifact_by_hash_command_spec(),
+        false,
+    );
+    raw_line("      ],");
+    emit_recovery_lifeline_command_envelope_reference_object(&check);
+    raw_line(",");
+    emit_recovery_lifeline_command_envelope_retained_reference(&check, recorded_event_id, retained);
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"command_envelope_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"can_move_beyond_denial\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"creates_durable_records\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.lifeline_command_envelope_diagnostic");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_envelope_diagnostic_selftest() {
+    let cases = recovery_lifeline_command_envelope_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.lifeline_command_envelope_diagnostic_selftest");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_command_envelope_reference_diagnostic_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_lifeline_command_envelope_records\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"rollback_preview_enabled\": false,");
+    raw_line("      \"rollback_apply_enabled\": false,");
+    raw_line("      \"memory_writes_enabled\": false,");
+    raw_line("      \"provider_export_enabled\": false,");
+    raw_line("      \"durable_writes_enabled\": false,");
+    raw_line("      \"rollback_replay_enabled\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_lifeline_command_envelope_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.lifeline_command_envelope_diagnostic_selftest");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
+    let retained_envelope = event_log::latest_recovery_lifeline_command_envelope_reference();
+    let retained_request = event_log::latest_recovery_lifeline_request_reference();
+    let retained_body =
+        event_log::latest_recovery_lifeline_command_body_canonicalization_reference();
+    let candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
+        retained_envelope,
+        retained_request,
+        retained_body,
+    );
+    let check = evaluate_recovery_lifeline_command_dispatch(candidate);
+
+    begin_response("recovery.lifeline_command_dispatch_diagnostic");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_command_dispatch_denial.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_lifeline_command_dispatch_records\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"executes_lifeline_status\": false,");
+    raw_line("      \"executes_rollback_preview\": false,");
+    raw_line("      \"executes_rollback_apply\": false,");
+    raw_line("      \"executes_disable_module\": false,");
+    raw_line("      \"executes_restart_last_good\": false,");
+    raw_line("      \"executes_load_recovery_artifact_by_hash\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"exports_provider_context\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"replays_rollback_transactions\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"uses_direct_openai_recovery_path\": false,");
+    raw_line("      \"provider_shortcut_used\": false,");
+    raw_line("      \"request\": {");
+    raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"requested_capability\": \"cap.recovery.command.dispatch\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline_command\",");
+    raw_line("        \"command_envelope_reference_schema\": \"raios.recovery_lifeline_command_envelope_reference.v0\",");
+    raw_line(
+        "        \"command_admission_schema\": \"raios.recovery_lifeline_command_admission.v0\"",
+    );
+    raw_line("      },");
+    emit_recovery_lifeline_command_dispatch_retained_envelope(retained_envelope, retained_request);
+    raw_line(",");
+    raw_line("      \"command_dispatch_requirements\": [");
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "command_body_canonicalization",
+        "raios.recovery_lifeline_command_body_canonicalization.v0",
+        candidate.command_body_canonicalization_present,
+        "recovery_lifeline_command_body_canonicalization_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "command_handler_binding",
+        "raios.recovery_lifeline_command_handler_binding.v0",
+        candidate.command_handler_binding_present,
+        "recovery_lifeline_command_handler_binding_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "status_read_handler",
+        "raios.recovery_lifeline_status_read_handler.v0",
+        candidate.status_read_handler_present,
+        "recovery_lifeline_status_read_handler_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "rollback_preview_authorization",
+        "raios.recovery_rollback_preview_authorization.v0",
+        candidate.rollback_preview_authorization_present,
+        "recovery_rollback_preview_authorization_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "rollback_apply_authorization",
+        "raios.recovery_rollback_apply_authorization.v0",
+        candidate.rollback_apply_authorization_present,
+        "recovery_rollback_apply_authorization_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "disable_module_target_binding",
+        "raios.recovery_disable_module_target_binding.v0",
+        candidate.disable_module_target_binding_present,
+        "recovery_disable_module_target_binding_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "restart_last_good_target_binding",
+        "raios.recovery_restart_last_good_target_binding.v0",
+        candidate.restart_last_good_target_binding_present,
+        "recovery_restart_last_good_target_binding_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "load_artifact_by_hash_target_binding",
+        "raios.recovery_load_artifact_by_hash_target_binding.v0",
+        candidate.load_artifact_by_hash_target_binding_present,
+        "recovery_load_artifact_by_hash_target_binding_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "recovery_memory_write_authority",
+        "raios.recovery_memory_write_authority.v0",
+        candidate.recovery_memory_write_authority_present,
+        "recovery_memory_write_authority_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "durable_audit_rollback_write_authority",
+        "raios.durable_audit_rollback_write_authority.v0",
+        candidate.durable_audit_rollback_write_authority_present,
+        "durable_audit_rollback_write_authority_missing",
+        &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "service_inventory_side_effect_boundary",
+        "raios.recovery_service_inventory_side_effect_boundary.v0",
+        candidate.service_inventory_side_effect_boundary_present,
+        "recovery_service_inventory_side_effect_boundary_missing",
+        &check,
+        false,
+    );
+    raw_line("      ],");
+    raw_line("      \"boundary\": {");
+    emit_recovery_lifeline_command_dispatch_boundary(&check);
+    raw_line("      }");
+    end_response("recovery.lifeline_command_dispatch_diagnostic");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic_selftest() {
+    let cases = recovery_lifeline_command_dispatch_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.lifeline_command_dispatch_diagnostic_selftest");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_command_dispatch_denial_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_lifeline_command_dispatch_records\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"rollback_preview_enabled\": false,");
+    raw_line("      \"rollback_apply_enabled\": false,");
+    raw_line("      \"memory_writes_enabled\": false,");
+    raw_line("      \"provider_export_enabled\": false,");
+    raw_line("      \"durable_writes_enabled\": false,");
+    raw_line("      \"rollback_replay_enabled\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_lifeline_command_dispatch_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.lifeline_command_dispatch_diagnostic_selftest");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_body_canonicalization_diagnostic(method: &str) {
+    let check = parse_recovery_lifeline_command_body_canonicalization_reference(
+        recovery_lifeline_command_body_canonicalization_diagnostic_arg(method),
+        true,
+    );
+    let recorded_event_id = if check.valid {
+        recovery_lifeline_command_body_canonicalization_binding_from_check(&check)
+            .map(event_log::record_recovery_lifeline_command_body_canonicalization_reference)
+    } else {
+        None
+    };
+    let retained_body =
+        event_log::latest_recovery_lifeline_command_body_canonicalization_reference();
+    let retained_envelope = event_log::latest_recovery_lifeline_command_envelope_reference();
+    let retained_request = event_log::latest_recovery_lifeline_request_reference();
+    let dispatch_candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
+        retained_envelope,
+        retained_request,
+        None,
+    );
+    let dispatch_check = evaluate_recovery_lifeline_command_dispatch(dispatch_candidate);
+
+    begin_response("recovery.lifeline_command_body_canonicalization_diagnostic");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_command_body_canonicalization_diagnostic.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw("      \"creates_retained_recovery_lifeline_command_body_canonicalization_records\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"executes_lifeline_status\": false,");
+    raw_line("      \"executes_rollback_preview\": false,");
+    raw_line("      \"executes_rollback_apply\": false,");
+    raw_line("      \"executes_disable_module\": false,");
+    raw_line("      \"executes_restart_last_good\": false,");
+    raw_line("      \"executes_load_recovery_artifact_by_hash\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"exports_provider_context\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"replays_rollback_transactions\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"recovery.lifeline_command_body_canonicalization_diagnostic <command_body_canonicalization_hash> <retained_command_envelope_reference_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_dispatch_boundary_id> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline_command_body\",");
+    raw_line("        \"command_body_schema\": \"raios.recovery_lifeline_command_body_canonicalization.v0\",");
+    raw_line("        \"command_body_canonicalization\": \"raios.recovery_lifeline_command_body_canonicalization.canonical.v0\",");
+    raw_line(
+        "        \"command_dispatch_boundary_id\": \"boundary.recovery_lifeline_command_dispatch_denial.current_boot\"",
+    );
+    raw_line("      },");
+    emit_recovery_lifeline_command_dispatch_retained_envelope(retained_envelope, retained_request);
+    raw_line(",");
+    raw_line("      \"command_dispatch_boundary\": {");
+    raw_line("        \"schema\": \"raios.recovery_lifeline_command_dispatch_denial.v0\",");
+    raw_line(
+        "        \"boundary_id\": \"boundary.recovery_lifeline_command_dispatch_denial.current_boot\",",
+    );
+    raw("        \"status\": ");
+    json_str(dispatch_check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(dispatch_check.reason);
+    raw_line(",");
+    raw_line("        \"expected_status_before_body_canonicalization\": \"denied_missing_lifeline_command_dispatch_boundary\",");
+    raw_line("        \"expected_reason_before_body_canonicalization\": \"recovery_lifeline_command_body_canonicalization_missing\",");
+    raw("        \"command_envelope_reference_accepted\": ");
+    raw_bool(dispatch_check.command_envelope_reference_accepted);
+    raw_line(",");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false");
+    raw_line("      },");
+    emit_recovery_lifeline_command_body_canonicalization_reference_object(&check);
+    raw_line(",");
+    raw_line("      \"body_canonicalization_requirements\": [");
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "per_command_body_schema_canonicalization",
+        "raios.recovery_lifeline_command_body_schema_canonicalization.v0",
+        "recovery_lifeline_command_body_schema_canonicalization_missing",
+        true,
+    );
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "body_redaction_classification",
+        "raios.recovery_lifeline_command_body_redaction_classification.v0",
+        "recovery_lifeline_command_body_redaction_classification_missing",
+        true,
+    );
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "handler_input_binding",
+        "raios.recovery_lifeline_command_handler_input_binding.v0",
+        "recovery_lifeline_command_handler_input_binding_missing",
+        true,
+    );
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "rollback_authorization_linkage",
+        "raios.recovery_rollback_authorization_linkage.v0",
+        "recovery_rollback_authorization_linkage_missing",
+        true,
+    );
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "recovery_memory_write_linkage",
+        "raios.recovery_memory_write_linkage.v0",
+        "recovery_memory_write_linkage_missing",
+        true,
+    );
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "durable_audit_rollback_write_linkage",
+        "raios.durable_audit_rollback_write_linkage.v0",
+        "durable_audit_rollback_write_linkage_missing",
+        true,
+    );
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "service_inventory_side_effect_linkage",
+        "raios.recovery_service_inventory_side_effect_linkage.v0",
+        "recovery_service_inventory_side_effect_linkage_missing",
+        false,
+    );
+    raw_line("      ],");
+    emit_recovery_lifeline_command_body_canonicalization_retained_reference(
+        &check,
+        recorded_event_id,
+        retained_body,
+    );
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"command_body_canonicalization_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"can_move_beyond_denial\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"creates_durable_records\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.lifeline_command_body_canonicalization_diagnostic");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_body_canonicalization_diagnostic_selftest() {
+    let cases = recovery_lifeline_command_body_canonicalization_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.lifeline_command_body_canonicalization_diagnostic_selftest");
+    raw_line(
+        "      \"schema\": \"raios.recovery_lifeline_command_body_canonicalization_selftest.v0\",",
+    );
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_lifeline_command_body_canonicalization_records\": false,");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"rollback_preview_enabled\": false,");
+    raw_line("      \"rollback_apply_enabled\": false,");
+    raw_line("      \"memory_writes_enabled\": false,");
+    raw_line("      \"provider_export_enabled\": false,");
+    raw_line("      \"durable_writes_enabled\": false,");
+    raw_line("      \"rollback_replay_enabled\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_lifeline_command_body_canonicalization_selftest_case(
+            &cases[idx],
+            idx + 1 != cases.len(),
+        );
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.lifeline_command_body_canonicalization_diagnostic_selftest");
 }
 
 pub(crate) fn emit_recovery_artifact_load_binding() {
@@ -6008,6 +7340,984 @@ fn emit_recovery_memory_provenance_selftest_case(
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"memory_writes_enabled\": false, \"provider_export_enabled\": false, \"durable_writes_enabled\": false, \"rollback_replay_enabled\": false, \"recovery_memory_writes_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"command_execution_enabled\": false, \"accepts_lifeline_command_envelope\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_lifeline_command_admission_input_state(
+    candidate: &RecoveryLifelineCommandAdmissionCandidate,
+    memory_check: &RecoveryMemoryProvenanceCheck,
+    check: &RecoveryLifelineCommandAdmissionCheck,
+    comma: bool,
+) {
+    raw_line("      \"command_admission_inputs\": {");
+    raw_line("        \"recovery_memory_provenance\": {");
+    raw_line("          \"schema\": \"raios.recovery_memory_provenance.v0\",");
+    raw("          \"state\": ");
+    json_str(if candidate.recovery_memory_provenance_available {
+        "defined_read_only_boundary"
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw_line("          \"retention\": \"current_boot_read_only_diagnostic\",");
+    raw_line("          \"event_id\": null,");
+    raw("          \"boundary_exposed\": ");
+    raw_bool(check.recovery_memory_provenance_boundary_exposed);
+    raw_line(",");
+    raw("          \"accepted_for_command_admission\": ");
+    raw_bool(check.recovery_memory_provenance_accepted);
+    raw_line(",");
+    raw("          \"recovery_memory_provenance_ready\": ");
+    raw_bool(memory_check.recovery_memory_provenance_ready);
+    raw_line(",");
+    raw("          \"current_boot\": ");
+    raw_bool(candidate.recovery_memory_provenance_current_boot);
+    raw_line(",");
+    raw("          \"schema_ok\": ");
+    raw_bool(candidate.recovery_memory_provenance_schema_ok);
+    raw_line(",");
+    raw("          \"binding_ok\": ");
+    raw_bool(candidate.recovery_memory_provenance_binding_ok);
+    raw_line(",");
+    raw("          \"reason\": ");
+    json_str(candidate.recovery_memory_provenance_binding_reason);
+    raw_line(",");
+    raw_line("          \"writes_recovery_memory\": false,");
+    raw_line("          \"exports_provider_context\": false,");
+    raw_line("          \"accepts_lifeline_command_envelope\": false");
+    raw_line("        }");
+    raw("      }");
+    if comma {
+        raw_line(",");
+    } else {
+        raw_line("");
+    }
+}
+
+fn emit_recovery_lifeline_command_admission_requirement(
+    command_id: &'static str,
+    args_schema: &'static str,
+    required_capability: &'static str,
+    readiness_schema: &'static str,
+    present: bool,
+    missing_reason: &'static str,
+    check: &RecoveryLifelineCommandAdmissionCheck,
+    comma: bool,
+) {
+    raw_line("        {");
+    raw("          \"command_id\": ");
+    json_str(command_id);
+    raw_line(",");
+    raw("          \"argument_schema\": ");
+    json_str(args_schema);
+    raw_line(",");
+    raw("          \"required_capability\": ");
+    json_str(required_capability);
+    raw_line(",");
+    raw("          \"admission_schema\": ");
+    json_str(readiness_schema);
+    raw_line(",");
+    raw("          \"status\": ");
+    json_str(if present { "present" } else { "missing" });
+    raw_line(",");
+    raw_line("          \"scope\": \"current_boot\",");
+    raw_line("          \"classification\": \"local_only\",");
+    raw_line("          \"required\": true,");
+    raw_line("          \"event_id\": null,");
+    raw("          \"reason\": ");
+    json_str(if present {
+        "command_admission_requirement_defined"
+    } else {
+        missing_reason
+    });
+    raw_line(",");
+    raw("          \"admission_ready\": ");
+    raw_bool(check.command_admission_ready && present);
+    raw_line(",");
+    raw_line("          \"accepts_envelope\": false,");
+    raw_line("          \"dispatches_command\": false,");
+    raw_line("          \"command_execution_enabled\": false,");
+    raw_line("          \"rollback_preview_enabled\": false,");
+    raw_line("          \"rollback_apply_enabled\": false,");
+    raw_line("          \"memory_writes_enabled\": false,");
+    raw_line("          \"provider_export_enabled\": false,");
+    raw_line("          \"durable_writes_enabled\": false,");
+    raw_line("          \"loads_recovery_artifact\": false,");
+    raw_line("          \"creates_durable_records\": false,");
+    raw_line("          \"installs_rollback_plan\": false,");
+    raw_line("          \"allocates_service_slot\": false,");
+    raw_line("          \"service_inventory_change\": \"none\",");
+    raw_line("          \"load_attempted\": false");
+    raw("        }");
+    if comma {
+        raw_line(",");
+    } else {
+        raw_line("");
+    }
+}
+
+fn emit_recovery_lifeline_command_admission_boundary(
+    check: &RecoveryLifelineCommandAdmissionCheck,
+) {
+    raw_line("        \"schema\": \"raios.recovery_lifeline_command_admission.v0\",");
+    raw_line("        \"state\": \"defined_non_executable\",");
+    raw("        \"requirements_exposed\": ");
+    raw_bool(check.command_admission_requirements_exposed);
+    raw_line(",");
+    raw("        \"command_admission_ready\": ");
+    raw_bool(check.command_admission_ready);
+    raw_line(",");
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"rollback_preview_enabled\": false,");
+    raw_line("        \"rollback_apply_enabled\": false,");
+    raw_line("        \"memory_writes_enabled\": false,");
+    raw_line("        \"provider_export_enabled\": false,");
+    raw_line("        \"durable_writes_enabled\": false,");
+    raw_line("        \"rollback_replay_enabled\": false,");
+    raw_line("        \"recovery_memory_writes_enabled\": false,");
+    raw_line("        \"writes_durable_audit_log\": false,");
+    raw_line("        \"writes_rollback_store\": false,");
+    raw_line("        \"loads_recovery_loader\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"creates_durable_records\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"direct_openai_recovery_shortcut_accepted\": false,");
+    raw_line("        \"required_before_admission\": [");
+    raw_line("          \"raios.recovery_lifeline_request.v0\",");
+    raw_line("          \"raios.recovery_lifeline_protocol_state.v0\",");
+    raw_line("          \"raios.recovery_lifeline_command_vocabulary.v0\",");
+    raw_line("          \"raios.recovery_loader_runtime_isolation.v0\",");
+    raw_line("          \"raios.recovery_rollback_transaction_engine.v0\",");
+    raw_line("          \"raios.durable_audit_rollback_persistence.v0\",");
+    raw_line("          \"raios.recovery_memory_provenance.v0\"");
+    raw_line("        ]");
+}
+
+fn emit_recovery_lifeline_command_admission_check(check: &RecoveryLifelineCommandAdmissionCheck) {
+    raw("        \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"request_chain_valid\": ");
+    raw_bool(check.memory_check.request_chain_valid);
+    raw_line(",");
+    raw("        \"command_vocabulary_envelope_exposed\": ");
+    raw_bool(check.memory_check.command_vocabulary_envelope_exposed);
+    raw_line(",");
+    raw("        \"command_vocabulary_accepted\": ");
+    raw_bool(check.memory_check.command_vocabulary_accepted);
+    raw_line(",");
+    raw("        \"loader_runtime_isolation_boundary_exposed\": ");
+    raw_bool(check.memory_check.loader_runtime_isolation_boundary_exposed);
+    raw_line(",");
+    raw("        \"loader_runtime_isolation_accepted\": ");
+    raw_bool(check.memory_check.loader_runtime_isolation_accepted);
+    raw_line(",");
+    raw("        \"rollback_transaction_engine_boundary_exposed\": ");
+    raw_bool(
+        check
+            .memory_check
+            .rollback_transaction_engine_boundary_exposed,
+    );
+    raw_line(",");
+    raw("        \"rollback_transaction_engine_accepted\": ");
+    raw_bool(check.memory_check.rollback_transaction_engine_accepted);
+    raw_line(",");
+    raw("        \"durable_audit_rollback_persistence_boundary_exposed\": ");
+    raw_bool(
+        check
+            .memory_check
+            .durable_audit_rollback_persistence_boundary_exposed,
+    );
+    raw_line(",");
+    raw("        \"durable_audit_rollback_persistence_accepted\": ");
+    raw_bool(
+        check
+            .memory_check
+            .durable_audit_rollback_persistence_accepted,
+    );
+    raw_line(",");
+    raw("        \"recovery_memory_provenance_boundary_exposed\": ");
+    raw_bool(check.recovery_memory_provenance_boundary_exposed);
+    raw_line(",");
+    raw("        \"recovery_memory_provenance_accepted\": ");
+    raw_bool(check.recovery_memory_provenance_accepted);
+    raw_line(",");
+    raw("        \"command_admission_requirements_exposed\": ");
+    raw_bool(check.command_admission_requirements_exposed);
+    raw_line(",");
+    raw("        \"command_admission_ready\": ");
+    raw_bool(check.command_admission_ready);
+    raw_line(",");
+    raw("        \"lifeline_status_admission_present\": ");
+    raw_bool(check.lifeline_status_admission_present);
+    raw_line(",");
+    raw("        \"rollback_preview_admission_present\": ");
+    raw_bool(check.rollback_preview_admission_present);
+    raw_line(",");
+    raw("        \"rollback_apply_admission_present\": ");
+    raw_bool(check.rollback_apply_admission_present);
+    raw_line(",");
+    raw("        \"disable_module_admission_present\": ");
+    raw_bool(check.disable_module_admission_present);
+    raw_line(",");
+    raw("        \"restart_last_good_admission_present\": ");
+    raw_bool(check.restart_last_good_admission_present);
+    raw_line(",");
+    raw("        \"load_recovery_artifact_by_hash_admission_present\": ");
+    raw_bool(check.load_recovery_artifact_by_hash_admission_present);
+    raw_line(",");
+    raw("        \"command_execution_enabled\": ");
+    raw_bool(check.command_execution_enabled);
+    raw_line(",");
+    raw("        \"accepts_lifeline_command_envelope\": ");
+    raw_bool(check.accepts_lifeline_command_envelope);
+    raw_line(",");
+    raw("        \"dispatches_lifeline_command\": ");
+    raw_bool(check.dispatches_lifeline_command);
+    raw_line(",");
+    raw("        \"authorizes_recovery_load\": ");
+    raw_bool(check.authorizes_recovery_load);
+    raw_line(",");
+    raw("        \"can_move_beyond_denial\": ");
+    raw_bool(check.can_move_beyond_denial);
+    raw_line(",");
+    raw("        \"loads_recovery_loader\": ");
+    raw_bool(check.loads_recovery_loader);
+    raw_line(",");
+    raw("        \"loads_recovery_artifact\": ");
+    raw_bool(check.loads_recovery_artifact);
+    raw_line(",");
+    raw("        \"creates_durable_records\": ");
+    raw_bool(check.creates_durable_records);
+    raw_line(",");
+    raw("        \"installs_rollback_plan\": ");
+    raw_bool(check.installs_rollback_plan);
+    raw_line(",");
+    raw("        \"allocates_service_slot\": ");
+    raw_bool(check.allocates_service_slot);
+    raw_line(",");
+    raw("        \"service_inventory_change\": ");
+    json_str(check.service_inventory_change);
+    raw_line(",");
+    raw_line("        \"durable_audit_write_attempted\": false,");
+    raw_line("        \"rollback_install_attempted\": false,");
+    raw_line("        \"rollback_replay_attempted\": false,");
+    raw_line("        \"recovery_memory_write_attempted\": false,");
+    raw_line("        \"provider_export_attempted\": false,");
+    raw_line("        \"lifeline_command_dispatch_attempted\": false,");
+    raw_line("        \"service_slot_allocation_attempted\": false,");
+    raw_line("        \"direct_openai_recovery_shortcut_accepted\": false,");
+    raw("        \"load_attempted\": ");
+    raw_bool(check.load_attempted);
+    crlf();
+}
+
+fn emit_recovery_lifeline_command_admission_selftest_case(
+    case: &RecoveryLifelineCommandAdmissionSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"command_execution_enabled\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"memory_writes_enabled\": false, \"provider_export_enabled\": false, \"durable_writes_enabled\": false, \"rollback_replay_enabled\": false, \"recovery_memory_writes_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_lifeline_command_envelope_allowed_command(
+    spec: RecoveryLifelineCommandSpec,
+    comma: bool,
+) {
+    raw_line("        {");
+    raw("          \"command_id\": ");
+    json_str(spec.command_id);
+    raw_line(",");
+    raw("          \"argument_schema\": ");
+    json_str(spec.argument_schema);
+    raw_line(",");
+    raw("          \"required_capability\": ");
+    json_str(spec.required_capability);
+    raw_line(",");
+    raw_line("          \"accepts_command_body\": false,");
+    raw_line("          \"dispatches_command\": false,");
+    raw_line("          \"command_execution_enabled\": false");
+    raw("        }");
+    if comma {
+        raw_line(",");
+    } else {
+        raw_line("");
+    }
+}
+
+fn emit_recovery_lifeline_command_envelope_reference_object(
+    check: &RecoveryLifelineCommandEnvelopeReferenceCheck<'_>,
+) {
+    raw_line("      \"command_envelope_reference\": {");
+    raw("        \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"has_reference\": ");
+    raw_bool(check.has_reference);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw("        \"command_id\": ");
+    json_opt_str(check.command_id);
+    raw_line(",");
+    raw("        \"argument_schema\": ");
+    json_opt_str(check.argument_schema);
+    raw_line(",");
+    raw("        \"required_capability\": ");
+    json_opt_str(check.required_capability);
+    raw_line(",");
+    raw("        \"target_locator\": ");
+    json_opt_str(check.target_locator);
+    raw_line(",");
+    raw("        \"command_admission_boundary_id\": ");
+    json_opt_str(check.command_admission_boundary_id);
+    raw_line(",");
+    raw("        \"retained_recovery_lifeline_request_event_id\": ");
+    json_opt_str(check.retained_lifeline_request_event_id);
+    raw_line(",");
+    raw("        \"lifeline_request_reference_hash\": ");
+    json_sha256_option(check.lifeline_request_reference_hash);
+    raw_line(",");
+    raw("        \"argument_hash\": ");
+    json_sha256_option(check.argument_hash);
+    raw_line(",");
+    raw("        \"command_envelope_reference_hash\": ");
+    json_sha256_option(check.command_envelope_reference_hash);
+    raw_line(",");
+    raw("        \"expected_command_envelope_reference_hash\": ");
+    json_sha256_option(check.expected_command_envelope_reference_hash);
+    raw_line(",");
+    raw("        \"valid_hash_reference\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"can_move_beyond_denial\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"creates_durable_records\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_envelope_retained_reference(
+    check: &RecoveryLifelineCommandEnvelopeReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandEnvelopeReference,
+    )>,
+) {
+    raw_line("      \"retained_command_envelope_reference\": {");
+    raw("        \"status\": ");
+    json_str(if check.valid {
+        "retained_hash_reference_command_still_denied"
+    } else if retained.is_some() {
+        "previous_retained_hash_reference_present"
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw("        \"recorded_event_id\": ");
+    json_event_id_option(recorded_event_id);
+    raw_line(",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"creates_durable_records\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false,");
+    raw("        \"latest_event_id\": ");
+    if let Some((event_id, _)) = retained {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_command_id\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.command_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_command_envelope_reference_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.command_envelope_reference_hash);
+    } else {
+        raw("null");
+    }
+    raw_line("");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_envelope_selftest_case(
+    case: &RecoveryLifelineCommandEnvelopeSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"actual_admission_status\": ");
+    json_str(case.actual_admission_status);
+    raw(", \"actual_admission_reason\": ");
+    json_str(case.actual_admission_reason);
+    raw(", \"command_admission_boundary_exposed\": ");
+    raw_bool(case.command_admission_boundary_exposed);
+    raw(", \"command_admission_accepted\": ");
+    raw_bool(case.command_admission_accepted);
+    raw(", \"command_envelope_reference_present\": ");
+    raw_bool(case.command_envelope_reference_present);
+    raw(", \"command_id_supported\": ");
+    raw_bool(case.command_id_supported);
+    raw(", \"argument_schema_matches\": ");
+    raw_bool(case.argument_schema_matches);
+    raw(", \"argument_hash_present\": ");
+    raw_bool(case.argument_hash_present);
+    raw(", \"required_capability_matches\": ");
+    raw_bool(case.required_capability_matches);
+    raw(", \"target_locator_present\": ");
+    raw_bool(case.target_locator_present);
+    raw(", \"reference_hash_matches\": ");
+    raw_bool(case.reference_hash_matches);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"command_execution_enabled\": ");
+    raw_bool(case.command_execution_enabled);
+    raw(", \"accepts_lifeline_command_envelope\": ");
+    raw_bool(case.accepts_lifeline_command_envelope);
+    raw(", \"dispatches_lifeline_command\": ");
+    raw_bool(case.dispatches_lifeline_command);
+    raw(", \"memory_writes_enabled\": false, \"provider_export_enabled\": false, \"durable_writes_enabled\": false, \"rollback_replay_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"authorizes_recovery_load\": ");
+    raw_bool(case.authorizes_recovery_load);
+    raw(", \"can_move_beyond_denial\": ");
+    raw_bool(case.can_move_beyond_denial);
+    raw(", \"loads_recovery_loader\": ");
+    raw_bool(case.loads_recovery_loader);
+    raw(", \"loads_recovery_artifact\": ");
+    raw_bool(case.loads_recovery_artifact);
+    raw(", \"creates_durable_records\": ");
+    raw_bool(case.creates_durable_records);
+    raw(", \"installs_rollback_plan\": ");
+    raw_bool(case.installs_rollback_plan);
+    raw(", \"allocates_service_slot\": ");
+    raw_bool(case.allocates_service_slot);
+    raw(", \"service_inventory_change\": ");
+    json_str(case.service_inventory_change);
+    raw(", \"load_attempted\": ");
+    raw_bool(case.load_attempted);
+    raw("}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_lifeline_command_dispatch_retained_envelope(
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandEnvelopeReference,
+    )>,
+    retained_request: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineRequestReference,
+    )>,
+) {
+    raw_line("      \"retained_command_envelope_reference\": {");
+    raw("        \"status\": ");
+    json_str(if retained.is_some() {
+        "retained_hash_reference_command_still_denied"
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw("        \"event_id\": ");
+    if let Some((event_id, _)) = retained {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"command_id\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.command_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"argument_schema\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.argument_schema);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"required_capability\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.required_capability);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"target_locator\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.target_locator.as_str());
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"command_admission_boundary_id\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.command_admission_boundary_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"retained_recovery_lifeline_request_event_id\": ");
+    if let Some((_, reference)) = retained {
+        json_event_id(reference.retained_lifeline_request_event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"matches_latest_lifeline_request\": ");
+    raw_bool(
+        if let (Some((_, reference)), Some((request_event_id, request))) =
+            (retained, retained_request)
+        {
+            reference.retained_lifeline_request_event_id == request_event_id
+                && reference.lifeline_request_reference_hash
+                    == request.lifeline_request_reference_hash
+        } else {
+            false
+        },
+    );
+    raw_line(",");
+    raw("        \"command_envelope_reference_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.command_envelope_reference_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"argument_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.argument_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"lifeline_request_reference_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.lifeline_request_reference_hash);
+    } else {
+        raw("null");
+    }
+    raw_line("");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_dispatch_requirement(
+    name: &'static str,
+    schema: &'static str,
+    present: bool,
+    reason: &'static str,
+    check: &RecoveryLifelineCommandDispatchCheck,
+    comma: bool,
+) {
+    raw("        {\"fact\": ");
+    json_str(name);
+    raw(", \"schema\": ");
+    json_str(schema);
+    raw(", \"status\": ");
+    json_str(if present { "present" } else { "missing" });
+    raw(", \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
+    json_str(if present {
+        "present_for_selftest_only"
+    } else {
+        reason
+    });
+    raw(", \"command_envelope_reference_accepted\": ");
+    raw_bool(check.command_envelope_reference_accepted);
+    raw(", \"accepts_lifeline_command_body\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"recovery_memory_writes_enabled\": false, \"durable_writes_enabled\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_lifeline_command_dispatch_boundary(check: &RecoveryLifelineCommandDispatchCheck) {
+    raw("        \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"command_envelope_reference_available\": ");
+    raw_bool(check.command_envelope_reference_available);
+    raw_line(",");
+    raw("        \"command_envelope_reference_accepted\": ");
+    raw_bool(check.command_envelope_reference_accepted);
+    raw_line(",");
+    raw("        \"command_body_canonicalization_present\": ");
+    raw_bool(check.command_body_canonicalization_present);
+    raw_line(",");
+    raw("        \"command_handler_binding_present\": ");
+    raw_bool(check.command_handler_binding_present);
+    raw_line(",");
+    raw("        \"status_read_handler_present\": ");
+    raw_bool(check.status_read_handler_present);
+    raw_line(",");
+    raw("        \"rollback_preview_authorization_present\": ");
+    raw_bool(check.rollback_preview_authorization_present);
+    raw_line(",");
+    raw("        \"rollback_apply_authorization_present\": ");
+    raw_bool(check.rollback_apply_authorization_present);
+    raw_line(",");
+    raw("        \"disable_module_target_binding_present\": ");
+    raw_bool(check.disable_module_target_binding_present);
+    raw_line(",");
+    raw("        \"restart_last_good_target_binding_present\": ");
+    raw_bool(check.restart_last_good_target_binding_present);
+    raw_line(",");
+    raw("        \"load_artifact_by_hash_target_binding_present\": ");
+    raw_bool(check.load_artifact_by_hash_target_binding_present);
+    raw_line(",");
+    raw("        \"recovery_memory_write_authority_present\": ");
+    raw_bool(check.recovery_memory_write_authority_present);
+    raw_line(",");
+    raw("        \"durable_audit_rollback_write_authority_present\": ");
+    raw_bool(check.durable_audit_rollback_write_authority_present);
+    raw_line(",");
+    raw("        \"service_inventory_side_effect_boundary_present\": ");
+    raw_bool(check.service_inventory_side_effect_boundary_present);
+    raw_line(",");
+    raw("        \"accepts_lifeline_command_body\": ");
+    raw_bool(check.accepts_lifeline_command_body);
+    raw_line(",");
+    raw("        \"accepts_lifeline_command_envelope\": ");
+    raw_bool(check.accepts_lifeline_command_envelope);
+    raw_line(",");
+    raw("        \"dispatches_lifeline_command\": ");
+    raw_bool(check.dispatches_lifeline_command);
+    raw_line(",");
+    raw("        \"command_execution_enabled\": ");
+    raw_bool(check.command_execution_enabled);
+    raw_line(",");
+    raw("        \"rollback_preview_enabled\": ");
+    raw_bool(check.rollback_preview_enabled);
+    raw_line(",");
+    raw("        \"rollback_apply_enabled\": ");
+    raw_bool(check.rollback_apply_enabled);
+    raw_line(",");
+    raw("        \"recovery_memory_writes_enabled\": ");
+    raw_bool(check.recovery_memory_writes_enabled);
+    raw_line(",");
+    raw("        \"durable_writes_enabled\": ");
+    raw_bool(check.durable_writes_enabled);
+    raw_line(",");
+    raw("        \"rollback_replay_enabled\": ");
+    raw_bool(check.rollback_replay_enabled);
+    raw_line(",");
+    raw("        \"provider_export_enabled\": ");
+    raw_bool(check.provider_export_enabled);
+    raw_line(",");
+    raw("        \"authorizes_recovery_load\": ");
+    raw_bool(check.authorizes_recovery_load);
+    raw_line(",");
+    raw("        \"can_move_beyond_denial\": ");
+    raw_bool(check.can_move_beyond_denial);
+    raw_line(",");
+    raw("        \"loads_recovery_loader\": ");
+    raw_bool(check.loads_recovery_loader);
+    raw_line(",");
+    raw("        \"loads_recovery_artifact\": ");
+    raw_bool(check.loads_recovery_artifact);
+    raw_line(",");
+    raw("        \"creates_durable_records\": ");
+    raw_bool(check.creates_durable_records);
+    raw_line(",");
+    raw("        \"installs_rollback_plan\": ");
+    raw_bool(check.installs_rollback_plan);
+    raw_line(",");
+    raw("        \"allocates_service_slot\": ");
+    raw_bool(check.allocates_service_slot);
+    raw_line(",");
+    raw("        \"service_inventory_change\": ");
+    json_str(check.service_inventory_change);
+    raw_line(",");
+    raw("        \"load_attempted\": ");
+    raw_bool(check.load_attempted);
+    raw_line("");
+}
+
+fn emit_recovery_lifeline_command_dispatch_selftest_case(
+    case: &RecoveryLifelineCommandDispatchSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"actual_envelope_status\": ");
+    json_str(case.actual_envelope_status);
+    raw(", \"actual_envelope_reason\": ");
+    json_str(case.actual_envelope_reason);
+    raw(", \"command_envelope_reference_accepted\": ");
+    raw_bool(case.command_envelope_reference_accepted);
+    raw(", \"command_body_canonicalization_present\": ");
+    raw_bool(case.command_body_canonicalization_present);
+    raw(", \"command_handler_binding_present\": ");
+    raw_bool(case.command_handler_binding_present);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": ");
+    raw_bool(case.dispatches_lifeline_command);
+    raw(", \"command_execution_enabled\": ");
+    raw_bool(case.command_execution_enabled);
+    raw(", \"memory_writes_enabled\": false, \"provider_export_enabled\": false, \"durable_writes_enabled\": false, \"rollback_replay_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": ");
+    raw_bool(case.load_attempted);
+    raw("}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_lifeline_command_body_canonicalization_reference_object(
+    check: &RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'_>,
+) {
+    raw_line("      \"command_body_canonicalization_reference\": {");
+    raw("        \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"has_reference\": ");
+    raw_bool(check.has_reference);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw("        \"command_id\": ");
+    json_opt_str(check.command_id);
+    raw_line(",");
+    raw("        \"argument_schema\": ");
+    json_opt_str(check.argument_schema);
+    raw_line(",");
+    raw("        \"target_locator\": ");
+    json_opt_str(check.target_locator);
+    raw_line(",");
+    raw("        \"command_dispatch_boundary_id\": ");
+    json_opt_str(check.command_dispatch_boundary_id);
+    raw_line(",");
+    raw("        \"retained_recovery_lifeline_command_envelope_event_id\": ");
+    json_opt_str(check.retained_command_envelope_reference_event_id);
+    raw_line(",");
+    raw("        \"argument_hash\": ");
+    json_sha256_option(check.argument_hash);
+    raw_line(",");
+    raw("        \"command_envelope_reference_hash\": ");
+    json_sha256_option(check.command_envelope_reference_hash);
+    raw_line(",");
+    raw("        \"command_body_canonicalization_hash\": ");
+    json_sha256_option(check.command_body_canonicalization_hash);
+    raw_line(",");
+    raw("        \"expected_command_body_canonicalization_hash\": ");
+    json_sha256_option(check.expected_command_body_canonicalization_hash);
+    raw_line(",");
+    raw("        \"valid_hash_reference\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"can_move_beyond_denial\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"creates_durable_records\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_body_canonicalization_requirement(
+    name: &'static str,
+    schema: &'static str,
+    reason: &'static str,
+    comma: bool,
+) {
+    raw("        {\"fact\": ");
+    json_str(name);
+    raw(", \"schema\": ");
+    json_str(schema);
+    raw(", \"status\": \"missing\", \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
+    json_str(reason);
+    raw(", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"recovery_memory_writes_enabled\": false, \"durable_writes_enabled\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_lifeline_command_body_canonicalization_retained_reference(
+    check: &RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandBodyCanonicalizationReference,
+    )>,
+) {
+    raw_line("      \"retained_command_body_canonicalization_reference\": {");
+    raw("        \"status\": ");
+    json_str(if check.valid {
+        "retained_hash_reference_command_still_denied"
+    } else if retained.is_some() {
+        "previous_retained_hash_reference_present"
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw("        \"recorded_event_id\": ");
+    json_event_id_option(recorded_event_id);
+    raw_line(",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"authorizes_recovery_load\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"creates_durable_records\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false,");
+    raw("        \"latest_event_id\": ");
+    if let Some((event_id, _)) = retained {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_command_id\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.command_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_command_body_canonicalization_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.command_body_canonicalization_hash);
+    } else {
+        raw("null");
+    }
+    raw_line("");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_body_canonicalization_selftest_case(
+    case: &RecoveryLifelineCommandBodyCanonicalizationSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"actual_dispatch_status\": ");
+    json_str(case.actual_dispatch_status);
+    raw(", \"actual_dispatch_reason\": ");
+    json_str(case.actual_dispatch_reason);
+    raw(", \"command_body_reference_accepted\": ");
+    raw_bool(case.command_body_reference_accepted);
+    raw(", \"body_hash_matches\": ");
+    raw_bool(case.body_hash_matches);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": ");
+    raw_bool(case.dispatches_lifeline_command);
+    raw(", \"command_execution_enabled\": ");
+    raw_bool(case.command_execution_enabled);
+    raw(", \"memory_writes_enabled\": false, \"provider_export_enabled\": false, \"durable_writes_enabled\": false, \"rollback_replay_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": ");
+    raw_bool(case.load_attempted);
+    raw("}");
     if comma {
         raw(",");
     }
@@ -11680,6 +13990,4447 @@ fn recovery_memory_provenance_selftest_case(
     }
 }
 
+fn recovery_lifeline_command_admission_candidate_from_memory(
+    memory_candidate: RecoveryMemoryProvenanceCandidate,
+) -> RecoveryLifelineCommandAdmissionCandidate {
+    RecoveryLifelineCommandAdmissionCandidate {
+        memory_candidate,
+        recovery_memory_provenance_available: true,
+        recovery_memory_provenance_current_boot: true,
+        recovery_memory_provenance_schema_ok: true,
+        recovery_memory_provenance_binding_ok: true,
+        recovery_memory_provenance_binding_reason: "recovery_memory_provenance_defined_read_only",
+        direct_openai_recovery_shortcut_used: false,
+        lifeline_status_admission_present: false,
+        rollback_preview_admission_present: false,
+        rollback_apply_admission_present: false,
+        disable_module_admission_present: false,
+        restart_last_good_admission_present: false,
+        load_recovery_artifact_by_hash_admission_present: false,
+    }
+}
+
+fn evaluate_recovery_lifeline_command_admission(
+    candidate: RecoveryLifelineCommandAdmissionCandidate,
+) -> RecoveryLifelineCommandAdmissionCheck {
+    let memory_check = evaluate_recovery_memory_provenance(candidate.memory_candidate);
+    let memory_boundary_exposed = memory_check.memory_provenance_requirements_exposed
+        || candidate.recovery_memory_provenance_available;
+
+    if candidate.direct_openai_recovery_shortcut_used
+        || candidate
+            .memory_candidate
+            .direct_openai_recovery_shortcut_used
+        || candidate
+            .memory_candidate
+            .persistence_candidate
+            .direct_openai_recovery_shortcut_used
+        || candidate
+            .memory_candidate
+            .persistence_candidate
+            .transaction_candidate
+            .direct_openai_recovery_shortcut_used
+        || candidate
+            .memory_candidate
+            .persistence_candidate
+            .transaction_candidate
+            .loader_candidate
+            .direct_openai_recovery_shortcut_used
+        || candidate
+            .memory_candidate
+            .persistence_candidate
+            .transaction_candidate
+            .loader_candidate
+            .command_candidate
+            .direct_openai_recovery_shortcut_used
+        || candidate
+            .memory_candidate
+            .persistence_candidate
+            .transaction_candidate
+            .loader_candidate
+            .command_candidate
+            .protocol_candidate
+            .direct_openai_recovery_shortcut_used
+    {
+        return recovery_lifeline_command_admission_check(
+            "rejected",
+            "direct_openai_provider_path_not_recovery_lifeline",
+            memory_check,
+            memory_boundary_exposed,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !memory_check.recovery_memory_provenance_ready {
+        return recovery_lifeline_command_admission_check(
+            memory_check.status,
+            memory_check.reason,
+            memory_check,
+            memory_boundary_exposed,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.recovery_memory_provenance_available {
+        return recovery_lifeline_command_admission_check(
+            "denied_missing_recovery_memory_provenance",
+            "recovery_memory_provenance_missing",
+            memory_check,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.recovery_memory_provenance_current_boot {
+        return recovery_lifeline_command_admission_check(
+            "rejected",
+            "recovery_memory_provenance_event_id_not_current_boot",
+            memory_check,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.recovery_memory_provenance_schema_ok {
+        return recovery_lifeline_command_admission_check(
+            "rejected",
+            "recovery_memory_provenance_wrong_schema_or_variant",
+            memory_check,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.recovery_memory_provenance_binding_ok {
+        return recovery_lifeline_command_admission_check(
+            "rejected",
+            candidate.recovery_memory_provenance_binding_reason,
+            memory_check,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+
+    if !candidate.lifeline_status_admission_present
+        && !candidate.rollback_preview_admission_present
+        && !candidate.rollback_apply_admission_present
+        && !candidate.disable_module_admission_present
+        && !candidate.restart_last_good_admission_present
+        && !candidate.load_recovery_artifact_by_hash_admission_present
+    {
+        return recovery_lifeline_command_admission_check(
+            "denied_missing_lifeline_command_admission",
+            "recovery_lifeline_command_admission_requirements_missing",
+            memory_check,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.lifeline_status_admission_present {
+        return recovery_lifeline_command_admission_check(
+            "denied_missing_lifeline_command_admission",
+            "recovery_lifeline_status_command_admission_missing",
+            memory_check,
+            true,
+            true,
+            true,
+            false,
+            false,
+            candidate.rollback_preview_admission_present,
+            candidate.rollback_apply_admission_present,
+            candidate.disable_module_admission_present,
+            candidate.restart_last_good_admission_present,
+            candidate.load_recovery_artifact_by_hash_admission_present,
+        );
+    }
+    if !candidate.rollback_preview_admission_present {
+        return recovery_lifeline_command_admission_check(
+            "denied_missing_lifeline_command_admission",
+            "recovery_rollback_preview_command_admission_missing",
+            memory_check,
+            true,
+            true,
+            true,
+            false,
+            true,
+            false,
+            candidate.rollback_apply_admission_present,
+            candidate.disable_module_admission_present,
+            candidate.restart_last_good_admission_present,
+            candidate.load_recovery_artifact_by_hash_admission_present,
+        );
+    }
+    if !candidate.rollback_apply_admission_present {
+        return recovery_lifeline_command_admission_check(
+            "denied_missing_lifeline_command_admission",
+            "recovery_rollback_apply_command_admission_missing",
+            memory_check,
+            true,
+            true,
+            true,
+            false,
+            true,
+            true,
+            false,
+            candidate.disable_module_admission_present,
+            candidate.restart_last_good_admission_present,
+            candidate.load_recovery_artifact_by_hash_admission_present,
+        );
+    }
+    if !candidate.disable_module_admission_present {
+        return recovery_lifeline_command_admission_check(
+            "denied_missing_lifeline_command_admission",
+            "recovery_disable_module_command_admission_missing",
+            memory_check,
+            true,
+            true,
+            true,
+            false,
+            true,
+            true,
+            true,
+            false,
+            candidate.restart_last_good_admission_present,
+            candidate.load_recovery_artifact_by_hash_admission_present,
+        );
+    }
+    if !candidate.restart_last_good_admission_present {
+        return recovery_lifeline_command_admission_check(
+            "denied_missing_lifeline_command_admission",
+            "recovery_restart_last_good_command_admission_missing",
+            memory_check,
+            true,
+            true,
+            true,
+            false,
+            true,
+            true,
+            true,
+            true,
+            false,
+            candidate.load_recovery_artifact_by_hash_admission_present,
+        );
+    }
+    if !candidate.load_recovery_artifact_by_hash_admission_present {
+        return recovery_lifeline_command_admission_check(
+            "denied_missing_lifeline_command_admission",
+            "recovery_load_artifact_by_hash_command_admission_missing",
+            memory_check,
+            true,
+            true,
+            true,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+        );
+    }
+
+    recovery_lifeline_command_admission_check(
+        "defined_non_executable",
+        "recovery_lifeline_command_admission_behavior_not_implemented",
+        memory_check,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+    )
+}
+
+fn recovery_lifeline_command_admission_check(
+    status: &'static str,
+    reason: &'static str,
+    memory_check: RecoveryMemoryProvenanceCheck,
+    recovery_memory_provenance_boundary_exposed: bool,
+    recovery_memory_provenance_accepted: bool,
+    command_admission_requirements_exposed: bool,
+    command_admission_ready: bool,
+    lifeline_status_admission_present: bool,
+    rollback_preview_admission_present: bool,
+    rollback_apply_admission_present: bool,
+    disable_module_admission_present: bool,
+    restart_last_good_admission_present: bool,
+    load_recovery_artifact_by_hash_admission_present: bool,
+) -> RecoveryLifelineCommandAdmissionCheck {
+    RecoveryLifelineCommandAdmissionCheck {
+        status,
+        reason,
+        memory_check,
+        recovery_memory_provenance_boundary_exposed,
+        recovery_memory_provenance_accepted,
+        command_admission_requirements_exposed,
+        command_admission_ready,
+        lifeline_status_admission_present,
+        rollback_preview_admission_present,
+        rollback_apply_admission_present,
+        disable_module_admission_present,
+        restart_last_good_admission_present,
+        load_recovery_artifact_by_hash_admission_present,
+        command_execution_enabled: false,
+        accepts_lifeline_command_envelope: false,
+        dispatches_lifeline_command: false,
+        authorizes_recovery_load: false,
+        can_move_beyond_denial: false,
+        loads_recovery_loader: false,
+        loads_recovery_artifact: false,
+        creates_durable_records: false,
+        installs_rollback_plan: false,
+        allocates_service_slot: false,
+        service_inventory_change: "none",
+        load_attempted: false,
+    }
+}
+
+fn recovery_lifeline_command_admission_valid_candidate() -> RecoveryLifelineCommandAdmissionCandidate
+{
+    RecoveryLifelineCommandAdmissionCandidate {
+        memory_candidate: recovery_memory_provenance_valid_candidate(),
+        recovery_memory_provenance_available: true,
+        recovery_memory_provenance_current_boot: true,
+        recovery_memory_provenance_schema_ok: true,
+        recovery_memory_provenance_binding_ok: true,
+        recovery_memory_provenance_binding_reason: "retained_recovery_memory_provenance_valid",
+        direct_openai_recovery_shortcut_used: false,
+        lifeline_status_admission_present: true,
+        rollback_preview_admission_present: true,
+        rollback_apply_admission_present: true,
+        disable_module_admission_present: true,
+        restart_last_good_admission_present: true,
+        load_recovery_artifact_by_hash_admission_present: true,
+    }
+}
+
+fn recovery_lifeline_command_admission_selftest_cases(
+) -> [RecoveryLifelineCommandAdmissionSelfTestCase;
+       RECOVERY_LIFELINE_COMMAND_ADMISSION_SELFTEST_CASES] {
+    let valid = recovery_lifeline_command_admission_valid_candidate();
+
+    let mut missing_request = valid;
+    missing_request
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate = recovery_lifeline_protocol_missing_candidate();
+    let mut stale_request = valid;
+    stale_request
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    stale_request
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_event_id_stale_or_dropped";
+    let mut previous_request = valid;
+    previous_request
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_current_boot = false;
+    let mut wrong_schema_request = valid;
+    wrong_schema_request
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_schema_ok = false;
+    let mut substituted_request = valid;
+    substituted_request
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    substituted_request
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_substituted_record";
+    let mut request_hash_mismatch = valid;
+    request_hash_mismatch
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    request_hash_mismatch
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_reference_hash_mismatch";
+
+    let mut missing_protocol_state = valid;
+    missing_protocol_state
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_retained = false;
+    let mut previous_protocol_state = valid;
+    previous_protocol_state
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_current_boot = false;
+    let mut wrong_schema_protocol_state = valid;
+    wrong_schema_protocol_state
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_schema_ok = false;
+    let mut substituted_protocol_state = valid;
+    substituted_protocol_state
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_binding_ok = false;
+    substituted_protocol_state
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_binding_reason = "recovery_lifeline_protocol_state_substituted_record";
+
+    let mut missing_command_vocabulary = valid;
+    missing_command_vocabulary
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_available = false;
+    let mut previous_command_vocabulary = valid;
+    previous_command_vocabulary
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_current_boot = false;
+    let mut wrong_schema_command_vocabulary = valid;
+    wrong_schema_command_vocabulary
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_schema_ok = false;
+    let mut substituted_command_vocabulary = valid;
+    substituted_command_vocabulary
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_binding_ok = false;
+    substituted_command_vocabulary
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_binding_reason =
+        "recovery_lifeline_command_vocabulary_substituted_record";
+
+    let mut direct_provider_shortcut = valid;
+    direct_provider_shortcut.direct_openai_recovery_shortcut_used = true;
+
+    let mut missing_loader_runtime_isolation = valid;
+    missing_loader_runtime_isolation
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_available = false;
+    let mut previous_loader_runtime_isolation = valid;
+    previous_loader_runtime_isolation
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_current_boot = false;
+    let mut wrong_schema_loader_runtime_isolation = valid;
+    wrong_schema_loader_runtime_isolation
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_schema_ok = false;
+    let mut substituted_loader_runtime_isolation = valid;
+    substituted_loader_runtime_isolation
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_ok = false;
+    substituted_loader_runtime_isolation
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_reason =
+        "recovery_loader_runtime_isolation_substituted_record";
+    let mut mismatched_loader_runtime_isolation = valid;
+    mismatched_loader_runtime_isolation
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_ok = false;
+    mismatched_loader_runtime_isolation
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_reason =
+        "recovery_loader_runtime_isolation_binding_mismatch";
+
+    let mut missing_rollback_engine = valid;
+    missing_rollback_engine
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_available = false;
+    let mut previous_rollback_engine = valid;
+    previous_rollback_engine
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_current_boot = false;
+    let mut wrong_schema_rollback_engine = valid;
+    wrong_schema_rollback_engine
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_schema_ok = false;
+    let mut substituted_rollback_engine = valid;
+    substituted_rollback_engine
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_ok = false;
+    substituted_rollback_engine
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_reason =
+        "recovery_rollback_transaction_engine_substituted_record";
+    let mut mismatched_rollback_engine = valid;
+    mismatched_rollback_engine
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_ok = false;
+    mismatched_rollback_engine
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_reason =
+        "recovery_rollback_transaction_engine_binding_mismatch";
+
+    let mut missing_durable_persistence = valid;
+    missing_durable_persistence
+        .memory_candidate
+        .durable_audit_rollback_persistence_available = false;
+    let mut previous_durable_persistence = valid;
+    previous_durable_persistence
+        .memory_candidate
+        .durable_audit_rollback_persistence_current_boot = false;
+    let mut wrong_schema_durable_persistence = valid;
+    wrong_schema_durable_persistence
+        .memory_candidate
+        .durable_audit_rollback_persistence_schema_ok = false;
+    let mut substituted_durable_persistence = valid;
+    substituted_durable_persistence
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_ok = false;
+    substituted_durable_persistence
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_reason =
+        "durable_audit_rollback_persistence_substituted_record";
+    let mut mismatched_durable_persistence = valid;
+    mismatched_durable_persistence
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_ok = false;
+    mismatched_durable_persistence
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_reason =
+        "durable_audit_rollback_persistence_binding_mismatch";
+
+    let mut missing_memory_provenance_boundary = valid;
+    missing_memory_provenance_boundary.recovery_memory_provenance_available = false;
+    let mut previous_memory_provenance = valid;
+    previous_memory_provenance.recovery_memory_provenance_current_boot = false;
+    let mut wrong_schema_memory_provenance = valid;
+    wrong_schema_memory_provenance.recovery_memory_provenance_schema_ok = false;
+    let mut substituted_memory_provenance = valid;
+    substituted_memory_provenance.recovery_memory_provenance_binding_ok = false;
+    substituted_memory_provenance.recovery_memory_provenance_binding_reason =
+        "recovery_memory_provenance_substituted_record";
+    let mut mismatched_memory_provenance = valid;
+    mismatched_memory_provenance.recovery_memory_provenance_binding_ok = false;
+    mismatched_memory_provenance.recovery_memory_provenance_binding_reason =
+        "recovery_memory_provenance_binding_mismatch";
+
+    let mut memory_facts_missing = valid;
+    memory_facts_missing
+        .memory_candidate
+        .source_record_ids_present = false;
+    memory_facts_missing
+        .memory_candidate
+        .source_schema_hashes_present = false;
+    memory_facts_missing
+        .memory_candidate
+        .memory_classification_present = false;
+    memory_facts_missing
+        .memory_candidate
+        .memory_authority_level_present = false;
+    memory_facts_missing
+        .memory_candidate
+        .memory_rollback_transaction_binding_present = false;
+    memory_facts_missing
+        .memory_candidate
+        .memory_last_good_checkpoint_binding_present = false;
+    memory_facts_missing
+        .memory_candidate
+        .recovery_only_export_profile_present = false;
+    memory_facts_missing
+        .memory_candidate
+        .memory_redaction_state_present = false;
+    memory_facts_missing
+        .memory_candidate
+        .memory_replay_window_present = false;
+    memory_facts_missing
+        .memory_candidate
+        .memory_audit_linkage_present = false;
+    let mut memory_audit_linkage_missing = valid;
+    memory_audit_linkage_missing
+        .memory_candidate
+        .memory_audit_linkage_present = false;
+
+    let mut all_admission_missing = valid;
+    all_admission_missing.lifeline_status_admission_present = false;
+    all_admission_missing.rollback_preview_admission_present = false;
+    all_admission_missing.rollback_apply_admission_present = false;
+    all_admission_missing.disable_module_admission_present = false;
+    all_admission_missing.restart_last_good_admission_present = false;
+    all_admission_missing.load_recovery_artifact_by_hash_admission_present = false;
+    let mut status_admission_missing = valid;
+    status_admission_missing.lifeline_status_admission_present = false;
+    let mut preview_admission_missing = valid;
+    preview_admission_missing.rollback_preview_admission_present = false;
+    let mut apply_admission_missing = valid;
+    apply_admission_missing.rollback_apply_admission_present = false;
+    let mut disable_admission_missing = valid;
+    disable_admission_missing.disable_module_admission_present = false;
+    let mut restart_admission_missing = valid;
+    restart_admission_missing.restart_last_good_admission_present = false;
+    let mut load_by_hash_admission_missing = valid;
+    load_by_hash_admission_missing.load_recovery_artifact_by_hash_admission_present = false;
+
+    [
+        recovery_lifeline_command_admission_selftest_case(
+            "missing_lifeline_request_event_id",
+            "missing",
+            "recovery_lifeline_request_event_id_missing",
+            evaluate_recovery_lifeline_command_admission(missing_request),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "stale_dropped_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_event_id_stale_or_dropped",
+            evaluate_recovery_lifeline_command_admission(stale_request),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "previous_boot_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_admission(previous_request),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "wrong_schema_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_admission(wrong_schema_request),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "substituted_lifeline_request_record",
+            "rejected",
+            "recovery_lifeline_request_substituted_record",
+            evaluate_recovery_lifeline_command_admission(substituted_request),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "lifeline_request_reference_hash_mismatch",
+            "rejected",
+            "recovery_lifeline_request_reference_hash_mismatch",
+            evaluate_recovery_lifeline_command_admission(request_hash_mismatch),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "protocol_state_missing_after_valid_request",
+            "denied_missing_lifeline_protocol_state",
+            "recovery_lifeline_protocol_state_missing",
+            evaluate_recovery_lifeline_command_admission(missing_protocol_state),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "previous_boot_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_admission(previous_protocol_state),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "wrong_schema_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_admission(wrong_schema_protocol_state),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "substituted_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_substituted_record",
+            evaluate_recovery_lifeline_command_admission(substituted_protocol_state),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "command_vocabulary_missing_after_protocol_state",
+            "denied_missing_lifeline_command_vocabulary",
+            "recovery_lifeline_command_vocabulary_missing",
+            evaluate_recovery_lifeline_command_admission(missing_command_vocabulary),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "previous_boot_lifeline_command_vocabulary",
+            "rejected",
+            "recovery_lifeline_command_vocabulary_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_admission(previous_command_vocabulary),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "wrong_schema_lifeline_command_vocabulary",
+            "rejected",
+            "recovery_lifeline_command_vocabulary_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_admission(wrong_schema_command_vocabulary),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "substituted_lifeline_command_vocabulary",
+            "rejected",
+            "recovery_lifeline_command_vocabulary_substituted_record",
+            evaluate_recovery_lifeline_command_admission(substituted_command_vocabulary),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "direct_openai_recovery_shortcut_rejected",
+            "rejected",
+            "direct_openai_provider_path_not_recovery_lifeline",
+            evaluate_recovery_lifeline_command_admission(direct_provider_shortcut),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "loader_runtime_isolation_missing_after_command_vocabulary",
+            "denied_missing_loader_runtime_isolation",
+            "recovery_loader_runtime_isolation_missing",
+            evaluate_recovery_lifeline_command_admission(missing_loader_runtime_isolation),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "previous_boot_loader_runtime_isolation",
+            "rejected",
+            "recovery_loader_runtime_isolation_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_admission(previous_loader_runtime_isolation),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "wrong_schema_loader_runtime_isolation",
+            "rejected",
+            "recovery_loader_runtime_isolation_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_admission(wrong_schema_loader_runtime_isolation),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "substituted_loader_runtime_isolation",
+            "rejected",
+            "recovery_loader_runtime_isolation_substituted_record",
+            evaluate_recovery_lifeline_command_admission(substituted_loader_runtime_isolation),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "mismatched_loader_runtime_isolation",
+            "rejected",
+            "recovery_loader_runtime_isolation_binding_mismatch",
+            evaluate_recovery_lifeline_command_admission(mismatched_loader_runtime_isolation),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "rollback_transaction_engine_missing_after_loader",
+            "denied_missing_rollback_transaction_engine",
+            "recovery_rollback_transaction_engine_missing",
+            evaluate_recovery_lifeline_command_admission(missing_rollback_engine),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "previous_boot_rollback_transaction_engine",
+            "rejected",
+            "recovery_rollback_transaction_engine_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_admission(previous_rollback_engine),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "wrong_schema_rollback_transaction_engine",
+            "rejected",
+            "recovery_rollback_transaction_engine_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_admission(wrong_schema_rollback_engine),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "substituted_rollback_transaction_engine",
+            "rejected",
+            "recovery_rollback_transaction_engine_substituted_record",
+            evaluate_recovery_lifeline_command_admission(substituted_rollback_engine),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "mismatched_rollback_transaction_engine",
+            "rejected",
+            "recovery_rollback_transaction_engine_binding_mismatch",
+            evaluate_recovery_lifeline_command_admission(mismatched_rollback_engine),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "durable_persistence_boundary_missing_after_rollback_engine",
+            "denied_missing_durable_audit_rollback_persistence",
+            "durable_audit_rollback_persistence_missing",
+            evaluate_recovery_lifeline_command_admission(missing_durable_persistence),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "previous_boot_durable_persistence",
+            "rejected",
+            "durable_audit_rollback_persistence_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_admission(previous_durable_persistence),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "wrong_schema_durable_persistence",
+            "rejected",
+            "durable_audit_rollback_persistence_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_admission(wrong_schema_durable_persistence),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "substituted_durable_persistence",
+            "rejected",
+            "durable_audit_rollback_persistence_substituted_record",
+            evaluate_recovery_lifeline_command_admission(substituted_durable_persistence),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "mismatched_durable_persistence",
+            "rejected",
+            "durable_audit_rollback_persistence_binding_mismatch",
+            evaluate_recovery_lifeline_command_admission(mismatched_durable_persistence),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "recovery_memory_provenance_boundary_missing",
+            "denied_missing_recovery_memory_provenance",
+            "recovery_memory_provenance_missing",
+            evaluate_recovery_lifeline_command_admission(missing_memory_provenance_boundary),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "previous_boot_recovery_memory_provenance",
+            "rejected",
+            "recovery_memory_provenance_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_admission(previous_memory_provenance),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "wrong_schema_recovery_memory_provenance",
+            "rejected",
+            "recovery_memory_provenance_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_admission(wrong_schema_memory_provenance),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "substituted_recovery_memory_provenance",
+            "rejected",
+            "recovery_memory_provenance_substituted_record",
+            evaluate_recovery_lifeline_command_admission(substituted_memory_provenance),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "mismatched_recovery_memory_provenance",
+            "rejected",
+            "recovery_memory_provenance_binding_mismatch",
+            evaluate_recovery_lifeline_command_admission(mismatched_memory_provenance),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "recovery_memory_provenance_facts_missing",
+            "denied_missing_recovery_memory_provenance",
+            "recovery_memory_provenance_missing",
+            evaluate_recovery_lifeline_command_admission(memory_facts_missing),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "recovery_memory_audit_linkage_missing",
+            "denied_missing_recovery_memory_provenance",
+            "recovery_memory_audit_linkage_missing",
+            evaluate_recovery_lifeline_command_admission(memory_audit_linkage_missing),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "command_admission_requirements_missing",
+            "denied_missing_lifeline_command_admission",
+            "recovery_lifeline_command_admission_requirements_missing",
+            evaluate_recovery_lifeline_command_admission(all_admission_missing),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "lifeline_status_command_admission_missing",
+            "denied_missing_lifeline_command_admission",
+            "recovery_lifeline_status_command_admission_missing",
+            evaluate_recovery_lifeline_command_admission(status_admission_missing),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "rollback_preview_command_admission_missing",
+            "denied_missing_lifeline_command_admission",
+            "recovery_rollback_preview_command_admission_missing",
+            evaluate_recovery_lifeline_command_admission(preview_admission_missing),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "rollback_apply_command_admission_missing",
+            "denied_missing_lifeline_command_admission",
+            "recovery_rollback_apply_command_admission_missing",
+            evaluate_recovery_lifeline_command_admission(apply_admission_missing),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "disable_module_command_admission_missing",
+            "denied_missing_lifeline_command_admission",
+            "recovery_disable_module_command_admission_missing",
+            evaluate_recovery_lifeline_command_admission(disable_admission_missing),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "restart_last_good_command_admission_missing",
+            "denied_missing_lifeline_command_admission",
+            "recovery_restart_last_good_command_admission_missing",
+            evaluate_recovery_lifeline_command_admission(restart_admission_missing),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "load_artifact_by_hash_command_admission_missing",
+            "denied_missing_lifeline_command_admission",
+            "recovery_load_artifact_by_hash_command_admission_missing",
+            evaluate_recovery_lifeline_command_admission(load_by_hash_admission_missing),
+        ),
+        recovery_lifeline_command_admission_selftest_case(
+            "all_inputs_present_command_admission_still_non_executable",
+            "defined_non_executable",
+            "recovery_lifeline_command_admission_behavior_not_implemented",
+            evaluate_recovery_lifeline_command_admission(valid),
+        ),
+    ]
+}
+
+fn recovery_lifeline_command_admission_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryLifelineCommandAdmissionCheck,
+) -> RecoveryLifelineCommandAdmissionSelfTestCase {
+    RecoveryLifelineCommandAdmissionSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason),
+    }
+}
+
+fn recovery_lifeline_status_command_spec() -> RecoveryLifelineCommandSpec {
+    RecoveryLifelineCommandSpec {
+        command_id: "recovery.lifeline.status",
+        argument_schema: "raios.recovery_lifeline_command.status_args.v0",
+        required_capability: "cap.recovery.load_artifact.read",
+    }
+}
+
+fn recovery_lifeline_rollback_preview_command_spec() -> RecoveryLifelineCommandSpec {
+    RecoveryLifelineCommandSpec {
+        command_id: "recovery.lifeline.rollback_preview",
+        argument_schema: "raios.recovery_lifeline_command.rollback_preview_args.v0",
+        required_capability: "cap.recovery.rollback.read",
+    }
+}
+
+fn recovery_lifeline_rollback_apply_command_spec() -> RecoveryLifelineCommandSpec {
+    RecoveryLifelineCommandSpec {
+        command_id: "recovery.lifeline.rollback_apply",
+        argument_schema: "raios.recovery_lifeline_command.rollback_apply_args.v0",
+        required_capability: "cap.recovery.rollback",
+    }
+}
+
+fn recovery_lifeline_disable_module_command_spec() -> RecoveryLifelineCommandSpec {
+    RecoveryLifelineCommandSpec {
+        command_id: "recovery.lifeline.disable_module",
+        argument_schema: "raios.recovery_lifeline_command.disable_module_args.v0",
+        required_capability: "cap.recovery.module.disable",
+    }
+}
+
+fn recovery_lifeline_restart_last_good_command_spec() -> RecoveryLifelineCommandSpec {
+    RecoveryLifelineCommandSpec {
+        command_id: "recovery.lifeline.restart_last_good",
+        argument_schema: "raios.recovery_lifeline_command.restart_last_good_args.v0",
+        required_capability: "cap.recovery.service.restart",
+    }
+}
+
+fn recovery_lifeline_load_artifact_by_hash_command_spec() -> RecoveryLifelineCommandSpec {
+    RecoveryLifelineCommandSpec {
+        command_id: "recovery.lifeline.load_artifact_by_hash",
+        argument_schema: "raios.recovery_lifeline_command.load_artifact_by_hash_args.v0",
+        required_capability: "cap.recovery.load_artifact",
+    }
+}
+
+fn recovery_lifeline_command_spec(command_id: &str) -> Option<RecoveryLifelineCommandSpec> {
+    if method_eq(command_id, "recovery.lifeline.status") {
+        Some(recovery_lifeline_status_command_spec())
+    } else if method_eq(command_id, "recovery.lifeline.rollback_preview") {
+        Some(recovery_lifeline_rollback_preview_command_spec())
+    } else if method_eq(command_id, "recovery.lifeline.rollback_apply") {
+        Some(recovery_lifeline_rollback_apply_command_spec())
+    } else if method_eq(command_id, "recovery.lifeline.disable_module") {
+        Some(recovery_lifeline_disable_module_command_spec())
+    } else if method_eq(command_id, "recovery.lifeline.restart_last_good") {
+        Some(recovery_lifeline_restart_last_good_command_spec())
+    } else if method_eq(command_id, "recovery.lifeline.load_artifact_by_hash") {
+        Some(recovery_lifeline_load_artifact_by_hash_command_spec())
+    } else {
+        None
+    }
+}
+
+fn parse_recovery_lifeline_command_envelope_reference(
+    arg: &str,
+    require_live_retained: bool,
+) -> RecoveryLifelineCommandEnvelopeReferenceCheck<'_> {
+    let mut parts = arg.split_whitespace();
+    let command_envelope_reference_hash = parts.next();
+    let retained_lifeline_request_event_id = parts.next();
+    let command_id = parts.next();
+    let argument_schema = parts.next();
+    let argument_hash = parts.next();
+    let required_capability = parts.next();
+    let target_locator = parts.next();
+    let command_admission_boundary_id = parts.next();
+    let lifeline_request_reference_hash = parts.next();
+    let scope = parts.next().unwrap_or("current_boot");
+    let extra = parts.next();
+    let input = RecoveryLifelineCommandEnvelopeReferenceInput {
+        has_reference: command_envelope_reference_hash.is_some(),
+        arity_valid: command_envelope_reference_hash.is_some()
+            && retained_lifeline_request_event_id.is_some()
+            && command_id.is_some()
+            && argument_schema.is_some()
+            && argument_hash.is_some()
+            && required_capability.is_some()
+            && target_locator.is_some()
+            && command_admission_boundary_id.is_some()
+            && lifeline_request_reference_hash.is_some()
+            && extra.is_none(),
+        scope,
+        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
+        retained_lifeline_request_event_id,
+        command_id,
+        argument_schema,
+        argument_hash: argument_hash.and_then(parse_sha256_ref),
+        required_capability,
+        target_locator,
+        command_admission_boundary_id,
+        lifeline_request_reference_hash: lifeline_request_reference_hash.and_then(parse_sha256_ref),
+    };
+    evaluate_recovery_lifeline_command_envelope_reference(input, require_live_retained)
+}
+
+fn evaluate_recovery_lifeline_command_envelope_reference(
+    input: RecoveryLifelineCommandEnvelopeReferenceInput<'_>,
+    require_live_retained: bool,
+) -> RecoveryLifelineCommandEnvelopeReferenceCheck<'_> {
+    if !input.has_reference {
+        return recovery_lifeline_command_envelope_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "missing",
+            "recovery_lifeline_command_envelope_reference_absent",
+            false,
+        );
+    }
+    let Some(retained_lifeline_request_event_id) = input.retained_lifeline_request_event_id else {
+        return recovery_lifeline_command_envelope_invalid(input);
+    };
+    let Some(command_id) = input.command_id else {
+        return recovery_lifeline_command_envelope_invalid(input);
+    };
+    let Some(argument_schema) = input.argument_schema else {
+        return recovery_lifeline_command_envelope_invalid(input);
+    };
+    let Some(argument_hash) = input.argument_hash else {
+        return recovery_lifeline_command_envelope_invalid(input);
+    };
+    let Some(required_capability) = input.required_capability else {
+        return recovery_lifeline_command_envelope_invalid(input);
+    };
+    let Some(target_locator) = input.target_locator else {
+        return recovery_lifeline_command_envelope_invalid(input);
+    };
+    let Some(command_admission_boundary_id) = input.command_admission_boundary_id else {
+        return recovery_lifeline_command_envelope_invalid(input);
+    };
+    let Some(lifeline_request_reference_hash) = input.lifeline_request_reference_hash else {
+        return recovery_lifeline_command_envelope_invalid(input);
+    };
+    if !input.arity_valid {
+        return recovery_lifeline_command_envelope_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "invalid_reference",
+            "recovery_lifeline_command_envelope_reference_arity_invalid",
+            false,
+        );
+    }
+    if !method_eq(input.scope, "current_boot") {
+        return recovery_lifeline_command_envelope_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "stale_or_non_current_boot_reference",
+            "recovery_lifeline_command_envelope_reference_scope_must_be_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(retained_lifeline_request_event_id) {
+        return recovery_lifeline_command_envelope_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "retained_recovery_lifeline_request_event_id_not_current_boot",
+            false,
+        );
+    }
+    let Some(spec) = recovery_lifeline_command_spec(command_id) else {
+        return recovery_lifeline_command_envelope_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            false,
+        );
+    };
+    if !method_eq(argument_schema, spec.argument_schema) {
+        return recovery_lifeline_command_envelope_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            false,
+        );
+    }
+    if !method_eq(required_capability, spec.required_capability) {
+        return recovery_lifeline_command_envelope_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_required_capability_mismatch",
+            false,
+        );
+    }
+    if !method_eq(
+        command_admission_boundary_id,
+        RECOVERY_COMMAND_ADMISSION_BOUNDARY_ID,
+    ) {
+        return recovery_lifeline_command_envelope_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_admission_boundary_mismatch",
+            false,
+        );
+    }
+    let Some(target_locator_value) = event_log::RecoveryCommandTargetLocator::new(target_locator)
+    else {
+        return recovery_lifeline_command_envelope_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "invalid_reference",
+            "recovery_lifeline_command_target_locator_invalid",
+            false,
+        );
+    };
+    let expected = module_evidence::computed_recovery_lifeline_command_envelope_reference_hash(
+        module_evidence::RecoveryLifelineCommandEnvelopeReferenceHashInput {
+            retained_lifeline_request_event_id,
+            command_id: spec.command_id,
+            argument_schema: spec.argument_schema,
+            argument_hash,
+            required_capability: spec.required_capability,
+            target_locator,
+            command_admission_boundary_id: RECOVERY_COMMAND_ADMISSION_BOUNDARY_ID,
+            lifeline_request_reference_hash,
+        },
+    );
+    if input.command_envelope_reference_hash != Some(expected) {
+        return recovery_lifeline_command_envelope_reference_check(
+            input,
+            Some(spec),
+            Some(target_locator_value),
+            Some(expected),
+            "mismatched_command_envelope_reference_hash",
+            "recovery_lifeline_command_envelope_reference_hash_mismatch",
+            false,
+        );
+    }
+    if require_live_retained {
+        if let Some(reason) = recovery_lifeline_command_envelope_live_chain_mismatch(&input) {
+            return recovery_lifeline_command_envelope_reference_check(
+                input,
+                Some(spec),
+                Some(target_locator_value),
+                Some(expected),
+                "rejected",
+                reason,
+                false,
+            );
+        }
+    }
+    recovery_lifeline_command_envelope_reference_check(
+        input,
+        Some(spec),
+        Some(target_locator_value),
+        Some(expected),
+        "valid_hash_reference_command_still_denied",
+        "recovery_lifeline_command_envelope_reference_valid_but_command_dispatch_disabled",
+        true,
+    )
+}
+
+fn recovery_lifeline_command_envelope_invalid(
+    input: RecoveryLifelineCommandEnvelopeReferenceInput<'_>,
+) -> RecoveryLifelineCommandEnvelopeReferenceCheck<'_> {
+    recovery_lifeline_command_envelope_reference_check(
+        input,
+        None,
+        None,
+        None,
+        "invalid_reference",
+        "recovery_lifeline_command_envelope_reference_invalid_hash",
+        false,
+    )
+}
+
+fn recovery_lifeline_command_envelope_reference_check<'a>(
+    input: RecoveryLifelineCommandEnvelopeReferenceInput<'a>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    expected_command_envelope_reference_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+) -> RecoveryLifelineCommandEnvelopeReferenceCheck<'a> {
+    RecoveryLifelineCommandEnvelopeReferenceCheck {
+        has_reference: input.has_reference,
+        arity_valid: input.arity_valid,
+        scope: input.scope,
+        command_envelope_reference_hash: input.command_envelope_reference_hash,
+        expected_command_envelope_reference_hash,
+        retained_lifeline_request_event_id: input.retained_lifeline_request_event_id,
+        command_id: input.command_id,
+        argument_schema: input.argument_schema,
+        argument_hash: input.argument_hash,
+        required_capability: input.required_capability,
+        target_locator: input.target_locator,
+        command_admission_boundary_id: input.command_admission_boundary_id,
+        lifeline_request_reference_hash: input.lifeline_request_reference_hash,
+        normalized_spec,
+        target_locator_value,
+        status,
+        reason,
+        valid,
+    }
+}
+
+fn recovery_lifeline_command_envelope_live_chain_mismatch(
+    input: &RecoveryLifelineCommandEnvelopeReferenceInput<'_>,
+) -> Option<&'static str> {
+    let retained_event_id = parse_current_boot_event_id(input.retained_lifeline_request_event_id?)?;
+    let Some((latest_event_id, latest_reference)) =
+        event_log::latest_recovery_lifeline_request_reference()
+    else {
+        return Some("retained_recovery_lifeline_request_missing");
+    };
+    if latest_event_id != retained_event_id {
+        return Some("retained_recovery_lifeline_request_event_id_stale_or_dropped");
+    }
+    if input.lifeline_request_reference_hash
+        != Some(latest_reference.lifeline_request_reference_hash)
+    {
+        return Some("retained_recovery_lifeline_request_reference_hash_mismatch");
+    }
+    None
+}
+
+fn recovery_lifeline_command_envelope_binding_from_check(
+    check: &RecoveryLifelineCommandEnvelopeReferenceCheck<'_>,
+) -> Option<event_log::RecoveryLifelineCommandEnvelopeReference> {
+    let spec = check.normalized_spec?;
+    Some(event_log::RecoveryLifelineCommandEnvelopeReference {
+        command_envelope_reference_hash: check.command_envelope_reference_hash?,
+        retained_lifeline_request_event_id: parse_current_boot_event_id(
+            check.retained_lifeline_request_event_id?,
+        )?,
+        command_id: spec.command_id,
+        argument_schema: spec.argument_schema,
+        argument_hash: check.argument_hash?,
+        required_capability: spec.required_capability,
+        target_locator: check.target_locator_value?,
+        command_admission_boundary_id: RECOVERY_COMMAND_ADMISSION_BOUNDARY_ID,
+        lifeline_request_reference_hash: check.lifeline_request_reference_hash?,
+    })
+}
+
+fn parse_recovery_lifeline_command_body_canonicalization_reference(
+    arg: &str,
+    require_live_retained: bool,
+) -> RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'_> {
+    let mut parts = arg.split_whitespace();
+    let command_body_canonicalization_hash = parts.next();
+    let retained_command_envelope_reference_event_id = parts.next();
+    let command_id = parts.next();
+    let argument_schema = parts.next();
+    let argument_hash = parts.next();
+    let target_locator = parts.next();
+    let command_envelope_reference_hash = parts.next();
+    let command_dispatch_boundary_id = parts.next();
+    let scope = parts.next().unwrap_or("current_boot");
+    let extra = parts.next();
+    let input = RecoveryLifelineCommandBodyCanonicalizationInput {
+        has_reference: command_body_canonicalization_hash.is_some(),
+        arity_valid: command_body_canonicalization_hash.is_some()
+            && retained_command_envelope_reference_event_id.is_some()
+            && command_id.is_some()
+            && argument_schema.is_some()
+            && argument_hash.is_some()
+            && target_locator.is_some()
+            && command_envelope_reference_hash.is_some()
+            && command_dispatch_boundary_id.is_some()
+            && extra.is_none(),
+        scope,
+        command_body_canonicalization_hash: command_body_canonicalization_hash
+            .and_then(parse_sha256_ref),
+        retained_command_envelope_reference_event_id,
+        command_id,
+        argument_schema,
+        argument_hash: argument_hash.and_then(parse_sha256_ref),
+        target_locator,
+        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
+        command_dispatch_boundary_id,
+    };
+    evaluate_recovery_lifeline_command_body_canonicalization_reference(input, require_live_retained)
+}
+
+fn evaluate_recovery_lifeline_command_body_canonicalization_reference(
+    input: RecoveryLifelineCommandBodyCanonicalizationInput<'_>,
+    require_live_retained: bool,
+) -> RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'_> {
+    if !input.has_reference {
+        return recovery_lifeline_command_body_canonicalization_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "missing",
+            "recovery_lifeline_command_body_canonicalization_absent",
+            false,
+        );
+    }
+    let Some(retained_command_envelope_reference_event_id) =
+        input.retained_command_envelope_reference_event_id
+    else {
+        return recovery_lifeline_command_body_canonicalization_invalid(input);
+    };
+    let Some(command_id) = input.command_id else {
+        return recovery_lifeline_command_body_canonicalization_invalid(input);
+    };
+    let Some(argument_schema) = input.argument_schema else {
+        return recovery_lifeline_command_body_canonicalization_invalid(input);
+    };
+    let Some(argument_hash) = input.argument_hash else {
+        return recovery_lifeline_command_body_canonicalization_invalid(input);
+    };
+    let Some(target_locator) = input.target_locator else {
+        return recovery_lifeline_command_body_canonicalization_invalid(input);
+    };
+    let Some(command_envelope_reference_hash) = input.command_envelope_reference_hash else {
+        return recovery_lifeline_command_body_canonicalization_invalid(input);
+    };
+    let Some(command_dispatch_boundary_id) = input.command_dispatch_boundary_id else {
+        return recovery_lifeline_command_body_canonicalization_invalid(input);
+    };
+    if !input.arity_valid {
+        return recovery_lifeline_command_body_canonicalization_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "invalid_reference",
+            "recovery_lifeline_command_body_canonicalization_arity_invalid",
+            false,
+        );
+    }
+    if !method_eq(input.scope, "current_boot") {
+        return recovery_lifeline_command_body_canonicalization_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "stale_or_non_current_boot_reference",
+            "recovery_lifeline_command_body_canonicalization_scope_must_be_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(retained_command_envelope_reference_event_id) {
+        return recovery_lifeline_command_body_canonicalization_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "retained_recovery_lifeline_command_envelope_event_id_not_current_boot",
+            false,
+        );
+    }
+    let Some(spec) = recovery_lifeline_command_spec(command_id) else {
+        return recovery_lifeline_command_body_canonicalization_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            false,
+        );
+    };
+    if !method_eq(argument_schema, spec.argument_schema) {
+        return recovery_lifeline_command_body_canonicalization_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            false,
+        );
+    }
+    if !method_eq(
+        command_dispatch_boundary_id,
+        RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+    ) {
+        return recovery_lifeline_command_body_canonicalization_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            false,
+        );
+    }
+    let Some(target_locator_value) = event_log::RecoveryCommandTargetLocator::new(target_locator)
+    else {
+        return recovery_lifeline_command_body_canonicalization_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "invalid_reference",
+            "recovery_lifeline_command_target_locator_invalid",
+            false,
+        );
+    };
+    let expected = module_evidence::computed_recovery_lifeline_command_body_canonicalization_hash(
+        module_evidence::RecoveryLifelineCommandBodyCanonicalizationHashInput {
+            retained_command_envelope_reference_event_id,
+            command_id: spec.command_id,
+            argument_schema: spec.argument_schema,
+            argument_hash,
+            target_locator,
+            command_envelope_reference_hash,
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+        },
+    );
+    if input.command_body_canonicalization_hash != Some(expected) {
+        return recovery_lifeline_command_body_canonicalization_reference_check(
+            input,
+            Some(spec),
+            Some(target_locator_value),
+            Some(expected),
+            "mismatched_command_body_canonicalization_hash",
+            "recovery_lifeline_command_body_canonicalization_hash_mismatch",
+            false,
+        );
+    }
+    if require_live_retained {
+        if let Some(reason) =
+            recovery_lifeline_command_body_canonicalization_live_chain_mismatch(&input)
+        {
+            return recovery_lifeline_command_body_canonicalization_reference_check(
+                input,
+                Some(spec),
+                Some(target_locator_value),
+                Some(expected),
+                "rejected",
+                reason,
+                false,
+            );
+        }
+    }
+    recovery_lifeline_command_body_canonicalization_reference_check(
+        input,
+        Some(spec),
+        Some(target_locator_value),
+        Some(expected),
+        "valid_hash_reference_command_still_denied",
+        "recovery_lifeline_command_body_canonicalization_valid_but_command_dispatch_disabled",
+        true,
+    )
+}
+
+fn recovery_lifeline_command_body_canonicalization_invalid(
+    input: RecoveryLifelineCommandBodyCanonicalizationInput<'_>,
+) -> RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'_> {
+    recovery_lifeline_command_body_canonicalization_reference_check(
+        input,
+        None,
+        None,
+        None,
+        "invalid_reference",
+        "recovery_lifeline_command_body_canonicalization_invalid_hash",
+        false,
+    )
+}
+
+fn recovery_lifeline_command_body_canonicalization_reference_check<'a>(
+    input: RecoveryLifelineCommandBodyCanonicalizationInput<'a>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    expected_command_body_canonicalization_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+) -> RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'a> {
+    RecoveryLifelineCommandBodyCanonicalizationReferenceCheck {
+        has_reference: input.has_reference,
+        arity_valid: input.arity_valid,
+        scope: input.scope,
+        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
+        expected_command_body_canonicalization_hash,
+        retained_command_envelope_reference_event_id: input
+            .retained_command_envelope_reference_event_id,
+        command_id: input.command_id,
+        argument_schema: input.argument_schema,
+        argument_hash: input.argument_hash,
+        target_locator: input.target_locator,
+        command_envelope_reference_hash: input.command_envelope_reference_hash,
+        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
+        normalized_spec,
+        target_locator_value,
+        status,
+        reason,
+        valid,
+    }
+}
+
+fn recovery_lifeline_command_body_canonicalization_live_chain_mismatch(
+    input: &RecoveryLifelineCommandBodyCanonicalizationInput<'_>,
+) -> Option<&'static str> {
+    let retained_event_id =
+        parse_current_boot_event_id(input.retained_command_envelope_reference_event_id?)?;
+    let Some((latest_event_id, latest_reference)) =
+        event_log::latest_recovery_lifeline_command_envelope_reference()
+    else {
+        return Some("retained_recovery_lifeline_command_envelope_missing");
+    };
+    if latest_event_id != retained_event_id {
+        return Some("retained_recovery_lifeline_command_envelope_event_id_stale_or_dropped");
+    }
+    if !method_eq(input.command_id?, latest_reference.command_id)
+        || !method_eq(input.argument_schema?, latest_reference.argument_schema)
+        || input.argument_hash != Some(latest_reference.argument_hash)
+        || input.command_envelope_reference_hash
+            != Some(latest_reference.command_envelope_reference_hash)
+    {
+        return Some("recovery_lifeline_command_envelope_reference_binding_mismatch");
+    }
+    let target_locator = input.target_locator?;
+    if !method_eq(target_locator, latest_reference.target_locator.as_str()) {
+        return Some("recovery_lifeline_command_envelope_reference_target_mismatch");
+    }
+    let dispatch_candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
+        Some((latest_event_id, latest_reference)),
+        event_log::latest_recovery_lifeline_request_reference(),
+        None,
+    );
+    let dispatch_check = evaluate_recovery_lifeline_command_dispatch(dispatch_candidate);
+    if !method_eq(
+        dispatch_check.status,
+        "denied_missing_lifeline_command_dispatch_boundary",
+    ) || !method_eq(
+        dispatch_check.reason,
+        "recovery_lifeline_command_body_canonicalization_missing",
+    ) {
+        return Some(dispatch_check.reason);
+    }
+    None
+}
+
+fn recovery_lifeline_command_body_canonicalization_binding_from_check(
+    check: &RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'_>,
+) -> Option<event_log::RecoveryLifelineCommandBodyCanonicalizationReference> {
+    let spec = check.normalized_spec?;
+    Some(
+        event_log::RecoveryLifelineCommandBodyCanonicalizationReference {
+            command_body_canonicalization_hash: check.command_body_canonicalization_hash?,
+            retained_command_envelope_reference_event_id: parse_current_boot_event_id(
+                check.retained_command_envelope_reference_event_id?,
+            )?,
+            command_id: spec.command_id,
+            argument_schema: spec.argument_schema,
+            argument_hash: check.argument_hash?,
+            target_locator: check.target_locator_value?,
+            command_envelope_reference_hash: check.command_envelope_reference_hash?,
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+        },
+    )
+}
+
+fn evaluate_recovery_lifeline_command_envelope(
+    candidate: RecoveryLifelineCommandEnvelopeCandidate,
+) -> RecoveryLifelineCommandEnvelopeCheck {
+    let admission_check =
+        evaluate_recovery_lifeline_command_admission(candidate.admission_candidate);
+    let admission_boundary_exposed = admission_check.command_admission_requirements_exposed
+        || candidate.command_admission_available;
+    if candidate.direct_openai_recovery_shortcut_used {
+        return recovery_lifeline_command_envelope_check(
+            "rejected",
+            "direct_openai_provider_path_not_recovery_lifeline",
+            admission_check,
+            admission_boundary_exposed,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !admission_check.command_admission_ready {
+        return recovery_lifeline_command_envelope_check(
+            admission_check.status,
+            admission_check.reason,
+            admission_check,
+            admission_boundary_exposed,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.command_admission_available {
+        return recovery_lifeline_command_envelope_check(
+            "denied_missing_lifeline_command_admission",
+            "recovery_lifeline_command_admission_missing",
+            admission_check,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.command_admission_current_boot {
+        return recovery_lifeline_command_envelope_check(
+            "rejected",
+            "recovery_lifeline_command_admission_event_id_not_current_boot",
+            admission_check,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.command_admission_schema_ok {
+        return recovery_lifeline_command_envelope_check(
+            "rejected",
+            "recovery_lifeline_command_admission_wrong_schema_or_variant",
+            admission_check,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.command_admission_binding_ok {
+        return recovery_lifeline_command_envelope_check(
+            "rejected",
+            candidate.command_admission_binding_reason,
+            admission_check,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.command_id_supported {
+        return recovery_lifeline_command_envelope_check(
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            admission_check,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.argument_schema_matches {
+        return recovery_lifeline_command_envelope_check(
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            admission_check,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.argument_hash_present {
+        return recovery_lifeline_command_envelope_check(
+            "invalid_reference",
+            "recovery_lifeline_command_argument_hash_missing",
+            admission_check,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.required_capability_matches {
+        return recovery_lifeline_command_envelope_check(
+            "rejected",
+            "recovery_lifeline_command_required_capability_mismatch",
+            admission_check,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.target_locator_present {
+        return recovery_lifeline_command_envelope_check(
+            "invalid_reference",
+            "recovery_lifeline_command_target_locator_missing",
+            admission_check,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+        );
+    }
+    if !candidate.reference_hash_matches {
+        return recovery_lifeline_command_envelope_check(
+            "mismatched_command_envelope_reference_hash",
+            "recovery_lifeline_command_envelope_reference_hash_mismatch",
+            admission_check,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+        );
+    }
+    recovery_lifeline_command_envelope_check(
+        "defined_non_executable",
+        "recovery_lifeline_command_envelope_reference_behavior_not_implemented",
+        admission_check,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+    )
+}
+
+fn recovery_lifeline_command_envelope_check(
+    status: &'static str,
+    reason: &'static str,
+    admission_check: RecoveryLifelineCommandAdmissionCheck,
+    command_admission_boundary_exposed: bool,
+    command_admission_accepted: bool,
+    command_envelope_reference_present: bool,
+    command_id_supported: bool,
+    argument_schema_matches: bool,
+    argument_hash_present: bool,
+    required_capability_matches: bool,
+    target_locator_present: bool,
+    reference_hash_matches: bool,
+    all_inputs_valid: bool,
+) -> RecoveryLifelineCommandEnvelopeCheck {
+    RecoveryLifelineCommandEnvelopeCheck {
+        status,
+        reason,
+        admission_check,
+        command_admission_boundary_exposed,
+        command_admission_accepted,
+        command_envelope_reference_present,
+        command_id_supported,
+        argument_schema_matches,
+        argument_hash_present,
+        required_capability_matches,
+        target_locator_present,
+        reference_hash_matches,
+        command_execution_enabled: false,
+        accepts_lifeline_command_envelope: false,
+        dispatches_lifeline_command: false,
+        authorizes_recovery_load: false,
+        can_move_beyond_denial: false,
+        loads_recovery_loader: false,
+        loads_recovery_artifact: false,
+        creates_durable_records: false,
+        installs_rollback_plan: false,
+        allocates_service_slot: false,
+        service_inventory_change: if all_inputs_valid { "none" } else { "none" },
+        load_attempted: false,
+    }
+}
+
+fn recovery_lifeline_command_envelope_valid_candidate() -> RecoveryLifelineCommandEnvelopeCandidate
+{
+    RecoveryLifelineCommandEnvelopeCandidate {
+        admission_candidate: recovery_lifeline_command_admission_valid_candidate(),
+        command_admission_available: true,
+        command_admission_current_boot: true,
+        command_admission_schema_ok: true,
+        command_admission_binding_ok: true,
+        command_admission_binding_reason: "retained_recovery_lifeline_command_admission_valid",
+        direct_openai_recovery_shortcut_used: false,
+        command_id_supported: true,
+        argument_schema_matches: true,
+        argument_hash_present: true,
+        required_capability_matches: true,
+        target_locator_present: true,
+        reference_hash_matches: true,
+    }
+}
+
+fn recovery_lifeline_command_envelope_selftest_cases(
+) -> [RecoveryLifelineCommandEnvelopeSelfTestCase; RECOVERY_LIFELINE_COMMAND_ENVELOPE_SELFTEST_CASES]
+{
+    let valid = recovery_lifeline_command_envelope_valid_candidate();
+
+    let mut missing_request = valid;
+    missing_request
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate = recovery_lifeline_protocol_missing_candidate();
+    let mut stale_request = valid;
+    stale_request
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    stale_request
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_event_id_stale_or_dropped";
+    let mut previous_request = valid;
+    previous_request
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_current_boot = false;
+    let mut wrong_schema_request = valid;
+    wrong_schema_request
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_schema_ok = false;
+    let mut substituted_request = valid;
+    substituted_request
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    substituted_request
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_substituted_record";
+    let mut request_hash_mismatch = valid;
+    request_hash_mismatch
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    request_hash_mismatch
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_reference_hash_mismatch";
+    let mut missing_protocol_state = valid;
+    missing_protocol_state
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_retained = false;
+    let mut previous_protocol_state = valid;
+    previous_protocol_state
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_current_boot = false;
+    let mut wrong_schema_protocol_state = valid;
+    wrong_schema_protocol_state
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_schema_ok = false;
+    let mut substituted_protocol_state = valid;
+    substituted_protocol_state
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_binding_ok = false;
+    substituted_protocol_state
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_binding_reason = "recovery_lifeline_protocol_state_substituted_record";
+    let mut missing_command_vocabulary = valid;
+    missing_command_vocabulary
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_available = false;
+    let mut previous_command_vocabulary = valid;
+    previous_command_vocabulary
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_current_boot = false;
+    let mut wrong_schema_command_vocabulary = valid;
+    wrong_schema_command_vocabulary
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_schema_ok = false;
+    let mut substituted_command_vocabulary = valid;
+    substituted_command_vocabulary
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_binding_ok = false;
+    substituted_command_vocabulary
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_binding_reason =
+        "recovery_lifeline_command_vocabulary_substituted_record";
+    let mut direct_provider_shortcut = valid;
+    direct_provider_shortcut.direct_openai_recovery_shortcut_used = true;
+    let mut missing_loader = valid;
+    missing_loader
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_available = false;
+    let mut previous_loader = valid;
+    previous_loader
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_current_boot = false;
+    let mut wrong_loader = valid;
+    wrong_loader
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_schema_ok = false;
+    let mut substituted_loader = valid;
+    substituted_loader
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_ok = false;
+    substituted_loader
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_reason =
+        "recovery_loader_runtime_isolation_substituted_record";
+    let mut mismatched_loader = valid;
+    mismatched_loader
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_ok = false;
+    mismatched_loader
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_reason =
+        "recovery_loader_runtime_isolation_binding_mismatch";
+    let mut missing_engine = valid;
+    missing_engine
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_available = false;
+    let mut previous_engine = valid;
+    previous_engine
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_current_boot = false;
+    let mut wrong_engine = valid;
+    wrong_engine
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_schema_ok = false;
+    let mut substituted_engine = valid;
+    substituted_engine
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_ok = false;
+    substituted_engine
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_reason =
+        "recovery_rollback_transaction_engine_substituted_record";
+    let mut mismatched_engine = valid;
+    mismatched_engine
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_ok = false;
+    mismatched_engine
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_reason =
+        "recovery_rollback_transaction_engine_binding_mismatch";
+    let mut missing_durable = valid;
+    missing_durable
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_available = false;
+    let mut previous_durable = valid;
+    previous_durable
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_current_boot = false;
+    let mut wrong_durable = valid;
+    wrong_durable
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_schema_ok = false;
+    let mut substituted_durable = valid;
+    substituted_durable
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_ok = false;
+    substituted_durable
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_reason =
+        "durable_audit_rollback_persistence_substituted_record";
+    let mut mismatched_durable = valid;
+    mismatched_durable
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_ok = false;
+    mismatched_durable
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_reason =
+        "durable_audit_rollback_persistence_binding_mismatch";
+    let mut missing_memory = valid;
+    missing_memory
+        .admission_candidate
+        .recovery_memory_provenance_available = false;
+    let mut previous_memory = valid;
+    previous_memory
+        .admission_candidate
+        .recovery_memory_provenance_current_boot = false;
+    let mut wrong_memory = valid;
+    wrong_memory
+        .admission_candidate
+        .recovery_memory_provenance_schema_ok = false;
+    let mut substituted_memory = valid;
+    substituted_memory
+        .admission_candidate
+        .recovery_memory_provenance_binding_ok = false;
+    substituted_memory
+        .admission_candidate
+        .recovery_memory_provenance_binding_reason =
+        "recovery_memory_provenance_substituted_record";
+    let mut mismatched_memory = valid;
+    mismatched_memory
+        .admission_candidate
+        .recovery_memory_provenance_binding_ok = false;
+    mismatched_memory
+        .admission_candidate
+        .recovery_memory_provenance_binding_reason = "recovery_memory_provenance_binding_mismatch";
+    let mut missing_admission = valid;
+    missing_admission.command_admission_available = false;
+    let mut previous_admission = valid;
+    previous_admission.command_admission_current_boot = false;
+    let mut wrong_admission = valid;
+    wrong_admission.command_admission_schema_ok = false;
+    let mut substituted_admission = valid;
+    substituted_admission.command_admission_binding_ok = false;
+    substituted_admission.command_admission_binding_reason =
+        "recovery_lifeline_command_admission_substituted_record";
+    let mut mismatched_admission = valid;
+    mismatched_admission.command_admission_binding_ok = false;
+    mismatched_admission.command_admission_binding_reason =
+        "recovery_lifeline_command_admission_binding_mismatch";
+    let mut unsupported_command = valid;
+    unsupported_command.command_id_supported = false;
+    let mut schema_mismatch = valid;
+    schema_mismatch.argument_schema_matches = false;
+    let mut capability_mismatch = valid;
+    capability_mismatch.required_capability_matches = false;
+    let mut argument_hash_missing = valid;
+    argument_hash_missing.argument_hash_present = false;
+    let mut target_locator_missing = valid;
+    target_locator_missing.target_locator_present = false;
+    let mut reference_hash_mismatch = valid;
+    reference_hash_mismatch.reference_hash_matches = false;
+
+    [
+        recovery_lifeline_command_envelope_selftest_case(
+            "missing_lifeline_request_event_id",
+            "missing",
+            "recovery_lifeline_request_event_id_missing",
+            evaluate_recovery_lifeline_command_envelope(missing_request),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "stale_dropped_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_event_id_stale_or_dropped",
+            evaluate_recovery_lifeline_command_envelope(stale_request),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "previous_boot_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_envelope(previous_request),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "wrong_schema_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_envelope(wrong_schema_request),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "substituted_lifeline_request_record",
+            "rejected",
+            "recovery_lifeline_request_substituted_record",
+            evaluate_recovery_lifeline_command_envelope(substituted_request),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "lifeline_request_reference_hash_mismatch",
+            "rejected",
+            "recovery_lifeline_request_reference_hash_mismatch",
+            evaluate_recovery_lifeline_command_envelope(request_hash_mismatch),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "protocol_state_missing_after_valid_request",
+            "denied_missing_lifeline_protocol_state",
+            "recovery_lifeline_protocol_state_missing",
+            evaluate_recovery_lifeline_command_envelope(missing_protocol_state),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "previous_boot_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_envelope(previous_protocol_state),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "wrong_schema_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_envelope(wrong_schema_protocol_state),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "substituted_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_substituted_record",
+            evaluate_recovery_lifeline_command_envelope(substituted_protocol_state),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "command_vocabulary_missing_after_protocol_state",
+            "denied_missing_lifeline_command_vocabulary",
+            "recovery_lifeline_command_vocabulary_missing",
+            evaluate_recovery_lifeline_command_envelope(missing_command_vocabulary),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "previous_boot_lifeline_command_vocabulary",
+            "rejected",
+            "recovery_lifeline_command_vocabulary_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_envelope(previous_command_vocabulary),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "wrong_schema_lifeline_command_vocabulary",
+            "rejected",
+            "recovery_lifeline_command_vocabulary_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_envelope(wrong_schema_command_vocabulary),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "substituted_lifeline_command_vocabulary",
+            "rejected",
+            "recovery_lifeline_command_vocabulary_substituted_record",
+            evaluate_recovery_lifeline_command_envelope(substituted_command_vocabulary),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "direct_openai_recovery_shortcut_rejected",
+            "rejected",
+            "direct_openai_provider_path_not_recovery_lifeline",
+            evaluate_recovery_lifeline_command_envelope(direct_provider_shortcut),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "loader_runtime_isolation_missing_after_command_vocabulary",
+            "denied_missing_loader_runtime_isolation",
+            "recovery_loader_runtime_isolation_missing",
+            evaluate_recovery_lifeline_command_envelope(missing_loader),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "previous_boot_loader_runtime_isolation",
+            "rejected",
+            "recovery_loader_runtime_isolation_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_envelope(previous_loader),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "wrong_schema_loader_runtime_isolation",
+            "rejected",
+            "recovery_loader_runtime_isolation_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_envelope(wrong_loader),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "substituted_loader_runtime_isolation",
+            "rejected",
+            "recovery_loader_runtime_isolation_substituted_record",
+            evaluate_recovery_lifeline_command_envelope(substituted_loader),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "mismatched_loader_runtime_isolation",
+            "rejected",
+            "recovery_loader_runtime_isolation_binding_mismatch",
+            evaluate_recovery_lifeline_command_envelope(mismatched_loader),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "rollback_transaction_engine_missing_after_loader",
+            "denied_missing_rollback_transaction_engine",
+            "recovery_rollback_transaction_engine_missing",
+            evaluate_recovery_lifeline_command_envelope(missing_engine),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "previous_boot_rollback_transaction_engine",
+            "rejected",
+            "recovery_rollback_transaction_engine_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_envelope(previous_engine),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "wrong_schema_rollback_transaction_engine",
+            "rejected",
+            "recovery_rollback_transaction_engine_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_envelope(wrong_engine),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "substituted_rollback_transaction_engine",
+            "rejected",
+            "recovery_rollback_transaction_engine_substituted_record",
+            evaluate_recovery_lifeline_command_envelope(substituted_engine),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "mismatched_rollback_transaction_engine",
+            "rejected",
+            "recovery_rollback_transaction_engine_binding_mismatch",
+            evaluate_recovery_lifeline_command_envelope(mismatched_engine),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "durable_persistence_boundary_missing_after_rollback_engine",
+            "denied_missing_durable_audit_rollback_persistence",
+            "durable_audit_rollback_persistence_missing",
+            evaluate_recovery_lifeline_command_envelope(missing_durable),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "previous_boot_durable_persistence",
+            "rejected",
+            "durable_audit_rollback_persistence_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_envelope(previous_durable),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "wrong_schema_durable_persistence",
+            "rejected",
+            "durable_audit_rollback_persistence_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_envelope(wrong_durable),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "substituted_durable_persistence",
+            "rejected",
+            "durable_audit_rollback_persistence_substituted_record",
+            evaluate_recovery_lifeline_command_envelope(substituted_durable),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "mismatched_durable_persistence",
+            "rejected",
+            "durable_audit_rollback_persistence_binding_mismatch",
+            evaluate_recovery_lifeline_command_envelope(mismatched_durable),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "recovery_memory_provenance_boundary_missing",
+            "denied_missing_recovery_memory_provenance",
+            "recovery_memory_provenance_missing",
+            evaluate_recovery_lifeline_command_envelope(missing_memory),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "previous_boot_recovery_memory_provenance",
+            "rejected",
+            "recovery_memory_provenance_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_envelope(previous_memory),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "wrong_schema_recovery_memory_provenance",
+            "rejected",
+            "recovery_memory_provenance_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_envelope(wrong_memory),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "substituted_recovery_memory_provenance",
+            "rejected",
+            "recovery_memory_provenance_substituted_record",
+            evaluate_recovery_lifeline_command_envelope(substituted_memory),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "mismatched_recovery_memory_provenance",
+            "rejected",
+            "recovery_memory_provenance_binding_mismatch",
+            evaluate_recovery_lifeline_command_envelope(mismatched_memory),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "recovery_lifeline_command_admission_missing",
+            "denied_missing_lifeline_command_admission",
+            "recovery_lifeline_command_admission_missing",
+            evaluate_recovery_lifeline_command_envelope(missing_admission),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "previous_boot_recovery_lifeline_command_admission",
+            "rejected",
+            "recovery_lifeline_command_admission_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_envelope(previous_admission),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "wrong_schema_recovery_lifeline_command_admission",
+            "rejected",
+            "recovery_lifeline_command_admission_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_envelope(wrong_admission),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "substituted_recovery_lifeline_command_admission",
+            "rejected",
+            "recovery_lifeline_command_admission_substituted_record",
+            evaluate_recovery_lifeline_command_envelope(substituted_admission),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "mismatched_recovery_lifeline_command_admission",
+            "rejected",
+            "recovery_lifeline_command_admission_binding_mismatch",
+            evaluate_recovery_lifeline_command_envelope(mismatched_admission),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "unsupported_lifeline_command_id",
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            evaluate_recovery_lifeline_command_envelope(unsupported_command),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "argument_schema_mismatch",
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            evaluate_recovery_lifeline_command_envelope(schema_mismatch),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "required_capability_mismatch",
+            "rejected",
+            "recovery_lifeline_command_required_capability_mismatch",
+            evaluate_recovery_lifeline_command_envelope(capability_mismatch),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "argument_hash_missing",
+            "invalid_reference",
+            "recovery_lifeline_command_argument_hash_missing",
+            evaluate_recovery_lifeline_command_envelope(argument_hash_missing),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "target_locator_missing",
+            "invalid_reference",
+            "recovery_lifeline_command_target_locator_missing",
+            evaluate_recovery_lifeline_command_envelope(target_locator_missing),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "command_envelope_reference_hash_mismatch",
+            "mismatched_command_envelope_reference_hash",
+            "recovery_lifeline_command_envelope_reference_hash_mismatch",
+            evaluate_recovery_lifeline_command_envelope(reference_hash_mismatch),
+        ),
+        recovery_lifeline_command_envelope_selftest_case(
+            "all_inputs_present_command_envelope_still_non_executable",
+            "defined_non_executable",
+            "recovery_lifeline_command_envelope_reference_behavior_not_implemented",
+            evaluate_recovery_lifeline_command_envelope(valid),
+        ),
+    ]
+}
+
+fn recovery_lifeline_command_envelope_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryLifelineCommandEnvelopeCheck,
+) -> RecoveryLifelineCommandEnvelopeSelfTestCase {
+    RecoveryLifelineCommandEnvelopeSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        actual_admission_status: check.admission_check.status,
+        actual_admission_reason: check.admission_check.reason,
+        command_admission_boundary_exposed: check.command_admission_boundary_exposed,
+        command_admission_accepted: check.command_admission_accepted,
+        command_envelope_reference_present: check.command_envelope_reference_present,
+        command_id_supported: check.command_id_supported,
+        argument_schema_matches: check.argument_schema_matches,
+        argument_hash_present: check.argument_hash_present,
+        required_capability_matches: check.required_capability_matches,
+        target_locator_present: check.target_locator_present,
+        reference_hash_matches: check.reference_hash_matches,
+        command_execution_enabled: check.command_execution_enabled,
+        accepts_lifeline_command_envelope: check.accepts_lifeline_command_envelope,
+        dispatches_lifeline_command: check.dispatches_lifeline_command,
+        authorizes_recovery_load: check.authorizes_recovery_load,
+        can_move_beyond_denial: check.can_move_beyond_denial,
+        loads_recovery_loader: check.loads_recovery_loader,
+        loads_recovery_artifact: check.loads_recovery_artifact,
+        creates_durable_records: check.creates_durable_records,
+        installs_rollback_plan: check.installs_rollback_plan,
+        allocates_service_slot: check.allocates_service_slot,
+        service_inventory_change: check.service_inventory_change,
+        load_attempted: check.load_attempted,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason),
+    }
+}
+
+fn recovery_lifeline_command_dispatch_candidate_from_retained(
+    retained_envelope: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandEnvelopeReference,
+    )>,
+    retained_request: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineRequestReference,
+    )>,
+    retained_body: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandBodyCanonicalizationReference,
+    )>,
+) -> RecoveryLifelineCommandDispatchCandidate {
+    let mut candidate = recovery_lifeline_command_dispatch_valid_candidate();
+    candidate.command_body_canonicalization_present = false;
+    candidate.command_handler_binding_present = false;
+    candidate.status_read_handler_present = false;
+    candidate.rollback_preview_authorization_present = false;
+    candidate.rollback_apply_authorization_present = false;
+    candidate.disable_module_target_binding_present = false;
+    candidate.restart_last_good_target_binding_present = false;
+    candidate.load_artifact_by_hash_target_binding_present = false;
+    candidate.recovery_memory_write_authority_present = false;
+    candidate.durable_audit_rollback_write_authority_present = false;
+    candidate.service_inventory_side_effect_boundary_present = false;
+
+    let Some((envelope_event_id, envelope)) = retained_envelope else {
+        candidate.command_envelope_reference_available = false;
+        return candidate;
+    };
+    let Some((request_event_id, request_reference)) = retained_request else {
+        candidate.command_envelope_reference_binding_ok = false;
+        candidate.command_envelope_reference_binding_reason =
+            "retained_recovery_lifeline_request_missing";
+        return candidate;
+    };
+    if envelope.retained_lifeline_request_event_id != request_event_id {
+        candidate.command_envelope_reference_binding_ok = false;
+        candidate.command_envelope_reference_binding_reason =
+            "retained_recovery_lifeline_command_envelope_event_id_stale_or_dropped";
+        return candidate;
+    }
+    if envelope.lifeline_request_reference_hash != request_reference.lifeline_request_reference_hash
+    {
+        candidate.command_envelope_reference_binding_ok = false;
+        candidate.command_envelope_reference_binding_reason =
+            "retained_recovery_lifeline_command_envelope_request_hash_mismatch";
+    }
+    if let Some((_, body)) = retained_body {
+        candidate.command_body_canonicalization_present =
+            body.retained_command_envelope_reference_event_id == envelope_event_id
+                && method_eq(body.command_id, envelope.command_id)
+                && method_eq(body.argument_schema, envelope.argument_schema)
+                && body.argument_hash == envelope.argument_hash
+                && body.target_locator == envelope.target_locator
+                && body.command_envelope_reference_hash == envelope.command_envelope_reference_hash
+                && method_eq(
+                    body.command_dispatch_boundary_id,
+                    RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+                );
+    }
+    candidate
+}
+
+fn evaluate_recovery_lifeline_command_dispatch(
+    candidate: RecoveryLifelineCommandDispatchCandidate,
+) -> RecoveryLifelineCommandDispatchCheck {
+    let envelope_check = evaluate_recovery_lifeline_command_envelope(candidate.envelope_candidate);
+    if candidate.direct_openai_recovery_shortcut_used {
+        return recovery_lifeline_command_dispatch_check(
+            "rejected",
+            "direct_openai_provider_path_not_recovery_lifeline",
+            envelope_check,
+            candidate,
+            false,
+        );
+    }
+    if !method_eq(envelope_check.status, "defined_non_executable") {
+        return recovery_lifeline_command_dispatch_check(
+            envelope_check.status,
+            envelope_check.reason,
+            envelope_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_envelope_reference_available {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_envelope_reference",
+            "recovery_lifeline_command_envelope_reference_missing",
+            envelope_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_envelope_reference_current_boot {
+        return recovery_lifeline_command_dispatch_check(
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_event_id_not_current_boot",
+            envelope_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_envelope_reference_schema_ok {
+        return recovery_lifeline_command_dispatch_check(
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_wrong_schema_or_variant",
+            envelope_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_envelope_reference_binding_ok {
+        return recovery_lifeline_command_dispatch_check(
+            "rejected",
+            candidate.command_envelope_reference_binding_reason,
+            envelope_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_body_canonicalization_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_lifeline_command_body_canonicalization_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    if !candidate.command_handler_binding_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_lifeline_command_handler_binding_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    if !candidate.status_read_handler_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_lifeline_status_read_handler_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    if !candidate.rollback_preview_authorization_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_rollback_preview_authorization_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    if !candidate.rollback_apply_authorization_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_rollback_apply_authorization_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    if !candidate.disable_module_target_binding_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_disable_module_target_binding_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    if !candidate.restart_last_good_target_binding_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_restart_last_good_target_binding_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    if !candidate.load_artifact_by_hash_target_binding_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_load_artifact_by_hash_target_binding_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    if !candidate.recovery_memory_write_authority_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_memory_write_authority_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    if !candidate.durable_audit_rollback_write_authority_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "durable_audit_rollback_write_authority_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    if !candidate.service_inventory_side_effect_boundary_present {
+        return recovery_lifeline_command_dispatch_check(
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_service_inventory_side_effect_boundary_missing",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
+    recovery_lifeline_command_dispatch_check(
+        "defined_non_executable",
+        "recovery_lifeline_command_dispatch_behavior_not_implemented",
+        envelope_check,
+        candidate,
+        true,
+    )
+}
+
+fn recovery_lifeline_command_dispatch_check(
+    status: &'static str,
+    reason: &'static str,
+    envelope_check: RecoveryLifelineCommandEnvelopeCheck,
+    candidate: RecoveryLifelineCommandDispatchCandidate,
+    command_envelope_reference_accepted: bool,
+) -> RecoveryLifelineCommandDispatchCheck {
+    RecoveryLifelineCommandDispatchCheck {
+        status,
+        reason,
+        envelope_check,
+        command_envelope_reference_available: candidate.command_envelope_reference_available,
+        command_envelope_reference_accepted,
+        command_body_canonicalization_present: candidate.command_body_canonicalization_present,
+        command_handler_binding_present: candidate.command_handler_binding_present,
+        status_read_handler_present: candidate.status_read_handler_present,
+        rollback_preview_authorization_present: candidate.rollback_preview_authorization_present,
+        rollback_apply_authorization_present: candidate.rollback_apply_authorization_present,
+        disable_module_target_binding_present: candidate.disable_module_target_binding_present,
+        restart_last_good_target_binding_present: candidate
+            .restart_last_good_target_binding_present,
+        load_artifact_by_hash_target_binding_present: candidate
+            .load_artifact_by_hash_target_binding_present,
+        recovery_memory_write_authority_present: candidate.recovery_memory_write_authority_present,
+        durable_audit_rollback_write_authority_present: candidate
+            .durable_audit_rollback_write_authority_present,
+        service_inventory_side_effect_boundary_present: candidate
+            .service_inventory_side_effect_boundary_present,
+        accepts_lifeline_command_body: false,
+        accepts_lifeline_command_envelope: false,
+        dispatches_lifeline_command: false,
+        command_execution_enabled: false,
+        rollback_preview_enabled: false,
+        rollback_apply_enabled: false,
+        recovery_memory_writes_enabled: false,
+        durable_writes_enabled: false,
+        rollback_replay_enabled: false,
+        provider_export_enabled: false,
+        authorizes_recovery_load: false,
+        can_move_beyond_denial: false,
+        loads_recovery_loader: false,
+        loads_recovery_artifact: false,
+        creates_durable_records: false,
+        installs_rollback_plan: false,
+        allocates_service_slot: false,
+        service_inventory_change: "none",
+        load_attempted: false,
+    }
+}
+
+fn recovery_lifeline_command_dispatch_valid_candidate() -> RecoveryLifelineCommandDispatchCandidate
+{
+    RecoveryLifelineCommandDispatchCandidate {
+        envelope_candidate: recovery_lifeline_command_envelope_valid_candidate(),
+        command_envelope_reference_available: true,
+        command_envelope_reference_current_boot: true,
+        command_envelope_reference_schema_ok: true,
+        command_envelope_reference_binding_ok: true,
+        command_envelope_reference_binding_reason:
+            "retained_recovery_lifeline_command_envelope_reference_valid",
+        direct_openai_recovery_shortcut_used: false,
+        command_body_canonicalization_present: true,
+        command_handler_binding_present: true,
+        status_read_handler_present: true,
+        rollback_preview_authorization_present: true,
+        rollback_apply_authorization_present: true,
+        disable_module_target_binding_present: true,
+        restart_last_good_target_binding_present: true,
+        load_artifact_by_hash_target_binding_present: true,
+        recovery_memory_write_authority_present: true,
+        durable_audit_rollback_write_authority_present: true,
+        service_inventory_side_effect_boundary_present: true,
+    }
+}
+
+fn recovery_lifeline_command_dispatch_selftest_cases(
+) -> [RecoveryLifelineCommandDispatchSelfTestCase; RECOVERY_LIFELINE_COMMAND_DISPATCH_SELFTEST_CASES]
+{
+    let valid = recovery_lifeline_command_dispatch_valid_candidate();
+
+    let mut missing_request = valid;
+    missing_request
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate = recovery_lifeline_protocol_missing_candidate();
+    let mut stale_request = valid;
+    stale_request
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    stale_request
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_event_id_stale_or_dropped";
+    let mut previous_request = valid;
+    previous_request
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_current_boot = false;
+    let mut wrong_schema_request = valid;
+    wrong_schema_request
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_schema_ok = false;
+    let mut substituted_request = valid;
+    substituted_request
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    substituted_request
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_substituted_record";
+    let mut request_hash_mismatch = valid;
+    request_hash_mismatch
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    request_hash_mismatch
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_reference_hash_mismatch";
+    let mut missing_protocol_state = valid;
+    missing_protocol_state
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_retained = false;
+    let mut previous_protocol_state = valid;
+    previous_protocol_state
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_current_boot = false;
+    let mut wrong_protocol_state = valid;
+    wrong_protocol_state
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_schema_ok = false;
+    let mut substituted_protocol_state = valid;
+    substituted_protocol_state
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_binding_ok = false;
+    substituted_protocol_state
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_binding_reason = "recovery_lifeline_protocol_state_substituted_record";
+    let mut missing_command_vocabulary = valid;
+    missing_command_vocabulary
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_available = false;
+    let mut previous_command_vocabulary = valid;
+    previous_command_vocabulary
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_current_boot = false;
+    let mut substituted_command_vocabulary = valid;
+    substituted_command_vocabulary
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_binding_ok = false;
+    substituted_command_vocabulary
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_binding_reason =
+        "recovery_lifeline_command_vocabulary_substituted_record";
+    let mut missing_loader = valid;
+    missing_loader
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_available = false;
+    let mut mismatched_loader = valid;
+    mismatched_loader
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_ok = false;
+    mismatched_loader
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_reason =
+        "recovery_loader_runtime_isolation_binding_mismatch";
+    let mut missing_engine = valid;
+    missing_engine
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_available = false;
+    let mut mismatched_engine = valid;
+    mismatched_engine
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_ok = false;
+    mismatched_engine
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_reason =
+        "recovery_rollback_transaction_engine_binding_mismatch";
+    let mut missing_durable = valid;
+    missing_durable
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_available = false;
+    let mut mismatched_durable = valid;
+    mismatched_durable
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_ok = false;
+    mismatched_durable
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_reason =
+        "durable_audit_rollback_persistence_binding_mismatch";
+    let mut missing_memory = valid;
+    missing_memory
+        .envelope_candidate
+        .admission_candidate
+        .recovery_memory_provenance_available = false;
+    let mut mismatched_memory = valid;
+    mismatched_memory
+        .envelope_candidate
+        .admission_candidate
+        .recovery_memory_provenance_binding_ok = false;
+    mismatched_memory
+        .envelope_candidate
+        .admission_candidate
+        .recovery_memory_provenance_binding_reason = "recovery_memory_provenance_binding_mismatch";
+    let mut missing_admission = valid;
+    missing_admission
+        .envelope_candidate
+        .command_admission_available = false;
+    let mut mismatched_admission = valid;
+    mismatched_admission
+        .envelope_candidate
+        .command_admission_binding_ok = false;
+    mismatched_admission
+        .envelope_candidate
+        .command_admission_binding_reason = "recovery_lifeline_command_admission_binding_mismatch";
+    let mut missing_envelope = valid;
+    missing_envelope.command_envelope_reference_available = false;
+    let mut previous_envelope = valid;
+    previous_envelope.command_envelope_reference_current_boot = false;
+    let mut wrong_envelope = valid;
+    wrong_envelope.command_envelope_reference_schema_ok = false;
+    let mut substituted_envelope = valid;
+    substituted_envelope.command_envelope_reference_binding_ok = false;
+    substituted_envelope.command_envelope_reference_binding_reason =
+        "recovery_lifeline_command_envelope_reference_substituted_record";
+    let mut mismatched_envelope = valid;
+    mismatched_envelope.command_envelope_reference_binding_ok = false;
+    mismatched_envelope.command_envelope_reference_binding_reason =
+        "recovery_lifeline_command_envelope_reference_binding_mismatch";
+    let mut body_missing = valid;
+    body_missing.command_body_canonicalization_present = false;
+    let mut handler_missing = valid;
+    handler_missing.command_handler_binding_present = false;
+    let mut status_handler_missing = valid;
+    status_handler_missing.status_read_handler_present = false;
+    let mut preview_auth_missing = valid;
+    preview_auth_missing.rollback_preview_authorization_present = false;
+    let mut apply_auth_missing = valid;
+    apply_auth_missing.rollback_apply_authorization_present = false;
+    let mut disable_target_missing = valid;
+    disable_target_missing.disable_module_target_binding_present = false;
+    let mut restart_target_missing = valid;
+    restart_target_missing.restart_last_good_target_binding_present = false;
+    let mut load_hash_target_missing = valid;
+    load_hash_target_missing.load_artifact_by_hash_target_binding_present = false;
+    let mut memory_write_missing = valid;
+    memory_write_missing.recovery_memory_write_authority_present = false;
+    let mut durable_write_missing = valid;
+    durable_write_missing.durable_audit_rollback_write_authority_present = false;
+    let mut service_side_effect_missing = valid;
+    service_side_effect_missing.service_inventory_side_effect_boundary_present = false;
+
+    [
+        recovery_lifeline_command_dispatch_selftest_case(
+            "missing_lifeline_request_event_id",
+            "missing",
+            "recovery_lifeline_request_event_id_missing",
+            evaluate_recovery_lifeline_command_dispatch(missing_request),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "stale_dropped_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_event_id_stale_or_dropped",
+            evaluate_recovery_lifeline_command_dispatch(stale_request),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "previous_boot_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_dispatch(previous_request),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "wrong_schema_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_dispatch(wrong_schema_request),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "substituted_lifeline_request_record",
+            "rejected",
+            "recovery_lifeline_request_substituted_record",
+            evaluate_recovery_lifeline_command_dispatch(substituted_request),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "lifeline_request_reference_hash_mismatch",
+            "rejected",
+            "recovery_lifeline_request_reference_hash_mismatch",
+            evaluate_recovery_lifeline_command_dispatch(request_hash_mismatch),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "protocol_state_missing_after_valid_request",
+            "denied_missing_lifeline_protocol_state",
+            "recovery_lifeline_protocol_state_missing",
+            evaluate_recovery_lifeline_command_dispatch(missing_protocol_state),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "previous_boot_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_dispatch(previous_protocol_state),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "wrong_schema_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_dispatch(wrong_protocol_state),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "substituted_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_substituted_record",
+            evaluate_recovery_lifeline_command_dispatch(substituted_protocol_state),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "command_vocabulary_missing_after_protocol_state",
+            "denied_missing_lifeline_command_vocabulary",
+            "recovery_lifeline_command_vocabulary_missing",
+            evaluate_recovery_lifeline_command_dispatch(missing_command_vocabulary),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "previous_boot_lifeline_command_vocabulary",
+            "rejected",
+            "recovery_lifeline_command_vocabulary_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_dispatch(previous_command_vocabulary),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "substituted_lifeline_command_vocabulary",
+            "rejected",
+            "recovery_lifeline_command_vocabulary_substituted_record",
+            evaluate_recovery_lifeline_command_dispatch(substituted_command_vocabulary),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "loader_runtime_isolation_missing_after_command_vocabulary",
+            "denied_missing_loader_runtime_isolation",
+            "recovery_loader_runtime_isolation_missing",
+            evaluate_recovery_lifeline_command_dispatch(missing_loader),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "mismatched_loader_runtime_isolation",
+            "rejected",
+            "recovery_loader_runtime_isolation_binding_mismatch",
+            evaluate_recovery_lifeline_command_dispatch(mismatched_loader),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "rollback_transaction_engine_missing_after_loader",
+            "denied_missing_rollback_transaction_engine",
+            "recovery_rollback_transaction_engine_missing",
+            evaluate_recovery_lifeline_command_dispatch(missing_engine),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "mismatched_rollback_transaction_engine",
+            "rejected",
+            "recovery_rollback_transaction_engine_binding_mismatch",
+            evaluate_recovery_lifeline_command_dispatch(mismatched_engine),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "durable_persistence_boundary_missing_after_rollback_engine",
+            "denied_missing_durable_audit_rollback_persistence",
+            "durable_audit_rollback_persistence_missing",
+            evaluate_recovery_lifeline_command_dispatch(missing_durable),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "mismatched_durable_persistence",
+            "rejected",
+            "durable_audit_rollback_persistence_binding_mismatch",
+            evaluate_recovery_lifeline_command_dispatch(mismatched_durable),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "recovery_memory_provenance_boundary_missing",
+            "denied_missing_recovery_memory_provenance",
+            "recovery_memory_provenance_missing",
+            evaluate_recovery_lifeline_command_dispatch(missing_memory),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "mismatched_recovery_memory_provenance",
+            "rejected",
+            "recovery_memory_provenance_binding_mismatch",
+            evaluate_recovery_lifeline_command_dispatch(mismatched_memory),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "recovery_lifeline_command_admission_missing",
+            "denied_missing_lifeline_command_admission",
+            "recovery_lifeline_command_admission_missing",
+            evaluate_recovery_lifeline_command_dispatch(missing_admission),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "mismatched_recovery_lifeline_command_admission",
+            "rejected",
+            "recovery_lifeline_command_admission_binding_mismatch",
+            evaluate_recovery_lifeline_command_dispatch(mismatched_admission),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "command_envelope_reference_missing",
+            "denied_missing_lifeline_command_envelope_reference",
+            "recovery_lifeline_command_envelope_reference_missing",
+            evaluate_recovery_lifeline_command_dispatch(missing_envelope),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "previous_boot_command_envelope_reference",
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_dispatch(previous_envelope),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "wrong_schema_command_envelope_reference",
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_dispatch(wrong_envelope),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "substituted_command_envelope_reference",
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_substituted_record",
+            evaluate_recovery_lifeline_command_dispatch(substituted_envelope),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "mismatched_command_envelope_reference",
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_binding_mismatch",
+            evaluate_recovery_lifeline_command_dispatch(mismatched_envelope),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "command_body_canonicalization_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_lifeline_command_body_canonicalization_missing",
+            evaluate_recovery_lifeline_command_dispatch(body_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "command_handler_binding_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_lifeline_command_handler_binding_missing",
+            evaluate_recovery_lifeline_command_dispatch(handler_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "status_read_handler_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_lifeline_status_read_handler_missing",
+            evaluate_recovery_lifeline_command_dispatch(status_handler_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "rollback_preview_authorization_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_rollback_preview_authorization_missing",
+            evaluate_recovery_lifeline_command_dispatch(preview_auth_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "rollback_apply_authorization_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_rollback_apply_authorization_missing",
+            evaluate_recovery_lifeline_command_dispatch(apply_auth_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "disable_module_target_binding_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_disable_module_target_binding_missing",
+            evaluate_recovery_lifeline_command_dispatch(disable_target_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "restart_last_good_target_binding_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_restart_last_good_target_binding_missing",
+            evaluate_recovery_lifeline_command_dispatch(restart_target_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "load_artifact_by_hash_target_binding_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_load_artifact_by_hash_target_binding_missing",
+            evaluate_recovery_lifeline_command_dispatch(load_hash_target_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "recovery_memory_write_authority_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_memory_write_authority_missing",
+            evaluate_recovery_lifeline_command_dispatch(memory_write_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "durable_audit_rollback_write_authority_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "durable_audit_rollback_write_authority_missing",
+            evaluate_recovery_lifeline_command_dispatch(durable_write_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "service_inventory_side_effect_boundary_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_service_inventory_side_effect_boundary_missing",
+            evaluate_recovery_lifeline_command_dispatch(service_side_effect_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "all_inputs_present_command_dispatch_still_non_executable",
+            "defined_non_executable",
+            "recovery_lifeline_command_dispatch_behavior_not_implemented",
+            evaluate_recovery_lifeline_command_dispatch(valid),
+        ),
+    ]
+}
+
+fn recovery_lifeline_command_dispatch_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryLifelineCommandDispatchCheck,
+) -> RecoveryLifelineCommandDispatchSelfTestCase {
+    RecoveryLifelineCommandDispatchSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        actual_envelope_status: check.envelope_check.status,
+        actual_envelope_reason: check.envelope_check.reason,
+        command_envelope_reference_accepted: check.command_envelope_reference_accepted,
+        command_body_canonicalization_present: check.command_body_canonicalization_present,
+        command_handler_binding_present: check.command_handler_binding_present,
+        dispatches_lifeline_command: check.dispatches_lifeline_command,
+        command_execution_enabled: check.command_execution_enabled,
+        load_attempted: check.load_attempted,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason),
+    }
+}
+
+fn evaluate_recovery_lifeline_command_body_canonicalization(
+    candidate: RecoveryLifelineCommandBodyCanonicalizationCandidate,
+) -> RecoveryLifelineCommandBodyCanonicalizationCheck {
+    let dispatch_check = evaluate_recovery_lifeline_command_dispatch(candidate.dispatch_candidate);
+    if candidate.direct_openai_recovery_shortcut_used {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "rejected",
+            "direct_openai_provider_path_not_recovery_lifeline",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !method_eq(
+        dispatch_check.status,
+        "denied_missing_lifeline_command_dispatch_boundary",
+    ) || !method_eq(
+        dispatch_check.reason,
+        "recovery_lifeline_command_body_canonicalization_missing",
+    ) {
+        return recovery_lifeline_command_body_canonicalization_check(
+            dispatch_check.status,
+            dispatch_check.reason,
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_body_reference_present {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "missing",
+            "recovery_lifeline_command_body_canonicalization_missing",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_body_reference_current_boot {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "rejected",
+            "retained_recovery_lifeline_command_body_canonicalization_event_id_not_current_boot",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_body_reference_schema_ok {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "rejected",
+            "recovery_lifeline_command_body_canonicalization_wrong_schema_or_variant",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_body_reference_binding_ok {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "rejected",
+            candidate.command_body_reference_binding_reason,
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_id_supported {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.argument_schema_matches {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.argument_hash_present {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "invalid_reference",
+            "recovery_lifeline_command_body_canonicalization_invalid_hash",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.target_locator_present {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "invalid_reference",
+            "recovery_lifeline_command_target_locator_invalid",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_envelope_reference_hash_matches {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_hash_mismatch",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.command_dispatch_boundary_id_matches {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    if !candidate.body_hash_matches {
+        return recovery_lifeline_command_body_canonicalization_check(
+            "mismatched_command_body_canonicalization_hash",
+            "recovery_lifeline_command_body_canonicalization_hash_mismatch",
+            dispatch_check,
+            candidate,
+            false,
+        );
+    }
+    recovery_lifeline_command_body_canonicalization_check(
+        "valid_hash_reference_command_still_denied",
+        "recovery_lifeline_command_body_canonicalization_valid_but_command_dispatch_disabled",
+        dispatch_check,
+        candidate,
+        true,
+    )
+}
+
+fn recovery_lifeline_command_body_canonicalization_check(
+    status: &'static str,
+    reason: &'static str,
+    dispatch_check: RecoveryLifelineCommandDispatchCheck,
+    candidate: RecoveryLifelineCommandBodyCanonicalizationCandidate,
+    command_body_reference_accepted: bool,
+) -> RecoveryLifelineCommandBodyCanonicalizationCheck {
+    RecoveryLifelineCommandBodyCanonicalizationCheck {
+        status,
+        reason,
+        dispatch_check,
+        command_body_reference_present: candidate.command_body_reference_present,
+        command_body_reference_accepted,
+        command_id_supported: candidate.command_id_supported,
+        argument_schema_matches: candidate.argument_schema_matches,
+        argument_hash_present: candidate.argument_hash_present,
+        target_locator_present: candidate.target_locator_present,
+        command_envelope_reference_hash_matches: candidate.command_envelope_reference_hash_matches,
+        command_dispatch_boundary_id_matches: candidate.command_dispatch_boundary_id_matches,
+        body_hash_matches: candidate.body_hash_matches,
+        accepts_raw_command_body: false,
+        accepts_lifeline_command_body: false,
+        accepts_lifeline_command_envelope: false,
+        dispatches_lifeline_command: false,
+        command_execution_enabled: false,
+        rollback_preview_enabled: false,
+        rollback_apply_enabled: false,
+        recovery_memory_writes_enabled: false,
+        durable_writes_enabled: false,
+        rollback_replay_enabled: false,
+        provider_export_enabled: false,
+        authorizes_recovery_load: false,
+        can_move_beyond_denial: false,
+        loads_recovery_loader: false,
+        loads_recovery_artifact: false,
+        creates_durable_records: false,
+        installs_rollback_plan: false,
+        allocates_service_slot: false,
+        service_inventory_change: "none",
+        load_attempted: false,
+    }
+}
+
+fn recovery_lifeline_command_body_canonicalization_valid_candidate(
+) -> RecoveryLifelineCommandBodyCanonicalizationCandidate {
+    let mut dispatch_candidate = recovery_lifeline_command_dispatch_valid_candidate();
+    dispatch_candidate.command_body_canonicalization_present = false;
+    dispatch_candidate.command_handler_binding_present = false;
+    dispatch_candidate.status_read_handler_present = false;
+    dispatch_candidate.rollback_preview_authorization_present = false;
+    dispatch_candidate.rollback_apply_authorization_present = false;
+    dispatch_candidate.disable_module_target_binding_present = false;
+    dispatch_candidate.restart_last_good_target_binding_present = false;
+    dispatch_candidate.load_artifact_by_hash_target_binding_present = false;
+    dispatch_candidate.recovery_memory_write_authority_present = false;
+    dispatch_candidate.durable_audit_rollback_write_authority_present = false;
+    dispatch_candidate.service_inventory_side_effect_boundary_present = false;
+    RecoveryLifelineCommandBodyCanonicalizationCandidate {
+        dispatch_candidate,
+        command_body_reference_present: true,
+        command_body_reference_current_boot: true,
+        command_body_reference_schema_ok: true,
+        command_body_reference_binding_ok: true,
+        command_body_reference_binding_reason:
+            "retained_recovery_lifeline_command_body_canonicalization_valid",
+        command_id_supported: true,
+        argument_schema_matches: true,
+        argument_hash_present: true,
+        target_locator_present: true,
+        command_envelope_reference_hash_matches: true,
+        command_dispatch_boundary_id_matches: true,
+        body_hash_matches: true,
+        direct_openai_recovery_shortcut_used: false,
+    }
+}
+
+fn recovery_lifeline_command_body_canonicalization_selftest_cases(
+) -> [RecoveryLifelineCommandBodyCanonicalizationSelfTestCase;
+       RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_SELFTEST_CASES] {
+    let valid = recovery_lifeline_command_body_canonicalization_valid_candidate();
+
+    let mut direct_openai = valid;
+    direct_openai.direct_openai_recovery_shortcut_used = true;
+    let mut missing_request = valid;
+    missing_request
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate = recovery_lifeline_protocol_missing_candidate();
+    let mut stale_request = valid;
+    stale_request
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    stale_request
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_event_id_stale_or_dropped";
+    let mut previous_request = valid;
+    previous_request
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_current_boot = false;
+    let mut wrong_schema_request = valid;
+    wrong_schema_request
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_schema_ok = false;
+    let mut substituted_request = valid;
+    substituted_request
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    substituted_request
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_substituted_record";
+    let mut request_hash_mismatch = valid;
+    request_hash_mismatch
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_ok = false;
+    request_hash_mismatch
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_candidate
+        .request_binding_reason = "recovery_lifeline_request_reference_hash_mismatch";
+    let mut missing_protocol_state = valid;
+    missing_protocol_state
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_retained = false;
+    let mut previous_protocol_state = valid;
+    previous_protocol_state
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_current_boot = false;
+    let mut wrong_protocol_state = valid;
+    wrong_protocol_state
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_schema_ok = false;
+    let mut substituted_protocol_state = valid;
+    substituted_protocol_state
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_binding_ok = false;
+    substituted_protocol_state
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_candidate
+        .protocol_state_binding_reason = "recovery_lifeline_protocol_state_substituted_record";
+    let mut missing_command_vocabulary = valid;
+    missing_command_vocabulary
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_available = false;
+    let mut previous_command_vocabulary = valid;
+    previous_command_vocabulary
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_current_boot = false;
+    let mut substituted_command_vocabulary = valid;
+    substituted_command_vocabulary
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_binding_ok = false;
+    substituted_command_vocabulary
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_candidate
+        .command_vocabulary_binding_reason =
+        "recovery_lifeline_command_vocabulary_substituted_record";
+    let mut missing_loader = valid;
+    missing_loader
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_available = false;
+    let mut mismatched_loader = valid;
+    mismatched_loader
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_ok = false;
+    mismatched_loader
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .transaction_candidate
+        .loader_runtime_isolation_binding_reason =
+        "recovery_loader_runtime_isolation_binding_mismatch";
+    let mut missing_engine = valid;
+    missing_engine
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_available = false;
+    let mut mismatched_engine = valid;
+    mismatched_engine
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_ok = false;
+    mismatched_engine
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .persistence_candidate
+        .rollback_transaction_engine_binding_reason =
+        "recovery_rollback_transaction_engine_binding_mismatch";
+    let mut missing_durable = valid;
+    missing_durable
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_available = false;
+    let mut mismatched_durable = valid;
+    mismatched_durable
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_ok = false;
+    mismatched_durable
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .memory_candidate
+        .durable_audit_rollback_persistence_binding_reason =
+        "durable_audit_rollback_persistence_binding_mismatch";
+    let mut missing_memory = valid;
+    missing_memory
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .recovery_memory_provenance_available = false;
+    let mut mismatched_memory = valid;
+    mismatched_memory
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .recovery_memory_provenance_binding_ok = false;
+    mismatched_memory
+        .dispatch_candidate
+        .envelope_candidate
+        .admission_candidate
+        .recovery_memory_provenance_binding_reason = "recovery_memory_provenance_binding_mismatch";
+    let mut missing_admission = valid;
+    missing_admission
+        .dispatch_candidate
+        .envelope_candidate
+        .command_admission_available = false;
+    let mut mismatched_admission = valid;
+    mismatched_admission
+        .dispatch_candidate
+        .envelope_candidate
+        .command_admission_binding_ok = false;
+    mismatched_admission
+        .dispatch_candidate
+        .envelope_candidate
+        .command_admission_binding_reason = "recovery_lifeline_command_admission_binding_mismatch";
+    let mut missing_envelope = valid;
+    missing_envelope
+        .dispatch_candidate
+        .command_envelope_reference_available = false;
+    let mut previous_envelope = valid;
+    previous_envelope
+        .dispatch_candidate
+        .command_envelope_reference_current_boot = false;
+    let mut wrong_envelope = valid;
+    wrong_envelope
+        .dispatch_candidate
+        .command_envelope_reference_schema_ok = false;
+    let mut substituted_envelope = valid;
+    substituted_envelope
+        .dispatch_candidate
+        .command_envelope_reference_binding_ok = false;
+    substituted_envelope
+        .dispatch_candidate
+        .command_envelope_reference_binding_reason =
+        "recovery_lifeline_command_envelope_reference_substituted_record";
+    let mut mismatched_envelope = valid;
+    mismatched_envelope
+        .dispatch_candidate
+        .command_envelope_reference_binding_ok = false;
+    mismatched_envelope
+        .dispatch_candidate
+        .command_envelope_reference_binding_reason =
+        "recovery_lifeline_command_envelope_reference_binding_mismatch";
+    let mut dispatch_moved_past_body = valid;
+    dispatch_moved_past_body
+        .dispatch_candidate
+        .command_body_canonicalization_present = true;
+    let mut body_missing = valid;
+    body_missing.command_body_reference_present = false;
+    let mut body_previous = valid;
+    body_previous.command_body_reference_current_boot = false;
+    let mut body_wrong_schema = valid;
+    body_wrong_schema.command_body_reference_schema_ok = false;
+    let mut body_substituted = valid;
+    body_substituted.command_body_reference_binding_ok = false;
+    body_substituted.command_body_reference_binding_reason =
+        "recovery_lifeline_command_body_canonicalization_substituted_record";
+    let mut body_mismatched = valid;
+    body_mismatched.command_body_reference_binding_ok = false;
+    body_mismatched.command_body_reference_binding_reason =
+        "recovery_lifeline_command_body_canonicalization_binding_mismatch";
+    let mut unsupported_command = valid;
+    unsupported_command.command_id_supported = false;
+    let mut schema_mismatch = valid;
+    schema_mismatch.argument_schema_matches = false;
+    let mut argument_hash_missing = valid;
+    argument_hash_missing.argument_hash_present = false;
+    let mut target_locator_missing = valid;
+    target_locator_missing.target_locator_present = false;
+    let mut envelope_hash_mismatch = valid;
+    envelope_hash_mismatch.command_envelope_reference_hash_matches = false;
+    let mut dispatch_boundary_mismatch = valid;
+    dispatch_boundary_mismatch.command_dispatch_boundary_id_matches = false;
+    let mut body_hash_mismatch = valid;
+    body_hash_mismatch.body_hash_matches = false;
+
+    [
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "direct_openai_provider_path_rejected",
+            "rejected",
+            "direct_openai_provider_path_not_recovery_lifeline",
+            evaluate_recovery_lifeline_command_body_canonicalization(direct_openai),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "missing_lifeline_request_event_id",
+            "missing",
+            "recovery_lifeline_request_event_id_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(missing_request),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "stale_dropped_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_event_id_stale_or_dropped",
+            evaluate_recovery_lifeline_command_body_canonicalization(stale_request),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "previous_boot_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_body_canonicalization(previous_request),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "wrong_schema_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_body_canonicalization(wrong_schema_request),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "substituted_lifeline_request_record",
+            "rejected",
+            "recovery_lifeline_request_substituted_record",
+            evaluate_recovery_lifeline_command_body_canonicalization(substituted_request),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "lifeline_request_reference_hash_mismatch",
+            "rejected",
+            "recovery_lifeline_request_reference_hash_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(request_hash_mismatch),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "protocol_state_missing_after_valid_request",
+            "denied_missing_lifeline_protocol_state",
+            "recovery_lifeline_protocol_state_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(missing_protocol_state),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "previous_boot_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_body_canonicalization(previous_protocol_state),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "wrong_schema_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_body_canonicalization(wrong_protocol_state),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "substituted_lifeline_protocol_state",
+            "rejected",
+            "recovery_lifeline_protocol_state_substituted_record",
+            evaluate_recovery_lifeline_command_body_canonicalization(substituted_protocol_state),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "command_vocabulary_missing_after_protocol_state",
+            "denied_missing_lifeline_command_vocabulary",
+            "recovery_lifeline_command_vocabulary_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(missing_command_vocabulary),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "previous_boot_lifeline_command_vocabulary",
+            "rejected",
+            "recovery_lifeline_command_vocabulary_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_body_canonicalization(previous_command_vocabulary),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "substituted_lifeline_command_vocabulary",
+            "rejected",
+            "recovery_lifeline_command_vocabulary_substituted_record",
+            evaluate_recovery_lifeline_command_body_canonicalization(
+                substituted_command_vocabulary,
+            ),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "loader_runtime_isolation_missing_after_command_vocabulary",
+            "denied_missing_loader_runtime_isolation",
+            "recovery_loader_runtime_isolation_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(missing_loader),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "mismatched_loader_runtime_isolation",
+            "rejected",
+            "recovery_loader_runtime_isolation_binding_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(mismatched_loader),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "rollback_transaction_engine_missing_after_loader",
+            "denied_missing_rollback_transaction_engine",
+            "recovery_rollback_transaction_engine_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(missing_engine),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "mismatched_rollback_transaction_engine",
+            "rejected",
+            "recovery_rollback_transaction_engine_binding_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(mismatched_engine),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "durable_persistence_boundary_missing_after_rollback_engine",
+            "denied_missing_durable_audit_rollback_persistence",
+            "durable_audit_rollback_persistence_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(missing_durable),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "mismatched_durable_persistence",
+            "rejected",
+            "durable_audit_rollback_persistence_binding_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(mismatched_durable),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "recovery_memory_provenance_boundary_missing",
+            "denied_missing_recovery_memory_provenance",
+            "recovery_memory_provenance_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(missing_memory),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "mismatched_recovery_memory_provenance",
+            "rejected",
+            "recovery_memory_provenance_binding_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(mismatched_memory),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "recovery_lifeline_command_admission_missing",
+            "denied_missing_lifeline_command_admission",
+            "recovery_lifeline_command_admission_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(missing_admission),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "mismatched_recovery_lifeline_command_admission",
+            "rejected",
+            "recovery_lifeline_command_admission_binding_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(mismatched_admission),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "command_envelope_reference_missing",
+            "denied_missing_lifeline_command_envelope_reference",
+            "recovery_lifeline_command_envelope_reference_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(missing_envelope),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "previous_boot_command_envelope_reference",
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_body_canonicalization(previous_envelope),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "wrong_schema_command_envelope_reference",
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_body_canonicalization(wrong_envelope),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "substituted_command_envelope_reference",
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_substituted_record",
+            evaluate_recovery_lifeline_command_body_canonicalization(substituted_envelope),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "mismatched_command_envelope_reference",
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_binding_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(mismatched_envelope),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "dispatch_boundary_not_body_missing",
+            "denied_missing_lifeline_command_dispatch_boundary",
+            "recovery_lifeline_command_handler_binding_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(dispatch_moved_past_body),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "command_body_canonicalization_missing",
+            "missing",
+            "recovery_lifeline_command_body_canonicalization_missing",
+            evaluate_recovery_lifeline_command_body_canonicalization(body_missing),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "previous_boot_command_body_canonicalization_reference",
+            "rejected",
+            "retained_recovery_lifeline_command_body_canonicalization_event_id_not_current_boot",
+            evaluate_recovery_lifeline_command_body_canonicalization(body_previous),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "wrong_schema_command_body_canonicalization_reference",
+            "rejected",
+            "recovery_lifeline_command_body_canonicalization_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_command_body_canonicalization(body_wrong_schema),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "substituted_command_body_canonicalization_reference",
+            "rejected",
+            "recovery_lifeline_command_body_canonicalization_substituted_record",
+            evaluate_recovery_lifeline_command_body_canonicalization(body_substituted),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "mismatched_command_body_canonicalization_reference",
+            "rejected",
+            "recovery_lifeline_command_body_canonicalization_binding_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(body_mismatched),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "unsupported_command_id",
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            evaluate_recovery_lifeline_command_body_canonicalization(unsupported_command),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "argument_schema_mismatch",
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(schema_mismatch),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "argument_hash_missing",
+            "invalid_reference",
+            "recovery_lifeline_command_body_canonicalization_invalid_hash",
+            evaluate_recovery_lifeline_command_body_canonicalization(argument_hash_missing),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "target_locator_missing",
+            "invalid_reference",
+            "recovery_lifeline_command_target_locator_invalid",
+            evaluate_recovery_lifeline_command_body_canonicalization(target_locator_missing),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "command_envelope_reference_hash_mismatch",
+            "rejected",
+            "recovery_lifeline_command_envelope_reference_hash_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(envelope_hash_mismatch),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "command_dispatch_boundary_id_mismatch",
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(dispatch_boundary_mismatch),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "command_body_canonicalization_hash_mismatch",
+            "mismatched_command_body_canonicalization_hash",
+            "recovery_lifeline_command_body_canonicalization_hash_mismatch",
+            evaluate_recovery_lifeline_command_body_canonicalization(body_hash_mismatch),
+        ),
+        recovery_lifeline_command_body_canonicalization_selftest_case(
+            "all_inputs_present_command_body_canonicalization_still_non_executable",
+            "valid_hash_reference_command_still_denied",
+            "recovery_lifeline_command_body_canonicalization_valid_but_command_dispatch_disabled",
+            evaluate_recovery_lifeline_command_body_canonicalization(valid),
+        ),
+    ]
+}
+
+fn recovery_lifeline_command_body_canonicalization_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryLifelineCommandBodyCanonicalizationCheck,
+) -> RecoveryLifelineCommandBodyCanonicalizationSelfTestCase {
+    let _input_flags = (
+        check.command_body_reference_present,
+        check.command_id_supported,
+        check.argument_schema_matches,
+        check.argument_hash_present,
+        check.target_locator_present,
+        check.command_envelope_reference_hash_matches,
+        check.command_dispatch_boundary_id_matches,
+    );
+    let non_authorizing = !check.accepts_raw_command_body
+        && !check.accepts_lifeline_command_body
+        && !check.accepts_lifeline_command_envelope
+        && !check.rollback_preview_enabled
+        && !check.rollback_apply_enabled
+        && !check.recovery_memory_writes_enabled
+        && !check.durable_writes_enabled
+        && !check.rollback_replay_enabled
+        && !check.provider_export_enabled
+        && !check.authorizes_recovery_load
+        && !check.can_move_beyond_denial
+        && !check.loads_recovery_loader
+        && !check.loads_recovery_artifact
+        && !check.creates_durable_records
+        && !check.installs_rollback_plan
+        && !check.allocates_service_slot
+        && method_eq(check.service_inventory_change, "none");
+    RecoveryLifelineCommandBodyCanonicalizationSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        actual_dispatch_status: check.dispatch_check.status,
+        actual_dispatch_reason: check.dispatch_check.reason,
+        command_body_reference_accepted: check.command_body_reference_accepted,
+        body_hash_matches: check.body_hash_matches,
+        dispatches_lifeline_command: check.dispatches_lifeline_command,
+        command_execution_enabled: check.command_execution_enabled,
+        load_attempted: check.load_attempted,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason)
+            && non_authorizing,
+    }
+}
+
 fn recovery_load_binding_selftest_cases(
 ) -> [RecoveryLoadBindingSelfTestCase; RECOVERY_LOAD_BINDING_SELFTEST_CASES] {
     let valid = recovery_load_binding_available_candidate();
@@ -16587,6 +23338,33 @@ fn recovery_lifeline_request_diagnostic_arg(method: &str) -> &str {
     let method = method.trim();
     let head_len = if method_head_eq(method, "recovery.lifeline_request_diagnostic") {
         "recovery.lifeline_request_diagnostic".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn recovery_lifeline_command_envelope_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(method, "recovery.lifeline_command_envelope_diagnostic") {
+        "recovery.lifeline_command_envelope_diagnostic".len()
+    } else if method_head_eq(method, "recovery.lifeline_command_envelope_reference") {
+        "recovery.lifeline_command_envelope_reference".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn recovery_lifeline_command_body_canonicalization_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(
+        method,
+        "recovery.lifeline_command_body_canonicalization_diagnostic",
+    ) {
+        "recovery.lifeline_command_body_canonicalization_diagnostic".len()
+    } else if method_head_eq(method, "recovery.lifeline_command_body_canonicalization") {
+        "recovery.lifeline_command_body_canonicalization".len()
     } else {
         return "";
     };

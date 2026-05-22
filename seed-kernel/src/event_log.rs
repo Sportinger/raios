@@ -13,6 +13,8 @@ use crate::event_log_evidence::{
     RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE, RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_TRUST_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_VM_TEST_REFERENCE_EVIDENCE,
+    RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_EVIDENCE,
+    RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_EVIDENCE,
     RECOVERY_LIFELINE_REQUEST_REFERENCE_EVIDENCE,
 };
 use crate::event_log_module_checks::{
@@ -43,9 +45,10 @@ pub use crate::event_log_types::{
     RecoveryArtifactIdentityReference, RecoveryArtifactLoadDenialBinding,
     RecoveryArtifactLoaderReference, RecoveryArtifactLocalApprovalReference,
     RecoveryArtifactRollbackEvidenceReference, RecoveryArtifactTrustReference,
-    RecoveryArtifactVmTestReference, RecoveryLifelineRequestReference, DEFAULT_EVENT_LIMIT,
-    EVENT_CAPACITY, PROVIDER_BINDING_GATE_SELFTEST_CASES,
-    PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
+    RecoveryArtifactVmTestReference, RecoveryCommandTargetLocator,
+    RecoveryLifelineCommandBodyCanonicalizationReference, RecoveryLifelineCommandEnvelopeReference,
+    RecoveryLifelineRequestReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
+    PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::module_evidence;
 
@@ -866,6 +869,64 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::RecoveryLifelineRequestReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_lifeline_command_envelope_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryLifelineCommandEnvelopeReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryLifelineCommandEnvelopeReference(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_lifeline_command_body_canonicalization_reference(
+        &self,
+    ) -> Option<(
+        EventId,
+        RecoveryLifelineCommandBodyCanonicalizationReference,
+    )> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryLifelineCommandBodyCanonicalizationReference(
+                    binding,
+                ) = event.bindings
+                {
                     return Some((
                         EventId {
                             sequence: event.sequence,
@@ -2506,6 +2567,46 @@ pub fn record_recovery_lifeline_request_reference(
     })
 }
 
+pub fn record_recovery_lifeline_command_envelope_reference(
+    binding: RecoveryLifelineCommandEnvelopeReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.lifeline_command_envelope_reference.retained",
+        source_method: "recovery.lifeline_command_envelope_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline_command",
+        reason: "recovery_lifeline_command_envelope_reference_valid_for_current_boot",
+        evidence: RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_EVIDENCE,
+        bindings: EventBindings::RecoveryLifelineCommandEnvelopeReference(binding),
+    })
+}
+
+pub fn record_recovery_lifeline_command_body_canonicalization_reference(
+    binding: RecoveryLifelineCommandBodyCanonicalizationReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.lifeline_command_body_canonicalization.retained",
+        source_method: "recovery.lifeline_command_body_canonicalization_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline_command_body",
+        reason: "recovery_lifeline_command_body_canonicalization_valid_for_current_boot",
+        evidence: RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_EVIDENCE,
+        bindings: EventBindings::RecoveryLifelineCommandBodyCanonicalizationReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -2823,6 +2924,20 @@ pub fn latest_recovery_artifact_rollback_evidence_reference(
 pub fn latest_recovery_lifeline_request_reference(
 ) -> Option<(EventId, RecoveryLifelineRequestReference)> {
     LOG.lock().latest_recovery_lifeline_request_reference()
+}
+
+pub fn latest_recovery_lifeline_command_envelope_reference(
+) -> Option<(EventId, RecoveryLifelineCommandEnvelopeReference)> {
+    LOG.lock()
+        .latest_recovery_lifeline_command_envelope_reference()
+}
+
+pub fn latest_recovery_lifeline_command_body_canonicalization_reference() -> Option<(
+    EventId,
+    RecoveryLifelineCommandBodyCanonicalizationReference,
+)> {
+    LOG.lock()
+        .latest_recovery_lifeline_command_body_canonicalization_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(

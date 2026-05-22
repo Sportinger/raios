@@ -1160,7 +1160,7 @@ fn command_help() {
         "AGENT RAW: memory.context provider.context_export provider.context_gate provider.context_gate_selftest provider.context_injection_gate provider.context_injection_gate_selftest memory.query memory.trace memory.recent_events"
     ));
     write_output(format_args!(
-        "RECOVERY: recovery.load_artifact module.load_recovery_artifact"
+        "RECOVERY: recovery.load_artifact module.load_recovery_artifact recovery.lifeline_command_admission recovery.lifeline_command_envelope_diagnostic recovery.lifeline_command_dispatch_diagnostic recovery.lifeline_command_body_canonicalization_diagnostic"
     ));
 }
 
