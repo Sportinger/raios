@@ -122,6 +122,8 @@ use crate::{
         emit_recovery_lifeline_command_executor_capability_table_diagnostic_selftest,
         emit_recovery_lifeline_command_handler_binding_diagnostic,
         emit_recovery_lifeline_command_handler_binding_diagnostic_selftest,
+        emit_recovery_lifeline_command_side_effect_gate_diagnostic,
+        emit_recovery_lifeline_command_side_effect_gate_diagnostic_selftest,
         emit_recovery_lifeline_command_vocabulary,
         emit_recovery_lifeline_command_vocabulary_selftest,
         emit_recovery_lifeline_protocol_diagnostic,
@@ -177,6 +179,8 @@ use crate::{
         recovery_lifeline_command_executor_capability_table_diagnostic_selftest_method,
         recovery_lifeline_command_handler_binding_diagnostic_method,
         recovery_lifeline_command_handler_binding_diagnostic_selftest_method,
+        recovery_lifeline_command_side_effect_gate_diagnostic_method,
+        recovery_lifeline_command_side_effect_gate_diagnostic_selftest_method,
         recovery_lifeline_command_vocabulary_method,
         recovery_lifeline_command_vocabulary_selftest_method,
         recovery_lifeline_protocol_diagnostic_method,
@@ -836,6 +840,18 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_recovery_lifeline_command_executor_capability_table_diagnostic_selftest();
         return DispatchOutcome::Response(
             "recovery.lifeline_command_executor_capability_table_diagnostic_selftest",
+        );
+    }
+    if recovery_lifeline_command_side_effect_gate_diagnostic_method(method) {
+        record_read("recovery.lifeline_command_side_effect_gate_diagnostic");
+        emit_recovery_lifeline_command_side_effect_gate_diagnostic(method);
+        return DispatchOutcome::Response("recovery.lifeline_command_side_effect_gate_diagnostic");
+    }
+    if recovery_lifeline_command_side_effect_gate_diagnostic_selftest_method(method) {
+        record_read("recovery.lifeline_command_side_effect_gate_diagnostic_selftest");
+        emit_recovery_lifeline_command_side_effect_gate_diagnostic_selftest();
+        return DispatchOutcome::Response(
+            "recovery.lifeline_command_side_effect_gate_diagnostic_selftest",
         );
     }
     if recovery_artifact_load_binding_method(method) {

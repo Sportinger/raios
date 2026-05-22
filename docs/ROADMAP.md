@@ -3,21 +3,21 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-22 by Codex after adding
-`recovery.lifeline_command_executor_capability_table_diagnostic` and
-`recovery.lifeline_command_executor_capability_table_diagnostic_selftest` over
-`raios.recovery_lifeline_command_executor_capability_table.v0`, consuming the
-retained command-dispatch behavior reference and dispatch-denial boundary,
-validating only command id, argument schema, argument hash, target locator,
+`recovery.lifeline_command_side_effect_gate_diagnostic` and
+`recovery.lifeline_command_side_effect_gate_diagnostic_selftest` over
+`raios.recovery_lifeline_command_side_effect_gate.v0`, consuming the retained
+executor-capability-table reference and dispatch-denial boundary, validating
+only command id, argument schema, argument hash, target locator,
 command-envelope reference hash, body-canonicalization hash, handler-binding
 hash, status-read handler hash, rollback authorization hashes,
 disable/restart/load target hashes, recovery-memory write-authority hash,
 durable-audit/rollback write-authority hash, service-inventory side-effect
-boundary hash, command-dispatch behavior hash, dispatch boundary id, executor
-capability table id, executor capability projection hash, and current-boot
-scope, retaining a valid status-command executor-capability-table hash
+boundary hash, command-dispatch behavior hash, executor-capability-table hash,
+dispatch boundary id, side-effect gate id, side-effect projection hash, and
+current-boot scope, retaining a valid status-command side-effect-gate hash
 reference only as local-only current-boot evidence, and proving dispatch
 advances only to explicit `defined_non_executable` /
-`recovery_lifeline_command_dispatch_execution_disabled` after the table is
+`recovery_lifeline_command_dispatch_execution_disabled` after the gate is
 retained while still accepting no raw command body, no lifeline command body,
 no lifeline command envelope, allocating no service slot, creating no service
 inventory records, changing no service inventory, and keeping command
@@ -227,7 +227,7 @@ Latest maintenance verification:
   passed on 2026-05-22.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260522-234649-28708.json` with 4058/4058
+  `release\vm-reports\shadow-20260523-001220-16768.json` with 4141/4141
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -898,8 +898,18 @@ expose a local-only current-boot
 boundary that consumes the retained command-dispatch behavior reference,
 validates command-dispatch behavior hash, executor capability table id, and
 executor capability projection hash, retains only local-only current-boot
-executor-capability-table evidence, and leaves dispatch at explicit
-`defined_non_executable` /
+executor-capability-table evidence, and advances dispatch only to the missing
+side-effect gate without accepting command bodies, dispatching commands,
+enabling command execution, allocating service slots, or mutating service
+inventory.
+`recovery.lifeline_command_side_effect_gate_diagnostic` and
+`recovery.lifeline_command_side_effect_gate_diagnostic_selftest` now expose a
+local-only current-boot
+`raios.recovery_lifeline_command_side_effect_gate.v0` hash-reference boundary
+that consumes the retained executor-capability-table reference, validates
+executor-capability-table hash, side-effect gate id, and side-effect
+projection hash, retains only local-only current-boot side-effect-gate
+evidence, and leaves dispatch at explicit `defined_non_executable` /
 `recovery_lifeline_command_dispatch_execution_disabled` without accepting
 command bodies, dispatching commands, enabling command execution, allocating
 service slots, or mutating service inventory.
@@ -908,11 +918,12 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Define the recovery lifeline command side-effect gate after
-executor-capability-table authority.
+Define the recovery lifeline command execution-enablement boundary after the
+side-effect gate.
 ```
 
 Start from the retained
+`raios.recovery_lifeline_command_side_effect_gate.v0` event,
 `raios.recovery_lifeline_command_executor_capability_table.v0` event,
 `raios.recovery_lifeline_command_dispatch_behavior.v0` event,
 `raios.recovery_service_inventory_side_effect_boundary.v0` event,
@@ -933,7 +944,7 @@ Start from the retained
 runtime isolation diagnostic, rollback transaction-engine diagnostic, durable
 audit/rollback persistence diagnostic, and recovery memory provenance
 diagnostic. Add the next read-only hash-reference boundary for
-`raios.recovery_lifeline_command_side_effect_gate.v0`: validate only command
+`raios.recovery_lifeline_command_execution_enablement.v0`: validate only command
 id, argument schema, argument hash, target locator, command-envelope reference
 hash, body-canonicalization hash, handler-binding hash, status-read handler
 hash, rollback-preview authorization hash, rollback-apply authorization hash,
@@ -941,24 +952,24 @@ disable-module target-binding hash, restart-last-good target-binding hash,
 load-artifact-by-hash target-binding hash, recovery-memory write-authority
 hash, durable-audit/rollback write-authority hash, service-inventory
 side-effect boundary hash, command-dispatch behavior hash,
-executor-capability-table hash, dispatch boundary id, side-effect gate id,
-side-effect projection hash, and current-boot scope. It should reject stale/
-wrong-schema/substituted/mismatched executor/dispatch-behavior/service-inventory/
-durable-write-authority/memory-authority/load-target/restart-target/
-disable-target/apply-authorization/preview-authorization/status-read/
-handler-binding/body-canonicalization/dispatch/envelope/admission/memory-provenance/
-durable-persistence/rollback-engine/loader-isolation/command-vocabulary/
-protocol-state/request chains and still avoid fake recovery shell behavior,
-fake command execution, fake persistent memory, fallback stores, durable
+executor-capability-table hash, side-effect-gate hash, dispatch boundary id,
+execution-enablement id, execution projection hash, and current-boot scope. It
+should reject stale/wrong-schema/substituted/mismatched side-effect-gate/
+executor/dispatch-behavior/service-inventory/durable-write-authority/
+memory-authority/load-target/restart-target/disable-target/apply-authorization/
+preview-authorization/status-read/handler-binding/body-canonicalization/
+dispatch/envelope/admission/memory-provenance/durable-persistence/
+rollback-engine/loader-isolation/command-vocabulary/protocol-state/request
+chains and still avoid fake recovery shell behavior, fake command execution,
+fake persistent memory, fallback stores, durable
 records, loaders, rollback transactions, service-slot side effects, provider
 export, direct-OpenAI recovery shortcuts, or recovery lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only command side-effect-gate hash-reference diagnostics over
-   the retained executor-capability-table reference and dispatch-denial
-   boundary.
-2. Bind side-effect-gate authority to command id, argument schema/hash,
+1. Define read-only command execution-enablement hash-reference diagnostics
+   over the retained side-effect-gate reference and dispatch-denial boundary.
+2. Bind execution-enablement authority to command id, argument schema/hash,
    target locator, command-envelope reference hash, body-canonicalization hash,
    handler-binding hash, status-read handler hash, preview authorization hash,
    apply authorization hash, disable-module target-binding hash,
@@ -966,12 +977,13 @@ Next three tasks:
    hash, recovery-memory write-authority hash, durable-audit/rollback
    write-authority hash, service-inventory side-effect boundary hash,
    command-dispatch behavior hash, executor-capability-table hash,
-   side-effect gate id, and side-effect projection hash while still accepting
-   no raw command body.
+   side-effect-gate hash, execution-enablement id, and execution projection
+   hash while still accepting no raw command body.
 3. Keep selftests proving stale/wrong-schema/substituted/mismatched
-   executor, dispatch-behavior, service-inventory, durable-write-authority, memory-authority, load-target,
-   restart-target, disable-target, apply-authorization, preview-authorization,
-   status-read, handler-binding, body-canonicalization, dispatch,
+   side-effect-gate, executor, dispatch-behavior, service-inventory,
+   durable-write-authority, memory-authority, load-target, restart-target,
+   disable-target, apply-authorization, preview-authorization, status-read,
+   handler-binding, body-canonicalization, dispatch,
    command-envelope, command-admission, memory provenance, persistence,
    rollback-engine, loader-isolation, command vocabulary, protocol-state, and
    lifeline request chains stay rejected without implementing recovery shell

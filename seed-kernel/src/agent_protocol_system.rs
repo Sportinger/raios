@@ -309,6 +309,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.lifeline_command_dispatch_behavior_diagnostic_selftest",
     "recovery.lifeline_command_executor_capability_table_diagnostic",
     "recovery.lifeline_command_executor_capability_table_diagnostic_selftest",
+    "recovery.lifeline_command_side_effect_gate_diagnostic",
+    "recovery.lifeline_command_side_effect_gate_diagnostic_selftest",
     "recovery.load_binding",
     "recovery.load_binding_selftest",
 ];

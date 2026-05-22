@@ -35,7 +35,7 @@ const RECOVERY_DURABLE_AUDIT_ROLLBACK_PERSISTENCE_SELFTEST_CASES: usize = 51;
 const RECOVERY_MEMORY_PROVENANCE_SELFTEST_CASES: usize = 65;
 const RECOVERY_LIFELINE_COMMAND_ADMISSION_SELFTEST_CASES: usize = 45;
 const RECOVERY_LIFELINE_COMMAND_ENVELOPE_SELFTEST_CASES: usize = 47;
-const RECOVERY_LIFELINE_COMMAND_DISPATCH_SELFTEST_CASES: usize = 42;
+const RECOVERY_LIFELINE_COMMAND_DISPATCH_SELFTEST_CASES: usize = 43;
 const RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_SELFTEST_CASES: usize = 43;
 const RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_SELFTEST_CASES: usize = 10;
 const RECOVERY_LIFELINE_STATUS_READ_HANDLER_SELFTEST_CASES: usize = 10;
@@ -49,6 +49,7 @@ const DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_SELFTEST_CASES: usize = 10;
 const RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_SELFTEST_CASES: usize = 10;
 const RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_SELFTEST_CASES: usize = 10;
 const RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_SELFTEST_CASES: usize = 10;
+const RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_SELFTEST_CASES: usize = 10;
 const RECOVERY_COMMAND_ADMISSION_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_command_admission.current_boot";
 const RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID: &str =
@@ -77,6 +78,8 @@ const RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_command_dispatch_behavior.current_boot";
 const RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_command_executor_capability_table.current_boot";
+const RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_BOUNDARY_ID: &str =
+    "boundary.recovery_lifeline_command_side_effect_gate.current_boot";
 
 #[derive(Clone, Copy)]
 struct RecoveryIdentityReferenceCheck<'a> {
@@ -928,6 +931,7 @@ struct RecoveryLifelineCommandDispatchCandidate {
     service_inventory_side_effect_boundary_present: bool,
     command_dispatch_behavior_present: bool,
     executor_capability_table_present: bool,
+    side_effect_gate_present: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -950,6 +954,7 @@ struct RecoveryLifelineCommandDispatchCheck {
     service_inventory_side_effect_boundary_present: bool,
     command_dispatch_behavior_present: bool,
     executor_capability_table_present: bool,
+    side_effect_gate_present: bool,
     accepts_lifeline_command_body: bool,
     accepts_lifeline_command_envelope: bool,
     dispatches_lifeline_command: bool,
@@ -1841,6 +1846,81 @@ struct RecoveryLifelineCommandExecutorCapabilityTableSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+struct RecoveryLifelineCommandSideEffectGateInput<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    side_effect_gate_hash: Option<[u8; 32]>,
+    retained_executor_capability_table_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    target_locator: Option<&'a str>,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    command_body_canonicalization_hash: Option<[u8; 32]>,
+    handler_binding_hash: Option<[u8; 32]>,
+    status_read_handler_hash: Option<[u8; 32]>,
+    rollback_preview_authorization_hash: Option<[u8; 32]>,
+    rollback_apply_authorization_hash: Option<[u8; 32]>,
+    disable_module_target_binding_hash: Option<[u8; 32]>,
+    restart_last_good_target_binding_hash: Option<[u8; 32]>,
+    load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
+    recovery_memory_write_authority_hash: Option<[u8; 32]>,
+    durable_audit_rollback_write_authority_hash: Option<[u8; 32]>,
+    service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
+    command_dispatch_behavior_hash: Option<[u8; 32]>,
+    executor_capability_table_hash: Option<[u8; 32]>,
+    command_dispatch_boundary_id: Option<&'a str>,
+    side_effect_gate_id: Option<&'a str>,
+    side_effect_projection_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandSideEffectGateReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    side_effect_gate_hash: Option<[u8; 32]>,
+    expected_side_effect_gate_hash: Option<[u8; 32]>,
+    retained_executor_capability_table_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    target_locator: Option<&'a str>,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    command_body_canonicalization_hash: Option<[u8; 32]>,
+    handler_binding_hash: Option<[u8; 32]>,
+    status_read_handler_hash: Option<[u8; 32]>,
+    rollback_preview_authorization_hash: Option<[u8; 32]>,
+    rollback_apply_authorization_hash: Option<[u8; 32]>,
+    disable_module_target_binding_hash: Option<[u8; 32]>,
+    restart_last_good_target_binding_hash: Option<[u8; 32]>,
+    load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
+    recovery_memory_write_authority_hash: Option<[u8; 32]>,
+    durable_audit_rollback_write_authority_hash: Option<[u8; 32]>,
+    service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
+    command_dispatch_behavior_hash: Option<[u8; 32]>,
+    executor_capability_table_hash: Option<[u8; 32]>,
+    command_dispatch_boundary_id: Option<&'a str>,
+    side_effect_gate_id: Option<&'a str>,
+    side_effect_projection_hash: Option<[u8; 32]>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+struct RecoveryLifelineCommandSideEffectGateSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
 struct RecoveryEvidenceCandidate {
     retained: bool,
     current_boot: bool,
@@ -2106,6 +2186,25 @@ pub(crate) fn recovery_lifeline_command_executor_capability_table_diagnostic_sel
     ) || method_head_eq(
         method,
         "recovery.lifeline_command_executor_capability_table_selftest",
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_side_effect_gate_diagnostic_method(method: &str) -> bool {
+    method_head_eq(
+        method,
+        "recovery.lifeline_command_side_effect_gate_diagnostic",
+    ) || method_head_eq(method, "recovery.lifeline_command_side_effect_gate")
+}
+
+pub(crate) fn recovery_lifeline_command_side_effect_gate_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    method_head_eq(
+        method,
+        "recovery.lifeline_command_side_effect_gate_diagnostic_selftest",
+    ) || method_head_eq(
+        method,
+        "recovery.lifeline_command_side_effect_gate_selftest",
     )
 }
 
@@ -4968,6 +5067,8 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
         event_log::latest_recovery_lifeline_command_dispatch_behavior_reference();
     let retained_executor_capability_table =
         event_log::latest_recovery_lifeline_command_executor_capability_table_reference();
+    let retained_side_effect_gate =
+        event_log::latest_recovery_lifeline_command_side_effect_gate_reference();
     let candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
         retained_envelope,
         retained_request,
@@ -4984,6 +5085,7 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
         retained_service_inventory_side_effect_boundary,
         retained_command_dispatch_behavior,
         retained_executor_capability_table,
+        retained_side_effect_gate,
     );
     let check = evaluate_recovery_lifeline_command_dispatch(candidate);
 
@@ -5140,6 +5242,14 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
         candidate.executor_capability_table_present,
         "recovery_lifeline_command_executor_capability_table_not_implemented",
         &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "side_effect_gate",
+        "raios.recovery_lifeline_command_side_effect_gate.v0",
+        candidate.side_effect_gate_present,
+        "recovery_lifeline_command_side_effect_gate_not_implemented",
+        &check,
         false,
     );
     raw_line("      ],");
@@ -5219,6 +5329,7 @@ pub(crate) fn emit_recovery_lifeline_command_body_canonicalization_diagnostic(me
     let dispatch_candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
         retained_envelope,
         retained_request,
+        None,
         None,
         None,
         None,
@@ -7290,6 +7401,163 @@ pub(crate) fn emit_recovery_lifeline_command_executor_capability_table_diagnosti
     raw_line("      ],");
     raw_line("      \"can_move_beyond_denial\": false");
     end_response("recovery.lifeline_command_executor_capability_table_diagnostic_selftest");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_side_effect_gate_diagnostic(method: &str) {
+    let check = parse_recovery_lifeline_command_side_effect_gate_reference(
+        recovery_lifeline_command_side_effect_gate_diagnostic_arg(method),
+        true,
+    );
+    let recorded_event_id = if check.valid {
+        recovery_lifeline_command_side_effect_gate_from_check(&check)
+            .map(event_log::record_recovery_lifeline_command_side_effect_gate_reference)
+    } else {
+        None
+    };
+    let retained_side_effect_gate =
+        event_log::latest_recovery_lifeline_command_side_effect_gate_reference();
+
+    begin_response("recovery.lifeline_command_side_effect_gate_diagnostic");
+    raw_line(
+        "      \"schema\": \"raios.recovery_lifeline_command_side_effect_gate_diagnostic.v0\",",
+    );
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw("      \"creates_retained_recovery_lifeline_command_side_effect_gate_records\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"executes_lifeline_status\": false,");
+    raw_line("      \"executes_rollback_preview\": false,");
+    raw_line("      \"executes_rollback_apply\": false,");
+    raw_line("      \"executes_disable_module\": false,");
+    raw_line("      \"executes_restart_last_good\": false,");
+    raw_line("      \"executes_load_recovery_artifact_by_hash\": false,");
+    raw_line("      \"disables_module\": false,");
+    raw_line("      \"restarts_last_good\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"authorizes_recovery_load\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"exports_provider_context\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"recovery.lifeline_command_side_effect_gate_diagnostic <side_effect_gate_hash> <retained_executor_capability_table_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <command_dispatch_boundary_id> <side_effect_gate_id> <side_effect_projection_hash> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline_command_side_effect_gate\",");
+    raw_line("        \"side_effect_gate_schema\": \"raios.recovery_lifeline_command_side_effect_gate.v0\",");
+    raw_line("        \"side_effect_gate_canonicalization\": \"raios.recovery_lifeline_command_side_effect_gate.canonical.v0\",");
+    raw_line(
+        "        \"side_effect_gate_id\": \"boundary.recovery_lifeline_command_side_effect_gate.current_boot\"",
+    );
+    raw_line("      },");
+    emit_recovery_lifeline_command_side_effect_gate_reference_object(&check);
+    raw_line(",");
+    raw_line("      \"side_effect_gate_requirements\": [");
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "command_execution_enablement",
+        "raios.recovery_lifeline_command_execution_enablement.v0",
+        "recovery_lifeline_command_execution_enablement_missing",
+        false,
+    );
+    raw_line("      ],");
+    emit_recovery_lifeline_command_side_effect_gate_retained_reference(
+        &check,
+        recorded_event_id,
+        retained_side_effect_gate,
+    );
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"side_effect_gate_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.lifeline_command_side_effect_gate_diagnostic");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_side_effect_gate_diagnostic_selftest() {
+    let cases = recovery_lifeline_command_side_effect_gate_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.lifeline_command_side_effect_gate_diagnostic_selftest");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_command_side_effect_gate_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line(
+        "      \"creates_retained_recovery_lifeline_command_side_effect_gate_records\": false,",
+    );
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_lifeline_command_side_effect_gate_selftest_case(
+            &cases[idx],
+            idx + 1 != cases.len(),
+        );
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.lifeline_command_side_effect_gate_diagnostic_selftest");
 }
 
 pub(crate) fn emit_recovery_artifact_load_binding() {
@@ -10951,6 +11219,9 @@ fn emit_recovery_lifeline_command_dispatch_boundary(check: &RecoveryLifelineComm
     raw("        \"executor_capability_table_present\": ");
     raw_bool(check.executor_capability_table_present);
     raw_line(",");
+    raw("        \"side_effect_gate_present\": ");
+    raw_bool(check.side_effect_gate_present);
+    raw_line(",");
     raw("        \"accepts_lifeline_command_body\": ");
     raw_bool(check.accepts_lifeline_command_body);
     raw_line(",");
@@ -13127,6 +13398,188 @@ fn emit_recovery_lifeline_command_executor_capability_table_retained_reference(
 
 fn emit_recovery_lifeline_command_executor_capability_table_selftest_case(
     case: &RecoveryLifelineCommandExecutorCapabilityTableSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_lifeline_command_side_effect_gate_reference_object(
+    check: &RecoveryLifelineCommandSideEffectGateReferenceCheck<'_>,
+) {
+    raw_line("      \"side_effect_gate_reference\": {");
+    raw("        \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"has_reference\": ");
+    raw_bool(check.has_reference);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw("        \"command_id\": ");
+    json_opt_str(check.command_id);
+    raw_line(",");
+    raw("        \"argument_schema\": ");
+    json_opt_str(check.argument_schema);
+    raw_line(",");
+    raw("        \"target_locator\": ");
+    json_opt_str(check.target_locator);
+    raw_line(",");
+    raw("        \"command_dispatch_boundary_id\": ");
+    json_opt_str(check.command_dispatch_boundary_id);
+    raw_line(",");
+    raw("        \"side_effect_gate_id\": ");
+    json_opt_str(check.side_effect_gate_id);
+    raw_line(",");
+    raw("        \"retained_executor_capability_table_event_id\": ");
+    json_opt_str(check.retained_executor_capability_table_event_id);
+    raw_line(",");
+    raw("        \"argument_hash\": ");
+    json_sha256_option(check.argument_hash);
+    raw_line(",");
+    raw("        \"command_envelope_reference_hash\": ");
+    json_sha256_option(check.command_envelope_reference_hash);
+    raw_line(",");
+    raw("        \"command_body_canonicalization_hash\": ");
+    json_sha256_option(check.command_body_canonicalization_hash);
+    raw_line(",");
+    raw("        \"handler_binding_hash\": ");
+    json_sha256_option(check.handler_binding_hash);
+    raw_line(",");
+    raw("        \"status_read_handler_hash\": ");
+    json_sha256_option(check.status_read_handler_hash);
+    raw_line(",");
+    raw("        \"rollback_preview_authorization_hash\": ");
+    json_sha256_option(check.rollback_preview_authorization_hash);
+    raw_line(",");
+    raw("        \"rollback_apply_authorization_hash\": ");
+    json_sha256_option(check.rollback_apply_authorization_hash);
+    raw_line(",");
+    raw("        \"disable_module_target_binding_hash\": ");
+    json_sha256_option(check.disable_module_target_binding_hash);
+    raw_line(",");
+    raw("        \"restart_last_good_target_binding_hash\": ");
+    json_sha256_option(check.restart_last_good_target_binding_hash);
+    raw_line(",");
+    raw("        \"load_artifact_by_hash_target_binding_hash\": ");
+    json_sha256_option(check.load_artifact_by_hash_target_binding_hash);
+    raw_line(",");
+    raw("        \"recovery_memory_write_authority_hash\": ");
+    json_sha256_option(check.recovery_memory_write_authority_hash);
+    raw_line(",");
+    raw("        \"durable_audit_rollback_write_authority_hash\": ");
+    json_sha256_option(check.durable_audit_rollback_write_authority_hash);
+    raw_line(",");
+    raw("        \"service_inventory_side_effect_boundary_hash\": ");
+    json_sha256_option(check.service_inventory_side_effect_boundary_hash);
+    raw_line(",");
+    raw("        \"command_dispatch_behavior_hash\": ");
+    json_sha256_option(check.command_dispatch_behavior_hash);
+    raw_line(",");
+    raw("        \"executor_capability_table_hash\": ");
+    json_sha256_option(check.executor_capability_table_hash);
+    raw_line(",");
+    raw("        \"side_effect_projection_hash\": ");
+    json_sha256_option(check.side_effect_projection_hash);
+    raw_line(",");
+    raw("        \"side_effect_gate_hash\": ");
+    json_sha256_option(check.side_effect_gate_hash);
+    raw_line(",");
+    raw("        \"expected_side_effect_gate_hash\": ");
+    json_sha256_option(check.expected_side_effect_gate_hash);
+    raw_line(",");
+    raw("        \"valid_hash_reference\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_side_effect_gate_retained_reference(
+    check: &RecoveryLifelineCommandSideEffectGateReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandSideEffectGateReference,
+    )>,
+) {
+    raw_line("      \"retained_recovery_lifeline_command_side_effect_gate_reference\": {");
+    raw("        \"status\": ");
+    json_str(if check.valid {
+        "retained_hash_reference_command_still_denied"
+    } else if retained.is_some() {
+        "previous_retained_hash_reference_present"
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw("        \"recorded_event_id\": ");
+    json_event_id_option(recorded_event_id);
+    raw_line(",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false,");
+    raw("        \"latest_event_id\": ");
+    if let Some((event_id, _)) = retained {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_side_effect_gate_id\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.side_effect_gate_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_side_effect_gate_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.side_effect_gate_hash);
+    } else {
+        raw("null");
+    }
+    raw_line("");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_side_effect_gate_selftest_case(
+    case: &RecoveryLifelineCommandSideEffectGateSelfTestCase,
     comma: bool,
 ) {
     raw("        {\"case\": ");
@@ -20479,6 +20932,7 @@ fn recovery_lifeline_command_body_canonicalization_live_chain_mismatch(
         None,
         None,
         None,
+        None,
     );
     let dispatch_check = evaluate_recovery_lifeline_command_dispatch(dispatch_candidate);
     if !method_eq(
@@ -25501,6 +25955,502 @@ fn recovery_lifeline_command_executor_capability_table_from_check(
     )
 }
 
+fn parse_recovery_lifeline_command_side_effect_gate_reference(
+    arg: &str,
+    require_live_retained: bool,
+) -> RecoveryLifelineCommandSideEffectGateReferenceCheck<'_> {
+    let mut parts = arg.split_whitespace();
+    let side_effect_gate_hash = parts.next();
+    let retained_executor_capability_table_event_id = parts.next();
+    let command_id = parts.next();
+    let argument_schema = parts.next();
+    let argument_hash = parts.next();
+    let target_locator = parts.next();
+    let command_envelope_reference_hash = parts.next();
+    let command_body_canonicalization_hash = parts.next();
+    let handler_binding_hash = parts.next();
+    let status_read_handler_hash = parts.next();
+    let rollback_preview_authorization_hash = parts.next();
+    let rollback_apply_authorization_hash = parts.next();
+    let disable_module_target_binding_hash = parts.next();
+    let restart_last_good_target_binding_hash = parts.next();
+    let load_artifact_by_hash_target_binding_hash = parts.next();
+    let recovery_memory_write_authority_hash = parts.next();
+    let durable_audit_rollback_write_authority_hash = parts.next();
+    let service_inventory_side_effect_boundary_hash = parts.next();
+    let command_dispatch_behavior_hash = parts.next();
+    let executor_capability_table_hash = parts.next();
+    let command_dispatch_boundary_id = parts.next();
+    let side_effect_gate_id = parts.next();
+    let side_effect_projection_hash = parts.next();
+    let scope = parts.next().unwrap_or("current_boot");
+    let extra = parts.next();
+    let input = RecoveryLifelineCommandSideEffectGateInput {
+        has_reference: side_effect_gate_hash.is_some(),
+        arity_valid: side_effect_gate_hash.is_some()
+            && retained_executor_capability_table_event_id.is_some()
+            && command_id.is_some()
+            && argument_schema.is_some()
+            && argument_hash.is_some()
+            && target_locator.is_some()
+            && command_envelope_reference_hash.is_some()
+            && command_body_canonicalization_hash.is_some()
+            && handler_binding_hash.is_some()
+            && status_read_handler_hash.is_some()
+            && rollback_preview_authorization_hash.is_some()
+            && rollback_apply_authorization_hash.is_some()
+            && disable_module_target_binding_hash.is_some()
+            && restart_last_good_target_binding_hash.is_some()
+            && load_artifact_by_hash_target_binding_hash.is_some()
+            && recovery_memory_write_authority_hash.is_some()
+            && durable_audit_rollback_write_authority_hash.is_some()
+            && service_inventory_side_effect_boundary_hash.is_some()
+            && command_dispatch_behavior_hash.is_some()
+            && executor_capability_table_hash.is_some()
+            && command_dispatch_boundary_id.is_some()
+            && side_effect_gate_id.is_some()
+            && side_effect_projection_hash.is_some()
+            && extra.is_none(),
+        scope,
+        side_effect_gate_hash: side_effect_gate_hash.and_then(parse_sha256_ref),
+        retained_executor_capability_table_event_id,
+        command_id,
+        argument_schema,
+        argument_hash: argument_hash.and_then(parse_sha256_ref),
+        target_locator,
+        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
+        command_body_canonicalization_hash: command_body_canonicalization_hash
+            .and_then(parse_sha256_ref),
+        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
+        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
+        rollback_preview_authorization_hash: rollback_preview_authorization_hash
+            .and_then(parse_sha256_ref),
+        rollback_apply_authorization_hash: rollback_apply_authorization_hash
+            .and_then(parse_sha256_ref),
+        disable_module_target_binding_hash: disable_module_target_binding_hash
+            .and_then(parse_sha256_ref),
+        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
+            .and_then(parse_sha256_ref),
+        load_artifact_by_hash_target_binding_hash: load_artifact_by_hash_target_binding_hash
+            .and_then(parse_sha256_ref),
+        recovery_memory_write_authority_hash: recovery_memory_write_authority_hash
+            .and_then(parse_sha256_ref),
+        durable_audit_rollback_write_authority_hash: durable_audit_rollback_write_authority_hash
+            .and_then(parse_sha256_ref),
+        service_inventory_side_effect_boundary_hash: service_inventory_side_effect_boundary_hash
+            .and_then(parse_sha256_ref),
+        command_dispatch_behavior_hash: command_dispatch_behavior_hash.and_then(parse_sha256_ref),
+        executor_capability_table_hash: executor_capability_table_hash.and_then(parse_sha256_ref),
+        command_dispatch_boundary_id,
+        side_effect_gate_id,
+        side_effect_projection_hash: side_effect_projection_hash.and_then(parse_sha256_ref),
+    };
+    evaluate_recovery_lifeline_command_side_effect_gate_reference(input, require_live_retained)
+}
+
+fn evaluate_recovery_lifeline_command_side_effect_gate_reference(
+    input: RecoveryLifelineCommandSideEffectGateInput<'_>,
+    require_live_retained: bool,
+) -> RecoveryLifelineCommandSideEffectGateReferenceCheck<'_> {
+    if !input.has_reference {
+        return recovery_lifeline_command_side_effect_gate_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "missing",
+            "recovery_lifeline_command_side_effect_gate_absent",
+            false,
+        );
+    }
+    let Some(retained_executor_event_id) = input.retained_executor_capability_table_event_id else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(command_id) = input.command_id else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(argument_schema) = input.argument_schema else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(argument_hash) = input.argument_hash else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(target_locator) = input.target_locator else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(command_envelope_reference_hash) = input.command_envelope_reference_hash else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(command_body_canonicalization_hash) = input.command_body_canonicalization_hash else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(handler_binding_hash) = input.handler_binding_hash else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(status_read_handler_hash) = input.status_read_handler_hash else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(rollback_preview_authorization_hash) = input.rollback_preview_authorization_hash
+    else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(rollback_apply_authorization_hash) = input.rollback_apply_authorization_hash else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(disable_module_target_binding_hash) = input.disable_module_target_binding_hash else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(restart_last_good_target_binding_hash) = input.restart_last_good_target_binding_hash
+    else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(load_artifact_by_hash_target_binding_hash) =
+        input.load_artifact_by_hash_target_binding_hash
+    else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(recovery_memory_write_authority_hash) = input.recovery_memory_write_authority_hash
+    else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(durable_audit_rollback_write_authority_hash) =
+        input.durable_audit_rollback_write_authority_hash
+    else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(service_inventory_side_effect_boundary_hash) =
+        input.service_inventory_side_effect_boundary_hash
+    else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(command_dispatch_behavior_hash) = input.command_dispatch_behavior_hash else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(executor_capability_table_hash) = input.executor_capability_table_hash else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(command_dispatch_boundary_id) = input.command_dispatch_boundary_id else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(side_effect_gate_id) = input.side_effect_gate_id else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    let Some(side_effect_projection_hash) = input.side_effect_projection_hash else {
+        return recovery_lifeline_command_side_effect_gate_invalid(input);
+    };
+    if !input.arity_valid {
+        return recovery_lifeline_command_side_effect_gate_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "invalid_reference",
+            "recovery_lifeline_command_side_effect_gate_arity_invalid",
+            false,
+        );
+    }
+    if !method_eq(input.scope, "current_boot") {
+        return recovery_lifeline_command_side_effect_gate_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "stale_or_non_current_boot_reference",
+            "recovery_lifeline_command_side_effect_gate_scope_must_be_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(retained_executor_event_id) {
+        return recovery_lifeline_command_side_effect_gate_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "retained_executor_capability_table_event_id_not_current_boot",
+            false,
+        );
+    }
+    let Some(spec) = recovery_lifeline_command_spec(command_id) else {
+        return recovery_lifeline_command_side_effect_gate_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            false,
+        );
+    };
+    if !method_eq(argument_schema, spec.argument_schema) {
+        return recovery_lifeline_command_side_effect_gate_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            false,
+        );
+    }
+    if !method_eq(
+        command_dispatch_boundary_id,
+        RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+    ) {
+        return recovery_lifeline_command_side_effect_gate_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            false,
+        );
+    }
+    if !method_eq(
+        side_effect_gate_id,
+        RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_BOUNDARY_ID,
+    ) {
+        return recovery_lifeline_command_side_effect_gate_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_side_effect_gate_id_mismatch",
+            false,
+        );
+    }
+    let Some(target_locator_value) = event_log::RecoveryCommandTargetLocator::new(target_locator)
+    else {
+        return recovery_lifeline_command_side_effect_gate_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "invalid_reference",
+            "recovery_lifeline_command_target_locator_invalid",
+            false,
+        );
+    };
+    let expected = module_evidence::computed_recovery_lifeline_command_side_effect_gate_hash(
+        module_evidence::RecoveryLifelineCommandSideEffectGateHashInput {
+            retained_executor_capability_table_event_id: retained_executor_event_id,
+            command_id: spec.command_id,
+            argument_schema: spec.argument_schema,
+            argument_hash,
+            target_locator,
+            command_envelope_reference_hash,
+            command_body_canonicalization_hash,
+            handler_binding_hash,
+            status_read_handler_hash,
+            rollback_preview_authorization_hash,
+            rollback_apply_authorization_hash,
+            disable_module_target_binding_hash,
+            restart_last_good_target_binding_hash,
+            load_artifact_by_hash_target_binding_hash,
+            recovery_memory_write_authority_hash,
+            durable_audit_rollback_write_authority_hash,
+            service_inventory_side_effect_boundary_hash,
+            command_dispatch_behavior_hash,
+            executor_capability_table_hash,
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            side_effect_gate_id: RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_BOUNDARY_ID,
+            side_effect_projection_hash,
+        },
+    );
+    if input.side_effect_gate_hash != Some(expected) {
+        return recovery_lifeline_command_side_effect_gate_reference_check(
+            input,
+            Some(spec),
+            Some(target_locator_value),
+            Some(expected),
+            "mismatched_recovery_lifeline_command_side_effect_gate_hash",
+            "recovery_lifeline_command_side_effect_gate_hash_mismatch",
+            false,
+        );
+    }
+    if require_live_retained {
+        if let Some(reason) = recovery_lifeline_command_side_effect_gate_live_chain_mismatch(&input)
+        {
+            return recovery_lifeline_command_side_effect_gate_reference_check(
+                input,
+                Some(spec),
+                Some(target_locator_value),
+                Some(expected),
+                "rejected",
+                reason,
+                false,
+            );
+        }
+    }
+    recovery_lifeline_command_side_effect_gate_reference_check(
+        input,
+        Some(spec),
+        Some(target_locator_value),
+        Some(expected),
+        "valid_hash_reference_command_still_denied",
+        "recovery_lifeline_command_side_effect_gate_valid_but_execution_disabled",
+        true,
+    )
+}
+
+fn recovery_lifeline_command_side_effect_gate_invalid(
+    input: RecoveryLifelineCommandSideEffectGateInput<'_>,
+) -> RecoveryLifelineCommandSideEffectGateReferenceCheck<'_> {
+    recovery_lifeline_command_side_effect_gate_reference_check(
+        input,
+        None,
+        None,
+        None,
+        "invalid_reference",
+        "recovery_lifeline_command_side_effect_gate_invalid_hash",
+        false,
+    )
+}
+
+fn recovery_lifeline_command_side_effect_gate_reference_check<'a>(
+    input: RecoveryLifelineCommandSideEffectGateInput<'a>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    expected_side_effect_gate_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+) -> RecoveryLifelineCommandSideEffectGateReferenceCheck<'a> {
+    RecoveryLifelineCommandSideEffectGateReferenceCheck {
+        has_reference: input.has_reference,
+        arity_valid: input.arity_valid,
+        scope: input.scope,
+        side_effect_gate_hash: input.side_effect_gate_hash,
+        expected_side_effect_gate_hash,
+        retained_executor_capability_table_event_id: input
+            .retained_executor_capability_table_event_id,
+        command_id: input.command_id,
+        argument_schema: input.argument_schema,
+        argument_hash: input.argument_hash,
+        target_locator: input.target_locator,
+        command_envelope_reference_hash: input.command_envelope_reference_hash,
+        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
+        handler_binding_hash: input.handler_binding_hash,
+        status_read_handler_hash: input.status_read_handler_hash,
+        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
+        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
+        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
+        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
+        load_artifact_by_hash_target_binding_hash: input.load_artifact_by_hash_target_binding_hash,
+        recovery_memory_write_authority_hash: input.recovery_memory_write_authority_hash,
+        durable_audit_rollback_write_authority_hash: input
+            .durable_audit_rollback_write_authority_hash,
+        service_inventory_side_effect_boundary_hash: input
+            .service_inventory_side_effect_boundary_hash,
+        command_dispatch_behavior_hash: input.command_dispatch_behavior_hash,
+        executor_capability_table_hash: input.executor_capability_table_hash,
+        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
+        side_effect_gate_id: input.side_effect_gate_id,
+        side_effect_projection_hash: input.side_effect_projection_hash,
+        normalized_spec,
+        target_locator_value,
+        status,
+        reason,
+        valid,
+    }
+}
+
+fn recovery_lifeline_command_side_effect_gate_live_chain_mismatch(
+    input: &RecoveryLifelineCommandSideEffectGateInput<'_>,
+) -> Option<&'static str> {
+    let retained_event_id =
+        parse_current_boot_event_id(input.retained_executor_capability_table_event_id?)?;
+    let Some((latest_event_id, latest_reference)) =
+        event_log::latest_recovery_lifeline_command_executor_capability_table_reference()
+    else {
+        return Some("retained_recovery_lifeline_command_executor_capability_table_missing");
+    };
+    if latest_event_id != retained_event_id {
+        return Some(
+            "retained_recovery_lifeline_command_executor_capability_table_event_id_stale_or_dropped",
+        );
+    }
+    if !method_eq(input.command_id?, latest_reference.command_id)
+        || !method_eq(input.argument_schema?, latest_reference.argument_schema)
+        || input.argument_hash != Some(latest_reference.argument_hash)
+        || input.command_envelope_reference_hash
+            != Some(latest_reference.command_envelope_reference_hash)
+        || input.command_body_canonicalization_hash
+            != Some(latest_reference.command_body_canonicalization_hash)
+        || input.handler_binding_hash != Some(latest_reference.handler_binding_hash)
+        || input.status_read_handler_hash != Some(latest_reference.status_read_handler_hash)
+        || input.rollback_preview_authorization_hash
+            != Some(latest_reference.rollback_preview_authorization_hash)
+        || input.rollback_apply_authorization_hash
+            != Some(latest_reference.rollback_apply_authorization_hash)
+        || input.disable_module_target_binding_hash
+            != Some(latest_reference.disable_module_target_binding_hash)
+        || input.restart_last_good_target_binding_hash
+            != Some(latest_reference.restart_last_good_target_binding_hash)
+        || input.load_artifact_by_hash_target_binding_hash
+            != Some(latest_reference.load_artifact_by_hash_target_binding_hash)
+        || input.recovery_memory_write_authority_hash
+            != Some(latest_reference.recovery_memory_write_authority_hash)
+        || input.durable_audit_rollback_write_authority_hash
+            != Some(latest_reference.durable_audit_rollback_write_authority_hash)
+        || input.service_inventory_side_effect_boundary_hash
+            != Some(latest_reference.service_inventory_side_effect_boundary_hash)
+        || input.command_dispatch_behavior_hash
+            != Some(latest_reference.command_dispatch_behavior_hash)
+        || input.executor_capability_table_hash
+            != Some(latest_reference.executor_capability_table_hash)
+        || !method_eq(
+            input.target_locator?,
+            latest_reference.target_locator.as_str(),
+        )
+        || !method_eq(
+            input.command_dispatch_boundary_id?,
+            latest_reference.command_dispatch_boundary_id,
+        )
+    {
+        return Some("recovery_lifeline_command_executor_capability_table_mismatch");
+    }
+    None
+}
+
+fn recovery_lifeline_command_side_effect_gate_from_check(
+    check: &RecoveryLifelineCommandSideEffectGateReferenceCheck<'_>,
+) -> Option<event_log::RecoveryLifelineCommandSideEffectGateReference> {
+    let spec = check.normalized_spec?;
+    Some(event_log::RecoveryLifelineCommandSideEffectGateReference {
+        side_effect_gate_hash: check.side_effect_gate_hash?,
+        retained_executor_capability_table_event_id: parse_current_boot_event_id(
+            check.retained_executor_capability_table_event_id?,
+        )?,
+        command_id: spec.command_id,
+        argument_schema: spec.argument_schema,
+        argument_hash: check.argument_hash?,
+        target_locator: check.target_locator_value?,
+        command_envelope_reference_hash: check.command_envelope_reference_hash?,
+        command_body_canonicalization_hash: check.command_body_canonicalization_hash?,
+        handler_binding_hash: check.handler_binding_hash?,
+        status_read_handler_hash: check.status_read_handler_hash?,
+        rollback_preview_authorization_hash: check.rollback_preview_authorization_hash?,
+        rollback_apply_authorization_hash: check.rollback_apply_authorization_hash?,
+        disable_module_target_binding_hash: check.disable_module_target_binding_hash?,
+        restart_last_good_target_binding_hash: check.restart_last_good_target_binding_hash?,
+        load_artifact_by_hash_target_binding_hash: check
+            .load_artifact_by_hash_target_binding_hash?,
+        recovery_memory_write_authority_hash: check.recovery_memory_write_authority_hash?,
+        durable_audit_rollback_write_authority_hash: check
+            .durable_audit_rollback_write_authority_hash?,
+        service_inventory_side_effect_boundary_hash: check
+            .service_inventory_side_effect_boundary_hash?,
+        command_dispatch_behavior_hash: check.command_dispatch_behavior_hash?,
+        executor_capability_table_hash: check.executor_capability_table_hash?,
+        command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+        side_effect_gate_id: RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_BOUNDARY_ID,
+        side_effect_projection_hash: check.side_effect_projection_hash?,
+    })
+}
+
 fn evaluate_recovery_lifeline_command_envelope(
     candidate: RecoveryLifelineCommandEnvelopeCandidate,
 ) -> RecoveryLifelineCommandEnvelopeCheck {
@@ -26535,6 +27485,10 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
         event_log::EventId,
         event_log::RecoveryLifelineCommandExecutorCapabilityTableReference,
     )>,
+    retained_side_effect_gate: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandSideEffectGateReference,
+    )>,
 ) -> RecoveryLifelineCommandDispatchCandidate {
     let mut candidate = recovery_lifeline_command_dispatch_valid_candidate();
     candidate.command_body_canonicalization_present = false;
@@ -26550,6 +27504,7 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
     candidate.service_inventory_side_effect_boundary_present = false;
     candidate.command_dispatch_behavior_present = false;
     candidate.executor_capability_table_present = false;
+    candidate.side_effect_gate_present = false;
 
     let Some((envelope_event_id, envelope)) = retained_envelope else {
         candidate.command_envelope_reference_available = false;
@@ -27100,9 +28055,10 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
                 Some((behavior_event_id, command_dispatch_behavior));
         }
     }
+    let mut accepted_executor_capability_table = None;
     if let (
         Some((behavior_event_id, command_dispatch_behavior)),
-        Some((_, executor_capability_table)),
+        Some((executor_event_id, executor_capability_table)),
     ) = (
         accepted_command_dispatch_behavior,
         retained_executor_capability_table,
@@ -27154,6 +28110,63 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
                 executor_capability_table.executor_capability_table_id,
                 RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_BOUNDARY_ID,
             );
+        if candidate.executor_capability_table_present {
+            accepted_executor_capability_table =
+                Some((executor_event_id, executor_capability_table));
+        }
+    }
+    if let (Some((executor_event_id, executor_capability_table)), Some((_, side_effect_gate))) = (
+        accepted_executor_capability_table,
+        retained_side_effect_gate,
+    ) {
+        candidate.side_effect_gate_present =
+            side_effect_gate.retained_executor_capability_table_event_id == executor_event_id
+                && method_eq(
+                    side_effect_gate.command_id,
+                    executor_capability_table.command_id,
+                )
+                && method_eq(
+                    side_effect_gate.argument_schema,
+                    executor_capability_table.argument_schema,
+                )
+                && side_effect_gate.argument_hash == executor_capability_table.argument_hash
+                && side_effect_gate.target_locator == executor_capability_table.target_locator
+                && side_effect_gate.command_envelope_reference_hash
+                    == executor_capability_table.command_envelope_reference_hash
+                && side_effect_gate.command_body_canonicalization_hash
+                    == executor_capability_table.command_body_canonicalization_hash
+                && side_effect_gate.handler_binding_hash
+                    == executor_capability_table.handler_binding_hash
+                && side_effect_gate.status_read_handler_hash
+                    == executor_capability_table.status_read_handler_hash
+                && side_effect_gate.rollback_preview_authorization_hash
+                    == executor_capability_table.rollback_preview_authorization_hash
+                && side_effect_gate.rollback_apply_authorization_hash
+                    == executor_capability_table.rollback_apply_authorization_hash
+                && side_effect_gate.disable_module_target_binding_hash
+                    == executor_capability_table.disable_module_target_binding_hash
+                && side_effect_gate.restart_last_good_target_binding_hash
+                    == executor_capability_table.restart_last_good_target_binding_hash
+                && side_effect_gate.load_artifact_by_hash_target_binding_hash
+                    == executor_capability_table.load_artifact_by_hash_target_binding_hash
+                && side_effect_gate.recovery_memory_write_authority_hash
+                    == executor_capability_table.recovery_memory_write_authority_hash
+                && side_effect_gate.durable_audit_rollback_write_authority_hash
+                    == executor_capability_table.durable_audit_rollback_write_authority_hash
+                && side_effect_gate.service_inventory_side_effect_boundary_hash
+                    == executor_capability_table.service_inventory_side_effect_boundary_hash
+                && side_effect_gate.command_dispatch_behavior_hash
+                    == executor_capability_table.command_dispatch_behavior_hash
+                && side_effect_gate.executor_capability_table_hash
+                    == executor_capability_table.executor_capability_table_hash
+                && method_eq(
+                    side_effect_gate.command_dispatch_boundary_id,
+                    RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+                )
+                && method_eq(
+                    side_effect_gate.side_effect_gate_id,
+                    RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_BOUNDARY_ID,
+                );
     }
     candidate
 }
@@ -27333,6 +28346,15 @@ fn evaluate_recovery_lifeline_command_dispatch(
             true,
         );
     }
+    if !candidate.side_effect_gate_present {
+        return recovery_lifeline_command_dispatch_check(
+            "defined_non_executable",
+            "recovery_lifeline_command_side_effect_gate_not_implemented",
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
     recovery_lifeline_command_dispatch_check(
         "defined_non_executable",
         "recovery_lifeline_command_dispatch_execution_disabled",
@@ -27372,6 +28394,7 @@ fn recovery_lifeline_command_dispatch_check(
             .service_inventory_side_effect_boundary_present,
         command_dispatch_behavior_present: candidate.command_dispatch_behavior_present,
         executor_capability_table_present: candidate.executor_capability_table_present,
+        side_effect_gate_present: candidate.side_effect_gate_present,
         accepts_lifeline_command_body: false,
         accepts_lifeline_command_envelope: false,
         dispatches_lifeline_command: false,
@@ -27418,6 +28441,7 @@ fn recovery_lifeline_command_dispatch_valid_candidate() -> RecoveryLifelineComma
         service_inventory_side_effect_boundary_present: true,
         command_dispatch_behavior_present: true,
         executor_capability_table_present: true,
+        side_effect_gate_present: true,
     }
 }
 
@@ -27734,6 +28758,8 @@ fn recovery_lifeline_command_dispatch_selftest_cases(
     behavior_missing.command_dispatch_behavior_present = false;
     let mut executor_missing = valid;
     executor_missing.executor_capability_table_present = false;
+    let mut side_effect_missing = valid;
+    side_effect_missing.side_effect_gate_present = false;
 
     [
         recovery_lifeline_command_dispatch_selftest_case(
@@ -27981,6 +29007,12 @@ fn recovery_lifeline_command_dispatch_selftest_cases(
             "defined_non_executable",
             "recovery_lifeline_command_executor_capability_table_not_implemented",
             evaluate_recovery_lifeline_command_dispatch(executor_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "side_effect_gate_missing",
+            "defined_non_executable",
+            "recovery_lifeline_command_side_effect_gate_not_implemented",
+            evaluate_recovery_lifeline_command_dispatch(side_effect_missing),
         ),
         recovery_lifeline_command_dispatch_selftest_case(
             "all_inputs_present_command_dispatch_still_non_executable",
@@ -30697,6 +31729,166 @@ fn recovery_lifeline_command_executor_capability_table_selftest_case(
     check: RecoveryLifelineCommandExecutorCapabilityTableReferenceCheck<'_>,
 ) -> RecoveryLifelineCommandExecutorCapabilityTableSelfTestCase {
     RecoveryLifelineCommandExecutorCapabilityTableSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason),
+    }
+}
+
+fn recovery_lifeline_command_side_effect_gate_selftest_cases(
+) -> [RecoveryLifelineCommandSideEffectGateSelfTestCase;
+       RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_SELFTEST_CASES] {
+    let valid_input = RecoveryLifelineCommandSideEffectGateInput {
+        has_reference: true,
+        arity_valid: true,
+        scope: "current_boot",
+        side_effect_gate_hash: None,
+        retained_executor_capability_table_event_id: Some("event.current_boot.1"),
+        command_id: Some("recovery.lifeline.status"),
+        argument_schema: Some("raios.recovery_lifeline_command.status_args.v0"),
+        argument_hash: Some([0xb1; 32]),
+        target_locator: Some("recovery.lifeline.status.current_boot"),
+        command_envelope_reference_hash: Some([0xb2; 32]),
+        command_body_canonicalization_hash: Some([0xb3; 32]),
+        handler_binding_hash: Some([0xb4; 32]),
+        status_read_handler_hash: Some([0xb5; 32]),
+        rollback_preview_authorization_hash: Some([0xb6; 32]),
+        rollback_apply_authorization_hash: Some([0xb7; 32]),
+        disable_module_target_binding_hash: Some([0xb8; 32]),
+        restart_last_good_target_binding_hash: Some([0xb9; 32]),
+        load_artifact_by_hash_target_binding_hash: Some([0xba; 32]),
+        recovery_memory_write_authority_hash: Some([0xbb; 32]),
+        durable_audit_rollback_write_authority_hash: Some([0xbc; 32]),
+        service_inventory_side_effect_boundary_hash: Some([0xbd; 32]),
+        command_dispatch_behavior_hash: Some([0xbe; 32]),
+        executor_capability_table_hash: Some([0xbf; 32]),
+        command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
+        side_effect_gate_id: Some(RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_BOUNDARY_ID),
+        side_effect_projection_hash: Some([0xc0; 32]),
+    };
+    let expected = module_evidence::computed_recovery_lifeline_command_side_effect_gate_hash(
+        module_evidence::RecoveryLifelineCommandSideEffectGateHashInput {
+            retained_executor_capability_table_event_id: "event.current_boot.1",
+            command_id: "recovery.lifeline.status",
+            argument_schema: "raios.recovery_lifeline_command.status_args.v0",
+            argument_hash: [0xb1; 32],
+            target_locator: "recovery.lifeline.status.current_boot",
+            command_envelope_reference_hash: [0xb2; 32],
+            command_body_canonicalization_hash: [0xb3; 32],
+            handler_binding_hash: [0xb4; 32],
+            status_read_handler_hash: [0xb5; 32],
+            rollback_preview_authorization_hash: [0xb6; 32],
+            rollback_apply_authorization_hash: [0xb7; 32],
+            disable_module_target_binding_hash: [0xb8; 32],
+            restart_last_good_target_binding_hash: [0xb9; 32],
+            load_artifact_by_hash_target_binding_hash: [0xba; 32],
+            recovery_memory_write_authority_hash: [0xbb; 32],
+            durable_audit_rollback_write_authority_hash: [0xbc; 32],
+            service_inventory_side_effect_boundary_hash: [0xbd; 32],
+            command_dispatch_behavior_hash: [0xbe; 32],
+            executor_capability_table_hash: [0xbf; 32],
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            side_effect_gate_id: RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_BOUNDARY_ID,
+            side_effect_projection_hash: [0xc0; 32],
+        },
+    );
+    let mut valid = valid_input;
+    valid.side_effect_gate_hash = Some(expected);
+    let mut missing = valid;
+    missing.has_reference = false;
+    let mut arity = valid;
+    arity.arity_valid = false;
+    let mut previous = valid;
+    previous.scope = "previous_boot";
+    let mut unsupported = valid;
+    unsupported.command_id = Some("recovery.lifeline.unsupported");
+    let mut schema = valid;
+    schema.argument_schema = Some("raios.recovery_lifeline_command.bad_args.v0");
+    let mut boundary = valid;
+    boundary.command_dispatch_boundary_id =
+        Some("boundary.recovery_lifeline_command_dispatch.wrong");
+    let mut side_effect = valid;
+    side_effect.side_effect_gate_id =
+        Some("boundary.recovery_lifeline_command_side_effect_gate.wrong");
+    let mut hash = valid;
+    hash.side_effect_gate_hash = Some([0xff; 32]);
+    let live_missing = valid;
+
+    [
+        recovery_lifeline_command_side_effect_gate_selftest_case(
+            "recovery_lifeline_command_side_effect_gate_absent",
+            "missing",
+            "recovery_lifeline_command_side_effect_gate_absent",
+            evaluate_recovery_lifeline_command_side_effect_gate_reference(missing, false),
+        ),
+        recovery_lifeline_command_side_effect_gate_selftest_case(
+            "recovery_lifeline_command_side_effect_gate_arity_invalid",
+            "invalid_reference",
+            "recovery_lifeline_command_side_effect_gate_arity_invalid",
+            evaluate_recovery_lifeline_command_side_effect_gate_reference(arity, false),
+        ),
+        recovery_lifeline_command_side_effect_gate_selftest_case(
+            "previous_boot_recovery_lifeline_command_side_effect_gate",
+            "stale_or_non_current_boot_reference",
+            "recovery_lifeline_command_side_effect_gate_scope_must_be_current_boot",
+            evaluate_recovery_lifeline_command_side_effect_gate_reference(previous, false),
+        ),
+        recovery_lifeline_command_side_effect_gate_selftest_case(
+            "unsupported_command_id",
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            evaluate_recovery_lifeline_command_side_effect_gate_reference(unsupported, false),
+        ),
+        recovery_lifeline_command_side_effect_gate_selftest_case(
+            "argument_schema_mismatch",
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            evaluate_recovery_lifeline_command_side_effect_gate_reference(schema, false),
+        ),
+        recovery_lifeline_command_side_effect_gate_selftest_case(
+            "dispatch_boundary_mismatch",
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            evaluate_recovery_lifeline_command_side_effect_gate_reference(boundary, false),
+        ),
+        recovery_lifeline_command_side_effect_gate_selftest_case(
+            "side_effect_gate_id_mismatch",
+            "rejected",
+            "recovery_lifeline_command_side_effect_gate_id_mismatch",
+            evaluate_recovery_lifeline_command_side_effect_gate_reference(side_effect, false),
+        ),
+        recovery_lifeline_command_side_effect_gate_selftest_case(
+            "side_effect_gate_hash_mismatch",
+            "mismatched_recovery_lifeline_command_side_effect_gate_hash",
+            "recovery_lifeline_command_side_effect_gate_hash_mismatch",
+            evaluate_recovery_lifeline_command_side_effect_gate_reference(hash, false),
+        ),
+        recovery_lifeline_command_side_effect_gate_selftest_case(
+            "retained_recovery_lifeline_command_executor_capability_table_missing",
+            "rejected",
+            "retained_recovery_lifeline_command_executor_capability_table_missing",
+            evaluate_recovery_lifeline_command_side_effect_gate_reference(live_missing, true),
+        ),
+        recovery_lifeline_command_side_effect_gate_selftest_case(
+            "all_inputs_present_recovery_lifeline_command_side_effect_gate_still_non_executable",
+            "valid_hash_reference_command_still_denied",
+            "recovery_lifeline_command_side_effect_gate_valid_but_execution_disabled",
+            evaluate_recovery_lifeline_command_side_effect_gate_reference(valid, false),
+        ),
+    ]
+}
+
+fn recovery_lifeline_command_side_effect_gate_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryLifelineCommandSideEffectGateReferenceCheck<'_>,
+) -> RecoveryLifelineCommandSideEffectGateSelfTestCase {
+    RecoveryLifelineCommandSideEffectGateSelfTestCase {
         name,
         expected_status,
         expected_reason,
@@ -35809,6 +37001,21 @@ fn recovery_lifeline_command_executor_capability_table_diagnostic_arg(method: &s
         "recovery.lifeline_command_executor_capability_table",
     ) {
         "recovery.lifeline_command_executor_capability_table".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn recovery_lifeline_command_side_effect_gate_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(
+        method,
+        "recovery.lifeline_command_side_effect_gate_diagnostic",
+    ) {
+        "recovery.lifeline_command_side_effect_gate_diagnostic".len()
+    } else if method_head_eq(method, "recovery.lifeline_command_side_effect_gate") {
+        "recovery.lifeline_command_side_effect_gate".len()
     } else {
         return "";
     };
