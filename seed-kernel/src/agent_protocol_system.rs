@@ -305,6 +305,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.durable_audit_rollback_write_authority_diagnostic_selftest",
     "recovery.service_inventory_side_effect_boundary_diagnostic",
     "recovery.service_inventory_side_effect_boundary_diagnostic_selftest",
+    "recovery.lifeline_command_dispatch_behavior_diagnostic",
+    "recovery.lifeline_command_dispatch_behavior_diagnostic_selftest",
     "recovery.load_binding",
     "recovery.load_binding_selftest",
 ];

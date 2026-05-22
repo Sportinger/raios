@@ -64,7 +64,9 @@ Last verified locally: 2026-05-22 on Windows with QEMU 11 after adding guest
 `recovery.durable_audit_rollback_write_authority_diagnostic`/
 `recovery.durable_audit_rollback_write_authority_diagnostic_selftest`, plus
 `recovery.service_inventory_side_effect_boundary_diagnostic`/
-`recovery.service_inventory_side_effect_boundary_diagnostic_selftest`, plus typed missing
+`recovery.service_inventory_side_effect_boundary_diagnostic_selftest`, plus
+`recovery.lifeline_command_dispatch_behavior_diagnostic`/
+`recovery.lifeline_command_dispatch_behavior_diagnostic_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
 typed missing `raios.durable_audit_write_policy.v0`/
 `raios.rollback_install_policy.v0` policy facts, typed missing
@@ -646,34 +648,44 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline command-dispatch behavior boundary after
-service-inventory side-effect authority:
+Define the recovery lifeline command executor-capability table after
+dispatch-behavior authority:
 
 - add a read-only current-boot diagnostic for
-  `raios.recovery_lifeline_command_dispatch_behavior.v0`, consuming the
-  retained service-inventory side-effect boundary reference and
-  dispatch-denial boundary while still accepting no raw command body and
-  executing no recovery behavior
-- validate only hash/reference shape for the final dispatch-behavior gate:
-  command id, argument schema, argument hash, target locator, command-envelope
+  `raios.recovery_lifeline_command_executor_capability_table.v0`, consuming
+  the retained command-dispatch behavior reference while still accepting no raw
+  command body and executing no recovery behavior
+- validate only hash/reference shape for the executor-capability gate: command
+  id, argument schema, argument hash, target locator, command-envelope
   reference hash, body-canonicalization hash, handler-binding hash,
   status-read handler hash, rollback-preview authorization hash,
   rollback-apply authorization hash, disable-module target-binding hash,
   restart-last-good target-binding hash, load-artifact-by-hash target-binding
   hash, recovery-memory write-authority hash, durable-audit/rollback
-  write-authority hash, service-inventory side-effect boundary hash, dispatch
-  boundary id, behavior boundary id, behavior projection hash, and
-  current-boot scope
+  write-authority hash, service-inventory side-effect boundary hash,
+  command-dispatch behavior hash, dispatch boundary id, executor table id,
+  executor capability projection hash, and current-boot scope
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched service-inventory/durable-write-authority/memory-authority/
-  load-target/restart-target/disable-target/apply-authorization/
-  preview-authorization/status-read/handler-binding/body-canonicalization/
-  dispatch/envelope/admission/memory-provenance/durable-persistence/
-  rollback-engine/loader-isolation/command-vocabulary/protocol-state/request
-  inputs before retaining or reporting any dispatch-behavior reference
+  mismatched behavior/service-inventory/durable-write-authority/
+  memory-authority/load-target/restart-target/disable-target/
+  apply-authorization/preview-authorization/status-read/handler-binding/
+  body-canonicalization/dispatch/envelope/admission/memory-provenance/
+  durable-persistence/rollback-engine/loader-isolation/command-vocabulary/
+  protocol-state/request inputs before retaining or reporting any executor
+  capability reference
 
 The verified foundation for that task is:
 
+- `recovery.lifeline_command_dispatch_behavior_diagnostic` and
+  `recovery.lifeline_command_dispatch_behavior_diagnostic_selftest` now retain
+  only local-only current-boot command-dispatch behavior hash references over
+  the retained service-inventory side-effect boundary reference and leave
+  dispatch at explicit `defined_non_executable` with
+  `recovery_lifeline_command_dispatch_execution_disabled`. They do not accept
+  raw command bodies or lifeline envelopes, dispatch commands, execute
+  lifeline status/rollback/module/load behavior, allocate service slots, mutate
+  service inventory, write recovery memory, write durable audit/rollback state,
+  or export provider context.
 - `recovery.service_inventory_side_effect_boundary_diagnostic` and
   `recovery.service_inventory_side_effect_boundary_diagnostic_selftest` now
   retain only local-only current-boot service-inventory side-effect boundary

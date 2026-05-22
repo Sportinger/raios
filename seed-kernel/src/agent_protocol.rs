@@ -112,6 +112,8 @@ use crate::{
         emit_recovery_lifeline_command_admission_selftest,
         emit_recovery_lifeline_command_body_canonicalization_diagnostic,
         emit_recovery_lifeline_command_body_canonicalization_diagnostic_selftest,
+        emit_recovery_lifeline_command_dispatch_behavior_diagnostic,
+        emit_recovery_lifeline_command_dispatch_behavior_diagnostic_selftest,
         emit_recovery_lifeline_command_dispatch_diagnostic,
         emit_recovery_lifeline_command_dispatch_diagnostic_selftest,
         emit_recovery_lifeline_command_envelope_diagnostic,
@@ -163,6 +165,8 @@ use crate::{
         recovery_lifeline_command_admission_selftest_method,
         recovery_lifeline_command_body_canonicalization_diagnostic_method,
         recovery_lifeline_command_body_canonicalization_diagnostic_selftest_method,
+        recovery_lifeline_command_dispatch_behavior_diagnostic_method,
+        recovery_lifeline_command_dispatch_behavior_diagnostic_selftest_method,
         recovery_lifeline_command_dispatch_diagnostic_method,
         recovery_lifeline_command_dispatch_diagnostic_selftest_method,
         recovery_lifeline_command_envelope_diagnostic_method,
@@ -802,6 +806,18 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_recovery_service_inventory_side_effect_boundary_diagnostic_selftest();
         return DispatchOutcome::Response(
             "recovery.service_inventory_side_effect_boundary_diagnostic_selftest",
+        );
+    }
+    if recovery_lifeline_command_dispatch_behavior_diagnostic_method(method) {
+        record_read("recovery.lifeline_command_dispatch_behavior_diagnostic");
+        emit_recovery_lifeline_command_dispatch_behavior_diagnostic(method);
+        return DispatchOutcome::Response("recovery.lifeline_command_dispatch_behavior_diagnostic");
+    }
+    if recovery_lifeline_command_dispatch_behavior_diagnostic_selftest_method(method) {
+        record_read("recovery.lifeline_command_dispatch_behavior_diagnostic_selftest");
+        emit_recovery_lifeline_command_dispatch_behavior_diagnostic_selftest();
+        return DispatchOutcome::Response(
+            "recovery.lifeline_command_dispatch_behavior_diagnostic_selftest",
         );
     }
     if recovery_artifact_load_binding_method(method) {

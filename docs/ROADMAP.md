@@ -3,25 +3,26 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-22 by Codex after adding
-`recovery.service_inventory_side_effect_boundary_diagnostic` and
-`recovery.service_inventory_side_effect_boundary_diagnostic_selftest` over
-`raios.recovery_service_inventory_side_effect_boundary.v0`, consuming the
-retained durable-audit/rollback write-authority reference and dispatch-denial
-boundary, validating only command id, argument schema, argument hash, target
-locator, command-envelope reference hash, body-canonicalization hash,
-handler-binding hash, status-read handler hash, rollback authorization hashes,
+`recovery.lifeline_command_dispatch_behavior_diagnostic` and
+`recovery.lifeline_command_dispatch_behavior_diagnostic_selftest` over
+`raios.recovery_lifeline_command_dispatch_behavior.v0`, consuming the retained
+service-inventory side-effect boundary reference and dispatch-denial boundary,
+validating only command id, argument schema, argument hash, target locator,
+command-envelope reference hash, body-canonicalization hash, handler-binding
+hash, status-read handler hash, rollback authorization hashes,
 disable/restart/load target hashes, recovery-memory write-authority hash,
-durable-audit/rollback write-authority hash, dispatch boundary id,
-service-inventory side-effect boundary id, service-inventory projection hash,
-and current-boot scope, retaining a valid status-command side-effect boundary
-hash reference only as local-only current-boot evidence, and proving dispatch
-advances only to explicit `defined_non_executable` behavior while still
-accepting no raw command body, allocating no service slot, creating no service
-inventory records, changing no service inventory, and keeping command dispatch,
-memory writes, provider export, durable writes, rollback replay,
-recovery-memory writes, rollback preview/apply, loader execution, artifact
-loading, rollback installs, direct-OpenAI recovery shortcuts, and recovery
-behavior disabled.
+durable-audit/rollback write-authority hash, service-inventory side-effect
+boundary hash, dispatch boundary id, behavior boundary id, behavior projection
+hash, and current-boot scope, retaining a valid status-command dispatch
+behavior hash reference only as local-only current-boot evidence, and proving
+dispatch advances only to explicit `defined_non_executable` /
+`recovery_lifeline_command_dispatch_execution_disabled` while still accepting
+no raw command body, no lifeline command body, no lifeline command envelope,
+allocating no service slot, creating no service inventory records, changing no
+service inventory, and keeping command dispatch, command execution, memory
+writes, provider export, durable writes, rollback replay, recovery-memory
+writes, rollback preview/apply, loader execution, artifact loading, rollback
+installs, direct-OpenAI recovery shortcuts, and recovery behavior disabled.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
 diagnostics with
@@ -878,25 +879,28 @@ target reference to the restart target without loading artifacts, and retains a
 recovery-memory write-authority reference without writing memory. Dispatch now
 stops at missing service-inventory side-effect boundary after the retained
 durable-audit/rollback write-authority reference.
-`recovery.service_inventory_side_effect_boundary_diagnostic` and
-`recovery.service_inventory_side_effect_boundary_diagnostic_selftest` now expose
-a local-only current-boot
-`raios.recovery_service_inventory_side_effect_boundary.v0` hash-reference
-boundary that consumes the retained durable-audit/rollback write-authority
-reference, validates service side-effect boundary id and service-inventory
-projection hashes, retains only local-only current-boot side-effect boundary
-evidence, and leaves dispatch at explicit `defined_non_executable` behavior
-without allocating service slots or mutating service inventory.
+`recovery.lifeline_command_dispatch_behavior_diagnostic` and
+`recovery.lifeline_command_dispatch_behavior_diagnostic_selftest` now expose a
+local-only current-boot
+`raios.recovery_lifeline_command_dispatch_behavior.v0` hash-reference boundary
+that consumes the retained service-inventory side-effect boundary reference,
+validates service side-effect boundary hash, behavior boundary id, and behavior
+projection hash, retains only local-only current-boot dispatch-behavior
+evidence, and leaves dispatch at explicit `defined_non_executable` /
+`recovery_lifeline_command_dispatch_execution_disabled` without accepting
+command bodies, dispatching commands, enabling command execution, allocating
+service slots, or mutating service inventory.
 No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the recovery lifeline command-dispatch behavior boundary after
-service-inventory side-effect authority.
+Define the recovery lifeline command executor-capability table after
+dispatch-behavior authority.
 ```
 
 Start from the retained
+`raios.recovery_lifeline_command_dispatch_behavior.v0` event,
 `raios.recovery_service_inventory_side_effect_boundary.v0` event,
 `raios.durable_audit_rollback_write_authority.v0` event, retained
 `raios.recovery_memory_write_authority.v0` event, retained
@@ -915,16 +919,17 @@ Start from the retained
 runtime isolation diagnostic, rollback transaction-engine diagnostic, durable
 audit/rollback persistence diagnostic, and recovery memory provenance
 diagnostic. Add the next read-only hash-reference boundary for
-`raios.recovery_lifeline_command_dispatch_behavior.v0`: validate only command id,
-argument schema, argument hash, target locator, command-envelope reference
-hash, body-canonicalization hash, handler-binding hash, status-read handler
-hash, rollback-preview authorization hash, rollback-apply authorization hash,
-disable-module target-binding hash, restart-last-good target-binding hash,
-load-artifact-by-hash target-binding hash, recovery-memory write-authority
-hash, durable-audit/rollback write-authority hash, dispatch boundary id,
-service-inventory side-effect boundary hash, behavior boundary id, behavior
+`raios.recovery_lifeline_command_executor_capability_table.v0`: validate only
+command id, argument schema, argument hash, target locator, command-envelope
+reference hash, body-canonicalization hash, handler-binding hash, status-read
+handler hash, rollback-preview authorization hash, rollback-apply
+authorization hash, disable-module target-binding hash, restart-last-good
+target-binding hash, load-artifact-by-hash target-binding hash,
+recovery-memory write-authority hash, durable-audit/rollback write-authority
+hash, service-inventory side-effect boundary hash, command-dispatch behavior
+hash, dispatch boundary id, executor capability table id, executor capability
 projection hash, and current-boot scope. It should reject stale/wrong-schema/
-substituted/mismatched service-inventory/durable-write-authority/
+substituted/mismatched dispatch-behavior/service-inventory/durable-write-authority/
 memory-authority/load-target/restart-target/disable-target/apply-authorization/
 preview-authorization/status-read/handler-binding/body-canonicalization/
 dispatch/envelope/admission/memory-provenance/
@@ -936,20 +941,20 @@ export, direct-OpenAI recovery shortcuts, or recovery lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only command-dispatch behavior hash-reference diagnostics over
-   the retained service-inventory side-effect boundary reference and
+1. Define read-only command executor-capability-table hash-reference
+   diagnostics over the retained command-dispatch behavior reference and
    dispatch-denial boundary.
-2. Bind dispatch behavior authority to command id, argument
-   schema/hash, target locator, command-envelope reference hash,
-   body-canonicalization hash, handler-binding hash, status-read handler hash,
-   preview authorization hash, apply authorization hash, disable-module
-   target-binding hash, restart-last-good target-binding hash,
-   load-artifact-by-hash target-binding hash, recovery-memory write-authority
-   hash, durable-audit/rollback write-authority hash,
-   service-inventory side-effect boundary hash, behavior boundary id, and
-   behavior projection hash while still accepting no raw command body.
+2. Bind executor capability authority to command id, argument schema/hash,
+   target locator, command-envelope reference hash, body-canonicalization hash,
+   handler-binding hash, status-read handler hash, preview authorization hash,
+   apply authorization hash, disable-module target-binding hash,
+   restart-last-good target-binding hash, load-artifact-by-hash target-binding
+   hash, recovery-memory write-authority hash, durable-audit/rollback
+   write-authority hash, service-inventory side-effect boundary hash,
+   command-dispatch behavior hash, executor capability table id, and executor
+   capability projection hash while still accepting no raw command body.
 3. Keep selftests proving stale/wrong-schema/substituted/mismatched
-   service-inventory, durable-write-authority, memory-authority, load-target,
+   dispatch-behavior, service-inventory, durable-write-authority, memory-authority, load-target,
    restart-target, disable-target, apply-authorization, preview-authorization,
    status-read, handler-binding, body-canonicalization, dispatch,
    command-envelope, command-admission, memory provenance, persistence,
