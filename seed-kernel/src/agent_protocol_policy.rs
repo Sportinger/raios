@@ -149,6 +149,8 @@ fn requested_capability_for_read(method: &str) -> &'static str {
             method,
             "recovery.durable_audit_rollback_persistence_selftest",
         )
+        || method_eq(method, "recovery.memory_provenance")
+        || method_eq(method, "recovery.memory_provenance_selftest")
     {
         "cap.recovery.load_artifact.read"
     } else if method_eq(method, "module.manifest_diagnostic")

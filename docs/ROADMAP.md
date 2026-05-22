@@ -3,7 +3,22 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-22 by Codex after extending guest recovery lifeline
-diagnostics with `recovery.durable_audit_rollback_persistence` and
+diagnostics with `recovery.memory_provenance` and
+`recovery.memory_provenance_selftest` over
+`raios.recovery_memory_provenance.v0`, consuming the retained lifeline
+request/evidence chain, command-vocabulary envelope, loader runtime isolation
+boundary, rollback transaction-engine boundary, and durable audit/rollback
+persistence boundary, enumerating missing source record ids, source schema
+hashes, classification, authority level, rollback-transaction binding,
+last-good checkpoint binding, recovery-only export profile, redaction state,
+replay window, and audit linkage facts, and rejecting invalid request/
+protocol-state/command-vocabulary/loader-isolation/rollback-engine/
+durable-persistence inputs while still keeping memory writes, provider export,
+durable writes, rollback replay, recovery-memory writes, rollback preview/apply,
+command dispatch, loader execution, artifact loading, rollback installs,
+service-slot allocation, direct-OpenAI recovery shortcuts, and service
+inventory changes disabled; prior work added diagnostics with
+`recovery.durable_audit_rollback_persistence` and
 `recovery.durable_audit_rollback_persistence_selftest` over
 `raios.durable_audit_rollback_persistence.v0`, consuming the retained lifeline
 request/evidence chain, command-vocabulary envelope, loader runtime isolation
@@ -125,7 +140,7 @@ Latest maintenance verification:
   passed on 2026-05-22.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260522-103652-11720.json` with 2598/2598
+  `release\vm-reports\shadow-20260522-105810-7128.json` with 2708/2708
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -232,7 +247,13 @@ Latest maintenance verification:
   last-good checkpoint, write ordering, crash consistency, integrity root, and
   recovery-memory facts, rejects invalid rollback-engine/loader-isolation/
   command-vocabulary/protocol-state/request inputs, and keeps durable writes,
-  rollback replay, and recovery-memory writes disabled.
+  rollback replay, and recovery-memory writes disabled, plus
+  `recovery.memory_provenance` and `recovery.memory_provenance_selftest`
+  proving `raios.recovery_memory_provenance.v0` exposes source record id,
+  source schema hash, classification, authority, rollback-transaction binding,
+  last-good checkpoint binding, recovery-only export profile, redaction,
+  replay-window, and audit-linkage gaps while keeping memory writes and provider
+  export disabled.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
   positive request/export audit binding markers stayed absent. The local image
@@ -676,42 +697,52 @@ append-log identity, rollback-store identity, replay cursor, last-good
 checkpoint, write-ordering, crash-consistency, integrity-root/hash-chain, and
 recovery-memory-provenance facts without accepting persistence JSON or writing
 durable state.
+`recovery.memory_provenance` and `recovery.memory_provenance_selftest` now
+expose a local-only current-boot `raios.recovery_memory_provenance.v0` boundary
+that defines missing source record id, source schema hash, classification,
+authority, rollback-transaction binding, last-good checkpoint binding,
+recovery-only export profile, redaction-state, replay-window, and audit-linkage
+facts without accepting memory records, writing memory, or exporting provider
+context.
 No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the recovery memory provenance boundary after durable audit/rollback
-persistence.
+Define the recovery lifeline command-admission boundary after memory
+provenance.
 ```
 
 Start from the retained `raios.recovery_lifeline_request.v0` event, command
-vocabulary envelope, loader runtime isolation diagnostic, and rollback
-transaction-engine diagnostic plus durable audit/rollback persistence
-diagnostic. Add the next read-only diagnostic for
-`raios.recovery_memory_provenance.v0`: define source record ids, source schema
-hashes, classification, authority level, rollback transaction binding,
-last-good checkpoint binding, recovery-only export profile, redaction state,
-replay window, and audit linkage facts without implementing persistent memory
-writes. It should reject stale, wrong-schema, substituted, and mismatched
-retained request/evidence/command-vocabulary/loader-isolation/rollback-engine/
-persistence chains before reporting recovery-memory readiness, and still avoid
-fake persistent memory, fallback stores, durable records, loaders, rollback
-transactions, service-slot side effects, provider export, direct-OpenAI
-recovery shortcuts, or recovery lifeline behavior.
+vocabulary envelope, loader runtime isolation diagnostic, rollback
+transaction-engine diagnostic, durable audit/rollback persistence diagnostic,
+and recovery memory provenance diagnostic. Add the next read-only diagnostic for
+`raios.recovery_lifeline_command_admission.v0`: define admission gates for
+lifeline status, rollback preview, rollback apply, disable module, restart
+last-good, and load recovery artifact by hash command envelopes without
+dispatching any recovery behavior. It should reject stale, wrong-schema,
+substituted, and mismatched retained request/evidence/command-vocabulary/
+loader-isolation/rollback-engine/persistence/memory-provenance chains before
+reporting command-admission readiness, and still avoid fake recovery shell
+behavior, fake command execution, fake persistent memory, fallback stores,
+durable records, loaders, rollback transactions, service-slot side effects,
+provider export, direct-OpenAI recovery shortcuts, or recovery lifeline
+behavior.
 
 Next three tasks:
 
-1. Define read-only recovery memory provenance diagnostics over the retained
+1. Define read-only recovery command-admission diagnostics over the retained
    lifeline request event, command vocabulary, loader isolation, rollback
-   transaction engine, durable persistence, and six bound evidence ids.
-2. Bind source record ids, schema hashes, classification, authority level,
-   rollback transaction, last-good checkpoint, export profile, redaction,
-   replay-window, and audit-linkage gaps as typed local-only facts.
-3. Keep selftests proving stale/wrong-schema/substituted/mismatched persistence,
-   rollback-engine, loader isolation, command-vocabulary, protocol-state, and
-   lifeline request chains stay rejected without implementing persistent memory
-   writes, provider export, or recovery behavior.
+   transaction engine, durable persistence, recovery memory provenance, and six
+   bound evidence ids.
+2. Bind allowed lifeline command ids to argument-envelope schemas, required
+   capabilities, readiness facts, and explicit denial reasons without executing
+   commands.
+3. Keep selftests proving stale/wrong-schema/substituted/mismatched memory
+   provenance, persistence, rollback-engine, loader isolation,
+   command-vocabulary, protocol-state, and lifeline request chains stay rejected
+   without implementing recovery shell behavior, persistent memory writes,
+   provider export, or rollback execution.
 
 Current blockers and non-goals:
 

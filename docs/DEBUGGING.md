@@ -592,6 +592,8 @@ recovery.rollback_transaction_engine
 recovery.rollback_transaction_engine_selftest
 recovery.durable_audit_rollback_persistence
 recovery.durable_audit_rollback_persistence_selftest
+recovery.memory_provenance
+recovery.memory_provenance_selftest
 recovery.load_binding
 recovery.load_binding_selftest
 ```
@@ -710,6 +712,22 @@ lifeline command envelope, loader descriptor, artifact bytes, or direct OpenAI
 recovery shortcut, and keeps durable writes, rollback replay, recovery-memory
 writes, rollback preview/apply, loader execution, artifact loading, rollback
 installs, service-slot allocation, and service inventory changes disabled.
+
+The recovery memory-provenance diagnostic emits
+`raios.recovery_memory_provenance.v0` and
+`raios.recovery_memory_provenance_selftest.v0`. It consumes the retained
+lifeline request/evidence chain, command-vocabulary envelope, loader
+runtime-isolation boundary, rollback transaction-engine boundary, and durable
+audit/rollback persistence boundary, rejects missing, stale, previous-boot,
+wrong-schema, substituted, and mismatched request/protocol-state/
+command-vocabulary/loader-isolation/rollback-engine/persistence inputs before
+memory readiness, and reports missing local-only facts for source record ids,
+source schema hashes, classification, authority level, rollback-transaction
+binding, last-good checkpoint binding, recovery-only export profile, redaction
+state, replay window, and audit linkage. It accepts no memory record JSON,
+exports no provider context, writes no recovery memory, and keeps rollback
+preview/apply, loader execution, artifact loading, durable writes, rollback
+replay, service-slot allocation, and lifeline command dispatch disabled.
 
 A valid `module.manifest_diagnostic` hash-reference command records a local-only
 current-boot `raios.module_manifest_reference.v0` event binding and reports

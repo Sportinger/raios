@@ -275,6 +275,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.rollback_transaction_engine_selftest",
     "recovery.durable_audit_rollback_persistence",
     "recovery.durable_audit_rollback_persistence_selftest",
+    "recovery.memory_provenance",
+    "recovery.memory_provenance_selftest",
     "recovery.load_binding",
     "recovery.load_binding_selftest",
 ];

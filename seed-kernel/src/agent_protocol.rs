@@ -107,7 +107,8 @@ use crate::{
         emit_recovery_lifeline_protocol_diagnostic_selftest,
         emit_recovery_lifeline_request_diagnostic,
         emit_recovery_lifeline_request_diagnostic_selftest, emit_recovery_loader_runtime_isolation,
-        emit_recovery_loader_runtime_isolation_selftest, emit_recovery_rollback_transaction_engine,
+        emit_recovery_loader_runtime_isolation_selftest, emit_recovery_memory_provenance,
+        emit_recovery_memory_provenance_selftest, emit_recovery_rollback_transaction_engine,
         emit_recovery_rollback_transaction_engine_selftest,
         recovery_artifact_identity_diagnostic_method,
         recovery_artifact_identity_diagnostic_selftest_method,
@@ -131,8 +132,8 @@ use crate::{
         recovery_lifeline_request_diagnostic_method,
         recovery_lifeline_request_diagnostic_selftest_method,
         recovery_loader_runtime_isolation_method,
-        recovery_loader_runtime_isolation_selftest_method,
-        recovery_rollback_transaction_engine_method,
+        recovery_loader_runtime_isolation_selftest_method, recovery_memory_provenance_method,
+        recovery_memory_provenance_selftest_method, recovery_rollback_transaction_engine_method,
         recovery_rollback_transaction_engine_selftest_method,
     },
     agent_protocol_support::{method_eq, method_head_eq},
@@ -565,6 +566,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("recovery.durable_audit_rollback_persistence_selftest");
         emit_recovery_durable_audit_rollback_persistence_selftest();
         return DispatchOutcome::Response("recovery.durable_audit_rollback_persistence_selftest");
+    }
+    if recovery_memory_provenance_method(method) {
+        record_read("recovery.memory_provenance");
+        emit_recovery_memory_provenance();
+        return DispatchOutcome::Response("recovery.memory_provenance");
+    }
+    if recovery_memory_provenance_selftest_method(method) {
+        record_read("recovery.memory_provenance_selftest");
+        emit_recovery_memory_provenance_selftest();
+        return DispatchOutcome::Response("recovery.memory_provenance_selftest");
     }
     if recovery_artifact_load_binding_method(method) {
         record_read("recovery.load_binding");
