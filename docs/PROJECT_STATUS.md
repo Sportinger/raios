@@ -612,28 +612,36 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline disable-module target-binding hash-reference
-boundary after rollback-apply authorization:
+Define the recovery lifeline restart-last-good target-binding hash-reference
+boundary after disable-module target binding:
 
 - add a read-only current-boot diagnostic for
-  `raios.recovery_disable_module_target_binding.v0`, consuming the retained
-  rollback-apply authorization reference and dispatch-denial boundary while
-  still accepting no raw command body and disabling no module
-- validate only hash/reference shape for disable-module target metadata:
+  `raios.recovery_restart_last_good_target_binding.v0`, consuming the retained
+  disable-module target-binding reference and dispatch-denial boundary while
+  still accepting no raw command body and restarting no service
+- validate only hash/reference shape for restart-last-good target metadata:
   command id, argument schema, argument hash, target locator, command-envelope
   reference hash, body-canonicalization hash, handler-binding hash,
   status-read handler hash, rollback-preview authorization hash,
-  rollback-apply authorization hash, dispatch boundary id, disable-target id,
-  disable-target projection hash, and current-boot scope
+  rollback-apply authorization hash, disable-module target-binding hash,
+  dispatch boundary id, restart-target id, restart-target projection hash, and
+  current-boot scope
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched apply-authorization/preview-authorization/status-read/
-  handler-binding/body-canonicalization/dispatch/envelope/admission/
-  memory-provenance/durable-persistence/rollback-engine/loader-isolation/
-  command-vocabulary/protocol-state/request inputs before retaining or
-  reporting any disable-module target reference
+  mismatched disable-target/apply-authorization/preview-authorization/
+  status-read/handler-binding/body-canonicalization/dispatch/envelope/
+  admission/memory-provenance/durable-persistence/rollback-engine/
+  loader-isolation/command-vocabulary/protocol-state/request inputs before
+  retaining or reporting any restart-last-good target reference
 
 The verified foundation for that task is:
 
+- `recovery.disable_module_target_binding_diagnostic` and
+  `recovery.disable_module_target_binding_diagnostic_selftest` now retain only
+  local-only current-boot disable-target hash references over the retained
+  rollback-apply authorization and leave dispatch stopped at missing
+  restart-last-good target binding. They do not dispatch commands, disable
+  modules, write recovery memory, create durable records, load artifacts, or
+  change service inventory.
 - Virtio has been removed from the Stage-0 kernel runtime and VM runner path.
 - RDRAND seeds entropy in the bare-metal-style VM profile.
 - Intel e1000 configures RX/TX rings, negotiates DHCP through smoltcp, and shows

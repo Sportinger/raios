@@ -99,6 +99,8 @@ use crate::{
         emit_recovery_artifact_trust_diagnostic, emit_recovery_artifact_trust_diagnostic_selftest,
         emit_recovery_artifact_vm_test_diagnostic,
         emit_recovery_artifact_vm_test_diagnostic_selftest,
+        emit_recovery_disable_module_target_binding_diagnostic,
+        emit_recovery_disable_module_target_binding_diagnostic_selftest,
         emit_recovery_durable_audit_rollback_persistence,
         emit_recovery_durable_audit_rollback_persistence_selftest,
         emit_recovery_lifeline_command_admission,
@@ -140,6 +142,8 @@ use crate::{
         recovery_artifact_trust_diagnostic_selftest_method,
         recovery_artifact_vm_test_diagnostic_method,
         recovery_artifact_vm_test_diagnostic_selftest_method,
+        recovery_disable_module_target_binding_diagnostic_method,
+        recovery_disable_module_target_binding_diagnostic_selftest_method,
         recovery_durable_audit_rollback_persistence_method,
         recovery_durable_audit_rollback_persistence_selftest_method,
         recovery_lifeline_command_admission_method,
@@ -701,6 +705,18 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_recovery_rollback_apply_authorization_diagnostic_selftest();
         return DispatchOutcome::Response(
             "recovery.rollback_apply_authorization_diagnostic_selftest",
+        );
+    }
+    if recovery_disable_module_target_binding_diagnostic_method(method) {
+        record_read("recovery.disable_module_target_binding_diagnostic");
+        emit_recovery_disable_module_target_binding_diagnostic(method);
+        return DispatchOutcome::Response("recovery.disable_module_target_binding_diagnostic");
+    }
+    if recovery_disable_module_target_binding_diagnostic_selftest_method(method) {
+        record_read("recovery.disable_module_target_binding_diagnostic_selftest");
+        emit_recovery_disable_module_target_binding_diagnostic_selftest();
+        return DispatchOutcome::Response(
+            "recovery.disable_module_target_binding_diagnostic_selftest",
         );
     }
     if recovery_artifact_load_binding_method(method) {

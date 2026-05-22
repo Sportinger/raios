@@ -247,6 +247,23 @@ pub struct RecoveryRollbackApplyAuthorizationHashInput<'a> {
     pub rollback_apply_projection_hash: [u8; 32],
 }
 
+pub struct RecoveryDisableModuleTargetBindingHashInput<'a> {
+    pub retained_rollback_apply_authorization_event_id: &'a str,
+    pub command_id: &'a str,
+    pub argument_schema: &'a str,
+    pub argument_hash: [u8; 32],
+    pub target_locator: &'a str,
+    pub command_envelope_reference_hash: [u8; 32],
+    pub command_body_canonicalization_hash: [u8; 32],
+    pub handler_binding_hash: [u8; 32],
+    pub status_read_handler_hash: [u8; 32],
+    pub rollback_preview_authorization_hash: [u8; 32],
+    pub rollback_apply_authorization_hash: [u8; 32],
+    pub command_dispatch_boundary_id: &'a str,
+    pub disable_module_target_id: &'a str,
+    pub disable_module_target_projection_hash: [u8; 32],
+}
+
 pub fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash_static_line(
@@ -1210,6 +1227,114 @@ pub fn computed_recovery_rollback_apply_authorization_hash(
     hash_static_line(&mut hash, b"accepts_lifeline_command_body=false", true);
     hash_static_line(&mut hash, b"accepts_lifeline_command_envelope=false", true);
     hash_static_line(&mut hash, b"dispatches_lifeline_command=false", true);
+    hash_static_line(&mut hash, b"executes_lifeline_status=false", true);
+    hash_static_line(&mut hash, b"executes_rollback_preview=false", true);
+    hash_static_line(&mut hash, b"executes_rollback_apply=false", true);
+    hash_static_line(&mut hash, b"writes_recovery_memory=false", true);
+    hash_static_line(&mut hash, b"writes_durable_audit_log=false", true);
+    hash_static_line(&mut hash, b"writes_rollback_store=false", true);
+    hash_static_line(&mut hash, b"exports_provider_context=false", true);
+    hash_static_line(&mut hash, b"loads_recovery_artifact=false", true);
+    hash_static_line(&mut hash, b"authorizes_recovery_load=false", true);
+    hash_static_line(&mut hash, b"creates_durable_records=false", true);
+    hash_static_line(&mut hash, b"installs_rollback_plan=false", true);
+    hash_static_line(&mut hash, b"allocates_service_slot=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_recovery_disable_module_target_binding_hash(
+    input: RecoveryDisableModuleTargetBindingHashInput<'_>,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.recovery_disable_module_target_binding.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.recovery_disable_module_target_binding.v0",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=recovery_only", true);
+    hash_static_line(&mut hash, b"subject=agent.session.serial", true);
+    hash_static_line(
+        &mut hash,
+        b"resource=recovery_disable_module_target_binding",
+        true,
+    );
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_str_line(
+        &mut hash,
+        b"retained_recovery_rollback_apply_authorization_event_id",
+        input.retained_rollback_apply_authorization_event_id,
+        true,
+    );
+    hash_str_line(&mut hash, b"command_id", input.command_id, true);
+    hash_str_line(&mut hash, b"argument_schema", input.argument_schema, true);
+    hash_hash_line(&mut hash, b"argument_sha256", input.argument_hash, true);
+    hash_str_line(&mut hash, b"target_locator", input.target_locator, true);
+    hash_hash_line(
+        &mut hash,
+        b"command_envelope_reference_sha256",
+        input.command_envelope_reference_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"command_body_canonicalization_sha256",
+        input.command_body_canonicalization_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"handler_binding_sha256",
+        input.handler_binding_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"status_read_handler_sha256",
+        input.status_read_handler_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"rollback_preview_authorization_sha256",
+        input.rollback_preview_authorization_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"rollback_apply_authorization_sha256",
+        input.rollback_apply_authorization_hash,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"command_dispatch_boundary_id",
+        input.command_dispatch_boundary_id,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"disable_module_target_id",
+        input.disable_module_target_id,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"disable_module_target_projection_sha256",
+        input.disable_module_target_projection_hash,
+        true,
+    );
+    hash_static_line(&mut hash, b"accepts_raw_command_body=false", true);
+    hash_static_line(&mut hash, b"accepts_lifeline_command_body=false", true);
+    hash_static_line(&mut hash, b"accepts_lifeline_command_envelope=false", true);
+    hash_static_line(&mut hash, b"dispatches_lifeline_command=false", true);
+    hash_static_line(&mut hash, b"disables_module=false", true);
     hash_static_line(&mut hash, b"executes_lifeline_status=false", true);
     hash_static_line(&mut hash, b"executes_rollback_preview=false", true);
     hash_static_line(&mut hash, b"executes_rollback_apply=false", true);
