@@ -62,7 +62,9 @@ Last verified locally: 2026-05-22 on Windows with QEMU 11 after adding guest
 `recovery.memory_write_authority_diagnostic`/
 `recovery.memory_write_authority_diagnostic_selftest`, plus
 `recovery.durable_audit_rollback_write_authority_diagnostic`/
-`recovery.durable_audit_rollback_write_authority_diagnostic_selftest`, plus typed missing
+`recovery.durable_audit_rollback_write_authority_diagnostic_selftest`, plus
+`recovery.service_inventory_side_effect_boundary_diagnostic`/
+`recovery.service_inventory_side_effect_boundary_diagnostic_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
 typed missing `raios.durable_audit_write_policy.v0`/
 `raios.rollback_install_policy.v0` policy facts, typed missing
@@ -196,7 +198,15 @@ command/argument/target/envelope/body/handler/status/authorization/target/
 memory/dispatch/projection hashes, retains only local-only current-boot
 durable-write authority evidence, and advances dispatch only to the missing
 service-inventory side-effect boundary while still writing no durable audit or
-rollback records and dispatching no behavior, via
+rollback records and dispatching no behavior, plus a read-only
+`raios.recovery_service_inventory_side_effect_boundary.v0` hash-reference
+diagnostic that consumes the retained durable-audit/rollback write-authority
+reference, validates the same command/argument/target/envelope/body/handler/
+status/authorization/target/memory/durable/dispatch/projection hashes, retains
+only local-only current-boot service-inventory side-effect boundary evidence,
+and advances dispatch only to explicit `defined_non_executable` behavior while
+still allocating no service slot, creating no service inventory records,
+changing no service inventory, and dispatching no behavior, via
 headless
 Shadow VM smoke
 covering
@@ -636,34 +646,42 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline service-inventory side-effect boundary after
-durable-audit/rollback write authority:
+Define the recovery lifeline command-dispatch behavior boundary after
+service-inventory side-effect authority:
 
 - add a read-only current-boot diagnostic for
-  `raios.recovery_service_inventory_side_effect_boundary.v0`, consuming the
-  retained durable-audit/rollback write-authority reference and
-  dispatch-denial boundary while still accepting no raw command body,
-  allocating no service slot, and mutating no service inventory
-- validate only hash/reference shape for service-inventory side-effect
-  authority:
+  `raios.recovery_lifeline_command_dispatch_behavior.v0`, consuming the
+  retained service-inventory side-effect boundary reference and
+  dispatch-denial boundary while still accepting no raw command body and
+  executing no recovery behavior
+- validate only hash/reference shape for the final dispatch-behavior gate:
   command id, argument schema, argument hash, target locator, command-envelope
   reference hash, body-canonicalization hash, handler-binding hash,
   status-read handler hash, rollback-preview authorization hash,
   rollback-apply authorization hash, disable-module target-binding hash,
   restart-last-good target-binding hash, load-artifact-by-hash target-binding
   hash, recovery-memory write-authority hash, durable-audit/rollback
-  write-authority hash, dispatch boundary id, side-effect boundary id,
-  service-inventory projection hash, and current-boot scope
+  write-authority hash, service-inventory side-effect boundary hash, dispatch
+  boundary id, behavior boundary id, behavior projection hash, and
+  current-boot scope
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched durable-write-authority/memory-authority/load-target/
-  restart-target/disable-target/apply-authorization/preview-authorization/
-  status-read/handler-binding/body-canonicalization/dispatch/envelope/
-  admission/memory-provenance/durable-persistence/rollback-engine/
-  loader-isolation/command-vocabulary/protocol-state/request inputs before
-  retaining or reporting any service-inventory side-effect reference
+  mismatched service-inventory/durable-write-authority/memory-authority/
+  load-target/restart-target/disable-target/apply-authorization/
+  preview-authorization/status-read/handler-binding/body-canonicalization/
+  dispatch/envelope/admission/memory-provenance/durable-persistence/
+  rollback-engine/loader-isolation/command-vocabulary/protocol-state/request
+  inputs before retaining or reporting any dispatch-behavior reference
 
 The verified foundation for that task is:
 
+- `recovery.service_inventory_side_effect_boundary_diagnostic` and
+  `recovery.service_inventory_side_effect_boundary_diagnostic_selftest` now
+  retain only local-only current-boot service-inventory side-effect boundary
+  hash references over the retained durable-audit/rollback write-authority
+  reference and leave dispatch at explicit `defined_non_executable` behavior.
+  They do not dispatch commands, allocate service slots, create service
+  inventory records, change service inventory, write recovery memory, or write
+  durable audit/rollback state.
 - `recovery.durable_audit_rollback_write_authority_diagnostic` and
   `recovery.durable_audit_rollback_write_authority_diagnostic_selftest` now
   retain only local-only current-boot durable-audit/rollback write-authority

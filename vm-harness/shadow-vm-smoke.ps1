@@ -555,6 +555,8 @@ function Write-Report {
             "agent recovery.memory_write_authority_diagnostic_selftest",
             "agent recovery.durable_audit_rollback_write_authority_diagnostic",
             "agent recovery.durable_audit_rollback_write_authority_diagnostic_selftest",
+            "agent recovery.service_inventory_side_effect_boundary_diagnostic",
+            "agent recovery.service_inventory_side_effect_boundary_diagnostic_selftest",
             "agent recovery.load_binding",
             "agent recovery.load_binding_selftest",
             "module.load_recovery_artifact",
@@ -5617,6 +5619,164 @@ try {
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    Send-AgentCommand -Command "agent recovery.service_inventory_side_effect_boundary_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.service_inventory_side_effect_boundary_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:service_inventory_side_effect_boundary_absent_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_service_inventory_side_effect_boundary_diagnostic.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "status"; Needle = '"status": "missing"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_service_inventory_side_effect_boundary_absent"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_service_inventory_side_effect_boundary_records": false' },
+        @{ Suffix = "no_raw_body"; Needle = '"accepts_raw_command_body": false' },
+        @{ Suffix = "no_service_slot"; Needle = '"allocates_service_slot": false' },
+        @{ Suffix = "no_service_records"; Needle = '"creates_service_inventory_records": false' },
+        @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "reference_format"; Needle = '"reference_format": "recovery.service_inventory_side_effect_boundary_diagnostic' },
+        @{ Suffix = "service_schema"; Needle = '"service_inventory_side_effect_boundary_schema": "raios.recovery_service_inventory_side_effect_boundary.v0"' },
+        @{ Suffix = "canonicalization"; Needle = '"service_inventory_side_effect_boundary_canonicalization": "raios.recovery_service_inventory_side_effect_boundary.canonical.v0"' },
+        @{ Suffix = "service_boundary"; Needle = '"service_inventory_side_effect_boundary_id": "boundary.recovery_service_inventory_side_effect_boundary.current_boot"' },
+        @{ Suffix = "behavior_fact"; Needle = '"fact": "recovery_lifeline_command_dispatch_behavior"' },
+        @{ Suffix = "valid_false"; Needle = '"valid_hash_reference": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent recovery.service_inventory_side_effect_boundary_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.service_inventory_side_effect_boundary_diagnostic_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:service_inventory_side_effect_boundary_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_service_inventory_side_effect_boundary_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_service_inventory_side_effect_boundary_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 10' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "absent_case"; Needle = '"case": "recovery_service_inventory_side_effect_boundary_absent"' },
+        @{ Suffix = "arity_case"; Needle = '"case": "recovery_service_inventory_side_effect_boundary_arity_invalid"' },
+        @{ Suffix = "previous_case"; Needle = '"case": "previous_boot_recovery_service_inventory_side_effect_boundary"' },
+        @{ Suffix = "unsupported_case"; Needle = '"case": "unsupported_command_id"' },
+        @{ Suffix = "schema_case"; Needle = '"case": "argument_schema_mismatch"' },
+        @{ Suffix = "boundary_case"; Needle = '"case": "dispatch_boundary_mismatch"' },
+        @{ Suffix = "side_effect_case"; Needle = '"case": "service_inventory_side_effect_boundary_id_mismatch"' },
+        @{ Suffix = "hash_case"; Needle = '"case": "service_inventory_side_effect_boundary_hash_mismatch"' },
+        @{ Suffix = "live_missing_case"; Needle = '"case": "retained_durable_audit_rollback_write_authority_reference_missing"' },
+        @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_service_inventory_side_effect_boundary_still_non_executable"' },
+        @{ Suffix = "no_service_slot"; Needle = '"allocates_service_slot": false' },
+        @{ Suffix = "no_service_records"; Needle = '"creates_service_inventory_records": false' },
+        @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "dispatch_false"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $serviceInventorySideEffectBoundaryId = "boundary.recovery_service_inventory_side_effect_boundary.current_boot"
+    $serviceInventoryProjectionCanonical = @(
+        "schema=raios.recovery_service_inventory_side_effect_projection.v0",
+        "command_id=recovery.lifeline.status",
+        "target_locator=$recoveryCommandTargetLocator",
+        "durable_audit_rollback_write_authority_hash=$durableAuditRollbackWriteAuthorityHash",
+        "recovery_memory_write_authority_hash=$recoveryMemoryWriteAuthorityHash",
+        "load_artifact_by_hash_target_binding_hash=$recoveryLoadArtifactByHashTargetBindingHash",
+        "restart_last_good_target_binding_hash=$recoveryRestartLastGoodTargetBindingHash",
+        "disable_module_target_binding_hash=$recoveryDisableModuleTargetBindingHash",
+        "rollback_apply_authorization_hash=$recoveryRollbackApplyAuthorizationHash",
+        "rollback_preview_authorization_hash=$recoveryRollbackPreviewAuthorizationHash",
+        "status_read_handler_hash=$recoveryStatusReadHandlerHash",
+        "handler_binding_hash=$recoveryCommandHandlerBindingHash",
+        "body_hash=$recoveryLifelineCommandBodyCanonicalizationHash",
+        "service_inventory_change=none"
+    ) -join "`n"
+    $serviceInventoryProjectionHash = Get-TextSha256 -Text $serviceInventoryProjectionCanonical
+    $serviceInventorySideEffectBoundaryCanonical = @(
+        "canonicalization=raios.recovery_service_inventory_side_effect_boundary.canonical.v0",
+        "schema=raios.recovery_service_inventory_side_effect_boundary.v0",
+        "load_mode=recovery_only",
+        "subject=agent.session.serial",
+        "resource=service_inventory_side_effect_boundary",
+        "scope=current_boot",
+        "retained_durable_audit_rollback_write_authority_event_id=$durableAuditRollbackWriteAuthorityEventId",
+        "command_id=recovery.lifeline.status",
+        "argument_schema=raios.recovery_lifeline_command.status_args.v0",
+        "argument_sha256=$recoveryLifelineStatusArgumentHash",
+        "target_locator=$recoveryCommandTargetLocator",
+        "command_envelope_reference_sha256=$recoveryLifelineCommandEnvelopeReferenceHash",
+        "command_body_canonicalization_sha256=$recoveryLifelineCommandBodyCanonicalizationHash",
+        "handler_binding_sha256=$recoveryCommandHandlerBindingHash",
+        "status_read_handler_sha256=$recoveryStatusReadHandlerHash",
+        "rollback_preview_authorization_sha256=$recoveryRollbackPreviewAuthorizationHash",
+        "rollback_apply_authorization_sha256=$recoveryRollbackApplyAuthorizationHash",
+        "disable_module_target_binding_sha256=$recoveryDisableModuleTargetBindingHash",
+        "restart_last_good_target_binding_sha256=$recoveryRestartLastGoodTargetBindingHash",
+        "load_artifact_by_hash_target_binding_sha256=$recoveryLoadArtifactByHashTargetBindingHash",
+        "recovery_memory_write_authority_sha256=$recoveryMemoryWriteAuthorityHash",
+        "durable_audit_rollback_write_authority_sha256=$durableAuditRollbackWriteAuthorityHash",
+        "command_dispatch_boundary_id=$recoveryCommandDispatchBoundaryId",
+        "service_inventory_side_effect_boundary_id=$serviceInventorySideEffectBoundaryId",
+        "service_inventory_projection_sha256=$serviceInventoryProjectionHash",
+        "accepts_raw_command_body=false",
+        "accepts_lifeline_command_body=false",
+        "accepts_lifeline_command_envelope=false",
+        "dispatches_lifeline_command=false",
+        "writes_recovery_memory=false",
+        "writes_durable_audit_log=false",
+        "writes_rollback_store=false",
+        "creates_durable_records=false",
+        "installs_rollback_plan=false",
+        "loads_recovery_artifact=false",
+        "executes_lifeline_status=false",
+        "executes_rollback_preview=false",
+        "executes_rollback_apply=false",
+        "disables_module=false",
+        "restarts_last_good=false",
+        "exports_provider_context=false",
+        "authorizes_recovery_load=false",
+        "allocates_service_slot=false",
+        "creates_service_inventory_records=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $serviceInventorySideEffectBoundaryHash = Get-TextSha256 -Text $serviceInventorySideEffectBoundaryCanonical
+    $serviceInventorySideEffectBoundaryCommand = "agent recovery.service_inventory_side_effect_boundary_diagnostic $serviceInventorySideEffectBoundaryHash $durableAuditRollbackWriteAuthorityEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryRestartLastGoodTargetBindingHash $recoveryLoadArtifactByHashTargetBindingHash $recoveryMemoryWriteAuthorityHash $durableAuditRollbackWriteAuthorityHash $recoveryCommandDispatchBoundaryId $serviceInventorySideEffectBoundaryId $serviceInventoryProjectionHash"
+
+    Send-AgentCommand -Command $serviceInventorySideEffectBoundaryCommand -ExpectedMarker "RAIOS_AGENT_END recovery.service_inventory_side_effect_boundary_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:service_inventory_side_effect_boundary_valid_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "status"; Needle = '"status": "valid_hash_reference_command_still_denied"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_service_inventory_side_effect_boundary_valid_but_service_inventory_unchanged"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "creates_record"; Needle = '"creates_retained_recovery_service_inventory_side_effect_boundary_records": true' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "command_id"; Needle = '"command_id": "recovery.lifeline.status"' },
+        @{ Suffix = "service_boundary_id"; Needle = "`"service_inventory_side_effect_boundary_id`": `"$serviceInventorySideEffectBoundaryId`"" },
+        @{ Suffix = "durable_event_id"; Needle = "`"retained_durable_audit_rollback_write_authority_event_id`": `"$durableAuditRollbackWriteAuthorityEventId`"" },
+        @{ Suffix = "argument_hash"; Needle = "`"argument_hash`": `"sha256:$recoveryLifelineStatusArgumentHash`"" },
+        @{ Suffix = "durable_hash"; Needle = "`"durable_audit_rollback_write_authority_hash`": `"sha256:$durableAuditRollbackWriteAuthorityHash`"" },
+        @{ Suffix = "memory_hash"; Needle = "`"recovery_memory_write_authority_hash`": `"sha256:$recoveryMemoryWriteAuthorityHash`"" },
+        @{ Suffix = "projection_hash"; Needle = "`"service_inventory_projection_hash`": `"sha256:$serviceInventoryProjectionHash`"" },
+        @{ Suffix = "boundary_hash"; Needle = "`"service_inventory_side_effect_boundary_hash`": `"sha256:$serviceInventorySideEffectBoundaryHash`"" },
+        @{ Suffix = "valid_hash"; Needle = '"valid_hash_reference": true' },
+        @{ Suffix = "no_service_slot"; Needle = '"allocates_service_slot": false' },
+        @{ Suffix = "no_service_records"; Needle = '"creates_service_inventory_records": false' },
+        @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $serviceInventorySideEffectBoundaryResponse = Get-LastAgentResponseJson -Method "recovery.service_inventory_side_effect_boundary_diagnostic"
+    $serviceInventorySideEffectBoundaryEventId = [string]$serviceInventorySideEffectBoundaryResponse.body.result.retained_service_inventory_side_effect_boundary_reference.recorded_event_id
+    Assert-CurrentBootEventId -Name "protocol:service_inventory_side_effect_boundary_retained_reference_event_id_captured" -Value $serviceInventorySideEffectBoundaryEventId
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_dispatch_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_dispatch_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_dispatch_after_service_inventory_boundary_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_dispatch_denial.v0"' },
+        @{ Suffix = "status"; Needle = '"status": "defined_non_executable"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_dispatch_behavior_not_implemented"' },
+        @{ Suffix = "memory_authority_present"; Needle = '"recovery_memory_write_authority_present": true' },
+        @{ Suffix = "durable_authority_present"; Needle = '"durable_audit_rollback_write_authority_present": true' },
+        @{ Suffix = "service_boundary_present"; Needle = '"service_inventory_side_effect_boundary_present": true' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
     Send-AgentCommand -Command "agent recovery.load_binding" -ExpectedMarker "RAIOS_AGENT_END recovery.load_binding"
     $recoveryBindingResponse = Get-LastAgentResponseJson -Method "recovery.load_binding"
     Assert-LogContains -Name "protocol:recovery_binding_schema" -Needle '"schema": "raios.recovery_artifact_load_binding.v0"' -TimeoutSeconds 1
@@ -5993,6 +6153,16 @@ try {
     Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_no_durable_write" -Needle '"writes_durable_audit_log": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_no_rollback_write" -Needle '"writes_rollback_store": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_source" -Needle '"source_method": "recovery.service_inventory_side_effect_boundary_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_selftest_audit_source" -Needle '"source_method": "recovery.service_inventory_side_effect_boundary_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_kind" -Needle '"kind": "recovery.service_inventory_side_effect_boundary.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_service_inventory_side_effect_boundary.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_durable_event" -Needle "`"retained_durable_audit_rollback_write_authority_event_id`": `"$durableAuditRollbackWriteAuthorityEventId`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_hash" -Needle "`"service_inventory_side_effect_boundary_hash`": `"sha256:$serviceInventorySideEffectBoundaryHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_no_service_slot" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_no_service_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_no_service_change" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_risk" -Needle '"risk": "recovery_modify_ram"' -TimeoutSeconds 1

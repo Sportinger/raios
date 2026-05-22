@@ -46,6 +46,7 @@ const RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_SELFTEST_CASES: usize = 10;
 const RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_SELFTEST_CASES: usize = 10;
 const RECOVERY_MEMORY_WRITE_AUTHORITY_SELFTEST_CASES: usize = 10;
 const DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_SELFTEST_CASES: usize = 10;
+const RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_SELFTEST_CASES: usize = 10;
 const RECOVERY_COMMAND_ADMISSION_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_command_admission.current_boot";
 const RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID: &str =
@@ -68,6 +69,8 @@ const RECOVERY_MEMORY_WRITE_AUTHORITY_BOUNDARY_ID: &str =
     "boundary.recovery_memory_write_authority.current_boot";
 const DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_BOUNDARY_ID: &str =
     "boundary.durable_audit_rollback_write_authority.current_boot";
+const RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_ID: &str =
+    "boundary.recovery_service_inventory_side_effect_boundary.current_boot";
 
 #[derive(Clone, Copy)]
 struct RecoveryIdentityReferenceCheck<'a> {
@@ -1615,6 +1618,75 @@ struct DurableAuditRollbackWriteAuthoritySelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+struct RecoveryServiceInventorySideEffectBoundaryInput<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
+    retained_durable_audit_rollback_write_authority_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    target_locator: Option<&'a str>,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    command_body_canonicalization_hash: Option<[u8; 32]>,
+    handler_binding_hash: Option<[u8; 32]>,
+    status_read_handler_hash: Option<[u8; 32]>,
+    rollback_preview_authorization_hash: Option<[u8; 32]>,
+    rollback_apply_authorization_hash: Option<[u8; 32]>,
+    disable_module_target_binding_hash: Option<[u8; 32]>,
+    restart_last_good_target_binding_hash: Option<[u8; 32]>,
+    load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
+    recovery_memory_write_authority_hash: Option<[u8; 32]>,
+    durable_audit_rollback_write_authority_hash: Option<[u8; 32]>,
+    command_dispatch_boundary_id: Option<&'a str>,
+    service_inventory_side_effect_boundary_id: Option<&'a str>,
+    service_inventory_projection_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
+    expected_service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
+    retained_durable_audit_rollback_write_authority_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    target_locator: Option<&'a str>,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    command_body_canonicalization_hash: Option<[u8; 32]>,
+    handler_binding_hash: Option<[u8; 32]>,
+    status_read_handler_hash: Option<[u8; 32]>,
+    rollback_preview_authorization_hash: Option<[u8; 32]>,
+    rollback_apply_authorization_hash: Option<[u8; 32]>,
+    disable_module_target_binding_hash: Option<[u8; 32]>,
+    restart_last_good_target_binding_hash: Option<[u8; 32]>,
+    load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
+    recovery_memory_write_authority_hash: Option<[u8; 32]>,
+    durable_audit_rollback_write_authority_hash: Option<[u8; 32]>,
+    command_dispatch_boundary_id: Option<&'a str>,
+    service_inventory_side_effect_boundary_id: Option<&'a str>,
+    service_inventory_projection_hash: Option<[u8; 32]>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+struct RecoveryServiceInventorySideEffectBoundarySelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
 struct RecoveryEvidenceCandidate {
     retained: bool,
     current_boot: bool,
@@ -1998,6 +2070,27 @@ pub(crate) fn durable_audit_rollback_write_authority_diagnostic_selftest_method(
     ) || method_head_eq(
         method,
         "recovery.durable_audit_rollback_write_authority_selftest",
+    )
+}
+
+pub(crate) fn recovery_service_inventory_side_effect_boundary_diagnostic_method(
+    method: &str,
+) -> bool {
+    method_head_eq(
+        method,
+        "recovery.service_inventory_side_effect_boundary_diagnostic",
+    ) || method_head_eq(method, "recovery.service_inventory_side_effect_boundary")
+}
+
+pub(crate) fn recovery_service_inventory_side_effect_boundary_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    method_head_eq(
+        method,
+        "recovery.service_inventory_side_effect_boundary_diagnostic_selftest",
+    ) || method_head_eq(
+        method,
+        "recovery.service_inventory_side_effect_boundary_selftest",
     )
 }
 
@@ -4672,6 +4765,8 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
         event_log::latest_recovery_memory_write_authority_reference();
     let retained_durable_audit_rollback_write_authority =
         event_log::latest_durable_audit_rollback_write_authority_reference();
+    let retained_service_inventory_side_effect_boundary =
+        event_log::latest_recovery_service_inventory_side_effect_boundary_reference();
     let candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
         retained_envelope,
         retained_request,
@@ -4685,6 +4780,7 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
         retained_load_artifact_by_hash_target_binding,
         retained_recovery_memory_write_authority,
         retained_durable_audit_rollback_write_authority,
+        retained_service_inventory_side_effect_boundary,
     );
     let check = evaluate_recovery_lifeline_command_dispatch(candidate);
 
@@ -4904,6 +5000,7 @@ pub(crate) fn emit_recovery_lifeline_command_body_canonicalization_diagnostic(me
     let dispatch_candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
         retained_envelope,
         retained_request,
+        None,
         None,
         None,
         None,
@@ -6483,6 +6580,159 @@ pub(crate) fn emit_durable_audit_rollback_write_authority_diagnostic_selftest() 
     raw_line("      ],");
     raw_line("      \"can_move_beyond_denial\": false");
     end_response("recovery.durable_audit_rollback_write_authority_diagnostic_selftest");
+}
+
+pub(crate) fn emit_recovery_service_inventory_side_effect_boundary_diagnostic(method: &str) {
+    let check = parse_recovery_service_inventory_side_effect_boundary_reference(
+        recovery_service_inventory_side_effect_boundary_diagnostic_arg(method),
+        true,
+    );
+    let recorded_event_id = if check.valid {
+        recovery_service_inventory_side_effect_boundary_from_check(&check)
+            .map(event_log::record_recovery_service_inventory_side_effect_boundary_reference)
+    } else {
+        None
+    };
+    let retained_service_inventory_side_effect_boundary =
+        event_log::latest_recovery_service_inventory_side_effect_boundary_reference();
+
+    begin_response("recovery.service_inventory_side_effect_boundary_diagnostic");
+    raw_line("      \"schema\": \"raios.recovery_service_inventory_side_effect_boundary_diagnostic.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw("      \"creates_retained_recovery_service_inventory_side_effect_boundary_records\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"executes_lifeline_status\": false,");
+    raw_line("      \"executes_rollback_preview\": false,");
+    raw_line("      \"executes_rollback_apply\": false,");
+    raw_line("      \"executes_disable_module\": false,");
+    raw_line("      \"executes_restart_last_good\": false,");
+    raw_line("      \"executes_load_recovery_artifact_by_hash\": false,");
+    raw_line("      \"disables_module\": false,");
+    raw_line("      \"restarts_last_good\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"authorizes_recovery_load\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"exports_provider_context\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"recovery.service_inventory_side_effect_boundary_diagnostic <service_inventory_side_effect_boundary_hash> <retained_durable_audit_rollback_write_authority_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <command_dispatch_boundary_id> <service_inventory_side_effect_boundary_id> <service_inventory_projection_hash> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"service_inventory_side_effect_boundary\",");
+    raw_line("        \"service_inventory_side_effect_boundary_schema\": \"raios.recovery_service_inventory_side_effect_boundary.v0\",");
+    raw_line("        \"service_inventory_side_effect_boundary_canonicalization\": \"raios.recovery_service_inventory_side_effect_boundary.canonical.v0\",");
+    raw_line(
+        "        \"service_inventory_side_effect_boundary_id\": \"boundary.recovery_service_inventory_side_effect_boundary.current_boot\"",
+    );
+    raw_line("      },");
+    emit_recovery_service_inventory_side_effect_boundary_reference_object(&check);
+    raw_line(",");
+    raw_line("      \"service_inventory_side_effect_boundary_requirements\": [");
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "recovery_lifeline_command_dispatch_behavior",
+        "raios.recovery_lifeline_command_dispatch_behavior.v0",
+        "recovery_lifeline_command_dispatch_behavior_not_implemented",
+        false,
+    );
+    raw_line("      ],");
+    emit_recovery_service_inventory_side_effect_boundary_retained_reference(
+        &check,
+        recorded_event_id,
+        retained_service_inventory_side_effect_boundary,
+    );
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"service_inventory_side_effect_boundary_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.service_inventory_side_effect_boundary_diagnostic");
+}
+
+pub(crate) fn emit_recovery_service_inventory_side_effect_boundary_diagnostic_selftest() {
+    let cases = recovery_service_inventory_side_effect_boundary_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.service_inventory_side_effect_boundary_diagnostic_selftest");
+    raw_line(
+        "      \"schema\": \"raios.recovery_service_inventory_side_effect_boundary_selftest.v0\",",
+    );
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_service_inventory_side_effect_boundary_records\": false,");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_service_inventory_side_effect_boundary_selftest_case(
+            &cases[idx],
+            idx + 1 != cases.len(),
+        );
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.service_inventory_side_effect_boundary_diagnostic_selftest");
 }
 
 pub(crate) fn emit_recovery_artifact_load_binding() {
@@ -11802,6 +12052,178 @@ fn emit_durable_audit_rollback_write_authority_selftest_case(
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"accepts_raw_command_body\": false, \"dispatches_lifeline_command\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"creates_durable_records\": false, \"command_execution_enabled\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_service_inventory_side_effect_boundary_reference_object(
+    check: &RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'_>,
+) {
+    raw_line("      \"service_inventory_side_effect_boundary_reference\": {");
+    raw("        \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"has_reference\": ");
+    raw_bool(check.has_reference);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw("        \"command_id\": ");
+    json_opt_str(check.command_id);
+    raw_line(",");
+    raw("        \"argument_schema\": ");
+    json_opt_str(check.argument_schema);
+    raw_line(",");
+    raw("        \"target_locator\": ");
+    json_opt_str(check.target_locator);
+    raw_line(",");
+    raw("        \"command_dispatch_boundary_id\": ");
+    json_opt_str(check.command_dispatch_boundary_id);
+    raw_line(",");
+    raw("        \"service_inventory_side_effect_boundary_id\": ");
+    json_opt_str(check.service_inventory_side_effect_boundary_id);
+    raw_line(",");
+    raw("        \"retained_durable_audit_rollback_write_authority_event_id\": ");
+    json_opt_str(check.retained_durable_audit_rollback_write_authority_event_id);
+    raw_line(",");
+    raw("        \"argument_hash\": ");
+    json_sha256_option(check.argument_hash);
+    raw_line(",");
+    raw("        \"command_envelope_reference_hash\": ");
+    json_sha256_option(check.command_envelope_reference_hash);
+    raw_line(",");
+    raw("        \"command_body_canonicalization_hash\": ");
+    json_sha256_option(check.command_body_canonicalization_hash);
+    raw_line(",");
+    raw("        \"handler_binding_hash\": ");
+    json_sha256_option(check.handler_binding_hash);
+    raw_line(",");
+    raw("        \"status_read_handler_hash\": ");
+    json_sha256_option(check.status_read_handler_hash);
+    raw_line(",");
+    raw("        \"rollback_preview_authorization_hash\": ");
+    json_sha256_option(check.rollback_preview_authorization_hash);
+    raw_line(",");
+    raw("        \"rollback_apply_authorization_hash\": ");
+    json_sha256_option(check.rollback_apply_authorization_hash);
+    raw_line(",");
+    raw("        \"disable_module_target_binding_hash\": ");
+    json_sha256_option(check.disable_module_target_binding_hash);
+    raw_line(",");
+    raw("        \"restart_last_good_target_binding_hash\": ");
+    json_sha256_option(check.restart_last_good_target_binding_hash);
+    raw_line(",");
+    raw("        \"load_artifact_by_hash_target_binding_hash\": ");
+    json_sha256_option(check.load_artifact_by_hash_target_binding_hash);
+    raw_line(",");
+    raw("        \"recovery_memory_write_authority_hash\": ");
+    json_sha256_option(check.recovery_memory_write_authority_hash);
+    raw_line(",");
+    raw("        \"durable_audit_rollback_write_authority_hash\": ");
+    json_sha256_option(check.durable_audit_rollback_write_authority_hash);
+    raw_line(",");
+    raw("        \"service_inventory_projection_hash\": ");
+    json_sha256_option(check.service_inventory_projection_hash);
+    raw_line(",");
+    raw("        \"service_inventory_side_effect_boundary_hash\": ");
+    json_sha256_option(check.service_inventory_side_effect_boundary_hash);
+    raw_line(",");
+    raw("        \"expected_service_inventory_side_effect_boundary_hash\": ");
+    json_sha256_option(check.expected_service_inventory_side_effect_boundary_hash);
+    raw_line(",");
+    raw("        \"valid_hash_reference\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"load_attempted\": false");
+    raw("      }");
+}
+
+fn emit_recovery_service_inventory_side_effect_boundary_retained_reference(
+    check: &RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryServiceInventorySideEffectBoundaryReference,
+    )>,
+) {
+    raw_line("      \"retained_service_inventory_side_effect_boundary_reference\": {");
+    raw("        \"status\": ");
+    json_str(if check.valid {
+        "retained_hash_reference_command_still_denied"
+    } else if retained.is_some() {
+        "previous_retained_hash_reference_present"
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw("        \"recorded_event_id\": ");
+    json_event_id_option(recorded_event_id);
+    raw_line(",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"load_attempted\": false,");
+    raw("        \"latest_event_id\": ");
+    if let Some((event_id, _)) = retained {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_service_inventory_side_effect_boundary_id\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.service_inventory_side_effect_boundary_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_service_inventory_side_effect_boundary_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.service_inventory_side_effect_boundary_hash);
+    } else {
+        raw("null");
+    }
+    raw_line("");
+    raw("      }");
+}
+
+fn emit_recovery_service_inventory_side_effect_boundary_selftest_case(
+    case: &RecoveryServiceInventorySideEffectBoundarySelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"accepts_raw_command_body\": false, \"dispatches_lifeline_command\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"command_execution_enabled\": false, \"load_attempted\": false}");
     if comma {
         raw(",");
     }
@@ -19136,6 +19558,7 @@ fn recovery_lifeline_command_body_canonicalization_live_chain_mismatch(
         None,
         None,
         None,
+        None,
     );
     let dispatch_check = evaluate_recovery_lifeline_command_dispatch(dispatch_candidate);
     if !method_eq(
@@ -22708,6 +23131,476 @@ fn durable_audit_rollback_write_authority_from_check(
     })
 }
 
+fn parse_recovery_service_inventory_side_effect_boundary_reference(
+    arg: &str,
+    require_live_retained: bool,
+) -> RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'_> {
+    let mut parts = arg.split_whitespace();
+    let service_inventory_side_effect_boundary_hash = parts.next();
+    let retained_durable_audit_rollback_write_authority_event_id = parts.next();
+    let command_id = parts.next();
+    let argument_schema = parts.next();
+    let argument_hash = parts.next();
+    let target_locator = parts.next();
+    let command_envelope_reference_hash = parts.next();
+    let command_body_canonicalization_hash = parts.next();
+    let handler_binding_hash = parts.next();
+    let status_read_handler_hash = parts.next();
+    let rollback_preview_authorization_hash = parts.next();
+    let rollback_apply_authorization_hash = parts.next();
+    let disable_module_target_binding_hash = parts.next();
+    let restart_last_good_target_binding_hash = parts.next();
+    let load_artifact_by_hash_target_binding_hash = parts.next();
+    let recovery_memory_write_authority_hash = parts.next();
+    let durable_audit_rollback_write_authority_hash = parts.next();
+    let command_dispatch_boundary_id = parts.next();
+    let service_inventory_side_effect_boundary_id = parts.next();
+    let service_inventory_projection_hash = parts.next();
+    let scope = parts.next().unwrap_or("current_boot");
+    let extra = parts.next();
+    let input = RecoveryServiceInventorySideEffectBoundaryInput {
+        has_reference: service_inventory_side_effect_boundary_hash.is_some(),
+        arity_valid: service_inventory_side_effect_boundary_hash.is_some()
+            && retained_durable_audit_rollback_write_authority_event_id.is_some()
+            && command_id.is_some()
+            && argument_schema.is_some()
+            && argument_hash.is_some()
+            && target_locator.is_some()
+            && command_envelope_reference_hash.is_some()
+            && command_body_canonicalization_hash.is_some()
+            && handler_binding_hash.is_some()
+            && status_read_handler_hash.is_some()
+            && rollback_preview_authorization_hash.is_some()
+            && rollback_apply_authorization_hash.is_some()
+            && disable_module_target_binding_hash.is_some()
+            && restart_last_good_target_binding_hash.is_some()
+            && load_artifact_by_hash_target_binding_hash.is_some()
+            && recovery_memory_write_authority_hash.is_some()
+            && durable_audit_rollback_write_authority_hash.is_some()
+            && command_dispatch_boundary_id.is_some()
+            && service_inventory_side_effect_boundary_id.is_some()
+            && service_inventory_projection_hash.is_some()
+            && extra.is_none(),
+        scope,
+        service_inventory_side_effect_boundary_hash: service_inventory_side_effect_boundary_hash
+            .and_then(parse_sha256_ref),
+        retained_durable_audit_rollback_write_authority_event_id,
+        command_id,
+        argument_schema,
+        argument_hash: argument_hash.and_then(parse_sha256_ref),
+        target_locator,
+        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
+        command_body_canonicalization_hash: command_body_canonicalization_hash
+            .and_then(parse_sha256_ref),
+        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
+        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
+        rollback_preview_authorization_hash: rollback_preview_authorization_hash
+            .and_then(parse_sha256_ref),
+        rollback_apply_authorization_hash: rollback_apply_authorization_hash
+            .and_then(parse_sha256_ref),
+        disable_module_target_binding_hash: disable_module_target_binding_hash
+            .and_then(parse_sha256_ref),
+        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
+            .and_then(parse_sha256_ref),
+        load_artifact_by_hash_target_binding_hash: load_artifact_by_hash_target_binding_hash
+            .and_then(parse_sha256_ref),
+        recovery_memory_write_authority_hash: recovery_memory_write_authority_hash
+            .and_then(parse_sha256_ref),
+        durable_audit_rollback_write_authority_hash: durable_audit_rollback_write_authority_hash
+            .and_then(parse_sha256_ref),
+        command_dispatch_boundary_id,
+        service_inventory_side_effect_boundary_id,
+        service_inventory_projection_hash: service_inventory_projection_hash
+            .and_then(parse_sha256_ref),
+    };
+    evaluate_recovery_service_inventory_side_effect_boundary_reference(input, require_live_retained)
+}
+
+fn evaluate_recovery_service_inventory_side_effect_boundary_reference(
+    input: RecoveryServiceInventorySideEffectBoundaryInput<'_>,
+    require_live_retained: bool,
+) -> RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'_> {
+    if !input.has_reference {
+        return recovery_service_inventory_side_effect_boundary_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "missing",
+            "recovery_service_inventory_side_effect_boundary_absent",
+            false,
+        );
+    }
+    let Some(retained_durable_event_id) =
+        input.retained_durable_audit_rollback_write_authority_event_id
+    else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(command_id) = input.command_id else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(argument_schema) = input.argument_schema else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(argument_hash) = input.argument_hash else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(target_locator) = input.target_locator else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(command_envelope_reference_hash) = input.command_envelope_reference_hash else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(command_body_canonicalization_hash) = input.command_body_canonicalization_hash else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(handler_binding_hash) = input.handler_binding_hash else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(status_read_handler_hash) = input.status_read_handler_hash else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(rollback_preview_authorization_hash) = input.rollback_preview_authorization_hash
+    else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(rollback_apply_authorization_hash) = input.rollback_apply_authorization_hash else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(disable_module_target_binding_hash) = input.disable_module_target_binding_hash else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(restart_last_good_target_binding_hash) = input.restart_last_good_target_binding_hash
+    else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(load_artifact_by_hash_target_binding_hash) =
+        input.load_artifact_by_hash_target_binding_hash
+    else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(recovery_memory_write_authority_hash) = input.recovery_memory_write_authority_hash
+    else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(durable_audit_rollback_write_authority_hash) =
+        input.durable_audit_rollback_write_authority_hash
+    else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(command_dispatch_boundary_id) = input.command_dispatch_boundary_id else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(service_inventory_side_effect_boundary_id) =
+        input.service_inventory_side_effect_boundary_id
+    else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    let Some(service_inventory_projection_hash) = input.service_inventory_projection_hash else {
+        return recovery_service_inventory_side_effect_boundary_invalid(input);
+    };
+    if !input.arity_valid {
+        return recovery_service_inventory_side_effect_boundary_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "invalid_reference",
+            "recovery_service_inventory_side_effect_boundary_arity_invalid",
+            false,
+        );
+    }
+    if !method_eq(input.scope, "current_boot") {
+        return recovery_service_inventory_side_effect_boundary_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "stale_or_non_current_boot_reference",
+            "recovery_service_inventory_side_effect_boundary_scope_must_be_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(retained_durable_event_id) {
+        return recovery_service_inventory_side_effect_boundary_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "retained_durable_audit_rollback_write_authority_event_id_not_current_boot",
+            false,
+        );
+    }
+    let Some(spec) = recovery_lifeline_command_spec(command_id) else {
+        return recovery_service_inventory_side_effect_boundary_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            false,
+        );
+    };
+    if !method_eq(argument_schema, spec.argument_schema) {
+        return recovery_service_inventory_side_effect_boundary_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            false,
+        );
+    }
+    if !method_eq(
+        command_dispatch_boundary_id,
+        RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+    ) {
+        return recovery_service_inventory_side_effect_boundary_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            false,
+        );
+    }
+    if !method_eq(
+        service_inventory_side_effect_boundary_id,
+        RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_ID,
+    ) {
+        return recovery_service_inventory_side_effect_boundary_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_service_inventory_side_effect_boundary_id_mismatch",
+            false,
+        );
+    }
+    let Some(target_locator_value) = event_log::RecoveryCommandTargetLocator::new(target_locator)
+    else {
+        return recovery_service_inventory_side_effect_boundary_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "invalid_reference",
+            "recovery_lifeline_command_target_locator_invalid",
+            false,
+        );
+    };
+    let expected = module_evidence::computed_recovery_service_inventory_side_effect_boundary_hash(
+        module_evidence::RecoveryServiceInventorySideEffectBoundaryHashInput {
+            retained_durable_audit_rollback_write_authority_event_id: retained_durable_event_id,
+            command_id: spec.command_id,
+            argument_schema: spec.argument_schema,
+            argument_hash,
+            target_locator,
+            command_envelope_reference_hash,
+            command_body_canonicalization_hash,
+            handler_binding_hash,
+            status_read_handler_hash,
+            rollback_preview_authorization_hash,
+            rollback_apply_authorization_hash,
+            disable_module_target_binding_hash,
+            restart_last_good_target_binding_hash,
+            load_artifact_by_hash_target_binding_hash,
+            recovery_memory_write_authority_hash,
+            durable_audit_rollback_write_authority_hash,
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            service_inventory_side_effect_boundary_id:
+                RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_ID,
+            service_inventory_projection_hash,
+        },
+    );
+    if input.service_inventory_side_effect_boundary_hash != Some(expected) {
+        return recovery_service_inventory_side_effect_boundary_reference_check(
+            input,
+            Some(spec),
+            Some(target_locator_value),
+            Some(expected),
+            "mismatched_recovery_service_inventory_side_effect_boundary_hash",
+            "recovery_service_inventory_side_effect_boundary_hash_mismatch",
+            false,
+        );
+    }
+    if require_live_retained {
+        if let Some(reason) =
+            recovery_service_inventory_side_effect_boundary_live_chain_mismatch(&input)
+        {
+            return recovery_service_inventory_side_effect_boundary_reference_check(
+                input,
+                Some(spec),
+                Some(target_locator_value),
+                Some(expected),
+                "rejected",
+                reason,
+                false,
+            );
+        }
+    }
+    recovery_service_inventory_side_effect_boundary_reference_check(
+        input,
+        Some(spec),
+        Some(target_locator_value),
+        Some(expected),
+        "valid_hash_reference_command_still_denied",
+        "recovery_service_inventory_side_effect_boundary_valid_but_service_inventory_unchanged",
+        true,
+    )
+}
+
+fn recovery_service_inventory_side_effect_boundary_invalid(
+    input: RecoveryServiceInventorySideEffectBoundaryInput<'_>,
+) -> RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'_> {
+    recovery_service_inventory_side_effect_boundary_reference_check(
+        input,
+        None,
+        None,
+        None,
+        "invalid_reference",
+        "recovery_service_inventory_side_effect_boundary_invalid_hash",
+        false,
+    )
+}
+
+fn recovery_service_inventory_side_effect_boundary_reference_check<'a>(
+    input: RecoveryServiceInventorySideEffectBoundaryInput<'a>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    expected_service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+) -> RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'a> {
+    RecoveryServiceInventorySideEffectBoundaryReferenceCheck {
+        has_reference: input.has_reference,
+        arity_valid: input.arity_valid,
+        scope: input.scope,
+        service_inventory_side_effect_boundary_hash: input
+            .service_inventory_side_effect_boundary_hash,
+        expected_service_inventory_side_effect_boundary_hash,
+        retained_durable_audit_rollback_write_authority_event_id: input
+            .retained_durable_audit_rollback_write_authority_event_id,
+        command_id: input.command_id,
+        argument_schema: input.argument_schema,
+        argument_hash: input.argument_hash,
+        target_locator: input.target_locator,
+        command_envelope_reference_hash: input.command_envelope_reference_hash,
+        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
+        handler_binding_hash: input.handler_binding_hash,
+        status_read_handler_hash: input.status_read_handler_hash,
+        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
+        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
+        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
+        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
+        load_artifact_by_hash_target_binding_hash: input.load_artifact_by_hash_target_binding_hash,
+        recovery_memory_write_authority_hash: input.recovery_memory_write_authority_hash,
+        durable_audit_rollback_write_authority_hash: input
+            .durable_audit_rollback_write_authority_hash,
+        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
+        service_inventory_side_effect_boundary_id: input.service_inventory_side_effect_boundary_id,
+        service_inventory_projection_hash: input.service_inventory_projection_hash,
+        normalized_spec,
+        target_locator_value,
+        status,
+        reason,
+        valid,
+    }
+}
+
+fn recovery_service_inventory_side_effect_boundary_live_chain_mismatch(
+    input: &RecoveryServiceInventorySideEffectBoundaryInput<'_>,
+) -> Option<&'static str> {
+    let retained_event_id = parse_current_boot_event_id(
+        input.retained_durable_audit_rollback_write_authority_event_id?,
+    )?;
+    let Some((latest_event_id, latest_reference)) =
+        event_log::latest_durable_audit_rollback_write_authority_reference()
+    else {
+        return Some("retained_durable_audit_rollback_write_authority_missing");
+    };
+    if latest_event_id != retained_event_id {
+        return Some("retained_durable_audit_rollback_write_authority_event_id_stale_or_dropped");
+    }
+    if !method_eq(input.command_id?, latest_reference.command_id)
+        || !method_eq(input.argument_schema?, latest_reference.argument_schema)
+        || input.argument_hash != Some(latest_reference.argument_hash)
+        || input.command_envelope_reference_hash
+            != Some(latest_reference.command_envelope_reference_hash)
+        || input.command_body_canonicalization_hash
+            != Some(latest_reference.command_body_canonicalization_hash)
+        || input.handler_binding_hash != Some(latest_reference.handler_binding_hash)
+        || input.status_read_handler_hash != Some(latest_reference.status_read_handler_hash)
+        || input.rollback_preview_authorization_hash
+            != Some(latest_reference.rollback_preview_authorization_hash)
+        || input.rollback_apply_authorization_hash
+            != Some(latest_reference.rollback_apply_authorization_hash)
+        || input.disable_module_target_binding_hash
+            != Some(latest_reference.disable_module_target_binding_hash)
+        || input.restart_last_good_target_binding_hash
+            != Some(latest_reference.restart_last_good_target_binding_hash)
+        || input.load_artifact_by_hash_target_binding_hash
+            != Some(latest_reference.load_artifact_by_hash_target_binding_hash)
+        || input.recovery_memory_write_authority_hash
+            != Some(latest_reference.recovery_memory_write_authority_hash)
+        || input.durable_audit_rollback_write_authority_hash
+            != Some(latest_reference.durable_audit_rollback_write_authority_hash)
+        || !method_eq(
+            input.target_locator?,
+            latest_reference.target_locator.as_str(),
+        )
+        || !method_eq(
+            input.command_dispatch_boundary_id?,
+            latest_reference.command_dispatch_boundary_id,
+        )
+    {
+        return Some("durable_audit_rollback_write_authority_mismatch");
+    }
+    None
+}
+
+fn recovery_service_inventory_side_effect_boundary_from_check(
+    check: &RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'_>,
+) -> Option<event_log::RecoveryServiceInventorySideEffectBoundaryReference> {
+    let spec = check.normalized_spec?;
+    Some(
+        event_log::RecoveryServiceInventorySideEffectBoundaryReference {
+            service_inventory_side_effect_boundary_hash: check
+                .service_inventory_side_effect_boundary_hash?,
+            retained_durable_audit_rollback_write_authority_event_id: parse_current_boot_event_id(
+                check.retained_durable_audit_rollback_write_authority_event_id?,
+            )?,
+            command_id: spec.command_id,
+            argument_schema: spec.argument_schema,
+            argument_hash: check.argument_hash?,
+            target_locator: check.target_locator_value?,
+            command_envelope_reference_hash: check.command_envelope_reference_hash?,
+            command_body_canonicalization_hash: check.command_body_canonicalization_hash?,
+            handler_binding_hash: check.handler_binding_hash?,
+            status_read_handler_hash: check.status_read_handler_hash?,
+            rollback_preview_authorization_hash: check.rollback_preview_authorization_hash?,
+            rollback_apply_authorization_hash: check.rollback_apply_authorization_hash?,
+            disable_module_target_binding_hash: check.disable_module_target_binding_hash?,
+            restart_last_good_target_binding_hash: check.restart_last_good_target_binding_hash?,
+            load_artifact_by_hash_target_binding_hash: check
+                .load_artifact_by_hash_target_binding_hash?,
+            recovery_memory_write_authority_hash: check.recovery_memory_write_authority_hash?,
+            durable_audit_rollback_write_authority_hash: check
+                .durable_audit_rollback_write_authority_hash?,
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            service_inventory_side_effect_boundary_id:
+                RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_ID,
+            service_inventory_projection_hash: check.service_inventory_projection_hash?,
+        },
+    )
+}
+
 fn evaluate_recovery_lifeline_command_envelope(
     candidate: RecoveryLifelineCommandEnvelopeCandidate,
 ) -> RecoveryLifelineCommandEnvelopeCheck {
@@ -23730,6 +24623,10 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
         event_log::EventId,
         event_log::DurableAuditRollbackWriteAuthorityReference,
     )>,
+    retained_service_inventory_side_effect_boundary: Option<(
+        event_log::EventId,
+        event_log::RecoveryServiceInventorySideEffectBoundaryReference,
+    )>,
 ) -> RecoveryLifelineCommandDispatchCandidate {
     let mut candidate = recovery_lifeline_command_dispatch_valid_candidate();
     candidate.command_body_canonicalization_present = false;
@@ -24110,9 +25007,10 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
                 Some((memory_event_id, recovery_memory_write_authority));
         }
     }
+    let mut accepted_durable_audit_rollback_write_authority = None;
     if let (
         Some((memory_event_id, recovery_memory_write_authority)),
-        Some((_, durable_audit_rollback_write_authority)),
+        Some((durable_event_id, durable_audit_rollback_write_authority)),
     ) = (
         accepted_recovery_memory_write_authority,
         retained_durable_audit_rollback_write_authority,
@@ -24161,6 +25059,68 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
                     durable_audit_rollback_write_authority
                         .durable_audit_rollback_write_authority_id,
                     DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_BOUNDARY_ID,
+                );
+        if candidate.durable_audit_rollback_write_authority_present {
+            accepted_durable_audit_rollback_write_authority =
+                Some((durable_event_id, durable_audit_rollback_write_authority));
+        }
+    }
+    if let (
+        Some((durable_event_id, durable_audit_rollback_write_authority)),
+        Some((_, service_inventory_side_effect_boundary)),
+    ) = (
+        accepted_durable_audit_rollback_write_authority,
+        retained_service_inventory_side_effect_boundary,
+    ) {
+        candidate.service_inventory_side_effect_boundary_present =
+            service_inventory_side_effect_boundary
+                .retained_durable_audit_rollback_write_authority_event_id
+                == durable_event_id
+                && method_eq(
+                    service_inventory_side_effect_boundary.command_id,
+                    durable_audit_rollback_write_authority.command_id,
+                )
+                && method_eq(
+                    service_inventory_side_effect_boundary.argument_schema,
+                    durable_audit_rollback_write_authority.argument_schema,
+                )
+                && service_inventory_side_effect_boundary.argument_hash
+                    == durable_audit_rollback_write_authority.argument_hash
+                && service_inventory_side_effect_boundary.target_locator
+                    == durable_audit_rollback_write_authority.target_locator
+                && service_inventory_side_effect_boundary.command_envelope_reference_hash
+                    == durable_audit_rollback_write_authority.command_envelope_reference_hash
+                && service_inventory_side_effect_boundary.command_body_canonicalization_hash
+                    == durable_audit_rollback_write_authority.command_body_canonicalization_hash
+                && service_inventory_side_effect_boundary.handler_binding_hash
+                    == durable_audit_rollback_write_authority.handler_binding_hash
+                && service_inventory_side_effect_boundary.status_read_handler_hash
+                    == durable_audit_rollback_write_authority.status_read_handler_hash
+                && service_inventory_side_effect_boundary.rollback_preview_authorization_hash
+                    == durable_audit_rollback_write_authority.rollback_preview_authorization_hash
+                && service_inventory_side_effect_boundary.rollback_apply_authorization_hash
+                    == durable_audit_rollback_write_authority.rollback_apply_authorization_hash
+                && service_inventory_side_effect_boundary.disable_module_target_binding_hash
+                    == durable_audit_rollback_write_authority.disable_module_target_binding_hash
+                && service_inventory_side_effect_boundary.restart_last_good_target_binding_hash
+                    == durable_audit_rollback_write_authority.restart_last_good_target_binding_hash
+                && service_inventory_side_effect_boundary.load_artifact_by_hash_target_binding_hash
+                    == durable_audit_rollback_write_authority
+                        .load_artifact_by_hash_target_binding_hash
+                && service_inventory_side_effect_boundary.recovery_memory_write_authority_hash
+                    == durable_audit_rollback_write_authority.recovery_memory_write_authority_hash
+                && service_inventory_side_effect_boundary
+                    .durable_audit_rollback_write_authority_hash
+                    == durable_audit_rollback_write_authority
+                        .durable_audit_rollback_write_authority_hash
+                && method_eq(
+                    service_inventory_side_effect_boundary.command_dispatch_boundary_id,
+                    RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+                )
+                && method_eq(
+                    service_inventory_side_effect_boundary
+                        .service_inventory_side_effect_boundary_id,
+                    RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_ID,
                 );
     }
     candidate
@@ -27174,6 +28134,166 @@ fn durable_audit_rollback_write_authority_selftest_case(
     check: DurableAuditRollbackWriteAuthorityReferenceCheck<'_>,
 ) -> DurableAuditRollbackWriteAuthoritySelfTestCase {
     DurableAuditRollbackWriteAuthoritySelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason),
+    }
+}
+
+fn recovery_service_inventory_side_effect_boundary_selftest_cases(
+) -> [RecoveryServiceInventorySideEffectBoundarySelfTestCase;
+       RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_SELFTEST_CASES] {
+    let valid_input = RecoveryServiceInventorySideEffectBoundaryInput {
+        has_reference: true,
+        arity_valid: true,
+        scope: "current_boot",
+        service_inventory_side_effect_boundary_hash: None,
+        retained_durable_audit_rollback_write_authority_event_id: Some("event.current_boot.1"),
+        command_id: Some("recovery.lifeline.status"),
+        argument_schema: Some("raios.recovery_lifeline_command.status_args.v0"),
+        argument_hash: Some([0x81; 32]),
+        target_locator: Some("recovery.lifeline.status.current_boot"),
+        command_envelope_reference_hash: Some([0x82; 32]),
+        command_body_canonicalization_hash: Some([0x83; 32]),
+        handler_binding_hash: Some([0x84; 32]),
+        status_read_handler_hash: Some([0x85; 32]),
+        rollback_preview_authorization_hash: Some([0x86; 32]),
+        rollback_apply_authorization_hash: Some([0x87; 32]),
+        disable_module_target_binding_hash: Some([0x88; 32]),
+        restart_last_good_target_binding_hash: Some([0x89; 32]),
+        load_artifact_by_hash_target_binding_hash: Some([0x8a; 32]),
+        recovery_memory_write_authority_hash: Some([0x8b; 32]),
+        durable_audit_rollback_write_authority_hash: Some([0x8c; 32]),
+        command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
+        service_inventory_side_effect_boundary_id: Some(
+            RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_ID,
+        ),
+        service_inventory_projection_hash: Some([0x8d; 32]),
+    };
+    let expected = module_evidence::computed_recovery_service_inventory_side_effect_boundary_hash(
+        module_evidence::RecoveryServiceInventorySideEffectBoundaryHashInput {
+            retained_durable_audit_rollback_write_authority_event_id: "event.current_boot.1",
+            command_id: "recovery.lifeline.status",
+            argument_schema: "raios.recovery_lifeline_command.status_args.v0",
+            argument_hash: [0x81; 32],
+            target_locator: "recovery.lifeline.status.current_boot",
+            command_envelope_reference_hash: [0x82; 32],
+            command_body_canonicalization_hash: [0x83; 32],
+            handler_binding_hash: [0x84; 32],
+            status_read_handler_hash: [0x85; 32],
+            rollback_preview_authorization_hash: [0x86; 32],
+            rollback_apply_authorization_hash: [0x87; 32],
+            disable_module_target_binding_hash: [0x88; 32],
+            restart_last_good_target_binding_hash: [0x89; 32],
+            load_artifact_by_hash_target_binding_hash: [0x8a; 32],
+            recovery_memory_write_authority_hash: [0x8b; 32],
+            durable_audit_rollback_write_authority_hash: [0x8c; 32],
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            service_inventory_side_effect_boundary_id:
+                RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_ID,
+            service_inventory_projection_hash: [0x8d; 32],
+        },
+    );
+    let mut valid = valid_input;
+    valid.service_inventory_side_effect_boundary_hash = Some(expected);
+    let mut missing = valid;
+    missing.has_reference = false;
+    let mut arity = valid;
+    arity.arity_valid = false;
+    let mut previous = valid;
+    previous.scope = "previous_boot";
+    let mut unsupported = valid;
+    unsupported.command_id = Some("recovery.lifeline.unsupported");
+    let mut schema = valid;
+    schema.argument_schema = Some("raios.recovery_lifeline_command.bad_args.v0");
+    let mut boundary = valid;
+    boundary.command_dispatch_boundary_id =
+        Some("boundary.recovery_lifeline_command_dispatch.wrong");
+    let mut side_effect_boundary = valid;
+    side_effect_boundary.service_inventory_side_effect_boundary_id =
+        Some("boundary.recovery_service_inventory_side_effect_boundary.wrong");
+    let mut hash = valid;
+    hash.service_inventory_side_effect_boundary_hash = Some([0xff; 32]);
+    let live_missing = valid;
+
+    [
+        recovery_service_inventory_side_effect_boundary_selftest_case(
+            "recovery_service_inventory_side_effect_boundary_absent",
+            "missing",
+            "recovery_service_inventory_side_effect_boundary_absent",
+            evaluate_recovery_service_inventory_side_effect_boundary_reference(missing, false),
+        ),
+        recovery_service_inventory_side_effect_boundary_selftest_case(
+            "recovery_service_inventory_side_effect_boundary_arity_invalid",
+            "invalid_reference",
+            "recovery_service_inventory_side_effect_boundary_arity_invalid",
+            evaluate_recovery_service_inventory_side_effect_boundary_reference(arity, false),
+        ),
+        recovery_service_inventory_side_effect_boundary_selftest_case(
+            "previous_boot_recovery_service_inventory_side_effect_boundary",
+            "stale_or_non_current_boot_reference",
+            "recovery_service_inventory_side_effect_boundary_scope_must_be_current_boot",
+            evaluate_recovery_service_inventory_side_effect_boundary_reference(previous, false),
+        ),
+        recovery_service_inventory_side_effect_boundary_selftest_case(
+            "unsupported_command_id",
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            evaluate_recovery_service_inventory_side_effect_boundary_reference(unsupported, false),
+        ),
+        recovery_service_inventory_side_effect_boundary_selftest_case(
+            "argument_schema_mismatch",
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            evaluate_recovery_service_inventory_side_effect_boundary_reference(schema, false),
+        ),
+        recovery_service_inventory_side_effect_boundary_selftest_case(
+            "dispatch_boundary_mismatch",
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            evaluate_recovery_service_inventory_side_effect_boundary_reference(boundary, false),
+        ),
+        recovery_service_inventory_side_effect_boundary_selftest_case(
+            "service_inventory_side_effect_boundary_id_mismatch",
+            "rejected",
+            "recovery_service_inventory_side_effect_boundary_id_mismatch",
+            evaluate_recovery_service_inventory_side_effect_boundary_reference(
+                side_effect_boundary,
+                false,
+            ),
+        ),
+        recovery_service_inventory_side_effect_boundary_selftest_case(
+            "service_inventory_side_effect_boundary_hash_mismatch",
+            "mismatched_recovery_service_inventory_side_effect_boundary_hash",
+            "recovery_service_inventory_side_effect_boundary_hash_mismatch",
+            evaluate_recovery_service_inventory_side_effect_boundary_reference(hash, false),
+        ),
+        recovery_service_inventory_side_effect_boundary_selftest_case(
+            "retained_durable_audit_rollback_write_authority_reference_missing",
+            "rejected",
+            "retained_durable_audit_rollback_write_authority_missing",
+            evaluate_recovery_service_inventory_side_effect_boundary_reference(live_missing, true),
+        ),
+        recovery_service_inventory_side_effect_boundary_selftest_case(
+            "all_inputs_present_service_inventory_side_effect_boundary_still_non_executable",
+            "valid_hash_reference_command_still_denied",
+            "recovery_service_inventory_side_effect_boundary_valid_but_service_inventory_unchanged",
+            evaluate_recovery_service_inventory_side_effect_boundary_reference(valid, false),
+        ),
+    ]
+}
+
+fn recovery_service_inventory_side_effect_boundary_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'_>,
+) -> RecoveryServiceInventorySideEffectBoundarySelfTestCase {
+    RecoveryServiceInventorySideEffectBoundarySelfTestCase {
         name,
         expected_status,
         expected_reason,
@@ -32238,6 +33358,21 @@ fn durable_audit_rollback_write_authority_diagnostic_arg(method: &str) -> &str {
         "recovery.durable_audit_rollback_write_authority_diagnostic".len()
     } else if method_head_eq(method, "recovery.durable_audit_rollback_write_authority") {
         "recovery.durable_audit_rollback_write_authority".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn recovery_service_inventory_side_effect_boundary_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(
+        method,
+        "recovery.service_inventory_side_effect_boundary_diagnostic",
+    ) {
+        "recovery.service_inventory_side_effect_boundary_diagnostic".len()
+    } else if method_head_eq(method, "recovery.service_inventory_side_effect_boundary") {
+        "recovery.service_inventory_side_effect_boundary".len()
     } else {
         return "";
     };

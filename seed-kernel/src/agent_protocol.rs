@@ -140,6 +140,8 @@ use crate::{
         emit_recovery_rollback_preview_authorization_diagnostic_selftest,
         emit_recovery_rollback_transaction_engine,
         emit_recovery_rollback_transaction_engine_selftest,
+        emit_recovery_service_inventory_side_effect_boundary_diagnostic,
+        emit_recovery_service_inventory_side_effect_boundary_diagnostic_selftest,
         recovery_artifact_identity_diagnostic_method,
         recovery_artifact_identity_diagnostic_selftest_method,
         recovery_artifact_load_binding_method, recovery_artifact_load_binding_selftest_method,
@@ -190,6 +192,8 @@ use crate::{
         recovery_rollback_preview_authorization_diagnostic_selftest_method,
         recovery_rollback_transaction_engine_method,
         recovery_rollback_transaction_engine_selftest_method,
+        recovery_service_inventory_side_effect_boundary_diagnostic_method,
+        recovery_service_inventory_side_effect_boundary_diagnostic_selftest_method,
     },
     agent_protocol_support::{method_eq, method_head_eq},
     agent_protocol_system::{
@@ -784,6 +788,20 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_durable_audit_rollback_write_authority_diagnostic_selftest();
         return DispatchOutcome::Response(
             "recovery.durable_audit_rollback_write_authority_diagnostic_selftest",
+        );
+    }
+    if recovery_service_inventory_side_effect_boundary_diagnostic_method(method) {
+        record_read("recovery.service_inventory_side_effect_boundary_diagnostic");
+        emit_recovery_service_inventory_side_effect_boundary_diagnostic(method);
+        return DispatchOutcome::Response(
+            "recovery.service_inventory_side_effect_boundary_diagnostic",
+        );
+    }
+    if recovery_service_inventory_side_effect_boundary_diagnostic_selftest_method(method) {
+        record_read("recovery.service_inventory_side_effect_boundary_diagnostic_selftest");
+        emit_recovery_service_inventory_side_effect_boundary_diagnostic_selftest();
+        return DispatchOutcome::Response(
+            "recovery.service_inventory_side_effect_boundary_diagnostic_selftest",
         );
     }
     if recovery_artifact_load_binding_method(method) {

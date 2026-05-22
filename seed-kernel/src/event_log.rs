@@ -23,6 +23,7 @@ use crate::event_log_evidence::{
     RECOVERY_MEMORY_WRITE_AUTHORITY_EVIDENCE, RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_EVIDENCE,
     RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_EVIDENCE,
     RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_EVIDENCE,
+    RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_EVIDENCE,
 };
 use crate::event_log_module_checks::{
     module_audit_rollback_binds_computed_grant, module_audit_rollback_reference_hash_mismatch,
@@ -59,8 +60,8 @@ pub use crate::event_log_types::{
     RecoveryLifelineStatusReadHandlerReference, RecoveryLoadArtifactByHashTargetBindingReference,
     RecoveryMemoryWriteAuthorityReference, RecoveryRestartLastGoodTargetBindingReference,
     RecoveryRollbackApplyAuthorizationReference, RecoveryRollbackPreviewAuthorizationReference,
-    DEFAULT_EVENT_LIMIT, EVENT_CAPACITY, PROVIDER_BINDING_GATE_SELFTEST_CASES,
-    PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
+    RecoveryServiceInventorySideEffectBoundaryReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
+    PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::module_evidence;
 
@@ -1180,6 +1181,33 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::DurableAuditRollbackWriteAuthorityReference(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_service_inventory_side_effect_boundary_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryServiceInventorySideEffectBoundaryReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryServiceInventorySideEffectBoundaryReference(binding) =
                     event.bindings
                 {
                     return Some((
@@ -3042,6 +3070,26 @@ pub fn record_durable_audit_rollback_write_authority_reference(
     })
 }
 
+pub fn record_recovery_service_inventory_side_effect_boundary_reference(
+    binding: RecoveryServiceInventorySideEffectBoundaryReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.service_inventory_side_effect_boundary.retained",
+        source_method: "recovery.service_inventory_side_effect_boundary_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "service_inventory_side_effect_boundary",
+        reason: "recovery_service_inventory_side_effect_boundary_valid_for_current_boot",
+        evidence: RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_EVIDENCE,
+        bindings: EventBindings::RecoveryServiceInventorySideEffectBoundaryReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -3427,6 +3475,12 @@ pub fn latest_durable_audit_rollback_write_authority_reference(
 ) -> Option<(EventId, DurableAuditRollbackWriteAuthorityReference)> {
     LOG.lock()
         .latest_durable_audit_rollback_write_authority_reference()
+}
+
+pub fn latest_recovery_service_inventory_side_effect_boundary_reference(
+) -> Option<(EventId, RecoveryServiceInventorySideEffectBoundaryReference)> {
+    LOG.lock()
+        .latest_recovery_service_inventory_side_effect_boundary_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(
