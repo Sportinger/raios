@@ -48,7 +48,9 @@ Last verified locally: 2026-05-22 on Windows with QEMU 11 after adding guest
 `recovery.lifeline_command_handler_binding_diagnostic`/
 `recovery.lifeline_command_handler_binding_diagnostic_selftest`, plus
 `recovery.lifeline_status_read_handler_diagnostic`/
-`recovery.lifeline_status_read_handler_diagnostic_selftest`, plus typed missing
+`recovery.lifeline_status_read_handler_diagnostic_selftest`, plus
+`recovery.rollback_preview_authorization_diagnostic`/
+`recovery.rollback_preview_authorization_diagnostic_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
 typed missing `raios.durable_audit_write_policy.v0`/
 `raios.rollback_install_policy.v0` policy facts, typed missing
@@ -151,7 +153,15 @@ reference hash, body-canonicalization hash, handler-binding hash, dispatch
 boundary id, status handler id, and status-read projection hash, retains only
 local-only current-boot status-read handler evidence, and advances dispatch
 only to missing rollback-preview authorization while still executing no status
-read and dispatching no behavior, via
+read and dispatching no behavior, plus a read-only
+`raios.recovery_rollback_preview_authorization.v0` hash-reference
+diagnostic that consumes the retained status-read handler reference, validates
+command id, argument schema, argument hash, target locator, command-envelope
+reference hash, body-canonicalization hash, handler-binding hash, status-read
+handler hash, dispatch boundary id, rollback-preview authorization id, and
+preview projection hash, retains only local-only current-boot preview
+authorization evidence, and advances dispatch only to missing rollback-apply
+authorization while still executing no rollback preview or recovery command, via
 headless
 Shadow VM smoke
 covering
@@ -591,23 +601,25 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline rollback-preview authorization hash-reference
-boundary after status-read handler:
+Define the recovery lifeline rollback-apply authorization hash-reference
+boundary after rollback-preview authorization:
 
 - add a read-only current-boot diagnostic for
-  `raios.recovery_rollback_preview_authorization.v0`, consuming the retained
-  status-read handler reference and dispatch-denial boundary while still
-  accepting no raw command body and executing no rollback preview
-- validate only hash/reference shape for rollback-preview authorization
-  metadata: command id, argument schema, argument hash, target locator,
-  command-envelope reference hash, body-canonicalization hash,
-  handler-binding hash, status-read handler hash, dispatch boundary id,
-  preview authorization id, preview projection hash, and current-boot scope
+  `raios.recovery_rollback_apply_authorization.v0`, consuming the retained
+  rollback-preview authorization reference and dispatch-denial boundary while
+  still accepting no raw command body and executing no rollback apply
+- validate only hash/reference shape for rollback-apply authorization metadata:
+  command id, argument schema, argument hash, target locator, command-envelope
+  reference hash, body-canonicalization hash, handler-binding hash,
+  status-read handler hash, rollback-preview authorization hash, dispatch
+  boundary id, apply authorization id, apply projection hash, and current-boot
+  scope
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched status-read/handler-binding/body-canonicalization/dispatch/
-  envelope/admission/memory-provenance/durable-persistence/rollback-engine/
-  loader-isolation/command-vocabulary/protocol-state/request inputs before
-  retaining or reporting any rollback-preview authorization reference
+  mismatched preview-authorization/status-read/handler-binding/
+  body-canonicalization/dispatch/envelope/admission/memory-provenance/
+  durable-persistence/rollback-engine/loader-isolation/command-vocabulary/
+  protocol-state/request inputs before retaining or reporting any
+  rollback-apply authorization reference
 
 The verified foundation for that task is:
 

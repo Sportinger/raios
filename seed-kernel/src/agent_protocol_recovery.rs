@@ -39,6 +39,7 @@ const RECOVERY_LIFELINE_COMMAND_DISPATCH_SELFTEST_CASES: usize = 40;
 const RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_SELFTEST_CASES: usize = 43;
 const RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_SELFTEST_CASES: usize = 10;
 const RECOVERY_LIFELINE_STATUS_READ_HANDLER_SELFTEST_CASES: usize = 10;
+const RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_SELFTEST_CASES: usize = 10;
 const RECOVERY_COMMAND_ADMISSION_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_command_admission.current_boot";
 const RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID: &str =
@@ -47,6 +48,8 @@ const RECOVERY_COMMAND_HANDLER_BINDING_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_command_handler_binding.current_boot";
 const RECOVERY_STATUS_READ_HANDLER_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_status_read_handler.current_boot";
+const RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_BOUNDARY_ID: &str =
+    "boundary.recovery_rollback_preview_authorization.current_boot";
 
 #[derive(Clone, Copy)]
 struct RecoveryIdentityReferenceCheck<'a> {
@@ -1165,6 +1168,61 @@ struct RecoveryLifelineStatusReadHandlerSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+struct RecoveryRollbackPreviewAuthorizationInput<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    rollback_preview_authorization_hash: Option<[u8; 32]>,
+    retained_status_read_handler_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    target_locator: Option<&'a str>,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    command_body_canonicalization_hash: Option<[u8; 32]>,
+    handler_binding_hash: Option<[u8; 32]>,
+    status_read_handler_hash: Option<[u8; 32]>,
+    command_dispatch_boundary_id: Option<&'a str>,
+    rollback_preview_authorization_id: Option<&'a str>,
+    rollback_preview_projection_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryRollbackPreviewAuthorizationReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    rollback_preview_authorization_hash: Option<[u8; 32]>,
+    expected_rollback_preview_authorization_hash: Option<[u8; 32]>,
+    retained_status_read_handler_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    target_locator: Option<&'a str>,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    command_body_canonicalization_hash: Option<[u8; 32]>,
+    handler_binding_hash: Option<[u8; 32]>,
+    status_read_handler_hash: Option<[u8; 32]>,
+    command_dispatch_boundary_id: Option<&'a str>,
+    rollback_preview_authorization_id: Option<&'a str>,
+    rollback_preview_projection_hash: Option<[u8; 32]>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+struct RecoveryRollbackPreviewAuthorizationSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
 struct RecoveryEvidenceCandidate {
     retained: bool,
     current_boot: bool,
@@ -1439,6 +1497,20 @@ pub(crate) fn recovery_lifeline_status_read_handler_diagnostic_selftest_method(
         method,
         "recovery.lifeline_status_read_handler_diagnostic_selftest",
     ) || method_head_eq(method, "recovery.lifeline_status_read_handler_selftest")
+}
+
+pub(crate) fn recovery_rollback_preview_authorization_diagnostic_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.rollback_preview_authorization_diagnostic")
+        || method_head_eq(method, "recovery.rollback_preview_authorization")
+}
+
+pub(crate) fn recovery_rollback_preview_authorization_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    method_head_eq(
+        method,
+        "recovery.rollback_preview_authorization_diagnostic_selftest",
+    ) || method_head_eq(method, "recovery.rollback_preview_authorization_selftest")
 }
 
 pub(crate) fn recovery_artifact_load_binding_method(method: &str) -> bool {
@@ -4098,12 +4170,15 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
     let retained_handler = event_log::latest_recovery_lifeline_command_handler_binding_reference();
     let retained_status_handler =
         event_log::latest_recovery_lifeline_status_read_handler_reference();
+    let retained_preview_authorization =
+        event_log::latest_recovery_rollback_preview_authorization_reference();
     let candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
         retained_envelope,
         retained_request,
         retained_body,
         retained_handler,
         retained_status_handler,
+        retained_preview_authorization,
     );
     let check = evaluate_recovery_lifeline_command_dispatch(candidate);
 
@@ -4323,6 +4398,7 @@ pub(crate) fn emit_recovery_lifeline_command_body_canonicalization_diagnostic(me
     let dispatch_candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
         retained_envelope,
         retained_request,
+        None,
         None,
         None,
         None,
@@ -4835,6 +4911,147 @@ pub(crate) fn emit_recovery_lifeline_status_read_handler_diagnostic_selftest() {
     raw_line("      ],");
     raw_line("      \"can_move_beyond_denial\": false");
     end_response("recovery.lifeline_status_read_handler_diagnostic_selftest");
+}
+
+pub(crate) fn emit_recovery_rollback_preview_authorization_diagnostic(method: &str) {
+    let check = parse_recovery_rollback_preview_authorization_reference(
+        recovery_rollback_preview_authorization_diagnostic_arg(method),
+        true,
+    );
+    let recorded_event_id = if check.valid {
+        recovery_rollback_preview_authorization_from_check(&check)
+            .map(event_log::record_recovery_rollback_preview_authorization_reference)
+    } else {
+        None
+    };
+    let retained_preview_authorization =
+        event_log::latest_recovery_rollback_preview_authorization_reference();
+
+    begin_response("recovery.rollback_preview_authorization_diagnostic");
+    raw_line("      \"schema\": \"raios.recovery_rollback_preview_authorization_diagnostic.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw("      \"creates_retained_recovery_rollback_preview_authorization_records\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"executes_lifeline_status\": false,");
+    raw_line("      \"executes_rollback_preview\": false,");
+    raw_line("      \"executes_rollback_apply\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"exports_provider_context\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"recovery.rollback_preview_authorization_diagnostic <rollback_preview_authorization_hash> <retained_status_read_handler_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <command_dispatch_boundary_id> <rollback_preview_authorization_id> <rollback_preview_projection_hash> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_rollback_preview_authorization\",");
+    raw_line("        \"rollback_preview_authorization_schema\": \"raios.recovery_rollback_preview_authorization.v0\",");
+    raw_line("        \"rollback_preview_authorization_canonicalization\": \"raios.recovery_rollback_preview_authorization.canonical.v0\",");
+    raw_line(
+        "        \"rollback_preview_authorization_boundary_id\": \"boundary.recovery_rollback_preview_authorization.current_boot\"",
+    );
+    raw_line("      },");
+    emit_recovery_rollback_preview_authorization_reference_object(&check);
+    raw_line(",");
+    raw_line("      \"rollback_preview_authorization_requirements\": [");
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "rollback_apply_authorization",
+        "raios.recovery_rollback_apply_authorization.v0",
+        "recovery_rollback_apply_authorization_missing",
+        false,
+    );
+    raw_line("      ],");
+    emit_recovery_rollback_preview_authorization_retained_reference(
+        &check,
+        recorded_event_id,
+        retained_preview_authorization,
+    );
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"rollback_preview_authorization_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"executes_rollback_preview\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.rollback_preview_authorization_diagnostic");
+}
+
+pub(crate) fn emit_recovery_rollback_preview_authorization_diagnostic_selftest() {
+    let cases = recovery_rollback_preview_authorization_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.rollback_preview_authorization_diagnostic_selftest");
+    raw_line("      \"schema\": \"raios.recovery_rollback_preview_authorization_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_rollback_preview_authorization_records\": false,");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"executes_rollback_preview\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_rollback_preview_authorization_selftest_case(
+            &cases[idx],
+            idx + 1 != cases.len(),
+        );
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.rollback_preview_authorization_diagnostic_selftest");
 }
 
 pub(crate) fn emit_recovery_artifact_load_binding() {
@@ -9046,6 +9263,154 @@ fn emit_recovery_lifeline_status_read_handler_selftest_case(
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"accepts_raw_command_body\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"command_execution_enabled\": false, \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_rollback_preview_authorization_reference_object(
+    check: &RecoveryRollbackPreviewAuthorizationReferenceCheck<'_>,
+) {
+    raw_line("      \"rollback_preview_authorization_reference\": {");
+    raw("        \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"has_reference\": ");
+    raw_bool(check.has_reference);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw("        \"command_id\": ");
+    json_opt_str(check.command_id);
+    raw_line(",");
+    raw("        \"argument_schema\": ");
+    json_opt_str(check.argument_schema);
+    raw_line(",");
+    raw("        \"target_locator\": ");
+    json_opt_str(check.target_locator);
+    raw_line(",");
+    raw("        \"command_dispatch_boundary_id\": ");
+    json_opt_str(check.command_dispatch_boundary_id);
+    raw_line(",");
+    raw("        \"rollback_preview_authorization_id\": ");
+    json_opt_str(check.rollback_preview_authorization_id);
+    raw_line(",");
+    raw("        \"retained_recovery_lifeline_status_read_handler_event_id\": ");
+    json_opt_str(check.retained_status_read_handler_event_id);
+    raw_line(",");
+    raw("        \"argument_hash\": ");
+    json_sha256_option(check.argument_hash);
+    raw_line(",");
+    raw("        \"command_envelope_reference_hash\": ");
+    json_sha256_option(check.command_envelope_reference_hash);
+    raw_line(",");
+    raw("        \"command_body_canonicalization_hash\": ");
+    json_sha256_option(check.command_body_canonicalization_hash);
+    raw_line(",");
+    raw("        \"handler_binding_hash\": ");
+    json_sha256_option(check.handler_binding_hash);
+    raw_line(",");
+    raw("        \"status_read_handler_hash\": ");
+    json_sha256_option(check.status_read_handler_hash);
+    raw_line(",");
+    raw("        \"rollback_preview_projection_hash\": ");
+    json_sha256_option(check.rollback_preview_projection_hash);
+    raw_line(",");
+    raw("        \"rollback_preview_authorization_hash\": ");
+    json_sha256_option(check.rollback_preview_authorization_hash);
+    raw_line(",");
+    raw("        \"expected_rollback_preview_authorization_hash\": ");
+    json_sha256_option(check.expected_rollback_preview_authorization_hash);
+    raw_line(",");
+    raw("        \"valid_hash_reference\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"executes_rollback_preview\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw("      }");
+}
+
+fn emit_recovery_rollback_preview_authorization_retained_reference(
+    check: &RecoveryRollbackPreviewAuthorizationReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryRollbackPreviewAuthorizationReference,
+    )>,
+) {
+    raw_line("      \"retained_rollback_preview_authorization_reference\": {");
+    raw("        \"status\": ");
+    json_str(if check.valid {
+        "retained_hash_reference_command_still_denied"
+    } else if retained.is_some() {
+        "previous_retained_hash_reference_present"
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw("        \"recorded_event_id\": ");
+    json_event_id_option(recorded_event_id);
+    raw_line(",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"executes_rollback_preview\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"load_attempted\": false,");
+    raw("        \"latest_event_id\": ");
+    if let Some((event_id, _)) = retained {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_rollback_preview_authorization_id\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.rollback_preview_authorization_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_rollback_preview_authorization_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.rollback_preview_authorization_hash);
+    } else {
+        raw("null");
+    }
+    raw_line("");
+    raw("      }");
+}
+
+fn emit_recovery_rollback_preview_authorization_selftest_case(
+    case: &RecoveryRollbackPreviewAuthorizationSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"accepts_raw_command_body\": false, \"dispatches_lifeline_command\": false, \"executes_rollback_preview\": false, \"command_execution_enabled\": false, \"load_attempted\": false}");
     if comma {
         raw(",");
     }
@@ -16373,6 +16738,7 @@ fn recovery_lifeline_command_body_canonicalization_live_chain_mismatch(
         None,
         None,
         None,
+        None,
     );
     let dispatch_check = evaluate_recovery_lifeline_command_dispatch(dispatch_candidate);
     if !method_eq(
@@ -17090,6 +17456,368 @@ fn recovery_lifeline_status_read_handler_from_check(
         command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
         status_handler_id: RECOVERY_STATUS_READ_HANDLER_BOUNDARY_ID,
         status_read_projection_hash: check.status_read_projection_hash?,
+    })
+}
+
+fn parse_recovery_rollback_preview_authorization_reference(
+    arg: &str,
+    require_live_retained: bool,
+) -> RecoveryRollbackPreviewAuthorizationReferenceCheck<'_> {
+    let mut parts = arg.split_whitespace();
+    let rollback_preview_authorization_hash = parts.next();
+    let retained_status_read_handler_event_id = parts.next();
+    let command_id = parts.next();
+    let argument_schema = parts.next();
+    let argument_hash = parts.next();
+    let target_locator = parts.next();
+    let command_envelope_reference_hash = parts.next();
+    let command_body_canonicalization_hash = parts.next();
+    let handler_binding_hash = parts.next();
+    let status_read_handler_hash = parts.next();
+    let command_dispatch_boundary_id = parts.next();
+    let rollback_preview_authorization_id = parts.next();
+    let rollback_preview_projection_hash = parts.next();
+    let scope = parts.next().unwrap_or("current_boot");
+    let extra = parts.next();
+    let input = RecoveryRollbackPreviewAuthorizationInput {
+        has_reference: rollback_preview_authorization_hash.is_some(),
+        arity_valid: rollback_preview_authorization_hash.is_some()
+            && retained_status_read_handler_event_id.is_some()
+            && command_id.is_some()
+            && argument_schema.is_some()
+            && argument_hash.is_some()
+            && target_locator.is_some()
+            && command_envelope_reference_hash.is_some()
+            && command_body_canonicalization_hash.is_some()
+            && handler_binding_hash.is_some()
+            && status_read_handler_hash.is_some()
+            && command_dispatch_boundary_id.is_some()
+            && rollback_preview_authorization_id.is_some()
+            && rollback_preview_projection_hash.is_some()
+            && extra.is_none(),
+        scope,
+        rollback_preview_authorization_hash: rollback_preview_authorization_hash
+            .and_then(parse_sha256_ref),
+        retained_status_read_handler_event_id,
+        command_id,
+        argument_schema,
+        argument_hash: argument_hash.and_then(parse_sha256_ref),
+        target_locator,
+        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
+        command_body_canonicalization_hash: command_body_canonicalization_hash
+            .and_then(parse_sha256_ref),
+        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
+        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
+        command_dispatch_boundary_id,
+        rollback_preview_authorization_id,
+        rollback_preview_projection_hash: rollback_preview_projection_hash
+            .and_then(parse_sha256_ref),
+    };
+    evaluate_recovery_rollback_preview_authorization_reference(input, require_live_retained)
+}
+
+fn evaluate_recovery_rollback_preview_authorization_reference(
+    input: RecoveryRollbackPreviewAuthorizationInput<'_>,
+    require_live_retained: bool,
+) -> RecoveryRollbackPreviewAuthorizationReferenceCheck<'_> {
+    if !input.has_reference {
+        return recovery_rollback_preview_authorization_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "missing",
+            "recovery_rollback_preview_authorization_absent",
+            false,
+        );
+    }
+    let Some(retained_status_event_id) = input.retained_status_read_handler_event_id else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(command_id) = input.command_id else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(argument_schema) = input.argument_schema else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(argument_hash) = input.argument_hash else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(target_locator) = input.target_locator else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(command_envelope_reference_hash) = input.command_envelope_reference_hash else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(command_body_canonicalization_hash) = input.command_body_canonicalization_hash else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(handler_binding_hash) = input.handler_binding_hash else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(status_read_handler_hash) = input.status_read_handler_hash else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(command_dispatch_boundary_id) = input.command_dispatch_boundary_id else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(rollback_preview_authorization_id) = input.rollback_preview_authorization_id else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    let Some(rollback_preview_projection_hash) = input.rollback_preview_projection_hash else {
+        return recovery_rollback_preview_authorization_invalid(input);
+    };
+    if !input.arity_valid {
+        return recovery_rollback_preview_authorization_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "invalid_reference",
+            "recovery_rollback_preview_authorization_arity_invalid",
+            false,
+        );
+    }
+    if !method_eq(input.scope, "current_boot") {
+        return recovery_rollback_preview_authorization_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "stale_or_non_current_boot_reference",
+            "recovery_rollback_preview_authorization_scope_must_be_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(retained_status_event_id) {
+        return recovery_rollback_preview_authorization_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "retained_recovery_lifeline_status_read_handler_event_id_not_current_boot",
+            false,
+        );
+    }
+    let Some(spec) = recovery_lifeline_command_spec(command_id) else {
+        return recovery_rollback_preview_authorization_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            false,
+        );
+    };
+    if !method_eq(argument_schema, spec.argument_schema) {
+        return recovery_rollback_preview_authorization_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            false,
+        );
+    }
+    if !method_eq(
+        command_dispatch_boundary_id,
+        RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+    ) {
+        return recovery_rollback_preview_authorization_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            false,
+        );
+    }
+    if !method_eq(
+        rollback_preview_authorization_id,
+        RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_BOUNDARY_ID,
+    ) {
+        return recovery_rollback_preview_authorization_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_rollback_preview_authorization_id_mismatch",
+            false,
+        );
+    }
+    let Some(target_locator_value) = event_log::RecoveryCommandTargetLocator::new(target_locator)
+    else {
+        return recovery_rollback_preview_authorization_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "invalid_reference",
+            "recovery_lifeline_command_target_locator_invalid",
+            false,
+        );
+    };
+    let expected = module_evidence::computed_recovery_rollback_preview_authorization_hash(
+        module_evidence::RecoveryRollbackPreviewAuthorizationHashInput {
+            retained_status_read_handler_event_id: retained_status_event_id,
+            command_id: spec.command_id,
+            argument_schema: spec.argument_schema,
+            argument_hash,
+            target_locator,
+            command_envelope_reference_hash,
+            command_body_canonicalization_hash,
+            handler_binding_hash,
+            status_read_handler_hash,
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            rollback_preview_authorization_id: RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_BOUNDARY_ID,
+            rollback_preview_projection_hash,
+        },
+    );
+    if input.rollback_preview_authorization_hash != Some(expected) {
+        return recovery_rollback_preview_authorization_reference_check(
+            input,
+            Some(spec),
+            Some(target_locator_value),
+            Some(expected),
+            "mismatched_rollback_preview_authorization_hash",
+            "recovery_rollback_preview_authorization_hash_mismatch",
+            false,
+        );
+    }
+    if require_live_retained {
+        if let Some(reason) = recovery_rollback_preview_authorization_live_chain_mismatch(&input) {
+            return recovery_rollback_preview_authorization_reference_check(
+                input,
+                Some(spec),
+                Some(target_locator_value),
+                Some(expected),
+                "rejected",
+                reason,
+                false,
+            );
+        }
+    }
+    recovery_rollback_preview_authorization_reference_check(
+        input,
+        Some(spec),
+        Some(target_locator_value),
+        Some(expected),
+        "valid_hash_reference_command_still_denied",
+        "recovery_rollback_preview_authorization_valid_but_command_dispatch_disabled",
+        true,
+    )
+}
+
+fn recovery_rollback_preview_authorization_invalid(
+    input: RecoveryRollbackPreviewAuthorizationInput<'_>,
+) -> RecoveryRollbackPreviewAuthorizationReferenceCheck<'_> {
+    recovery_rollback_preview_authorization_reference_check(
+        input,
+        None,
+        None,
+        None,
+        "invalid_reference",
+        "recovery_rollback_preview_authorization_invalid_hash",
+        false,
+    )
+}
+
+fn recovery_rollback_preview_authorization_reference_check<'a>(
+    input: RecoveryRollbackPreviewAuthorizationInput<'a>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    expected_rollback_preview_authorization_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+) -> RecoveryRollbackPreviewAuthorizationReferenceCheck<'a> {
+    RecoveryRollbackPreviewAuthorizationReferenceCheck {
+        has_reference: input.has_reference,
+        arity_valid: input.arity_valid,
+        scope: input.scope,
+        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
+        expected_rollback_preview_authorization_hash,
+        retained_status_read_handler_event_id: input.retained_status_read_handler_event_id,
+        command_id: input.command_id,
+        argument_schema: input.argument_schema,
+        argument_hash: input.argument_hash,
+        target_locator: input.target_locator,
+        command_envelope_reference_hash: input.command_envelope_reference_hash,
+        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
+        handler_binding_hash: input.handler_binding_hash,
+        status_read_handler_hash: input.status_read_handler_hash,
+        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
+        rollback_preview_authorization_id: input.rollback_preview_authorization_id,
+        rollback_preview_projection_hash: input.rollback_preview_projection_hash,
+        normalized_spec,
+        target_locator_value,
+        status,
+        reason,
+        valid,
+    }
+}
+
+fn recovery_rollback_preview_authorization_live_chain_mismatch(
+    input: &RecoveryRollbackPreviewAuthorizationInput<'_>,
+) -> Option<&'static str> {
+    let retained_event_id =
+        parse_current_boot_event_id(input.retained_status_read_handler_event_id?)?;
+    let Some((latest_event_id, latest_reference)) =
+        event_log::latest_recovery_lifeline_status_read_handler_reference()
+    else {
+        return Some("retained_recovery_lifeline_status_read_handler_missing");
+    };
+    if latest_event_id != retained_event_id {
+        return Some("retained_recovery_lifeline_status_read_handler_event_id_stale_or_dropped");
+    }
+    if !method_eq(input.command_id?, latest_reference.command_id)
+        || !method_eq(input.argument_schema?, latest_reference.argument_schema)
+        || input.argument_hash != Some(latest_reference.argument_hash)
+        || input.command_envelope_reference_hash
+            != Some(latest_reference.command_envelope_reference_hash)
+        || input.command_body_canonicalization_hash
+            != Some(latest_reference.command_body_canonicalization_hash)
+        || input.handler_binding_hash != Some(latest_reference.handler_binding_hash)
+        || input.status_read_handler_hash != Some(latest_reference.status_read_handler_hash)
+        || !method_eq(
+            input.target_locator?,
+            latest_reference.target_locator.as_str(),
+        )
+        || !method_eq(
+            input.command_dispatch_boundary_id?,
+            latest_reference.command_dispatch_boundary_id,
+        )
+    {
+        return Some("recovery_lifeline_status_read_handler_mismatch");
+    }
+    None
+}
+
+fn recovery_rollback_preview_authorization_from_check(
+    check: &RecoveryRollbackPreviewAuthorizationReferenceCheck<'_>,
+) -> Option<event_log::RecoveryRollbackPreviewAuthorizationReference> {
+    let spec = check.normalized_spec?;
+    Some(event_log::RecoveryRollbackPreviewAuthorizationReference {
+        rollback_preview_authorization_hash: check.rollback_preview_authorization_hash?,
+        retained_status_read_handler_event_id: parse_current_boot_event_id(
+            check.retained_status_read_handler_event_id?,
+        )?,
+        command_id: spec.command_id,
+        argument_schema: spec.argument_schema,
+        argument_hash: check.argument_hash?,
+        target_locator: check.target_locator_value?,
+        command_envelope_reference_hash: check.command_envelope_reference_hash?,
+        command_body_canonicalization_hash: check.command_body_canonicalization_hash?,
+        handler_binding_hash: check.handler_binding_hash?,
+        status_read_handler_hash: check.status_read_handler_hash?,
+        command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+        rollback_preview_authorization_id: RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_BOUNDARY_ID,
+        rollback_preview_projection_hash: check.rollback_preview_projection_hash?,
     })
 }
 
@@ -18087,6 +18815,10 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
         event_log::EventId,
         event_log::RecoveryLifelineStatusReadHandlerReference,
     )>,
+    retained_preview_authorization: Option<(
+        event_log::EventId,
+        event_log::RecoveryRollbackPreviewAuthorizationReference,
+    )>,
 ) -> RecoveryLifelineCommandDispatchCandidate {
     let mut candidate = recovery_lifeline_command_dispatch_valid_candidate();
     candidate.command_body_canonicalization_present = false;
@@ -18164,28 +18896,61 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
             accepted_handler = Some((handler_event_id, handler));
         }
     }
-    if let (Some((handler_event_id, handler)), Some((_, status_handler))) =
+    let mut accepted_status_handler = None;
+    if let (Some((handler_event_id, handler)), Some((status_event_id, status_handler))) =
         (accepted_handler, retained_status_handler)
     {
-        candidate.status_read_handler_present =
-            status_handler.retained_command_handler_binding_event_id == handler_event_id
-                && method_eq(status_handler.command_id, handler.command_id)
-                && method_eq(status_handler.argument_schema, handler.argument_schema)
-                && status_handler.argument_hash == handler.argument_hash
-                && status_handler.target_locator == handler.target_locator
-                && status_handler.command_envelope_reference_hash
-                    == handler.command_envelope_reference_hash
-                && status_handler.command_body_canonicalization_hash
-                    == handler.command_body_canonicalization_hash
-                && status_handler.handler_binding_hash == handler.handler_binding_hash
-                && method_eq(
-                    status_handler.command_dispatch_boundary_id,
-                    RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
-                )
-                && method_eq(
-                    status_handler.status_handler_id,
-                    RECOVERY_STATUS_READ_HANDLER_BOUNDARY_ID,
-                );
+        if status_handler.retained_command_handler_binding_event_id == handler_event_id
+            && method_eq(status_handler.command_id, handler.command_id)
+            && method_eq(status_handler.argument_schema, handler.argument_schema)
+            && status_handler.argument_hash == handler.argument_hash
+            && status_handler.target_locator == handler.target_locator
+            && status_handler.command_envelope_reference_hash
+                == handler.command_envelope_reference_hash
+            && status_handler.command_body_canonicalization_hash
+                == handler.command_body_canonicalization_hash
+            && status_handler.handler_binding_hash == handler.handler_binding_hash
+            && method_eq(
+                status_handler.command_dispatch_boundary_id,
+                RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            )
+            && method_eq(
+                status_handler.status_handler_id,
+                RECOVERY_STATUS_READ_HANDLER_BOUNDARY_ID,
+            )
+        {
+            candidate.status_read_handler_present = true;
+            accepted_status_handler = Some((status_event_id, status_handler));
+        }
+    }
+    if let (Some((status_event_id, status_handler)), Some((_, preview_authorization))) =
+        (accepted_status_handler, retained_preview_authorization)
+    {
+        candidate.rollback_preview_authorization_present = preview_authorization
+            .retained_status_read_handler_event_id
+            == status_event_id
+            && method_eq(preview_authorization.command_id, status_handler.command_id)
+            && method_eq(
+                preview_authorization.argument_schema,
+                status_handler.argument_schema,
+            )
+            && preview_authorization.argument_hash == status_handler.argument_hash
+            && preview_authorization.target_locator == status_handler.target_locator
+            && preview_authorization.command_envelope_reference_hash
+                == status_handler.command_envelope_reference_hash
+            && preview_authorization.command_body_canonicalization_hash
+                == status_handler.command_body_canonicalization_hash
+            && preview_authorization.handler_binding_hash == status_handler.handler_binding_hash
+            && preview_authorization.status_read_handler_hash
+                == status_handler.status_read_handler_hash
+            && method_eq(
+                preview_authorization.command_dispatch_boundary_id,
+                RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            )
+            && method_eq(
+                preview_authorization.rollback_preview_authorization_id,
+                RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_BOUNDARY_ID,
+            );
     }
     candidate
 }
@@ -20168,6 +20933,148 @@ fn recovery_lifeline_status_read_handler_selftest_case(
     check: RecoveryLifelineStatusReadHandlerReferenceCheck<'_>,
 ) -> RecoveryLifelineStatusReadHandlerSelfTestCase {
     RecoveryLifelineStatusReadHandlerSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason),
+    }
+}
+
+fn recovery_rollback_preview_authorization_selftest_cases(
+) -> [RecoveryRollbackPreviewAuthorizationSelfTestCase;
+       RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_SELFTEST_CASES] {
+    let valid_input = RecoveryRollbackPreviewAuthorizationInput {
+        has_reference: true,
+        arity_valid: true,
+        scope: "current_boot",
+        rollback_preview_authorization_hash: None,
+        retained_status_read_handler_event_id: Some("event.current_boot.1"),
+        command_id: Some("recovery.lifeline.status"),
+        argument_schema: Some("raios.recovery_lifeline_command.status_args.v0"),
+        argument_hash: Some([0x51; 32]),
+        target_locator: Some("recovery.lifeline.status.current_boot"),
+        command_envelope_reference_hash: Some([0x52; 32]),
+        command_body_canonicalization_hash: Some([0x53; 32]),
+        handler_binding_hash: Some([0x54; 32]),
+        status_read_handler_hash: Some([0x55; 32]),
+        command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
+        rollback_preview_authorization_id: Some(
+            RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_BOUNDARY_ID,
+        ),
+        rollback_preview_projection_hash: Some([0x56; 32]),
+    };
+    let expected = module_evidence::computed_recovery_rollback_preview_authorization_hash(
+        module_evidence::RecoveryRollbackPreviewAuthorizationHashInput {
+            retained_status_read_handler_event_id: "event.current_boot.1",
+            command_id: "recovery.lifeline.status",
+            argument_schema: "raios.recovery_lifeline_command.status_args.v0",
+            argument_hash: [0x51; 32],
+            target_locator: "recovery.lifeline.status.current_boot",
+            command_envelope_reference_hash: [0x52; 32],
+            command_body_canonicalization_hash: [0x53; 32],
+            handler_binding_hash: [0x54; 32],
+            status_read_handler_hash: [0x55; 32],
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            rollback_preview_authorization_id: RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_BOUNDARY_ID,
+            rollback_preview_projection_hash: [0x56; 32],
+        },
+    );
+    let mut valid = valid_input;
+    valid.rollback_preview_authorization_hash = Some(expected);
+    let mut missing = valid;
+    missing.has_reference = false;
+    let mut arity = valid;
+    arity.arity_valid = false;
+    let mut previous = valid;
+    previous.scope = "previous_boot";
+    let mut unsupported = valid;
+    unsupported.command_id = Some("recovery.lifeline.unsupported");
+    let mut schema = valid;
+    schema.argument_schema = Some("raios.recovery_lifeline_command.bad_args.v0");
+    let mut boundary = valid;
+    boundary.command_dispatch_boundary_id =
+        Some("boundary.recovery_lifeline_command_dispatch.wrong");
+    let mut authorization = valid;
+    authorization.rollback_preview_authorization_id =
+        Some("boundary.recovery_rollback_preview_authorization.wrong");
+    let mut hash = valid;
+    hash.rollback_preview_authorization_hash = Some([0xff; 32]);
+    let live_missing = valid;
+
+    [
+        recovery_rollback_preview_authorization_selftest_case(
+            "rollback_preview_authorization_absent",
+            "missing",
+            "recovery_rollback_preview_authorization_absent",
+            evaluate_recovery_rollback_preview_authorization_reference(missing, false),
+        ),
+        recovery_rollback_preview_authorization_selftest_case(
+            "rollback_preview_authorization_arity_invalid",
+            "invalid_reference",
+            "recovery_rollback_preview_authorization_arity_invalid",
+            evaluate_recovery_rollback_preview_authorization_reference(arity, false),
+        ),
+        recovery_rollback_preview_authorization_selftest_case(
+            "previous_boot_rollback_preview_authorization",
+            "stale_or_non_current_boot_reference",
+            "recovery_rollback_preview_authorization_scope_must_be_current_boot",
+            evaluate_recovery_rollback_preview_authorization_reference(previous, false),
+        ),
+        recovery_rollback_preview_authorization_selftest_case(
+            "unsupported_command_id",
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            evaluate_recovery_rollback_preview_authorization_reference(unsupported, false),
+        ),
+        recovery_rollback_preview_authorization_selftest_case(
+            "argument_schema_mismatch",
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            evaluate_recovery_rollback_preview_authorization_reference(schema, false),
+        ),
+        recovery_rollback_preview_authorization_selftest_case(
+            "dispatch_boundary_mismatch",
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            evaluate_recovery_rollback_preview_authorization_reference(boundary, false),
+        ),
+        recovery_rollback_preview_authorization_selftest_case(
+            "rollback_preview_authorization_id_mismatch",
+            "rejected",
+            "recovery_rollback_preview_authorization_id_mismatch",
+            evaluate_recovery_rollback_preview_authorization_reference(authorization, false),
+        ),
+        recovery_rollback_preview_authorization_selftest_case(
+            "rollback_preview_authorization_hash_mismatch",
+            "mismatched_rollback_preview_authorization_hash",
+            "recovery_rollback_preview_authorization_hash_mismatch",
+            evaluate_recovery_rollback_preview_authorization_reference(hash, false),
+        ),
+        recovery_rollback_preview_authorization_selftest_case(
+            "retained_status_read_handler_reference_missing",
+            "rejected",
+            "retained_recovery_lifeline_status_read_handler_missing",
+            evaluate_recovery_rollback_preview_authorization_reference(live_missing, true),
+        ),
+        recovery_rollback_preview_authorization_selftest_case(
+            "all_inputs_present_rollback_preview_authorization_still_non_executable",
+            "valid_hash_reference_command_still_denied",
+            "recovery_rollback_preview_authorization_valid_but_command_dispatch_disabled",
+            evaluate_recovery_rollback_preview_authorization_reference(valid, false),
+        ),
+    ]
+}
+
+fn recovery_rollback_preview_authorization_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryRollbackPreviewAuthorizationReferenceCheck<'_>,
+) -> RecoveryRollbackPreviewAuthorizationSelfTestCase {
+    RecoveryRollbackPreviewAuthorizationSelfTestCase {
         name,
         expected_status,
         expected_reason,
@@ -25139,6 +26046,18 @@ fn recovery_lifeline_status_read_handler_diagnostic_arg(method: &str) -> &str {
         "recovery.lifeline_status_read_handler_diagnostic".len()
     } else if method_head_eq(method, "recovery.lifeline_status_read_handler") {
         "recovery.lifeline_status_read_handler".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn recovery_rollback_preview_authorization_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(method, "recovery.rollback_preview_authorization_diagnostic") {
+        "recovery.rollback_preview_authorization_diagnostic".len()
+    } else if method_head_eq(method, "recovery.rollback_preview_authorization") {
+        "recovery.rollback_preview_authorization".len()
     } else {
         return "";
     };

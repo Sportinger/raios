@@ -17,6 +17,7 @@ use crate::event_log_evidence::{
     RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_EVIDENCE,
     RECOVERY_LIFELINE_REQUEST_REFERENCE_EVIDENCE, RECOVERY_LIFELINE_STATUS_READ_HANDLER_EVIDENCE,
+    RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_EVIDENCE,
 };
 use crate::event_log_module_checks::{
     module_audit_rollback_binds_computed_grant, module_audit_rollback_reference_hash_mismatch,
@@ -49,8 +50,9 @@ pub use crate::event_log_types::{
     RecoveryArtifactVmTestReference, RecoveryCommandTargetLocator,
     RecoveryLifelineCommandBodyCanonicalizationReference, RecoveryLifelineCommandEnvelopeReference,
     RecoveryLifelineCommandHandlerBindingReference, RecoveryLifelineRequestReference,
-    RecoveryLifelineStatusReadHandlerReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
-    PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
+    RecoveryLifelineStatusReadHandlerReference, RecoveryRollbackPreviewAuthorizationReference,
+    DEFAULT_EVENT_LIMIT, EVENT_CAPACITY, PROVIDER_BINDING_GATE_SELFTEST_CASES,
+    PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::module_evidence;
 
@@ -981,6 +983,33 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::RecoveryLifelineStatusReadHandlerReference(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_rollback_preview_authorization_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryRollbackPreviewAuthorizationReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryRollbackPreviewAuthorizationReference(binding) =
                     event.bindings
                 {
                     return Some((
@@ -2703,6 +2732,26 @@ pub fn record_recovery_lifeline_status_read_handler_reference(
     })
 }
 
+pub fn record_recovery_rollback_preview_authorization_reference(
+    binding: RecoveryRollbackPreviewAuthorizationReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.rollback_preview_authorization.retained",
+        source_method: "recovery.rollback_preview_authorization_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_rollback_preview_authorization",
+        reason: "recovery_rollback_preview_authorization_valid_for_current_boot",
+        evidence: RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_EVIDENCE,
+        bindings: EventBindings::RecoveryRollbackPreviewAuthorizationReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -3046,6 +3095,12 @@ pub fn latest_recovery_lifeline_status_read_handler_reference(
 ) -> Option<(EventId, RecoveryLifelineStatusReadHandlerReference)> {
     LOG.lock()
         .latest_recovery_lifeline_status_read_handler_reference()
+}
+
+pub fn latest_recovery_rollback_preview_authorization_reference(
+) -> Option<(EventId, RecoveryRollbackPreviewAuthorizationReference)> {
+    LOG.lock()
+        .latest_recovery_rollback_preview_authorization_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(

@@ -457,6 +457,23 @@ pub struct RecoveryLifelineStatusReadHandlerReference {
     pub status_read_projection_hash: [u8; 32],
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryRollbackPreviewAuthorizationReference {
+    pub rollback_preview_authorization_hash: [u8; 32],
+    pub retained_status_read_handler_event_id: EventId,
+    pub command_id: &'static str,
+    pub argument_schema: &'static str,
+    pub argument_hash: [u8; 32],
+    pub target_locator: RecoveryCommandTargetLocator,
+    pub command_envelope_reference_hash: [u8; 32],
+    pub command_body_canonicalization_hash: [u8; 32],
+    pub handler_binding_hash: [u8; 32],
+    pub status_read_handler_hash: [u8; 32],
+    pub command_dispatch_boundary_id: &'static str,
+    pub rollback_preview_authorization_id: &'static str,
+    pub rollback_preview_projection_hash: [u8; 32],
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ModuleManifestReferenceGateCheck {
     pub(crate) event_id: Option<EventId>,
@@ -599,6 +616,7 @@ pub enum EventBindings {
     ),
     RecoveryLifelineCommandHandlerBindingReference(RecoveryLifelineCommandHandlerBindingReference),
     RecoveryLifelineStatusReadHandlerReference(RecoveryLifelineStatusReadHandlerReference),
+    RecoveryRollbackPreviewAuthorizationReference(RecoveryRollbackPreviewAuthorizationReference),
 }
 
 #[derive(Clone, Copy)]
