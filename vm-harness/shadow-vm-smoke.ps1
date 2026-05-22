@@ -547,6 +547,8 @@ function Write-Report {
             "agent recovery.rollback_apply_authorization_diagnostic_selftest",
             "agent recovery.disable_module_target_binding_diagnostic",
             "agent recovery.disable_module_target_binding_diagnostic_selftest",
+            "agent recovery.restart_last_good_target_binding_diagnostic",
+            "agent recovery.restart_last_good_target_binding_diagnostic_selftest",
             "agent recovery.load_binding",
             "agent recovery.load_binding_selftest",
             "module.load_recovery_artifact",
@@ -4980,6 +4982,157 @@ try {
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    Send-AgentCommand -Command "agent recovery.restart_last_good_target_binding_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.restart_last_good_target_binding_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_restart_last_good_target_binding_absent_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_restart_last_good_target_binding_diagnostic.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "status"; Needle = '"status": "missing"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_restart_last_good_target_binding_absent"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_restart_last_good_target_binding_records": false' },
+        @{ Suffix = "no_raw_body"; Needle = '"accepts_raw_command_body": false' },
+        @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
+        @{ Suffix = "no_restart"; Needle = '"restarts_last_good": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "reference_format"; Needle = '"reference_format": "recovery.restart_last_good_target_binding_diagnostic' },
+        @{ Suffix = "restart_schema"; Needle = '"restart_last_good_target_binding_schema": "raios.recovery_restart_last_good_target_binding.v0"' },
+        @{ Suffix = "canonicalization"; Needle = '"restart_last_good_target_binding_canonicalization": "raios.recovery_restart_last_good_target_binding.canonical.v0"' },
+        @{ Suffix = "restart_boundary"; Needle = '"restart_last_good_target_binding_boundary_id": "boundary.recovery_restart_last_good_target_binding.current_boot"' },
+        @{ Suffix = "load_target_fact"; Needle = '"fact": "load_artifact_by_hash_target_binding"' },
+        @{ Suffix = "memory_authority_fact"; Needle = '"fact": "recovery_memory_write_authority"' },
+        @{ Suffix = "valid_false"; Needle = '"valid_hash_reference": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent recovery.restart_last_good_target_binding_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.restart_last_good_target_binding_diagnostic_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_restart_last_good_target_binding_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_restart_last_good_target_binding_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_restart_last_good_target_binding_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 10' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "absent_case"; Needle = '"case": "restart_last_good_target_binding_absent"' },
+        @{ Suffix = "arity_case"; Needle = '"case": "restart_last_good_target_binding_arity_invalid"' },
+        @{ Suffix = "previous_case"; Needle = '"case": "previous_boot_restart_last_good_target_binding"' },
+        @{ Suffix = "unsupported_case"; Needle = '"case": "unsupported_command_id"' },
+        @{ Suffix = "schema_case"; Needle = '"case": "argument_schema_mismatch"' },
+        @{ Suffix = "boundary_case"; Needle = '"case": "dispatch_boundary_mismatch"' },
+        @{ Suffix = "target_case"; Needle = '"case": "restart_last_good_target_id_mismatch"' },
+        @{ Suffix = "hash_case"; Needle = '"case": "restart_last_good_target_binding_hash_mismatch"' },
+        @{ Suffix = "live_missing_case"; Needle = '"case": "retained_disable_module_target_binding_reference_missing"' },
+        @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_restart_last_good_target_binding_still_non_executable"' },
+        @{ Suffix = "restart_false"; Needle = '"restarts_last_good": false' },
+        @{ Suffix = "dispatch_false"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryRestartLastGoodTargetBindingBoundaryId = "boundary.recovery_restart_last_good_target_binding.current_boot"
+    $recoveryRestartLastGoodTargetProjectionCanonical = @(
+        "schema=raios.recovery_restart_last_good_target_projection.v0",
+        "command_id=recovery.lifeline.status",
+        "target_locator=$recoveryCommandTargetLocator",
+        "disable_module_target_binding_hash=$recoveryDisableModuleTargetBindingHash",
+        "rollback_apply_authorization_hash=$recoveryRollbackApplyAuthorizationHash",
+        "rollback_preview_authorization_hash=$recoveryRollbackPreviewAuthorizationHash",
+        "status_read_handler_hash=$recoveryStatusReadHandlerHash",
+        "handler_binding_hash=$recoveryCommandHandlerBindingHash",
+        "body_hash=$recoveryLifelineCommandBodyCanonicalizationHash"
+    ) -join "`n"
+    $recoveryRestartLastGoodTargetProjectionHash = Get-TextSha256 -Text $recoveryRestartLastGoodTargetProjectionCanonical
+    $recoveryRestartLastGoodTargetBindingCanonical = @(
+        "canonicalization=raios.recovery_restart_last_good_target_binding.canonical.v0",
+        "schema=raios.recovery_restart_last_good_target_binding.v0",
+        "load_mode=recovery_only",
+        "subject=agent.session.serial",
+        "resource=recovery_restart_last_good_target_binding",
+        "scope=current_boot",
+        "retained_recovery_disable_module_target_binding_event_id=$recoveryDisableModuleTargetBindingEventId",
+        "command_id=recovery.lifeline.status",
+        "argument_schema=raios.recovery_lifeline_command.status_args.v0",
+        "argument_sha256=$recoveryLifelineStatusArgumentHash",
+        "target_locator=$recoveryCommandTargetLocator",
+        "command_envelope_reference_sha256=$recoveryLifelineCommandEnvelopeReferenceHash",
+        "command_body_canonicalization_sha256=$recoveryLifelineCommandBodyCanonicalizationHash",
+        "handler_binding_sha256=$recoveryCommandHandlerBindingHash",
+        "status_read_handler_sha256=$recoveryStatusReadHandlerHash",
+        "rollback_preview_authorization_sha256=$recoveryRollbackPreviewAuthorizationHash",
+        "rollback_apply_authorization_sha256=$recoveryRollbackApplyAuthorizationHash",
+        "disable_module_target_binding_sha256=$recoveryDisableModuleTargetBindingHash",
+        "command_dispatch_boundary_id=$recoveryCommandDispatchBoundaryId",
+        "restart_last_good_target_id=$recoveryRestartLastGoodTargetBindingBoundaryId",
+        "restart_last_good_target_projection_sha256=$recoveryRestartLastGoodTargetProjectionHash",
+        "accepts_raw_command_body=false",
+        "accepts_lifeline_command_body=false",
+        "accepts_lifeline_command_envelope=false",
+        "dispatches_lifeline_command=false",
+        "restarts_last_good=false",
+        "executes_lifeline_status=false",
+        "executes_rollback_preview=false",
+        "executes_rollback_apply=false",
+        "disables_module=false",
+        "writes_recovery_memory=false",
+        "writes_durable_audit_log=false",
+        "writes_rollback_store=false",
+        "exports_provider_context=false",
+        "loads_recovery_artifact=false",
+        "authorizes_recovery_load=false",
+        "creates_durable_records=false",
+        "installs_rollback_plan=false",
+        "allocates_service_slot=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $recoveryRestartLastGoodTargetBindingHash = Get-TextSha256 -Text $recoveryRestartLastGoodTargetBindingCanonical
+    $recoveryRestartLastGoodTargetBindingCommand = "agent recovery.restart_last_good_target_binding_diagnostic $recoveryRestartLastGoodTargetBindingHash $recoveryDisableModuleTargetBindingEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryCommandDispatchBoundaryId $recoveryRestartLastGoodTargetBindingBoundaryId $recoveryRestartLastGoodTargetProjectionHash"
+
+    Send-AgentCommand -Command $recoveryRestartLastGoodTargetBindingCommand -ExpectedMarker "RAIOS_AGENT_END recovery.restart_last_good_target_binding_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_restart_last_good_target_binding_valid_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "status"; Needle = '"status": "valid_hash_reference_command_still_denied"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_restart_last_good_target_binding_valid_but_command_dispatch_disabled"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "creates_record"; Needle = '"creates_retained_recovery_restart_last_good_target_binding_records": true' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "command_id"; Needle = '"command_id": "recovery.lifeline.status"' },
+        @{ Suffix = "restart_target_id"; Needle = "`"restart_last_good_target_id`": `"$recoveryRestartLastGoodTargetBindingBoundaryId`"" },
+        @{ Suffix = "argument_hash"; Needle = "`"argument_hash`": `"sha256:$recoveryLifelineStatusArgumentHash`"" },
+        @{ Suffix = "body_hash"; Needle = "`"command_body_canonicalization_hash`": `"sha256:$recoveryLifelineCommandBodyCanonicalizationHash`"" },
+        @{ Suffix = "handler_hash"; Needle = "`"handler_binding_hash`": `"sha256:$recoveryCommandHandlerBindingHash`"" },
+        @{ Suffix = "status_handler_hash"; Needle = "`"status_read_handler_hash`": `"sha256:$recoveryStatusReadHandlerHash`"" },
+        @{ Suffix = "preview_hash"; Needle = "`"rollback_preview_authorization_hash`": `"sha256:$recoveryRollbackPreviewAuthorizationHash`"" },
+        @{ Suffix = "apply_hash"; Needle = "`"rollback_apply_authorization_hash`": `"sha256:$recoveryRollbackApplyAuthorizationHash`"" },
+        @{ Suffix = "disable_hash"; Needle = "`"disable_module_target_binding_hash`": `"sha256:$recoveryDisableModuleTargetBindingHash`"" },
+        @{ Suffix = "projection_hash"; Needle = "`"restart_last_good_target_projection_hash`": `"sha256:$recoveryRestartLastGoodTargetProjectionHash`"" },
+        @{ Suffix = "binding_hash"; Needle = "`"restart_last_good_target_binding_hash`": `"sha256:$recoveryRestartLastGoodTargetBindingHash`"" },
+        @{ Suffix = "valid_hash"; Needle = '"valid_hash_reference": true' },
+        @{ Suffix = "restart_false"; Needle = '"restarts_last_good": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryRestartLastGoodTargetBindingResponse = Get-LastAgentResponseJson -Method "recovery.restart_last_good_target_binding_diagnostic"
+    $recoveryRestartLastGoodTargetBindingEventId = [string]$recoveryRestartLastGoodTargetBindingResponse.body.result.retained_restart_last_good_target_binding_reference.recorded_event_id
+    Assert-CurrentBootEventId -Name "protocol:recovery_restart_last_good_target_binding_retained_reference_event_id_captured" -Value $recoveryRestartLastGoodTargetBindingEventId
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_dispatch_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_dispatch_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_dispatch_after_restart_target_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_dispatch_denial.v0"' },
+        @{ Suffix = "status"; Needle = '"status": "denied_missing_lifeline_command_dispatch_boundary"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_load_artifact_by_hash_target_binding_missing"' },
+        @{ Suffix = "body_present"; Needle = '"command_body_canonicalization_present": true' },
+        @{ Suffix = "handler_present"; Needle = '"command_handler_binding_present": true' },
+        @{ Suffix = "status_handler_present"; Needle = '"status_read_handler_present": true' },
+        @{ Suffix = "preview_auth_present"; Needle = '"rollback_preview_authorization_present": true' },
+        @{ Suffix = "apply_auth_present"; Needle = '"rollback_apply_authorization_present": true' },
+        @{ Suffix = "disable_target_present"; Needle = '"disable_module_target_binding_present": true' },
+        @{ Suffix = "restart_target_present"; Needle = '"restart_last_good_target_binding_present": true' },
+        @{ Suffix = "load_hash_target_missing"; Needle = '"load_artifact_by_hash_target_binding_present": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
     Send-AgentCommand -Command "agent recovery.load_binding" -ExpectedMarker "RAIOS_AGENT_END recovery.load_binding"
     $recoveryBindingResponse = Get-LastAgentResponseJson -Method "recovery.load_binding"
     Assert-LogContains -Name "protocol:recovery_binding_schema" -Needle '"schema": "raios.recovery_artifact_load_binding.v0"' -TimeoutSeconds 1
@@ -5323,6 +5476,14 @@ try {
     Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_hash" -Needle "`"disable_module_target_binding_hash`": `"sha256:$recoveryDisableModuleTargetBindingHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_no_disable" -Needle '"disables_module": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_source" -Needle '"source_method": "recovery.restart_last_good_target_binding_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_selftest_audit_source" -Needle '"source_method": "recovery.restart_last_good_target_binding_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_kind" -Needle '"kind": "recovery.restart_last_good_target_binding.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_restart_last_good_target_binding.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_disable_event" -Needle "`"retained_recovery_disable_module_target_binding_event_id`": `"$recoveryDisableModuleTargetBindingEventId`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_hash" -Needle "`"restart_last_good_target_binding_hash`": `"sha256:$recoveryRestartLastGoodTargetBindingHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_no_restart" -Needle '"restarts_last_good": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_risk" -Needle '"risk": "recovery_modify_ram"' -TimeoutSeconds 1

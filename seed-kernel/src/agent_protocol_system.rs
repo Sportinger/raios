@@ -295,6 +295,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.rollback_apply_authorization_diagnostic_selftest",
     "recovery.disable_module_target_binding_diagnostic",
     "recovery.disable_module_target_binding_diagnostic_selftest",
+    "recovery.restart_last_good_target_binding_diagnostic",
+    "recovery.restart_last_good_target_binding_diagnostic_selftest",
     "recovery.load_binding",
     "recovery.load_binding_selftest",
 ];
