@@ -584,6 +584,8 @@ recovery.lifeline_request_diagnostic <lifeline_request_reference_hash> <retained
 recovery.lifeline_request_diagnostic_selftest
 recovery.lifeline_protocol_diagnostic
 recovery.lifeline_protocol_diagnostic_selftest
+recovery.lifeline_command_vocabulary
+recovery.lifeline_command_vocabulary_selftest
 recovery.load_binding
 recovery.load_binding_selftest
 ```
@@ -638,6 +640,21 @@ protocol gaps, and exposes typed local-only missing facts for
 provider path as the recovery lifeline, and keeps recovery loader execution,
 artifact loading, durable writes, rollback installs, service-slot allocation,
 and lifeline behavior disabled.
+
+The lifeline command-vocabulary diagnostic emits
+`raios.recovery_lifeline_command_vocabulary.v0` and
+`raios.recovery_lifeline_command_vocabulary_selftest.v0`. It reuses the
+retained lifeline request and recovery evidence chain, rejects missing, stale,
+previous-boot, wrong-schema, substituted, and mismatched request/protocol-state
+inputs before exposing command readiness, and defines command ids such as
+`recovery.lifeline.status`, `recovery.lifeline.rollback_preview`,
+`recovery.lifeline.rollback_apply`, `recovery.lifeline.disable_module`,
+`recovery.lifeline.restart_last_good`, and
+`recovery.lifeline.load_artifact_by_hash`. It reports each argument-envelope
+schema and required capability, but keeps `accepts_lifeline_command_envelope`,
+`command_execution_enabled`, loader execution, artifact loading, durable
+writes, rollback installs, service-slot allocation, and service inventory
+changes disabled.
 
 A valid `module.manifest_diagnostic` hash-reference command records a local-only
 current-boot `raios.module_manifest_reference.v0` event binding and reports

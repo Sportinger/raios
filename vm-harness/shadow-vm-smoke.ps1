@@ -519,6 +519,8 @@ function Write-Report {
             "agent recovery.lifeline_request_diagnostic_selftest",
             "agent recovery.lifeline_protocol_diagnostic",
             "agent recovery.lifeline_protocol_diagnostic_selftest",
+            "agent recovery.lifeline_command_vocabulary",
+            "agent recovery.lifeline_command_vocabulary_selftest",
             "agent recovery.load_binding",
             "agent recovery.load_binding_selftest",
             "module.load_recovery_artifact",
@@ -3264,6 +3266,86 @@ try {
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    Send-AgentCommand -Command "agent recovery.lifeline_command_vocabulary" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_vocabulary"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_vocab_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_vocabulary.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "status"; Needle = '"status": "denied_missing_lifeline_protocol_state"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_protocol_state_missing"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_vocabulary_records": false' },
+        @{ Suffix = "no_command_envelope"; Needle = '"accepts_lifeline_command_envelope": false' },
+        @{ Suffix = "no_request_json"; Needle = '"accepts_lifeline_request_json": false' },
+        @{ Suffix = "no_loader_descriptor"; Needle = '"accepts_loader_descriptor": false' },
+        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
+        @{ Suffix = "no_openai_shortcut"; Needle = '"uses_direct_openai_recovery_path": false' },
+        @{ Suffix = "request_valid"; Needle = '"request_chain_valid": true' },
+        @{ Suffix = "vocab_exposed"; Needle = '"command_vocabulary_exposed": true' },
+        @{ Suffix = "commands_defined"; Needle = '"state": "defined_non_executable"' },
+        @{ Suffix = "command_count"; Needle = '"command_count": 6' },
+        @{ Suffix = "envelope_schema"; Needle = '"argument_envelope_schema": "raios.recovery_lifeline_command_envelope.v0"' },
+        @{ Suffix = "status_command"; Needle = '"id": "recovery.lifeline.status"' },
+        @{ Suffix = "rollback_preview_command"; Needle = '"id": "recovery.lifeline.rollback_preview"' },
+        @{ Suffix = "rollback_apply_command"; Needle = '"id": "recovery.lifeline.rollback_apply"' },
+        @{ Suffix = "disable_module_command"; Needle = '"id": "recovery.lifeline.disable_module"' },
+        @{ Suffix = "restart_last_good_command"; Needle = '"id": "recovery.lifeline.restart_last_good"' },
+        @{ Suffix = "load_artifact_command"; Needle = '"id": "recovery.lifeline.load_artifact_by_hash"' },
+        @{ Suffix = "rollback_cap"; Needle = '"required_capability": "cap.recovery.rollback"' },
+        @{ Suffix = "module_disable_cap"; Needle = '"required_capability": "cap.recovery.module.disable"' },
+        @{ Suffix = "service_restart_cap"; Needle = '"required_capability": "cap.recovery.service.restart"' },
+        @{ Suffix = "load_cap"; Needle = '"required_capability": "cap.recovery.load_artifact"' },
+        @{ Suffix = "request_event"; Needle = "`"event_id`": `"$recoveryLifelineRequestEventId`"" },
+        @{ Suffix = "identity_event"; Needle = "`"retained_recovery_artifact_identity_event_id`": `"$recoveryIdentityEventId`"" },
+        @{ Suffix = "rollback_event"; Needle = "`"retained_recovery_artifact_rollback_evidence_event_id`": `"$recoveryRollbackEvidenceEventId`"" },
+        @{ Suffix = "request_hash"; Needle = "`"lifeline_request_reference_hash`": `"sha256:$recoveryLifelineRequestReferenceHash`"" },
+        @{ Suffix = "execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "dispatch_false"; Needle = '"dispatches_commands": false' },
+        @{ Suffix = "no_loader_load"; Needle = '"loads_recovery_loader": false' },
+        @{ Suffix = "no_artifact_load"; Needle = '"loads_recovery_artifact": false' },
+        @{ Suffix = "no_authority"; Needle = '"authorizes_recovery_load": false' },
+        @{ Suffix = "no_durable"; Needle = '"creates_durable_records": false' },
+        @{ Suffix = "no_install"; Needle = '"installs_rollback_plan": false' },
+        @{ Suffix = "no_slot"; Needle = '"allocates_service_slot": false' },
+        @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+    $recoveryLifelineCommandVocabularyResponse = Get-LastAgentResponseJson -Method "recovery.lifeline_command_vocabulary"
+    $recoveryLifelineCommandVocabularyRequestEventId = [string]$recoveryLifelineCommandVocabularyResponse.body.result.retained_recovery_lifeline_request.event_id
+    $recoveryLifelineCommandVocabularyRequestMatches = $recoveryLifelineCommandVocabularyRequestEventId -eq $recoveryLifelineRequestEventId
+    Add-Predicate -Name "protocol:recovery_lifeline_command_vocab_request_event_id_matches_retained" -Expected $recoveryLifelineRequestEventId -Passed $recoveryLifelineCommandVocabularyRequestMatches -Actual $recoveryLifelineCommandVocabularyRequestEventId
+    if (-not $recoveryLifelineCommandVocabularyRequestMatches) {
+        throw "Expected recovery lifeline command vocabulary request event id $recoveryLifelineRequestEventId, got $recoveryLifelineCommandVocabularyRequestEventId"
+    }
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_vocabulary_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_vocabulary_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_vocab_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_vocabulary_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_vocabulary_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 16' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "missing_request_case"; Needle = '"case": "missing_lifeline_request_event_id"' },
+        @{ Suffix = "stale_request_case"; Needle = '"case": "stale_dropped_lifeline_request_event_id"' },
+        @{ Suffix = "previous_request_case"; Needle = '"case": "previous_boot_lifeline_request_event_id"' },
+        @{ Suffix = "wrong_request_schema_case"; Needle = '"case": "wrong_schema_lifeline_request_event_id"' },
+        @{ Suffix = "substituted_request_case"; Needle = '"case": "substituted_lifeline_request_record"' },
+        @{ Suffix = "request_hash_case"; Needle = '"case": "lifeline_request_reference_hash_mismatch"' },
+        @{ Suffix = "missing_protocol_state_case"; Needle = '"case": "protocol_state_missing_after_valid_request"' },
+        @{ Suffix = "previous_protocol_state_case"; Needle = '"case": "previous_boot_lifeline_protocol_state"' },
+        @{ Suffix = "wrong_protocol_state_schema_case"; Needle = '"case": "wrong_schema_lifeline_protocol_state"' },
+        @{ Suffix = "substituted_protocol_state_case"; Needle = '"case": "substituted_lifeline_protocol_state"' },
+        @{ Suffix = "direct_openai_case"; Needle = '"case": "direct_openai_recovery_shortcut_rejected"' },
+        @{ Suffix = "isolation_missing_case"; Needle = '"case": "loader_runtime_isolation_missing"' },
+        @{ Suffix = "rollback_engine_missing_case"; Needle = '"case": "rollback_transaction_engine_missing"' },
+        @{ Suffix = "durable_missing_case"; Needle = '"case": "durable_audit_rollback_persistence_missing"' },
+        @{ Suffix = "memory_provenance_case"; Needle = '"case": "recovery_memory_provenance_missing"' },
+        @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_commands_still_non_executable"' },
+        @{ Suffix = "non_executable_reason"; Needle = '"actual_reason": "recovery_lifeline_command_behavior_not_implemented"' },
+        @{ Suffix = "execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
     Send-AgentCommand -Command "agent recovery.load_binding" -ExpectedMarker "RAIOS_AGENT_END recovery.load_binding"
     $recoveryBindingResponse = Get-LastAgentResponseJson -Method "recovery.load_binding"
     Assert-LogContains -Name "protocol:recovery_binding_schema" -Needle '"schema": "raios.recovery_artifact_load_binding.v0"' -TimeoutSeconds 1
@@ -3545,6 +3627,8 @@ try {
     Assert-LogContains -Name "protocol:recovery_lifeline_request_audit_no_slot" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_protocol_audit_source" -Needle '"source_method": "recovery.lifeline_protocol_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_protocol_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_protocol_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_vocab_audit_source" -Needle '"source_method": "recovery.lifeline_command_vocabulary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_vocab_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_vocabulary_selftest"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_risk" -Needle '"risk": "recovery_modify_ram"' -TimeoutSeconds 1

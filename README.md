@@ -24,8 +24,8 @@ boundary that uses `cap.recovery.load_artifact` instead of the normal ephemeral
 module capability, exposes read-only retained identity/trust/VM-test/
 local-approval/loader/rollback-evidence binding diagnostics, and still refuses
 to load anything until real recovery lifeline protocol state, command
-vocabulary, loader isolation, rollback transaction, durable persistence, and
-recovery memory provenance facts exist.
+vocabulary execution gates, loader isolation, rollback transaction, durable
+persistence, and recovery memory provenance facts exist.
 
 It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
@@ -385,6 +385,12 @@ What boots and works in the VM right now:
   command vocabulary, loader runtime isolation, rollback transaction engine,
   durable audit/rollback persistence, and recovery memory provenance without
   enabling recovery shell behavior
+- Read-only `recovery.lifeline_command_vocabulary` and
+  `recovery.lifeline_command_vocabulary_selftest` diagnostics that enumerate
+  the first recovery lifeline command ids, argument-envelope schemas, required
+  capabilities, and denial reasons only after the retained lifeline request and
+  evidence chain validate, while accepting no command envelope and dispatching
+  no recovery behavior
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,

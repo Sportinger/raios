@@ -27,7 +27,9 @@ Last verified locally: 2026-05-22 on Windows with QEMU 11 after adding guest
 `recovery.lifeline_request_diagnostic`/
 `recovery.lifeline_request_diagnostic_selftest`, plus
 `recovery.lifeline_protocol_diagnostic`/
-`recovery.lifeline_protocol_diagnostic_selftest`, plus typed missing
+`recovery.lifeline_protocol_diagnostic_selftest`, plus
+`recovery.lifeline_command_vocabulary`/
+`recovery.lifeline_command_vocabulary_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
 typed missing `raios.durable_audit_write_policy.v0`/
 `raios.rollback_install_policy.v0` policy facts, typed missing
@@ -60,10 +62,13 @@ reject normal module append-intent, append-payload, writer, service-slot, and
 `raios.recovery_lifeline_request.v0` hash-reference diagnostic over the fully
 retained recovery evidence chain and a read-only
 `raios.recovery_lifeline_protocol_state.v0` diagnostic that consumes that
-lifeline request plus the six recovery evidence event ids while still denying
-recovery loading, durable writes, rollback installs, service-slot allocation,
-loader execution, direct-OpenAI recovery shortcuts, and lifeline behavior, via
-headless Shadow VM smoke
+lifeline request plus the six recovery evidence event ids, plus a read-only
+`raios.recovery_lifeline_command_vocabulary.v0` envelope that enumerates
+recovery lifeline command ids, argument schemas, required capabilities, and
+denial reasons while still denying recovery loading, durable writes, rollback
+installs, service-slot allocation, loader execution, direct-OpenAI recovery
+shortcuts, command dispatch, and lifeline behavior, via headless Shadow VM
+smoke
 covering
 deterministic `provider_minimal`
 packet/field-list evidence, explicit provider request-binding denial and
@@ -117,7 +122,7 @@ local-only retained local-approval reference gate selftests.
 Direct OpenAI pin-mismatch plus SPKI pinned-trust smokes using a fake local API
 key remain previously verified from the prior handoff.
 
-Latest host-tool verification: 2026-05-21 on Windows with
+Latest host-tool verification: 2026-05-22 on Windows with
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
 covering OTA/registry tooling plus the non-authorizing
 `raios.computed_capability_grant.v0` diagnostic, host-side
@@ -126,7 +131,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-22 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260522-085200-29616.json` with 2216/2216
+`release\vm-reports\shadow-20260522-090750-23580.json` with 2286/2286
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
@@ -241,6 +246,15 @@ and mismatched lifeline request/evidence chains before reporting protocol gaps,
 and exposes typed local-only missing facts for lifeline protocol state,
 command vocabulary, loader runtime isolation, rollback transaction engine,
 durable audit/rollback persistence, and recovery memory provenance.
+It also covers read-only `recovery.lifeline_command_vocabulary` and
+`recovery.lifeline_command_vocabulary_selftest`, proving
+`raios.recovery_lifeline_command_vocabulary.v0` enumerates recovery command ids,
+argument-envelope schemas, required capabilities, and denial reasons only after
+the retained lifeline request/evidence chain validates, rejects missing, stale,
+previous-boot, wrong-schema, substituted, and mismatched request/protocol-state
+inputs, and keeps command envelopes, command dispatch, recovery loading,
+durable writes, rollback installs, loader execution, service-slot allocation,
+and service inventory changes disabled.
 
 ## Verified Boot State
 
@@ -387,24 +401,27 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline command vocabulary envelope after the protocol
-state/provenance gap diagnostic:
+Define the recovery loader runtime isolation boundary after the command
+vocabulary envelope:
 
 - add a read-only current-boot diagnostic for
-  `raios.recovery_lifeline_command_vocabulary.v0` that reuses the retained
-  lifeline request/evidence chain and keeps command execution disabled until
-  protocol state, runtime isolation, rollback transaction, durable persistence,
-  and recovery memory provenance facts exist
-- enumerate the first recovery lifeline command names, argument envelopes,
-  required capabilities, and typed denial reasons without implementing command
-  behavior
+  `raios.recovery_loader_runtime_isolation.v0` that reuses the retained
+  lifeline request/evidence chain and command vocabulary envelope while keeping
+  loader execution disabled until runtime isolation, rollback transaction,
+  durable persistence, and recovery memory provenance facts exist
+- enumerate the required isolation facts for a recovery loader address-space
+  boundary, entrypoint ABI, memory-map constraints, capability import table,
+  artifact hash binding, and no-provider/no-normal-module separation without
+  implementing a loader
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched protocol-state inputs before exposing command readiness
+  mismatched command-vocabulary/protocol-state/request inputs before exposing
+  loader isolation readiness
 - keep `recovery.load_artifact`, `recovery.load_binding`,
   `recovery.lifeline_request_diagnostic`,
-  `recovery.lifeline_protocol_diagnostic`, `module.load_ephemeral`, durable
-  audit writes, rollback installs, service-slot allocation, and lifeline
-  command behavior non-authorizing
+  `recovery.lifeline_protocol_diagnostic`,
+  `recovery.lifeline_command_vocabulary`, `module.load_ephemeral`, durable
+  audit writes, rollback installs, service-slot allocation, loader execution,
+  and lifeline command behavior non-authorizing
 - do not create fake persistent memory, fallback stores, durable records,
   rollback transactions, loaders, recovery lifeline behavior, service-slot side
   effects, or a direct-OpenAI recovery shortcut
@@ -1024,9 +1041,10 @@ The verified foundation for that task is:
   evidence ids bound into `recovery.load_binding`, recovery lifeline request
   hash-reference diagnostics over the fully retained recovery chain, recovery
   lifeline protocol-state gap diagnostics over that request and its six
-  evidence ids, and binding/selftest coverage.
+  evidence ids, recovery lifeline command-vocabulary envelope diagnostics, and
+  binding/selftest coverage.
   Latest report:
-  `release\vm-reports\shadow-20260522-085200-29616.json` with 2216/2216
+  `release\vm-reports\shadow-20260522-090750-23580.json` with 2286/2286
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

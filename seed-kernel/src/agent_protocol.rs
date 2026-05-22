@@ -99,6 +99,8 @@ use crate::{
         emit_recovery_artifact_trust_diagnostic, emit_recovery_artifact_trust_diagnostic_selftest,
         emit_recovery_artifact_vm_test_diagnostic,
         emit_recovery_artifact_vm_test_diagnostic_selftest,
+        emit_recovery_lifeline_command_vocabulary,
+        emit_recovery_lifeline_command_vocabulary_selftest,
         emit_recovery_lifeline_protocol_diagnostic,
         emit_recovery_lifeline_protocol_diagnostic_selftest,
         emit_recovery_lifeline_request_diagnostic,
@@ -116,6 +118,8 @@ use crate::{
         recovery_artifact_trust_diagnostic_selftest_method,
         recovery_artifact_vm_test_diagnostic_method,
         recovery_artifact_vm_test_diagnostic_selftest_method,
+        recovery_lifeline_command_vocabulary_method,
+        recovery_lifeline_command_vocabulary_selftest_method,
         recovery_lifeline_protocol_diagnostic_method,
         recovery_lifeline_protocol_diagnostic_selftest_method,
         recovery_lifeline_request_diagnostic_method,
@@ -511,6 +515,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("recovery.lifeline_protocol_diagnostic_selftest");
         emit_recovery_lifeline_protocol_diagnostic_selftest();
         return DispatchOutcome::Response("recovery.lifeline_protocol_diagnostic_selftest");
+    }
+    if recovery_lifeline_command_vocabulary_method(method) {
+        record_read("recovery.lifeline_command_vocabulary");
+        emit_recovery_lifeline_command_vocabulary();
+        return DispatchOutcome::Response("recovery.lifeline_command_vocabulary");
+    }
+    if recovery_lifeline_command_vocabulary_selftest_method(method) {
+        record_read("recovery.lifeline_command_vocabulary_selftest");
+        emit_recovery_lifeline_command_vocabulary_selftest();
+        return DispatchOutcome::Response("recovery.lifeline_command_vocabulary_selftest");
     }
     if recovery_artifact_load_binding_method(method) {
         record_read("recovery.load_binding");
