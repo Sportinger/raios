@@ -647,6 +647,14 @@ function Write-Report {
             "agent recovery.lifeline_command_executor_capability_table_diagnostic_selftest",
             "agent recovery.lifeline_command_side_effect_gate_diagnostic",
             "agent recovery.lifeline_command_side_effect_gate_diagnostic_selftest",
+            "agent recovery.lifeline_command_execution_enablement_diagnostic",
+            "agent recovery.lifeline_command_execution_enablement_diagnostic_selftest",
+            "agent recovery.lifeline_command_execution_preflight_diagnostic",
+            "agent recovery.lifeline_command_execution_preflight_diagnostic_selftest",
+            "agent recovery.lifeline_command_execution_intent_diagnostic",
+            "agent recovery.lifeline_command_execution_intent_diagnostic_selftest",
+            "agent recovery.lifeline_command_execution_commit_gate_diagnostic",
+            "agent recovery.lifeline_command_execution_commit_gate_diagnostic_selftest",
             "agent recovery.load_binding",
             "agent recovery.load_binding_selftest",
             "module.load_recovery_artifact",
@@ -4215,7 +4223,7 @@ try {
         @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
         @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
         @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_dispatch_records": false' },
-        @{ Suffix = "case_count"; Needle = '"case_count": 43' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 47' },
         @{ Suffix = "passed"; Needle = '"passed": true' },
         @{ Suffix = "request_missing_case"; Needle = '"case": "missing_lifeline_request_event_id"' },
         @{ Suffix = "protocol_missing_case"; Needle = '"case": "protocol_state_missing_after_valid_request"' },
@@ -4244,10 +4252,18 @@ try {
         @{ Suffix = "behavior_missing_case"; Needle = '"case": "command_dispatch_behavior_missing"' },
         @{ Suffix = "executor_missing_case"; Needle = '"case": "executor_capability_table_missing"' },
         @{ Suffix = "side_effect_missing_case"; Needle = '"case": "side_effect_gate_missing"' },
+        @{ Suffix = "execution_enablement_missing_case"; Needle = '"case": "execution_enablement_missing"' },
+        @{ Suffix = "execution_preflight_missing_case"; Needle = '"case": "execution_preflight_missing"' },
+        @{ Suffix = "execution_intent_missing_case"; Needle = '"case": "execution_intent_missing"' },
+        @{ Suffix = "execution_commit_gate_missing_case"; Needle = '"case": "execution_commit_gate_missing"' },
         @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_command_dispatch_still_non_executable"' },
         @{ Suffix = "non_executable_reason"; Needle = '"actual_reason": "recovery_lifeline_command_dispatch_behavior_not_implemented"' },
         @{ Suffix = "executor_missing_reason"; Needle = '"actual_reason": "recovery_lifeline_command_executor_capability_table_not_implemented"' },
         @{ Suffix = "side_effect_missing_reason"; Needle = '"actual_reason": "recovery_lifeline_command_side_effect_gate_not_implemented"' },
+        @{ Suffix = "execution_enablement_missing_reason"; Needle = '"actual_reason": "recovery_lifeline_command_execution_enablement_not_implemented"' },
+        @{ Suffix = "execution_preflight_missing_reason"; Needle = '"actual_reason": "recovery_lifeline_command_execution_preflight_not_implemented"' },
+        @{ Suffix = "execution_intent_missing_reason"; Needle = '"actual_reason": "recovery_lifeline_command_execution_intent_not_implemented"' },
+        @{ Suffix = "execution_commit_gate_missing_reason"; Needle = '"actual_reason": "recovery_lifeline_command_execution_commit_gate_not_implemented"' },
         @{ Suffix = "execution_disabled_reason"; Needle = '"actual_reason": "recovery_lifeline_command_dispatch_execution_disabled"' },
         @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
         @{ Suffix = "dispatch_false"; Needle = '"dispatches_lifeline_command": false' },
@@ -6346,16 +6362,252 @@ try {
     Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_dispatch_after_side_effect_gate_" -TimeoutSeconds 1 -Fields @(
         @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_dispatch_denial.v0"' },
         @{ Suffix = "status"; Needle = '"status": "defined_non_executable"' },
-        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_dispatch_execution_disabled"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_execution_enablement_not_implemented"' },
         @{ Suffix = "service_boundary_present"; Needle = '"service_inventory_side_effect_boundary_present": true' },
         @{ Suffix = "behavior_present"; Needle = '"command_dispatch_behavior_present": true' },
         @{ Suffix = "executor_present"; Needle = '"executor_capability_table_present": true' },
         @{ Suffix = "side_effect_present"; Needle = '"side_effect_gate_present": true' },
+        @{ Suffix = "enablement_missing"; Needle = '"execution_enablement_present": false' },
         @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
         @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
         @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
+
+    function Get-RecoveryExecutionStageHash {
+        param(
+            [string]$Canonicalization,
+            [string]$Schema,
+            [string]$Resource,
+            [string]$RetainedEventField,
+            [string]$RetainedEventId,
+            [string[]]$PriorStageHashLines,
+            [string]$StageIdField,
+            [string]$StageId,
+            [string]$ProjectionField,
+            [string]$ProjectionHash
+        )
+        $lines = @(
+            "canonicalization=$Canonicalization",
+            "schema=$Schema",
+            "load_mode=recovery_only",
+            "subject=agent.session.serial",
+            "resource=$Resource",
+            "scope=current_boot",
+            "$RetainedEventField=$RetainedEventId",
+            "command_id=recovery.lifeline.status",
+            "argument_schema=raios.recovery_lifeline_command.status_args.v0",
+            "argument_sha256=$recoveryLifelineStatusArgumentHash",
+            "target_locator=$recoveryCommandTargetLocator",
+            "command_envelope_reference_sha256=$recoveryLifelineCommandEnvelopeReferenceHash",
+            "command_body_canonicalization_sha256=$recoveryLifelineCommandBodyCanonicalizationHash",
+            "handler_binding_sha256=$recoveryCommandHandlerBindingHash",
+            "status_read_handler_sha256=$recoveryStatusReadHandlerHash",
+            "rollback_preview_authorization_sha256=$recoveryRollbackPreviewAuthorizationHash",
+            "rollback_apply_authorization_sha256=$recoveryRollbackApplyAuthorizationHash",
+            "disable_module_target_binding_sha256=$recoveryDisableModuleTargetBindingHash",
+            "restart_last_good_target_binding_sha256=$recoveryRestartLastGoodTargetBindingHash",
+            "load_artifact_by_hash_target_binding_sha256=$recoveryLoadArtifactByHashTargetBindingHash",
+            "recovery_memory_write_authority_sha256=$recoveryMemoryWriteAuthorityHash",
+            "durable_audit_rollback_write_authority_sha256=$durableAuditRollbackWriteAuthorityHash",
+            "service_inventory_side_effect_boundary_sha256=$serviceInventorySideEffectBoundaryHash",
+            "command_dispatch_behavior_sha256=$recoveryCommandDispatchBehaviorHash",
+            "executor_capability_table_sha256=$recoveryExecutorCapabilityTableHash",
+            "side_effect_gate_sha256=$recoverySideEffectGateHash"
+        )
+        $lines = @($lines + $PriorStageHashLines + @(
+            "command_dispatch_boundary_id=$recoveryCommandDispatchBoundaryId",
+            "$StageIdField=$StageId",
+            "$ProjectionField=$ProjectionHash",
+            "accepts_raw_command_body=false",
+            "accepts_lifeline_command_body=false",
+            "accepts_lifeline_command_envelope=false",
+            "dispatches_lifeline_command=false",
+            "command_execution_enabled=false",
+            "writes_recovery_memory=false",
+            "writes_durable_audit_log=false",
+            "writes_rollback_store=false",
+            "creates_durable_records=false",
+            "installs_rollback_plan=false",
+            "loads_recovery_artifact=false",
+            "executes_lifeline_status=false",
+            "executes_rollback_preview=false",
+            "executes_rollback_apply=false",
+            "disables_module=false",
+            "restarts_last_good=false",
+            "exports_provider_context=false",
+            "authorizes_recovery_load=false",
+            "allocates_service_slot=false",
+            "creates_service_inventory_records=false",
+            "service_inventory_change=none",
+            "load_attempted=false"
+        ))
+        Get-TextSha256 -Text ($lines -join "`n")
+    }
+
+    function Invoke-RecoveryExecutionStage {
+        param(
+            [string]$StageName,
+            [string]$Method,
+            [string]$SelftestMethod,
+            [string]$DiagnosticSchema,
+            [string]$SelftestSchema,
+            [string]$ReferenceSchema,
+            [string]$Canonicalization,
+            [string]$Resource,
+            [string]$StageHashName,
+            [string]$StageIdField,
+            [string]$StageId,
+            [string]$ProjectionField,
+            [string]$ProjectionHash,
+            [string]$RetainedEventField,
+            [string]$RetainedEventId,
+            [string[]]$PriorStageHashArgs,
+            [string[]]$PriorStageHashLines,
+            [string]$AbsentReason,
+            [string]$ValidReason,
+            [string]$NextDispatchReason,
+            [string]$NextPresentNeedle,
+            [string]$PreviousEventNeedleName
+        )
+
+        Send-AgentCommand -Command "agent $Method" -ExpectedMarker "RAIOS_AGENT_END $Method"
+        Assert-LogContainsFields -NamePrefix "protocol:$($StageName)_absent_" -TimeoutSeconds 1 -Fields @(
+            @{ Suffix = "schema"; Needle = "`"schema`": `"$DiagnosticSchema`"" },
+            @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+            @{ Suffix = "status"; Needle = '"status": "missing"' },
+            @{ Suffix = "reason"; Needle = "`"reason`": `"$AbsentReason`"" },
+            @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_execution_stage_records": false' },
+            @{ Suffix = "stage_schema"; Needle = "`"execution_stage_schema`": `"$ReferenceSchema`"" },
+            @{ Suffix = "stage_id"; Needle = "`"execution_stage_id`": `"$StageId`"" },
+            @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+            @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' }
+        )
+
+        Send-AgentCommand -Command "agent $SelftestMethod" -ExpectedMarker "RAIOS_AGENT_END $SelftestMethod"
+        Assert-LogContainsFields -NamePrefix "protocol:$($StageName)_selftest_" -TimeoutSeconds 1 -Fields @(
+            @{ Suffix = "schema"; Needle = "`"schema`": `"$SelftestSchema`"" },
+            @{ Suffix = "case_count"; Needle = '"case_count": 10' },
+            @{ Suffix = "passed"; Needle = '"passed": true' },
+            @{ Suffix = "absent_case"; Needle = "`"case`": `"$AbsentReason`"" },
+            @{ Suffix = "valid_case"; Needle = "`"case`": `"$ValidReason`"" },
+            @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+            @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' }
+        )
+
+        $stageHash = Get-RecoveryExecutionStageHash -Canonicalization $Canonicalization -Schema $ReferenceSchema -Resource $Resource -RetainedEventField $RetainedEventField -RetainedEventId $RetainedEventId -PriorStageHashLines $PriorStageHashLines -StageIdField $StageIdField -StageId $StageId -ProjectionField $ProjectionField -ProjectionHash $ProjectionHash
+        $commandParts = @(
+            "agent",
+            $Method,
+            $stageHash,
+            $RetainedEventId,
+            "recovery.lifeline.status",
+            "raios.recovery_lifeline_command.status_args.v0",
+            $recoveryLifelineStatusArgumentHash,
+            $recoveryCommandTargetLocator,
+            $recoveryLifelineCommandEnvelopeReferenceHash,
+            $recoveryLifelineCommandBodyCanonicalizationHash,
+            $recoveryCommandHandlerBindingHash,
+            $recoveryStatusReadHandlerHash,
+            $recoveryRollbackPreviewAuthorizationHash,
+            $recoveryRollbackApplyAuthorizationHash,
+            $recoveryDisableModuleTargetBindingHash,
+            $recoveryRestartLastGoodTargetBindingHash,
+            $recoveryLoadArtifactByHashTargetBindingHash,
+            $recoveryMemoryWriteAuthorityHash,
+            $durableAuditRollbackWriteAuthorityHash,
+            $serviceInventorySideEffectBoundaryHash,
+            $recoveryCommandDispatchBehaviorHash,
+            $recoveryExecutorCapabilityTableHash,
+            $recoverySideEffectGateHash
+        ) + $PriorStageHashArgs + @(
+            $recoveryCommandDispatchBoundaryId,
+            $StageId,
+            $ProjectionHash
+        )
+        Send-AgentCommand -Command ($commandParts -join " ") -ExpectedMarker "RAIOS_AGENT_END $Method"
+        Assert-LogContainsFields -NamePrefix "protocol:$($StageName)_valid_" -TimeoutSeconds 1 -Fields @(
+            @{ Suffix = "status"; Needle = '"status": "valid_hash_reference_command_still_denied"' },
+            @{ Suffix = "reason"; Needle = "`"reason`": `"$ValidReason`"" },
+            @{ Suffix = "creates_record"; Needle = '"creates_retained_recovery_lifeline_command_execution_stage_records": true' },
+            @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+            @{ Suffix = "stage_id"; Needle = "`"execution_stage_id`": `"$StageId`"" },
+            @{ Suffix = "stage_hash"; Needle = "`"$StageHashName`": `"sha256:$stageHash`"" },
+            @{ Suffix = "side_effect_hash"; Needle = "`"side_effect_gate_hash`": `"sha256:$recoverySideEffectGateHash`"" },
+            @{ Suffix = "previous_event"; Needle = "`"$PreviousEventNeedleName`": `"$RetainedEventId`"" },
+            @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+            @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' }
+        )
+
+        $response = Get-LastAgentResponseJson -Method $Method
+        $eventId = [string]$response.body.result.retained_recovery_lifeline_command_execution_stage_reference.recorded_event_id
+        Assert-CurrentBootEventId -Name "protocol:$($StageName)_retained_reference_event_id_captured" -Value $eventId
+
+        Send-AgentCommand -Command "agent recovery.lifeline_command_dispatch_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_dispatch_diagnostic"
+        Assert-LogContainsFields -NamePrefix "protocol:dispatch_after_$($StageName)_" -TimeoutSeconds 1 -Fields @(
+            @{ Suffix = "status"; Needle = '"status": "defined_non_executable"' },
+            @{ Suffix = "reason"; Needle = "`"reason`": `"$NextDispatchReason`"" },
+            @{ Suffix = "stage_present"; Needle = $NextPresentNeedle },
+            @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+            @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' }
+        )
+        return [pscustomobject]@{
+            Hash = $stageHash
+            EventId = $eventId
+        }
+    }
+
+    $recoveryExecutionEnablementId = "boundary.recovery_lifeline_command_execution_enablement.current_boot"
+    $recoveryExecutionEnablementProjectionHash = Get-TextSha256 -Text (@(
+        "schema=raios.recovery_lifeline_command_execution_enablement_projection.v0",
+        "command_id=recovery.lifeline.status",
+        "side_effect_gate_hash=$recoverySideEffectGateHash",
+        "command_execution_enabled=false",
+        "dispatches_lifeline_command=false",
+        "service_inventory_change=none"
+    ) -join "`n")
+    $executionEnablement = Invoke-RecoveryExecutionStage -StageName "recovery_lifeline_command_execution_enablement" -Method "recovery.lifeline_command_execution_enablement_diagnostic" -SelftestMethod "recovery.lifeline_command_execution_enablement_diagnostic_selftest" -DiagnosticSchema "raios.recovery_lifeline_command_execution_enablement_diagnostic.v0" -SelftestSchema "raios.recovery_lifeline_command_execution_enablement_selftest.v0" -ReferenceSchema "raios.recovery_lifeline_command_execution_enablement.v0" -Canonicalization "raios.recovery_lifeline_command_execution_enablement.canonical.v0" -Resource "recovery_lifeline_command_execution_enablement" -StageHashName "execution_enablement_hash" -StageIdField "execution_enablement_id" -StageId $recoveryExecutionEnablementId -ProjectionField "execution_projection_sha256" -ProjectionHash $recoveryExecutionEnablementProjectionHash -RetainedEventField "retained_side_effect_gate_event_id" -RetainedEventId $recoverySideEffectGateEventId -PriorStageHashArgs @() -PriorStageHashLines @() -AbsentReason "recovery_lifeline_command_execution_enablement_absent" -ValidReason "recovery_lifeline_command_execution_enablement_valid_but_execution_disabled" -NextDispatchReason "recovery_lifeline_command_execution_preflight_not_implemented" -NextPresentNeedle '"execution_enablement_present": true' -PreviousEventNeedleName "retained_previous_stage_event_id"
+    $recoveryExecutionEnablementHash = [string]$executionEnablement.Hash
+    $recoveryExecutionEnablementEventId = [string]$executionEnablement.EventId
+
+    $recoveryExecutionPreflightId = "boundary.recovery_lifeline_command_execution_preflight.current_boot"
+    $recoveryExecutionPreflightProjectionHash = Get-TextSha256 -Text (@(
+        "schema=raios.recovery_lifeline_command_execution_preflight_projection.v0",
+        "command_id=recovery.lifeline.status",
+        "execution_enablement_hash=$recoveryExecutionEnablementHash",
+        "command_execution_enabled=false",
+        "dispatches_lifeline_command=false",
+        "service_inventory_change=none"
+    ) -join "`n")
+    $executionPreflight = Invoke-RecoveryExecutionStage -StageName "recovery_lifeline_command_execution_preflight" -Method "recovery.lifeline_command_execution_preflight_diagnostic" -SelftestMethod "recovery.lifeline_command_execution_preflight_diagnostic_selftest" -DiagnosticSchema "raios.recovery_lifeline_command_execution_preflight_diagnostic.v0" -SelftestSchema "raios.recovery_lifeline_command_execution_preflight_selftest.v0" -ReferenceSchema "raios.recovery_lifeline_command_execution_preflight.v0" -Canonicalization "raios.recovery_lifeline_command_execution_preflight.canonical.v0" -Resource "recovery_lifeline_command_execution_preflight" -StageHashName "execution_preflight_hash" -StageIdField "execution_preflight_id" -StageId $recoveryExecutionPreflightId -ProjectionField "execution_preflight_projection_sha256" -ProjectionHash $recoveryExecutionPreflightProjectionHash -RetainedEventField "retained_execution_enablement_event_id" -RetainedEventId $recoveryExecutionEnablementEventId -PriorStageHashArgs @($recoveryExecutionEnablementHash) -PriorStageHashLines @("execution_enablement_sha256=$recoveryExecutionEnablementHash") -AbsentReason "recovery_lifeline_command_execution_preflight_absent" -ValidReason "recovery_lifeline_command_execution_preflight_valid_but_execution_disabled" -NextDispatchReason "recovery_lifeline_command_execution_intent_not_implemented" -NextPresentNeedle '"execution_preflight_present": true' -PreviousEventNeedleName "retained_previous_stage_event_id"
+    $recoveryExecutionPreflightHash = [string]$executionPreflight.Hash
+    $recoveryExecutionPreflightEventId = [string]$executionPreflight.EventId
+
+    $recoveryExecutionIntentId = "boundary.recovery_lifeline_command_execution_intent.current_boot"
+    $recoveryExecutionIntentProjectionHash = Get-TextSha256 -Text (@(
+        "schema=raios.recovery_lifeline_command_execution_intent_projection.v0",
+        "command_id=recovery.lifeline.status",
+        "execution_preflight_hash=$recoveryExecutionPreflightHash",
+        "command_execution_enabled=false",
+        "dispatches_lifeline_command=false",
+        "service_inventory_change=none"
+    ) -join "`n")
+    $executionIntent = Invoke-RecoveryExecutionStage -StageName "recovery_lifeline_command_execution_intent" -Method "recovery.lifeline_command_execution_intent_diagnostic" -SelftestMethod "recovery.lifeline_command_execution_intent_diagnostic_selftest" -DiagnosticSchema "raios.recovery_lifeline_command_execution_intent_diagnostic.v0" -SelftestSchema "raios.recovery_lifeline_command_execution_intent_selftest.v0" -ReferenceSchema "raios.recovery_lifeline_command_execution_intent.v0" -Canonicalization "raios.recovery_lifeline_command_execution_intent.canonical.v0" -Resource "recovery_lifeline_command_execution_intent" -StageHashName "execution_intent_hash" -StageIdField "execution_intent_id" -StageId $recoveryExecutionIntentId -ProjectionField "execution_intent_projection_sha256" -ProjectionHash $recoveryExecutionIntentProjectionHash -RetainedEventField "retained_execution_preflight_event_id" -RetainedEventId $recoveryExecutionPreflightEventId -PriorStageHashArgs @($recoveryExecutionEnablementHash, $recoveryExecutionPreflightHash) -PriorStageHashLines @("execution_enablement_sha256=$recoveryExecutionEnablementHash", "execution_preflight_sha256=$recoveryExecutionPreflightHash") -AbsentReason "recovery_lifeline_command_execution_intent_absent" -ValidReason "recovery_lifeline_command_execution_intent_valid_but_execution_disabled" -NextDispatchReason "recovery_lifeline_command_execution_commit_gate_not_implemented" -NextPresentNeedle '"execution_intent_present": true' -PreviousEventNeedleName "retained_previous_stage_event_id"
+    $recoveryExecutionIntentHash = [string]$executionIntent.Hash
+    $recoveryExecutionIntentEventId = [string]$executionIntent.EventId
+
+    $recoveryExecutionCommitGateId = "boundary.recovery_lifeline_command_execution_commit_gate.current_boot"
+    $recoveryExecutionCommitGateProjectionHash = Get-TextSha256 -Text (@(
+        "schema=raios.recovery_lifeline_command_execution_commit_gate_projection.v0",
+        "command_id=recovery.lifeline.status",
+        "execution_intent_hash=$recoveryExecutionIntentHash",
+        "command_execution_enabled=false",
+        "dispatches_lifeline_command=false",
+        "service_inventory_change=none"
+    ) -join "`n")
+    $executionCommitGate = Invoke-RecoveryExecutionStage -StageName "recovery_lifeline_command_execution_commit_gate" -Method "recovery.lifeline_command_execution_commit_gate_diagnostic" -SelftestMethod "recovery.lifeline_command_execution_commit_gate_diagnostic_selftest" -DiagnosticSchema "raios.recovery_lifeline_command_execution_commit_gate_diagnostic.v0" -SelftestSchema "raios.recovery_lifeline_command_execution_commit_gate_selftest.v0" -ReferenceSchema "raios.recovery_lifeline_command_execution_commit_gate.v0" -Canonicalization "raios.recovery_lifeline_command_execution_commit_gate.canonical.v0" -Resource "recovery_lifeline_command_execution_commit_gate" -StageHashName "execution_commit_gate_hash" -StageIdField "execution_commit_gate_id" -StageId $recoveryExecutionCommitGateId -ProjectionField "execution_commit_gate_projection_sha256" -ProjectionHash $recoveryExecutionCommitGateProjectionHash -RetainedEventField "retained_execution_intent_event_id" -RetainedEventId $recoveryExecutionIntentEventId -PriorStageHashArgs @($recoveryExecutionEnablementHash, $recoveryExecutionPreflightHash, $recoveryExecutionIntentHash) -PriorStageHashLines @("execution_enablement_sha256=$recoveryExecutionEnablementHash", "execution_preflight_sha256=$recoveryExecutionPreflightHash", "execution_intent_sha256=$recoveryExecutionIntentHash") -AbsentReason "recovery_lifeline_command_execution_commit_gate_absent" -ValidReason "recovery_lifeline_command_execution_commit_gate_valid_but_execution_disabled" -NextDispatchReason "recovery_lifeline_command_dispatch_execution_disabled" -NextPresentNeedle '"execution_commit_gate_present": true' -PreviousEventNeedleName "retained_previous_stage_event_id"
+    $recoveryExecutionCommitGateHash = [string]$executionCommitGate.Hash
+    $recoveryExecutionCommitGateEventId = [string]$executionCommitGate.EventId
 
     Send-AgentCommand -Command "agent recovery.load_binding" -ExpectedMarker "RAIOS_AGENT_END recovery.load_binding"
     $recoveryBindingResponse = Get-LastAgentResponseJson -Method "recovery.load_binding"
@@ -6775,6 +7027,32 @@ try {
     Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_execution_false" -Needle '"command_execution_enabled": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_no_service_change" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_enablement_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_enablement_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_kind" -Needle '"kind": "recovery.lifeline_command_execution_enablement.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_lifeline_command_execution_enablement.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_stage_hash" -Needle "`"execution_stage_hash`": `"sha256:$recoveryExecutionEnablementHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_previous_event" -Needle "`"retained_previous_stage_event_id`": `"$recoverySideEffectGateEventId`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_preflight_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_preflight_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_kind" -Needle '"kind": "recovery.lifeline_command_execution_preflight.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_lifeline_command_execution_preflight.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_stage_hash" -Needle "`"execution_stage_hash`": `"sha256:$recoveryExecutionPreflightHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_enablement_hash" -Needle "`"execution_enablement_hash`": `"sha256:$recoveryExecutionEnablementHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_intent_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_intent_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_intent_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_intent_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_intent_audit_kind" -Needle '"kind": "recovery.lifeline_command_execution_intent.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_intent_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_lifeline_command_execution_intent.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_intent_audit_stage_hash" -Needle "`"execution_stage_hash`": `"sha256:$recoveryExecutionIntentHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_intent_audit_preflight_hash" -Needle "`"execution_preflight_hash`": `"sha256:$recoveryExecutionPreflightHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_commit_gate_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_commit_gate_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_commit_gate_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_commit_gate_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_commit_gate_audit_kind" -Needle '"kind": "recovery.lifeline_command_execution_commit_gate.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_commit_gate_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_lifeline_command_execution_commit_gate.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_commit_gate_audit_stage_hash" -Needle "`"execution_stage_hash`": `"sha256:$recoveryExecutionCommitGateHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_commit_gate_audit_intent_hash" -Needle "`"execution_intent_hash`": `"sha256:$recoveryExecutionIntentHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_commit_gate_audit_execution_false" -Needle '"command_execution_enabled": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_risk" -Needle '"risk": "recovery_modify_ram"' -TimeoutSeconds 1

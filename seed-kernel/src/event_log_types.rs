@@ -700,6 +700,39 @@ pub struct RecoveryLifelineCommandSideEffectGateReference {
     pub side_effect_projection_hash: [u8; 32],
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryLifelineCommandExecutionStageReference {
+    pub schema: &'static str,
+    pub stage_name: &'static str,
+    pub execution_stage_hash: [u8; 32],
+    pub retained_previous_stage_event_id: EventId,
+    pub command_id: &'static str,
+    pub argument_schema: &'static str,
+    pub argument_hash: [u8; 32],
+    pub target_locator: RecoveryCommandTargetLocator,
+    pub command_envelope_reference_hash: [u8; 32],
+    pub command_body_canonicalization_hash: [u8; 32],
+    pub handler_binding_hash: [u8; 32],
+    pub status_read_handler_hash: [u8; 32],
+    pub rollback_preview_authorization_hash: [u8; 32],
+    pub rollback_apply_authorization_hash: [u8; 32],
+    pub disable_module_target_binding_hash: [u8; 32],
+    pub restart_last_good_target_binding_hash: [u8; 32],
+    pub load_artifact_by_hash_target_binding_hash: [u8; 32],
+    pub recovery_memory_write_authority_hash: [u8; 32],
+    pub durable_audit_rollback_write_authority_hash: [u8; 32],
+    pub service_inventory_side_effect_boundary_hash: [u8; 32],
+    pub command_dispatch_behavior_hash: [u8; 32],
+    pub executor_capability_table_hash: [u8; 32],
+    pub side_effect_gate_hash: [u8; 32],
+    pub execution_enablement_hash: Option<[u8; 32]>,
+    pub execution_preflight_hash: Option<[u8; 32]>,
+    pub execution_intent_hash: Option<[u8; 32]>,
+    pub command_dispatch_boundary_id: &'static str,
+    pub execution_stage_id: &'static str,
+    pub execution_stage_projection_hash: [u8; 32],
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ModuleManifestReferenceGateCheck {
     pub(crate) event_id: Option<EventId>,
@@ -861,6 +894,7 @@ pub enum EventBindings {
         RecoveryLifelineCommandExecutorCapabilityTableReference,
     ),
     RecoveryLifelineCommandSideEffectGateReference(RecoveryLifelineCommandSideEffectGateReference),
+    RecoveryLifelineCommandExecutionStageReference(RecoveryLifelineCommandExecutionStageReference),
 }
 
 #[derive(Clone, Copy)]

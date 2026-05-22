@@ -18,6 +18,7 @@ use crate::event_log_evidence::{
     RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_EVIDENCE,
+    RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_EVIDENCE,
@@ -60,6 +61,7 @@ pub use crate::event_log_types::{
     RecoveryDisableModuleTargetBindingReference,
     RecoveryLifelineCommandBodyCanonicalizationReference,
     RecoveryLifelineCommandDispatchBehaviorReference, RecoveryLifelineCommandEnvelopeReference,
+    RecoveryLifelineCommandExecutionStageReference,
     RecoveryLifelineCommandExecutorCapabilityTableReference,
     RecoveryLifelineCommandHandlerBindingReference, RecoveryLifelineCommandSideEffectGateReference,
     RecoveryLifelineRequestReference, RecoveryLifelineStatusReadHandlerReference,
@@ -1307,6 +1309,36 @@ impl EventLog {
                         },
                         binding,
                     ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_lifeline_command_execution_stage_reference(
+        &self,
+        schema: &'static str,
+    ) -> Option<(EventId, RecoveryLifelineCommandExecutionStageReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryLifelineCommandExecutionStageReference(binding) =
+                    event.bindings
+                {
+                    if binding.schema == schema {
+                        return Some((
+                            EventId {
+                                sequence: event.sequence,
+                            },
+                            binding,
+                        ));
+                    }
                 }
             }
             idx += 1;
@@ -3241,6 +3273,62 @@ pub fn record_recovery_lifeline_command_side_effect_gate_reference(
     })
 }
 
+pub fn record_recovery_lifeline_command_execution_stage_reference(
+    binding: RecoveryLifelineCommandExecutionStageReference,
+) -> EventId {
+    let (kind, source_method, resource, reason) =
+        recovery_lifeline_command_execution_stage_event_metadata(binding);
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind,
+        source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource,
+        reason,
+        evidence: RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_EVIDENCE,
+        bindings: EventBindings::RecoveryLifelineCommandExecutionStageReference(binding),
+    })
+}
+
+fn recovery_lifeline_command_execution_stage_event_metadata(
+    binding: RecoveryLifelineCommandExecutionStageReference,
+) -> (&'static str, &'static str, &'static str, &'static str) {
+    if binding.stage_name == "execution_preflight" {
+        (
+            "recovery.lifeline_command_execution_preflight.retained",
+            "recovery.lifeline_command_execution_preflight_diagnostic",
+            "recovery_lifeline_command_execution_preflight",
+            "recovery_lifeline_command_execution_preflight_valid_for_current_boot",
+        )
+    } else if binding.stage_name == "execution_intent" {
+        (
+            "recovery.lifeline_command_execution_intent.retained",
+            "recovery.lifeline_command_execution_intent_diagnostic",
+            "recovery_lifeline_command_execution_intent",
+            "recovery_lifeline_command_execution_intent_valid_for_current_boot",
+        )
+    } else if binding.stage_name == "execution_commit_gate" {
+        (
+            "recovery.lifeline_command_execution_commit_gate.retained",
+            "recovery.lifeline_command_execution_commit_gate_diagnostic",
+            "recovery_lifeline_command_execution_commit_gate",
+            "recovery_lifeline_command_execution_commit_gate_valid_for_current_boot",
+        )
+    } else {
+        (
+            "recovery.lifeline_command_execution_enablement.retained",
+            "recovery.lifeline_command_execution_enablement_diagnostic",
+            "recovery_lifeline_command_execution_enablement",
+            "recovery_lifeline_command_execution_enablement_valid_for_current_boot",
+        )
+    }
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -3652,6 +3740,13 @@ pub fn latest_recovery_lifeline_command_side_effect_gate_reference(
 ) -> Option<(EventId, RecoveryLifelineCommandSideEffectGateReference)> {
     LOG.lock()
         .latest_recovery_lifeline_command_side_effect_gate_reference()
+}
+
+pub fn latest_recovery_lifeline_command_execution_stage_reference(
+    schema: &'static str,
+) -> Option<(EventId, RecoveryLifelineCommandExecutionStageReference)> {
+    LOG.lock()
+        .latest_recovery_lifeline_command_execution_stage_reference(schema)
 }
 
 pub fn latest_module_candidate_artifact_reference(
