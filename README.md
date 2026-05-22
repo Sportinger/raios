@@ -5,31 +5,37 @@
 </p>
 
 <p align="center">
-  <strong>A personal operating system that extends itself.</strong>
+  <strong>A personal operating system that safely changes itself.</strong>
 </p>
 
-raiOS turns a single computer into a bonded, self-extending environment.
-Instead of installing applications, you ask for what you need — and a resident
-AI builds it inside a small, fully observable system that knows only your
-hardware and only you. Every change is sandboxed before it lands,
-capability-gated when it runs, and atomically reversible if it misbehaves.
-The current Stage-0 gate already keeps module loading denied while exposing
-retained manifest, candidate-artifact, VM-test-report, computed-grant,
-audit/rollback, and RAM-only service-slot reservation evidence as
-non-authorizing current-boot facts, with a separate write-boundary diagnostic
-that consumes missing persistence-device, storage-layout, append-engine,
-append/storage contracts, and append-intent requests while still denying
-durable audit and rollback writes, plus a distinct recovery-artifact load
-boundary that uses `cap.recovery.load_artifact` instead of the normal ephemeral
-module capability, exposes read-only retained identity/trust/VM-test/
-local-approval/loader/rollback-evidence binding diagnostics, and still refuses
-to load anything until real recovery lifeline protocol state, command
-vocabulary execution gates, loader isolation, rollback transaction, durable
-persistence, and recovery memory provenance facts exist.
+raiOS starts from one bet: AI will make software cheap to create, but dangerous
+to install blindly. Existing operating systems were built around static
+applications and broad user authority. raiOS is built for a different loop:
+ask for a tool, let an AI build it, prove what it does, grant only the
+capabilities it earned, and keep rollback in reach.
+
+It is a small, bootable OS bonded to one person and one machine. The resident
+AI is the primary author of new services, but not the authority that decides
+whether they may run. That authority stays local, in typed system facts:
+manifests, test reports, capability grants, approvals, audit records, rollback
+plans, and recovery state.
+
+In one sentence: raiOS is a personal, self-modifying operating system where AI
+can change the machine only through evidence-gated, capability-scoped system
+transactions that can be rolled back.
 
 It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
 immutable recovery core that cannot be broken from above.
+
+## Core Thesis
+
+- Software generation is no longer scarce. Safe system change is.
+- The AI can author services, but local policy authorizes them.
+- Every change needs evidence before it reaches the live system.
+- Capabilities are earned from tests and policy, not self-declared trust.
+- Rollback and recovery are part of the OS contract, not backup features.
+- System memory is typed local evidence, not chat history.
 
 ## What It Is
 
