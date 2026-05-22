@@ -590,6 +590,8 @@ recovery.loader_runtime_isolation
 recovery.loader_runtime_isolation_selftest
 recovery.rollback_transaction_engine
 recovery.rollback_transaction_engine_selftest
+recovery.durable_audit_rollback_persistence
+recovery.durable_audit_rollback_persistence_selftest
 recovery.load_binding
 recovery.load_binding_selftest
 ```
@@ -690,6 +692,24 @@ lifeline command envelope, loader descriptor, artifact bytes, or direct OpenAI
 recovery shortcut, and keeps rollback preview/apply, loader execution, artifact
 loading, durable writes, rollback installs, service-slot allocation, and service
 inventory changes disabled.
+
+The durable audit/rollback persistence diagnostic emits
+`raios.durable_audit_rollback_persistence.v0` and
+`raios.durable_audit_rollback_persistence_selftest.v0`. It consumes the
+retained lifeline request/evidence chain, command-vocabulary envelope, loader
+runtime-isolation boundary, and rollback transaction-engine boundary, rejects
+missing, stale, previous-boot, wrong-schema, substituted, and mismatched
+request/protocol-state/command-vocabulary/loader-isolation/rollback-engine
+inputs before persistence readiness, and reports missing local-only facts for
+persistence-device inventory, durable storage-layout identity, audit append-log
+identity, rollback-store identity, transaction replay cursor, last-good
+checkpoint binding, write ordering, crash consistency, integrity root/hash
+chain, and recovery-memory provenance. It accepts no persistence device JSON,
+storage layout JSON, recovery memory record, rollback transaction envelope,
+lifeline command envelope, loader descriptor, artifact bytes, or direct OpenAI
+recovery shortcut, and keeps durable writes, rollback replay, recovery-memory
+writes, rollback preview/apply, loader execution, artifact loading, rollback
+installs, service-slot allocation, and service inventory changes disabled.
 
 A valid `module.manifest_diagnostic` hash-reference command records a local-only
 current-boot `raios.module_manifest_reference.v0` event binding and reports

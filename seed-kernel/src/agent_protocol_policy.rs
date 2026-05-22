@@ -144,6 +144,11 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         || method_eq(method, "recovery.loader_runtime_isolation_selftest")
         || method_eq(method, "recovery.rollback_transaction_engine")
         || method_eq(method, "recovery.rollback_transaction_engine_selftest")
+        || method_eq(method, "recovery.durable_audit_rollback_persistence")
+        || method_eq(
+            method,
+            "recovery.durable_audit_rollback_persistence_selftest",
+        )
     {
         "cap.recovery.load_artifact.read"
     } else if method_eq(method, "module.manifest_diagnostic")

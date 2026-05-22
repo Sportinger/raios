@@ -405,6 +405,13 @@ What boots and works in the VM right now:
   provenance, last-good, disabled-module set, artifact-hash, replay,
   recovery-capability import, and atomic apply/abort facts as missing
   local-only inputs, and keep rollback preview/apply non-executable
+- Read-only `recovery.durable_audit_rollback_persistence` and
+  `recovery.durable_audit_rollback_persistence_selftest` diagnostics that
+  consume the rollback transaction-engine boundary, enumerate persistence
+  device, storage-layout, audit-log, rollback-store, replay-cursor,
+  last-good-checkpoint, write-ordering, crash-consistency, integrity-root, and
+  recovery-memory-provenance facts as missing local-only inputs, and keep all
+  durable writes, replay, rollback apply, and recovery-memory writes disabled
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,
