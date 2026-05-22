@@ -116,9 +116,12 @@ use crate::{
         emit_recovery_lifeline_protocol_diagnostic,
         emit_recovery_lifeline_protocol_diagnostic_selftest,
         emit_recovery_lifeline_request_diagnostic,
-        emit_recovery_lifeline_request_diagnostic_selftest, emit_recovery_loader_runtime_isolation,
-        emit_recovery_loader_runtime_isolation_selftest, emit_recovery_memory_provenance,
-        emit_recovery_memory_provenance_selftest, emit_recovery_rollback_transaction_engine,
+        emit_recovery_lifeline_request_diagnostic_selftest,
+        emit_recovery_lifeline_status_read_handler_diagnostic,
+        emit_recovery_lifeline_status_read_handler_diagnostic_selftest,
+        emit_recovery_loader_runtime_isolation, emit_recovery_loader_runtime_isolation_selftest,
+        emit_recovery_memory_provenance, emit_recovery_memory_provenance_selftest,
+        emit_recovery_rollback_transaction_engine,
         emit_recovery_rollback_transaction_engine_selftest,
         recovery_artifact_identity_diagnostic_method,
         recovery_artifact_identity_diagnostic_selftest_method,
@@ -151,6 +154,8 @@ use crate::{
         recovery_lifeline_protocol_diagnostic_selftest_method,
         recovery_lifeline_request_diagnostic_method,
         recovery_lifeline_request_diagnostic_selftest_method,
+        recovery_lifeline_status_read_handler_diagnostic_method,
+        recovery_lifeline_status_read_handler_diagnostic_selftest_method,
         recovery_loader_runtime_isolation_method,
         recovery_loader_runtime_isolation_selftest_method, recovery_memory_provenance_method,
         recovery_memory_provenance_selftest_method, recovery_rollback_transaction_engine_method,
@@ -651,6 +656,18 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_recovery_lifeline_command_handler_binding_diagnostic_selftest();
         return DispatchOutcome::Response(
             "recovery.lifeline_command_handler_binding_diagnostic_selftest",
+        );
+    }
+    if recovery_lifeline_status_read_handler_diagnostic_method(method) {
+        record_read("recovery.lifeline_status_read_handler_diagnostic");
+        emit_recovery_lifeline_status_read_handler_diagnostic(method);
+        return DispatchOutcome::Response("recovery.lifeline_status_read_handler_diagnostic");
+    }
+    if recovery_lifeline_status_read_handler_diagnostic_selftest_method(method) {
+        record_read("recovery.lifeline_status_read_handler_diagnostic_selftest");
+        emit_recovery_lifeline_status_read_handler_diagnostic_selftest();
+        return DispatchOutcome::Response(
+            "recovery.lifeline_status_read_handler_diagnostic_selftest",
         );
     }
     if recovery_artifact_load_binding_method(method) {

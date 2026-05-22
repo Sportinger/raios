@@ -16,7 +16,7 @@ use crate::event_log_evidence::{
     RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_EVIDENCE,
-    RECOVERY_LIFELINE_REQUEST_REFERENCE_EVIDENCE,
+    RECOVERY_LIFELINE_REQUEST_REFERENCE_EVIDENCE, RECOVERY_LIFELINE_STATUS_READ_HANDLER_EVIDENCE,
 };
 use crate::event_log_module_checks::{
     module_audit_rollback_binds_computed_grant, module_audit_rollback_reference_hash_mismatch,
@@ -49,8 +49,8 @@ pub use crate::event_log_types::{
     RecoveryArtifactVmTestReference, RecoveryCommandTargetLocator,
     RecoveryLifelineCommandBodyCanonicalizationReference, RecoveryLifelineCommandEnvelopeReference,
     RecoveryLifelineCommandHandlerBindingReference, RecoveryLifelineRequestReference,
-    DEFAULT_EVENT_LIMIT, EVENT_CAPACITY, PROVIDER_BINDING_GATE_SELFTEST_CASES,
-    PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
+    RecoveryLifelineStatusReadHandlerReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
+    PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::module_evidence;
 
@@ -954,6 +954,33 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::RecoveryLifelineCommandHandlerBindingReference(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_lifeline_status_read_handler_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryLifelineStatusReadHandlerReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryLifelineStatusReadHandlerReference(binding) =
                     event.bindings
                 {
                     return Some((
@@ -2656,6 +2683,26 @@ pub fn record_recovery_lifeline_command_handler_binding_reference(
     })
 }
 
+pub fn record_recovery_lifeline_status_read_handler_reference(
+    binding: RecoveryLifelineStatusReadHandlerReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.lifeline_status_read_handler.retained",
+        source_method: "recovery.lifeline_status_read_handler_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline_status_read_handler",
+        reason: "recovery_lifeline_status_read_handler_valid_for_current_boot",
+        evidence: RECOVERY_LIFELINE_STATUS_READ_HANDLER_EVIDENCE,
+        bindings: EventBindings::RecoveryLifelineStatusReadHandlerReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -2993,6 +3040,12 @@ pub fn latest_recovery_lifeline_command_handler_binding_reference(
 ) -> Option<(EventId, RecoveryLifelineCommandHandlerBindingReference)> {
     LOG.lock()
         .latest_recovery_lifeline_command_handler_binding_reference()
+}
+
+pub fn latest_recovery_lifeline_status_read_handler_reference(
+) -> Option<(EventId, RecoveryLifelineStatusReadHandlerReference)> {
+    LOG.lock()
+        .latest_recovery_lifeline_status_read_handler_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(

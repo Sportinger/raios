@@ -827,16 +827,25 @@ that consumes the retained body-canonicalization reference, validates handler
 id and handler-input binding hashes, retains only local-only current-boot
 handler-binding evidence, and leaves dispatch stopped at missing status-read
 handler.
+`recovery.lifeline_status_read_handler_diagnostic` and
+`recovery.lifeline_status_read_handler_diagnostic_selftest` now expose a
+local-only current-boot
+`raios.recovery_lifeline_status_read_handler.v0` hash-reference boundary that
+consumes the retained handler-binding reference, validates status handler id
+and status-read projection hashes, retains only local-only current-boot
+status-read handler evidence, and leaves dispatch stopped at missing
+rollback-preview authorization.
 No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the recovery lifeline status-read handler hash-reference boundary after
-handler binding.
+Define the recovery lifeline rollback-preview authorization hash-reference
+boundary after status-read handler.
 ```
 
 Start from the retained
+`raios.recovery_lifeline_status_read_handler.v0` event, retained
 `raios.recovery_lifeline_command_handler_binding.v0` event, retained
 `raios.recovery_lifeline_command_body_canonicalization.v0` event, the read-only
 `raios.recovery_lifeline_command_dispatch_denial.v0` boundary, retained
@@ -846,32 +855,33 @@ Start from the retained
 runtime isolation diagnostic, rollback transaction-engine diagnostic, durable
 audit/rollback persistence diagnostic, and recovery memory provenance
 diagnostic. Add the next read-only hash-reference boundary for
-`raios.recovery_lifeline_status_read_handler.v0`: validate only command id,
+`raios.recovery_rollback_preview_authorization.v0`: validate only command id,
 argument schema, argument hash, target locator, command-envelope reference
-hash, body-canonicalization hash, handler-binding hash, dispatch boundary id,
-status handler id, status-read projection hash, and current-boot scope. It
-should reject stale/wrong-schema/substituted/mismatched handler-binding/
-body-canonicalization/dispatch/envelope/admission/memory-provenance/
-durable-persistence/rollback-engine/loader-isolation/command-vocabulary/
-protocol-state/request chains and still avoid fake recovery shell behavior,
-fake command execution, fake persistent memory, fallback stores, durable
-records, loaders, rollback transactions, service-slot side effects, provider
-export, direct-OpenAI recovery shortcuts, or recovery lifeline behavior.
+hash, body-canonicalization hash, handler-binding hash, status-read handler
+hash, dispatch boundary id, preview authorization id, preview projection hash,
+and current-boot scope. It should reject stale/wrong-schema/substituted/
+mismatched status-read/handler-binding/body-canonicalization/dispatch/envelope/
+admission/memory-provenance/durable-persistence/rollback-engine/
+loader-isolation/command-vocabulary/protocol-state/request chains and still
+avoid fake recovery shell behavior, fake command execution, fake persistent
+memory, fallback stores, durable records, loaders, rollback transactions,
+service-slot side effects, provider export, direct-OpenAI recovery shortcuts,
+or recovery lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only recovery status-read handler hash-reference diagnostics
-   over the retained handler-binding reference and dispatch-denial boundary.
-2. Bind status-read handler references to command id, argument schema/hash,
+1. Define read-only rollback-preview authorization hash-reference diagnostics
+   over the retained status-read handler reference and dispatch-denial boundary.
+2. Bind preview authorization references to command id, argument schema/hash,
    target locator, command-envelope reference hash, body-canonicalization hash,
-   handler-binding hash, status handler id, and status-read projection hash
-   while still accepting no raw command body.
+   handler-binding hash, status-read handler hash, preview authorization id,
+   and preview projection hash while still accepting no raw command body.
 3. Keep selftests proving stale/wrong-schema/substituted/mismatched
-   body-canonicalization, dispatch, command-envelope, command-admission, memory
-   provenance, persistence, rollback-engine, loader-isolation, command
-   vocabulary, protocol-state, and lifeline request chains stay rejected without
-   implementing recovery shell behavior, persistent memory writes, provider
-   export, or rollback execution.
+   status-read, handler-binding, body-canonicalization, dispatch,
+   command-envelope, command-admission, memory provenance, persistence,
+   rollback-engine, loader-isolation, command vocabulary, protocol-state, and
+   lifeline request chains stay rejected without implementing recovery shell
+   behavior, persistent memory writes, provider export, or rollback execution.
 
 Current blockers and non-goals:
 
