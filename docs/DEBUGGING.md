@@ -586,6 +586,8 @@ recovery.lifeline_protocol_diagnostic
 recovery.lifeline_protocol_diagnostic_selftest
 recovery.lifeline_command_vocabulary
 recovery.lifeline_command_vocabulary_selftest
+recovery.loader_runtime_isolation
+recovery.loader_runtime_isolation_selftest
 recovery.load_binding
 recovery.load_binding_selftest
 ```
@@ -655,6 +657,20 @@ schema and required capability, but keeps `accepts_lifeline_command_envelope`,
 `command_execution_enabled`, loader execution, artifact loading, durable
 writes, rollback installs, service-slot allocation, and service inventory
 changes disabled.
+
+The loader runtime-isolation diagnostic emits
+`raios.recovery_loader_runtime_isolation.v0` and
+`raios.recovery_loader_runtime_isolation_selftest.v0`. It reuses the retained
+lifeline request/evidence chain and command-vocabulary envelope, rejects
+missing, stale, previous-boot, wrong-schema, substituted, and mismatched
+request/protocol-state/command-vocabulary inputs before loader readiness, and
+reports missing local-only facts for loader address-space boundary, entrypoint
+ABI, memory-map constraints, capability import table, artifact hash binding,
+provider separation, normal-module separation, rollback transaction engine,
+durable audit/rollback persistence, and recovery memory provenance. It accepts
+no loader descriptor, artifact bytes, or lifeline command envelope, and keeps
+loader execution, command dispatch, artifact loading, durable writes, rollback
+installs, service-slot allocation, and service inventory changes disabled.
 
 A valid `module.manifest_diagnostic` hash-reference command records a local-only
 current-boot `raios.module_manifest_reference.v0` event binding and reports

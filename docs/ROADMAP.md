@@ -3,6 +3,17 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-22 by Codex after extending guest recovery lifeline
+diagnostics with `recovery.loader_runtime_isolation` and
+`recovery.loader_runtime_isolation_selftest` over
+`raios.recovery_loader_runtime_isolation.v0`, reusing the retained lifeline
+request/evidence chain plus command-vocabulary envelope, enumerating missing
+address-space, entrypoint ABI, memory-map, capability-import,
+artifact-hash-binding, provider-separation, normal-module-separation, rollback
+transaction, durable persistence, and recovery memory provenance facts, and
+rejecting invalid request/protocol-state/command-vocabulary inputs while still
+keeping command dispatch, loader execution, artifact loading, durable writes,
+rollback installs, service-slot allocation, direct-OpenAI recovery shortcuts,
+and service inventory changes disabled; prior work added
 diagnostics with `recovery.lifeline_command_vocabulary` and
 `recovery.lifeline_command_vocabulary_selftest` over
 `raios.recovery_lifeline_command_vocabulary.v0`, enumerating command ids,
@@ -88,7 +99,7 @@ Latest maintenance verification:
   passed on 2026-05-22.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260522-090750-23580.json` with 2286/2286
+  `release\vm-reports\shadow-20260522-092510-15048.json` with 2378/2378
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -174,7 +185,12 @@ Latest maintenance verification:
   `raios.recovery_lifeline_command_vocabulary.v0` exposes command ids,
   argument-envelope schemas, required capabilities, and denial reasons only
   after the retained request/evidence chain validates, rejects invalid
-  request/protocol-state inputs, and keeps command execution disabled.
+  request/protocol-state inputs, and keeps command execution disabled, plus
+  `recovery.loader_runtime_isolation` and
+  `recovery.loader_runtime_isolation_selftest` proving
+  `raios.recovery_loader_runtime_isolation.v0` exposes missing loader
+  isolation facts, rejects invalid command-vocabulary/protocol-state/request
+  inputs, and keeps loader execution disabled.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch`
   passed against a local fake-key image with an intentionally wrong SPKI pin;
   positive request/export audit binding markers stayed absent. The local image
@@ -597,38 +613,46 @@ durable audit/rollback persistence, and recovery memory provenance.
 current-boot `raios.recovery_lifeline_command_vocabulary.v0` envelope that
 defines the first recovery lifeline command names, argument schemas, required
 capabilities, and denial reasons without accepting envelopes or dispatching
-commands.
+commands. `recovery.loader_runtime_isolation` and
+`recovery.loader_runtime_isolation_selftest` now expose a local-only
+current-boot `raios.recovery_loader_runtime_isolation.v0` boundary that defines
+missing loader address-space, entrypoint ABI, memory-map, capability-import,
+artifact-hash-binding, provider-separation, and normal-module-separation facts
+without accepting loader descriptors or executing a loader.
 No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the recovery loader runtime isolation boundary after the command
-vocabulary envelope.
+Define the recovery rollback transaction engine boundary after loader runtime
+isolation.
 ```
 
-Start from the retained `raios.recovery_lifeline_request.v0` event and the new
-protocol-state and command-vocabulary diagnostics. Add the next read-only
-diagnostic for `raios.recovery_loader_runtime_isolation.v0`: define required
-address-space, entrypoint ABI, memory-map, capability-import, artifact-hash,
-and recovery-separation facts without implementing a loader. It should reject
-stale, wrong-schema, substituted, and mismatched retained request/evidence/
-command-vocabulary chains before reporting loader readiness, and still avoid
+Start from the retained `raios.recovery_lifeline_request.v0` event, command
+vocabulary envelope, and loader runtime isolation diagnostic. Add the next
+read-only diagnostic for `raios.recovery_rollback_transaction_engine.v0`:
+define rollback target selection, transaction id/provenance, last-good binding,
+disabled-module set binding, artifact hash binding, replay preconditions,
+recovery-only capability import, and atomic apply/abort facts without
+implementing rollback execution. It should reject stale, wrong-schema,
+substituted, and mismatched retained request/evidence/command-vocabulary/
+loader-isolation chains before reporting rollback readiness, and still avoid
 fake persistent memory, fallback stores, durable records, loaders, rollback
 transactions, service-slot side effects, direct-OpenAI recovery shortcuts, or
 recovery lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only recovery loader runtime isolation diagnostics over the
-   retained lifeline request event, command vocabulary, and six bound evidence
-   ids.
-2. Bind loader address-space, entrypoint ABI, memory-map, capability-import,
-   artifact-hash, provider-separation, and normal-module-separation gaps as
-   typed local-only facts.
-3. Keep selftests proving stale/wrong-schema/substituted/mismatched command
-   vocabulary and lifeline request chains stay rejected without implementing a
-   loader, rollback transaction, or persistent recovery memory.
+1. Define read-only recovery rollback transaction engine diagnostics over the
+   retained lifeline request event, command vocabulary, loader isolation, and
+   six bound evidence ids.
+2. Bind rollback target, transaction provenance, last-good set, disabled-module
+   set, artifact-hash, replay-precondition, capability-import, and atomic
+   apply/abort gaps as typed local-only facts.
+3. Keep selftests proving stale/wrong-schema/substituted/mismatched loader
+   isolation, command-vocabulary, protocol-state, and lifeline request chains
+   stay rejected without implementing rollback execution or persistent recovery
+   memory.
 
 Current blockers and non-goals:
 

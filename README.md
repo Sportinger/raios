@@ -391,6 +391,13 @@ What boots and works in the VM right now:
   capabilities, and denial reasons only after the retained lifeline request and
   evidence chain validate, while accepting no command envelope and dispatching
   no recovery behavior
+- Read-only `recovery.loader_runtime_isolation` and
+  `recovery.loader_runtime_isolation_selftest` diagnostics that define the
+  recovery loader runtime isolation boundary, enumerate address-space,
+  entrypoint ABI, memory-map, capability-import, artifact-hash, provider
+  separation, and normal-module separation facts as missing local-only inputs,
+  and reject invalid request/protocol-state/command-vocabulary chains while
+  loading nothing
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,

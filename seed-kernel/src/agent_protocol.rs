@@ -104,7 +104,8 @@ use crate::{
         emit_recovery_lifeline_protocol_diagnostic,
         emit_recovery_lifeline_protocol_diagnostic_selftest,
         emit_recovery_lifeline_request_diagnostic,
-        emit_recovery_lifeline_request_diagnostic_selftest,
+        emit_recovery_lifeline_request_diagnostic_selftest, emit_recovery_loader_runtime_isolation,
+        emit_recovery_loader_runtime_isolation_selftest,
         recovery_artifact_identity_diagnostic_method,
         recovery_artifact_identity_diagnostic_selftest_method,
         recovery_artifact_load_binding_method, recovery_artifact_load_binding_selftest_method,
@@ -124,6 +125,8 @@ use crate::{
         recovery_lifeline_protocol_diagnostic_selftest_method,
         recovery_lifeline_request_diagnostic_method,
         recovery_lifeline_request_diagnostic_selftest_method,
+        recovery_loader_runtime_isolation_method,
+        recovery_loader_runtime_isolation_selftest_method,
     },
     agent_protocol_support::{method_eq, method_head_eq},
     agent_protocol_system::{
@@ -525,6 +528,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("recovery.lifeline_command_vocabulary_selftest");
         emit_recovery_lifeline_command_vocabulary_selftest();
         return DispatchOutcome::Response("recovery.lifeline_command_vocabulary_selftest");
+    }
+    if recovery_loader_runtime_isolation_method(method) {
+        record_read("recovery.loader_runtime_isolation");
+        emit_recovery_loader_runtime_isolation();
+        return DispatchOutcome::Response("recovery.loader_runtime_isolation");
+    }
+    if recovery_loader_runtime_isolation_selftest_method(method) {
+        record_read("recovery.loader_runtime_isolation_selftest");
+        emit_recovery_loader_runtime_isolation_selftest();
+        return DispatchOutcome::Response("recovery.loader_runtime_isolation_selftest");
     }
     if recovery_artifact_load_binding_method(method) {
         record_read("recovery.load_binding");
