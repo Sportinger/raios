@@ -582,6 +582,8 @@ recovery.rollback_evidence_diagnostic_selftest
 recovery.lifeline_request_diagnostic
 recovery.lifeline_request_diagnostic <lifeline_request_reference_hash> <retained_identity_event_id> <retained_trust_event_id> <retained_vm_test_event_id> <retained_local_approval_event_id> <retained_loader_event_id> <retained_rollback_evidence_event_id> <identity_reference_hash> <trust_reference_hash> <vm_test_reference_hash> <local_approval_reference_hash> <loader_reference_hash> <rollback_evidence_reference_hash> <artifact_hash> <trust_hash> <vm_test_hash> <local_approval_hash> <loader_hash> <rollback_evidence_hash> [current_boot]
 recovery.lifeline_request_diagnostic_selftest
+recovery.lifeline_protocol_diagnostic
+recovery.lifeline_protocol_diagnostic_selftest
 recovery.load_binding
 recovery.load_binding_selftest
 ```
@@ -619,6 +621,23 @@ previous-boot, wrong-schema, substituted, and mismatched chains, records a valid
 request only as local-only current-boot hash evidence, and keeps
 `loads_recovery_loader`, `loads_recovery_artifact`, `creates_durable_records`,
 `installs_rollback_plan`, `allocates_service_slot`, and `load_attempted` false.
+
+The lifeline-protocol diagnostic emits
+`raios.recovery_lifeline_protocol_state.v0` and
+`raios.recovery_lifeline_protocol_state_selftest.v0`. It consumes the retained
+lifeline request event id plus the six recovery evidence event ids bound by
+that request, rejects missing, stale, previous-boot, wrong-schema,
+substituted, and mismatched lifeline request/evidence chains before reporting
+protocol gaps, and exposes typed local-only missing facts for
+`raios.recovery_lifeline_protocol_state.v0`,
+`raios.recovery_lifeline_command_vocabulary.v0`,
+`raios.recovery_loader_runtime_isolation.v0`,
+`raios.recovery_rollback_transaction_engine.v0`,
+`raios.durable_audit_rollback_persistence.v0`, and
+`raios.recovery_memory_provenance.v0`. It never accepts a direct OpenAI
+provider path as the recovery lifeline, and keeps recovery loader execution,
+artifact loading, durable writes, rollback installs, service-slot allocation,
+and lifeline behavior disabled.
 
 A valid `module.manifest_diagnostic` hash-reference command records a local-only
 current-boot `raios.module_manifest_reference.v0` event binding and reports

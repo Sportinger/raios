@@ -136,6 +136,8 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         || method_eq(method, "recovery.rollback_evidence_diagnostic_selftest")
         || method_eq(method, "recovery.lifeline_request_diagnostic")
         || method_eq(method, "recovery.lifeline_request_diagnostic_selftest")
+        || method_eq(method, "recovery.lifeline_protocol_diagnostic")
+        || method_eq(method, "recovery.lifeline_protocol_diagnostic_selftest")
     {
         "cap.recovery.load_artifact.read"
     } else if method_eq(method, "module.manifest_diagnostic")

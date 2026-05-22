@@ -23,7 +23,9 @@ durable audit and rollback writes, plus a distinct recovery-artifact load
 boundary that uses `cap.recovery.load_artifact` instead of the normal ephemeral
 module capability, exposes read-only retained identity/trust/VM-test/
 local-approval/loader/rollback-evidence binding diagnostics, and still refuses
-to load anything until a recovery lifeline protocol exists.
+to load anything until real recovery lifeline protocol state, command
+vocabulary, loader isolation, rollback transaction, durable persistence, and
+recovery memory provenance facts exist.
 
 It is what a Lisp Machine would look like if its primary user were an AI: small
 enough for an agent to fully model, writable at every layer, and anchored in an
@@ -375,6 +377,14 @@ What boots and works in the VM right now:
   recovery evidence ids while keeping the request local-only, current-boot,
   non-authorizing, non-durable, and unable to load a recovery artifact or
   allocate a service slot
+- Read-only `recovery.lifeline_protocol_diagnostic` and
+  `recovery.lifeline_protocol_diagnostic_selftest` diagnostics that consume the
+  retained recovery lifeline request plus its six bound recovery evidence ids,
+  reject stale, previous-boot, wrong-schema, substituted, and mismatched chains,
+  and expose typed local-only missing facts for lifeline protocol state,
+  command vocabulary, loader runtime isolation, rollback transaction engine,
+  durable audit/rollback persistence, and recovery memory provenance without
+  enabling recovery shell behavior
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,

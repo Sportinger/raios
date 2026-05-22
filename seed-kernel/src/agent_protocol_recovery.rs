@@ -27,6 +27,7 @@ const RECOVERY_LOCAL_APPROVAL_SELFTEST_CASES: usize = 11;
 const RECOVERY_LOADER_SELFTEST_CASES: usize = 10;
 const RECOVERY_ROLLBACK_EVIDENCE_SELFTEST_CASES: usize = 10;
 const RECOVERY_LIFELINE_REQUEST_SELFTEST_CASES: usize = 11;
+const RECOVERY_LIFELINE_PROTOCOL_SELFTEST_CASES: usize = 15;
 
 #[derive(Clone, Copy)]
 struct RecoveryIdentityReferenceCheck<'a> {
@@ -361,6 +362,48 @@ struct RecoveryLifelineRequestSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+struct RecoveryLifelineProtocolCandidate {
+    request_retained: bool,
+    request_current_boot: bool,
+    request_schema_ok: bool,
+    request_binding_ok: bool,
+    request_binding_reason: &'static str,
+    direct_openai_recovery_shortcut_used: bool,
+    lifeline_protocol_state_present: bool,
+    command_vocabulary_present: bool,
+    loader_runtime_isolation_present: bool,
+    rollback_transaction_engine_present: bool,
+    durable_audit_rollback_persistence_present: bool,
+    recovery_memory_provenance_present: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineProtocolCheck {
+    status: &'static str,
+    reason: &'static str,
+    request_chain_valid: bool,
+    can_report_protocol_gaps: bool,
+    authorizes_recovery_load: bool,
+    can_move_beyond_denial: bool,
+    loads_recovery_loader: bool,
+    loads_recovery_artifact: bool,
+    creates_durable_records: bool,
+    installs_rollback_plan: bool,
+    allocates_service_slot: bool,
+    service_inventory_change: &'static str,
+    load_attempted: bool,
+}
+
+struct RecoveryLifelineProtocolSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
 struct RecoveryEvidenceCandidate {
     retained: bool,
     current_boot: bool,
@@ -469,6 +512,14 @@ pub(crate) fn recovery_lifeline_request_diagnostic_method(method: &str) -> bool 
 
 pub(crate) fn recovery_lifeline_request_diagnostic_selftest_method(method: &str) -> bool {
     method_head_eq(method, "recovery.lifeline_request_diagnostic_selftest")
+}
+
+pub(crate) fn recovery_lifeline_protocol_diagnostic_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.lifeline_protocol_diagnostic")
+}
+
+pub(crate) fn recovery_lifeline_protocol_diagnostic_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "recovery.lifeline_protocol_diagnostic_selftest")
 }
 
 pub(crate) fn recovery_artifact_load_binding_method(method: &str) -> bool {
@@ -1208,6 +1259,179 @@ pub(crate) fn emit_recovery_lifeline_request_diagnostic_selftest() {
     raw_line("      ],");
     raw_line("      \"can_move_beyond_denial\": false");
     end_response("recovery.lifeline_request_diagnostic_selftest");
+}
+
+pub(crate) fn emit_recovery_lifeline_protocol_diagnostic() {
+    let retained_request = event_log::latest_recovery_lifeline_request_reference();
+    let retained_identity = event_log::latest_recovery_artifact_identity_reference();
+    let retained_trust = event_log::latest_recovery_artifact_trust_reference();
+    let retained_vm_test = event_log::latest_recovery_artifact_vm_test_reference();
+    let retained_local_approval = event_log::latest_recovery_artifact_local_approval_reference();
+    let retained_loader = event_log::latest_recovery_artifact_loader_reference();
+    let retained_rollback_evidence =
+        event_log::latest_recovery_artifact_rollback_evidence_reference();
+    let check =
+        evaluate_recovery_lifeline_protocol(recovery_lifeline_protocol_candidate_from_retained(
+            retained_request,
+            retained_identity,
+            retained_trust,
+            retained_vm_test,
+            retained_local_approval,
+            retained_loader,
+            retained_rollback_evidence,
+        ));
+
+    begin_response("recovery.lifeline_protocol_diagnostic");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_protocol_state.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_lifeline_protocol_state_records\": false,");
+    raw_line("      \"accepts_lifeline_request_json\": false,");
+    raw_line("      \"accepts_loader_descriptor\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"uses_direct_openai_recovery_path\": false,");
+    raw_line("      \"provider_shortcut_used\": false,");
+    raw_line("      \"request\": {");
+    raw_line("        \"requested_capability\": \"cap.recovery.load_artifact\",");
+    raw_line("        \"read_capability\": \"cap.recovery.load_artifact.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline\",");
+    raw_line("        \"lifeline_request_schema\": \"raios.recovery_lifeline_request.v0\",");
+    raw_line(
+        "        \"lifeline_protocol_state_schema\": \"raios.recovery_lifeline_protocol_state.v0\"",
+    );
+    raw_line("      },");
+    emit_recovery_lifeline_protocol_request_state(retained_request, &check, true);
+    raw_line("      \"required_retained_evidence\": {");
+    emit_recovery_load_identity_binding_fact(retained_identity, true);
+    emit_recovery_load_trust_binding_fact(retained_identity, retained_trust, true);
+    emit_recovery_load_vm_test_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        true,
+    );
+    emit_recovery_load_local_approval_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        true,
+    );
+    emit_recovery_load_loader_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        true,
+    );
+    emit_recovery_load_rollback_evidence_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        retained_rollback_evidence,
+        false,
+    );
+    raw_line("      },");
+    raw_line("      \"required_protocol_facts\": {");
+    emit_recovery_lifeline_protocol_missing_fact(
+        "lifeline_protocol_state",
+        "raios.recovery_lifeline_protocol_state.v0",
+        "recovery_lifeline_protocol_state_missing",
+        true,
+    );
+    emit_recovery_lifeline_protocol_missing_fact(
+        "lifeline_command_vocabulary",
+        "raios.recovery_lifeline_command_vocabulary.v0",
+        "recovery_lifeline_command_vocabulary_missing",
+        true,
+    );
+    emit_recovery_lifeline_protocol_missing_fact(
+        "loader_runtime_isolation",
+        "raios.recovery_loader_runtime_isolation.v0",
+        "recovery_loader_runtime_isolation_missing",
+        true,
+    );
+    emit_recovery_lifeline_protocol_missing_fact(
+        "rollback_transaction_engine",
+        "raios.recovery_rollback_transaction_engine.v0",
+        "recovery_rollback_transaction_engine_missing",
+        true,
+    );
+    emit_recovery_lifeline_protocol_missing_fact(
+        "durable_audit_rollback_persistence",
+        "raios.durable_audit_rollback_persistence.v0",
+        "durable_audit_rollback_persistence_missing",
+        true,
+    );
+    emit_recovery_lifeline_protocol_missing_fact(
+        "recovery_memory_provenance",
+        "raios.recovery_memory_provenance.v0",
+        "recovery_memory_provenance_missing",
+        false,
+    );
+    raw_line("      },");
+    raw_line("      \"boundary\": {");
+    emit_recovery_lifeline_protocol_check(&check);
+    raw_line("      }");
+    end_response("recovery.lifeline_protocol_diagnostic");
+}
+
+pub(crate) fn emit_recovery_lifeline_protocol_diagnostic_selftest() {
+    let cases = recovery_lifeline_protocol_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.lifeline_protocol_diagnostic_selftest");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_protocol_state_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_lifeline_protocol_state_records\": false,");
+    raw_line("      \"accepts_lifeline_request_json\": false,");
+    raw_line("      \"accepts_loader_descriptor\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"uses_direct_openai_recovery_path\": false,");
+    raw_line("      \"provider_shortcut_used\": false,");
+    raw_line("      \"loads_recovery_loader\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_lifeline_protocol_selftest_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.lifeline_protocol_diagnostic_selftest");
 }
 
 pub(crate) fn emit_recovery_artifact_load_binding() {
@@ -2805,6 +3029,220 @@ fn emit_recovery_lifeline_request_selftest_case(
     crlf();
 }
 
+fn emit_recovery_lifeline_protocol_request_state(
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineRequestReference,
+    )>,
+    check: &RecoveryLifelineProtocolCheck,
+    comma: bool,
+) {
+    raw_line("      \"retained_recovery_lifeline_request\": {");
+    if let Some((event_id, reference)) = retained {
+        raw_line("        \"state\": \"present\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw("        \"event_id\": ");
+        json_event_id(event_id);
+        raw_line(",");
+        raw_line("        \"schema\": \"raios.recovery_lifeline_request.v0\",");
+        raw("        \"status\": ");
+        json_str(if check.request_chain_valid {
+            "retained_current_boot_hash_reference_only"
+        } else {
+            "rejected"
+        });
+        raw_line(",");
+        raw("        \"reason\": ");
+        json_str(check.reason);
+        raw_line(",");
+        raw_line("        \"classification\": \"local_only\",");
+        raw_line("        \"hash_reference_only\": true,");
+        raw("        \"request_chain_valid\": ");
+        raw_bool(check.request_chain_valid);
+        raw_line(",");
+        raw("        \"can_report_protocol_gaps\": ");
+        raw_bool(check.can_report_protocol_gaps);
+        raw_line(",");
+        raw_line("        \"accepts_lifeline_request_json\": false,");
+        raw_line("        \"accepts_loader_descriptor\": false,");
+        raw_line("        \"accepts_artifact_bytes\": false,");
+        raw_line("        \"loads_recovery_loader\": false,");
+        raw_line("        \"loads_recovery_artifact\": false,");
+        raw_line("        \"authorizes_recovery_load\": false,");
+        raw_line("        \"creates_durable_records\": false,");
+        raw_line("        \"installs_rollback_plan\": false,");
+        raw_line("        \"allocates_service_slot\": false,");
+        raw_line("        \"service_inventory_change\": \"none\",");
+        raw_line("        \"load_attempted\": false,");
+        raw("        \"retained_recovery_artifact_identity_event_id\": ");
+        json_event_id(reference.retained_identity_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_trust_event_id\": ");
+        json_event_id(reference.retained_trust_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_vm_test_event_id\": ");
+        json_event_id(reference.retained_vm_test_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_local_approval_event_id\": ");
+        json_event_id(reference.retained_local_approval_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_loader_event_id\": ");
+        json_event_id(reference.retained_loader_reference_event_id);
+        raw_line(",");
+        raw("        \"retained_recovery_artifact_rollback_evidence_event_id\": ");
+        json_event_id(reference.retained_rollback_evidence_reference_event_id);
+        raw_line(",");
+        raw_line("        \"hashes\": {");
+        raw("          \"lifeline_request_reference_hash\": ");
+        json_sha256(reference.lifeline_request_reference_hash);
+        raw_line(",");
+        raw("          \"identity_reference_hash\": ");
+        json_sha256(reference.identity_reference_hash);
+        raw_line(",");
+        raw("          \"trust_reference_hash\": ");
+        json_sha256(reference.trust_reference_hash);
+        raw_line(",");
+        raw("          \"vm_test_reference_hash\": ");
+        json_sha256(reference.vm_test_reference_hash);
+        raw_line(",");
+        raw("          \"local_approval_reference_hash\": ");
+        json_sha256(reference.local_approval_reference_hash);
+        raw_line(",");
+        raw("          \"loader_reference_hash\": ");
+        json_sha256(reference.loader_reference_hash);
+        raw_line(",");
+        raw("          \"rollback_evidence_reference_hash\": ");
+        json_sha256(reference.rollback_evidence_reference_hash);
+        raw_line(",");
+        raw("          \"artifact_hash\": ");
+        json_sha256(reference.artifact_hash);
+        raw_line(",");
+        raw("          \"trust_hash\": ");
+        json_sha256(reference.trust_hash);
+        raw_line(",");
+        raw("          \"vm_test_hash\": ");
+        json_sha256(reference.vm_test_hash);
+        raw_line(",");
+        raw("          \"local_approval_hash\": ");
+        json_sha256(reference.local_approval_hash);
+        raw_line(",");
+        raw("          \"loader_hash\": ");
+        json_sha256(reference.loader_hash);
+        raw_line(",");
+        raw("          \"rollback_evidence_hash\": ");
+        json_sha256(reference.rollback_evidence_hash);
+        crlf();
+        raw_line("        }");
+    } else {
+        raw_line("        \"state\": \"missing\",");
+        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+        raw_line("        \"event_id\": null,");
+        raw_line("        \"schema\": \"raios.recovery_lifeline_request.v0\",");
+        raw_line("        \"status\": \"missing\",");
+        raw_line("        \"reason\": \"recovery_lifeline_request_event_id_missing\",");
+        raw_line("        \"classification\": \"local_only\",");
+        raw_line("        \"request_chain_valid\": false,");
+        raw_line("        \"can_report_protocol_gaps\": false,");
+        raw_line("        \"can_move_beyond_denial\": false,");
+        raw_line("        \"load_attempted\": false");
+    }
+    raw("      }");
+    if comma {
+        raw_line(",");
+    } else {
+        raw_line("");
+    }
+}
+
+fn emit_recovery_lifeline_protocol_missing_fact(
+    field: &'static str,
+    schema: &'static str,
+    reason: &'static str,
+    comma: bool,
+) {
+    raw("        \"");
+    raw(field);
+    raw("\": {\"schema\": ");
+    json_str(schema);
+    raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
+    json_str(reason);
+    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+    if comma {
+        raw_line(",");
+    } else {
+        raw_line("");
+    }
+}
+
+fn emit_recovery_lifeline_protocol_check(check: &RecoveryLifelineProtocolCheck) {
+    raw("        \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"request_chain_valid\": ");
+    raw_bool(check.request_chain_valid);
+    raw_line(",");
+    raw("        \"can_report_protocol_gaps\": ");
+    raw_bool(check.can_report_protocol_gaps);
+    raw_line(",");
+    raw("        \"authorizes_recovery_load\": ");
+    raw_bool(check.authorizes_recovery_load);
+    raw_line(",");
+    raw("        \"can_move_beyond_denial\": ");
+    raw_bool(check.can_move_beyond_denial);
+    raw_line(",");
+    raw("        \"loads_recovery_loader\": ");
+    raw_bool(check.loads_recovery_loader);
+    raw_line(",");
+    raw("        \"loads_recovery_artifact\": ");
+    raw_bool(check.loads_recovery_artifact);
+    raw_line(",");
+    raw("        \"creates_durable_records\": ");
+    raw_bool(check.creates_durable_records);
+    raw_line(",");
+    raw("        \"installs_rollback_plan\": ");
+    raw_bool(check.installs_rollback_plan);
+    raw_line(",");
+    raw("        \"allocates_service_slot\": ");
+    raw_bool(check.allocates_service_slot);
+    raw_line(",");
+    raw("        \"service_inventory_change\": ");
+    json_str(check.service_inventory_change);
+    raw_line(",");
+    raw_line("        \"durable_audit_write_attempted\": false,");
+    raw_line("        \"rollback_install_attempted\": false,");
+    raw_line("        \"service_slot_allocation_attempted\": false,");
+    raw_line("        \"direct_openai_recovery_shortcut_accepted\": false,");
+    raw("        \"load_attempted\": ");
+    raw_bool(check.load_attempted);
+    crlf();
+}
+
+fn emit_recovery_lifeline_protocol_selftest_case(
+    case: &RecoveryLifelineProtocolSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
 fn emit_recovery_artifact_load_missing_fact(
     field: &'static str,
     schema: &'static str,
@@ -3293,6 +3731,324 @@ fn emit_recovery_load_binding_selftest_case(case: &RecoveryLoadBindingSelfTestCa
         raw(",");
     }
     crlf();
+}
+
+fn recovery_lifeline_protocol_missing_candidate() -> RecoveryLifelineProtocolCandidate {
+    RecoveryLifelineProtocolCandidate {
+        request_retained: false,
+        request_current_boot: false,
+        request_schema_ok: false,
+        request_binding_ok: false,
+        request_binding_reason: "recovery_lifeline_request_event_id_missing",
+        direct_openai_recovery_shortcut_used: false,
+        lifeline_protocol_state_present: false,
+        command_vocabulary_present: false,
+        loader_runtime_isolation_present: false,
+        rollback_transaction_engine_present: false,
+        durable_audit_rollback_persistence_present: false,
+        recovery_memory_provenance_present: false,
+    }
+}
+
+fn recovery_lifeline_protocol_valid_request_candidate() -> RecoveryLifelineProtocolCandidate {
+    RecoveryLifelineProtocolCandidate {
+        request_retained: true,
+        request_current_boot: true,
+        request_schema_ok: true,
+        request_binding_ok: true,
+        request_binding_reason: "retained_recovery_lifeline_request_valid",
+        direct_openai_recovery_shortcut_used: false,
+        lifeline_protocol_state_present: false,
+        command_vocabulary_present: false,
+        loader_runtime_isolation_present: false,
+        rollback_transaction_engine_present: false,
+        durable_audit_rollback_persistence_present: false,
+        recovery_memory_provenance_present: false,
+    }
+}
+
+fn evaluate_recovery_lifeline_protocol(
+    candidate: RecoveryLifelineProtocolCandidate,
+) -> RecoveryLifelineProtocolCheck {
+    if !candidate.request_retained {
+        return recovery_lifeline_protocol_check(
+            "missing",
+            "recovery_lifeline_request_event_id_missing",
+            false,
+            false,
+        );
+    }
+    if !candidate.request_current_boot {
+        return recovery_lifeline_protocol_check(
+            "rejected",
+            "recovery_lifeline_request_event_id_not_current_boot",
+            false,
+            false,
+        );
+    }
+    if !candidate.request_schema_ok {
+        return recovery_lifeline_protocol_check(
+            "rejected",
+            "recovery_lifeline_request_wrong_schema_or_variant",
+            false,
+            false,
+        );
+    }
+    if !candidate.request_binding_ok {
+        return recovery_lifeline_protocol_check(
+            "rejected",
+            candidate.request_binding_reason,
+            false,
+            false,
+        );
+    }
+    if candidate.direct_openai_recovery_shortcut_used {
+        return recovery_lifeline_protocol_check(
+            "rejected",
+            "direct_openai_provider_path_not_recovery_lifeline",
+            false,
+            false,
+        );
+    }
+    if !candidate.lifeline_protocol_state_present {
+        return recovery_lifeline_protocol_check(
+            "denied_missing_lifeline_protocol_state",
+            "recovery_lifeline_protocol_state_missing",
+            true,
+            true,
+        );
+    }
+    if !candidate.command_vocabulary_present {
+        return recovery_lifeline_protocol_check(
+            "denied_missing_lifeline_command_vocabulary",
+            "recovery_lifeline_command_vocabulary_missing",
+            true,
+            true,
+        );
+    }
+    if !candidate.loader_runtime_isolation_present {
+        return recovery_lifeline_protocol_check(
+            "denied_missing_loader_runtime_isolation",
+            "recovery_loader_runtime_isolation_missing",
+            true,
+            true,
+        );
+    }
+    if !candidate.rollback_transaction_engine_present {
+        return recovery_lifeline_protocol_check(
+            "denied_missing_rollback_transaction_engine",
+            "recovery_rollback_transaction_engine_missing",
+            true,
+            true,
+        );
+    }
+    if !candidate.durable_audit_rollback_persistence_present {
+        return recovery_lifeline_protocol_check(
+            "denied_missing_durable_audit_rollback_persistence",
+            "durable_audit_rollback_persistence_missing",
+            true,
+            true,
+        );
+    }
+    if !candidate.recovery_memory_provenance_present {
+        return recovery_lifeline_protocol_check(
+            "denied_missing_recovery_memory_provenance",
+            "recovery_memory_provenance_missing",
+            true,
+            true,
+        );
+    }
+    recovery_lifeline_protocol_check(
+        "denied_lifeline_protocol_behavior_unimplemented",
+        "recovery_lifeline_protocol_behavior_not_implemented",
+        true,
+        true,
+    )
+}
+
+fn recovery_lifeline_protocol_check(
+    status: &'static str,
+    reason: &'static str,
+    request_chain_valid: bool,
+    can_report_protocol_gaps: bool,
+) -> RecoveryLifelineProtocolCheck {
+    RecoveryLifelineProtocolCheck {
+        status,
+        reason,
+        request_chain_valid,
+        can_report_protocol_gaps,
+        authorizes_recovery_load: false,
+        can_move_beyond_denial: false,
+        loads_recovery_loader: false,
+        loads_recovery_artifact: false,
+        creates_durable_records: false,
+        installs_rollback_plan: false,
+        allocates_service_slot: false,
+        service_inventory_change: "none",
+        load_attempted: false,
+    }
+}
+
+fn recovery_lifeline_protocol_selftest_cases(
+) -> [RecoveryLifelineProtocolSelfTestCase; RECOVERY_LIFELINE_PROTOCOL_SELFTEST_CASES] {
+    let valid = recovery_lifeline_protocol_valid_request_candidate();
+
+    let mut stale = valid;
+    stale.request_binding_ok = false;
+    stale.request_binding_reason = "recovery_lifeline_request_event_id_stale_or_dropped";
+
+    let mut previous_boot = valid;
+    previous_boot.request_current_boot = false;
+
+    let mut wrong_schema = valid;
+    wrong_schema.request_schema_ok = false;
+
+    let mut substituted = valid;
+    substituted.request_binding_ok = false;
+    substituted.request_binding_reason = "recovery_lifeline_request_substituted_record";
+
+    let mut request_hash_mismatch = valid;
+    request_hash_mismatch.request_binding_ok = false;
+    request_hash_mismatch.request_binding_reason =
+        "recovery_lifeline_request_reference_hash_mismatch";
+
+    let mut identity_event_mismatch = valid;
+    identity_event_mismatch.request_binding_ok = false;
+    identity_event_mismatch.request_binding_reason =
+        "recovery_lifeline_request_identity_event_id_mismatch";
+
+    let mut rollback_reference_mismatch = valid;
+    rollback_reference_mismatch.request_binding_ok = false;
+    rollback_reference_mismatch.request_binding_reason =
+        "recovery_artifact_rollback_evidence_reference_hash_mismatch";
+
+    let mut direct_provider_shortcut = valid;
+    direct_provider_shortcut.direct_openai_recovery_shortcut_used = true;
+
+    let mut command_vocabulary_missing = valid;
+    command_vocabulary_missing.lifeline_protocol_state_present = true;
+
+    let mut loader_isolation_missing = command_vocabulary_missing;
+    loader_isolation_missing.command_vocabulary_present = true;
+
+    let mut rollback_engine_missing = loader_isolation_missing;
+    rollback_engine_missing.loader_runtime_isolation_present = true;
+
+    let mut durable_persistence_missing = rollback_engine_missing;
+    durable_persistence_missing.rollback_transaction_engine_present = true;
+
+    let mut memory_provenance_missing = durable_persistence_missing;
+    memory_provenance_missing.durable_audit_rollback_persistence_present = true;
+
+    [
+        recovery_lifeline_protocol_selftest_case(
+            "missing_lifeline_request_event_id",
+            "missing",
+            "recovery_lifeline_request_event_id_missing",
+            evaluate_recovery_lifeline_protocol(recovery_lifeline_protocol_missing_candidate()),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "stale_dropped_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_event_id_stale_or_dropped",
+            evaluate_recovery_lifeline_protocol(stale),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "previous_boot_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_event_id_not_current_boot",
+            evaluate_recovery_lifeline_protocol(previous_boot),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "wrong_schema_lifeline_request_event_id",
+            "rejected",
+            "recovery_lifeline_request_wrong_schema_or_variant",
+            evaluate_recovery_lifeline_protocol(wrong_schema),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "substituted_lifeline_request_record",
+            "rejected",
+            "recovery_lifeline_request_substituted_record",
+            evaluate_recovery_lifeline_protocol(substituted),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "lifeline_request_reference_hash_mismatch",
+            "rejected",
+            "recovery_lifeline_request_reference_hash_mismatch",
+            evaluate_recovery_lifeline_protocol(request_hash_mismatch),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "retained_identity_event_id_mismatch",
+            "rejected",
+            "recovery_lifeline_request_identity_event_id_mismatch",
+            evaluate_recovery_lifeline_protocol(identity_event_mismatch),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "rollback_evidence_reference_hash_mismatch",
+            "rejected",
+            "recovery_artifact_rollback_evidence_reference_hash_mismatch",
+            evaluate_recovery_lifeline_protocol(rollback_reference_mismatch),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "direct_openai_recovery_shortcut_rejected",
+            "rejected",
+            "direct_openai_provider_path_not_recovery_lifeline",
+            evaluate_recovery_lifeline_protocol(direct_provider_shortcut),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "accepted_current_boot_request_protocol_state_missing",
+            "denied_missing_lifeline_protocol_state",
+            "recovery_lifeline_protocol_state_missing",
+            evaluate_recovery_lifeline_protocol(valid),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "command_vocabulary_missing_after_protocol_state",
+            "denied_missing_lifeline_command_vocabulary",
+            "recovery_lifeline_command_vocabulary_missing",
+            evaluate_recovery_lifeline_protocol(command_vocabulary_missing),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "loader_runtime_isolation_missing_after_command_vocabulary",
+            "denied_missing_loader_runtime_isolation",
+            "recovery_loader_runtime_isolation_missing",
+            evaluate_recovery_lifeline_protocol(loader_isolation_missing),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "rollback_transaction_engine_missing_after_isolation",
+            "denied_missing_rollback_transaction_engine",
+            "recovery_rollback_transaction_engine_missing",
+            evaluate_recovery_lifeline_protocol(rollback_engine_missing),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "durable_audit_rollback_persistence_missing_after_engine",
+            "denied_missing_durable_audit_rollback_persistence",
+            "durable_audit_rollback_persistence_missing",
+            evaluate_recovery_lifeline_protocol(durable_persistence_missing),
+        ),
+        recovery_lifeline_protocol_selftest_case(
+            "recovery_memory_provenance_missing_after_persistence",
+            "denied_missing_recovery_memory_provenance",
+            "recovery_memory_provenance_missing",
+            evaluate_recovery_lifeline_protocol(memory_provenance_missing),
+        ),
+    ]
+}
+
+fn recovery_lifeline_protocol_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryLifelineProtocolCheck,
+) -> RecoveryLifelineProtocolSelfTestCase {
+    RecoveryLifelineProtocolSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason),
+    }
 }
 
 fn recovery_load_binding_selftest_cases(
@@ -4030,6 +4786,251 @@ fn recovery_load_binding_retained_rollback_evidence_mismatch(
         return Some("recovery_artifact_rollback_evidence_loader_hash_mismatch");
     }
     None
+}
+
+fn recovery_lifeline_protocol_candidate_from_retained(
+    retained_request: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineRequestReference,
+    )>,
+    retained_identity: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactIdentityReference,
+    )>,
+    retained_trust: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactTrustReference,
+    )>,
+    retained_vm_test: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+    retained_local_approval: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLocalApprovalReference,
+    )>,
+    retained_loader: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLoaderReference,
+    )>,
+    retained_rollback_evidence: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactRollbackEvidenceReference,
+    )>,
+) -> RecoveryLifelineProtocolCandidate {
+    let mismatch = recovery_lifeline_protocol_retained_request_mismatch(
+        retained_request,
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        retained_rollback_evidence,
+    );
+    RecoveryLifelineProtocolCandidate {
+        request_retained: retained_request.is_some(),
+        request_current_boot: true,
+        request_schema_ok: true,
+        request_binding_ok: mismatch.is_none(),
+        request_binding_reason: mismatch.unwrap_or("retained_recovery_lifeline_request_valid"),
+        direct_openai_recovery_shortcut_used: false,
+        lifeline_protocol_state_present: false,
+        command_vocabulary_present: false,
+        loader_runtime_isolation_present: false,
+        rollback_transaction_engine_present: false,
+        durable_audit_rollback_persistence_present: false,
+        recovery_memory_provenance_present: false,
+    }
+}
+
+fn recovery_lifeline_protocol_retained_request_mismatch(
+    retained_request: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineRequestReference,
+    )>,
+    retained_identity: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactIdentityReference,
+    )>,
+    retained_trust: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactTrustReference,
+    )>,
+    retained_vm_test: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactVmTestReference,
+    )>,
+    retained_local_approval: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLocalApprovalReference,
+    )>,
+    retained_loader: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactLoaderReference,
+    )>,
+    retained_rollback_evidence: Option<(
+        event_log::EventId,
+        event_log::RecoveryArtifactRollbackEvidenceReference,
+    )>,
+) -> Option<&'static str> {
+    let Some((_request_event_id, request)) = retained_request else {
+        return Some("recovery_lifeline_request_event_id_missing");
+    };
+    let Some((identity_event_id, identity_reference)) = retained_identity else {
+        return Some("recovery_artifact_identity_reference_missing");
+    };
+    let Some((trust_event_id, _trust_reference)) = retained_trust else {
+        return Some("recovery_artifact_trust_reference_missing");
+    };
+    let Some((vm_test_event_id, _vm_test_reference)) = retained_vm_test else {
+        return Some("recovery_artifact_vm_test_reference_missing");
+    };
+    let Some((local_approval_event_id, _approval_reference)) = retained_local_approval else {
+        return Some("recovery_artifact_local_approval_reference_missing");
+    };
+    let Some((loader_event_id, _loader_reference)) = retained_loader else {
+        return Some("recovery_artifact_loader_reference_missing");
+    };
+    let Some((rollback_event_id, rollback_reference)) = retained_rollback_evidence else {
+        return Some("recovery_artifact_rollback_evidence_reference_missing");
+    };
+    if request.retained_identity_reference_event_id != identity_event_id {
+        return Some("recovery_lifeline_request_identity_event_id_mismatch");
+    }
+    if request.retained_trust_reference_event_id != trust_event_id {
+        return Some("recovery_lifeline_request_trust_event_id_mismatch");
+    }
+    if request.retained_vm_test_reference_event_id != vm_test_event_id {
+        return Some("recovery_lifeline_request_vm_test_event_id_mismatch");
+    }
+    if request.retained_local_approval_reference_event_id != local_approval_event_id {
+        return Some("recovery_lifeline_request_local_approval_event_id_mismatch");
+    }
+    if request.retained_loader_reference_event_id != loader_event_id {
+        return Some("recovery_lifeline_request_loader_event_id_mismatch");
+    }
+    if request.retained_rollback_evidence_reference_event_id != rollback_event_id {
+        return Some("recovery_lifeline_request_rollback_evidence_event_id_mismatch");
+    }
+    if let Some(reason) = recovery_load_binding_retained_rollback_evidence_mismatch(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        retained_rollback_evidence,
+    ) {
+        return Some(reason);
+    }
+    if request.identity_reference_hash != identity_reference.identity_reference_hash {
+        return Some("recovery_lifeline_request_identity_reference_hash_mismatch");
+    }
+    if request.identity_reference_hash != rollback_reference.identity_reference_hash {
+        return Some("recovery_lifeline_request_rollback_identity_reference_hash_mismatch");
+    }
+    if request.trust_reference_hash != rollback_reference.trust_reference_hash {
+        return Some("recovery_lifeline_request_trust_reference_hash_mismatch");
+    }
+    if request.vm_test_reference_hash != rollback_reference.vm_test_reference_hash {
+        return Some("recovery_lifeline_request_vm_test_reference_hash_mismatch");
+    }
+    if request.local_approval_reference_hash != rollback_reference.local_approval_reference_hash {
+        return Some("recovery_lifeline_request_local_approval_reference_hash_mismatch");
+    }
+    if request.loader_reference_hash != rollback_reference.loader_reference_hash {
+        return Some("recovery_lifeline_request_loader_reference_hash_mismatch");
+    }
+    if request.rollback_evidence_reference_hash
+        != rollback_reference.rollback_evidence_reference_hash
+    {
+        return Some("recovery_artifact_rollback_evidence_reference_hash_mismatch");
+    }
+    if request.artifact_hash != rollback_reference.artifact_hash {
+        return Some("recovery_lifeline_request_artifact_hash_mismatch");
+    }
+    if request.trust_hash != rollback_reference.trust_hash {
+        return Some("recovery_lifeline_request_trust_hash_mismatch");
+    }
+    if request.vm_test_hash != rollback_reference.vm_test_hash {
+        return Some("recovery_lifeline_request_vm_test_hash_mismatch");
+    }
+    if request.local_approval_hash != rollback_reference.local_approval_hash {
+        return Some("recovery_lifeline_request_local_approval_hash_mismatch");
+    }
+    if request.loader_hash != rollback_reference.loader_hash {
+        return Some("recovery_lifeline_request_loader_hash_mismatch");
+    }
+    if request.rollback_evidence_hash != rollback_reference.rollback_evidence_hash {
+        return Some("recovery_artifact_rollback_evidence_hash_mismatch");
+    }
+
+    let mut identity_event_id_text = [0u8; 27];
+    let mut trust_event_id_text = [0u8; 27];
+    let mut vm_test_event_id_text = [0u8; 27];
+    let mut local_approval_event_id_text = [0u8; 27];
+    let mut loader_event_id_text = [0u8; 27];
+    let mut rollback_event_id_text = [0u8; 27];
+    let expected = module_evidence::computed_recovery_lifeline_request_reference_hash(
+        module_evidence::RecoveryLifelineRequestReferenceHashInput {
+            retained_identity_reference_event_id: current_boot_event_id_text(
+                request.retained_identity_reference_event_id,
+                &mut identity_event_id_text,
+            ),
+            retained_trust_reference_event_id: current_boot_event_id_text(
+                request.retained_trust_reference_event_id,
+                &mut trust_event_id_text,
+            ),
+            retained_vm_test_reference_event_id: current_boot_event_id_text(
+                request.retained_vm_test_reference_event_id,
+                &mut vm_test_event_id_text,
+            ),
+            retained_local_approval_reference_event_id: current_boot_event_id_text(
+                request.retained_local_approval_reference_event_id,
+                &mut local_approval_event_id_text,
+            ),
+            retained_loader_reference_event_id: current_boot_event_id_text(
+                request.retained_loader_reference_event_id,
+                &mut loader_event_id_text,
+            ),
+            retained_rollback_evidence_reference_event_id: current_boot_event_id_text(
+                request.retained_rollback_evidence_reference_event_id,
+                &mut rollback_event_id_text,
+            ),
+            identity_reference_hash: request.identity_reference_hash,
+            trust_reference_hash: request.trust_reference_hash,
+            vm_test_reference_hash: request.vm_test_reference_hash,
+            local_approval_reference_hash: request.local_approval_reference_hash,
+            loader_reference_hash: request.loader_reference_hash,
+            rollback_evidence_reference_hash: request.rollback_evidence_reference_hash,
+            artifact_hash: request.artifact_hash,
+            trust_hash: request.trust_hash,
+            vm_test_hash: request.vm_test_hash,
+            local_approval_hash: request.local_approval_hash,
+            loader_hash: request.loader_hash,
+            rollback_evidence_hash: request.rollback_evidence_hash,
+        },
+    );
+    if request.lifeline_request_reference_hash != expected {
+        return Some("recovery_lifeline_request_reference_hash_mismatch");
+    }
+    None
+}
+
+fn current_boot_event_id_text<'a>(event_id: event_log::EventId, out: &'a mut [u8; 27]) -> &'a str {
+    let prefix = b"event.current_boot.";
+    let mut idx = 0usize;
+    while idx < prefix.len() {
+        out[idx] = prefix[idx];
+        idx += 1;
+    }
+    let mut sequence = event_id.sequence();
+    let mut digit = 0usize;
+    while digit < 8 {
+        out[prefix.len() + 7 - digit] = b'0' + (sequence % 10) as u8;
+        sequence /= 10;
+        digit += 1;
+    }
+    unsafe { core::str::from_utf8_unchecked(out) }
 }
 
 fn recovery_load_binding_missing_candidate() -> RecoveryLoadBindingCandidate {
