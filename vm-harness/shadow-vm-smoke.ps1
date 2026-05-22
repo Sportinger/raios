@@ -523,6 +523,8 @@ function Write-Report {
             "agent recovery.lifeline_command_vocabulary_selftest",
             "agent recovery.loader_runtime_isolation",
             "agent recovery.loader_runtime_isolation_selftest",
+            "agent recovery.rollback_transaction_engine",
+            "agent recovery.rollback_transaction_engine_selftest",
             "agent recovery.load_binding",
             "agent recovery.load_binding_selftest",
             "module.load_recovery_artifact",
@@ -3450,6 +3452,130 @@ try {
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    Send-AgentCommand -Command "agent recovery.rollback_transaction_engine" -ExpectedMarker "RAIOS_AGENT_END recovery.rollback_transaction_engine"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_rollback_transaction_engine_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_rollback_transaction_engine.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "status"; Needle = '"status": "denied_missing_lifeline_protocol_state"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_protocol_state_missing"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_rollback_transaction_engine_records": false' },
+        @{ Suffix = "no_command_envelope"; Needle = '"accepts_lifeline_command_envelope": false' },
+        @{ Suffix = "no_transaction_envelope"; Needle = '"accepts_rollback_transaction_envelope": false' },
+        @{ Suffix = "no_plan_json"; Needle = '"accepts_rollback_plan_json": false' },
+        @{ Suffix = "no_request_json"; Needle = '"accepts_lifeline_request_json": false' },
+        @{ Suffix = "no_loader_descriptor"; Needle = '"accepts_loader_descriptor": false' },
+        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
+        @{ Suffix = "no_openai_shortcut"; Needle = '"uses_direct_openai_recovery_path": false' },
+        @{ Suffix = "request_valid"; Needle = '"request_chain_valid": true' },
+        @{ Suffix = "vocab_exposed"; Needle = '"command_vocabulary_envelope_exposed": true' },
+        @{ Suffix = "vocab_not_accepted"; Needle = '"command_vocabulary_accepted": false' },
+        @{ Suffix = "loader_boundary_exposed"; Needle = '"loader_runtime_isolation_boundary_exposed": true' },
+        @{ Suffix = "loader_not_accepted"; Needle = '"loader_runtime_isolation_accepted": false' },
+        @{ Suffix = "requirements_exposed"; Needle = '"transaction_requirements_exposed": true' },
+        @{ Suffix = "engine_not_ready"; Needle = '"rollback_transaction_engine_ready": false' },
+        @{ Suffix = "request_event"; Needle = "`"event_id`": `"$recoveryLifelineRequestEventId`"" },
+        @{ Suffix = "identity_event"; Needle = "`"retained_recovery_artifact_identity_event_id`": `"$recoveryIdentityEventId`"" },
+        @{ Suffix = "rollback_event"; Needle = "`"retained_recovery_artifact_rollback_evidence_event_id`": `"$recoveryRollbackEvidenceEventId`"" },
+        @{ Suffix = "request_hash"; Needle = "`"lifeline_request_reference_hash`": `"sha256:$recoveryLifelineRequestReferenceHash`"" },
+        @{ Suffix = "command_vocab_schema"; Needle = '"schema": "raios.recovery_lifeline_command_vocabulary.v0"' },
+        @{ Suffix = "command_vocab_envelope"; Needle = '"state": "defined_read_only_envelope"' },
+        @{ Suffix = "loader_boundary_schema"; Needle = '"schema": "raios.recovery_loader_runtime_isolation.v0"' },
+        @{ Suffix = "loader_state"; Needle = '"state": "defined_non_executable"' },
+        @{ Suffix = "target_selection_schema"; Needle = '"schema": "raios.recovery_rollback_target_selection.v0"' },
+        @{ Suffix = "transaction_provenance_schema"; Needle = '"schema": "raios.recovery_rollback_transaction_provenance.v0"' },
+        @{ Suffix = "last_good_schema"; Needle = '"schema": "raios.recovery_rollback_last_good_binding.v0"' },
+        @{ Suffix = "disabled_set_schema"; Needle = '"schema": "raios.recovery_rollback_disabled_module_set_binding.v0"' },
+        @{ Suffix = "artifact_hash_schema"; Needle = '"schema": "raios.recovery_rollback_artifact_hash_binding.v0"' },
+        @{ Suffix = "replay_schema"; Needle = '"schema": "raios.recovery_rollback_replay_preconditions.v0"' },
+        @{ Suffix = "capability_import_schema"; Needle = '"schema": "raios.recovery_rollback_recovery_capability_import.v0"' },
+        @{ Suffix = "atomic_semantics_schema"; Needle = '"schema": "raios.recovery_rollback_atomic_apply_abort_semantics.v0"' },
+        @{ Suffix = "target_selection_missing"; Needle = '"reason": "recovery_rollback_target_selection_missing"' },
+        @{ Suffix = "transaction_provenance_missing"; Needle = '"reason": "recovery_rollback_transaction_id_provenance_missing"' },
+        @{ Suffix = "last_good_missing"; Needle = '"reason": "recovery_rollback_last_good_binding_missing"' },
+        @{ Suffix = "disabled_set_missing"; Needle = '"reason": "recovery_rollback_disabled_module_set_binding_missing"' },
+        @{ Suffix = "artifact_hash_missing"; Needle = '"reason": "recovery_rollback_artifact_hash_binding_missing"' },
+        @{ Suffix = "replay_missing"; Needle = '"reason": "recovery_rollback_replay_preconditions_missing"' },
+        @{ Suffix = "capability_import_missing"; Needle = '"reason": "recovery_rollback_recovery_capability_import_missing"' },
+        @{ Suffix = "atomic_semantics_missing"; Needle = '"reason": "recovery_rollback_atomic_apply_abort_semantics_missing"' },
+        @{ Suffix = "durable_schema"; Needle = '"schema": "raios.durable_audit_rollback_persistence.v0"' },
+        @{ Suffix = "durable_missing"; Needle = '"reason": "durable_audit_rollback_persistence_missing"' },
+        @{ Suffix = "memory_schema"; Needle = '"schema": "raios.recovery_memory_provenance.v0"' },
+        @{ Suffix = "memory_missing"; Needle = '"reason": "recovery_memory_provenance_missing"' },
+        @{ Suffix = "preview_false"; Needle = '"rollback_preview_enabled": false' },
+        @{ Suffix = "apply_false"; Needle = '"rollback_apply_enabled": false' },
+        @{ Suffix = "execute_preview_false"; Needle = '"executes_rollback_preview": false' },
+        @{ Suffix = "execute_apply_false"; Needle = '"executes_rollback_apply": false' },
+        @{ Suffix = "no_loader_load"; Needle = '"loads_recovery_loader": false' },
+        @{ Suffix = "no_artifact_load"; Needle = '"loads_recovery_artifact": false' },
+        @{ Suffix = "no_authority"; Needle = '"authorizes_recovery_load": false' },
+        @{ Suffix = "no_durable"; Needle = '"creates_durable_records": false' },
+        @{ Suffix = "no_install"; Needle = '"installs_rollback_plan": false' },
+        @{ Suffix = "no_slot"; Needle = '"allocates_service_slot": false' },
+        @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+    $recoveryRollbackTransactionEngineResponse = Get-LastAgentResponseJson -Method "recovery.rollback_transaction_engine"
+    $recoveryRollbackTransactionEngineRequestEventId = [string]$recoveryRollbackTransactionEngineResponse.body.result.retained_recovery_lifeline_request.event_id
+    $recoveryRollbackTransactionEngineRequestMatches = $recoveryRollbackTransactionEngineRequestEventId -eq $recoveryLifelineRequestEventId
+    Add-Predicate -Name "protocol:recovery_rollback_transaction_engine_request_event_id_matches_retained" -Expected $recoveryLifelineRequestEventId -Passed $recoveryRollbackTransactionEngineRequestMatches -Actual $recoveryRollbackTransactionEngineRequestEventId
+    if (-not $recoveryRollbackTransactionEngineRequestMatches) {
+        throw "Expected recovery rollback transaction engine request event id $recoveryLifelineRequestEventId, got $recoveryRollbackTransactionEngineRequestEventId"
+    }
+
+    Send-AgentCommand -Command "agent recovery.rollback_transaction_engine_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.rollback_transaction_engine_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_rollback_transaction_engine_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_rollback_transaction_engine_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_rollback_transaction_engine_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 38' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "missing_request_case"; Needle = '"case": "missing_lifeline_request_event_id"' },
+        @{ Suffix = "stale_request_case"; Needle = '"case": "stale_dropped_lifeline_request_event_id"' },
+        @{ Suffix = "previous_request_case"; Needle = '"case": "previous_boot_lifeline_request_event_id"' },
+        @{ Suffix = "wrong_request_schema_case"; Needle = '"case": "wrong_schema_lifeline_request_event_id"' },
+        @{ Suffix = "substituted_request_case"; Needle = '"case": "substituted_lifeline_request_record"' },
+        @{ Suffix = "request_hash_case"; Needle = '"case": "lifeline_request_reference_hash_mismatch"' },
+        @{ Suffix = "missing_protocol_state_case"; Needle = '"case": "protocol_state_missing_after_valid_request"' },
+        @{ Suffix = "previous_protocol_state_case"; Needle = '"case": "previous_boot_lifeline_protocol_state"' },
+        @{ Suffix = "wrong_protocol_state_schema_case"; Needle = '"case": "wrong_schema_lifeline_protocol_state"' },
+        @{ Suffix = "substituted_protocol_state_case"; Needle = '"case": "substituted_lifeline_protocol_state"' },
+        @{ Suffix = "missing_command_vocab_case"; Needle = '"case": "command_vocabulary_missing_after_protocol_state"' },
+        @{ Suffix = "previous_command_vocab_case"; Needle = '"case": "previous_boot_lifeline_command_vocabulary"' },
+        @{ Suffix = "wrong_command_vocab_case"; Needle = '"case": "wrong_schema_lifeline_command_vocabulary"' },
+        @{ Suffix = "substituted_command_vocab_case"; Needle = '"case": "substituted_lifeline_command_vocabulary"' },
+        @{ Suffix = "direct_openai_case"; Needle = '"case": "direct_openai_recovery_shortcut_rejected"' },
+        @{ Suffix = "isolation_missing_case"; Needle = '"case": "loader_runtime_isolation_missing_after_command_vocabulary"' },
+        @{ Suffix = "previous_isolation_case"; Needle = '"case": "previous_boot_loader_runtime_isolation"' },
+        @{ Suffix = "wrong_isolation_schema_case"; Needle = '"case": "wrong_schema_loader_runtime_isolation"' },
+        @{ Suffix = "substituted_isolation_case"; Needle = '"case": "substituted_loader_runtime_isolation"' },
+        @{ Suffix = "address_space_case"; Needle = '"case": "loader_address_space_boundary_missing"' },
+        @{ Suffix = "entrypoint_case"; Needle = '"case": "loader_entrypoint_abi_missing"' },
+        @{ Suffix = "memory_map_case"; Needle = '"case": "loader_memory_map_constraints_missing"' },
+        @{ Suffix = "import_table_case"; Needle = '"case": "loader_capability_import_table_missing"' },
+        @{ Suffix = "loader_artifact_hash_case"; Needle = '"case": "loader_artifact_hash_binding_missing"' },
+        @{ Suffix = "provider_sep_case"; Needle = '"case": "loader_provider_separation_missing"' },
+        @{ Suffix = "normal_module_sep_case"; Needle = '"case": "loader_normal_module_separation_missing"' },
+        @{ Suffix = "engine_missing_case"; Needle = '"case": "rollback_transaction_engine_missing"' },
+        @{ Suffix = "target_selection_case"; Needle = '"case": "rollback_target_selection_missing"' },
+        @{ Suffix = "transaction_provenance_case"; Needle = '"case": "rollback_transaction_id_provenance_missing"' },
+        @{ Suffix = "last_good_case"; Needle = '"case": "rollback_last_good_binding_missing"' },
+        @{ Suffix = "disabled_set_case"; Needle = '"case": "rollback_disabled_module_set_binding_missing"' },
+        @{ Suffix = "artifact_hash_case"; Needle = '"case": "rollback_artifact_hash_binding_missing"' },
+        @{ Suffix = "replay_case"; Needle = '"case": "rollback_replay_preconditions_missing"' },
+        @{ Suffix = "capability_import_case"; Needle = '"case": "rollback_recovery_capability_import_missing"' },
+        @{ Suffix = "atomic_semantics_case"; Needle = '"case": "rollback_atomic_apply_abort_semantics_missing"' },
+        @{ Suffix = "durable_case"; Needle = '"case": "durable_audit_rollback_persistence_missing"' },
+        @{ Suffix = "memory_provenance_case"; Needle = '"case": "recovery_memory_provenance_missing"' },
+        @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_rollback_still_non_executable"' },
+        @{ Suffix = "non_executable_reason"; Needle = '"actual_reason": "recovery_rollback_transaction_behavior_not_implemented"' },
+        @{ Suffix = "preview_false"; Needle = '"rollback_preview_enabled": false' },
+        @{ Suffix = "apply_false"; Needle = '"rollback_apply_enabled": false' },
+        @{ Suffix = "execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
     Send-AgentCommand -Command "agent recovery.load_binding" -ExpectedMarker "RAIOS_AGENT_END recovery.load_binding"
     $recoveryBindingResponse = Get-LastAgentResponseJson -Method "recovery.load_binding"
     Assert-LogContains -Name "protocol:recovery_binding_schema" -Needle '"schema": "raios.recovery_artifact_load_binding.v0"' -TimeoutSeconds 1
@@ -3735,6 +3861,8 @@ try {
     Assert-LogContains -Name "protocol:recovery_lifeline_command_vocab_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_vocabulary_selftest"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_loader_runtime_isolation_audit_source" -Needle '"source_method": "recovery.loader_runtime_isolation"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_loader_runtime_isolation_selftest_audit_source" -Needle '"source_method": "recovery.loader_runtime_isolation_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_rollback_transaction_engine_audit_source" -Needle '"source_method": "recovery.rollback_transaction_engine"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_rollback_transaction_engine_selftest_audit_source" -Needle '"source_method": "recovery.rollback_transaction_engine_selftest"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_risk" -Needle '"risk": "recovery_modify_ram"' -TimeoutSeconds 1

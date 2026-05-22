@@ -398,6 +398,13 @@ What boots and works in the VM right now:
   separation, and normal-module separation facts as missing local-only inputs,
   and reject invalid request/protocol-state/command-vocabulary chains while
   loading nothing
+- Read-only `recovery.rollback_transaction_engine` and
+  `recovery.rollback_transaction_engine_selftest` diagnostics that reuse the
+  retained lifeline request/evidence chain, command-vocabulary envelope, and
+  loader runtime isolation boundary, enumerate rollback target, transaction
+  provenance, last-good, disabled-module set, artifact-hash, replay,
+  recovery-capability import, and atomic apply/abort facts as missing
+  local-only inputs, and keep rollback preview/apply non-executable
 - RAM-only current-boot event binding for valid computed-grant hash references,
   still non-authorizing and local-only
 - RAM-only current-boot event binding for valid module-manifest hash references,

@@ -271,6 +271,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.lifeline_command_vocabulary_selftest",
     "recovery.loader_runtime_isolation",
     "recovery.loader_runtime_isolation_selftest",
+    "recovery.rollback_transaction_engine",
+    "recovery.rollback_transaction_engine_selftest",
     "recovery.load_binding",
     "recovery.load_binding_selftest",
 ];

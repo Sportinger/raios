@@ -588,6 +588,8 @@ recovery.lifeline_command_vocabulary
 recovery.lifeline_command_vocabulary_selftest
 recovery.loader_runtime_isolation
 recovery.loader_runtime_isolation_selftest
+recovery.rollback_transaction_engine
+recovery.rollback_transaction_engine_selftest
 recovery.load_binding
 recovery.load_binding_selftest
 ```
@@ -671,6 +673,23 @@ durable audit/rollback persistence, and recovery memory provenance. It accepts
 no loader descriptor, artifact bytes, or lifeline command envelope, and keeps
 loader execution, command dispatch, artifact loading, durable writes, rollback
 installs, service-slot allocation, and service inventory changes disabled.
+
+The rollback transaction-engine diagnostic emits
+`raios.recovery_rollback_transaction_engine.v0` and
+`raios.recovery_rollback_transaction_engine_selftest.v0`. It reuses the
+retained lifeline request/evidence chain, command-vocabulary envelope, and
+loader runtime-isolation boundary, rejects missing, stale, previous-boot,
+wrong-schema, substituted, and mismatched request/protocol-state/
+command-vocabulary/loader-isolation inputs before rollback readiness, and
+reports missing local-only facts for rollback target selection, transaction
+id/provenance, last-good binding, disabled-module set binding, artifact hash
+binding, replay preconditions, recovery-only capability import, atomic
+apply/abort semantics, durable audit/rollback persistence, and recovery memory
+provenance. It accepts no rollback transaction envelope, rollback plan JSON,
+lifeline command envelope, loader descriptor, artifact bytes, or direct OpenAI
+recovery shortcut, and keeps rollback preview/apply, loader execution, artifact
+loading, durable writes, rollback installs, service-slot allocation, and service
+inventory changes disabled.
 
 A valid `module.manifest_diagnostic` hash-reference command records a local-only
 current-boot `raios.module_manifest_reference.v0` event binding and reports
