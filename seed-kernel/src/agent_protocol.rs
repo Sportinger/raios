@@ -125,6 +125,8 @@ use crate::{
         emit_recovery_load_artifact_by_hash_target_binding_diagnostic_selftest,
         emit_recovery_loader_runtime_isolation, emit_recovery_loader_runtime_isolation_selftest,
         emit_recovery_memory_provenance, emit_recovery_memory_provenance_selftest,
+        emit_recovery_memory_write_authority_diagnostic,
+        emit_recovery_memory_write_authority_diagnostic_selftest,
         emit_recovery_restart_last_good_target_binding_diagnostic,
         emit_recovery_restart_last_good_target_binding_diagnostic_selftest,
         emit_recovery_rollback_apply_authorization_diagnostic,
@@ -173,6 +175,8 @@ use crate::{
         recovery_loader_runtime_isolation_method,
         recovery_loader_runtime_isolation_selftest_method, recovery_memory_provenance_method,
         recovery_memory_provenance_selftest_method,
+        recovery_memory_write_authority_diagnostic_method,
+        recovery_memory_write_authority_diagnostic_selftest_method,
         recovery_restart_last_good_target_binding_diagnostic_method,
         recovery_restart_last_good_target_binding_diagnostic_selftest_method,
         recovery_rollback_apply_authorization_diagnostic_method,
@@ -752,6 +756,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         return DispatchOutcome::Response(
             "recovery.load_artifact_by_hash_target_binding_diagnostic_selftest",
         );
+    }
+    if recovery_memory_write_authority_diagnostic_method(method) {
+        record_read("recovery.memory_write_authority_diagnostic");
+        emit_recovery_memory_write_authority_diagnostic(method);
+        return DispatchOutcome::Response("recovery.memory_write_authority_diagnostic");
+    }
+    if recovery_memory_write_authority_diagnostic_selftest_method(method) {
+        record_read("recovery.memory_write_authority_diagnostic_selftest");
+        emit_recovery_memory_write_authority_diagnostic_selftest();
+        return DispatchOutcome::Response("recovery.memory_write_authority_diagnostic_selftest");
     }
     if recovery_artifact_load_binding_method(method) {
         record_read("recovery.load_binding");

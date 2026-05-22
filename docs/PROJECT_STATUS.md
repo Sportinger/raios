@@ -612,31 +612,40 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline memory-write authority hash-reference boundary
-after load-artifact-by-hash target binding:
+Define the recovery lifeline durable-audit/rollback write-authority
+hash-reference boundary after recovery-memory write authority:
 
 - add a read-only current-boot diagnostic for
-  `raios.recovery_memory_write_authority.v0`, consuming the retained
-  load-artifact-by-hash target-binding reference and dispatch-denial boundary
-  while still accepting no raw command body and writing no recovery memory
-- validate only hash/reference shape for recovery-memory write authority:
+  `raios.durable_audit_rollback_write_authority.v0`, consuming the retained
+  recovery-memory write-authority reference and dispatch-denial boundary while
+  still accepting no raw command body and writing no durable audit or rollback
+  records
+- validate only hash/reference shape for durable-audit/rollback write
+  authority:
   command id, argument schema, argument hash, target locator, command-envelope
   reference hash, body-canonicalization hash, handler-binding hash,
   status-read handler hash, rollback-preview authorization hash,
   rollback-apply authorization hash, disable-module target-binding hash,
   restart-last-good target-binding hash, load-artifact-by-hash target-binding
-  hash, dispatch boundary id, memory-authority id, memory projection hash, and
-  current-boot scope
+  hash, recovery-memory write-authority hash, dispatch boundary id,
+  durable-write-authority id, durable projection hash, and current-boot scope
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched load-target/restart-target/disable-target/apply-authorization/
-  preview-authorization/status-read/handler-binding/body-canonicalization/
-  dispatch/envelope/admission/memory-provenance/durable-persistence/
-  rollback-engine/loader-isolation/command-vocabulary/protocol-state/request
-  inputs before retaining or reporting any recovery-memory write-authority
-  reference
+  mismatched memory-authority/load-target/restart-target/disable-target/
+  apply-authorization/preview-authorization/status-read/handler-binding/
+  body-canonicalization/dispatch/envelope/admission/memory-provenance/
+  durable-persistence/rollback-engine/loader-isolation/command-vocabulary/
+  protocol-state/request inputs before retaining or reporting any
+  durable-audit/rollback write-authority reference
 
 The verified foundation for that task is:
 
+- `recovery.memory_write_authority_diagnostic` and
+  `recovery.memory_write_authority_diagnostic_selftest` now retain only
+  local-only current-boot recovery-memory write-authority hash references over
+  the retained load-artifact-by-hash target binding and leave dispatch stopped
+  at missing durable-audit/rollback write authority. They do not dispatch
+  commands, write recovery memory, create durable records, load artifacts, or
+  change service inventory.
 - `recovery.load_artifact_by_hash_target_binding_diagnostic` and
   `recovery.load_artifact_by_hash_target_binding_diagnostic_selftest` now
   retain only local-only current-boot load-target hash references over the

@@ -19,7 +19,7 @@ use crate::event_log_evidence::{
     RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_EVIDENCE,
     RECOVERY_LIFELINE_REQUEST_REFERENCE_EVIDENCE, RECOVERY_LIFELINE_STATUS_READ_HANDLER_EVIDENCE,
     RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_EVIDENCE,
-    RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_EVIDENCE,
+    RECOVERY_MEMORY_WRITE_AUTHORITY_EVIDENCE, RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_EVIDENCE,
     RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_EVIDENCE,
     RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_EVIDENCE,
 };
@@ -56,9 +56,10 @@ pub use crate::event_log_types::{
     RecoveryLifelineCommandBodyCanonicalizationReference, RecoveryLifelineCommandEnvelopeReference,
     RecoveryLifelineCommandHandlerBindingReference, RecoveryLifelineRequestReference,
     RecoveryLifelineStatusReadHandlerReference, RecoveryLoadArtifactByHashTargetBindingReference,
-    RecoveryRestartLastGoodTargetBindingReference, RecoveryRollbackApplyAuthorizationReference,
-    RecoveryRollbackPreviewAuthorizationReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
-    PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
+    RecoveryMemoryWriteAuthorityReference, RecoveryRestartLastGoodTargetBindingReference,
+    RecoveryRollbackApplyAuthorizationReference, RecoveryRollbackPreviewAuthorizationReference,
+    DEFAULT_EVENT_LIMIT, EVENT_CAPACITY, PROVIDER_BINDING_GATE_SELFTEST_CASES,
+    PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::module_evidence;
 
@@ -1124,6 +1125,33 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::RecoveryLoadArtifactByHashTargetBindingReference(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_memory_write_authority_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryMemoryWriteAuthorityReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryMemoryWriteAuthorityReference(binding) =
                     event.bindings
                 {
                     return Some((
@@ -2946,6 +2974,26 @@ pub fn record_recovery_load_artifact_by_hash_target_binding_reference(
     })
 }
 
+pub fn record_recovery_memory_write_authority_reference(
+    binding: RecoveryMemoryWriteAuthorityReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.memory_write_authority.retained",
+        source_method: "recovery.memory_write_authority_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_memory_write_authority",
+        reason: "recovery_memory_write_authority_valid_for_current_boot",
+        evidence: RECOVERY_MEMORY_WRITE_AUTHORITY_EVIDENCE,
+        bindings: EventBindings::RecoveryMemoryWriteAuthorityReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -3319,6 +3367,12 @@ pub fn latest_recovery_load_artifact_by_hash_target_binding_reference(
 ) -> Option<(EventId, RecoveryLoadArtifactByHashTargetBindingReference)> {
     LOG.lock()
         .latest_recovery_load_artifact_by_hash_target_binding_reference()
+}
+
+pub fn latest_recovery_memory_write_authority_reference(
+) -> Option<(EventId, RecoveryMemoryWriteAuthorityReference)> {
+    LOG.lock()
+        .latest_recovery_memory_write_authority_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(
