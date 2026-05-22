@@ -18,6 +18,7 @@ use crate::event_log_evidence::{
     RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_EVIDENCE,
     RECOVERY_LIFELINE_REQUEST_REFERENCE_EVIDENCE, RECOVERY_LIFELINE_STATUS_READ_HANDLER_EVIDENCE,
+    RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_EVIDENCE,
     RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_EVIDENCE,
     RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_EVIDENCE,
     RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_EVIDENCE,
@@ -54,10 +55,10 @@ pub use crate::event_log_types::{
     RecoveryDisableModuleTargetBindingReference,
     RecoveryLifelineCommandBodyCanonicalizationReference, RecoveryLifelineCommandEnvelopeReference,
     RecoveryLifelineCommandHandlerBindingReference, RecoveryLifelineRequestReference,
-    RecoveryLifelineStatusReadHandlerReference, RecoveryRestartLastGoodTargetBindingReference,
-    RecoveryRollbackApplyAuthorizationReference, RecoveryRollbackPreviewAuthorizationReference,
-    DEFAULT_EVENT_LIMIT, EVENT_CAPACITY, PROVIDER_BINDING_GATE_SELFTEST_CASES,
-    PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
+    RecoveryLifelineStatusReadHandlerReference, RecoveryLoadArtifactByHashTargetBindingReference,
+    RecoveryRestartLastGoodTargetBindingReference, RecoveryRollbackApplyAuthorizationReference,
+    RecoveryRollbackPreviewAuthorizationReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
+    PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::module_evidence;
 
@@ -1096,6 +1097,33 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::RecoveryRestartLastGoodTargetBindingReference(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_load_artifact_by_hash_target_binding_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryLoadArtifactByHashTargetBindingReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryLoadArtifactByHashTargetBindingReference(binding) =
                     event.bindings
                 {
                     return Some((
@@ -2898,6 +2926,26 @@ pub fn record_recovery_restart_last_good_target_binding_reference(
     })
 }
 
+pub fn record_recovery_load_artifact_by_hash_target_binding_reference(
+    binding: RecoveryLoadArtifactByHashTargetBindingReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.load_artifact_by_hash_target_binding.retained",
+        source_method: "recovery.load_artifact_by_hash_target_binding_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_load_artifact_by_hash_target_binding",
+        reason: "recovery_load_artifact_by_hash_target_binding_valid_for_current_boot",
+        evidence: RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_EVIDENCE,
+        bindings: EventBindings::RecoveryLoadArtifactByHashTargetBindingReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -3265,6 +3313,12 @@ pub fn latest_recovery_restart_last_good_target_binding_reference(
 ) -> Option<(EventId, RecoveryRestartLastGoodTargetBindingReference)> {
     LOG.lock()
         .latest_recovery_restart_last_good_target_binding_reference()
+}
+
+pub fn latest_recovery_load_artifact_by_hash_target_binding_reference(
+) -> Option<(EventId, RecoveryLoadArtifactByHashTargetBindingReference)> {
+    LOG.lock()
+        .latest_recovery_load_artifact_by_hash_target_binding_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(

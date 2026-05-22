@@ -852,18 +852,20 @@ rollback-apply authorization id and apply projection hashes, retains only
 local-only current-boot apply authorization evidence, then binds a retained
 disable-module target reference to the apply authorization without disabling
 any module and a retained restart-last-good target reference to the disable
-target without restarting services. Dispatch now stops at missing
-load-artifact-by-hash target binding.
+target without restarting services, then binds a retained load-artifact-by-hash
+target reference to the restart target without loading artifacts. Dispatch now
+stops at missing recovery-memory write authority.
 No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the recovery lifeline load-artifact-by-hash target-binding
-hash-reference boundary after restart-last-good target binding.
+Define the recovery lifeline memory-write authority hash-reference boundary
+after load-artifact-by-hash target binding.
 ```
 
 Start from the retained
+`raios.recovery_load_artifact_by_hash_target_binding.v0` event, retained
 `raios.recovery_restart_last_good_target_binding.v0` event, retained
 `raios.recovery_disable_module_target_binding.v0` event, retained
 `raios.recovery_rollback_apply_authorization.v0` event, retained
@@ -878,41 +880,42 @@ Start from the retained
 runtime isolation diagnostic, rollback transaction-engine diagnostic, durable
 audit/rollback persistence diagnostic, and recovery memory provenance
 diagnostic. Add the next read-only hash-reference boundary for
-`raios.recovery_load_artifact_by_hash_target_binding.v0`: validate only command id,
+`raios.recovery_memory_write_authority.v0`: validate only command id,
 argument schema, argument hash, target locator, command-envelope reference
 hash, body-canonicalization hash, handler-binding hash, status-read handler
 hash, rollback-preview authorization hash, rollback-apply authorization hash,
 disable-module target-binding hash, restart-last-good target-binding hash,
-dispatch boundary id, load-target id, load-target artifact hash,
-load-target projection hash, and current-boot scope. It should reject
-stale/wrong-schema/substituted/mismatched restart-target/disable-target/
-apply-authorization/preview-authorization/status-read/handler-binding/
-body-canonicalization/dispatch/envelope/admission/memory-provenance/
-durable-persistence/rollback-engine/loader-isolation/command-vocabulary/
-protocol-state/request chains and still avoid fake recovery shell behavior,
-fake command execution, fake persistent memory, fallback stores, durable
-records, loaders, rollback transactions, service-slot side effects, provider
-export, direct-OpenAI recovery shortcuts, or recovery lifeline behavior.
+load-artifact-by-hash target-binding hash, dispatch boundary id,
+memory-authority id, memory projection hash, and current-boot scope. It should
+reject stale/wrong-schema/substituted/mismatched load-target/restart-target/
+disable-target/apply-authorization/preview-authorization/status-read/
+handler-binding/body-canonicalization/dispatch/envelope/admission/
+memory-provenance/durable-persistence/rollback-engine/loader-isolation/
+command-vocabulary/protocol-state/request chains and still avoid fake recovery
+shell behavior, fake command execution, fake persistent memory, fallback
+stores, durable records, loaders, rollback transactions, service-slot side
+effects, provider export, direct-OpenAI recovery shortcuts, or recovery
+lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only load-artifact-by-hash target-binding hash-reference
-   diagnostics over the retained restart-last-good target-binding reference and
+1. Define read-only recovery-memory write-authority hash-reference diagnostics
+   over the retained load-artifact-by-hash target-binding reference and
    dispatch-denial boundary.
-2. Bind load-artifact-by-hash target references to command id, argument
-   schema/hash, target locator, command-envelope reference hash,
-   body-canonicalization hash, handler-binding hash, status-read handler hash,
-   preview authorization hash, apply authorization hash, disable-module
-   target-binding hash, restart-last-good target-binding hash, load-target id,
-   load-target artifact hash, and load-target projection hash while still
-   accepting no raw command body.
+2. Bind recovery-memory write authority to command id, argument schema/hash,
+   target locator, command-envelope reference hash, body-canonicalization hash,
+   handler-binding hash, status-read handler hash, preview authorization hash,
+   apply authorization hash, disable-module target-binding hash,
+   restart-last-good target-binding hash, load-artifact-by-hash target-binding
+   hash, memory-authority id, and memory projection hash while still accepting
+   no raw command body.
 3. Keep selftests proving stale/wrong-schema/substituted/mismatched
-   restart-target, disable-target, apply-authorization, preview-authorization,
-   status-read, handler-binding, body-canonicalization, dispatch,
-   command-envelope, command-admission, memory provenance, persistence,
-   rollback-engine, loader-isolation, command vocabulary, protocol-state, and
-   lifeline request chains stay rejected without implementing recovery shell
-   behavior, persistent memory writes,
+   load-target, restart-target, disable-target, apply-authorization,
+   preview-authorization, status-read, handler-binding, body-canonicalization,
+   dispatch, command-envelope, command-admission, memory provenance,
+   persistence, rollback-engine, loader-isolation, command vocabulary,
+   protocol-state, and lifeline request chains stay rejected without
+   implementing recovery shell behavior, persistent memory writes,
    provider export, or rollback execution.
 
 Current blockers and non-goals:

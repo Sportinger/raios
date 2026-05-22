@@ -612,31 +612,38 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline load-artifact-by-hash target-binding
-hash-reference boundary after restart-last-good target binding:
+Define the recovery lifeline memory-write authority hash-reference boundary
+after load-artifact-by-hash target binding:
 
 - add a read-only current-boot diagnostic for
-  `raios.recovery_load_artifact_by_hash_target_binding.v0`, consuming the
-  retained restart-last-good target-binding reference and dispatch-denial
-  boundary while still accepting no raw command body and loading no artifact
-- validate only hash/reference shape for load-artifact-by-hash target metadata:
+  `raios.recovery_memory_write_authority.v0`, consuming the retained
+  load-artifact-by-hash target-binding reference and dispatch-denial boundary
+  while still accepting no raw command body and writing no recovery memory
+- validate only hash/reference shape for recovery-memory write authority:
   command id, argument schema, argument hash, target locator, command-envelope
   reference hash, body-canonicalization hash, handler-binding hash,
   status-read handler hash, rollback-preview authorization hash,
   rollback-apply authorization hash, disable-module target-binding hash,
-  restart-last-good target-binding hash, dispatch boundary id, load-target id,
-  load-target artifact hash, load-target projection hash, and current-boot
-  scope
+  restart-last-good target-binding hash, load-artifact-by-hash target-binding
+  hash, dispatch boundary id, memory-authority id, memory projection hash, and
+  current-boot scope
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched restart-target/disable-target/apply-authorization/
+  mismatched load-target/restart-target/disable-target/apply-authorization/
   preview-authorization/status-read/handler-binding/body-canonicalization/
   dispatch/envelope/admission/memory-provenance/durable-persistence/
   rollback-engine/loader-isolation/command-vocabulary/protocol-state/request
-  inputs before retaining or reporting any load-artifact-by-hash target
+  inputs before retaining or reporting any recovery-memory write-authority
   reference
 
 The verified foundation for that task is:
 
+- `recovery.load_artifact_by_hash_target_binding_diagnostic` and
+  `recovery.load_artifact_by_hash_target_binding_diagnostic_selftest` now
+  retain only local-only current-boot load-target hash references over the
+  retained restart-last-good target binding and leave dispatch stopped at
+  missing recovery-memory write authority. They do not dispatch commands, load
+  artifacts, authorize recovery load, write recovery memory, create durable
+  records, or change service inventory.
 - `recovery.restart_last_good_target_binding_diagnostic` and
   `recovery.restart_last_good_target_binding_diagnostic_selftest` now retain
   only local-only current-boot restart-target hash references over the retained
