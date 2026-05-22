@@ -26,6 +26,7 @@ $Result = "failed"
 $Failures = New-Object System.Collections.Generic.List[string]
 $Predicates = New-Object System.Collections.Generic.List[object]
 $StartedAt = [DateTime]::UtcNow
+$script:SerialTcpDrainStream = $null
 $QemuArgList = @()
 $HardwareProfile = $null
 $ResolvedImage = $null
@@ -168,6 +169,7 @@ function Wait-ForLogTextAfterOffset {
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
+        Drain-SerialTcpOutput -Stream $script:SerialTcpDrainStream
         if (Test-Path -LiteralPath $Path) {
             $content = Get-Content -Raw -LiteralPath $Path -ErrorAction SilentlyContinue
             if ($null -ne $content) {
@@ -196,6 +198,26 @@ function Wait-ForLogTextAfterOffset {
     } while ([DateTime]::UtcNow -lt $deadline)
 
     return $false
+}
+
+function Drain-SerialTcpOutput {
+    param(
+        [System.Net.Sockets.NetworkStream]$Stream
+    )
+
+    if ($null -eq $Stream) {
+        return
+    }
+
+    $buffer = New-Object byte[] 4096
+    try {
+        while ($Stream.DataAvailable) {
+            $null = $Stream.Read($buffer, 0, $buffer.Length)
+        }
+    }
+    catch {
+        return
+    }
 }
 
 function Add-Predicate {
@@ -320,13 +342,59 @@ function Send-AgentCommand {
     )
 
     $startOffset = Get-SerialLogOffset
-    Send-SerialText -Port $SerialTcpPort -Text "$Command`r" -TimeoutSeconds $TimeoutSeconds
-    $predicateName = if ($Name.Length -gt 0) { $Name } else { "command:$Command" }
-    $passed = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $ExpectedMarker -Offset $startOffset -TimeoutSeconds $TimeoutSeconds
-    $actual = if ($passed) { "found_after_offset:$startOffset" } else { Get-SerialLogTail -Path $SerialLog }
-    Add-Predicate -Name $predicateName -Expected "serial_contains_after_offset:$ExpectedMarker" -Passed $passed -Actual $actual
-    if (-not $passed) {
-        throw "Timed out waiting for '$ExpectedMarker' in $SerialLog after offset $startOffset"
+    $client = $null
+    $stream = $null
+    try {
+        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $candidate = [System.Net.Sockets.TcpClient]::new()
+            $candidate.NoDelay = $true
+            try {
+                $connect = $candidate.BeginConnect("127.0.0.1", $SerialTcpPort, $null, $null)
+                if ($connect.AsyncWaitHandle.WaitOne([TimeSpan]::FromMilliseconds(500))) {
+                    $candidate.EndConnect($connect)
+                    $client = $candidate
+                    break
+                }
+            }
+            catch {
+                $candidate.Close()
+                Start-Sleep -Milliseconds 100
+                continue
+            }
+            $candidate.Close()
+            Start-Sleep -Milliseconds 100
+        }
+        if (-not $client) {
+            throw "Timed out connecting to QEMU serial TCP port $SerialTcpPort"
+        }
+
+        $stream = $client.GetStream()
+        $script:SerialTcpDrainStream = $stream
+        $bytes = [System.Text.Encoding]::ASCII.GetBytes("$Command`r")
+        foreach ($byte in $bytes) {
+            $stream.WriteByte($byte)
+            Start-Sleep -Milliseconds 8
+        }
+        $stream.Flush()
+        Start-Sleep -Milliseconds 50
+
+        $predicateName = if ($Name.Length -gt 0) { $Name } else { "command:$Command" }
+        $passed = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $ExpectedMarker -Offset $startOffset -TimeoutSeconds $TimeoutSeconds
+        $actual = if ($passed) { "found_after_offset:$startOffset" } else { Get-SerialLogTail -Path $SerialLog }
+        Add-Predicate -Name $predicateName -Expected "serial_contains_after_offset:$ExpectedMarker" -Passed $passed -Actual $actual
+        if (-not $passed) {
+            throw "Timed out waiting for '$ExpectedMarker' in $SerialLog after offset $startOffset"
+        }
+    }
+    finally {
+        $script:SerialTcpDrainStream = $null
+        if ($null -ne $stream) {
+            Drain-SerialTcpOutput -Stream $stream
+        }
+        if ($null -ne $client) {
+            $client.Close()
+        }
     }
 }
 
@@ -575,6 +643,8 @@ function Write-Report {
             "agent recovery.service_inventory_side_effect_boundary_diagnostic_selftest",
             "agent recovery.lifeline_command_dispatch_behavior_diagnostic",
             "agent recovery.lifeline_command_dispatch_behavior_diagnostic_selftest",
+            "agent recovery.lifeline_command_executor_capability_table_diagnostic",
+            "agent recovery.lifeline_command_executor_capability_table_diagnostic_selftest",
             "agent recovery.load_binding",
             "agent recovery.load_binding_selftest",
             "module.load_recovery_artifact",
@@ -4143,7 +4213,7 @@ try {
         @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
         @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
         @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_dispatch_records": false' },
-        @{ Suffix = "case_count"; Needle = '"case_count": 41' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 42' },
         @{ Suffix = "passed"; Needle = '"passed": true' },
         @{ Suffix = "request_missing_case"; Needle = '"case": "missing_lifeline_request_event_id"' },
         @{ Suffix = "protocol_missing_case"; Needle = '"case": "protocol_state_missing_after_valid_request"' },
@@ -4170,8 +4240,10 @@ try {
         @{ Suffix = "durable_write_missing_case"; Needle = '"case": "durable_audit_rollback_write_authority_missing"' },
         @{ Suffix = "service_effect_missing_case"; Needle = '"case": "service_inventory_side_effect_boundary_missing"' },
         @{ Suffix = "behavior_missing_case"; Needle = '"case": "command_dispatch_behavior_missing"' },
+        @{ Suffix = "executor_missing_case"; Needle = '"case": "executor_capability_table_missing"' },
         @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_command_dispatch_still_non_executable"' },
         @{ Suffix = "non_executable_reason"; Needle = '"actual_reason": "recovery_lifeline_command_dispatch_behavior_not_implemented"' },
+        @{ Suffix = "executor_missing_reason"; Needle = '"actual_reason": "recovery_lifeline_command_executor_capability_table_not_implemented"' },
         @{ Suffix = "execution_disabled_reason"; Needle = '"actual_reason": "recovery_lifeline_command_dispatch_execution_disabled"' },
         @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
         @{ Suffix = "dispatch_false"; Needle = '"dispatches_lifeline_command": false' },
@@ -5948,9 +6020,171 @@ try {
     Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_dispatch_after_behavior_boundary_" -TimeoutSeconds 1 -Fields @(
         @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_dispatch_denial.v0"' },
         @{ Suffix = "status"; Needle = '"status": "defined_non_executable"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_executor_capability_table_not_implemented"' },
+        @{ Suffix = "service_boundary_present"; Needle = '"service_inventory_side_effect_boundary_present": true' },
+        @{ Suffix = "behavior_present"; Needle = '"command_dispatch_behavior_present": true' },
+        @{ Suffix = "executor_missing"; Needle = '"executor_capability_table_present": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_executor_capability_table_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_executor_capability_table_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_executor_capability_table_absent_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_executor_capability_table_diagnostic.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "status"; Needle = '"status": "missing"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_executor_capability_table_absent"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_executor_capability_table_records": false' },
+        @{ Suffix = "no_raw_body"; Needle = '"accepts_raw_command_body": false' },
+        @{ Suffix = "no_command_body"; Needle = '"accepts_lifeline_command_body": false' },
+        @{ Suffix = "no_envelope"; Needle = '"accepts_lifeline_command_envelope": false' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "no_service_slot"; Needle = '"allocates_service_slot": false' },
+        @{ Suffix = "no_service_records"; Needle = '"creates_service_inventory_records": false' },
+        @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "reference_format"; Needle = '"reference_format": "recovery.lifeline_command_executor_capability_table_diagnostic' },
+        @{ Suffix = "executor_schema"; Needle = '"executor_capability_table_schema": "raios.recovery_lifeline_command_executor_capability_table.v0"' },
+        @{ Suffix = "canonicalization"; Needle = '"executor_capability_table_canonicalization": "raios.recovery_lifeline_command_executor_capability_table.canonical.v0"' },
+        @{ Suffix = "executor_boundary"; Needle = '"executor_capability_table_id": "boundary.recovery_lifeline_command_executor_capability_table.current_boot"' },
+        @{ Suffix = "side_effect_fact"; Needle = '"fact": "side_effect_gate"' },
+        @{ Suffix = "execution_fact"; Needle = '"fact": "command_execution_enablement"' },
+        @{ Suffix = "valid_false"; Needle = '"valid_hash_reference": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_executor_capability_table_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_executor_capability_table_diagnostic_selftest"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_executor_capability_table_selftest_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_executor_capability_table_selftest.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_executor_capability_table_records": false' },
+        @{ Suffix = "case_count"; Needle = '"case_count": 10' },
+        @{ Suffix = "passed"; Needle = '"passed": true' },
+        @{ Suffix = "absent_case"; Needle = '"case": "recovery_lifeline_command_executor_capability_table_absent"' },
+        @{ Suffix = "arity_case"; Needle = '"case": "recovery_lifeline_command_executor_capability_table_arity_invalid"' },
+        @{ Suffix = "previous_case"; Needle = '"case": "previous_boot_recovery_lifeline_command_executor_capability_table"' },
+        @{ Suffix = "unsupported_case"; Needle = '"case": "unsupported_command_id"' },
+        @{ Suffix = "schema_case"; Needle = '"case": "argument_schema_mismatch"' },
+        @{ Suffix = "boundary_case"; Needle = '"case": "dispatch_boundary_mismatch"' },
+        @{ Suffix = "executor_id_case"; Needle = '"case": "executor_capability_table_id_mismatch"' },
+        @{ Suffix = "hash_case"; Needle = '"case": "executor_capability_table_hash_mismatch"' },
+        @{ Suffix = "live_missing_case"; Needle = '"case": "retained_recovery_lifeline_command_dispatch_behavior_missing"' },
+        @{ Suffix = "non_executable_case"; Needle = '"case": "all_inputs_present_recovery_lifeline_command_executor_capability_table_still_non_executable"' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryExecutorCapabilityTableId = "boundary.recovery_lifeline_command_executor_capability_table.current_boot"
+    $recoveryExecutorCapabilityProjectionCanonical = @(
+        "schema=raios.recovery_lifeline_command_executor_capability_projection.v0",
+        "command_id=recovery.lifeline.status",
+        "target_locator=$recoveryCommandTargetLocator",
+        "command_dispatch_behavior_hash=$recoveryCommandDispatchBehaviorHash",
+        "service_inventory_side_effect_boundary_hash=$serviceInventorySideEffectBoundaryHash",
+        "durable_audit_rollback_write_authority_hash=$durableAuditRollbackWriteAuthorityHash",
+        "recovery_memory_write_authority_hash=$recoveryMemoryWriteAuthorityHash",
+        "load_artifact_by_hash_target_binding_hash=$recoveryLoadArtifactByHashTargetBindingHash",
+        "restart_last_good_target_binding_hash=$recoveryRestartLastGoodTargetBindingHash",
+        "disable_module_target_binding_hash=$recoveryDisableModuleTargetBindingHash",
+        "rollback_apply_authorization_hash=$recoveryRollbackApplyAuthorizationHash",
+        "rollback_preview_authorization_hash=$recoveryRollbackPreviewAuthorizationHash",
+        "status_read_handler_hash=$recoveryStatusReadHandlerHash",
+        "handler_binding_hash=$recoveryCommandHandlerBindingHash",
+        "body_hash=$recoveryLifelineCommandBodyCanonicalizationHash",
+        "command_execution_enabled=false"
+    ) -join "`n"
+    $recoveryExecutorCapabilityProjectionHash = Get-TextSha256 -Text $recoveryExecutorCapabilityProjectionCanonical
+    $recoveryExecutorCapabilityTableCanonical = @(
+        "canonicalization=raios.recovery_lifeline_command_executor_capability_table.canonical.v0",
+        "schema=raios.recovery_lifeline_command_executor_capability_table.v0",
+        "load_mode=recovery_only",
+        "subject=agent.session.serial",
+        "resource=recovery_lifeline_command_executor_capability_table",
+        "scope=current_boot",
+        "retained_command_dispatch_behavior_event_id=$recoveryCommandDispatchBehaviorEventId",
+        "command_id=recovery.lifeline.status",
+        "argument_schema=raios.recovery_lifeline_command.status_args.v0",
+        "argument_sha256=$recoveryLifelineStatusArgumentHash",
+        "target_locator=$recoveryCommandTargetLocator",
+        "command_envelope_reference_sha256=$recoveryLifelineCommandEnvelopeReferenceHash",
+        "command_body_canonicalization_sha256=$recoveryLifelineCommandBodyCanonicalizationHash",
+        "handler_binding_sha256=$recoveryCommandHandlerBindingHash",
+        "status_read_handler_sha256=$recoveryStatusReadHandlerHash",
+        "rollback_preview_authorization_sha256=$recoveryRollbackPreviewAuthorizationHash",
+        "rollback_apply_authorization_sha256=$recoveryRollbackApplyAuthorizationHash",
+        "disable_module_target_binding_sha256=$recoveryDisableModuleTargetBindingHash",
+        "restart_last_good_target_binding_sha256=$recoveryRestartLastGoodTargetBindingHash",
+        "load_artifact_by_hash_target_binding_sha256=$recoveryLoadArtifactByHashTargetBindingHash",
+        "recovery_memory_write_authority_sha256=$recoveryMemoryWriteAuthorityHash",
+        "durable_audit_rollback_write_authority_sha256=$durableAuditRollbackWriteAuthorityHash",
+        "service_inventory_side_effect_boundary_sha256=$serviceInventorySideEffectBoundaryHash",
+        "command_dispatch_behavior_sha256=$recoveryCommandDispatchBehaviorHash",
+        "command_dispatch_boundary_id=$recoveryCommandDispatchBoundaryId",
+        "executor_capability_table_id=$recoveryExecutorCapabilityTableId",
+        "executor_capability_projection_sha256=$recoveryExecutorCapabilityProjectionHash",
+        "accepts_raw_command_body=false",
+        "accepts_lifeline_command_body=false",
+        "accepts_lifeline_command_envelope=false",
+        "dispatches_lifeline_command=false",
+        "command_execution_enabled=false",
+        "writes_recovery_memory=false",
+        "writes_durable_audit_log=false",
+        "writes_rollback_store=false",
+        "creates_durable_records=false",
+        "installs_rollback_plan=false",
+        "loads_recovery_artifact=false",
+        "executes_lifeline_status=false",
+        "executes_rollback_preview=false",
+        "executes_rollback_apply=false",
+        "disables_module=false",
+        "restarts_last_good=false",
+        "exports_provider_context=false",
+        "authorizes_recovery_load=false",
+        "allocates_service_slot=false",
+        "creates_service_inventory_records=false",
+        "service_inventory_change=none",
+        "load_attempted=false"
+    ) -join "`n"
+    $recoveryExecutorCapabilityTableHash = Get-TextSha256 -Text $recoveryExecutorCapabilityTableCanonical
+    $recoveryExecutorCapabilityTableCommand = "agent recovery.lifeline_command_executor_capability_table_diagnostic $recoveryExecutorCapabilityTableHash $recoveryCommandDispatchBehaviorEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryRestartLastGoodTargetBindingHash $recoveryLoadArtifactByHashTargetBindingHash $recoveryMemoryWriteAuthorityHash $durableAuditRollbackWriteAuthorityHash $serviceInventorySideEffectBoundaryHash $recoveryCommandDispatchBehaviorHash $recoveryCommandDispatchBoundaryId $recoveryExecutorCapabilityTableId $recoveryExecutorCapabilityProjectionHash"
+
+    Send-AgentCommand -Command $recoveryExecutorCapabilityTableCommand -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_executor_capability_table_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_executor_capability_table_valid_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "status"; Needle = '"status": "valid_hash_reference_command_still_denied"' },
+        @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_executor_capability_table_valid_but_execution_disabled"' },
+        @{ Suffix = "retention_mutation"; Needle = '"global_event_log_mutation": "valid_hash_reference_retention_only"' },
+        @{ Suffix = "creates_record"; Needle = '"creates_retained_recovery_lifeline_command_executor_capability_table_records": true' },
+        @{ Suffix = "recorded_event_id"; Needle = '"recorded_event_id": "event.current_boot.' },
+        @{ Suffix = "command_id"; Needle = '"command_id": "recovery.lifeline.status"' },
+        @{ Suffix = "executor_id"; Needle = "`"executor_capability_table_id`": `"$recoveryExecutorCapabilityTableId`"" },
+        @{ Suffix = "behavior_event_id"; Needle = "`"retained_command_dispatch_behavior_event_id`": `"$recoveryCommandDispatchBehaviorEventId`"" },
+        @{ Suffix = "behavior_hash"; Needle = "`"command_dispatch_behavior_hash`": `"sha256:$recoveryCommandDispatchBehaviorHash`"" },
+        @{ Suffix = "projection_hash"; Needle = "`"executor_capability_projection_hash`": `"sha256:$recoveryExecutorCapabilityProjectionHash`"" },
+        @{ Suffix = "executor_hash"; Needle = "`"executor_capability_table_hash`": `"sha256:$recoveryExecutorCapabilityTableHash`"" },
+        @{ Suffix = "valid_hash"; Needle = '"valid_hash_reference": true' },
+        @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
+        @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
+        @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
+    $recoveryExecutorCapabilityTableResponse = Get-LastAgentResponseJson -Method "recovery.lifeline_command_executor_capability_table_diagnostic"
+    $recoveryExecutorCapabilityTableEventId = [string]$recoveryExecutorCapabilityTableResponse.body.result.retained_recovery_lifeline_command_executor_capability_table_reference.recorded_event_id
+    Assert-CurrentBootEventId -Name "protocol:recovery_lifeline_command_executor_capability_table_retained_reference_event_id_captured" -Value $recoveryExecutorCapabilityTableEventId
+
+    Send-AgentCommand -Command "agent recovery.lifeline_command_dispatch_diagnostic" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_dispatch_diagnostic"
+    Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_dispatch_after_executor_capability_table_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_dispatch_denial.v0"' },
+        @{ Suffix = "status"; Needle = '"status": "defined_non_executable"' },
         @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_command_dispatch_execution_disabled"' },
         @{ Suffix = "service_boundary_present"; Needle = '"service_inventory_side_effect_boundary_present": true' },
         @{ Suffix = "behavior_present"; Needle = '"command_dispatch_behavior_present": true' },
+        @{ Suffix = "executor_present"; Needle = '"executor_capability_table_present": true' },
         @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
         @{ Suffix = "command_execution_false"; Needle = '"command_execution_enabled": false' },
         @{ Suffix = "no_service_change"; Needle = '"service_inventory_change": "none"' },
@@ -6353,6 +6587,17 @@ try {
     Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_execution_false" -Needle '"command_execution_enabled": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_no_service_change" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_source" -Needle '"source_method": "recovery.lifeline_command_executor_capability_table_diagnostic"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_executor_capability_table_diagnostic_selftest"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_kind" -Needle '"kind": "recovery.lifeline_command_executor_capability_table.retained"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_lifeline_command_executor_capability_table.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_behavior_event" -Needle "`"retained_command_dispatch_behavior_event_id`": `"$recoveryCommandDispatchBehaviorEventId`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_hash" -Needle "`"executor_capability_table_hash`": `"sha256:$recoveryExecutorCapabilityTableHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_behavior_hash" -Needle "`"command_dispatch_behavior_hash`": `"sha256:$recoveryCommandDispatchBehaviorHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_projection_hash" -Needle "`"executor_capability_projection_hash`": `"sha256:$recoveryExecutorCapabilityProjectionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_execution_false" -Needle '"command_execution_enabled": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_no_service_change" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_audit_risk" -Needle '"risk": "recovery_modify_ram"' -TimeoutSeconds 1

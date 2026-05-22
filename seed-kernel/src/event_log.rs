@@ -18,6 +18,7 @@ use crate::event_log_evidence::{
     RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_EVIDENCE,
+    RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_EVIDENCE,
     RECOVERY_LIFELINE_REQUEST_REFERENCE_EVIDENCE, RECOVERY_LIFELINE_STATUS_READ_HANDLER_EVIDENCE,
     RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_EVIDENCE,
@@ -58,6 +59,7 @@ pub use crate::event_log_types::{
     RecoveryDisableModuleTargetBindingReference,
     RecoveryLifelineCommandBodyCanonicalizationReference,
     RecoveryLifelineCommandDispatchBehaviorReference, RecoveryLifelineCommandEnvelopeReference,
+    RecoveryLifelineCommandExecutorCapabilityTableReference,
     RecoveryLifelineCommandHandlerBindingReference, RecoveryLifelineRequestReference,
     RecoveryLifelineStatusReadHandlerReference, RecoveryLoadArtifactByHashTargetBindingReference,
     RecoveryMemoryWriteAuthorityReference, RecoveryRestartLastGoodTargetBindingReference,
@@ -1238,6 +1240,37 @@ impl EventLog {
             if let Some(event) = self.events[source] {
                 if let EventBindings::RecoveryLifelineCommandDispatchBehaviorReference(binding) =
                     event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_lifeline_command_executor_capability_table_reference(
+        &self,
+    ) -> Option<(
+        EventId,
+        RecoveryLifelineCommandExecutorCapabilityTableReference,
+    )> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryLifelineCommandExecutorCapabilityTableReference(
+                    binding,
+                ) = event.bindings
                 {
                     return Some((
                         EventId {
@@ -3139,6 +3172,26 @@ pub fn record_recovery_lifeline_command_dispatch_behavior_reference(
     })
 }
 
+pub fn record_recovery_lifeline_command_executor_capability_table_reference(
+    binding: RecoveryLifelineCommandExecutorCapabilityTableReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.lifeline_command_executor_capability_table.retained",
+        source_method: "recovery.lifeline_command_executor_capability_table_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline_command_executor_capability_table",
+        reason: "recovery_lifeline_command_executor_capability_table_valid_for_current_boot",
+        evidence: RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_EVIDENCE,
+        bindings: EventBindings::RecoveryLifelineCommandExecutorCapabilityTableReference(binding),
+    })
+}
+
 pub fn record_module_manifest_reference(binding: ModuleManifestReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -3536,6 +3589,14 @@ pub fn latest_recovery_lifeline_command_dispatch_behavior_reference(
 ) -> Option<(EventId, RecoveryLifelineCommandDispatchBehaviorReference)> {
     LOG.lock()
         .latest_recovery_lifeline_command_dispatch_behavior_reference()
+}
+
+pub fn latest_recovery_lifeline_command_executor_capability_table_reference() -> Option<(
+    EventId,
+    RecoveryLifelineCommandExecutorCapabilityTableReference,
+)> {
+    LOG.lock()
+        .latest_recovery_lifeline_command_executor_capability_table_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(

@@ -1352,6 +1352,55 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_sha256(binding.command_dispatch_behavior_projection_hash);
             raw("}}");
         }
+        event_log::EventBindings::RecoveryLifelineCommandExecutorCapabilityTableReference(
+            binding,
+        ) => {
+            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_command_executor_capability_table.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"executes_restart_last_good\": false, \"executes_load_recovery_artifact_by_hash\": false, \"disables_module\": false, \"restarts_last_good\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"writes_recovery_memory\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_command_dispatch_behavior_event_id\": ");
+            json_event_id(binding.retained_command_dispatch_behavior_event_id);
+            raw(", \"command_id\": ");
+            json_str(binding.command_id);
+            raw(", \"argument_schema\": ");
+            json_str(binding.argument_schema);
+            raw(", \"target_locator\": ");
+            json_str(binding.target_locator.as_str());
+            raw(", \"command_dispatch_boundary_id\": ");
+            json_str(binding.command_dispatch_boundary_id);
+            raw(", \"executor_capability_table_id\": ");
+            json_str(binding.executor_capability_table_id);
+            raw(", \"hashes\": {\"executor_capability_table_hash\": ");
+            json_sha256(binding.executor_capability_table_hash);
+            raw(", \"argument_hash\": ");
+            json_sha256(binding.argument_hash);
+            raw(", \"command_envelope_reference_hash\": ");
+            json_sha256(binding.command_envelope_reference_hash);
+            raw(", \"command_body_canonicalization_hash\": ");
+            json_sha256(binding.command_body_canonicalization_hash);
+            raw(", \"handler_binding_hash\": ");
+            json_sha256(binding.handler_binding_hash);
+            raw(", \"status_read_handler_hash\": ");
+            json_sha256(binding.status_read_handler_hash);
+            raw(", \"rollback_preview_authorization_hash\": ");
+            json_sha256(binding.rollback_preview_authorization_hash);
+            raw(", \"rollback_apply_authorization_hash\": ");
+            json_sha256(binding.rollback_apply_authorization_hash);
+            raw(", \"disable_module_target_binding_hash\": ");
+            json_sha256(binding.disable_module_target_binding_hash);
+            raw(", \"restart_last_good_target_binding_hash\": ");
+            json_sha256(binding.restart_last_good_target_binding_hash);
+            raw(", \"load_artifact_by_hash_target_binding_hash\": ");
+            json_sha256(binding.load_artifact_by_hash_target_binding_hash);
+            raw(", \"recovery_memory_write_authority_hash\": ");
+            json_sha256(binding.recovery_memory_write_authority_hash);
+            raw(", \"durable_audit_rollback_write_authority_hash\": ");
+            json_sha256(binding.durable_audit_rollback_write_authority_hash);
+            raw(", \"service_inventory_side_effect_boundary_hash\": ");
+            json_sha256(binding.service_inventory_side_effect_boundary_hash);
+            raw(", \"command_dispatch_behavior_hash\": ");
+            json_sha256(binding.command_dispatch_behavior_hash);
+            raw(", \"executor_capability_projection_hash\": ");
+            json_sha256(binding.executor_capability_projection_hash);
+            raw("}}");
+        }
     }
 }
 
