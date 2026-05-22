@@ -37,10 +37,13 @@ const RECOVERY_LIFELINE_COMMAND_ADMISSION_SELFTEST_CASES: usize = 45;
 const RECOVERY_LIFELINE_COMMAND_ENVELOPE_SELFTEST_CASES: usize = 47;
 const RECOVERY_LIFELINE_COMMAND_DISPATCH_SELFTEST_CASES: usize = 40;
 const RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_SELFTEST_CASES: usize = 43;
+const RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_SELFTEST_CASES: usize = 10;
 const RECOVERY_COMMAND_ADMISSION_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_command_admission.current_boot";
 const RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_command_dispatch_denial.current_boot";
+const RECOVERY_COMMAND_HANDLER_BINDING_BOUNDARY_ID: &str =
+    "boundary.recovery_lifeline_command_handler_binding.current_boot";
 
 #[derive(Clone, Copy)]
 struct RecoveryIdentityReferenceCheck<'a> {
@@ -1055,6 +1058,57 @@ struct RecoveryLifelineCommandBodyCanonicalizationSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+struct RecoveryLifelineCommandHandlerBindingInput<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    handler_binding_hash: Option<[u8; 32]>,
+    retained_command_body_canonicalization_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    target_locator: Option<&'a str>,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    command_body_canonicalization_hash: Option<[u8; 32]>,
+    command_dispatch_boundary_id: Option<&'a str>,
+    handler_id: Option<&'a str>,
+    handler_input_binding_hash: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryLifelineCommandHandlerBindingReferenceCheck<'a> {
+    has_reference: bool,
+    arity_valid: bool,
+    scope: &'a str,
+    handler_binding_hash: Option<[u8; 32]>,
+    expected_handler_binding_hash: Option<[u8; 32]>,
+    retained_command_body_canonicalization_event_id: Option<&'a str>,
+    command_id: Option<&'a str>,
+    argument_schema: Option<&'a str>,
+    argument_hash: Option<[u8; 32]>,
+    target_locator: Option<&'a str>,
+    command_envelope_reference_hash: Option<[u8; 32]>,
+    command_body_canonicalization_hash: Option<[u8; 32]>,
+    command_dispatch_boundary_id: Option<&'a str>,
+    handler_id: Option<&'a str>,
+    handler_input_binding_hash: Option<[u8; 32]>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+}
+
+struct RecoveryLifelineCommandHandlerBindingSelfTestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
 struct RecoveryEvidenceCandidate {
     retained: bool,
     current_boot: bool,
@@ -1299,6 +1353,22 @@ pub(crate) fn recovery_lifeline_command_body_canonicalization_diagnostic_selftes
         method,
         "recovery.lifeline_command_body_canonicalization_selftest",
     )
+}
+
+pub(crate) fn recovery_lifeline_command_handler_binding_diagnostic_method(method: &str) -> bool {
+    method_head_eq(
+        method,
+        "recovery.lifeline_command_handler_binding_diagnostic",
+    ) || method_head_eq(method, "recovery.lifeline_command_handler_binding")
+}
+
+pub(crate) fn recovery_lifeline_command_handler_binding_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    method_head_eq(
+        method,
+        "recovery.lifeline_command_handler_binding_diagnostic_selftest",
+    ) || method_head_eq(method, "recovery.lifeline_command_handler_binding_selftest")
 }
 
 pub(crate) fn recovery_artifact_load_binding_method(method: &str) -> bool {
@@ -3955,10 +4025,12 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
     let retained_request = event_log::latest_recovery_lifeline_request_reference();
     let retained_body =
         event_log::latest_recovery_lifeline_command_body_canonicalization_reference();
+    let retained_handler = event_log::latest_recovery_lifeline_command_handler_binding_reference();
     let candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
         retained_envelope,
         retained_request,
         retained_body,
+        retained_handler,
     );
     let check = evaluate_recovery_lifeline_command_dispatch(candidate);
 
@@ -4179,6 +4251,7 @@ pub(crate) fn emit_recovery_lifeline_command_body_canonicalization_diagnostic(me
         retained_envelope,
         retained_request,
         None,
+        None,
     );
     let dispatch_check = evaluate_recovery_lifeline_command_dispatch(dispatch_candidate);
 
@@ -4392,6 +4465,157 @@ pub(crate) fn emit_recovery_lifeline_command_body_canonicalization_diagnostic_se
     raw_line("      \"dispatches_lifeline_command\": false,");
     raw_line("      \"can_move_beyond_denial\": false");
     end_response("recovery.lifeline_command_body_canonicalization_diagnostic_selftest");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_handler_binding_diagnostic(method: &str) {
+    let check = parse_recovery_lifeline_command_handler_binding_reference(
+        recovery_lifeline_command_handler_binding_diagnostic_arg(method),
+        true,
+    );
+    let recorded_event_id = if check.valid {
+        recovery_lifeline_command_handler_binding_from_check(&check)
+            .map(event_log::record_recovery_lifeline_command_handler_binding_reference)
+    } else {
+        None
+    };
+    let retained_handler = event_log::latest_recovery_lifeline_command_handler_binding_reference();
+
+    begin_response("recovery.lifeline_command_handler_binding_diagnostic");
+    raw_line(
+        "      \"schema\": \"raios.recovery_lifeline_command_handler_binding_diagnostic.v0\",",
+    );
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw("      \"creates_retained_recovery_lifeline_command_handler_binding_records\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"exports_provider_context\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"reference_format\": \"recovery.lifeline_command_handler_binding_diagnostic <handler_binding_hash> <retained_command_body_canonicalization_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <command_dispatch_boundary_id> <handler_id> <handler_input_binding_hash> [current_boot]\",");
+    raw_line("      \"request\": {");
+    raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline_command_handler\",");
+    raw_line("        \"handler_binding_schema\": \"raios.recovery_lifeline_command_handler_binding.v0\",");
+    raw_line("        \"handler_binding_canonicalization\": \"raios.recovery_lifeline_command_handler_binding.canonical.v0\",");
+    raw_line(
+        "        \"handler_binding_boundary_id\": \"boundary.recovery_lifeline_command_handler_binding.current_boot\"",
+    );
+    raw_line("      },");
+    emit_recovery_lifeline_command_handler_binding_reference_object(&check);
+    raw_line(",");
+    raw_line("      \"handler_binding_requirements\": [");
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "status_read_handler",
+        "raios.recovery_lifeline_status_read_handler.v0",
+        "recovery_lifeline_status_read_handler_missing",
+        true,
+    );
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "rollback_preview_authorization",
+        "raios.recovery_rollback_preview_authorization.v0",
+        "recovery_rollback_preview_authorization_missing",
+        true,
+    );
+    emit_recovery_lifeline_command_body_canonicalization_requirement(
+        "rollback_apply_authorization",
+        "raios.recovery_rollback_apply_authorization.v0",
+        "recovery_rollback_apply_authorization_missing",
+        false,
+    );
+    raw_line("      ],");
+    emit_recovery_lifeline_command_handler_binding_retained_reference(
+        &check,
+        recorded_event_id,
+        retained_handler,
+    );
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"command_handler_binding_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.lifeline_command_handler_binding_diagnostic");
+}
+
+pub(crate) fn emit_recovery_lifeline_command_handler_binding_diagnostic_selftest() {
+    let cases = recovery_lifeline_command_handler_binding_selftest_cases();
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response("recovery.lifeline_command_handler_binding_diagnostic_selftest");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_command_handler_binding_selftest.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line(
+        "      \"creates_retained_recovery_lifeline_command_handler_binding_records\": false,",
+    );
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_lifeline_command_handler_binding_selftest_case(
+            &cases[idx],
+            idx + 1 != cases.len(),
+        );
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response("recovery.lifeline_command_handler_binding_diagnostic_selftest");
 }
 
 pub(crate) fn emit_recovery_artifact_load_binding() {
@@ -8318,6 +8542,146 @@ fn emit_recovery_lifeline_command_body_canonicalization_selftest_case(
     raw(", \"memory_writes_enabled\": false, \"provider_export_enabled\": false, \"durable_writes_enabled\": false, \"rollback_replay_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": ");
     raw_bool(case.load_attempted);
     raw("}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_recovery_lifeline_command_handler_binding_reference_object(
+    check: &RecoveryLifelineCommandHandlerBindingReferenceCheck<'_>,
+) {
+    raw_line("      \"command_handler_binding_reference\": {");
+    raw("        \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"has_reference\": ");
+    raw_bool(check.has_reference);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw("        \"command_id\": ");
+    json_opt_str(check.command_id);
+    raw_line(",");
+    raw("        \"argument_schema\": ");
+    json_opt_str(check.argument_schema);
+    raw_line(",");
+    raw("        \"target_locator\": ");
+    json_opt_str(check.target_locator);
+    raw_line(",");
+    raw("        \"command_dispatch_boundary_id\": ");
+    json_opt_str(check.command_dispatch_boundary_id);
+    raw_line(",");
+    raw("        \"handler_id\": ");
+    json_opt_str(check.handler_id);
+    raw_line(",");
+    raw("        \"retained_recovery_lifeline_command_body_canonicalization_event_id\": ");
+    json_opt_str(check.retained_command_body_canonicalization_event_id);
+    raw_line(",");
+    raw("        \"argument_hash\": ");
+    json_sha256_option(check.argument_hash);
+    raw_line(",");
+    raw("        \"command_envelope_reference_hash\": ");
+    json_sha256_option(check.command_envelope_reference_hash);
+    raw_line(",");
+    raw("        \"command_body_canonicalization_hash\": ");
+    json_sha256_option(check.command_body_canonicalization_hash);
+    raw_line(",");
+    raw("        \"handler_input_binding_hash\": ");
+    json_sha256_option(check.handler_input_binding_hash);
+    raw_line(",");
+    raw("        \"handler_binding_hash\": ");
+    json_sha256_option(check.handler_binding_hash);
+    raw_line(",");
+    raw("        \"expected_handler_binding_hash\": ");
+    json_sha256_option(check.expected_handler_binding_hash);
+    raw_line(",");
+    raw("        \"valid_hash_reference\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_handler_binding_retained_reference(
+    check: &RecoveryLifelineCommandHandlerBindingReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandHandlerBindingReference,
+    )>,
+) {
+    raw_line("      \"retained_command_handler_binding_reference\": {");
+    raw("        \"status\": ");
+    json_str(if check.valid {
+        "retained_hash_reference_command_still_denied"
+    } else if retained.is_some() {
+        "previous_retained_hash_reference_present"
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw("        \"recorded_event_id\": ");
+    json_event_id_option(recorded_event_id);
+    raw_line(",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"load_attempted\": false,");
+    raw("        \"latest_event_id\": ");
+    if let Some((event_id, _)) = retained {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_handler_id\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.handler_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_handler_binding_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.handler_binding_hash);
+    } else {
+        raw("null");
+    }
+    raw_line("");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_handler_binding_selftest_case(
+    case: &RecoveryLifelineCommandHandlerBindingSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"accepts_raw_command_body\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"load_attempted\": false}");
     if comma {
         raw(",");
     }
@@ -15643,6 +16007,7 @@ fn recovery_lifeline_command_body_canonicalization_live_chain_mismatch(
         Some((latest_event_id, latest_reference)),
         event_log::latest_recovery_lifeline_request_reference(),
         None,
+        None,
     );
     let dispatch_check = evaluate_recovery_lifeline_command_dispatch(dispatch_candidate);
     if !method_eq(
@@ -15675,6 +16040,343 @@ fn recovery_lifeline_command_body_canonicalization_binding_from_check(
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
         },
     )
+}
+
+fn parse_recovery_lifeline_command_handler_binding_reference(
+    arg: &str,
+    require_live_retained: bool,
+) -> RecoveryLifelineCommandHandlerBindingReferenceCheck<'_> {
+    let mut parts = arg.split_whitespace();
+    let handler_binding_hash = parts.next();
+    let retained_command_body_canonicalization_event_id = parts.next();
+    let command_id = parts.next();
+    let argument_schema = parts.next();
+    let argument_hash = parts.next();
+    let target_locator = parts.next();
+    let command_envelope_reference_hash = parts.next();
+    let command_body_canonicalization_hash = parts.next();
+    let command_dispatch_boundary_id = parts.next();
+    let handler_id = parts.next();
+    let handler_input_binding_hash = parts.next();
+    let scope = parts.next().unwrap_or("current_boot");
+    let extra = parts.next();
+    let input = RecoveryLifelineCommandHandlerBindingInput {
+        has_reference: handler_binding_hash.is_some(),
+        arity_valid: handler_binding_hash.is_some()
+            && retained_command_body_canonicalization_event_id.is_some()
+            && command_id.is_some()
+            && argument_schema.is_some()
+            && argument_hash.is_some()
+            && target_locator.is_some()
+            && command_envelope_reference_hash.is_some()
+            && command_body_canonicalization_hash.is_some()
+            && command_dispatch_boundary_id.is_some()
+            && handler_id.is_some()
+            && handler_input_binding_hash.is_some()
+            && extra.is_none(),
+        scope,
+        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
+        retained_command_body_canonicalization_event_id,
+        command_id,
+        argument_schema,
+        argument_hash: argument_hash.and_then(parse_sha256_ref),
+        target_locator,
+        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
+        command_body_canonicalization_hash: command_body_canonicalization_hash
+            .and_then(parse_sha256_ref),
+        command_dispatch_boundary_id,
+        handler_id,
+        handler_input_binding_hash: handler_input_binding_hash.and_then(parse_sha256_ref),
+    };
+    evaluate_recovery_lifeline_command_handler_binding_reference(input, require_live_retained)
+}
+
+fn evaluate_recovery_lifeline_command_handler_binding_reference(
+    input: RecoveryLifelineCommandHandlerBindingInput<'_>,
+    require_live_retained: bool,
+) -> RecoveryLifelineCommandHandlerBindingReferenceCheck<'_> {
+    if !input.has_reference {
+        return recovery_lifeline_command_handler_binding_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "missing",
+            "recovery_lifeline_command_handler_binding_absent",
+            false,
+        );
+    }
+    let Some(retained_body_event_id) = input.retained_command_body_canonicalization_event_id else {
+        return recovery_lifeline_command_handler_binding_invalid(input);
+    };
+    let Some(command_id) = input.command_id else {
+        return recovery_lifeline_command_handler_binding_invalid(input);
+    };
+    let Some(argument_schema) = input.argument_schema else {
+        return recovery_lifeline_command_handler_binding_invalid(input);
+    };
+    let Some(argument_hash) = input.argument_hash else {
+        return recovery_lifeline_command_handler_binding_invalid(input);
+    };
+    let Some(target_locator) = input.target_locator else {
+        return recovery_lifeline_command_handler_binding_invalid(input);
+    };
+    let Some(command_envelope_reference_hash) = input.command_envelope_reference_hash else {
+        return recovery_lifeline_command_handler_binding_invalid(input);
+    };
+    let Some(command_body_canonicalization_hash) = input.command_body_canonicalization_hash else {
+        return recovery_lifeline_command_handler_binding_invalid(input);
+    };
+    let Some(command_dispatch_boundary_id) = input.command_dispatch_boundary_id else {
+        return recovery_lifeline_command_handler_binding_invalid(input);
+    };
+    let Some(handler_id) = input.handler_id else {
+        return recovery_lifeline_command_handler_binding_invalid(input);
+    };
+    let Some(handler_input_binding_hash) = input.handler_input_binding_hash else {
+        return recovery_lifeline_command_handler_binding_invalid(input);
+    };
+    if !input.arity_valid {
+        return recovery_lifeline_command_handler_binding_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "invalid_reference",
+            "recovery_lifeline_command_handler_binding_arity_invalid",
+            false,
+        );
+    }
+    if !method_eq(input.scope, "current_boot") {
+        return recovery_lifeline_command_handler_binding_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "stale_or_non_current_boot_reference",
+            "recovery_lifeline_command_handler_binding_scope_must_be_current_boot",
+            false,
+        );
+    }
+    if !current_boot_event_id_str(retained_body_event_id) {
+        return recovery_lifeline_command_handler_binding_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "retained_recovery_lifeline_command_body_canonicalization_event_id_not_current_boot",
+            false,
+        );
+    }
+    let Some(spec) = recovery_lifeline_command_spec(command_id) else {
+        return recovery_lifeline_command_handler_binding_reference_check(
+            input,
+            None,
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            false,
+        );
+    };
+    if !method_eq(argument_schema, spec.argument_schema) {
+        return recovery_lifeline_command_handler_binding_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            false,
+        );
+    }
+    if !method_eq(
+        command_dispatch_boundary_id,
+        RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+    ) {
+        return recovery_lifeline_command_handler_binding_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            false,
+        );
+    }
+    if !method_eq(handler_id, RECOVERY_COMMAND_HANDLER_BINDING_BOUNDARY_ID) {
+        return recovery_lifeline_command_handler_binding_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "rejected",
+            "recovery_lifeline_command_handler_id_mismatch",
+            false,
+        );
+    }
+    let Some(target_locator_value) = event_log::RecoveryCommandTargetLocator::new(target_locator)
+    else {
+        return recovery_lifeline_command_handler_binding_reference_check(
+            input,
+            Some(spec),
+            None,
+            None,
+            "invalid_reference",
+            "recovery_lifeline_command_target_locator_invalid",
+            false,
+        );
+    };
+    let expected = module_evidence::computed_recovery_lifeline_command_handler_binding_hash(
+        module_evidence::RecoveryLifelineCommandHandlerBindingHashInput {
+            retained_command_body_canonicalization_event_id: retained_body_event_id,
+            command_id: spec.command_id,
+            argument_schema: spec.argument_schema,
+            argument_hash,
+            target_locator,
+            command_envelope_reference_hash,
+            command_body_canonicalization_hash,
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            handler_id: RECOVERY_COMMAND_HANDLER_BINDING_BOUNDARY_ID,
+            handler_input_binding_hash,
+        },
+    );
+    if input.handler_binding_hash != Some(expected) {
+        return recovery_lifeline_command_handler_binding_reference_check(
+            input,
+            Some(spec),
+            Some(target_locator_value),
+            Some(expected),
+            "mismatched_command_handler_binding_hash",
+            "recovery_lifeline_command_handler_binding_hash_mismatch",
+            false,
+        );
+    }
+    if require_live_retained {
+        if let Some(reason) = recovery_lifeline_command_handler_binding_live_chain_mismatch(&input)
+        {
+            return recovery_lifeline_command_handler_binding_reference_check(
+                input,
+                Some(spec),
+                Some(target_locator_value),
+                Some(expected),
+                "rejected",
+                reason,
+                false,
+            );
+        }
+    }
+    recovery_lifeline_command_handler_binding_reference_check(
+        input,
+        Some(spec),
+        Some(target_locator_value),
+        Some(expected),
+        "valid_hash_reference_command_still_denied",
+        "recovery_lifeline_command_handler_binding_valid_but_command_dispatch_disabled",
+        true,
+    )
+}
+
+fn recovery_lifeline_command_handler_binding_invalid(
+    input: RecoveryLifelineCommandHandlerBindingInput<'_>,
+) -> RecoveryLifelineCommandHandlerBindingReferenceCheck<'_> {
+    recovery_lifeline_command_handler_binding_reference_check(
+        input,
+        None,
+        None,
+        None,
+        "invalid_reference",
+        "recovery_lifeline_command_handler_binding_invalid_hash",
+        false,
+    )
+}
+
+fn recovery_lifeline_command_handler_binding_reference_check<'a>(
+    input: RecoveryLifelineCommandHandlerBindingInput<'a>,
+    normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    expected_handler_binding_hash: Option<[u8; 32]>,
+    status: &'static str,
+    reason: &'static str,
+    valid: bool,
+) -> RecoveryLifelineCommandHandlerBindingReferenceCheck<'a> {
+    RecoveryLifelineCommandHandlerBindingReferenceCheck {
+        has_reference: input.has_reference,
+        arity_valid: input.arity_valid,
+        scope: input.scope,
+        handler_binding_hash: input.handler_binding_hash,
+        expected_handler_binding_hash,
+        retained_command_body_canonicalization_event_id: input
+            .retained_command_body_canonicalization_event_id,
+        command_id: input.command_id,
+        argument_schema: input.argument_schema,
+        argument_hash: input.argument_hash,
+        target_locator: input.target_locator,
+        command_envelope_reference_hash: input.command_envelope_reference_hash,
+        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
+        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
+        handler_id: input.handler_id,
+        handler_input_binding_hash: input.handler_input_binding_hash,
+        normalized_spec,
+        target_locator_value,
+        status,
+        reason,
+        valid,
+    }
+}
+
+fn recovery_lifeline_command_handler_binding_live_chain_mismatch(
+    input: &RecoveryLifelineCommandHandlerBindingInput<'_>,
+) -> Option<&'static str> {
+    let retained_event_id =
+        parse_current_boot_event_id(input.retained_command_body_canonicalization_event_id?)?;
+    let Some((latest_event_id, latest_reference)) =
+        event_log::latest_recovery_lifeline_command_body_canonicalization_reference()
+    else {
+        return Some("retained_recovery_lifeline_command_body_canonicalization_missing");
+    };
+    if latest_event_id != retained_event_id {
+        return Some(
+            "retained_recovery_lifeline_command_body_canonicalization_event_id_stale_or_dropped",
+        );
+    }
+    if !method_eq(input.command_id?, latest_reference.command_id)
+        || !method_eq(input.argument_schema?, latest_reference.argument_schema)
+        || input.argument_hash != Some(latest_reference.argument_hash)
+        || input.command_envelope_reference_hash
+            != Some(latest_reference.command_envelope_reference_hash)
+        || input.command_body_canonicalization_hash
+            != Some(latest_reference.command_body_canonicalization_hash)
+        || !method_eq(
+            input.target_locator?,
+            latest_reference.target_locator.as_str(),
+        )
+    {
+        return Some("recovery_lifeline_command_body_canonicalization_binding_mismatch");
+    }
+    None
+}
+
+fn recovery_lifeline_command_handler_binding_from_check(
+    check: &RecoveryLifelineCommandHandlerBindingReferenceCheck<'_>,
+) -> Option<event_log::RecoveryLifelineCommandHandlerBindingReference> {
+    let spec = check.normalized_spec?;
+    Some(event_log::RecoveryLifelineCommandHandlerBindingReference {
+        handler_binding_hash: check.handler_binding_hash?,
+        retained_command_body_canonicalization_event_id: parse_current_boot_event_id(
+            check.retained_command_body_canonicalization_event_id?,
+        )?,
+        command_id: spec.command_id,
+        argument_schema: spec.argument_schema,
+        argument_hash: check.argument_hash?,
+        target_locator: check.target_locator_value?,
+        command_envelope_reference_hash: check.command_envelope_reference_hash?,
+        command_body_canonicalization_hash: check.command_body_canonicalization_hash?,
+        command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+        handler_id: RECOVERY_COMMAND_HANDLER_BINDING_BOUNDARY_ID,
+        handler_input_binding_hash: check.handler_input_binding_hash?,
+    })
 }
 
 fn evaluate_recovery_lifeline_command_envelope(
@@ -16663,6 +17365,10 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
         event_log::EventId,
         event_log::RecoveryLifelineCommandBodyCanonicalizationReference,
     )>,
+    retained_handler: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandHandlerBindingReference,
+    )>,
 ) -> RecoveryLifelineCommandDispatchCandidate {
     let mut candidate = recovery_lifeline_command_dispatch_valid_candidate();
     candidate.command_body_canonicalization_present = false;
@@ -16699,16 +17405,35 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
         candidate.command_envelope_reference_binding_reason =
             "retained_recovery_lifeline_command_envelope_request_hash_mismatch";
     }
-    if let Some((_, body)) = retained_body {
-        candidate.command_body_canonicalization_present =
-            body.retained_command_envelope_reference_event_id == envelope_event_id
-                && method_eq(body.command_id, envelope.command_id)
-                && method_eq(body.argument_schema, envelope.argument_schema)
-                && body.argument_hash == envelope.argument_hash
-                && body.target_locator == envelope.target_locator
-                && body.command_envelope_reference_hash == envelope.command_envelope_reference_hash
+    let mut accepted_body = None;
+    if let Some((body_event_id, body)) = retained_body {
+        if body.retained_command_envelope_reference_event_id == envelope_event_id
+            && method_eq(body.command_id, envelope.command_id)
+            && method_eq(body.argument_schema, envelope.argument_schema)
+            && body.argument_hash == envelope.argument_hash
+            && body.target_locator == envelope.target_locator
+            && body.command_envelope_reference_hash == envelope.command_envelope_reference_hash
+            && method_eq(
+                body.command_dispatch_boundary_id,
+                RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            )
+        {
+            candidate.command_body_canonicalization_present = true;
+            accepted_body = Some((body_event_id, body));
+        }
+    }
+    if let (Some((body_event_id, body)), Some((_, handler))) = (accepted_body, retained_handler) {
+        candidate.command_handler_binding_present =
+            handler.retained_command_body_canonicalization_event_id == body_event_id
+                && method_eq(handler.command_id, body.command_id)
+                && method_eq(handler.argument_schema, body.argument_schema)
+                && handler.argument_hash == body.argument_hash
+                && handler.target_locator == body.target_locator
+                && handler.command_envelope_reference_hash == body.command_envelope_reference_hash
+                && handler.command_body_canonicalization_hash
+                    == body.command_body_canonicalization_hash
                 && method_eq(
-                    body.command_dispatch_boundary_id,
+                    handler.command_dispatch_boundary_id,
                     RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
                 );
     }
@@ -18428,6 +19153,141 @@ fn recovery_lifeline_command_body_canonicalization_selftest_case(
         passed: method_eq(check.status, expected_status)
             && method_eq(check.reason, expected_reason)
             && non_authorizing,
+    }
+}
+
+fn recovery_lifeline_command_handler_binding_selftest_cases(
+) -> [RecoveryLifelineCommandHandlerBindingSelfTestCase;
+       RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_SELFTEST_CASES] {
+    let valid_input = RecoveryLifelineCommandHandlerBindingInput {
+        has_reference: true,
+        arity_valid: true,
+        scope: "current_boot",
+        handler_binding_hash: None,
+        retained_command_body_canonicalization_event_id: Some("event.current_boot.1"),
+        command_id: Some("recovery.lifeline.status"),
+        argument_schema: Some("raios.recovery_lifeline_command.status_args.v0"),
+        argument_hash: Some([0x31; 32]),
+        target_locator: Some("recovery.lifeline.status.current_boot"),
+        command_envelope_reference_hash: Some([0x32; 32]),
+        command_body_canonicalization_hash: Some([0x33; 32]),
+        command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
+        handler_id: Some(RECOVERY_COMMAND_HANDLER_BINDING_BOUNDARY_ID),
+        handler_input_binding_hash: Some([0x34; 32]),
+    };
+    let expected = module_evidence::computed_recovery_lifeline_command_handler_binding_hash(
+        module_evidence::RecoveryLifelineCommandHandlerBindingHashInput {
+            retained_command_body_canonicalization_event_id: "event.current_boot.1",
+            command_id: "recovery.lifeline.status",
+            argument_schema: "raios.recovery_lifeline_command.status_args.v0",
+            argument_hash: [0x31; 32],
+            target_locator: "recovery.lifeline.status.current_boot",
+            command_envelope_reference_hash: [0x32; 32],
+            command_body_canonicalization_hash: [0x33; 32],
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            handler_id: RECOVERY_COMMAND_HANDLER_BINDING_BOUNDARY_ID,
+            handler_input_binding_hash: [0x34; 32],
+        },
+    );
+    let mut valid = valid_input;
+    valid.handler_binding_hash = Some(expected);
+    let mut missing = valid;
+    missing.has_reference = false;
+    let mut arity = valid;
+    arity.arity_valid = false;
+    let mut previous = valid;
+    previous.scope = "previous_boot";
+    let mut unsupported = valid;
+    unsupported.command_id = Some("recovery.lifeline.unsupported");
+    let mut schema = valid;
+    schema.argument_schema = Some("raios.recovery_lifeline_command.bad_args.v0");
+    let mut boundary = valid;
+    boundary.command_dispatch_boundary_id =
+        Some("boundary.recovery_lifeline_command_dispatch.wrong");
+    let mut handler = valid;
+    handler.handler_id = Some("boundary.recovery_lifeline_command_handler_binding.wrong");
+    let mut hash = valid;
+    hash.handler_binding_hash = Some([0xff; 32]);
+    let live_missing = valid;
+
+    [
+        recovery_lifeline_command_handler_binding_selftest_case(
+            "handler_binding_absent",
+            "missing",
+            "recovery_lifeline_command_handler_binding_absent",
+            evaluate_recovery_lifeline_command_handler_binding_reference(missing, false),
+        ),
+        recovery_lifeline_command_handler_binding_selftest_case(
+            "handler_binding_arity_invalid",
+            "invalid_reference",
+            "recovery_lifeline_command_handler_binding_arity_invalid",
+            evaluate_recovery_lifeline_command_handler_binding_reference(arity, false),
+        ),
+        recovery_lifeline_command_handler_binding_selftest_case(
+            "previous_boot_handler_binding",
+            "stale_or_non_current_boot_reference",
+            "recovery_lifeline_command_handler_binding_scope_must_be_current_boot",
+            evaluate_recovery_lifeline_command_handler_binding_reference(previous, false),
+        ),
+        recovery_lifeline_command_handler_binding_selftest_case(
+            "unsupported_command_id",
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            evaluate_recovery_lifeline_command_handler_binding_reference(unsupported, false),
+        ),
+        recovery_lifeline_command_handler_binding_selftest_case(
+            "argument_schema_mismatch",
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            evaluate_recovery_lifeline_command_handler_binding_reference(schema, false),
+        ),
+        recovery_lifeline_command_handler_binding_selftest_case(
+            "dispatch_boundary_mismatch",
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            evaluate_recovery_lifeline_command_handler_binding_reference(boundary, false),
+        ),
+        recovery_lifeline_command_handler_binding_selftest_case(
+            "handler_id_mismatch",
+            "rejected",
+            "recovery_lifeline_command_handler_id_mismatch",
+            evaluate_recovery_lifeline_command_handler_binding_reference(handler, false),
+        ),
+        recovery_lifeline_command_handler_binding_selftest_case(
+            "handler_binding_hash_mismatch",
+            "mismatched_command_handler_binding_hash",
+            "recovery_lifeline_command_handler_binding_hash_mismatch",
+            evaluate_recovery_lifeline_command_handler_binding_reference(hash, false),
+        ),
+        recovery_lifeline_command_handler_binding_selftest_case(
+            "retained_body_reference_missing",
+            "rejected",
+            "retained_recovery_lifeline_command_body_canonicalization_missing",
+            evaluate_recovery_lifeline_command_handler_binding_reference(live_missing, true),
+        ),
+        recovery_lifeline_command_handler_binding_selftest_case(
+            "all_inputs_present_handler_binding_still_non_executable",
+            "valid_hash_reference_command_still_denied",
+            "recovery_lifeline_command_handler_binding_valid_but_command_dispatch_disabled",
+            evaluate_recovery_lifeline_command_handler_binding_reference(valid, false),
+        ),
+    ]
+}
+
+fn recovery_lifeline_command_handler_binding_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryLifelineCommandHandlerBindingReferenceCheck<'_>,
+) -> RecoveryLifelineCommandHandlerBindingSelfTestCase {
+    RecoveryLifelineCommandHandlerBindingSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason),
     }
 }
 
@@ -23365,6 +24225,21 @@ fn recovery_lifeline_command_body_canonicalization_diagnostic_arg(method: &str) 
         "recovery.lifeline_command_body_canonicalization_diagnostic".len()
     } else if method_head_eq(method, "recovery.lifeline_command_body_canonicalization") {
         "recovery.lifeline_command_body_canonicalization".len()
+    } else {
+        return "";
+    };
+    method[head_len..].trim()
+}
+
+fn recovery_lifeline_command_handler_binding_diagnostic_arg(method: &str) -> &str {
+    let method = method.trim();
+    let head_len = if method_head_eq(
+        method,
+        "recovery.lifeline_command_handler_binding_diagnostic",
+    ) {
+        "recovery.lifeline_command_handler_binding_diagnostic".len()
+    } else if method_head_eq(method, "recovery.lifeline_command_handler_binding") {
+        "recovery.lifeline_command_handler_binding".len()
     } else {
         return "";
     };

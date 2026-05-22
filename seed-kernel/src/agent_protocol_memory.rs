@@ -965,6 +965,31 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_sha256(binding.command_envelope_reference_hash);
             raw("}}");
         }
+        event_log::EventBindings::RecoveryLifelineCommandHandlerBindingReference(binding) => {
+            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_command_handler_binding.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_lifeline_command_body_canonicalization_event_id\": ");
+            json_event_id(binding.retained_command_body_canonicalization_event_id);
+            raw(", \"command_id\": ");
+            json_str(binding.command_id);
+            raw(", \"argument_schema\": ");
+            json_str(binding.argument_schema);
+            raw(", \"target_locator\": ");
+            json_str(binding.target_locator.as_str());
+            raw(", \"command_dispatch_boundary_id\": ");
+            json_str(binding.command_dispatch_boundary_id);
+            raw(", \"handler_id\": ");
+            json_str(binding.handler_id);
+            raw(", \"hashes\": {\"handler_binding_hash\": ");
+            json_sha256(binding.handler_binding_hash);
+            raw(", \"argument_hash\": ");
+            json_sha256(binding.argument_hash);
+            raw(", \"command_envelope_reference_hash\": ");
+            json_sha256(binding.command_envelope_reference_hash);
+            raw(", \"command_body_canonicalization_hash\": ");
+            json_sha256(binding.command_body_canonicalization_hash);
+            raw(", \"handler_input_binding_hash\": ");
+            json_sha256(binding.handler_input_binding_hash);
+            raw("}}");
+        }
     }
 }
 

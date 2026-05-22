@@ -44,7 +44,9 @@ Last verified locally: 2026-05-22 on Windows with QEMU 11 after adding guest
 `recovery.lifeline_command_dispatch_diagnostic`/
 `recovery.lifeline_command_dispatch_diagnostic_selftest`, plus
 `recovery.lifeline_command_body_canonicalization_diagnostic`/
-`recovery.lifeline_command_body_canonicalization_diagnostic_selftest`, plus typed missing
+`recovery.lifeline_command_body_canonicalization_diagnostic_selftest`, plus
+`recovery.lifeline_command_handler_binding_diagnostic`/
+`recovery.lifeline_command_handler_binding_diagnostic_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
 typed missing `raios.durable_audit_write_policy.v0`/
 `raios.rollback_install_policy.v0` policy facts, typed missing
@@ -132,7 +134,15 @@ hash evidence, exposes missing body schema canonicalization, body redaction/
 classification, handler input binding, rollback authorization linkage,
 recovery-memory write linkage, durable audit/rollback write linkage, and
 service-inventory side-effect linkage facts, and still accepts no raw command
-body or command envelope and dispatches no behavior, via headless
+body or command envelope and dispatches no behavior, plus a read-only
+`raios.recovery_lifeline_command_handler_binding.v0` hash-reference diagnostic
+that consumes the retained body-canonicalization reference, validates command
+id, argument schema, argument hash, target locator, command-envelope reference
+hash, body-canonicalization hash, dispatch boundary id, handler id, and
+handler-input binding hash, retains only local-only current-boot handler
+binding evidence, and advances dispatch only to missing status-read handler
+while still accepting no raw command body and dispatching no behavior, via
+headless
 Shadow VM smoke
 covering
 deterministic `provider_minimal`
@@ -571,31 +581,23 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline command-handler binding hash-reference boundary
-after body canonicalization:
+Define the recovery lifeline status-read handler hash-reference boundary after
+handler binding:
 
 - add a read-only current-boot diagnostic for
-  `raios.recovery_lifeline_command_handler_binding.v0`, consuming the retained
-  body-canonicalization reference and dispatch-denial boundary while still
-  accepting no raw command body and dispatching no recovery behavior
-- validate only hash/reference shape for canonical handler metadata: command
+  `raios.recovery_lifeline_status_read_handler.v0`, consuming the retained
+  handler-binding reference and dispatch-denial boundary while still accepting
+  no raw command body and dispatching no recovery behavior
+- validate only hash/reference shape for status-read handler metadata: command
   id, argument schema, argument hash, target locator, command-envelope
-  reference hash, body-canonicalization hash, dispatch boundary id, handler id,
-  handler input binding hash, and current-boot scope
-- expose typed, local-only missing facts for per-command status-read handler,
-  rollback preview/apply authorization linkage, disable-module/restart-last-good/
-  load-artifact-by-hash target handlers, recovery-memory write linkage,
-  durable-audit/rollback write linkage, and service-inventory side-effect
-  linkage
+  reference hash, body-canonicalization hash, handler-binding hash, dispatch
+  boundary id, status handler id, status-read projection hash, and
+  current-boot scope
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched body-canonicalization/dispatch/envelope/admission/
+  mismatched handler-binding/body-canonicalization/dispatch/envelope/admission/
   memory-provenance/durable-persistence/rollback-engine/loader-isolation/
   command-vocabulary/protocol-state/request inputs before retaining or
-  reporting any handler-binding reference
-- do not create fake recovery shell behavior, fake command execution, fake
-  persistent memory, fallback stores, durable records, rollback transactions,
-  loaders, service-slot side effects, provider context export, or a
-  direct-OpenAI recovery shortcut
+  reporting any status-read handler reference
 
 The verified foundation for that task is:
 

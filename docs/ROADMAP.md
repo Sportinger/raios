@@ -819,16 +819,25 @@ boundary that consumes the retained command-envelope reference plus the
 dispatch-denial boundary, validates canonical command-body metadata hashes,
 retains only local-only current-boot body-canonicalization evidence, and leaves
 dispatch stopped at missing handler binding.
+`recovery.lifeline_command_handler_binding_diagnostic` and
+`recovery.lifeline_command_handler_binding_diagnostic_selftest` now expose a
+local-only current-boot
+`raios.recovery_lifeline_command_handler_binding.v0` hash-reference boundary
+that consumes the retained body-canonicalization reference, validates handler
+id and handler-input binding hashes, retains only local-only current-boot
+handler-binding evidence, and leaves dispatch stopped at missing status-read
+handler.
 No code loading exists yet.
 
 Exact next task:
 
 ```text
-Define the recovery lifeline command-handler binding hash-reference boundary
-after body canonicalization.
+Define the recovery lifeline status-read handler hash-reference boundary after
+handler binding.
 ```
 
 Start from the retained
+`raios.recovery_lifeline_command_handler_binding.v0` event, retained
 `raios.recovery_lifeline_command_body_canonicalization.v0` event, the read-only
 `raios.recovery_lifeline_command_dispatch_denial.v0` boundary, retained
 `raios.recovery_lifeline_command_envelope_reference.v0` event,
@@ -837,29 +846,26 @@ Start from the retained
 runtime isolation diagnostic, rollback transaction-engine diagnostic, durable
 audit/rollback persistence diagnostic, and recovery memory provenance
 diagnostic. Add the next read-only hash-reference boundary for
-`raios.recovery_lifeline_command_handler_binding.v0`: validate only command id,
+`raios.recovery_lifeline_status_read_handler.v0`: validate only command id,
 argument schema, argument hash, target locator, command-envelope reference
-hash, body-canonicalization hash, dispatch boundary id, handler id, handler
-input binding hash, and current-boot scope. It should expose missing
-status-read handler, rollback preview/apply authorization linkage,
-disable-module/restart-last-good/load-artifact-by-hash target handlers,
-memory/durable write linkage, and service-inventory side-effect linkage, reject
-stale/wrong-schema/substituted/mismatched body-canonicalization/dispatch/
-envelope/admission/memory-provenance/durable-persistence/rollback-engine/
-loader-isolation/command-vocabulary/protocol-state/request chains, and still
-avoid fake recovery shell behavior, fake command execution, fake persistent
-memory, fallback stores, durable records, loaders, rollback transactions,
-service-slot side effects, provider export, direct-OpenAI recovery shortcuts,
-or recovery lifeline behavior.
+hash, body-canonicalization hash, handler-binding hash, dispatch boundary id,
+status handler id, status-read projection hash, and current-boot scope. It
+should reject stale/wrong-schema/substituted/mismatched handler-binding/
+body-canonicalization/dispatch/envelope/admission/memory-provenance/
+durable-persistence/rollback-engine/loader-isolation/command-vocabulary/
+protocol-state/request chains and still avoid fake recovery shell behavior,
+fake command execution, fake persistent memory, fallback stores, durable
+records, loaders, rollback transactions, service-slot side effects, provider
+export, direct-OpenAI recovery shortcuts, or recovery lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only recovery command-handler binding hash-reference diagnostics
-   over the retained body-canonicalization reference and dispatch-denial
-   boundary.
-2. Bind handler references to command id, argument schema/hash, target locator,
-   command-envelope reference hash, body-canonicalization hash, handler id, and
-   handler input binding hash while still accepting no raw command body.
+1. Define read-only recovery status-read handler hash-reference diagnostics
+   over the retained handler-binding reference and dispatch-denial boundary.
+2. Bind status-read handler references to command id, argument schema/hash,
+   target locator, command-envelope reference hash, body-canonicalization hash,
+   handler-binding hash, status handler id, and status-read projection hash
+   while still accepting no raw command body.
 3. Keep selftests proving stale/wrong-schema/substituted/mismatched
    body-canonicalization, dispatch, command-envelope, command-admission, memory
    provenance, persistence, rollback-engine, loader-isolation, command
