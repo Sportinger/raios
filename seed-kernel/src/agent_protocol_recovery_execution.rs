@@ -2079,3 +2079,249 @@ fn emit_recovery_lifeline_command_execution_stage_requirement(
     }
     crlf();
 }
+
+pub(crate) fn recovery_lifeline_command_execution_enablement_diagnostic_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_enablement_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_preflight_diagnostic_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_preflight_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_intent_diagnostic_method(method: &str) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_intent_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_commit_gate_diagnostic_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_commit_gate_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_result_denial_diagnostic_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_result_denial_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_audit_denial_diagnostic_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_audit_denial_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_observation_denial_diagnostic_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_observation_denial_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_completion_denial_diagnostic_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_completion_denial_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
+    )
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_enablement_diagnostic(method: &str) {
+    emit_recovery_lifeline_command_execution_stage_diagnostic(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_enablement_diagnostic_selftest() {
+    emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_preflight_diagnostic(method: &str) {
+    emit_recovery_lifeline_command_execution_stage_diagnostic(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_preflight_diagnostic_selftest() {
+    emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_intent_diagnostic(method: &str) {
+    emit_recovery_lifeline_command_execution_stage_diagnostic(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_intent_diagnostic_selftest() {
+    emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_commit_gate_diagnostic(method: &str) {
+    emit_recovery_lifeline_command_execution_stage_diagnostic(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_commit_gate_diagnostic_selftest() {
+    emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_result_denial_diagnostic(method: &str) {
+    emit_recovery_lifeline_command_execution_stage_diagnostic(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_result_denial_diagnostic_selftest() {
+    emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_audit_denial_diagnostic(method: &str) {
+    emit_recovery_lifeline_command_execution_stage_diagnostic(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_audit_denial_diagnostic_selftest() {
+    emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_observation_denial_diagnostic(method: &str) {
+    emit_recovery_lifeline_command_execution_stage_diagnostic(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_observation_denial_diagnostic_selftest() {
+    emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_completion_denial_diagnostic(method: &str) {
+    emit_recovery_lifeline_command_execution_stage_diagnostic(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_completion_denial_diagnostic_selftest() {
+    emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
+    );
+}

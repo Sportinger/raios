@@ -13,7 +13,8 @@ recovery lifeline command specs into
 reports to derive `commands`/`executed_commands` from actual serial command
 execution, moving recovery lifeline execution-stage selftest fixtures and
 retained-chain matchers plus execution-stage JSON emission and retained-event
-recording into
+recording plus the thin execution-stage public wrapper methods and
+method-predicate wiring into
 `seed-kernel/src/agent_protocol_recovery_execution.rs`, and preserving the
 previously verified guest
 `module.audit_rollback_availability`,
@@ -316,7 +317,7 @@ methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 
 Latest focused recovery guest-protocol verification: 2026-05-23 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260523-174622-6380.json` with 2725/2725
+`release\vm-reports\shadow-20260523-225527-2880.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
@@ -710,16 +711,19 @@ behavior:
 - the follow-up behavior-neutral slice moved execution-stage selftest case
   construction, retained-chain reference matchers, JSON response emission, and
   retained execution-stage event recording into
-  `seed-kernel/src/agent_protocol_recovery_execution.rs`, leaving only thin
-  execution-stage dispatch wrappers in `agent_protocol_recovery.rs`
+  `seed-kernel/src/agent_protocol_recovery_execution.rs`
+- the latest behavior-neutral slice moved the thin execution-stage public
+  wrapper methods and method-predicate wiring into
+  `seed-kernel/src/agent_protocol_recovery_execution.rs`, and the central
+  agent dispatcher now imports those wrappers directly from the execution module
 - the previous behavior-neutral slice moved the shared execution-stage
   descriptor/input ownership, method/argument matching helpers, stage
   descriptor constants, execution-stage boundary IDs, reference-check type,
   parser/evaluator, hash-validation, and live-chain validation helpers into
   `seed-kernel/src/agent_protocol_recovery_execution.rs`
-- next, move the remaining thin execution-stage public wrapper methods and
-  method-predicate wiring into the focused recovery execution module, then
-  update the central agent dispatcher imports without changing method names
+- next, audit the remaining execution-stage references in
+  `agent_protocol_recovery.rs` and move only the retained-dispatch/candidate
+  logic that can be split without changing cross-boundary behavior
 - preserve every public method name, schema id, boundary id, denial reason,
   canonical hash line, event-log binding, and shadow-smoke expectation exactly
   except for file/module ownership
@@ -1517,7 +1521,7 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
   predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260523-174622-6380.json` with 2725/2725
+  `release\vm-reports\shadow-20260523-225527-2880.json` with 2725/2725
   recovery predicates and 142 executed commands. Both reports derive
   `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
