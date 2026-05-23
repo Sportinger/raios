@@ -1509,6 +1509,8 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_sha256_option(binding.execution_intent_hash);
             raw(", \"execution_commit_gate_hash\": ");
             json_sha256_option(binding.execution_commit_gate_hash);
+            raw(", \"execution_result_denial_hash\": ");
+            json_sha256_option(binding.execution_result_denial_hash);
             raw(", \"execution_stage_projection_hash\": ");
             json_sha256(binding.execution_stage_projection_hash);
             raw("}}");
