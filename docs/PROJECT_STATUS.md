@@ -32,7 +32,9 @@ lifeline runtime/isolation/rollback/persistence/provenance/admission types into
 envelope, dispatch-denial, and body-canonicalization types into
 `seed-kernel/src/agent_protocol_recovery_command_dispatch_types.rs`, moving
 handler/status/rollback-authorization/target-binding types into
-`seed-kernel/src/agent_protocol_recovery_command_authorization_types.rs`, and
+`seed-kernel/src/agent_protocol_recovery_command_authorization_types.rs`,
+moving memory/durable-write/service-inventory/command-effect gate types into
+`seed-kernel/src/agent_protocol_recovery_command_effect_types.rs`, and
 preserving the
 previously verified guest
 `module.audit_rollback_availability`,
@@ -335,7 +337,7 @@ methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 
 Latest focused recovery guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-004559-25236.json` with 2725/2725
+`release\vm-reports\shadow-20260524-005353-19420.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
@@ -760,7 +762,9 @@ behavior:
   envelope/dispatch-denial/body-canonicalization types into
   `seed-kernel/src/agent_protocol_recovery_command_dispatch_types.rs`, plus
   handler/status/rollback-authorization/target-binding types into
-  `seed-kernel/src/agent_protocol_recovery_command_authorization_types.rs`
+  `seed-kernel/src/agent_protocol_recovery_command_authorization_types.rs`,
+  and memory/durable-write/service-inventory/command-effect gate types into
+  `seed-kernel/src/agent_protocol_recovery_command_effect_types.rs`
 - next, leave the broad recovery dispatch candidate/evaluator in
   `agent_protocol_recovery.rs` until its non-execution dependencies have a
   stable boundary, then continue with smaller focused extraction slices over
@@ -1562,7 +1566,7 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
   predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260524-004559-25236.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-005353-19420.json` with 2725/2725
   recovery predicates and 142 executed commands. Both reports derive
   `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
