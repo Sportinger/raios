@@ -1,7 +1,7 @@
 use crate::{
     agent_protocol_memory::memory_mutation_method,
     agent_protocol_provider::provider_context_export_method,
-    agent_protocol_recovery::recovery_artifact_load_method,
+    agent_protocol_recovery_methods::recovery_artifact_load_method,
     agent_protocol_support::{json_event_id, json_str, method_eq, raw, raw_line},
     agent_protocol_system::DENIED_METHODS,
     event_log, serial,

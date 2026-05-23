@@ -16,7 +16,9 @@ retained-chain matchers plus execution-stage JSON emission and retained-event
 recording plus the thin execution-stage public wrapper methods and
 method-predicate wiring plus retained execution-stage chain-presence evaluation
 into
-`seed-kernel/src/agent_protocol_recovery_execution.rs`, and preserving the
+`seed-kernel/src/agent_protocol_recovery_execution.rs`, extracting recovery
+method predicates and diagnostic argument parsers into
+`seed-kernel/src/agent_protocol_recovery_methods.rs`, and preserving the
 previously verified guest
 `module.audit_rollback_availability`,
 `module.audit_rollback_availability_selftest`,
@@ -318,7 +320,7 @@ methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 
 Latest focused recovery guest-protocol verification: 2026-05-23 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260523-231133-24924.json` with 2725/2725
+`release\vm-reports\shadow-20260523-232931-25064.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
@@ -1527,7 +1529,7 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
   predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260523-231133-24924.json` with 2725/2725
+  `release\vm-reports\shadow-20260523-232931-25064.json` with 2725/2725
   recovery predicates and 142 executed commands. Both reports derive
   `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a

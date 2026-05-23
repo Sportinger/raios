@@ -37,6 +37,7 @@ mod agent_protocol_provider;
 mod agent_protocol_recovery;
 mod agent_protocol_recovery_execution;
 mod agent_protocol_recovery_lifeline;
+mod agent_protocol_recovery_methods;
 mod agent_protocol_support;
 mod agent_protocol_system;
 mod console;
