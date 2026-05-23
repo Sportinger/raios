@@ -122,6 +122,8 @@ use crate::{
         emit_recovery_lifeline_command_execution_audit_denial_diagnostic_selftest,
         emit_recovery_lifeline_command_execution_commit_gate_diagnostic,
         emit_recovery_lifeline_command_execution_commit_gate_diagnostic_selftest,
+        emit_recovery_lifeline_command_execution_completion_denial_diagnostic,
+        emit_recovery_lifeline_command_execution_completion_denial_diagnostic_selftest,
         emit_recovery_lifeline_command_execution_enablement_diagnostic,
         emit_recovery_lifeline_command_execution_enablement_diagnostic_selftest,
         emit_recovery_lifeline_command_execution_intent_diagnostic,
@@ -193,6 +195,8 @@ use crate::{
         recovery_lifeline_command_execution_audit_denial_diagnostic_selftest_method,
         recovery_lifeline_command_execution_commit_gate_diagnostic_method,
         recovery_lifeline_command_execution_commit_gate_diagnostic_selftest_method,
+        recovery_lifeline_command_execution_completion_denial_diagnostic_method,
+        recovery_lifeline_command_execution_completion_denial_diagnostic_selftest_method,
         recovery_lifeline_command_execution_enablement_diagnostic_method,
         recovery_lifeline_command_execution_enablement_diagnostic_selftest_method,
         recovery_lifeline_command_execution_intent_diagnostic_method,
@@ -976,6 +980,20 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_recovery_lifeline_command_execution_observation_denial_diagnostic_selftest();
         return DispatchOutcome::Response(
             "recovery.lifeline_command_execution_observation_denial_diagnostic_selftest",
+        );
+    }
+    if recovery_lifeline_command_execution_completion_denial_diagnostic_method(method) {
+        record_read("recovery.lifeline_command_execution_completion_denial_diagnostic");
+        emit_recovery_lifeline_command_execution_completion_denial_diagnostic(method);
+        return DispatchOutcome::Response(
+            "recovery.lifeline_command_execution_completion_denial_diagnostic",
+        );
+    }
+    if recovery_lifeline_command_execution_completion_denial_diagnostic_selftest_method(method) {
+        record_read("recovery.lifeline_command_execution_completion_denial_diagnostic_selftest");
+        emit_recovery_lifeline_command_execution_completion_denial_diagnostic_selftest();
+        return DispatchOutcome::Response(
+            "recovery.lifeline_command_execution_completion_denial_diagnostic_selftest",
         );
     }
     if recovery_artifact_load_binding_method(method) {
