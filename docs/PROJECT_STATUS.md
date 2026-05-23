@@ -7,7 +7,7 @@ splitting stable boundaries early, separating runtime/diagnostic/harness/handoff
 surfaces, and making observed execution evidence more authoritative than copied
 command lists or prose summaries.
 
-Last verified locally: 2026-05-23 on Windows with QEMU 11 after extracting the
+Last verified locally: 2026-05-24 on Windows with QEMU 11 after extracting the
 recovery lifeline command specs into
 `seed-kernel/src/agent_protocol_recovery_lifeline.rs`, updating Shadow VM
 reports to derive `commands`/`executed_commands` from actual serial command
@@ -26,7 +26,9 @@ load-binding types into
 artifact-reference types into
 `seed-kernel/src/agent_protocol_recovery_artifact_types.rs`, moving lifeline
 protocol and command-vocabulary types into
-`seed-kernel/src/agent_protocol_recovery_lifeline_protocol_types.rs`, and
+`seed-kernel/src/agent_protocol_recovery_lifeline_protocol_types.rs`, moving
+lifeline runtime/isolation/rollback/persistence/provenance/admission types into
+`seed-kernel/src/agent_protocol_recovery_runtime_types.rs`, and
 preserving the
 previously verified guest
 `module.audit_rollback_availability`,
@@ -329,7 +331,7 @@ methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 
 Latest focused recovery guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-000922-23768.json` with 2725/2725
+`release\vm-reports\shadow-20260524-002740-26940.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
@@ -748,7 +750,9 @@ behavior:
   artifact-reference types into
   `seed-kernel/src/agent_protocol_recovery_artifact_types.rs`, and lifeline
   protocol/command-vocabulary types into
-  `seed-kernel/src/agent_protocol_recovery_lifeline_protocol_types.rs`
+  `seed-kernel/src/agent_protocol_recovery_lifeline_protocol_types.rs`, plus
+  lifeline runtime/isolation/rollback/persistence/provenance/admission types
+  into `seed-kernel/src/agent_protocol_recovery_runtime_types.rs`
 - next, leave the broad recovery dispatch candidate/evaluator in
   `agent_protocol_recovery.rs` until its non-execution dependencies have a
   stable boundary, then continue with smaller focused extraction slices over
@@ -1550,7 +1554,7 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
   predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260524-000922-23768.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-002740-26940.json` with 2725/2725
   recovery predicates and 142 executed commands. Both reports derive
   `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a

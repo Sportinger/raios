@@ -42,6 +42,7 @@ mod agent_protocol_recovery_lifeline;
 mod agent_protocol_recovery_lifeline_protocol_types;
 mod agent_protocol_recovery_load_binding;
 mod agent_protocol_recovery_methods;
+mod agent_protocol_recovery_runtime_types;
 mod agent_protocol_support;
 mod agent_protocol_system;
 mod console;
