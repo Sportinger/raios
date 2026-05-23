@@ -20,6 +20,10 @@ use crate::{
         recovery_lifeline_rollback_preview_command_spec, recovery_lifeline_status_command_spec,
         RecoveryLifelineCommandSpec, RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
     },
+    agent_protocol_recovery_load_binding::{
+        RecoveryEvidenceCandidate, RecoveryLoadBindingCandidate, RecoveryLoadBindingCheck,
+        RecoveryLoadBindingSelfTestCase,
+    },
     agent_protocol_recovery_methods::{
         durable_audit_rollback_write_authority_diagnostic_arg,
         recovery_disable_module_target_binding_diagnostic_arg, recovery_identity_diagnostic_arg,
@@ -1890,56 +1894,6 @@ struct RecoveryLifelineCommandSideEffectGateReferenceCheck<'a> {
 }
 
 struct RecoveryLifelineCommandSideEffectGateSelfTestCase {
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
-    actual_status: &'static str,
-    actual_reason: &'static str,
-    passed: bool,
-}
-
-#[derive(Clone, Copy)]
-struct RecoveryEvidenceCandidate {
-    retained: bool,
-    current_boot: bool,
-    schema_ok: bool,
-    binding_ok: bool,
-    binding_reason: &'static str,
-}
-
-#[derive(Clone, Copy)]
-struct RecoveryLoadBindingCandidate {
-    requested_capability: &'static str,
-    identity: RecoveryEvidenceCandidate,
-    trust: RecoveryEvidenceCandidate,
-    vm_test: RecoveryEvidenceCandidate,
-    local_approval: RecoveryEvidenceCandidate,
-    loader: RecoveryEvidenceCandidate,
-    rollback_evidence: RecoveryEvidenceCandidate,
-    normal_module_capability_substituted: bool,
-    normal_module_append_intent_substituted: bool,
-    append_payload_hash_claimed_authority: bool,
-    normal_module_writer_facts_substituted: bool,
-    normal_module_service_slot_substituted: bool,
-}
-
-#[derive(Clone, Copy)]
-struct RecoveryLoadBindingCheck {
-    status: &'static str,
-    reason: &'static str,
-    recovery_only_capability_used: bool,
-    accepts_normal_module_authority: bool,
-    append_payload_hash_authority: bool,
-    can_move_beyond_denial: bool,
-    loads_recovery_artifact: bool,
-    loads_normal_module: bool,
-    creates_durable_records: bool,
-    installs_rollback_plan: bool,
-    service_inventory_change: &'static str,
-    load_attempted: bool,
-}
-
-struct RecoveryLoadBindingSelfTestCase {
     name: &'static str,
     expected_status: &'static str,
     expected_reason: &'static str,
