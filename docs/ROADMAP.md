@@ -3,7 +3,7 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-23 by Codex after an early-boundary recovery lifeline
-refactor, recovery method-surface extraction, and Shadow VM report evidence
+refactor, recovery method/constant-surface extraction, and Shadow VM report evidence
 cleanup. The recovery lifeline command
 vocabulary/spec helpers now live in
 `seed-kernel/src/agent_protocol_recovery_lifeline.rs`; recovery diagnostics and
@@ -15,9 +15,11 @@ retained-chain matchers now live in
 execution-stage public wrapper methods and method-predicate wiring now also
 live there, retained execution-stage chain-presence evaluation is now
 centralized there, recovery method predicates and diagnostic argument parsers
-now live in `seed-kernel/src/agent_protocol_recovery_methods.rs`, and the
-central dispatcher imports the execution and method wrappers directly from
-focused modules. Public method names,
+now live in `seed-kernel/src/agent_protocol_recovery_methods.rs`, recovery
+capability/selftest-count/boundary-id constants now live in
+`seed-kernel/src/agent_protocol_recovery_constants.rs`, and the central
+dispatcher imports the execution and method wrappers directly from focused
+modules. Public method names,
 schema ids, boundary ids, denial reasons, canonical hash lines, event-log
 bindings, dispatch behavior, and shadow-smoke expectations are unchanged. The
 Shadow VM harness now
@@ -28,7 +30,7 @@ was removed. Current evidence: full report
 predicates with 206 executed commands; quick report
 `release/vm-reports/shadow-20260523-174556-23200.json` recorded 136/136
 predicates with 13 executed commands, and recovery report
-`release/vm-reports/shadow-20260523-232931-25064.json` recorded 2725/2725
+`release/vm-reports/shadow-20260523-234000-16188.json` recorded 2725/2725
 predicates with 142 executed commands.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
@@ -222,10 +224,10 @@ append-payload, writer, service-slot, and `module.load_ephemeral` authority.
 Latest maintenance verification:
 
 - `cargo fmt --all -- --check` passed after extracting recovery lifeline command
-  specs, execution-stage helpers, and recovery method-surface helpers.
+  specs, execution-stage helpers, and recovery method/constant-surface helpers.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`
   passed after extracting recovery lifeline command specs and execution-stage
-  helpers plus recovery method-surface helpers.
+  helpers plus recovery method/constant-surface helpers.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180`
   passed on 2026-05-23 and wrote
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136
@@ -233,7 +235,7 @@ Latest maintenance verification:
   run.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`
   passed on 2026-05-23 and wrote
-  `release\vm-reports\shadow-20260523-232931-25064.json` with 2725/2725
+  `release\vm-reports\shadow-20260523-234000-16188.json` with 2725/2725
   predicates and 142 `executed_commands` entries derived from the actual serial
   run.
 - `git diff --check` passed.
