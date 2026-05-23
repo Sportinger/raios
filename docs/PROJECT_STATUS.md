@@ -14,7 +14,8 @@ reports to derive `commands`/`executed_commands` from actual serial command
 execution, moving recovery lifeline execution-stage selftest fixtures and
 retained-chain matchers plus execution-stage JSON emission and retained-event
 recording plus the thin execution-stage public wrapper methods and
-method-predicate wiring into
+method-predicate wiring plus retained execution-stage chain-presence evaluation
+into
 `seed-kernel/src/agent_protocol_recovery_execution.rs`, and preserving the
 previously verified guest
 `module.audit_rollback_availability`,
@@ -317,7 +318,7 @@ methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 
 Latest focused recovery guest-protocol verification: 2026-05-23 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260523-225527-2880.json` with 2725/2725
+`release\vm-reports\shadow-20260523-231133-24924.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
@@ -325,9 +326,10 @@ and RAM-only recovery audit visibility while skipping the normal module-loading
 diagnostic matrix.
 
 Latest guest-protocol verification: 2026-05-23 on Windows with
-`vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260523-161602-8028.json` with 4500/4500
-predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
+`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 180`, report
+`release\vm-reports\shadow-20260523-223645-13488.json` with 4500/4500
+predicates, 206 `executed_commands` entries, and no static command inventory,
+covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
 VM-report hash-reference diagnostics, RAM-only retention of a valid VM-report
@@ -716,14 +718,18 @@ behavior:
   wrapper methods and method-predicate wiring into
   `seed-kernel/src/agent_protocol_recovery_execution.rs`, and the central
   agent dispatcher now imports those wrappers directly from the execution module
+- the current behavior-neutral slice moved retained execution-stage
+  chain-presence evaluation into
+  `seed-kernel/src/agent_protocol_recovery_execution.rs` while leaving the
+  recovery dispatch candidate type in `agent_protocol_recovery.rs`
 - the previous behavior-neutral slice moved the shared execution-stage
   descriptor/input ownership, method/argument matching helpers, stage
   descriptor constants, execution-stage boundary IDs, reference-check type,
   parser/evaluator, hash-validation, and live-chain validation helpers into
   `seed-kernel/src/agent_protocol_recovery_execution.rs`
-- next, audit the remaining execution-stage references in
-  `agent_protocol_recovery.rs` and move only the retained-dispatch/candidate
-  logic that can be split without changing cross-boundary behavior
+- next, leave the broad recovery dispatch candidate/evaluator in
+  `agent_protocol_recovery.rs` until its non-execution dependencies have a
+  stable boundary, then continue with smaller focused extraction slices
 - preserve every public method name, schema id, boundary id, denial reason,
   canonical hash line, event-log binding, and shadow-smoke expectation exactly
   except for file/module ownership
@@ -1521,7 +1527,7 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
   predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260523-225527-2880.json` with 2725/2725
+  `release\vm-reports\shadow-20260523-231133-24924.json` with 2725/2725
   recovery predicates and 142 executed commands. Both reports derive
   `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a

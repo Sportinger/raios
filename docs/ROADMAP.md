@@ -12,8 +12,9 @@ response emission, retained-event recording, selftest case construction, and
 retained-chain matchers now live in
 `seed-kernel/src/agent_protocol_recovery_execution.rs`; the thin
 execution-stage public wrapper methods and method-predicate wiring now also
-live there, and the central dispatcher imports them directly from that focused
-module. Public method names,
+live there, retained execution-stage chain-presence evaluation is now
+centralized there, and the central dispatcher imports the execution wrappers
+directly from that focused module. Public method names,
 schema ids, boundary ids, denial reasons, canonical hash lines, event-log
 bindings, dispatch behavior, and shadow-smoke expectations are unchanged. The
 Shadow VM harness now
@@ -24,7 +25,7 @@ was removed. Current evidence: full report
 predicates with 206 executed commands; quick report
 `release/vm-reports/shadow-20260523-174556-23200.json` recorded 136/136
 predicates with 13 executed commands, and recovery report
-`release/vm-reports/shadow-20260523-225527-2880.json` recorded 2725/2725
+`release/vm-reports/shadow-20260523-231133-24924.json` recorded 2725/2725
 predicates with 142 executed commands.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
@@ -229,7 +230,7 @@ Latest maintenance verification:
   run.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`
   passed on 2026-05-23 and wrote
-  `release\vm-reports\shadow-20260523-225527-2880.json` with 2725/2725
+  `release\vm-reports\shadow-20260523-231133-24924.json` with 2725/2725
   predicates and 142 `executed_commands` entries derived from the actual serial
   run.
 - `git diff --check` passed.
@@ -243,8 +244,9 @@ Latest maintenance verification:
   passed on 2026-05-23.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260523-161602-8028.json` with 4500/4500
-  predicates, including `module.manifest_diagnostic`,
+  `release\vm-reports\shadow-20260523-223645-13488.json` with 4500/4500
+  predicates and 206 `executed_commands` entries derived from the actual serial
+  run, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
   `module.vm_report_diagnostic_selftest`, `module.grant_diagnostic`,
@@ -950,10 +952,11 @@ stage descriptor constants, execution-stage boundary IDs, reference-check type,
 parser/evaluator, hash-validation, and live-chain validation helpers already
 live in `seed-kernel/src/agent_protocol_recovery_execution.rs`, alongside
 execution-stage response emission, retained-event recording, thin public
-wrapper methods, and method-predicate wiring. Next, audit the remaining
-execution-stage references in `agent_protocol_recovery.rs` and move only the
-retained-dispatch/candidate logic that can be split without changing
-cross-boundary behavior.
+wrapper methods, method-predicate wiring, and retained execution-stage
+chain-presence evaluation. Next, leave the broad recovery dispatch
+candidate/evaluator in `agent_protocol_recovery.rs` until its non-execution
+dependencies have a stable boundary, then continue with smaller focused
+extraction slices.
 Do not change public method names, schema ids, boundary ids, denial reasons,
 canonical hash lines, event-log binding, dispatch behavior, or shadow-smoke
 expectations. This is a behavior-neutral cleanup to make the next execution
@@ -961,11 +964,11 @@ boundaries faster and less error-prone, not a protocol redesign.
 
 Next three tasks:
 
-1. Audit remaining execution-stage references in `agent_protocol_recovery.rs`
-   and leave only cross-boundary dispatch/candidate logic there if moving it
-   would require a broader protocol split.
-2. Move the retained-dispatch/candidate execution-stage helpers only if the
-   dependency boundary stays behavior-neutral and compile-time visible.
+1. Keep the broad recovery dispatch candidate/evaluator in
+   `agent_protocol_recovery.rs` until its non-execution dependencies have a
+   stable boundary.
+2. Continue extracting smaller focused helpers whose write set stays inside one
+   module boundary.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next refactor slice.

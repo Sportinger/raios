@@ -1,7 +1,7 @@
 use crate::{
     agent_protocol_recovery_execution::{
-        recovery_lifeline_command_execution_stage_reference_matches_previous_stage,
-        recovery_lifeline_command_execution_stage_reference_matches_side_effect,
+        recovery_lifeline_command_execution_stage_chain_presence_from_retained,
+        RecoveryLifelineCommandExecutionStageRetainedChain,
         RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE,
         RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
         RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
@@ -28319,132 +28319,33 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
             accepted_side_effect_gate = Some((side_effect_event_id, side_effect_gate));
         }
     }
-    let mut accepted_execution_enablement = None;
-    if let (
-        Some((side_effect_event_id, side_effect_gate)),
-        Some((enablement_event_id, enablement)),
-    ) = (accepted_side_effect_gate, retained_execution_enablement)
-    {
-        candidate.execution_enablement_present =
-            recovery_lifeline_command_execution_stage_reference_matches_side_effect(
-                side_effect_event_id,
-                side_effect_gate,
-                enablement,
-                RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE,
-            );
-        if candidate.execution_enablement_present {
-            accepted_execution_enablement = Some((enablement_event_id, enablement));
-        }
-    }
-    let mut accepted_execution_preflight = None;
-    if let (Some((enablement_event_id, enablement)), Some((preflight_event_id, preflight))) =
-        (accepted_execution_enablement, retained_execution_preflight)
-    {
-        candidate.execution_preflight_present =
-            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
-                enablement_event_id,
-                enablement,
-                preflight,
-                RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE,
-            );
-        if candidate.execution_preflight_present {
-            accepted_execution_preflight = Some((preflight_event_id, preflight));
-        }
-    }
-    let mut accepted_execution_intent = None;
-    if let (Some((preflight_event_id, preflight)), Some((intent_event_id, intent))) =
-        (accepted_execution_preflight, retained_execution_intent)
-    {
-        candidate.execution_intent_present =
-            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
-                preflight_event_id,
-                preflight,
-                intent,
-                RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE,
-            );
-        if candidate.execution_intent_present {
-            accepted_execution_intent = Some((intent_event_id, intent));
-        }
-    }
-    let mut accepted_execution_commit_gate = None;
-    if let (Some((intent_event_id, intent)), Some((commit_event_id, commit_gate))) =
-        (accepted_execution_intent, retained_execution_commit_gate)
-    {
-        candidate.execution_commit_gate_present =
-            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
-                intent_event_id,
-                intent,
-                commit_gate,
-                RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
-            );
-        if candidate.execution_commit_gate_present {
-            accepted_execution_commit_gate = Some((commit_event_id, commit_gate));
-        }
-    }
-    let mut accepted_execution_result_denial = None;
-    if let (Some((commit_event_id, commit_gate)), Some((result_event_id, result_denial))) = (
-        accepted_execution_commit_gate,
-        retained_execution_result_denial,
-    ) {
-        candidate.execution_result_denial_present =
-            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
-                commit_event_id,
-                commit_gate,
-                result_denial,
-                RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
-            );
-        if candidate.execution_result_denial_present {
-            accepted_execution_result_denial = Some((result_event_id, result_denial));
-        }
-    }
-    let mut accepted_execution_audit_denial = None;
-    if let (Some((result_event_id, result_denial)), Some((audit_event_id, audit_denial))) = (
-        accepted_execution_result_denial,
-        retained_execution_audit_denial,
-    ) {
-        candidate.execution_audit_denial_present =
-            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
-                result_event_id,
-                result_denial,
-                audit_denial,
-                RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE,
-            );
-        if candidate.execution_audit_denial_present {
-            accepted_execution_audit_denial = Some((audit_event_id, audit_denial));
-        }
-    }
-    let mut accepted_execution_observation_denial = None;
-    if let (
-        Some((audit_event_id, audit_denial)),
-        Some((observation_event_id, observation_denial)),
-    ) = (
-        accepted_execution_audit_denial,
-        retained_execution_observation_denial,
-    ) {
-        candidate.execution_observation_denial_present =
-            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
-                audit_event_id,
-                audit_denial,
-                observation_denial,
-                RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE,
-            );
-        if candidate.execution_observation_denial_present {
-            accepted_execution_observation_denial =
-                Some((observation_event_id, observation_denial));
-        }
-    }
-    if let (Some((observation_event_id, observation_denial)), Some((_, completion_denial))) = (
-        accepted_execution_observation_denial,
-        retained_execution_completion_denial,
-    ) {
-        candidate.execution_completion_denial_present =
-            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
-                observation_event_id,
-                observation_denial,
-                completion_denial,
-                RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
-            );
-    }
+    let execution_stage_presence =
+        recovery_lifeline_command_execution_stage_chain_presence_from_retained(
+            RecoveryLifelineCommandExecutionStageRetainedChain {
+                side_effect_gate: accepted_side_effect_gate,
+                execution_enablement: retained_execution_enablement,
+                execution_preflight: retained_execution_preflight,
+                execution_intent: retained_execution_intent,
+                execution_commit_gate: retained_execution_commit_gate,
+                execution_result_denial: retained_execution_result_denial,
+                execution_audit_denial: retained_execution_audit_denial,
+                execution_observation_denial: retained_execution_observation_denial,
+                execution_completion_denial: retained_execution_completion_denial,
+            },
+        );
+    candidate.execution_enablement_present = execution_stage_presence.execution_enablement_present;
+    candidate.execution_preflight_present = execution_stage_presence.execution_preflight_present;
+    candidate.execution_intent_present = execution_stage_presence.execution_intent_present;
+    candidate.execution_commit_gate_present =
+        execution_stage_presence.execution_commit_gate_present;
+    candidate.execution_result_denial_present =
+        execution_stage_presence.execution_result_denial_present;
+    candidate.execution_audit_denial_present =
+        execution_stage_presence.execution_audit_denial_present;
+    candidate.execution_observation_denial_present =
+        execution_stage_presence.execution_observation_denial_present;
+    candidate.execution_completion_denial_present =
+        execution_stage_presence.execution_completion_denial_present;
     candidate
 }
 

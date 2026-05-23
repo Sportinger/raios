@@ -1321,6 +1321,208 @@ pub(crate) fn recovery_lifeline_command_execution_stage_reference_matches_previo
         && method_eq(stage.execution_stage_id, descriptor.stage_id)
 }
 
+pub(crate) struct RecoveryLifelineCommandExecutionStageRetainedChain {
+    pub(crate) side_effect_gate: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandSideEffectGateReference,
+    )>,
+    pub(crate) execution_enablement: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+    pub(crate) execution_preflight: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+    pub(crate) execution_intent: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+    pub(crate) execution_commit_gate: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+    pub(crate) execution_result_denial: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+    pub(crate) execution_audit_denial: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+    pub(crate) execution_observation_denial: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+    pub(crate) execution_completion_denial: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RecoveryLifelineCommandExecutionStageChainPresence {
+    pub(crate) execution_enablement_present: bool,
+    pub(crate) execution_preflight_present: bool,
+    pub(crate) execution_intent_present: bool,
+    pub(crate) execution_commit_gate_present: bool,
+    pub(crate) execution_result_denial_present: bool,
+    pub(crate) execution_audit_denial_present: bool,
+    pub(crate) execution_observation_denial_present: bool,
+    pub(crate) execution_completion_denial_present: bool,
+}
+
+pub(crate) fn recovery_lifeline_command_execution_stage_chain_presence_from_retained(
+    retained: RecoveryLifelineCommandExecutionStageRetainedChain,
+) -> RecoveryLifelineCommandExecutionStageChainPresence {
+    let mut presence = RecoveryLifelineCommandExecutionStageChainPresence {
+        execution_enablement_present: false,
+        execution_preflight_present: false,
+        execution_intent_present: false,
+        execution_commit_gate_present: false,
+        execution_result_denial_present: false,
+        execution_audit_denial_present: false,
+        execution_observation_denial_present: false,
+        execution_completion_denial_present: false,
+    };
+
+    let mut accepted_execution_enablement = None;
+    if let (
+        Some((side_effect_event_id, side_effect_gate)),
+        Some((enablement_event_id, enablement)),
+    ) = (retained.side_effect_gate, retained.execution_enablement)
+    {
+        presence.execution_enablement_present =
+            recovery_lifeline_command_execution_stage_reference_matches_side_effect(
+                side_effect_event_id,
+                side_effect_gate,
+                enablement,
+                RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE,
+            );
+        if presence.execution_enablement_present {
+            accepted_execution_enablement = Some((enablement_event_id, enablement));
+        }
+    }
+
+    let mut accepted_execution_preflight = None;
+    if let (Some((enablement_event_id, enablement)), Some((preflight_event_id, preflight))) =
+        (accepted_execution_enablement, retained.execution_preflight)
+    {
+        presence.execution_preflight_present =
+            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
+                enablement_event_id,
+                enablement,
+                preflight,
+                RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE,
+            );
+        if presence.execution_preflight_present {
+            accepted_execution_preflight = Some((preflight_event_id, preflight));
+        }
+    }
+
+    let mut accepted_execution_intent = None;
+    if let (Some((preflight_event_id, preflight)), Some((intent_event_id, intent))) =
+        (accepted_execution_preflight, retained.execution_intent)
+    {
+        presence.execution_intent_present =
+            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
+                preflight_event_id,
+                preflight,
+                intent,
+                RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE,
+            );
+        if presence.execution_intent_present {
+            accepted_execution_intent = Some((intent_event_id, intent));
+        }
+    }
+
+    let mut accepted_execution_commit_gate = None;
+    if let (Some((intent_event_id, intent)), Some((commit_event_id, commit_gate))) =
+        (accepted_execution_intent, retained.execution_commit_gate)
+    {
+        presence.execution_commit_gate_present =
+            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
+                intent_event_id,
+                intent,
+                commit_gate,
+                RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
+            );
+        if presence.execution_commit_gate_present {
+            accepted_execution_commit_gate = Some((commit_event_id, commit_gate));
+        }
+    }
+
+    let mut accepted_execution_result_denial = None;
+    if let (Some((commit_event_id, commit_gate)), Some((result_event_id, result_denial))) = (
+        accepted_execution_commit_gate,
+        retained.execution_result_denial,
+    ) {
+        presence.execution_result_denial_present =
+            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
+                commit_event_id,
+                commit_gate,
+                result_denial,
+                RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
+            );
+        if presence.execution_result_denial_present {
+            accepted_execution_result_denial = Some((result_event_id, result_denial));
+        }
+    }
+
+    let mut accepted_execution_audit_denial = None;
+    if let (Some((result_event_id, result_denial)), Some((audit_event_id, audit_denial))) = (
+        accepted_execution_result_denial,
+        retained.execution_audit_denial,
+    ) {
+        presence.execution_audit_denial_present =
+            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
+                result_event_id,
+                result_denial,
+                audit_denial,
+                RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE,
+            );
+        if presence.execution_audit_denial_present {
+            accepted_execution_audit_denial = Some((audit_event_id, audit_denial));
+        }
+    }
+
+    let mut accepted_execution_observation_denial = None;
+    if let (
+        Some((audit_event_id, audit_denial)),
+        Some((observation_event_id, observation_denial)),
+    ) = (
+        accepted_execution_audit_denial,
+        retained.execution_observation_denial,
+    ) {
+        presence.execution_observation_denial_present =
+            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
+                audit_event_id,
+                audit_denial,
+                observation_denial,
+                RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE,
+            );
+        if presence.execution_observation_denial_present {
+            accepted_execution_observation_denial =
+                Some((observation_event_id, observation_denial));
+        }
+    }
+
+    if let (Some((observation_event_id, observation_denial)), Some((_, completion_denial))) = (
+        accepted_execution_observation_denial,
+        retained.execution_completion_denial,
+    ) {
+        presence.execution_completion_denial_present =
+            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
+                observation_event_id,
+                observation_denial,
+                completion_denial,
+                RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
+            );
+    }
+
+    presence
+}
+
 fn recovery_lifeline_command_previous_execution_stage_descriptor(
     descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
 ) -> Option<RecoveryLifelineCommandExecutionStageDescriptor> {
