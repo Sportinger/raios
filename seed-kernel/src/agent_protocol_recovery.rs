@@ -21,6 +21,7 @@ use crate::{
         recovery_lifeline_rollback_preview_command_spec, recovery_lifeline_status_command_spec,
         RecoveryLifelineCommandSpec, RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
     },
+    agent_protocol_recovery_lifeline_protocol_types::*,
     agent_protocol_recovery_load_binding::{
         RecoveryEvidenceCandidate, RecoveryLoadBindingCandidate, RecoveryLoadBindingCheck,
         RecoveryLoadBindingSelfTestCase,
@@ -54,91 +55,6 @@ use crate::{
     },
     event_log, module_evidence, serial,
 };
-
-#[derive(Clone, Copy)]
-struct RecoveryLifelineProtocolCandidate {
-    request_retained: bool,
-    request_current_boot: bool,
-    request_schema_ok: bool,
-    request_binding_ok: bool,
-    request_binding_reason: &'static str,
-    direct_openai_recovery_shortcut_used: bool,
-    lifeline_protocol_state_present: bool,
-    command_vocabulary_present: bool,
-    loader_runtime_isolation_present: bool,
-    rollback_transaction_engine_present: bool,
-    durable_audit_rollback_persistence_present: bool,
-    recovery_memory_provenance_present: bool,
-}
-
-#[derive(Clone, Copy)]
-struct RecoveryLifelineProtocolCheck {
-    status: &'static str,
-    reason: &'static str,
-    request_chain_valid: bool,
-    can_report_protocol_gaps: bool,
-    authorizes_recovery_load: bool,
-    can_move_beyond_denial: bool,
-    loads_recovery_loader: bool,
-    loads_recovery_artifact: bool,
-    creates_durable_records: bool,
-    installs_rollback_plan: bool,
-    allocates_service_slot: bool,
-    service_inventory_change: &'static str,
-    load_attempted: bool,
-}
-
-struct RecoveryLifelineProtocolSelfTestCase {
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
-    actual_status: &'static str,
-    actual_reason: &'static str,
-    passed: bool,
-}
-
-#[derive(Clone, Copy)]
-struct RecoveryLifelineCommandVocabularyCandidate {
-    protocol_candidate: RecoveryLifelineProtocolCandidate,
-    protocol_state_retained: bool,
-    protocol_state_current_boot: bool,
-    protocol_state_schema_ok: bool,
-    protocol_state_binding_ok: bool,
-    protocol_state_binding_reason: &'static str,
-    direct_openai_recovery_shortcut_used: bool,
-    loader_runtime_isolation_present: bool,
-    rollback_transaction_engine_present: bool,
-    durable_audit_rollback_persistence_present: bool,
-    recovery_memory_provenance_present: bool,
-}
-
-#[derive(Clone, Copy)]
-struct RecoveryLifelineCommandVocabularyCheck {
-    status: &'static str,
-    reason: &'static str,
-    request_chain_valid: bool,
-    command_vocabulary_exposed: bool,
-    command_execution_enabled: bool,
-    accepts_lifeline_command_envelope: bool,
-    authorizes_recovery_load: bool,
-    can_move_beyond_denial: bool,
-    loads_recovery_loader: bool,
-    loads_recovery_artifact: bool,
-    creates_durable_records: bool,
-    installs_rollback_plan: bool,
-    allocates_service_slot: bool,
-    service_inventory_change: &'static str,
-    load_attempted: bool,
-}
-
-struct RecoveryLifelineCommandVocabularySelfTestCase {
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
-    actual_status: &'static str,
-    actual_reason: &'static str,
-    passed: bool,
-}
 
 #[derive(Clone, Copy)]
 struct RecoveryLoaderRuntimeIsolationCandidate {

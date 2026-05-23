@@ -20,7 +20,14 @@ into
 method predicates and diagnostic argument parsers into
 `seed-kernel/src/agent_protocol_recovery_methods.rs`, extracting recovery
 capability, selftest-count, and boundary-id constants into
-`seed-kernel/src/agent_protocol_recovery_constants.rs`, and preserving the
+`seed-kernel/src/agent_protocol_recovery_constants.rs`, moving recovery
+load-binding types into
+`seed-kernel/src/agent_protocol_recovery_load_binding.rs`, moving recovery
+artifact-reference types into
+`seed-kernel/src/agent_protocol_recovery_artifact_types.rs`, moving lifeline
+protocol and command-vocabulary types into
+`seed-kernel/src/agent_protocol_recovery_lifeline_protocol_types.rs`, and
+preserving the
 previously verified guest
 `module.audit_rollback_availability`,
 `module.audit_rollback_availability_selftest`,
@@ -320,9 +327,9 @@ covering the real QEMU/serial path through boot readiness, core read-only
 methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 `recovery.load_artifact`, and RAM-only audit visibility.
 
-Latest focused recovery guest-protocol verification: 2026-05-23 on Windows with
+Latest focused recovery guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260523-234000-16188.json` with 2725/2725
+`release\vm-reports\shadow-20260524-000922-23768.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
@@ -731,9 +738,21 @@ behavior:
   descriptor constants, execution-stage boundary IDs, reference-check type,
   parser/evaluator, hash-validation, and live-chain validation helpers into
   `seed-kernel/src/agent_protocol_recovery_execution.rs`
+- the latest behavior-neutral slices moved recovery method predicates and
+  diagnostic argument parsers into
+  `seed-kernel/src/agent_protocol_recovery_methods.rs`, recovery capability,
+  selftest-count, and boundary-id constants into
+  `seed-kernel/src/agent_protocol_recovery_constants.rs`, recovery
+  load-binding types into
+  `seed-kernel/src/agent_protocol_recovery_load_binding.rs`, recovery
+  artifact-reference types into
+  `seed-kernel/src/agent_protocol_recovery_artifact_types.rs`, and lifeline
+  protocol/command-vocabulary types into
+  `seed-kernel/src/agent_protocol_recovery_lifeline_protocol_types.rs`
 - next, leave the broad recovery dispatch candidate/evaluator in
   `agent_protocol_recovery.rs` until its non-execution dependencies have a
-  stable boundary, then continue with smaller focused extraction slices
+  stable boundary, then continue with smaller focused extraction slices over
+  parser/evaluator/type clusters whose ownership can stay inside one module
 - preserve every public method name, schema id, boundary id, denial reason,
   canonical hash line, event-log binding, and shadow-smoke expectation exactly
   except for file/module ownership
@@ -1531,7 +1550,7 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
   predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260523-234000-16188.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-000922-23768.json` with 2725/2725
   recovery predicates and 142 executed commands. Both reports derive
   `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
