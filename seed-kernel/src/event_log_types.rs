@@ -730,6 +730,7 @@ pub struct RecoveryLifelineCommandExecutionStageReference {
     pub execution_intent_hash: Option<[u8; 32]>,
     pub execution_commit_gate_hash: Option<[u8; 32]>,
     pub execution_result_denial_hash: Option<[u8; 32]>,
+    pub execution_audit_denial_hash: Option<[u8; 32]>,
     pub command_dispatch_boundary_id: &'static str,
     pub execution_stage_id: &'static str,
     pub execution_stage_projection_hash: [u8; 32],

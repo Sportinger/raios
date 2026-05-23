@@ -3,14 +3,15 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-23 by Codex after adding
-`recovery.lifeline_command_execution_audit_denial_diagnostic` and
-`recovery.lifeline_command_execution_audit_denial_diagnostic_selftest` over
-`raios.recovery_lifeline_command_execution_audit_denial.v0`, consuming the
-retained execution result-denial reference and the prior execution-stage hashes
+`recovery.lifeline_command_execution_observation_denial_diagnostic` and
+`recovery.lifeline_command_execution_observation_denial_diagnostic_selftest`
+over `raios.recovery_lifeline_command_execution_observation_denial.v0`,
+consuming the retained execution audit-denial reference and the prior
+execution-stage hashes
 while accepting no raw command body, no lifeline command body, no lifeline
 command envelope, dispatching no recovery behavior, and writing no audit or
 rollback records. Dispatch now advances through enablement, preflight, intent,
-commit gate, result denial, and audit denial, then remains explicit
+commit gate, result denial, audit denial, and observation denial, then remains explicit
 `defined_non_executable` /
 `recovery_lifeline_command_dispatch_execution_disabled` while still accepting
 no raw command body, no lifeline command body, no lifeline command envelope,
@@ -221,7 +222,7 @@ Latest maintenance verification:
   passed on 2026-05-23.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260523-024314-27580.json` with 4410/4410
+  `release\vm-reports\shadow-20260523-085025-21592.json` with 4455/4455
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -906,10 +907,10 @@ projection hash, retains only local-only current-boot side-effect-gate
 evidence, and advances dispatch only to the missing execution-enablement
 boundary without accepting command bodies, dispatching commands, enabling
 command execution, allocating service slots, or mutating service inventory.
-The execution-enable/preflight/intent/commit-gate/result-denial/audit-denial
-diagnostics now retain local-only current-boot hash references over the
-previous execution stage and advance dispatch through those facts before it
-returns to explicit
+The execution-enable/preflight/intent/commit-gate/result-denial/audit-denial/
+observation-denial diagnostics now retain local-only current-boot hash
+references over the previous execution stage and advance dispatch through those
+facts before it returns to explicit
 `defined_non_executable` /
 `recovery_lifeline_command_dispatch_execution_disabled`.
 No code loading exists yet.
@@ -917,11 +918,12 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Define the recovery lifeline command execution-observation denial boundary
-after the execution-audit denial reference.
+Define the recovery lifeline command execution-completion denial boundary
+after the execution-observation denial reference.
 ```
 
 Start from the retained
+`raios.recovery_lifeline_command_execution_observation_denial.v0` event,
 `raios.recovery_lifeline_command_execution_audit_denial.v0` event,
 `raios.recovery_lifeline_command_execution_result_denial.v0` event,
 `raios.recovery_lifeline_command_execution_commit_gate.v0` event,
@@ -949,7 +951,7 @@ Start from the retained
 runtime isolation diagnostic, rollback transaction-engine diagnostic, durable
 audit/rollback persistence diagnostic, and recovery memory provenance
 diagnostic. Add the next read-only hash-reference boundary for
-`raios.recovery_lifeline_command_execution_observation_denial.v0`: validate only
+`raios.recovery_lifeline_command_execution_completion_denial.v0`: validate only
 command id, argument schema, argument hash, target locator, command-envelope
 reference hash, body-canonicalization hash, handler-binding hash,
 status-read handler hash, rollback-preview authorization hash,
@@ -959,10 +961,11 @@ hash, recovery-memory write-authority hash, durable-audit/rollback
 write-authority hash, service-inventory side-effect boundary hash,
 command-dispatch behavior hash, executor-capability-table hash,
 side-effect-gate hash, execution-enable/preflight/intent/commit-gate hashes,
-result-denial hash, audit-denial hash, dispatch boundary id,
-execution-observation-denial id, execution-observation projection hash, and
-current-boot scope. It should reject stale/wrong-schema/substituted/mismatched
-audit-denial, result-denial, execution-stage, side-effect-gate, executor,
+result-denial hash, audit-denial hash, observation-denial hash, dispatch
+boundary id, execution-completion-denial id, execution-completion projection
+hash, and current-boot scope. It should reject
+stale/wrong-schema/substituted/mismatched observation-denial, audit-denial,
+result-denial, execution-stage, side-effect-gate, executor,
 dispatch-behavior, service-inventory,
 durable-write-authority, memory-authority, load-target, restart-target,
 disable-target, apply-authorization, preview-authorization, status-read,
@@ -976,17 +979,18 @@ recovery shortcuts, or recovery lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only command execution-observation denial hash-reference
-   diagnostics over the retained execution-audit-denial boundary.
-2. Bind observation-denial authority to the full command hash chain, including
-   the execution-enable/preflight/intent/commit-gate/result-denial/audit-denial
-   hashes, while still accepting no raw command body, dispatching no command,
-   and writing no memory, audit, rollback, provider, or service-inventory
-   records.
+1. Define read-only command execution-completion denial hash-reference
+   diagnostics over the retained execution-observation-denial boundary.
+2. Bind completion-denial authority to the full command hash chain, including
+   the execution-enable/preflight/intent/commit-gate/result-denial/
+   audit-denial/observation-denial hashes, while still accepting no raw command
+   body, dispatching no command, observing no result, and writing no memory,
+   audit, rollback, provider, completion, or service-inventory records.
 3. Keep selftests proving stale/wrong-schema/substituted/mismatched
-   audit-denial/result-denial and earlier retained command facts stay rejected
-   without implementing recovery shell behavior, persistent memory writes,
-   provider export, service inventory mutation, or rollback execution.
+   observation-denial/audit-denial/result-denial and earlier retained command
+   facts stay rejected without implementing recovery shell behavior, persistent
+   memory writes, provider export, service inventory mutation, or rollback
+   execution.
 
 Current blockers and non-goals:
 

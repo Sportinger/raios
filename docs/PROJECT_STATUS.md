@@ -82,7 +82,9 @@ Last verified locally: 2026-05-23 on Windows with QEMU 11 after adding guest
 `recovery.lifeline_command_execution_result_denial_diagnostic`/
 `recovery.lifeline_command_execution_result_denial_diagnostic_selftest`, and
 `recovery.lifeline_command_execution_audit_denial_diagnostic`/
-`recovery.lifeline_command_execution_audit_denial_diagnostic_selftest`, plus typed missing
+`recovery.lifeline_command_execution_audit_denial_diagnostic_selftest`, and
+`recovery.lifeline_command_execution_observation_denial_diagnostic`/
+`recovery.lifeline_command_execution_observation_denial_diagnostic_selftest`, plus typed missing
 `raios.durable_audit_ledger.v0`/`raios.rollback_store.v0` availability facts,
 typed missing `raios.durable_audit_write_policy.v0`/
 `raios.rollback_install_policy.v0` policy facts, typed missing
@@ -289,7 +291,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest guest-protocol verification: 2026-05-23 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260523-024314-27580.json` with 4410/4410
+`release\vm-reports\shadow-20260523-085025-21592.json` with 4455/4455
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
@@ -664,16 +666,17 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the recovery lifeline command execution-observation denial boundary
-after the execution-audit denial reference:
+Define the recovery lifeline command execution-completion denial boundary
+after the execution-observation denial reference:
 
 - add a read-only current-boot diagnostic for
-  `raios.recovery_lifeline_command_execution_observation_denial.v0`,
-  consuming the retained execution-audit-denial reference while still accepting
-  no raw command body, no lifeline command body, no lifeline command envelope,
-  dispatching no command, executing no recovery behavior, exporting no provider
-  context, and writing no memory, audit, rollback, or service-inventory records
-- validate only hash/reference shape for the execution-observation denial
+  `raios.recovery_lifeline_command_execution_completion_denial.v0`, consuming
+  the retained execution-observation-denial reference while still accepting no
+  raw command body, no lifeline command body, no lifeline command envelope,
+  dispatching no command, executing no recovery behavior, observing no command
+  result, exporting no provider context, and writing no memory, audit,
+  rollback, completion, or service-inventory records
+- validate only hash/reference shape for the execution-completion denial
   boundary: command id, argument schema, argument hash, target locator,
   command-envelope reference hash, body-canonicalization hash,
   handler-binding hash, status-read handler hash, rollback-preview/apply
@@ -682,19 +685,33 @@ after the execution-audit denial reference:
   hash, service-inventory side-effect boundary hash, command-dispatch behavior
   hash, executor-capability-table hash, side-effect-gate hash,
   execution-enablement/preflight/intent/commit-gate/result-denial/
-  audit-denial hashes, dispatch boundary id, execution-observation-denial id,
-  execution-observation projection hash, and current-boot scope
+  audit-denial/observation-denial hashes, dispatch boundary id,
+  execution-completion-denial id, execution-completion projection hash, and
+  current-boot scope
 - reject missing, stale, previous-boot, wrong-schema, substituted, and
-  mismatched execution-audit-denial/result-denial/commit-gate/intent/preflight/
-  enablement/side-effect-gate/executor/behavior/service-inventory/
-  durable-write-authority/memory-authority/load-target/restart-target/
-  disable-target/apply-authorization/preview-authorization/status-read/
-  handler-binding/body-canonicalization/dispatch/envelope/admission/
-  memory-provenance/durable-persistence/rollback-engine/loader-isolation/
-  command-vocabulary/protocol-state/request inputs before retaining or
-  reporting any execution-observation denial reference
+  mismatched execution-observation-denial/audit-denial/result-denial/
+  commit-gate/intent/preflight/enablement/side-effect-gate/executor/behavior/
+  service-inventory/durable-write-authority/memory-authority/load-target/
+  restart-target/disable-target/apply-authorization/preview-authorization/
+  status-read/handler-binding/body-canonicalization/dispatch/envelope/
+  admission/memory-provenance/durable-persistence/rollback-engine/
+  loader-isolation/command-vocabulary/protocol-state/request inputs before
+  retaining or reporting any execution-completion denial reference
 
 The verified foundation for that task is:
+
+- `recovery.lifeline_command_execution_observation_denial_diagnostic` and
+  `recovery.lifeline_command_execution_observation_denial_diagnostic_selftest`
+  now retain a local-only current-boot
+  `raios.recovery_lifeline_command_execution_observation_denial.v0` hash
+  reference over the retained execution-audit-denial reference while still
+  accepting no raw command body, no lifeline command body, no lifeline command
+  envelope, dispatching no command, executing no recovery behavior, observing
+  no command result, exporting no provider context, and writing no memory,
+  audit, rollback, or service-inventory records. Dispatch now advances through
+  audit-denial and observation-denial before ending at explicit
+  `defined_non_executable` /
+  `recovery_lifeline_command_dispatch_execution_disabled`.
 
 - `recovery.lifeline_command_execution_audit_denial_diagnostic` and
   `recovery.lifeline_command_execution_audit_denial_diagnostic_selftest` now
@@ -722,12 +739,13 @@ The verified foundation for that task is:
   `recovery.lifeline_command_execution_intent_diagnostic`, and
   `recovery.lifeline_command_execution_commit_gate_diagnostic`, plus
   `recovery.lifeline_command_execution_result_denial_diagnostic`, and
-  `recovery.lifeline_command_execution_audit_denial_diagnostic`, with their
+  `recovery.lifeline_command_execution_audit_denial_diagnostic`, and
+  `recovery.lifeline_command_execution_observation_denial_diagnostic`, with their
   selftests, now retain local-only current-boot hash references over the
   previous execution stage. They validate the same command, target, authority,
   side-effect-gate, executor, and dispatch hashes, advance dispatch through the
-  enablement, preflight, intent, commit-gate, result-denial, and audit-denial
-  facts, and still end at explicit `defined_non_executable` /
+  enablement, preflight, intent, commit-gate, result-denial, audit-denial, and
+  observation-denial facts, and still end at explicit `defined_non_executable` /
   `recovery_lifeline_command_dispatch_execution_disabled`. They do not accept
   raw command bodies or lifeline envelopes, dispatch commands, execute
   lifeline status/rollback/module/load behavior, allocate service slots, mutate
@@ -1434,7 +1452,7 @@ The verified foundation for that task is:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest report:
-  `release\vm-reports\shadow-20260523-024314-27580.json` with 4410/4410
+  `release\vm-reports\shadow-20260523-085025-21592.json` with 4455/4455
   predicates.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It

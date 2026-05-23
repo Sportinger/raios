@@ -467,6 +467,7 @@ pub struct RecoveryLifelineCommandExecutionStageHashInput<'a> {
     pub execution_intent_hash: Option<[u8; 32]>,
     pub execution_commit_gate_hash: Option<[u8; 32]>,
     pub execution_result_denial_hash: Option<[u8; 32]>,
+    pub execution_audit_denial_hash: Option<[u8; 32]>,
     pub command_dispatch_boundary_id: &'a str,
     pub execution_stage_id_field: &'static str,
     pub execution_stage_id: &'a str,
@@ -2806,6 +2807,14 @@ pub fn computed_recovery_lifeline_command_execution_stage_hash(
             &mut hash,
             b"execution_result_denial_sha256",
             execution_result_denial_hash,
+            true,
+        );
+    }
+    if let Some(execution_audit_denial_hash) = input.execution_audit_denial_hash {
+        hash_hash_line(
+            &mut hash,
+            b"execution_audit_denial_sha256",
+            execution_audit_denial_hash,
             true,
         );
     }
