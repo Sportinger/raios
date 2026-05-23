@@ -672,7 +672,8 @@ Refactor the recovery lifeline command execution-stage machinery without
 changing behavior:
 
 - the first behavior-neutral slice has moved the shared execution-stage
-  descriptor/input ownership and method/argument matching helpers into
+  descriptor/input ownership, method/argument matching helpers, stage
+  descriptor constants, and execution-stage boundary IDs into
   `seed-kernel/src/agent_protocol_recovery_execution.rs`
 - next, extract the repeated execution-stage parser, hash-validation,
   live-chain validation, retained-event construction, and JSON emission helpers
