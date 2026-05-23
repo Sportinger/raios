@@ -673,12 +673,12 @@ changing behavior:
 
 - the first behavior-neutral slice has moved the shared execution-stage
   descriptor/input ownership, method/argument matching helpers, stage
-  descriptor constants, and execution-stage boundary IDs into
+  descriptor constants, execution-stage boundary IDs, reference-check type,
+  parser/evaluator, hash-validation, and live-chain validation helpers into
   `seed-kernel/src/agent_protocol_recovery_execution.rs`
-- next, extract the repeated execution-stage parser, hash-validation,
-  live-chain validation, retained-event construction, and JSON emission helpers
-  out of the oversized recovery protocol file into the focused recovery
-  execution module code
+- next, extract the repeated execution-stage retained-event construction and
+  JSON emission helpers out of the oversized recovery protocol file into the
+  focused recovery execution module code
 - preserve every public method name, schema id, boundary id, denial reason,
   canonical hash line, event-log binding, and shadow-smoke expectation exactly
   except for file/module ownership

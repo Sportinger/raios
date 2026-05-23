@@ -2,15 +2,16 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-23 by Codex after the second behavior-neutral recovery
+Last updated: 2026-05-23 by Codex after the third behavior-neutral recovery
 lifeline command execution-stage refactor slice. Shared execution-stage
 descriptor/input ownership, method/argument matching helpers, stage descriptor
-constants, and execution-stage boundary IDs now live in
+constants, execution-stage boundary IDs, reference-check type,
+parser/evaluator, hash-validation, and live-chain validation helpers now live in
 `seed-kernel/src/agent_protocol_recovery_execution.rs`; public method names,
 schema ids, boundary ids, denial reasons, canonical hash lines, event-log
 bindings, dispatch behavior, and shadow-smoke expectations are unchanged.
 Shadow VM smoke passed with `-TimeoutSeconds 180`; report
-`release/vm-reports/shadow-20260523-155529-15896.json` recorded 4500/4500
+`release/vm-reports/shadow-20260523-161602-8028.json` recorded 4500/4500
 passing predicates.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
@@ -917,11 +918,12 @@ refactor.
 Start from the retained execution stage chain through
 `raios.recovery_lifeline_command_execution_completion_denial.v0`. The shared
 execution-stage descriptor/input ownership, method/argument matching helpers,
-stage descriptor constants, and execution-stage boundary IDs already live in
-`seed-kernel/src/agent_protocol_recovery_execution.rs`. Next, extract the
-repeated execution-stage parser, hash-validation, live-chain validation,
-retained-event construction, and JSON emission helpers out of the oversized
-recovery protocol file into the focused recovery execution module code.
+stage descriptor constants, execution-stage boundary IDs, reference-check type,
+parser/evaluator, hash-validation, and live-chain validation helpers already
+live in `seed-kernel/src/agent_protocol_recovery_execution.rs`. Next, extract
+the repeated execution-stage retained-event construction and JSON emission
+helpers out of the oversized recovery protocol file into the focused recovery
+execution module code.
 Do not change public method names, schema ids, boundary ids, denial reasons,
 canonical hash lines, event-log binding, dispatch behavior, or shadow-smoke
 expectations. This is a behavior-neutral cleanup to make the next execution
@@ -929,10 +931,11 @@ boundaries faster and less error-prone, not a protocol redesign.
 
 Next three tasks:
 
-1. Move execution-stage parser/evaluator and hash-validation helpers into the
-   focused recovery execution module without changing protocol output.
-2. Move execution-stage response emission and retained event construction into
+1. Move execution-stage response emission and retained event construction into
    the same focused ownership boundary, preserving all schema/hash strings.
+2. Move execution-stage selftest case construction and rendering helpers into
+   the focused recovery execution module if the response-emission slice leaves
+   repeated stage-only code behind.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next refactor slice.
