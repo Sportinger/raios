@@ -1,4 +1,11 @@
 use crate::{
+    agent_protocol_recovery_execution::{
+        recovery_lifeline_command_execution_stage_diagnostic_arg,
+        recovery_lifeline_command_execution_stage_diagnostic_method,
+        recovery_lifeline_command_execution_stage_diagnostic_selftest_method,
+        RecoveryLifelineCommandExecutionStageDescriptor,
+        RecoveryLifelineCommandExecutionStageInput,
+    },
     agent_protocol_support::{
         begin_response, crlf, current_boot_event_id_str, end_response, json_event_id,
         json_event_id_option, json_opt_str, json_sha256, json_sha256_option, json_str, method_eq,
@@ -1954,83 +1961,6 @@ struct RecoveryLifelineCommandSideEffectGateSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
-struct RecoveryLifelineCommandExecutionStageDescriptor {
-    index: u8,
-    method_name: &'static str,
-    method_alias: &'static str,
-    selftest_method_name: &'static str,
-    selftest_alias: &'static str,
-    response_method: &'static str,
-    selftest_response_method: &'static str,
-    diagnostic_schema: &'static str,
-    selftest_schema: &'static str,
-    reference_schema: &'static str,
-    canonicalization: &'static str,
-    resource: &'static str,
-    stage_name: &'static str,
-    stage_hash_field: &'static str,
-    stage_id_field: &'static str,
-    stage_id: &'static str,
-    stage_projection_field: &'static str,
-    retained_previous_stage_event_id_field: &'static str,
-    reference_format: &'static str,
-    absent_reason: &'static str,
-    arity_reason: &'static str,
-    scope_reason: &'static str,
-    invalid_hash_reason: &'static str,
-    id_mismatch_reason: &'static str,
-    hash_mismatch_status: &'static str,
-    hash_mismatch_reason: &'static str,
-    retained_previous_missing_reason: &'static str,
-    retained_previous_stale_reason: &'static str,
-    retained_previous_mismatch_reason: &'static str,
-    valid_reason: &'static str,
-    not_implemented_reason: &'static str,
-    next_requirement_fact: Option<&'static str>,
-    next_requirement_schema: Option<&'static str>,
-    next_requirement_reason: Option<&'static str>,
-}
-
-#[derive(Clone, Copy)]
-struct RecoveryLifelineCommandExecutionStageInput<'a> {
-    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
-    has_reference: bool,
-    arity_valid: bool,
-    scope: &'a str,
-    execution_stage_hash: Option<[u8; 32]>,
-    retained_previous_stage_event_id: Option<&'a str>,
-    command_id: Option<&'a str>,
-    argument_schema: Option<&'a str>,
-    argument_hash: Option<[u8; 32]>,
-    target_locator: Option<&'a str>,
-    command_envelope_reference_hash: Option<[u8; 32]>,
-    command_body_canonicalization_hash: Option<[u8; 32]>,
-    handler_binding_hash: Option<[u8; 32]>,
-    status_read_handler_hash: Option<[u8; 32]>,
-    rollback_preview_authorization_hash: Option<[u8; 32]>,
-    rollback_apply_authorization_hash: Option<[u8; 32]>,
-    disable_module_target_binding_hash: Option<[u8; 32]>,
-    restart_last_good_target_binding_hash: Option<[u8; 32]>,
-    load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
-    recovery_memory_write_authority_hash: Option<[u8; 32]>,
-    durable_audit_rollback_write_authority_hash: Option<[u8; 32]>,
-    service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
-    command_dispatch_behavior_hash: Option<[u8; 32]>,
-    executor_capability_table_hash: Option<[u8; 32]>,
-    side_effect_gate_hash: Option<[u8; 32]>,
-    execution_enablement_hash: Option<[u8; 32]>,
-    execution_preflight_hash: Option<[u8; 32]>,
-    execution_intent_hash: Option<[u8; 32]>,
-    execution_commit_gate_hash: Option<[u8; 32]>,
-    execution_result_denial_hash: Option<[u8; 32]>,
-    execution_audit_denial_hash: Option<[u8; 32]>,
-    execution_observation_denial_hash: Option<[u8; 32]>,
-    command_dispatch_boundary_id: Option<&'a str>,
-    execution_stage_id: Option<&'a str>,
-    execution_stage_projection_hash: Option<[u8; 32]>,
-}
-
-#[derive(Clone, Copy)]
 struct RecoveryLifelineCommandExecutionStageReferenceCheck<'a> {
     descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
     has_reference: bool,
@@ -2874,22 +2804,6 @@ pub(crate) fn recovery_lifeline_command_execution_completion_denial_diagnostic_s
         method,
         RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
     )
-}
-
-fn recovery_lifeline_command_execution_stage_diagnostic_method(
-    method: &str,
-    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
-) -> bool {
-    method_head_eq(method, descriptor.method_name)
-        || method_head_eq(method, descriptor.method_alias)
-}
-
-fn recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
-    method: &str,
-    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
-) -> bool {
-    method_head_eq(method, descriptor.selftest_method_name)
-        || method_head_eq(method, descriptor.selftest_alias)
 }
 
 pub(crate) fn recovery_lifeline_command_body_canonicalization_diagnostic_method(
@@ -39786,21 +39700,6 @@ fn recovery_lifeline_command_side_effect_gate_diagnostic_arg(method: &str) -> &s
         "recovery.lifeline_command_side_effect_gate_diagnostic".len()
     } else if method_head_eq(method, "recovery.lifeline_command_side_effect_gate") {
         "recovery.lifeline_command_side_effect_gate".len()
-    } else {
-        return "";
-    };
-    method[head_len..].trim()
-}
-
-fn recovery_lifeline_command_execution_stage_diagnostic_arg(
-    method: &str,
-    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
-) -> &str {
-    let method = method.trim();
-    let head_len = if method_head_eq(method, descriptor.method_name) {
-        descriptor.method_name.len()
-    } else if method_head_eq(method, descriptor.method_alias) {
-        descriptor.method_alias.len()
     } else {
         return "";
     };

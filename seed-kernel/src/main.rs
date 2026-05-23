@@ -35,6 +35,7 @@ mod agent_protocol_module_write_boundary;
 mod agent_protocol_policy;
 mod agent_protocol_provider;
 mod agent_protocol_recovery;
+mod agent_protocol_recovery_execution;
 mod agent_protocol_support;
 mod agent_protocol_system;
 mod console;

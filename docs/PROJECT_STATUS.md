@@ -671,10 +671,13 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 Refactor the recovery lifeline command execution-stage machinery without
 changing behavior:
 
-- extract the repeated execution-stage descriptor, parser, hash-validation,
+- the first behavior-neutral slice has moved the shared execution-stage
+  descriptor/input ownership and method/argument matching helpers into
+  `seed-kernel/src/agent_protocol_recovery_execution.rs`
+- next, extract the repeated execution-stage parser, hash-validation,
   live-chain validation, retained-event construction, and JSON emission helpers
-  out of the oversized recovery protocol file into focused recovery execution
-  module code
+  out of the oversized recovery protocol file into the focused recovery
+  execution module code
 - preserve every public method name, schema id, boundary id, denial reason,
   canonical hash line, event-log binding, and shadow-smoke expectation exactly
   except for file/module ownership
@@ -682,6 +685,11 @@ changing behavior:
   `build-seed-kernel.ps1 -Profile release`, `cargo fmt --all -- --check`,
   `git diff --check`, workspace Cargo tests, secret scan, and
   `vm-harness\shadow-vm-smoke.ps1`
+- when running `vm-harness\shadow-vm-smoke.ps1` through an agent tool on this
+  Windows/QEMU setup, allow at least a 30-minute outer timeout, pass
+  `-TimeoutSeconds 180` when the default per-command serial timeout is too
+  tight, and check `release\vm-reports\shadow-*.json` plus the temp
+  `serial.log` before treating a timeout as a protocol failure
 
 The verified foundation for that task is:
 

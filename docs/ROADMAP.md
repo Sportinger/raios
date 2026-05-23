@@ -2,25 +2,13 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-23 by Codex after adding
-`recovery.lifeline_command_execution_completion_denial_diagnostic` and
-`recovery.lifeline_command_execution_completion_denial_diagnostic_selftest`
-over `raios.recovery_lifeline_command_execution_completion_denial.v0`,
-consuming the retained execution observation-denial reference and the prior
-execution-stage hashes
-while accepting no raw command body, no lifeline command body, no lifeline
-command envelope, dispatching no recovery behavior, and writing no audit or
-rollback, completion, or service-inventory records. Dispatch now advances
-through enablement, preflight, intent, commit gate, result denial, audit
-denial, observation denial, and completion denial, then remains explicit
-`defined_non_executable` /
-`recovery_lifeline_command_dispatch_execution_disabled` while still accepting
-no raw command body, no lifeline command body, no lifeline command envelope,
-allocating no service slot, creating no service inventory records, changing no
-service inventory, and keeping command dispatch, command execution, memory
-writes, provider export, durable writes, rollback replay, recovery-memory
-writes, rollback preview/apply, loader execution, artifact loading, rollback
-installs, direct-OpenAI recovery shortcuts, and recovery behavior disabled.
+Last updated: 2026-05-23 by Codex after the first behavior-neutral recovery
+lifeline command execution-stage refactor slice. Shared execution-stage
+descriptor/input ownership and method/argument matching helpers now live in
+`seed-kernel/src/agent_protocol_recovery_execution.rs`; public method names,
+schema ids, boundary ids, denial reasons, canonical hash lines, event-log
+bindings, dispatch behavior, and shadow-smoke expectations are unchanged.
+Shadow VM smoke passed with `-TimeoutSeconds 180` on this Windows/QEMU setup.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
 diagnostics with
@@ -919,15 +907,18 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Refactor the recovery lifeline command execution-stage machinery without
-changing behavior.
+Continue the behavior-neutral recovery lifeline command execution-stage
+refactor.
 ```
 
 Start from the retained execution stage chain through
-`raios.recovery_lifeline_command_execution_completion_denial.v0`. Extract the
-repeated execution-stage descriptor, parser, hash-validation, live-chain
+`raios.recovery_lifeline_command_execution_completion_denial.v0`. The shared
+execution-stage descriptor/input ownership and method/argument matching helpers
+already live in `seed-kernel/src/agent_protocol_recovery_execution.rs`. Next,
+extract the repeated execution-stage parser, hash-validation, live-chain
 validation, retained-event construction, and JSON emission helpers out of the
-oversized recovery protocol file into focused recovery execution module code.
+oversized recovery protocol file into the focused recovery execution module
+code.
 Do not change public method names, schema ids, boundary ids, denial reasons,
 canonical hash lines, event-log binding, dispatch behavior, or shadow-smoke
 expectations. This is a behavior-neutral cleanup to make the next execution
@@ -935,12 +926,13 @@ boundaries faster and less error-prone, not a protocol redesign.
 
 Next three tasks:
 
-1. Move execution-stage descriptor and parser/evaluator helpers into focused
-   recovery execution module code without changing protocol output.
+1. Move execution-stage parser/evaluator and hash-validation helpers into the
+   focused recovery execution module without changing protocol output.
 2. Move execution-stage response emission and retained event construction into
    the same focused ownership boundary, preserving all schema/hash strings.
-3. Run the full release build, shadow VM smoke, workspace Cargo tests, format
-   check, diff check, and secret scan before committing the refactor.
+3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
+   workspace Cargo tests, format check, diff check, and secret scan before
+   committing the next refactor slice.
 
 Current blockers and non-goals:
 

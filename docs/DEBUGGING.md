@@ -128,6 +128,20 @@ log path.
 With `-Headless`, the runner uses `-display none` instead of GTK. This is useful
 for serial-only harness tests.
 
+Shadow VM smoke timing note: the full
+`vm-harness\shadow-vm-smoke.ps1` run can be much longer than the compile step on
+this Windows/QEMU setup. When running it through an agent tool, use a command
+timeout of at least 30 minutes and pass `-TimeoutSeconds 180` if the default
+45-second per-command serial timeout is too tight. Do not treat a 10-minute
+outer tool timeout as a guest or protocol failure by itself; inspect the
+generated `release\vm-reports\shadow-*.json` and the temp `serial.log`.
+
+If the report failure is only `Timed out connecting to QEMU serial TCP port
+4565`, first check for a stale `qemu-system-x86_64` process or an occupied
+serial port, stop stale QEMU processes, and rerun the smoke. The TCP serial path
+is single-client in practice, so concurrent harnesses or manual serial clients
+can make an otherwise valid build look stuck.
+
 Tail the serial log:
 
 ```powershell
