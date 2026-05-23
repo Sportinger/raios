@@ -36,6 +36,7 @@ mod agent_protocol_policy;
 mod agent_protocol_provider;
 mod agent_protocol_recovery;
 mod agent_protocol_recovery_artifact_types;
+mod agent_protocol_recovery_command_authorization_types;
 mod agent_protocol_recovery_command_dispatch_types;
 mod agent_protocol_recovery_constants;
 mod agent_protocol_recovery_execution;
