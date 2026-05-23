@@ -465,6 +465,7 @@ pub struct RecoveryLifelineCommandExecutionStageHashInput<'a> {
     pub execution_enablement_hash: Option<[u8; 32]>,
     pub execution_preflight_hash: Option<[u8; 32]>,
     pub execution_intent_hash: Option<[u8; 32]>,
+    pub execution_commit_gate_hash: Option<[u8; 32]>,
     pub command_dispatch_boundary_id: &'a str,
     pub execution_stage_id_field: &'static str,
     pub execution_stage_id: &'a str,
@@ -2788,6 +2789,14 @@ pub fn computed_recovery_lifeline_command_execution_stage_hash(
             &mut hash,
             b"execution_intent_sha256",
             execution_intent_hash,
+            true,
+        );
+    }
+    if let Some(execution_commit_gate_hash) = input.execution_commit_gate_hash {
+        hash_hash_line(
+            &mut hash,
+            b"execution_commit_gate_sha256",
+            execution_commit_gate_hash,
             true,
         );
     }

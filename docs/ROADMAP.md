@@ -3,26 +3,14 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-23 by Codex after adding
-`recovery.lifeline_command_execution_enablement_diagnostic`,
-`recovery.lifeline_command_execution_preflight_diagnostic`,
-`recovery.lifeline_command_execution_intent_diagnostic`, and
-`recovery.lifeline_command_execution_commit_gate_diagnostic`, plus their
-selftests, over
-`raios.recovery_lifeline_command_execution_enablement.v0`,
-`raios.recovery_lifeline_command_execution_preflight.v0`,
-`raios.recovery_lifeline_command_execution_intent.v0`, and
-`raios.recovery_lifeline_command_execution_commit_gate.v0`. These stages
-consume the retained side-effect-gate and previous execution-stage references,
-validate only command id, argument schema, argument hash, target locator,
-command-envelope reference hash, body-canonicalization hash, handler-binding
-hash, status-read handler hash, rollback authorization hashes,
-disable/restart/load target hashes, recovery-memory write-authority hash,
-durable-audit/rollback write-authority hash, service-inventory side-effect
-boundary hash, command-dispatch behavior hash, executor-capability-table hash,
-side-effect-gate hash, prior execution-stage hashes, dispatch boundary id,
-stage id, stage projection hash, and current-boot scope, retaining only
-local-only current-boot hash references. Dispatch now advances through
-enablement, preflight, intent, and commit gate, then remains explicit
+`recovery.lifeline_command_execution_result_denial_diagnostic` and
+`recovery.lifeline_command_execution_result_denial_diagnostic_selftest` over
+`raios.recovery_lifeline_command_execution_result_denial.v0`, consuming the
+retained execution commit-gate reference and the prior execution-stage hashes
+while accepting no raw command body, no lifeline command body, no lifeline
+command envelope, and dispatching no recovery behavior. Dispatch now advances
+through enablement, preflight, intent, commit gate, and result denial, then
+remains explicit
 `defined_non_executable` /
 `recovery_lifeline_command_dispatch_execution_disabled` while still accepting
 no raw command body, no lifeline command body, no lifeline command envelope,
@@ -233,7 +221,7 @@ Latest maintenance verification:
   passed on 2026-05-22.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260523-010600-6996.json` with 4320/4320
+  `release\vm-reports\shadow-20260523-021129-18244.json` with 4365/4365
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -918,7 +906,7 @@ projection hash, retains only local-only current-boot side-effect-gate
 evidence, and advances dispatch only to the missing execution-enablement
 boundary without accepting command bodies, dispatching commands, enabling
 command execution, allocating service slots, or mutating service inventory.
-The execution-enable/preflight/intent/commit-gate diagnostics now retain
+The execution-enable/preflight/intent/commit-gate/result-denial diagnostics now retain
 local-only current-boot hash references over the previous execution stage and
 advance dispatch through those facts before it returns to explicit
 `defined_non_executable` /
@@ -928,11 +916,12 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Define the recovery lifeline command execution-result denial boundary after the
-execution commit gate.
+Define the recovery lifeline command execution-audit denial boundary after the
+execution-result denial reference.
 ```
 
 Start from the retained
+`raios.recovery_lifeline_command_execution_result_denial.v0` event,
 `raios.recovery_lifeline_command_execution_commit_gate.v0` event,
 `raios.recovery_lifeline_command_execution_intent.v0` event,
 `raios.recovery_lifeline_command_execution_preflight.v0` event,
@@ -958,7 +947,7 @@ Start from the retained
 runtime isolation diagnostic, rollback transaction-engine diagnostic, durable
 audit/rollback persistence diagnostic, and recovery memory provenance
 diagnostic. Add the next read-only hash-reference boundary for
-`raios.recovery_lifeline_command_execution_result_denial.v0`: validate only
+`raios.recovery_lifeline_command_execution_audit_denial.v0`: validate only
 command id, argument schema, argument hash, target locator, command-envelope
 reference hash, body-canonicalization hash, handler-binding hash,
 status-read handler hash, rollback-preview authorization hash,
@@ -968,14 +957,15 @@ hash, recovery-memory write-authority hash, durable-audit/rollback
 write-authority hash, service-inventory side-effect boundary hash,
 command-dispatch behavior hash, executor-capability-table hash,
 side-effect-gate hash, execution-enable/preflight/intent/commit-gate hashes,
-dispatch boundary id, execution-result-denial id, execution-result projection
-hash, and current-boot scope. It should reject stale/wrong-schema/substituted/
-mismatched execution-stage, side-effect-gate, executor, dispatch-behavior,
-service-inventory, durable-write-authority, memory-authority, load-target,
-restart-target, disable-target, apply-authorization, preview-authorization,
-status-read, handler-binding, body-canonicalization, dispatch, envelope,
-admission, memory-provenance, durable-persistence, rollback-engine,
-loader-isolation, command-vocabulary, protocol-state, and request chains and
+result-denial hash, dispatch boundary id, execution-audit-denial id,
+execution-audit projection hash, and current-boot scope. It should reject
+stale/wrong-schema/substituted/mismatched result-denial, execution-stage,
+side-effect-gate, executor, dispatch-behavior, service-inventory,
+durable-write-authority, memory-authority, load-target, restart-target,
+disable-target, apply-authorization, preview-authorization, status-read,
+handler-binding, body-canonicalization, dispatch, envelope, admission,
+memory-provenance, durable-persistence, rollback-engine, loader-isolation,
+command-vocabulary, protocol-state, and request chains and
 still avoid fake recovery shell behavior, fake command execution, fake
 persistent memory, fallback stores, durable records, loaders, rollback
 transactions, service-slot side effects, provider export, direct-OpenAI
@@ -983,15 +973,16 @@ recovery shortcuts, or recovery lifeline behavior.
 
 Next three tasks:
 
-1. Define read-only command execution-result-denial hash-reference diagnostics
-   over the retained execution commit gate and dispatch-denial boundary.
-2. Bind result-denial authority to the full command hash chain, including the
-   execution-enable/preflight/intent/commit-gate hashes, while still accepting
-   no raw command body and dispatching no command.
-3. Keep selftests proving stale/wrong-schema/substituted/mismatched execution
-   stages and earlier retained command facts stay rejected without implementing
-   recovery shell behavior, persistent memory writes, provider export, service
-   inventory mutation, or rollback execution.
+1. Define read-only command execution-audit denial hash-reference diagnostics
+   over the retained execution-result-denial boundary.
+2. Bind audit-denial authority to the full command hash chain, including the
+   execution-enable/preflight/intent/commit-gate/result-denial hashes, while
+   still accepting no raw command body, dispatching no command, and writing no
+   durable audit or rollback records.
+3. Keep selftests proving stale/wrong-schema/substituted/mismatched
+   result-denial and earlier retained command facts stay rejected without
+   implementing recovery shell behavior, persistent memory writes, provider
+   export, service inventory mutation, or rollback execution.
 
 Current blockers and non-goals:
 

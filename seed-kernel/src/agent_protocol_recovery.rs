@@ -35,7 +35,7 @@ const RECOVERY_DURABLE_AUDIT_ROLLBACK_PERSISTENCE_SELFTEST_CASES: usize = 51;
 const RECOVERY_MEMORY_PROVENANCE_SELFTEST_CASES: usize = 65;
 const RECOVERY_LIFELINE_COMMAND_ADMISSION_SELFTEST_CASES: usize = 45;
 const RECOVERY_LIFELINE_COMMAND_ENVELOPE_SELFTEST_CASES: usize = 47;
-const RECOVERY_LIFELINE_COMMAND_DISPATCH_SELFTEST_CASES: usize = 47;
+const RECOVERY_LIFELINE_COMMAND_DISPATCH_SELFTEST_CASES: usize = 48;
 const RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_SELFTEST_CASES: usize = 43;
 const RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_SELFTEST_CASES: usize = 10;
 const RECOVERY_LIFELINE_STATUS_READ_HANDLER_SELFTEST_CASES: usize = 10;
@@ -89,6 +89,8 @@ const RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_command_execution_intent.current_boot";
 const RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_BOUNDARY_ID: &str =
     "boundary.recovery_lifeline_command_execution_commit_gate.current_boot";
+const RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_BOUNDARY_ID: &str =
+    "boundary.recovery_lifeline_command_execution_result_denial.current_boot";
 
 #[derive(Clone, Copy)]
 struct RecoveryIdentityReferenceCheck<'a> {
@@ -945,6 +947,7 @@ struct RecoveryLifelineCommandDispatchCandidate {
     execution_preflight_present: bool,
     execution_intent_present: bool,
     execution_commit_gate_present: bool,
+    execution_result_denial_present: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -972,6 +975,7 @@ struct RecoveryLifelineCommandDispatchCheck {
     execution_preflight_present: bool,
     execution_intent_present: bool,
     execution_commit_gate_present: bool,
+    execution_result_denial_present: bool,
     accepts_lifeline_command_body: bool,
     accepts_lifeline_command_envelope: bool,
     dispatches_lifeline_command: bool,
@@ -2005,6 +2009,7 @@ struct RecoveryLifelineCommandExecutionStageInput<'a> {
     execution_enablement_hash: Option<[u8; 32]>,
     execution_preflight_hash: Option<[u8; 32]>,
     execution_intent_hash: Option<[u8; 32]>,
+    execution_commit_gate_hash: Option<[u8; 32]>,
     command_dispatch_boundary_id: Option<&'a str>,
     execution_stage_id: Option<&'a str>,
     execution_stage_projection_hash: Option<[u8; 32]>,
@@ -2041,6 +2046,7 @@ struct RecoveryLifelineCommandExecutionStageReferenceCheck<'a> {
     execution_enablement_hash: Option<[u8; 32]>,
     execution_preflight_hash: Option<[u8; 32]>,
     execution_intent_hash: Option<[u8; 32]>,
+    execution_commit_gate_hash: Option<[u8; 32]>,
     command_dispatch_boundary_id: Option<&'a str>,
     execution_stage_id: Option<&'a str>,
     execution_stage_projection_hash: Option<[u8; 32]>,
@@ -2211,6 +2217,51 @@ const RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE:
         retained_previous_mismatch_reason: "recovery_lifeline_command_execution_intent_mismatch",
         valid_reason: "recovery_lifeline_command_execution_commit_gate_valid_but_execution_disabled",
         not_implemented_reason: "recovery_lifeline_command_execution_commit_gate_not_implemented",
+        next_requirement_fact: Some("command_execution_result_denial"),
+        next_requirement_schema: Some("raios.recovery_lifeline_command_execution_result_denial.v0"),
+        next_requirement_reason: Some("recovery_lifeline_command_execution_result_denial_missing"),
+    };
+
+const RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE:
+    RecoveryLifelineCommandExecutionStageDescriptor =
+    RecoveryLifelineCommandExecutionStageDescriptor {
+        index: 4,
+        method_name: "recovery.lifeline_command_execution_result_denial_diagnostic",
+        method_alias: "recovery.lifeline_command_execution_result_denial",
+        selftest_method_name:
+            "recovery.lifeline_command_execution_result_denial_diagnostic_selftest",
+        selftest_alias: "recovery.lifeline_command_execution_result_denial_selftest",
+        response_method: "recovery.lifeline_command_execution_result_denial_diagnostic",
+        selftest_response_method:
+            "recovery.lifeline_command_execution_result_denial_diagnostic_selftest",
+        diagnostic_schema:
+            "raios.recovery_lifeline_command_execution_result_denial_diagnostic.v0",
+        selftest_schema: "raios.recovery_lifeline_command_execution_result_denial_selftest.v0",
+        reference_schema: "raios.recovery_lifeline_command_execution_result_denial.v0",
+        canonicalization: "raios.recovery_lifeline_command_execution_result_denial.canonical.v0",
+        resource: "recovery_lifeline_command_execution_result_denial",
+        stage_name: "execution_result_denial",
+        stage_hash_field: "execution_result_denial_hash",
+        stage_id_field: "execution_result_denial_id",
+        stage_id: RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_BOUNDARY_ID,
+        stage_projection_field: "execution_result_projection_sha256",
+        retained_previous_stage_event_id_field: "retained_execution_commit_gate_event_id",
+        reference_format: "recovery.lifeline_command_execution_result_denial_diagnostic <execution_result_denial_hash> <retained_execution_commit_gate_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <execution_commit_gate_hash> <command_dispatch_boundary_id> <execution_result_denial_id> <execution_result_projection_hash> [current_boot]",
+        absent_reason: "recovery_lifeline_command_execution_result_denial_absent",
+        arity_reason: "recovery_lifeline_command_execution_result_denial_arity_invalid",
+        scope_reason: "recovery_lifeline_command_execution_result_denial_scope_must_be_current_boot",
+        invalid_hash_reason: "recovery_lifeline_command_execution_result_denial_invalid_hash",
+        id_mismatch_reason: "recovery_lifeline_command_execution_result_denial_id_mismatch",
+        hash_mismatch_status:
+            "mismatched_recovery_lifeline_command_execution_result_denial_hash",
+        hash_mismatch_reason: "recovery_lifeline_command_execution_result_denial_hash_mismatch",
+        retained_previous_missing_reason:
+            "retained_recovery_lifeline_command_execution_commit_gate_missing",
+        retained_previous_stale_reason:
+            "retained_recovery_lifeline_command_execution_commit_gate_event_id_stale_or_dropped",
+        retained_previous_mismatch_reason: "recovery_lifeline_command_execution_commit_gate_mismatch",
+        valid_reason: "recovery_lifeline_command_execution_result_denial_valid_but_execution_disabled",
+        not_implemented_reason: "recovery_lifeline_command_execution_result_denial_not_implemented",
         next_requirement_fact: None,
         next_requirement_schema: None,
         next_requirement_reason: None,
@@ -2571,6 +2622,24 @@ pub(crate) fn recovery_lifeline_command_execution_commit_gate_diagnostic_selftes
     recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
         method,
         RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_result_denial_diagnostic_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
+    )
+}
+
+pub(crate) fn recovery_lifeline_command_execution_result_denial_diagnostic_selftest_method(
+    method: &str,
+) -> bool {
+    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
     )
 }
 
@@ -5467,6 +5536,10 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
         event_log::latest_recovery_lifeline_command_execution_stage_reference(
             RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE.reference_schema,
         );
+    let retained_execution_result_denial =
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE.reference_schema,
+        );
     let candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
         retained_envelope,
         retained_request,
@@ -5488,6 +5561,7 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
         retained_execution_preflight,
         retained_execution_intent,
         retained_execution_commit_gate,
+        retained_execution_result_denial,
     );
     let check = evaluate_recovery_lifeline_command_dispatch(candidate);
 
@@ -5684,6 +5758,14 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
         candidate.execution_commit_gate_present,
         RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE.not_implemented_reason,
         &check,
+        true,
+    );
+    emit_recovery_lifeline_command_dispatch_requirement(
+        "command_execution_result_denial",
+        "raios.recovery_lifeline_command_execution_result_denial.v0",
+        candidate.execution_result_denial_present,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE.not_implemented_reason,
+        &check,
         false,
     );
     raw_line("      ],");
@@ -5763,6 +5845,7 @@ pub(crate) fn emit_recovery_lifeline_command_body_canonicalization_diagnostic(me
     let dispatch_candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
         retained_envelope,
         retained_request,
+        None,
         None,
         None,
         None,
@@ -8047,6 +8130,19 @@ pub(crate) fn emit_recovery_lifeline_command_execution_commit_gate_diagnostic(me
 pub(crate) fn emit_recovery_lifeline_command_execution_commit_gate_diagnostic_selftest() {
     emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
         RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_result_denial_diagnostic(method: &str) {
+    emit_recovery_lifeline_command_execution_stage_diagnostic(
+        method,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
+    );
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_result_denial_diagnostic_selftest() {
+    emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
     );
 }
 
@@ -11902,6 +11998,9 @@ fn emit_recovery_lifeline_command_dispatch_boundary(check: &RecoveryLifelineComm
     raw("        \"execution_commit_gate_present\": ");
     raw_bool(check.execution_commit_gate_present);
     raw_line(",");
+    raw("        \"execution_result_denial_present\": ");
+    raw_bool(check.execution_result_denial_present);
+    raw_line(",");
     raw("        \"accepts_lifeline_command_body\": ");
     raw_bool(check.accepts_lifeline_command_body);
     raw_line(",");
@@ -14377,6 +14476,9 @@ fn emit_recovery_lifeline_command_execution_stage_reference_object(
     raw_line(",");
     raw("        \"execution_intent_hash\": ");
     json_sha256_option(check.execution_intent_hash);
+    raw_line(",");
+    raw("        \"execution_commit_gate_hash\": ");
+    json_sha256_option(check.execution_commit_gate_hash);
     raw_line(",");
     raw("        \"execution_stage_projection_hash\": ");
     json_sha256_option(check.execution_stage_projection_hash);
@@ -21823,6 +21925,7 @@ fn recovery_lifeline_command_body_canonicalization_live_chain_mismatch(
         None,
         None,
         None,
+        None,
     );
     let dispatch_check = evaluate_recovery_lifeline_command_dispatch(dispatch_candidate);
     if !method_eq(
@@ -27383,6 +27486,11 @@ fn parse_recovery_lifeline_command_execution_stage_reference(
     } else {
         None
     };
+    let execution_commit_gate_hash = if descriptor.index >= 4 {
+        parts.next()
+    } else {
+        None
+    };
     let command_dispatch_boundary_id = parts.next();
     let execution_stage_id = parts.next();
     let execution_stage_projection_hash = parts.next();
@@ -27415,6 +27523,7 @@ fn parse_recovery_lifeline_command_execution_stage_reference(
             && (descriptor.index < 1 || execution_enablement_hash.is_some())
             && (descriptor.index < 2 || execution_preflight_hash.is_some())
             && (descriptor.index < 3 || execution_intent_hash.is_some())
+            && (descriptor.index < 4 || execution_commit_gate_hash.is_some())
             && command_dispatch_boundary_id.is_some()
             && execution_stage_id.is_some()
             && execution_stage_projection_hash.is_some()
@@ -27453,6 +27562,7 @@ fn parse_recovery_lifeline_command_execution_stage_reference(
         execution_enablement_hash: execution_enablement_hash.and_then(parse_sha256_ref),
         execution_preflight_hash: execution_preflight_hash.and_then(parse_sha256_ref),
         execution_intent_hash: execution_intent_hash.and_then(parse_sha256_ref),
+        execution_commit_gate_hash: execution_commit_gate_hash.and_then(parse_sha256_ref),
         command_dispatch_boundary_id,
         execution_stage_id,
         execution_stage_projection_hash: execution_stage_projection_hash.and_then(parse_sha256_ref),
@@ -27686,6 +27796,7 @@ fn evaluate_recovery_lifeline_command_execution_stage_reference(
             execution_enablement_hash: input.execution_enablement_hash,
             execution_preflight_hash: input.execution_preflight_hash,
             execution_intent_hash: input.execution_intent_hash,
+            execution_commit_gate_hash: input.execution_commit_gate_hash,
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             execution_stage_id_field: descriptor.stage_id_field,
             execution_stage_id: descriptor.stage_id,
@@ -27785,6 +27896,7 @@ fn recovery_lifeline_command_execution_stage_reference_check<'a>(
         execution_enablement_hash: input.execution_enablement_hash,
         execution_preflight_hash: input.execution_preflight_hash,
         execution_intent_hash: input.execution_intent_hash,
+        execution_commit_gate_hash: input.execution_commit_gate_hash,
         command_dispatch_boundary_id: input.command_dispatch_boundary_id,
         execution_stage_id: input.execution_stage_id,
         execution_stage_projection_hash: input.execution_stage_projection_hash,
@@ -27931,6 +28043,7 @@ fn recovery_lifeline_command_execution_stage_matches_previous_stage(
         && input.execution_enablement_hash == previous.execution_enablement_hash
         && input.execution_preflight_hash == previous.execution_preflight_hash
         && input.execution_intent_hash == previous.execution_intent_hash
+        && input.execution_commit_gate_hash == previous.execution_commit_gate_hash
         && method_eq(target_locator, previous.target_locator.as_str())
         && method_eq(
             command_dispatch_boundary_id,
@@ -27947,6 +28060,8 @@ fn recovery_lifeline_command_previous_execution_stage_descriptor(
         Some(RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE)
     } else if descriptor.index == 3 {
         Some(RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE)
+    } else if descriptor.index == 4 {
+        Some(RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE)
     } else {
         None
     }
@@ -27971,6 +28086,11 @@ fn recovery_lifeline_command_execution_stage_from_check(
         Some(execution_stage_hash)
     } else {
         check.execution_intent_hash
+    };
+    let execution_commit_gate_hash = if check.descriptor.index == 3 {
+        Some(execution_stage_hash)
+    } else {
+        check.execution_commit_gate_hash
     };
     Some(event_log::RecoveryLifelineCommandExecutionStageReference {
         schema: check.descriptor.reference_schema,
@@ -28004,6 +28124,7 @@ fn recovery_lifeline_command_execution_stage_from_check(
         execution_enablement_hash,
         execution_preflight_hash,
         execution_intent_hash,
+        execution_commit_gate_hash,
         command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
         execution_stage_id: check.descriptor.stage_id,
         execution_stage_projection_hash: check.execution_stage_projection_hash?,
@@ -29064,6 +29185,10 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
         event_log::EventId,
         event_log::RecoveryLifelineCommandExecutionStageReference,
     )>,
+    retained_execution_result_denial: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
 ) -> RecoveryLifelineCommandDispatchCandidate {
     let mut candidate = recovery_lifeline_command_dispatch_valid_candidate();
     candidate.command_body_canonicalization_present = false;
@@ -29084,6 +29209,7 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
     candidate.execution_preflight_present = false;
     candidate.execution_intent_present = false;
     candidate.execution_commit_gate_present = false;
+    candidate.execution_result_denial_present = false;
 
     let Some((envelope_event_id, envelope)) = retained_envelope else {
         candidate.command_envelope_reference_available = false;
@@ -29801,7 +29927,8 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
             accepted_execution_intent = Some((intent_event_id, intent));
         }
     }
-    if let (Some((intent_event_id, intent)), Some((_, commit_gate))) =
+    let mut accepted_execution_commit_gate = None;
+    if let (Some((intent_event_id, intent)), Some((commit_event_id, commit_gate))) =
         (accepted_execution_intent, retained_execution_commit_gate)
     {
         candidate.execution_commit_gate_present =
@@ -29810,6 +29937,21 @@ fn recovery_lifeline_command_dispatch_candidate_from_retained(
                 intent,
                 commit_gate,
                 RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
+            );
+        if candidate.execution_commit_gate_present {
+            accepted_execution_commit_gate = Some((commit_event_id, commit_gate));
+        }
+    }
+    if let (Some((commit_event_id, commit_gate)), Some((_, result_denial))) = (
+        accepted_execution_commit_gate,
+        retained_execution_result_denial,
+    ) {
+        candidate.execution_result_denial_present =
+            recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
+                commit_event_id,
+                commit_gate,
+                result_denial,
+                RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
             );
     }
     candidate
@@ -29851,6 +29993,7 @@ fn recovery_lifeline_command_execution_stage_reference_matches_side_effect(
         && stage.execution_enablement_hash == Some(stage.execution_stage_hash)
         && stage.execution_preflight_hash.is_none()
         && stage.execution_intent_hash.is_none()
+        && stage.execution_commit_gate_hash.is_none()
         && method_eq(
             stage.command_dispatch_boundary_id,
             RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
@@ -29868,14 +30011,24 @@ fn recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
         stage.execution_preflight_hash == Some(stage.execution_stage_hash)
             && stage.execution_enablement_hash == previous.execution_enablement_hash
             && stage.execution_intent_hash.is_none()
+            && stage.execution_commit_gate_hash.is_none()
     } else if descriptor.index == 2 {
         stage.execution_intent_hash == Some(stage.execution_stage_hash)
             && stage.execution_enablement_hash == previous.execution_enablement_hash
             && stage.execution_preflight_hash == previous.execution_preflight_hash
-    } else {
+            && stage.execution_commit_gate_hash.is_none()
+    } else if descriptor.index == 3 {
+        stage.execution_commit_gate_hash == Some(stage.execution_stage_hash)
+            && stage.execution_enablement_hash == previous.execution_enablement_hash
+            && stage.execution_preflight_hash == previous.execution_preflight_hash
+            && stage.execution_intent_hash == previous.execution_intent_hash
+    } else if descriptor.index == 4 {
         stage.execution_enablement_hash == previous.execution_enablement_hash
             && stage.execution_preflight_hash == previous.execution_preflight_hash
             && stage.execution_intent_hash == previous.execution_intent_hash
+            && stage.execution_commit_gate_hash == previous.execution_commit_gate_hash
+    } else {
+        false
     };
     stage.retained_previous_stage_event_id == previous_event_id
         && stage_hash_expected
@@ -30132,6 +30285,15 @@ fn evaluate_recovery_lifeline_command_dispatch(
             true,
         );
     }
+    if !candidate.execution_result_denial_present {
+        return recovery_lifeline_command_dispatch_check(
+            "defined_non_executable",
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE.not_implemented_reason,
+            envelope_check,
+            candidate,
+            true,
+        );
+    }
     recovery_lifeline_command_dispatch_check(
         "defined_non_executable",
         "recovery_lifeline_command_dispatch_execution_disabled",
@@ -30176,6 +30338,7 @@ fn recovery_lifeline_command_dispatch_check(
         execution_preflight_present: candidate.execution_preflight_present,
         execution_intent_present: candidate.execution_intent_present,
         execution_commit_gate_present: candidate.execution_commit_gate_present,
+        execution_result_denial_present: candidate.execution_result_denial_present,
         accepts_lifeline_command_body: false,
         accepts_lifeline_command_envelope: false,
         dispatches_lifeline_command: false,
@@ -30227,6 +30390,7 @@ fn recovery_lifeline_command_dispatch_valid_candidate() -> RecoveryLifelineComma
         execution_preflight_present: true,
         execution_intent_present: true,
         execution_commit_gate_present: true,
+        execution_result_denial_present: true,
     }
 }
 
@@ -30553,6 +30717,8 @@ fn recovery_lifeline_command_dispatch_selftest_cases(
     execution_intent_missing.execution_intent_present = false;
     let mut execution_commit_gate_missing = valid;
     execution_commit_gate_missing.execution_commit_gate_present = false;
+    let mut execution_result_denial_missing = valid;
+    execution_result_denial_missing.execution_result_denial_present = false;
 
     [
         recovery_lifeline_command_dispatch_selftest_case(
@@ -30830,6 +30996,12 @@ fn recovery_lifeline_command_dispatch_selftest_cases(
             "defined_non_executable",
             "recovery_lifeline_command_execution_commit_gate_not_implemented",
             evaluate_recovery_lifeline_command_dispatch(execution_commit_gate_missing),
+        ),
+        recovery_lifeline_command_dispatch_selftest_case(
+            "execution_result_denial_missing",
+            "defined_non_executable",
+            "recovery_lifeline_command_execution_result_denial_not_implemented",
+            evaluate_recovery_lifeline_command_dispatch(execution_result_denial_missing),
         ),
         recovery_lifeline_command_dispatch_selftest_case(
             "all_inputs_present_command_dispatch_still_non_executable",
@@ -33761,6 +33933,11 @@ fn recovery_lifeline_command_execution_stage_selftest_cases(
         } else {
             None
         },
+        execution_commit_gate_hash: if descriptor.index >= 4 {
+            Some([0xc5; 32])
+        } else {
+            None
+        },
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         execution_stage_id: Some(descriptor.stage_id),
         execution_stage_projection_hash: Some([0xc4; 32]),
@@ -33795,6 +33972,7 @@ fn recovery_lifeline_command_execution_stage_selftest_cases(
             execution_enablement_hash: valid_input.execution_enablement_hash,
             execution_preflight_hash: valid_input.execution_preflight_hash,
             execution_intent_hash: valid_input.execution_intent_hash,
+            execution_commit_gate_hash: valid_input.execution_commit_gate_hash,
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             execution_stage_id_field: descriptor.stage_id_field,
             execution_stage_id: descriptor.stage_id,

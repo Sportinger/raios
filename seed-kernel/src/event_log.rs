@@ -3319,6 +3319,13 @@ fn recovery_lifeline_command_execution_stage_event_metadata(
             "recovery_lifeline_command_execution_commit_gate",
             "recovery_lifeline_command_execution_commit_gate_valid_for_current_boot",
         )
+    } else if binding.stage_name == "execution_result_denial" {
+        (
+            "recovery.lifeline_command_execution_result_denial.retained",
+            "recovery.lifeline_command_execution_result_denial_diagnostic",
+            "recovery_lifeline_command_execution_result_denial",
+            "recovery_lifeline_command_execution_result_denial_valid_for_current_boot",
+        )
     } else {
         (
             "recovery.lifeline_command_execution_enablement.retained",

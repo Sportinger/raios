@@ -319,6 +319,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.lifeline_command_execution_intent_diagnostic_selftest",
     "recovery.lifeline_command_execution_commit_gate_diagnostic",
     "recovery.lifeline_command_execution_commit_gate_diagnostic_selftest",
+    "recovery.lifeline_command_execution_result_denial_diagnostic",
+    "recovery.lifeline_command_execution_result_denial_diagnostic_selftest",
     "recovery.load_binding",
     "recovery.load_binding_selftest",
 ];
