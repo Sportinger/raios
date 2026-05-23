@@ -136,6 +136,39 @@ timeout of at least 30 minutes and pass `-TimeoutSeconds 180` if the default
 outer tool timeout as a guest or protocol failure by itself; inspect the
 generated `release\vm-reports\shadow-*.json` and the temp `serial.log`.
 
+For fast iteration, run the same real QEMU/serial path with the quick profile:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile quick
+```
+
+`-Profile quick` covers boot readiness, core read-only agent methods,
+provider-minimal context/export gates, denied module loading, denied recovery
+artifact loading, and RAM-only audit visibility. It intentionally skips the
+exhaustive module/recovery negative matrix; the default `-Profile full` remains
+the pre-commit/release evidence path.
+
+For focused recovery work, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180
+```
+
+`-Profile recovery` keeps the real QEMU/serial path and the full recovery
+lifeline chain, but skips the long provider selftest, memory mutation, and
+normal module-loading diagnostic matrix. The harness writes serial commands in
+chunks by default (`-SerialWriteChunkSize 256 -SerialWriteDelayMilliseconds 0`);
+increase `-SerialWriteDelayMilliseconds` only if a local serial transport starts
+dropping command bytes.
+
+Shadow VM reports derive `commands` from the actual `Send-AgentCommand` calls
+observed during the run. Each report also includes `executed_commands` entries
+with the command, predicate name, expected marker, response offset, duration,
+`sent`, and pass/fail result. Commands are added only after the serial write
+returns; a connection failure before writing must not appear as an executed
+command. Do not maintain a separate static command inventory in the report; it
+drifts from the real serial path.
+
 If the report failure is only `Timed out connecting to QEMU serial TCP port
 4565`, first check for a stale `qemu-system-x86_64` process or an occupied
 serial port, stop stale QEMU processes, and rerun the smoke. The TCP serial path

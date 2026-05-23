@@ -1,11 +1,13 @@
 use crate::{
-    agent_protocol_recovery::{
+    agent_protocol_recovery_lifeline::{
         recovery_lifeline_command_spec, RecoveryLifelineCommandSpec,
         RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
     },
     agent_protocol_support::{
-        current_boot_event_id_str, method_eq, method_head_eq, parse_current_boot_event_id,
-        parse_sha256_ref,
+        begin_response, crlf, current_boot_event_id_str, end_response, json_event_id,
+        json_event_id_option, json_opt_str, json_sha256, json_sha256_option, json_str, method_eq,
+        method_head_eq, parse_current_boot_event_id, parse_sha256_ref, raw, raw_bool, raw_fmt,
+        raw_line,
     },
     event_log, module_evidence,
 };
@@ -130,6 +132,17 @@ pub(crate) struct RecoveryLifelineCommandExecutionStageReferenceCheck<'a> {
     pub(crate) status: &'static str,
     pub(crate) reason: &'static str,
     pub(crate) valid: bool,
+}
+
+pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_SELFTEST_CASES: usize = 10;
+
+pub(crate) struct RecoveryLifelineCommandExecutionStageSelfTestCase {
+    pub(crate) name: &'static str,
+    pub(crate) expected_status: &'static str,
+    pub(crate) expected_reason: &'static str,
+    pub(crate) actual_status: &'static str,
+    pub(crate) actual_reason: &'static str,
+    pub(crate) passed: bool,
 }
 
 pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_BOUNDARY_ID: &str =
@@ -1161,6 +1174,153 @@ fn recovery_lifeline_command_execution_stage_matches_previous_stage(
         )
 }
 
+pub(crate) fn recovery_lifeline_command_execution_stage_reference_matches_side_effect(
+    previous_event_id: event_log::EventId,
+    previous: event_log::RecoveryLifelineCommandSideEffectGateReference,
+    stage: event_log::RecoveryLifelineCommandExecutionStageReference,
+    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
+) -> bool {
+    stage.retained_previous_stage_event_id == previous_event_id
+        && method_eq(stage.schema, descriptor.reference_schema)
+        && method_eq(stage.stage_name, descriptor.stage_name)
+        && method_eq(stage.command_id, previous.command_id)
+        && method_eq(stage.argument_schema, previous.argument_schema)
+        && stage.argument_hash == previous.argument_hash
+        && stage.target_locator == previous.target_locator
+        && stage.command_envelope_reference_hash == previous.command_envelope_reference_hash
+        && stage.command_body_canonicalization_hash == previous.command_body_canonicalization_hash
+        && stage.handler_binding_hash == previous.handler_binding_hash
+        && stage.status_read_handler_hash == previous.status_read_handler_hash
+        && stage.rollback_preview_authorization_hash == previous.rollback_preview_authorization_hash
+        && stage.rollback_apply_authorization_hash == previous.rollback_apply_authorization_hash
+        && stage.disable_module_target_binding_hash == previous.disable_module_target_binding_hash
+        && stage.restart_last_good_target_binding_hash
+            == previous.restart_last_good_target_binding_hash
+        && stage.load_artifact_by_hash_target_binding_hash
+            == previous.load_artifact_by_hash_target_binding_hash
+        && stage.recovery_memory_write_authority_hash
+            == previous.recovery_memory_write_authority_hash
+        && stage.durable_audit_rollback_write_authority_hash
+            == previous.durable_audit_rollback_write_authority_hash
+        && stage.service_inventory_side_effect_boundary_hash
+            == previous.service_inventory_side_effect_boundary_hash
+        && stage.command_dispatch_behavior_hash == previous.command_dispatch_behavior_hash
+        && stage.executor_capability_table_hash == previous.executor_capability_table_hash
+        && stage.side_effect_gate_hash == previous.side_effect_gate_hash
+        && stage.execution_enablement_hash == Some(stage.execution_stage_hash)
+        && stage.execution_preflight_hash.is_none()
+        && stage.execution_intent_hash.is_none()
+        && stage.execution_commit_gate_hash.is_none()
+        && stage.execution_result_denial_hash.is_none()
+        && stage.execution_audit_denial_hash.is_none()
+        && stage.execution_observation_denial_hash.is_none()
+        && method_eq(
+            stage.command_dispatch_boundary_id,
+            RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+        )
+        && method_eq(stage.execution_stage_id, descriptor.stage_id)
+}
+
+pub(crate) fn recovery_lifeline_command_execution_stage_reference_matches_previous_stage(
+    previous_event_id: event_log::EventId,
+    previous: event_log::RecoveryLifelineCommandExecutionStageReference,
+    stage: event_log::RecoveryLifelineCommandExecutionStageReference,
+    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
+) -> bool {
+    let stage_hash_expected = if descriptor.index == 1 {
+        stage.execution_preflight_hash == Some(stage.execution_stage_hash)
+            && stage.execution_enablement_hash == previous.execution_enablement_hash
+            && stage.execution_intent_hash.is_none()
+            && stage.execution_commit_gate_hash.is_none()
+            && stage.execution_result_denial_hash.is_none()
+            && stage.execution_audit_denial_hash.is_none()
+            && stage.execution_observation_denial_hash.is_none()
+    } else if descriptor.index == 2 {
+        stage.execution_intent_hash == Some(stage.execution_stage_hash)
+            && stage.execution_enablement_hash == previous.execution_enablement_hash
+            && stage.execution_preflight_hash == previous.execution_preflight_hash
+            && stage.execution_commit_gate_hash.is_none()
+            && stage.execution_result_denial_hash.is_none()
+            && stage.execution_audit_denial_hash.is_none()
+            && stage.execution_observation_denial_hash.is_none()
+    } else if descriptor.index == 3 {
+        stage.execution_commit_gate_hash == Some(stage.execution_stage_hash)
+            && stage.execution_enablement_hash == previous.execution_enablement_hash
+            && stage.execution_preflight_hash == previous.execution_preflight_hash
+            && stage.execution_intent_hash == previous.execution_intent_hash
+            && stage.execution_result_denial_hash.is_none()
+            && stage.execution_audit_denial_hash.is_none()
+            && stage.execution_observation_denial_hash.is_none()
+    } else if descriptor.index == 4 {
+        stage.execution_result_denial_hash == Some(stage.execution_stage_hash)
+            && stage.execution_enablement_hash == previous.execution_enablement_hash
+            && stage.execution_preflight_hash == previous.execution_preflight_hash
+            && stage.execution_intent_hash == previous.execution_intent_hash
+            && stage.execution_commit_gate_hash == previous.execution_commit_gate_hash
+            && stage.execution_audit_denial_hash.is_none()
+            && stage.execution_observation_denial_hash.is_none()
+    } else if descriptor.index == 5 {
+        stage.execution_audit_denial_hash == Some(stage.execution_stage_hash)
+            && stage.execution_enablement_hash == previous.execution_enablement_hash
+            && stage.execution_preflight_hash == previous.execution_preflight_hash
+            && stage.execution_intent_hash == previous.execution_intent_hash
+            && stage.execution_commit_gate_hash == previous.execution_commit_gate_hash
+            && stage.execution_result_denial_hash == previous.execution_result_denial_hash
+            && stage.execution_observation_denial_hash.is_none()
+    } else if descriptor.index == 6 {
+        stage.execution_observation_denial_hash == Some(stage.execution_stage_hash)
+            && stage.execution_enablement_hash == previous.execution_enablement_hash
+            && stage.execution_preflight_hash == previous.execution_preflight_hash
+            && stage.execution_intent_hash == previous.execution_intent_hash
+            && stage.execution_commit_gate_hash == previous.execution_commit_gate_hash
+            && stage.execution_result_denial_hash == previous.execution_result_denial_hash
+            && stage.execution_audit_denial_hash == previous.execution_audit_denial_hash
+    } else if descriptor.index == 7 {
+        stage.execution_enablement_hash == previous.execution_enablement_hash
+            && stage.execution_preflight_hash == previous.execution_preflight_hash
+            && stage.execution_intent_hash == previous.execution_intent_hash
+            && stage.execution_commit_gate_hash == previous.execution_commit_gate_hash
+            && stage.execution_result_denial_hash == previous.execution_result_denial_hash
+            && stage.execution_audit_denial_hash == previous.execution_audit_denial_hash
+            && stage.execution_observation_denial_hash == previous.execution_observation_denial_hash
+    } else {
+        false
+    };
+    stage.retained_previous_stage_event_id == previous_event_id
+        && stage_hash_expected
+        && method_eq(stage.schema, descriptor.reference_schema)
+        && method_eq(stage.stage_name, descriptor.stage_name)
+        && method_eq(stage.command_id, previous.command_id)
+        && method_eq(stage.argument_schema, previous.argument_schema)
+        && stage.argument_hash == previous.argument_hash
+        && stage.target_locator == previous.target_locator
+        && stage.command_envelope_reference_hash == previous.command_envelope_reference_hash
+        && stage.command_body_canonicalization_hash == previous.command_body_canonicalization_hash
+        && stage.handler_binding_hash == previous.handler_binding_hash
+        && stage.status_read_handler_hash == previous.status_read_handler_hash
+        && stage.rollback_preview_authorization_hash == previous.rollback_preview_authorization_hash
+        && stage.rollback_apply_authorization_hash == previous.rollback_apply_authorization_hash
+        && stage.disable_module_target_binding_hash == previous.disable_module_target_binding_hash
+        && stage.restart_last_good_target_binding_hash
+            == previous.restart_last_good_target_binding_hash
+        && stage.load_artifact_by_hash_target_binding_hash
+            == previous.load_artifact_by_hash_target_binding_hash
+        && stage.recovery_memory_write_authority_hash
+            == previous.recovery_memory_write_authority_hash
+        && stage.durable_audit_rollback_write_authority_hash
+            == previous.durable_audit_rollback_write_authority_hash
+        && stage.service_inventory_side_effect_boundary_hash
+            == previous.service_inventory_side_effect_boundary_hash
+        && stage.command_dispatch_behavior_hash == previous.command_dispatch_behavior_hash
+        && stage.executor_capability_table_hash == previous.executor_capability_table_hash
+        && stage.side_effect_gate_hash == previous.side_effect_gate_hash
+        && method_eq(
+            stage.command_dispatch_boundary_id,
+            RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+        )
+        && method_eq(stage.execution_stage_id, descriptor.stage_id)
+}
+
 fn recovery_lifeline_command_previous_execution_stage_descriptor(
     descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
 ) -> Option<RecoveryLifelineCommandExecutionStageDescriptor> {
@@ -1294,4 +1454,628 @@ pub(crate) fn recovery_lifeline_command_execution_stage_diagnostic_arg(
         return "";
     };
     method[head_len..].trim()
+}
+
+pub(crate) fn recovery_lifeline_command_execution_stage_selftest_cases(
+    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
+) -> [RecoveryLifelineCommandExecutionStageSelfTestCase;
+       RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_SELFTEST_CASES] {
+    let valid_input = RecoveryLifelineCommandExecutionStageInput {
+        descriptor,
+        has_reference: true,
+        arity_valid: true,
+        scope: "current_boot",
+        execution_stage_hash: None,
+        retained_previous_stage_event_id: Some("event.current_boot.00000001"),
+        command_id: Some("recovery.lifeline.status"),
+        argument_schema: Some("raios.recovery_lifeline_command.status_args.v0"),
+        argument_hash: Some([0xb1; 32]),
+        target_locator: Some("recovery.lifeline.status.current_boot"),
+        command_envelope_reference_hash: Some([0xb2; 32]),
+        command_body_canonicalization_hash: Some([0xb3; 32]),
+        handler_binding_hash: Some([0xb4; 32]),
+        status_read_handler_hash: Some([0xb5; 32]),
+        rollback_preview_authorization_hash: Some([0xb6; 32]),
+        rollback_apply_authorization_hash: Some([0xb7; 32]),
+        disable_module_target_binding_hash: Some([0xb8; 32]),
+        restart_last_good_target_binding_hash: Some([0xb9; 32]),
+        load_artifact_by_hash_target_binding_hash: Some([0xba; 32]),
+        recovery_memory_write_authority_hash: Some([0xbb; 32]),
+        durable_audit_rollback_write_authority_hash: Some([0xbc; 32]),
+        service_inventory_side_effect_boundary_hash: Some([0xbd; 32]),
+        command_dispatch_behavior_hash: Some([0xbe; 32]),
+        executor_capability_table_hash: Some([0xbf; 32]),
+        side_effect_gate_hash: Some([0xc0; 32]),
+        execution_enablement_hash: if descriptor.index >= 1 {
+            Some([0xc1; 32])
+        } else {
+            None
+        },
+        execution_preflight_hash: if descriptor.index >= 2 {
+            Some([0xc2; 32])
+        } else {
+            None
+        },
+        execution_intent_hash: if descriptor.index >= 3 {
+            Some([0xc3; 32])
+        } else {
+            None
+        },
+        execution_commit_gate_hash: if descriptor.index >= 4 {
+            Some([0xc5; 32])
+        } else {
+            None
+        },
+        execution_result_denial_hash: if descriptor.index >= 5 {
+            Some([0xc6; 32])
+        } else {
+            None
+        },
+        execution_audit_denial_hash: if descriptor.index >= 6 {
+            Some([0xc7; 32])
+        } else {
+            None
+        },
+        execution_observation_denial_hash: if descriptor.index >= 7 {
+            Some([0xc8; 32])
+        } else {
+            None
+        },
+        command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
+        execution_stage_id: Some(descriptor.stage_id),
+        execution_stage_projection_hash: Some([0xc4; 32]),
+    };
+    let expected = module_evidence::computed_recovery_lifeline_command_execution_stage_hash(
+        module_evidence::RecoveryLifelineCommandExecutionStageHashInput {
+            canonicalization: descriptor.canonicalization,
+            schema: descriptor.reference_schema,
+            resource: descriptor.resource,
+            retained_previous_stage_event_id_field: descriptor
+                .retained_previous_stage_event_id_field,
+            retained_previous_stage_event_id: "event.current_boot.00000001",
+            command_id: "recovery.lifeline.status",
+            argument_schema: "raios.recovery_lifeline_command.status_args.v0",
+            argument_hash: [0xb1; 32],
+            target_locator: "recovery.lifeline.status.current_boot",
+            command_envelope_reference_hash: [0xb2; 32],
+            command_body_canonicalization_hash: [0xb3; 32],
+            handler_binding_hash: [0xb4; 32],
+            status_read_handler_hash: [0xb5; 32],
+            rollback_preview_authorization_hash: [0xb6; 32],
+            rollback_apply_authorization_hash: [0xb7; 32],
+            disable_module_target_binding_hash: [0xb8; 32],
+            restart_last_good_target_binding_hash: [0xb9; 32],
+            load_artifact_by_hash_target_binding_hash: [0xba; 32],
+            recovery_memory_write_authority_hash: [0xbb; 32],
+            durable_audit_rollback_write_authority_hash: [0xbc; 32],
+            service_inventory_side_effect_boundary_hash: [0xbd; 32],
+            command_dispatch_behavior_hash: [0xbe; 32],
+            executor_capability_table_hash: [0xbf; 32],
+            side_effect_gate_hash: [0xc0; 32],
+            execution_enablement_hash: valid_input.execution_enablement_hash,
+            execution_preflight_hash: valid_input.execution_preflight_hash,
+            execution_intent_hash: valid_input.execution_intent_hash,
+            execution_commit_gate_hash: valid_input.execution_commit_gate_hash,
+            execution_result_denial_hash: valid_input.execution_result_denial_hash,
+            execution_audit_denial_hash: valid_input.execution_audit_denial_hash,
+            execution_observation_denial_hash: valid_input.execution_observation_denial_hash,
+            command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            execution_stage_id_field: descriptor.stage_id_field,
+            execution_stage_id: descriptor.stage_id,
+            execution_stage_projection_hash_field: descriptor.stage_projection_field,
+            execution_stage_projection_hash: [0xc4; 32],
+        },
+    );
+    let mut valid = valid_input;
+    valid.execution_stage_hash = Some(expected);
+    let mut missing = valid;
+    missing.has_reference = false;
+    let mut arity = valid;
+    arity.arity_valid = false;
+    let mut previous = valid;
+    previous.scope = "previous_boot";
+    let mut unsupported = valid;
+    unsupported.command_id = Some("recovery.lifeline.unsupported");
+    let mut schema = valid;
+    schema.argument_schema = Some("raios.recovery_lifeline_command.bad_args.v0");
+    let mut boundary = valid;
+    boundary.command_dispatch_boundary_id =
+        Some("boundary.recovery_lifeline_command_dispatch.wrong");
+    let mut stage_id = valid;
+    stage_id.execution_stage_id = Some("boundary.recovery_lifeline_command_execution_stage.wrong");
+    let mut hash = valid;
+    hash.execution_stage_hash = Some([0xff; 32]);
+    let live_missing = valid;
+
+    [
+        recovery_lifeline_command_execution_stage_selftest_case(
+            descriptor.absent_reason,
+            "missing",
+            descriptor.absent_reason,
+            evaluate_recovery_lifeline_command_execution_stage_reference(missing, false),
+        ),
+        recovery_lifeline_command_execution_stage_selftest_case(
+            descriptor.arity_reason,
+            "invalid_reference",
+            descriptor.arity_reason,
+            evaluate_recovery_lifeline_command_execution_stage_reference(arity, false),
+        ),
+        recovery_lifeline_command_execution_stage_selftest_case(
+            descriptor.scope_reason,
+            "stale_or_non_current_boot_reference",
+            descriptor.scope_reason,
+            evaluate_recovery_lifeline_command_execution_stage_reference(previous, false),
+        ),
+        recovery_lifeline_command_execution_stage_selftest_case(
+            "unsupported_command_id",
+            "rejected",
+            "recovery_lifeline_command_id_unsupported",
+            evaluate_recovery_lifeline_command_execution_stage_reference(unsupported, false),
+        ),
+        recovery_lifeline_command_execution_stage_selftest_case(
+            "argument_schema_mismatch",
+            "rejected",
+            "recovery_lifeline_command_argument_schema_mismatch",
+            evaluate_recovery_lifeline_command_execution_stage_reference(schema, false),
+        ),
+        recovery_lifeline_command_execution_stage_selftest_case(
+            "dispatch_boundary_mismatch",
+            "rejected",
+            "recovery_lifeline_command_dispatch_boundary_mismatch",
+            evaluate_recovery_lifeline_command_execution_stage_reference(boundary, false),
+        ),
+        recovery_lifeline_command_execution_stage_selftest_case(
+            descriptor.id_mismatch_reason,
+            "rejected",
+            descriptor.id_mismatch_reason,
+            evaluate_recovery_lifeline_command_execution_stage_reference(stage_id, false),
+        ),
+        recovery_lifeline_command_execution_stage_selftest_case(
+            descriptor.hash_mismatch_reason,
+            descriptor.hash_mismatch_status,
+            descriptor.hash_mismatch_reason,
+            evaluate_recovery_lifeline_command_execution_stage_reference(hash, false),
+        ),
+        recovery_lifeline_command_execution_stage_selftest_case(
+            descriptor.retained_previous_missing_reason,
+            "rejected",
+            descriptor.retained_previous_missing_reason,
+            evaluate_recovery_lifeline_command_execution_stage_reference(live_missing, true),
+        ),
+        recovery_lifeline_command_execution_stage_selftest_case(
+            descriptor.valid_reason,
+            "valid_hash_reference_command_still_denied",
+            descriptor.valid_reason,
+            evaluate_recovery_lifeline_command_execution_stage_reference(valid, false),
+        ),
+    ]
+}
+
+fn recovery_lifeline_command_execution_stage_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    check: RecoveryLifelineCommandExecutionStageReferenceCheck<'_>,
+) -> RecoveryLifelineCommandExecutionStageSelfTestCase {
+    RecoveryLifelineCommandExecutionStageSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        actual_status: check.status,
+        actual_reason: check.reason,
+        passed: method_eq(check.status, expected_status)
+            && method_eq(check.reason, expected_reason),
+    }
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_stage_diagnostic(
+    method: &str,
+    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
+) {
+    let check = parse_recovery_lifeline_command_execution_stage_reference(
+        recovery_lifeline_command_execution_stage_diagnostic_arg(method, descriptor),
+        descriptor,
+        true,
+    );
+    let recorded_event_id = if check.valid {
+        recovery_lifeline_command_execution_stage_from_check(&check)
+            .map(event_log::record_recovery_lifeline_command_execution_stage_reference)
+    } else {
+        None
+    };
+    let retained_execution_stage =
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            descriptor.reference_schema,
+        );
+
+    begin_response(descriptor.response_method);
+    raw("      \"schema\": ");
+    json_str(descriptor.diagnostic_schema);
+    raw_line(",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if check.valid {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw("      \"creates_retained_recovery_lifeline_command_execution_stage_records\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"executes_lifeline_status\": false,");
+    raw_line("      \"executes_rollback_preview\": false,");
+    raw_line("      \"executes_rollback_apply\": false,");
+    raw_line("      \"executes_disable_module\": false,");
+    raw_line("      \"executes_restart_last_good\": false,");
+    raw_line("      \"executes_load_recovery_artifact_by_hash\": false,");
+    raw_line("      \"disables_module\": false,");
+    raw_line("      \"restarts_last_good\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"authorizes_recovery_load\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"exports_provider_context\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw("      \"reference_format\": ");
+    json_str(descriptor.reference_format);
+    raw_line(",");
+    raw_line("      \"request\": {");
+    raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw("        \"resource\": ");
+    json_str(descriptor.resource);
+    raw_line(",");
+    raw("        \"execution_stage_schema\": ");
+    json_str(descriptor.reference_schema);
+    raw_line(",");
+    raw("        \"execution_stage_canonicalization\": ");
+    json_str(descriptor.canonicalization);
+    raw_line(",");
+    raw("        \"execution_stage_id\": ");
+    json_str(descriptor.stage_id);
+    raw_line("");
+    raw_line("      },");
+    emit_recovery_lifeline_command_execution_stage_reference_object(&check);
+    raw_line(",");
+    raw_line("      \"execution_stage_requirements\": [");
+    if let (Some(fact), Some(schema), Some(reason)) = (
+        descriptor.next_requirement_fact,
+        descriptor.next_requirement_schema,
+        descriptor.next_requirement_reason,
+    ) {
+        emit_recovery_lifeline_command_execution_stage_requirement(fact, schema, reason, false);
+    }
+    raw_line("      ],");
+    emit_recovery_lifeline_command_execution_stage_retained_reference(
+        &check,
+        recorded_event_id,
+        retained_execution_stage,
+    );
+    raw_line(",");
+    raw_line("      \"policy_result\": {");
+    raw("        \"execution_stage_reference_present\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response(descriptor.response_method);
+}
+
+pub(crate) fn emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
+    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
+) {
+    let cases = recovery_lifeline_command_execution_stage_selftest_cases(descriptor);
+    let mut passed = true;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        passed = passed && cases[idx].passed;
+        idx += 1;
+    }
+
+    begin_response(descriptor.selftest_response_method);
+    raw("      \"schema\": ");
+    json_str(descriptor.selftest_schema);
+    raw_line(",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"test_infrastructure\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line(
+        "      \"creates_retained_recovery_lifeline_command_execution_stage_records\": false,",
+    );
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed\": ");
+    raw_bool(passed);
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        emit_recovery_lifeline_command_execution_stage_selftest_case(
+            &cases[idx],
+            idx + 1 != cases.len(),
+        );
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"can_move_beyond_denial\": false");
+    end_response(descriptor.selftest_response_method);
+}
+
+fn emit_recovery_lifeline_command_execution_stage_reference_object(
+    check: &RecoveryLifelineCommandExecutionStageReferenceCheck<'_>,
+) {
+    raw_line("      \"execution_stage_reference\": {");
+    raw("        \"status\": ");
+    json_str(check.status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(check.reason);
+    raw_line(",");
+    raw("        \"stage_name\": ");
+    json_str(check.descriptor.stage_name);
+    raw_line(",");
+    raw("        \"has_reference\": ");
+    raw_bool(check.has_reference);
+    raw_line(",");
+    raw("        \"arity_valid\": ");
+    raw_bool(check.arity_valid);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(check.scope);
+    raw_line(",");
+    raw("        \"command_id\": ");
+    json_opt_str(check.command_id);
+    raw_line(",");
+    raw("        \"argument_schema\": ");
+    json_opt_str(check.argument_schema);
+    raw_line(",");
+    raw("        \"target_locator\": ");
+    json_opt_str(check.target_locator);
+    raw_line(",");
+    raw("        \"command_dispatch_boundary_id\": ");
+    json_opt_str(check.command_dispatch_boundary_id);
+    raw_line(",");
+    raw("        \"execution_stage_id\": ");
+    json_opt_str(check.execution_stage_id);
+    raw_line(",");
+    raw("        \"retained_previous_stage_event_id\": ");
+    json_opt_str(check.retained_previous_stage_event_id);
+    raw_line(",");
+    raw("        \"argument_hash\": ");
+    json_sha256_option(check.argument_hash);
+    raw_line(",");
+    raw("        \"command_envelope_reference_hash\": ");
+    json_sha256_option(check.command_envelope_reference_hash);
+    raw_line(",");
+    raw("        \"command_body_canonicalization_hash\": ");
+    json_sha256_option(check.command_body_canonicalization_hash);
+    raw_line(",");
+    raw("        \"handler_binding_hash\": ");
+    json_sha256_option(check.handler_binding_hash);
+    raw_line(",");
+    raw("        \"status_read_handler_hash\": ");
+    json_sha256_option(check.status_read_handler_hash);
+    raw_line(",");
+    raw("        \"rollback_preview_authorization_hash\": ");
+    json_sha256_option(check.rollback_preview_authorization_hash);
+    raw_line(",");
+    raw("        \"rollback_apply_authorization_hash\": ");
+    json_sha256_option(check.rollback_apply_authorization_hash);
+    raw_line(",");
+    raw("        \"disable_module_target_binding_hash\": ");
+    json_sha256_option(check.disable_module_target_binding_hash);
+    raw_line(",");
+    raw("        \"restart_last_good_target_binding_hash\": ");
+    json_sha256_option(check.restart_last_good_target_binding_hash);
+    raw_line(",");
+    raw("        \"load_artifact_by_hash_target_binding_hash\": ");
+    json_sha256_option(check.load_artifact_by_hash_target_binding_hash);
+    raw_line(",");
+    raw("        \"recovery_memory_write_authority_hash\": ");
+    json_sha256_option(check.recovery_memory_write_authority_hash);
+    raw_line(",");
+    raw("        \"durable_audit_rollback_write_authority_hash\": ");
+    json_sha256_option(check.durable_audit_rollback_write_authority_hash);
+    raw_line(",");
+    raw("        \"service_inventory_side_effect_boundary_hash\": ");
+    json_sha256_option(check.service_inventory_side_effect_boundary_hash);
+    raw_line(",");
+    raw("        \"command_dispatch_behavior_hash\": ");
+    json_sha256_option(check.command_dispatch_behavior_hash);
+    raw_line(",");
+    raw("        \"executor_capability_table_hash\": ");
+    json_sha256_option(check.executor_capability_table_hash);
+    raw_line(",");
+    raw("        \"side_effect_gate_hash\": ");
+    json_sha256_option(check.side_effect_gate_hash);
+    raw_line(",");
+    raw("        \"execution_enablement_hash\": ");
+    json_sha256_option(check.execution_enablement_hash);
+    raw_line(",");
+    raw("        \"execution_preflight_hash\": ");
+    json_sha256_option(check.execution_preflight_hash);
+    raw_line(",");
+    raw("        \"execution_intent_hash\": ");
+    json_sha256_option(check.execution_intent_hash);
+    raw_line(",");
+    raw("        \"execution_commit_gate_hash\": ");
+    json_sha256_option(check.execution_commit_gate_hash);
+    raw_line(",");
+    raw("        \"execution_result_denial_hash\": ");
+    json_sha256_option(check.execution_result_denial_hash);
+    raw_line(",");
+    raw("        \"execution_audit_denial_hash\": ");
+    json_sha256_option(check.execution_audit_denial_hash);
+    raw_line(",");
+    raw("        \"execution_observation_denial_hash\": ");
+    json_sha256_option(check.execution_observation_denial_hash);
+    raw_line(",");
+    raw("        \"execution_stage_projection_hash\": ");
+    json_sha256_option(check.execution_stage_projection_hash);
+    raw_line(",");
+    raw("        ");
+    json_str(check.descriptor.stage_hash_field);
+    raw(": ");
+    json_sha256_option(check.execution_stage_hash);
+    raw_line(",");
+    raw("        \"expected_execution_stage_hash\": ");
+    json_sha256_option(check.expected_execution_stage_hash);
+    raw_line(",");
+    raw("        \"valid_hash_reference\": ");
+    raw_bool(check.valid);
+    raw_line(",");
+    raw_line("        \"accepts_raw_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_body\": false,");
+    raw_line("        \"accepts_lifeline_command_envelope\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_execution_stage_retained_reference(
+    check: &RecoveryLifelineCommandExecutionStageReferenceCheck<'_>,
+    recorded_event_id: Option<event_log::EventId>,
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+) {
+    raw_line("      \"retained_recovery_lifeline_command_execution_stage_reference\": {");
+    raw("        \"status\": ");
+    json_str(if check.valid {
+        "retained_hash_reference_command_still_denied"
+    } else if retained.is_some() {
+        "previous_retained_hash_reference_present"
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw("        \"recorded_event_id\": ");
+    json_event_id_option(recorded_event_id);
+    raw_line(",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false,");
+    raw("        \"latest_event_id\": ");
+    if let Some((event_id, _)) = retained {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_stage_name\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.stage_name);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_execution_stage_id\": ");
+    if let Some((_, reference)) = retained {
+        json_str(reference.execution_stage_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_execution_stage_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.execution_stage_hash);
+    } else {
+        raw("null");
+    }
+    raw_line("");
+    raw("      }");
+}
+
+fn emit_recovery_lifeline_command_execution_stage_selftest_case(
+    case: &RecoveryLifelineCommandExecutionStageSelfTestCase,
+    comma: bool,
+) {
+    raw("        {\"case\": ");
+    json_str(case.name);
+    raw(", \"expected_status\": ");
+    json_str(case.expected_status);
+    raw(", \"expected_reason\": ");
+    json_str(case.expected_reason);
+    raw(", \"actual_status\": ");
+    json_str(case.actual_status);
+    raw(", \"actual_reason\": ");
+    json_str(case.actual_reason);
+    raw(", \"passed\": ");
+    raw_bool(case.passed);
+    raw(", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+fn emit_recovery_lifeline_command_execution_stage_requirement(
+    name: &'static str,
+    schema: &'static str,
+    reason: &'static str,
+    comma: bool,
+) {
+    raw("        {\"fact\": ");
+    json_str(name);
+    raw(", \"schema\": ");
+    json_str(schema);
+    raw(", \"status\": \"missing\", \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
+    json_str(reason);
+    raw(", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"recovery_memory_writes_enabled\": false, \"durable_writes_enabled\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+    if comma {
+        raw(",");
+    }
+    crlf();
 }

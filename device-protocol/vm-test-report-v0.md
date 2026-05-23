@@ -39,6 +39,7 @@ The JSON report contains:
 {
   "schema": "raios.vm_test_report.v0",
   "result": "passed",
+  "profile": "quick",
   "run_id": "shadow-...",
   "sandbox_policy": {
     "network": "disabled",
@@ -77,7 +78,11 @@ The JSON report contains:
   },
   "qemu": {
     "args_canonical_json": "[...]",
-    "args_sha256": "..."
+    "args_sha256": "...",
+    "serial_write": {
+      "chunk_bytes": 256,
+      "inter_chunk_delay_ms": 0
+    }
   },
   "evidence_binding": {
     "base_image_sha256": "...",
@@ -93,52 +98,18 @@ The JSON report contains:
   "commands": [
     "describe",
     "snapshot",
-    "caps",
-    "services",
-    "problems",
-    "agent memory.profile",
-    "agent memory.context diagnostic",
-    "agent memory.context provider_minimal",
-    "agent provider.context_export provider_minimal",
-    "agent provider.context_gate provider_minimal",
-    "agent provider.context_gate_selftest provider_minimal",
-    "agent provider.context_injection_gate provider_minimal",
-    "agent provider.context_injection_gate_selftest provider_minimal",
-    "agent memory.query",
-    "agent memory.trace snapshot.current",
-    "agent memory.recent_events",
-    "agent audit.events 8",
-    "agent memory.record_observation",
-    "agent memory.propose_policy",
-    "agent memory.supersede_fact",
-    "agent memory.redact",
-    "agent memory.compact",
-    "agent module.manifest_diagnostic",
-    "agent module.manifest_diagnostic <valid hash reference>",
-    "agent module.manifest_diagnostic_selftest",
-    "agent module.artifact_diagnostic",
-    "agent module.artifact_diagnostic <valid hash reference>",
-    "agent module.artifact_diagnostic_selftest",
-    "agent module.vm_report_diagnostic",
-    "agent module.vm_report_diagnostic <valid hash reference>",
-    "agent module.vm_report_diagnostic_selftest",
-    "agent module.grant_diagnostic",
-    "agent module.grant_diagnostic <valid hash reference>",
-    "agent module.grant_diagnostic_selftest",
-    "agent module.audit_rollback_diagnostic",
-    "agent module.audit_rollback_diagnostic <valid hash reference>",
-    "agent module.audit_rollback_diagnostic_selftest",
-    "agent module.service_slot_diagnostic",
-    "agent module.service_slot_diagnostic <valid hash reference>",
-    "agent module.service_slot_diagnostic_selftest",
-    "agent module.load_gate_manifest_selftest",
-    "agent module.load_gate_artifact_selftest",
-    "agent module.load_gate_vm_report_selftest",
-    "agent module.load_gate_retained_selftest",
-    "agent module.load_gate_audit_rollback_selftest",
-    "agent module.load_gate_service_slot_selftest",
-    "module.load_ephemeral",
-    "agent audit.events 128"
+    "..."
+  ],
+  "executed_commands": [
+    {
+      "command": "describe",
+      "name": "command:describe",
+      "expected_marker": "RAIOS_AGENT_END system.describe",
+      "response_offset": 5249,
+      "duration_ms": 363,
+      "sent": true,
+      "passed": true
+    }
   ],
   "predicates": [
     {
@@ -162,6 +133,15 @@ referenced without embedding a self-referential hash in the JSON.
 `qemu.args_sha256` is computed from `qemu.args_canonical_json`, a compressed JSON
 array of the exact runner arguments, instead of a whitespace-joined command
 line. That keeps argument binding unambiguous even when a path contains spaces.
+
+`profile` names the harness slice (`quick`, `recovery`, or `full`). `commands`
+is derived from the actual serial commands that were sent during the run, not
+from a static profile inventory. `executed_commands` is the authoritative
+per-command evidence list; each entry is recorded only after the serial write
+returns, and includes the expected marker, response offset, duration, `sent`,
+and pass/fail result. A command that was sent but timed out remains present with
+`passed: false`; a connection failure before any write is not promoted into
+`commands`.
 
 Predicate `actual` is `"found"` on success. On failure it contains the tail of
 the serial log, capped for report readability, so a denied activation can still
@@ -257,7 +237,7 @@ reservation hash when a valid reservation was retained, unchanged service
 inventory, and `load_attempted: false`, plus separate recovery artifact
 identity/trust/VM-test/local-approval retained hash-reference diagnostics that
 remain non-authorizing. The latest verified report is
-`release/vm-reports/shadow-20260521-232959-10980.json` with 1986/1986
+`release/vm-reports/shadow-20260523-161602-8028.json` with 4500/4500
 predicates.
 
 ## Guest Hash-Reference Diagnostic

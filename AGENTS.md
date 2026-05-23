@@ -87,6 +87,26 @@ capability policy, then add read-only `memory.context` over those real facts.
 Do not build fake persistent memory ahead of the real persistence/rollback
 architecture.
 
+## Development Architecture Hygiene
+
+During development, do not pretend that every normal code change already runs
+through the final raiOS memory/recovery model. Build in the repository with real
+code, real tests, VM reports, and docs; the finished product will later store
+its own typed memory through the OS architecture.
+
+Still shape every durable slice so it can become raiOS memory later:
+
+- split a file or document as soon as a stable boundary is visible; do not wait
+  for oversized protocol files or handoff docs to become expensive to untangle
+- separate runtime paths, diagnostics/selftests, harness logic, and handoff
+  prose instead of mixing them into one growing surface
+- keep evidence authoritative: derive reports from observed execution, not
+  manually duplicated command inventories or stale summaries
+- record project knowledge for future agents in stable repo docs with source
+  pointers, not by prompt stuffing or fake in-guest persistence
+- use fast real slices for normal iteration and run recovery/full VM smokes when
+  touching those trust, recovery, or persistence surfaces
+
 ## Current Verified State
 
 - Repo path: `C:\Users\admin\Documents\raios2`

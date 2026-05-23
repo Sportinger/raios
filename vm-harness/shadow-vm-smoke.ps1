@@ -6,7 +6,11 @@ param(
     [string]$ReportDir = "$PSScriptRoot\..\release\vm-reports",
     [int]$TimeoutSeconds = 45,
     [switch]$Network,
-    [switch]$KeepImage
+    [switch]$KeepImage,
+    [int]$SerialWriteChunkSize = 256,
+    [int]$SerialWriteDelayMilliseconds = 0,
+    [ValidateSet("full", "quick", "recovery")]
+    [string]$Profile = "full"
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +29,7 @@ $TempImage = $false
 $Result = "failed"
 $Failures = New-Object System.Collections.Generic.List[string]
 $Predicates = New-Object System.Collections.Generic.List[object]
+$ExecutedCommands = New-Object System.Collections.Generic.List[object]
 $StartedAt = [DateTime]::UtcNow
 $script:SerialTcpDrainStream = $null
 $QemuArgList = @()
@@ -287,6 +292,23 @@ function Assert-LogDoesNotContain {
     }
 }
 
+function Write-SerialTcpText {
+    param(
+        [System.Net.Sockets.NetworkStream]$Stream,
+        [string]$Text
+    )
+
+    $bytes = [System.Text.Encoding]::ASCII.GetBytes($Text)
+    $chunkSize = [Math]::Max(1, $SerialWriteChunkSize)
+    for ($offset = 0; $offset -lt $bytes.Length; $offset += $chunkSize) {
+        $count = [Math]::Min($chunkSize, $bytes.Length - $offset)
+        $Stream.Write($bytes, $offset, $count)
+        if ($SerialWriteDelayMilliseconds -gt 0) {
+            Start-Sleep -Milliseconds $SerialWriteDelayMilliseconds
+        }
+    }
+}
+
 function Send-SerialText {
     param(
         [int]$Port,
@@ -321,11 +343,7 @@ function Send-SerialText {
 
     try {
         $stream = $client.GetStream()
-        $bytes = [System.Text.Encoding]::ASCII.GetBytes($Text)
-        foreach ($byte in $bytes) {
-            $stream.WriteByte($byte)
-            Start-Sleep -Milliseconds 8
-        }
+        Write-SerialTcpText -Stream $stream -Text $Text
         $stream.Flush()
         Start-Sleep -Milliseconds 250
     }
@@ -341,7 +359,11 @@ function Send-AgentCommand {
         [string]$Name = ""
     )
 
+    $commandStartedAt = [DateTime]::UtcNow
     $startOffset = Get-SerialLogOffset
+    $predicateName = if ($Name.Length -gt 0) { $Name } else { "command:$Command" }
+    $passed = $false
+    $sent = $false
     $client = $null
     $stream = $null
     try {
@@ -371,15 +393,11 @@ function Send-AgentCommand {
 
         $stream = $client.GetStream()
         $script:SerialTcpDrainStream = $stream
-        $bytes = [System.Text.Encoding]::ASCII.GetBytes("$Command`r")
-        foreach ($byte in $bytes) {
-            $stream.WriteByte($byte)
-            Start-Sleep -Milliseconds 8
-        }
+        Write-SerialTcpText -Stream $stream -Text "$Command`r"
+        $sent = $true
         $stream.Flush()
         Start-Sleep -Milliseconds 50
 
-        $predicateName = if ($Name.Length -gt 0) { $Name } else { "command:$Command" }
         $passed = Wait-ForLogTextAfterOffset -Path $SerialLog -Needle $ExpectedMarker -Offset $startOffset -TimeoutSeconds $TimeoutSeconds
         $actual = if ($passed) { "found_after_offset:$startOffset" } else { Get-SerialLogTail -Path $SerialLog }
         Add-Predicate -Name $predicateName -Expected "serial_contains_after_offset:$ExpectedMarker" -Passed $passed -Actual $actual
@@ -388,6 +406,18 @@ function Send-AgentCommand {
         }
     }
     finally {
+        $commandEndedAt = [DateTime]::UtcNow
+        if ($sent) {
+            $ExecutedCommands.Add([ordered]@{
+                command = $Command
+                name = $predicateName
+                expected_marker = $ExpectedMarker
+                response_offset = $startOffset
+                duration_ms = ([int][Math]::Round(($commandEndedAt - $commandStartedAt).TotalMilliseconds))
+                sent = $true
+                passed = $passed
+            }) | Out-Null
+        }
         $script:SerialTcpDrainStream = $null
         if ($null -ne $stream) {
             Drain-SerialTcpOutput -Stream $stream
@@ -455,10 +485,13 @@ function Write-Report {
     $qemuArgsCanonical = ConvertTo-ReportJson -Value @($QemuArgList)
     $qemuArgsSha256 = Get-TextSha256 -Text $qemuArgsCanonical
     $hardwareProfileSha256 = Get-TextSha256 -Text (ConvertTo-ReportJson -Value $HardwareProfile)
+    $executedCommandDetails = @($ExecutedCommands.ToArray())
+    $executedCommandNames = @($executedCommandDetails | ForEach-Object { $_.command })
 
     $report = [ordered]@{
         schema = "raios.vm_test_report.v0"
         result = $FinalResult
+        profile = $Profile
         generated_at_utc = ($endedAt.ToString("o"))
         started_at_utc = ($StartedAt.ToString("o"))
         duration_ms = ([int][Math]::Round(($endedAt - $StartedAt).TotalMilliseconds))
@@ -493,6 +526,10 @@ function Write-Report {
             args_canonical_json = $qemuArgsCanonical
             args_sha256 = $qemuArgsSha256
             serial_tcp_port = $SerialTcpPort
+            serial_write = [ordered]@{
+                chunk_bytes = $SerialWriteChunkSize
+                inter_chunk_delay_ms = $SerialWriteDelayMilliseconds
+            }
             pid = $QemuPid
         }
         evidence_binding = [ordered]@{
@@ -507,167 +544,8 @@ function Write-Report {
             predicate_failed_count = @($Predicates.ToArray() | Where-Object { -not $_.passed }).Count
             result = $FinalResult
         }
-        commands = @(
-            "describe",
-            "snapshot",
-            "caps",
-            "services",
-            "problems",
-            "agent memory.profile",
-            "agent memory.context diagnostic",
-            "agent memory.context provider_minimal",
-            "agent provider.context_export provider_minimal",
-            "agent provider.context_gate provider_minimal",
-            "agent provider.context_gate_selftest provider_minimal",
-            "agent provider.context_injection_gate provider_minimal",
-            "agent provider.context_injection_gate_selftest provider_minimal",
-            "agent memory.query",
-            "agent memory.trace snapshot.current",
-            "agent memory.recent_events",
-            "agent audit.events 8",
-            "agent memory.record_observation",
-            "agent memory.propose_policy",
-            "agent memory.supersede_fact",
-            "agent memory.redact",
-            "agent memory.compact",
-            "agent module.manifest_diagnostic",
-            "agent module.manifest_diagnostic <valid hash reference>",
-            "agent module.manifest_diagnostic_selftest",
-            "agent module.artifact_diagnostic",
-            "agent module.artifact_diagnostic <valid hash reference>",
-            "agent module.artifact_diagnostic_selftest",
-            "agent module.vm_report_diagnostic",
-            "agent module.vm_report_diagnostic <valid hash reference>",
-            "agent module.vm_report_diagnostic_selftest",
-            "agent module.attestation_diagnostic",
-            "agent module.attestation_diagnostic <valid hash reference>",
-            "agent module.attestation_diagnostic_selftest",
-            "agent module.approval_diagnostic",
-            "agent module.approval_diagnostic <valid hash reference>",
-            "agent module.approval_diagnostic_selftest",
-            "agent module.grant_diagnostic",
-            "agent module.grant_diagnostic <valid hash reference>",
-            "agent module.grant_diagnostic_selftest",
-            "agent module.audit_rollback_diagnostic",
-            "agent module.audit_rollback_diagnostic <valid hash reference>",
-            "agent module.audit_rollback_diagnostic_selftest",
-            "agent module.service_slot_diagnostic",
-            "agent module.service_slot_diagnostic <valid hash reference>",
-            "agent module.service_slot_diagnostic_selftest",
-            "agent module.audit_rollback_availability",
-            "agent module.audit_rollback_availability_selftest",
-            "agent module.audit_rollback_write_policy",
-            "agent module.audit_rollback_write_policy_selftest",
-            "agent module.audit_rollback_storage_layout",
-            "agent module.audit_rollback_storage_layout_selftest",
-            "agent module.audit_rollback_append_engine",
-            "agent module.audit_rollback_append_engine_selftest",
-            "agent module.audit_rollback_append_contract",
-            "agent module.audit_rollback_append_contract_selftest",
-            "agent module.audit_rollback_append_payload_hash",
-            "agent module.audit_rollback_append_payload_hash_selftest",
-            "agent module.audit_rollback_append_intent",
-            "agent module.audit_rollback_append_intent_selftest",
-            "agent module.audit_rollback_write_boundary",
-            "agent module.audit_rollback_write_boundary_selftest",
-            "agent module.load_gate_manifest_selftest",
-            "agent module.load_gate_artifact_selftest",
-            "agent module.load_gate_vm_report_selftest",
-            "agent module.load_gate_attestation_selftest",
-            "agent module.load_gate_approval_selftest",
-            "agent module.load_gate_retained_selftest",
-            "agent module.load_gate_audit_rollback_selftest",
-            "agent module.load_gate_service_slot_selftest",
-            "module.load_ephemeral",
-            "recovery.load_artifact",
-            "agent recovery.identity_diagnostic",
-            "agent recovery.identity_diagnostic <valid hash reference>",
-            "agent recovery.identity_diagnostic_selftest",
-            "agent recovery.trust_diagnostic",
-            "agent recovery.trust_diagnostic <valid hash reference>",
-            "agent recovery.trust_diagnostic_selftest",
-            "agent recovery.vm_test_diagnostic",
-            "agent recovery.vm_test_diagnostic <valid hash reference>",
-            "agent recovery.vm_test_diagnostic_selftest",
-            "agent recovery.local_approval_diagnostic",
-            "agent recovery.local_approval_diagnostic <valid hash reference>",
-            "agent recovery.local_approval_diagnostic_selftest",
-            "agent recovery.loader_diagnostic",
-            "agent recovery.loader_diagnostic <valid hash reference>",
-            "agent recovery.loader_diagnostic_selftest",
-            "agent recovery.rollback_evidence_diagnostic",
-            "agent recovery.rollback_evidence_diagnostic <valid hash reference>",
-            "agent recovery.rollback_evidence_diagnostic_selftest",
-            "agent recovery.lifeline_request_diagnostic",
-            "agent recovery.lifeline_request_diagnostic <valid hash reference>",
-            "agent recovery.lifeline_request_diagnostic_selftest",
-            "agent recovery.lifeline_protocol_diagnostic",
-            "agent recovery.lifeline_protocol_diagnostic_selftest",
-            "agent recovery.lifeline_command_vocabulary",
-            "agent recovery.lifeline_command_vocabulary_selftest",
-            "agent recovery.loader_runtime_isolation",
-            "agent recovery.loader_runtime_isolation_selftest",
-            "agent recovery.rollback_transaction_engine",
-            "agent recovery.rollback_transaction_engine_selftest",
-            "agent recovery.durable_audit_rollback_persistence",
-            "agent recovery.durable_audit_rollback_persistence_selftest",
-            "agent recovery.memory_provenance",
-            "agent recovery.memory_provenance_selftest",
-            "agent recovery.lifeline_command_admission",
-            "agent recovery.lifeline_command_admission_selftest",
-            "agent recovery.lifeline_command_envelope_diagnostic",
-            "agent recovery.lifeline_command_envelope_diagnostic_selftest",
-            "agent recovery.lifeline_command_dispatch_diagnostic",
-            "agent recovery.lifeline_command_dispatch_diagnostic_selftest",
-            "agent recovery.lifeline_command_body_canonicalization_diagnostic",
-            "agent recovery.lifeline_command_body_canonicalization_diagnostic_selftest",
-            "agent recovery.lifeline_command_handler_binding_diagnostic",
-            "agent recovery.lifeline_command_handler_binding_diagnostic_selftest",
-            "agent recovery.lifeline_status_read_handler_diagnostic",
-            "agent recovery.lifeline_status_read_handler_diagnostic_selftest",
-            "agent recovery.rollback_preview_authorization_diagnostic",
-            "agent recovery.rollback_preview_authorization_diagnostic_selftest",
-            "agent recovery.rollback_apply_authorization_diagnostic",
-            "agent recovery.rollback_apply_authorization_diagnostic_selftest",
-            "agent recovery.disable_module_target_binding_diagnostic",
-            "agent recovery.disable_module_target_binding_diagnostic_selftest",
-            "agent recovery.restart_last_good_target_binding_diagnostic",
-            "agent recovery.restart_last_good_target_binding_diagnostic_selftest",
-            "agent recovery.load_artifact_by_hash_target_binding_diagnostic",
-            "agent recovery.load_artifact_by_hash_target_binding_diagnostic_selftest",
-            "agent recovery.memory_write_authority_diagnostic",
-            "agent recovery.memory_write_authority_diagnostic_selftest",
-            "agent recovery.durable_audit_rollback_write_authority_diagnostic",
-            "agent recovery.durable_audit_rollback_write_authority_diagnostic_selftest",
-            "agent recovery.service_inventory_side_effect_boundary_diagnostic",
-            "agent recovery.service_inventory_side_effect_boundary_diagnostic_selftest",
-            "agent recovery.lifeline_command_dispatch_behavior_diagnostic",
-            "agent recovery.lifeline_command_dispatch_behavior_diagnostic_selftest",
-            "agent recovery.lifeline_command_executor_capability_table_diagnostic",
-            "agent recovery.lifeline_command_executor_capability_table_diagnostic_selftest",
-            "agent recovery.lifeline_command_side_effect_gate_diagnostic",
-            "agent recovery.lifeline_command_side_effect_gate_diagnostic_selftest",
-            "agent recovery.lifeline_command_execution_enablement_diagnostic",
-            "agent recovery.lifeline_command_execution_enablement_diagnostic_selftest",
-            "agent recovery.lifeline_command_execution_preflight_diagnostic",
-            "agent recovery.lifeline_command_execution_preflight_diagnostic_selftest",
-            "agent recovery.lifeline_command_execution_intent_diagnostic",
-            "agent recovery.lifeline_command_execution_intent_diagnostic_selftest",
-            "agent recovery.lifeline_command_execution_commit_gate_diagnostic",
-            "agent recovery.lifeline_command_execution_commit_gate_diagnostic_selftest",
-            "agent recovery.lifeline_command_execution_result_denial_diagnostic",
-            "agent recovery.lifeline_command_execution_result_denial_diagnostic_selftest",
-            "agent recovery.lifeline_command_execution_audit_denial_diagnostic",
-            "agent recovery.lifeline_command_execution_audit_denial_diagnostic_selftest",
-            "agent recovery.lifeline_command_execution_observation_denial_diagnostic",
-            "agent recovery.lifeline_command_execution_observation_denial_diagnostic_selftest",
-            "agent recovery.lifeline_command_execution_completion_denial_diagnostic",
-            "agent recovery.lifeline_command_execution_completion_denial_diagnostic_selftest",
-            "agent recovery.load_binding",
-            "agent recovery.load_binding_selftest",
-            "module.load_recovery_artifact",
-            "agent audit.events 256"
-        )
+        commands = $executedCommandNames
+        executed_commands = $executedCommandDetails
         predicates = @($Predicates.ToArray())
         serial_log = [ordered]@{
             path = $SerialLog
@@ -760,6 +638,7 @@ try {
     Assert-LogContains -Name "boot:framebuffer_ready" -Needle "status FRAMEBUFFER: READY" -TimeoutSeconds $TimeoutSeconds
     Assert-LogContains -Name "boot:usb_xhci_ready" -Needle "status USB-XHCI: READY" -TimeoutSeconds $TimeoutSeconds
 
+    :SmokeProfileValidation while ($true) {
     Send-AgentCommand -Command "describe" -ExpectedMarker "RAIOS_AGENT_END system.describe"
     Assert-LogContains -Name "protocol:describe_schema" -Needle '"schema": "system.describe.v0"' -TimeoutSeconds 1
 
@@ -880,6 +759,36 @@ try {
     Assert-LogContains -Name "protocol:provider_context_gate_current_boot_gate_false" -Needle '"satisfies_current_boot_export_gate": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_can_export_false" -Needle '"can_export": false' -TimeoutSeconds 1
 
+    if ($Profile -eq "quick") {
+        Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
+        Assert-LogContains -Name "quick:module_load_schema" -Needle '"schema": "raios.module_load_gate.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_manifest_missing" -Needle '"module_manifest": "missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_grant_missing" -Needle '"computed_capability_grant": "missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_no_inventory_change" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:module_load_not_attempted" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+        Send-AgentCommand -Command "recovery.load_artifact" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact"
+        Assert-LogContains -Name "quick:recovery_load_schema" -Needle '"schema": "raios.recovery_artifact_load_boundary.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:recovery_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:recovery_load_capability" -Needle '"requested_capability": "cap.recovery.load_artifact"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:recovery_load_normal_path_not_used" -Needle '"normal_module_load_path_used": false' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:recovery_identity_missing" -Needle '"recovery_artifact_identity": "missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:recovery_no_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:recovery_load_not_attempted" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+        Send-AgentCommand -Command "agent audit.events 16" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+        Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 16' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_module_load_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_recovery_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_ram_only" -Needle '"persistence": "none"' -TimeoutSeconds 1
+        break SmokeProfileValidation
+    }
+
+    if ($Profile -eq "full") {
     Send-AgentCommand -Command "agent provider.context_gate_selftest provider_minimal" -ExpectedMarker "RAIOS_AGENT_END provider.context_gate_selftest"
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_schema" -Needle '"schema": "raios.provider_context_gate_negative_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
@@ -2692,6 +2601,7 @@ try {
     Assert-LogContains -Name "policy:module_local_approval_reference_hash_retained" -Needle "`"local_approval_reference_hash`": `"sha256:$moduleApprovalReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_local_approval_hash_retained" -Needle "`"local_approval_hash`": `"sha256:$moduleAuditLocalApprovalHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_service_inventory_unchanged" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    }
 
     Send-AgentCommand -Command "recovery.load_artifact" -ExpectedMarker "RAIOS_AGENT_END recovery.load_artifact"
     $recoveryLoadResponse = Get-LastAgentResponseJson -Method "recovery.load_artifact"
@@ -6816,6 +6726,25 @@ try {
     Assert-LogContains -Name "protocol:recovery_binding_selftest_payload_authority_false" -Needle '"append_payload_hash_authority": false' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent audit.events 256" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+    if ($Profile -eq "recovery") {
+        Assert-LogContains -Name "recovery:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_limit" -Needle '"limit": 256' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_identity_source" -Needle '"source_method": "recovery.identity_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_trust_source" -Needle '"source_method": "recovery.trust_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_vm_test_source" -Needle '"source_method": "recovery.vm_test_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_local_approval_source" -Needle '"source_method": "recovery.local_approval_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_loader_source" -Needle '"source_method": "recovery.loader_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_rollback_evidence_source" -Needle '"source_method": "recovery.rollback_evidence_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_lifeline_request_source" -Needle '"source_method": "recovery.lifeline_request_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_load_binding_source" -Needle '"source_method": "recovery.load_binding"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_load_binding_selftest_source" -Needle '"source_method": "recovery.load_binding_selftest"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_execution_completion_denial_source" -Needle '"source_method": "recovery.lifeline_command_execution_completion_denial_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_service_boundary_source" -Needle '"source_method": "recovery.service_inventory_side_effect_boundary_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_ram_only" -Needle '"persistence": "none"' -TimeoutSeconds 1
+        break SmokeProfileValidation
+    }
     Assert-LogContains -Name "protocol:module_manifest_audit_source" -Needle '"source_method": "module.manifest_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_manifest_audit_kind" -Needle '"kind": "module.manifest_reference.retained"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_manifest_audit_outcome" -Needle '"outcome": "retained_hash_reference_load_still_denied"' -TimeoutSeconds 1
@@ -7174,6 +7103,9 @@ try {
     Assert-LogContains -Name "protocol:recovery_binding_audit_source" -Needle '"source_method": "recovery.load_binding"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_selftest_audit_source" -Needle '"source_method": "recovery.load_binding_selftest"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_binding_audit_capability" -Needle '"requested_capability": "cap.recovery.load_artifact.read"' -TimeoutSeconds 1
+
+    break SmokeProfileValidation
+    }
 
     $Result = "passed"
 }

@@ -1,6 +1,21 @@
 # Project Status
 
-Last verified locally: 2026-05-23 on Windows with QEMU 11 after adding guest
+Development memory for future agents: build normal changes in the repo with
+real code, tests, VM reports, and docs; do not fake the finished raiOS memory
+architecture during development. Keep slices on the final architecture path by
+splitting stable boundaries early, separating runtime/diagnostic/harness/handoff
+surfaces, and making observed execution evidence more authoritative than copied
+command lists or prose summaries.
+
+Last verified locally: 2026-05-23 on Windows with QEMU 11 after extracting the
+recovery lifeline command specs into
+`seed-kernel/src/agent_protocol_recovery_lifeline.rs`, updating Shadow VM
+reports to derive `commands`/`executed_commands` from actual serial command
+execution, moving recovery lifeline execution-stage selftest fixtures and
+retained-chain matchers plus execution-stage JSON emission and retained-event
+recording into
+`seed-kernel/src/agent_protocol_recovery_execution.rs`, and preserving the
+previously verified guest
 `module.audit_rollback_availability`,
 `module.audit_rollback_availability_selftest`,
 `module.audit_rollback_write_policy`,
@@ -291,9 +306,26 @@ covering OTA/registry tooling plus the non-authorizing
 `raios.module_audit_rollback_diagnostic.v0` audit/rollback candidates, and
 negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
+Latest quick guest-protocol verification: 2026-05-23 on Windows with
+`vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180`, report
+`release\vm-reports\shadow-20260523-174556-23200.json` with 136/136
+predicates, 13 `executed_commands` entries, and no static command inventory,
+covering the real QEMU/serial path through boot readiness, core read-only
+methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
+`recovery.load_artifact`, and RAM-only audit visibility.
+
+Latest focused recovery guest-protocol verification: 2026-05-23 on Windows with
+`vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
+`release\vm-reports\shadow-20260523-174622-6380.json` with 2725/2725
+predicates, 142 `executed_commands` entries, and no static command inventory,
+covering the real QEMU/serial path through the recovery artifact boundary,
+recovery evidence retention, lifeline-command diagnostics, load-binding denial,
+and RAM-only recovery audit visibility while skipping the normal module-loading
+diagnostic matrix.
+
 Latest guest-protocol verification: 2026-05-23 on Windows with
 `vm-harness\shadow-vm-smoke.ps1`, report
-`release\vm-reports\shadow-20260523-093003-10228.json` with 4500/4500
+`release\vm-reports\shadow-20260523-161602-8028.json` with 4500/4500
 predicates, covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
@@ -668,17 +700,26 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Refactor the recovery lifeline command execution-stage machinery without
-changing behavior:
+Continue splitting the recovery lifeline command machinery without changing
+behavior:
 
-- the first behavior-neutral slice has moved the shared execution-stage
+- the latest behavior-neutral slice moved the six recovery lifeline command
+  specs and dispatch boundary constant into
+  `seed-kernel/src/agent_protocol_recovery_lifeline.rs`, keeping public command
+  vocabulary and all schema/boundary ids unchanged
+- the follow-up behavior-neutral slice moved execution-stage selftest case
+  construction, retained-chain reference matchers, JSON response emission, and
+  retained execution-stage event recording into
+  `seed-kernel/src/agent_protocol_recovery_execution.rs`, leaving only thin
+  execution-stage dispatch wrappers in `agent_protocol_recovery.rs`
+- the previous behavior-neutral slice moved the shared execution-stage
   descriptor/input ownership, method/argument matching helpers, stage
   descriptor constants, execution-stage boundary IDs, reference-check type,
   parser/evaluator, hash-validation, and live-chain validation helpers into
   `seed-kernel/src/agent_protocol_recovery_execution.rs`
-- next, extract the repeated execution-stage retained-event construction and
-  JSON emission helpers out of the oversized recovery protocol file into the
-  focused recovery execution module code
+- next, move the remaining thin execution-stage public wrapper methods and
+  method-predicate wiring into the focused recovery execution module, then
+  update the central agent dispatcher imports without changing method names
 - preserve every public method name, schema id, boundary id, denial reason,
   canonical hash line, event-log binding, and shadow-smoke expectation exactly
   except for file/module ownership
@@ -691,6 +732,19 @@ changing behavior:
   `-TimeoutSeconds 180` when the default per-command serial timeout is too
   tight, and check `release\vm-reports\shadow-*.json` plus the temp
   `serial.log` before treating a timeout as a protocol failure
+- for fast iteration, `vm-harness\shadow-vm-smoke.ps1 -Profile quick` runs the
+  real QEMU/serial path through boot, core read-only methods, provider-minimal
+  export gates, denied module loading, denied recovery artifact loading, and
+  RAM-only audit visibility while skipping the exhaustive negative matrix; the
+  default `-Profile full` remains the complete evidence path
+- for focused recovery iteration, `vm-harness\shadow-vm-smoke.ps1 -Profile recovery`
+  skips the provider selftest, memory mutation, and normal module-loading matrix
+  while preserving the real recovery lifeline and audit path; the harness writes
+  serial commands in chunks by default to avoid spending minutes on host-side
+  byte pacing for long diagnostic commands
+- keep this refactor style as the standing development rule: when a stable
+  boundary is visible, split it before files or docs become large, and make
+  reports derive from observed execution rather than duplicated static lists
 
 The verified foundation for that task is:
 
@@ -1460,9 +1514,12 @@ The verified foundation for that task is:
   dispatch-denial boundary id, canonical command-body metadata hash/reference,
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
-  Latest report:
-  `release\vm-reports\shadow-20260523-093003-10228.json` with 4500/4500
-  predicates.
+  Latest focused reports:
+  `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
+  predicates and 13 executed commands, and
+  `release\vm-reports\shadow-20260523-174622-6380.json` with 2725/2725
+  recovery predicates and 142 executed commands. Both reports derive
+  `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It
   verified the real request envelope marker appears on the `ask` path, omits raw

@@ -2,17 +2,28 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-23 by Codex after the third behavior-neutral recovery
-lifeline command execution-stage refactor slice. Shared execution-stage
-descriptor/input ownership, method/argument matching helpers, stage descriptor
-constants, execution-stage boundary IDs, reference-check type,
-parser/evaluator, hash-validation, and live-chain validation helpers now live in
-`seed-kernel/src/agent_protocol_recovery_execution.rs`; public method names,
+Last updated: 2026-05-23 by Codex after an early-boundary recovery lifeline
+refactor and Shadow VM report evidence cleanup. The recovery lifeline command
+vocabulary/spec helpers now live in
+`seed-kernel/src/agent_protocol_recovery_lifeline.rs`; recovery diagnostics and
+execution-stage code import that boundary instead of keeping the command specs
+inside the oversized recovery protocol file. Recovery lifeline execution-stage
+response emission, retained-event recording, selftest case construction, and
+retained-chain matchers now live in
+`seed-kernel/src/agent_protocol_recovery_execution.rs`; only thin execution-stage
+dispatch wrappers remain in `agent_protocol_recovery.rs`. Public method names,
 schema ids, boundary ids, denial reasons, canonical hash lines, event-log
-bindings, dispatch behavior, and shadow-smoke expectations are unchanged.
-Shadow VM smoke passed with `-TimeoutSeconds 180`; report
-`release/vm-reports/shadow-20260523-161602-8028.json` recorded 4500/4500
-passing predicates.
+bindings, dispatch behavior, and shadow-smoke expectations are unchanged. The
+Shadow VM harness now
+derives report `commands` from actual serial `Send-AgentCommand` calls and
+records per-command `executed_commands`; the old static report command inventory
+was removed. Current evidence: full report
+`release/vm-reports/shadow-20260523-223645-13488.json` recorded 4500/4500
+predicates with 206 executed commands; quick report
+`release/vm-reports/shadow-20260523-174556-23200.json` recorded 136/136
+predicates with 13 executed commands, and recovery report
+`release/vm-reports/shadow-20260523-174622-6380.json` recorded 2725/2725
+predicates with 142 executed commands.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
 diagnostics with
@@ -204,6 +215,21 @@ append-payload, writer, service-slot, and `module.load_ephemeral` authority.
 
 Latest maintenance verification:
 
+- `cargo fmt --all -- --check` passed after extracting recovery lifeline command
+  specs and execution-stage helpers.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`
+  passed after extracting recovery lifeline command specs and execution-stage
+  helpers.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180`
+  passed on 2026-05-23 and wrote
+  `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136
+  predicates and 13 `executed_commands` entries derived from the actual serial
+  run.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`
+  passed on 2026-05-23 and wrote
+  `release\vm-reports\shadow-20260523-174622-6380.json` with 2725/2725
+  predicates and 142 `executed_commands` entries derived from the actual serial
+  run.
 - `git diff --check` passed.
 - `cargo fmt --all -- --check` passed.
 - `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
@@ -215,7 +241,7 @@ Latest maintenance verification:
   passed on 2026-05-23.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260523-093003-10228.json` with 4500/4500
+  `release\vm-reports\shadow-20260523-161602-8028.json` with 4500/4500
   predicates, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
@@ -920,10 +946,11 @@ Start from the retained execution stage chain through
 execution-stage descriptor/input ownership, method/argument matching helpers,
 stage descriptor constants, execution-stage boundary IDs, reference-check type,
 parser/evaluator, hash-validation, and live-chain validation helpers already
-live in `seed-kernel/src/agent_protocol_recovery_execution.rs`. Next, extract
-the repeated execution-stage retained-event construction and JSON emission
-helpers out of the oversized recovery protocol file into the focused recovery
-execution module code.
+live in `seed-kernel/src/agent_protocol_recovery_execution.rs`, alongside
+execution-stage response emission and retained-event recording. Next, move the
+remaining thin execution-stage public wrapper methods and method-predicate
+wiring into the focused recovery execution module, then update the central
+agent dispatcher imports without changing method names.
 Do not change public method names, schema ids, boundary ids, denial reasons,
 canonical hash lines, event-log binding, dispatch behavior, or shadow-smoke
 expectations. This is a behavior-neutral cleanup to make the next execution
@@ -931,11 +958,11 @@ boundaries faster and less error-prone, not a protocol redesign.
 
 Next three tasks:
 
-1. Move execution-stage response emission and retained event construction into
-   the same focused ownership boundary, preserving all schema/hash strings.
-2. Move execution-stage selftest case construction and rendering helpers into
-   the focused recovery execution module if the response-emission slice leaves
-   repeated stage-only code behind.
+1. Move the remaining thin execution-stage public wrapper methods and
+   method-predicate wiring into the focused recovery execution module.
+2. Audit remaining execution-stage references in `agent_protocol_recovery.rs`
+   and leave only cross-boundary dispatch/candidate logic there if moving it
+   would require a broader protocol split.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next refactor slice.
