@@ -33,6 +33,10 @@ use crate::{
         module_load_gate_retained_selftest_method, module_load_gate_service_slot_selftest_method,
         module_load_gate_vm_report_selftest_method,
     },
+    agent_protocol_module_loader_identity::{
+        emit_module_loader_identity, emit_module_loader_identity_selftest,
+        module_loader_identity_method, module_loader_identity_selftest_method,
+    },
     agent_protocol_module_loader_runtime::{
         emit_module_loader_runtime, emit_module_loader_runtime_selftest,
         module_loader_runtime_method, module_loader_runtime_selftest_method,
@@ -463,6 +467,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("module.loader_runtime_selftest");
         emit_module_loader_runtime_selftest();
         return DispatchOutcome::Response("module.loader_runtime_selftest");
+    }
+    if module_loader_identity_method(method) {
+        record_read("module.loader_identity");
+        emit_module_loader_identity();
+        return DispatchOutcome::Response("module.loader_identity");
+    }
+    if module_loader_identity_selftest_method(method) {
+        record_read("module.loader_identity_selftest");
+        emit_module_loader_identity_selftest();
+        return DispatchOutcome::Response("module.loader_identity_selftest");
     }
     if module_audit_rollback_availability_method(method) {
         record_read("module.audit_rollback_availability");

@@ -3,6 +3,8 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-24 by Codex after adding read-only
+`module.loader_identity` diagnostics and selftests for the first typed
+normal-module loader-runtime fact boundary,
 `module.load_gate_loader_runtime_selftest` coverage for the denied load-gate
 loader-runtime readiness projection,
 denied `module.load_ephemeral` reporting for retained-evidence,
@@ -632,6 +634,14 @@ Current verified cursor:
   audit/rollback write-boundary binding, and keeps `loads_artifact`,
   `allocates_service_slot`, `service_inventory_change`, `can_load_now`, and
   `load_attempted` non-authorizing.
+- `module.loader_identity` now exposes `raios.module_loader_identity.v0` as a
+  read-only current-boot diagnostic for the first typed normal-module
+  loader-runtime fact. The live fact is missing/local-only until retained
+  module evidence, service-slot allocator readiness/runtime, and
+  audit/rollback write-boundary binding exist. Its selftest covers missing
+  prerequisites, scope/schema/provenance failures, required binding gaps,
+  missing identity, and all-inputs-present-but-non-authorizing identity
+  evidence.
 - `module.load_ephemeral` now mirrors those Phase-6 readiness boundaries in
   its denied `raios.module_load_gate.v0` response and event-log binding. The
   gate distinguishes retained module evidence, service-slot allocator runtime
@@ -1127,28 +1137,31 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Add read-only `module.loader_identity` diagnostics for the current-boot
-normal-module loader identity fact.
+Add read-only `module.loader_artifact_hash_binding` diagnostics for the
+current-boot normal-module loader artifact-hash binding fact.
 ```
 
 `module.load_ephemeral` now reports retained-evidence, service-slot allocator
 readiness, and loader-runtime readiness states in its denied response and audit
 binding, and `module.load_gate_loader_runtime_selftest` covers that denied
-projection. The next durable Phase-6 slice should start making the typed
-loader-runtime fact boundary addressable with a read-only
-`raios.module_loader_identity.v0` diagnostic and selftest. It must report the
-fact as missing/current-boot/local-only, require retained module evidence,
-service-slot allocator readiness, and audit/rollback write-boundary binding as
-inputs, and keep load authority disabled.
+projection. `module.loader_identity` now makes the first typed loader-runtime
+fact addressable without granting load authority. The next durable Phase-6
+slice should add the adjacent read-only
+`raios.module_loader_artifact_hash_binding.v0` diagnostic and selftest. It must
+report the fact as missing/current-boot/local-only, require retained module
+evidence, service-slot allocator readiness/runtime, audit/rollback
+write-boundary binding, and loader identity as inputs, and keep descriptor
+input, artifact input, service inventory mutation, and load authority disabled.
 
 Next three tasks:
 
-1. Add `module.loader_identity` as a read-only current-boot diagnostic for
-   `raios.module_loader_identity.v0`.
-2. Add `module.loader_identity_selftest` covering missing, previous-boot,
-   schema/provenance, missing retained-evidence binding, missing
-   service-slot-allocator binding, missing audit/write-boundary binding, and
-   all-inputs-present-but-non-authorizing cases.
+1. Add `module.loader_artifact_hash_binding` as a read-only current-boot
+   diagnostic for `raios.module_loader_artifact_hash_binding.v0`.
+2. Add `module.loader_artifact_hash_binding_selftest` covering missing
+   prerequisites, previous-boot, schema/provenance failures, retained-evidence,
+   service-slot-allocator, audit/write-boundary, and loader-identity binding
+   gaps, missing artifact-hash binding, and all-inputs-present-but-non-authorizing
+   cases.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next Phase-6 slice.

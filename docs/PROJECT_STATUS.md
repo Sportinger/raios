@@ -18,6 +18,8 @@ boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
 Last verified locally: 2026-05-24 on Windows with QEMU 11 after adding
+read-only `module.loader_identity` diagnostics and selftests for the first
+normal-module loader-runtime fact boundary,
 local-only `module.load_gate_loader_runtime_selftest` coverage for the denied
 load-gate loader-runtime projection,
 denied `module.load_ephemeral` reporting for retained-evidence,
@@ -1406,6 +1408,16 @@ The verified foundation for that task is:
   missing loader-runtime fact, and the final all-inputs-ready
   `defined_non_executable` case without loading artifacts or mutating service
   inventory.
+- `module.loader_identity` now exposes `raios.module_loader_identity.v0` as a
+  read-only current-boot diagnostic for the first typed normal-module
+  loader-runtime fact. It reports the live fact as missing/local-only and
+  requires retained module evidence, service-slot allocator readiness/runtime,
+  and audit/rollback write-boundary binding before it can become available.
+  `module.loader_identity_selftest` covers missing retained evidence,
+  allocator readiness/runtime gaps, missing audit/write boundary,
+  identity scope/schema/provenance failures, missing retained-evidence,
+  service-slot-allocator, and audit-boundary bindings, missing identity, and
+  all-inputs-present-but-non-authorizing identity evidence.
 - `module.audit_rollback_availability` now exposes
   `raios.module_audit_rollback_availability.v0` as a read-only current-boot
   diagnostic over typed `raios.durable_audit_ledger.v0` and

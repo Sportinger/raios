@@ -513,6 +513,47 @@ pub(crate) struct ModuleLoaderRuntimeSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderIdentityCandidate {
+    pub(crate) retained_module_evidence_present: bool,
+    pub(crate) service_slot_allocator_readiness_present: bool,
+    pub(crate) service_slot_allocator_ready: bool,
+    pub(crate) audit_rollback_write_boundary_present: bool,
+    pub(crate) identity: ModuleLoaderRuntimeFact,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderIdentityEvaluation {
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
+    pub(crate) retained_module_evidence_status: &'static str,
+    pub(crate) retained_module_evidence_reason: &'static str,
+    pub(crate) service_slot_allocator_readiness_status: &'static str,
+    pub(crate) service_slot_allocator_readiness_reason: &'static str,
+    pub(crate) service_slot_allocator_runtime_status: &'static str,
+    pub(crate) service_slot_allocator_runtime_reason: &'static str,
+    pub(crate) audit_rollback_write_boundary_status: &'static str,
+    pub(crate) audit_rollback_write_boundary_reason: &'static str,
+    pub(crate) identity_status: &'static str,
+    pub(crate) identity_reason: &'static str,
+    pub(crate) loads_artifact: bool,
+    pub(crate) allocates_service_slot: bool,
+    pub(crate) creates_service_inventory_records: bool,
+    pub(crate) can_load: bool,
+    pub(crate) load_attempted: bool,
+}
+
+pub(crate) struct ModuleLoaderIdentitySelfTestCase {
+    pub(crate) name: &'static str,
+    pub(crate) expected_status: &'static str,
+    pub(crate) expected_reason: &'static str,
+    pub(crate) actual_status: &'static str,
+    pub(crate) actual_reason: &'static str,
+    pub(crate) actual_identity_status: &'static str,
+    pub(crate) actual_identity_reason: &'static str,
+    pub(crate) passed: bool,
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct ModuleAuditRollbackAvailabilityFact {
     pub(crate) present: bool,
     pub(crate) schema_ok: bool,
@@ -1280,6 +1321,7 @@ pub(crate) const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 14;
 pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 27;
+pub(crate) const MODULE_LOADER_IDENTITY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_AUDIT_ROLLBACK_AVAILABILITY_SELFTEST_CASES: usize = 8;
 pub(crate) const MODULE_AUDIT_ROLLBACK_WRITE_POLICY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_SELFTEST_CASES: usize = 15;
