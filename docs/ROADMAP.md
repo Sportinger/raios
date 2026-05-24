@@ -20,8 +20,9 @@ fixtures into
 moving command envelope/dispatch/body evaluator selftest helpers
 into `seed-kernel/src/agent_protocol_recovery_command_eval.rs`, moving recovery
 lifeline protocol/vocabulary/runtime/rollback/persistence/memory/admission
-evaluators and selftest fixtures into
-`seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs`, moving recovery
+evaluators and selftest fixtures out of the
+`seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs` facade into focused
+`seed-kernel/src/agent_protocol_recovery_*_eval.rs` modules, moving recovery
 load-binding evaluation, retained-chain mismatch checks, and load-binding
 selftest fixtures into `seed-kernel/src/agent_protocol_recovery_load_binding.rs`,
 suppressing framebuffer redraws for serial command-mode echo, caching Shadow VM
@@ -100,8 +101,10 @@ emit helpers now live in
 `seed-kernel/src/agent_protocol_recovery_service_inventory_effect_emit.rs`,
 and `seed-kernel/src/agent_protocol_recovery_command_effect_emit.rs`.
 Recovery lifeline protocol/vocabulary/runtime/rollback/persistence/memory/
-admission evaluators and selftest fixtures now live in
-`seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs`. Recovery
+admission evaluators and selftest fixtures now live in focused
+`seed-kernel/src/agent_protocol_recovery_*_eval.rs` modules, with
+`seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs` kept as a thin
+facade. Recovery
 lifeline command reference parsers, evaluators, and event-log binding builders
 now live in
 `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`. Command
@@ -135,8 +138,8 @@ Current evidence: full report
 predicates with 206 executed commands and `duration_ms: 250938`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
-`release/vm-reports/shadow-20260524-140503-24772.json` recorded 2725/2725
-predicates with 142 executed commands and `duration_ms: 159960`.
+`release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
+predicates with 142 executed commands and `duration_ms: 138960`.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
 diagnostics with
@@ -363,9 +366,9 @@ Latest maintenance verification:
   run, and `duration_ms: 17108`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`
   passed on 2026-05-24 and wrote
-  `release\vm-reports\shadow-20260524-140503-24772.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-175144-24260.json` with 2725/2725
   predicates, 142 `executed_commands` entries derived from the actual serial
-  run, and `duration_ms: 159960`.
+  run, and `duration_ms: 138960`.
 - `git diff --check` passed.
 - `cargo fmt --all -- --check` passed.
 - `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`

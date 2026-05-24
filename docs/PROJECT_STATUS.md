@@ -19,8 +19,9 @@ evaluation, retained-chain mismatch checks,
 and load-binding selftest fixtures into
 `seed-kernel/src/agent_protocol_recovery_load_binding.rs`, moving recovery
 lifeline protocol/vocabulary/runtime/rollback/persistence/memory/admission
-evaluators and selftest fixtures into
-`seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs`, moving recovery
+evaluators and selftest fixtures out of the
+`seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs` facade into focused
+`seed-kernel/src/agent_protocol_recovery_*_eval.rs` modules, moving recovery
 lifeline command reference parsers, evaluators, and event-log binding builders
 into `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`,
 moving recovery memory/durable/service/dispatch-behavior/executor/side-effect
@@ -399,7 +400,7 @@ methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 
 Latest focused recovery guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-140503-24772.json` with 2725/2725
+`release\vm-reports\shadow-20260524-175144-24260.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
@@ -1679,8 +1680,8 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 17108`, and
-  `release\vm-reports\shadow-20260524-140503-24772.json` with 2725/2725
-  recovery predicates, 142 executed commands, and `duration_ms: 159960`.
+  `release\vm-reports\shadow-20260524-175144-24260.json` with 2725/2725
+  recovery predicates, 142 executed commands, and `duration_ms: 138960`.
   Both reports derive `commands` from observed serial execution. The recovery
   profile still exercises the same predicate/command count, but serial command
   echo no longer forces framebuffer redraws while long hash-reference commands

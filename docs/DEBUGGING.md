@@ -143,8 +143,8 @@ Stage-0 serial command-mode input echoes bytes to the serial log without
 forcing framebuffer redraws during long pasted commands; this keeps long
 hash-reference recovery diagnostics on the real serial path without paying a
 full UI render for every input chunk. The 2026-05-24 focused recovery report
-`release\vm-reports\shadow-20260524-140503-24772.json` passed 2725/2725
-predicates with 142 executed commands in `duration_ms: 159960`.
+`release\vm-reports\shadow-20260524-175144-24260.json` passed 2725/2725
+predicates with 142 executed commands in `duration_ms: 138960`.
 
 For fast iteration, run the same real QEMU/serial path with the quick profile:
 
