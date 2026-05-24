@@ -24,7 +24,10 @@ capability, selftest-count, and boundary-id constants into
 load-binding types into
 `seed-kernel/src/agent_protocol_recovery_load_binding.rs`, moving recovery
 artifact-reference types into
-`seed-kernel/src/agent_protocol_recovery_artifact_types.rs`, moving lifeline
+`seed-kernel/src/agent_protocol_recovery_artifact_types.rs`, moving recovery
+artifact-reference parsers, evaluators, selftest fixtures, and event-log
+binding builders into
+`seed-kernel/src/agent_protocol_recovery_artifact_reference.rs`, moving lifeline
 protocol and command-vocabulary types into
 `seed-kernel/src/agent_protocol_recovery_lifeline_protocol_types.rs`, moving
 lifeline runtime/isolation/rollback/persistence/provenance/admission types into
@@ -790,7 +793,10 @@ behavior:
   load-binding types into
   `seed-kernel/src/agent_protocol_recovery_load_binding.rs`, recovery
   artifact-reference types into
-  `seed-kernel/src/agent_protocol_recovery_artifact_types.rs`, and lifeline
+  `seed-kernel/src/agent_protocol_recovery_artifact_types.rs`, plus recovery
+  artifact-reference parsers, evaluators, selftest fixtures, and event-log
+  binding builders into
+  `seed-kernel/src/agent_protocol_recovery_artifact_reference.rs`, and lifeline
   protocol/command-vocabulary types into
   `seed-kernel/src/agent_protocol_recovery_lifeline_protocol_types.rs`, plus
   lifeline runtime/isolation/rollback/persistence/provenance/admission types
@@ -1638,7 +1644,7 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
   predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260524-090146-28348.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-092347-26332.json` with 2725/2725
   recovery predicates and 142 executed commands. Both reports derive
   `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
