@@ -576,7 +576,10 @@ binding facts, and keeps `loads_artifact: false`,
 loader-runtime fact now carries the addressable source diagnostic method and
 source fact locator, and `module.loader_runtime_selftest` exposes a
 `source_fact_map` so the aggregate required-fact list can be checked against
-the typed source methods.
+the typed source methods. The denied `module.load_ephemeral`
+`loader_runtime_readiness` projection and its compact audit/event binding reuse
+the same ten-entry source map, so load-denial evidence and aggregate readiness
+cannot drift.
 
 The module loader identity diagnostic emits `raios.module_loader_identity.v0`
 and the selftest emits `raios.module_loader_identity_selftest.v0`. It makes the
@@ -1085,6 +1088,9 @@ and `can_load: false`. It covers missing/rejected retained evidence,
 missing/rejected retained service-slot reservation projection, and the
 all-retained-evidence-ready state that remains denied by the missing
 service-slot allocator runtime; all cases must keep load attempts disabled.
+It also emits `source_fact_count: 10`, `source_fact_map_complete: true`, and a
+local-only `source_fact_map` matching the denied load-gate
+`loader_runtime_readiness` projection.
 
 `module.load_gate_attestation_selftest` emits
 `raios.module_load_gate_local_attestation_selftest.v0`; it must keep

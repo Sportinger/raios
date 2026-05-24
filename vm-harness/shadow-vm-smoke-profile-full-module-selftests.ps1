@@ -833,6 +833,7 @@
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent module.load_gate_loader_runtime_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_loader_runtime_selftest"
+    $moduleLoadGateRuntimeSelftestResponse = Get-LastAgentResponseJson -Method "module.load_gate_loader_runtime_selftest"
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_schema" -Needle '"schema": "raios.module_load_gate_loader_runtime_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
@@ -845,6 +846,25 @@
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_not_ready" -Needle '"service_slot_allocator_ready": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_count" -Needle '"case_count": 5' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    $moduleLoadGateRuntimeSelftestSourceCount = [int]$moduleLoadGateRuntimeSelftestResponse.body.result.source_fact_count
+    $moduleLoadGateRuntimeSelftestSourceCountMatches = $moduleLoadGateRuntimeSelftestSourceCount -eq 10
+    Add-Predicate -Name "protocol:module_load_gate_loader_runtime_selftest_source_count" -Expected 10 -Passed $moduleLoadGateRuntimeSelftestSourceCountMatches -Actual $moduleLoadGateRuntimeSelftestSourceCount
+    if (-not $moduleLoadGateRuntimeSelftestSourceCountMatches) {
+        throw "Expected 10 module.load_gate_loader_runtime_selftest source facts, got $moduleLoadGateRuntimeSelftestSourceCount"
+    }
+    $moduleLoadGateRuntimeSelftestSourceMapComplete = [bool]$moduleLoadGateRuntimeSelftestResponse.body.result.source_fact_map_complete
+    Add-Predicate -Name "protocol:module_load_gate_loader_runtime_selftest_source_map_complete" -Expected $true -Passed $moduleLoadGateRuntimeSelftestSourceMapComplete -Actual $moduleLoadGateRuntimeSelftestSourceMapComplete
+    if (-not $moduleLoadGateRuntimeSelftestSourceMapComplete) {
+        throw "Expected module.load_gate_loader_runtime_selftest source fact map to be complete"
+    }
+    foreach ($source in $loaderRuntimeAggregateSources) {
+        $matchingSource = @($moduleLoadGateRuntimeSelftestResponse.body.result.source_fact_map | Where-Object { $_.source_method -eq $source.Method -and $_.source_fact_locator -eq $source.Locator })
+        $sourcePresent = $matchingSource.Count -eq 1
+        Add-Predicate -Name ("protocol:module_load_gate_loader_runtime_selftest_" + $source.Suffix + "_source_binding") -Expected ($source.Method + " -> " + $source.Locator) -Passed $sourcePresent -Actual ($matchingSource | ConvertTo-Json -Compress -Depth 6)
+        if (-not $sourcePresent) {
+            throw ("Expected module.load_gate_loader_runtime_selftest source binding " + $source.Method + " -> " + $source.Locator)
+        }
+    }
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_manifest_case" -Needle '"case": "missing_manifest_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_manifest_reason" -Needle '"actual_reason": "retained_module_manifest_reference_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_artifact_case" -Needle '"case": "rejected_artifact_reference"' -TimeoutSeconds 1

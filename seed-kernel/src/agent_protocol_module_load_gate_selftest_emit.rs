@@ -591,12 +591,14 @@ fn emit_module_load_gate_service_slot_selftest_case(
 
 pub(crate) fn emit_module_load_gate_loader_runtime_selftest() {
     let cases = module_load_gate_loader_runtime_selftest_cases();
+    let source_fact_map_complete = module_loader_runtime_source_fact_map_complete();
     let mut passed = true;
     let mut idx = 0usize;
     while idx < cases.len() {
         passed = passed && cases[idx].passed;
         idx += 1;
     }
+    passed = passed && source_fact_map_complete;
 
     begin_response("module.load_gate_loader_runtime_selftest");
     raw_line("      \"schema\": \"raios.module_load_gate_loader_runtime_selftest.v0\",");
@@ -645,6 +647,15 @@ pub(crate) fn emit_module_load_gate_loader_runtime_selftest() {
     raw_line("        \"raios.module_loader_rollback_hooks.v0\",");
     raw_line("        \"raios.module_loader_audit_rollback_write_boundary_binding.v0\"");
     raw_line("      ],");
+    raw("      \"source_fact_count\": ");
+    raw_fmt(format_args!("{}", MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT));
+    raw_line(",");
+    raw("      \"source_fact_map_complete\": ");
+    raw_bool(source_fact_map_complete);
+    raw_line(",");
+    raw_line("      \"source_fact_map\": [");
+    emit_module_load_gate_loader_runtime_source_fact_map();
+    raw_line("      ],");
     raw_line("      \"cases\": [");
     idx = 0;
     while idx < cases.len() {
@@ -654,6 +665,31 @@ pub(crate) fn emit_module_load_gate_loader_runtime_selftest() {
     raw_line("      ],");
     raw_line("      \"can_load\": false");
     end_response("module.load_gate_loader_runtime_selftest");
+}
+
+fn emit_module_load_gate_loader_runtime_source_fact_map() {
+    let mut idx = 0usize;
+    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
+        raw("        {\"fact\": ");
+        json_str(source.name);
+        raw(", \"schema\": ");
+        json_str(source.schema);
+        raw(", \"id\": ");
+        json_str(source.id);
+        raw(", \"source_method\": ");
+        json_str(source.source_method);
+        raw(", \"source_fact_locator\": ");
+        json_str(source.source_fact_locator);
+        raw(", \"missing_reason\": ");
+        json_str(source.missing_reason);
+        raw(", \"status\": \"missing\", \"present\": false, \"authorizes_load\": false}");
+        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+            raw(",");
+        }
+        crlf();
+        idx += 1;
+    }
 }
 
 fn emit_module_load_gate_loader_runtime_selftest_case(

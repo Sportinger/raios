@@ -1,3 +1,16 @@
+    $moduleLoaderRuntimeGateSources = @(
+        @{ Suffix = "identity"; Method = "module.loader_identity"; Locator = "module.loader_identity.loader_identity" },
+        @{ Suffix = "artifact_hash"; Method = "module.loader_artifact_hash_binding"; Locator = "module.loader_artifact_hash_binding.artifact_hash_binding" },
+        @{ Suffix = "entrypoint"; Method = "module.loader_entrypoint_abi"; Locator = "module.loader_entrypoint_abi.entrypoint_abi" },
+        @{ Suffix = "address_space"; Method = "module.loader_address_space_boundary"; Locator = "module.loader_address_space_boundary.address_space_boundary" },
+        @{ Suffix = "memory_map"; Method = "module.loader_memory_map_constraints"; Locator = "module.loader_memory_map_constraints.memory_map_constraints" },
+        @{ Suffix = "capability_table"; Method = "module.loader_capability_import_table"; Locator = "module.loader_capability_import_table.capability_import_table" },
+        @{ Suffix = "service_slot"; Method = "module.loader_service_slot_binding"; Locator = "module.loader_service_slot_binding.service_slot_binding" },
+        @{ Suffix = "health"; Method = "module.loader_health_state_hooks"; Locator = "module.loader_health_state_hooks.health_state_hooks" },
+        @{ Suffix = "rollback"; Method = "module.loader_rollback_hooks"; Locator = "module.loader_rollback_hooks.rollback_hooks" },
+        @{ Suffix = "write_boundary"; Method = "module.loader_audit_rollback_write_boundary_binding"; Locator = "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding" }
+    )
+
     Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
     $moduleFinalLoadResponse = Get-LastAgentResponseJson -Method "module.load_ephemeral"
     Assert-LogContains -Name "policy:mutating_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
@@ -94,6 +107,25 @@
     Assert-LogContains -Name "policy:module_loader_runtime_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_fact_schema" -Needle '"schema": "raios.module_loader_identity.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_fact_missing" -Needle '"reason": "module_loader_identity_missing"' -TimeoutSeconds 1
+    $moduleLoadGateSourceCount = [int]$moduleFinalLoadResponse.body.loader_runtime_readiness.source_fact_count
+    $moduleLoadGateSourceCountMatches = $moduleLoadGateSourceCount -eq 10
+    Add-Predicate -Name "policy:module_loader_runtime_source_count" -Expected 10 -Passed $moduleLoadGateSourceCountMatches -Actual $moduleLoadGateSourceCount
+    if (-not $moduleLoadGateSourceCountMatches) {
+        throw "Expected 10 module.load_ephemeral loader-runtime source facts, got $moduleLoadGateSourceCount"
+    }
+    $moduleLoadGateSourceMapComplete = [bool]$moduleFinalLoadResponse.body.loader_runtime_readiness.source_fact_map_complete
+    Add-Predicate -Name "policy:module_loader_runtime_source_map_complete" -Expected $true -Passed $moduleLoadGateSourceMapComplete -Actual $moduleLoadGateSourceMapComplete
+    if (-not $moduleLoadGateSourceMapComplete) {
+        throw "Expected module.load_ephemeral loader-runtime source fact map to be complete"
+    }
+    foreach ($source in $moduleLoaderRuntimeGateSources) {
+        $matchingSource = @($moduleFinalLoadResponse.body.loader_runtime_readiness.source_fact_map | Where-Object { $_.source_method -eq $source.Method -and $_.source_fact_locator -eq $source.Locator })
+        $sourcePresent = $matchingSource.Count -eq 1
+        Add-Predicate -Name ("policy:module_loader_runtime_" + $source.Suffix + "_source_binding") -Expected ($source.Method + " -> " + $source.Locator) -Passed $sourcePresent -Actual ($matchingSource | ConvertTo-Json -Compress)
+        if (-not $sourcePresent) {
+            throw ("Expected module.load_ephemeral loader-runtime source binding " + $source.Method + " -> " + $source.Locator)
+        }
+    }
     Assert-LogContains -Name "policy:module_artifact_not_loaded" -Needle '"artifact_loaded": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_service_not_started" -Needle '"service_started": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1

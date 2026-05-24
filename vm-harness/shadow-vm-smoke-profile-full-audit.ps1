@@ -107,6 +107,24 @@
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_schema" -Needle '"loader_runtime_readiness": {"schema": "raios.module_loader_runtime_readiness.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_status" -Needle '"readiness_status": "denied_missing_service_slot_allocator_runtime"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_no_load" -Needle '"loader_runtime_readiness": {"schema": "raios.module_loader_runtime_readiness.v0", "scope": "current_boot", "classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_count" -Needle '"source_fact_count": 10, "source_fact_map_complete": true, "source_fact_map": ' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_map_identity" -Needle '"fact": "loader_identity"' -TimeoutSeconds 1
+    $moduleLoaderRuntimeAuditSources = @(
+        @{ Suffix = "identity"; Method = "module.loader_identity"; Locator = "module.loader_identity.loader_identity" },
+        @{ Suffix = "artifact_hash"; Method = "module.loader_artifact_hash_binding"; Locator = "module.loader_artifact_hash_binding.artifact_hash_binding" },
+        @{ Suffix = "entrypoint"; Method = "module.loader_entrypoint_abi"; Locator = "module.loader_entrypoint_abi.entrypoint_abi" },
+        @{ Suffix = "address_space"; Method = "module.loader_address_space_boundary"; Locator = "module.loader_address_space_boundary.address_space_boundary" },
+        @{ Suffix = "memory_map"; Method = "module.loader_memory_map_constraints"; Locator = "module.loader_memory_map_constraints.memory_map_constraints" },
+        @{ Suffix = "capability_table"; Method = "module.loader_capability_import_table"; Locator = "module.loader_capability_import_table.capability_import_table" },
+        @{ Suffix = "service_slot"; Method = "module.loader_service_slot_binding"; Locator = "module.loader_service_slot_binding.service_slot_binding" },
+        @{ Suffix = "health"; Method = "module.loader_health_state_hooks"; Locator = "module.loader_health_state_hooks.health_state_hooks" },
+        @{ Suffix = "rollback"; Method = "module.loader_rollback_hooks"; Locator = "module.loader_rollback_hooks.rollback_hooks" },
+        @{ Suffix = "write_boundary"; Method = "module.loader_audit_rollback_write_boundary_binding"; Locator = "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding" }
+    )
+    foreach ($source in $moduleLoaderRuntimeAuditSources) {
+        Assert-LogContains -Name ("protocol:module_load_audit_loader_runtime_" + $source.Suffix + "_source_method") -Needle ('"source_method": "' + $source.Method + '"') -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:module_load_audit_loader_runtime_" + $source.Suffix + "_source_locator") -Needle ('"source_fact_locator": "' + $source.Locator + '"') -TimeoutSeconds 1
+    }
     Assert-LogContains -Name "protocol:module_load_audit_binding_no_load" -Needle '"load_attempted": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_identity_audit_source" -Needle '"source_method": "recovery.identity_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_identity_audit_kind" -Needle '"kind": "recovery.artifact_identity_reference.retained"' -TimeoutSeconds 1

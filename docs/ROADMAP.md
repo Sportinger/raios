@@ -2,7 +2,11 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-24 by Codex after wiring `module.loader_runtime`
+Last updated: 2026-05-24 by Codex after propagating the
+loader-runtime source-method/source-fact-locator map into the denied
+`module.load_ephemeral` loader-runtime readiness projection, its compact
+audit/event binding, and `module.load_gate_loader_runtime_selftest`, wiring
+`module.loader_runtime`
 aggregate source-method and source-fact-locator citations for all ten typed
 normal-module loader-runtime facts, adding a
 `module.loader_runtime_selftest` source map plus full Shadow VM source-map
@@ -158,8 +162,8 @@ read-only `module.service_slot_allocator` readiness diagnostic and selftest in
 retained service-slot reservation evidence only as local-only input and still
 allocates no slots.
 Current evidence: full report
-`release/vm-reports/shadow-20260524-215620-23136.json` recorded 5071/5071
-predicates with 232 executed commands and `duration_ms: 277411`; quick report
+`release/vm-reports/shadow-20260524-231433-11728.json` recorded 5117/5117
+predicates with 232 executed commands and `duration_ms: 257620`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
@@ -1168,9 +1172,8 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Propagate the `module.loader_runtime` source-method/source-fact-locator map
-into the denied `module.load_ephemeral` loader-runtime readiness projection and
-its compact audit/event binding.
+Add the first non-authorizing retained source-evidence binding for
+`module.loader_identity`.
 ```
 
 `module.load_ephemeral` now reports retained-evidence, service-slot allocator
@@ -1178,18 +1181,22 @@ readiness, and loader-runtime readiness states in its denied response and audit
 binding, and `module.load_gate_loader_runtime_selftest` covers that denied
 projection. The aggregate `module.loader_runtime` response now cites every
 typed loader-fact source method/locator and the aggregate selftest verifies a
-ten-entry source map. The next durable Phase-6 slice should make the denied
-load gate's embedded `loader_runtime_readiness` object expose the same source
-map so load-denial evidence and the aggregate readiness diagnostic cannot
-drift.
+ten-entry source map. The denied load gate's embedded
+`loader_runtime_readiness` object and compact audit/event binding now expose
+the same map. The next durable Phase-6 slice should let
+`module.loader_identity` emit a typed current-boot source-evidence binding that
+the aggregate can consume without granting loader descriptor, artifact,
+service-slot, inventory, or load authority.
 
 Next three tasks:
 
-1. Add source diagnostic method/fact locator fields for every loader-runtime
-   fact emitted by the denied `module.load_ephemeral` readiness projection.
-2. Extend `module.load_gate_loader_runtime_selftest` and the full Shadow VM
-   module load-gate profile so the denied projection is checked against the
-   aggregate source map.
+1. Add a retained, local-only, current-boot source-evidence event binding for
+   `module.loader_identity` that records identity availability/missing status
+   without accepting descriptors or artifact bytes.
+2. Teach `module.loader_runtime` and `module.loader_runtime_selftest` to
+   consume that typed identity source evidence and distinguish
+   addressable-missing from observed-current-boot source evidence while still
+   denying load authority.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next Phase-6 slice.

@@ -1,6 +1,8 @@
 use crate::{
+    agent_protocol_module_types::*,
     agent_protocol_support::{
-        crlf, json_event_id, json_event_id_option, json_sha256, json_str, method_eq, raw, raw_line,
+        crlf, json_event_id, json_event_id_option, json_sha256, json_str, method_eq, raw, raw_bool,
+        raw_fmt, raw_line,
     },
     event_log, serial,
 };
@@ -1166,88 +1168,74 @@ fn emit_module_load_gate_loader_runtime_readiness(binding: event_log::ModuleLoad
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"can_load_now\": false,");
     raw_line("      \"load_attempted\": false,");
+    raw("      \"source_fact_count\": ");
+    raw_fmt(format_args!("{}", MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT));
+    raw_line(",");
+    raw("      \"source_fact_map_complete\": ");
+    raw_bool(module_loader_runtime_source_fact_map_complete());
+    raw_line(",");
+    raw_line("      \"source_fact_map\": [");
+    emit_module_load_gate_loader_runtime_source_fact_map();
+    raw_line("      ],");
     raw_line("      \"loader_runtime_facts\": {");
-    emit_module_load_gate_loader_runtime_fact(
-        "loader_identity",
-        "raios.module_loader_identity.v0",
-        "module_loader_identity_missing",
-        true,
-    );
-    emit_module_load_gate_loader_runtime_fact(
-        "artifact_hash_binding",
-        "raios.module_loader_artifact_hash_binding.v0",
-        "module_loader_artifact_hash_binding_missing",
-        true,
-    );
-    emit_module_load_gate_loader_runtime_fact(
-        "entrypoint_abi",
-        "raios.module_loader_entrypoint_abi.v0",
-        "module_loader_entrypoint_abi_missing",
-        true,
-    );
-    emit_module_load_gate_loader_runtime_fact(
-        "address_space_boundary",
-        "raios.module_loader_address_space_boundary.v0",
-        "module_loader_address_space_boundary_missing",
-        true,
-    );
-    emit_module_load_gate_loader_runtime_fact(
-        "memory_map_constraints",
-        "raios.module_loader_memory_map_constraints.v0",
-        "module_loader_memory_map_constraints_missing",
-        true,
-    );
-    emit_module_load_gate_loader_runtime_fact(
-        "capability_import_table",
-        "raios.module_loader_capability_import_table.v0",
-        "module_loader_capability_import_table_missing",
-        true,
-    );
-    emit_module_load_gate_loader_runtime_fact(
-        "service_slot_binding",
-        "raios.module_loader_service_slot_binding.v0",
-        "module_loader_service_slot_binding_missing",
-        true,
-    );
-    emit_module_load_gate_loader_runtime_fact(
-        "health_state_hooks",
-        "raios.module_loader_health_state_hooks.v0",
-        "module_loader_health_state_hooks_missing",
-        true,
-    );
-    emit_module_load_gate_loader_runtime_fact(
-        "rollback_hooks",
-        "raios.module_loader_rollback_hooks.v0",
-        "module_loader_rollback_hooks_missing",
-        true,
-    );
-    emit_module_load_gate_loader_runtime_fact(
-        "audit_rollback_write_boundary_binding",
-        "raios.module_loader_audit_rollback_write_boundary_binding.v0",
-        "module_loader_audit_rollback_write_boundary_binding_missing",
-        false,
-    );
+    let mut idx = 0usize;
+    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+        emit_module_load_gate_loader_runtime_fact(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[idx],
+            idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT,
+        );
+        idx += 1;
+    }
     raw_line("      }");
     raw_line("    }");
 }
 
-fn emit_module_load_gate_loader_runtime_fact(
-    name: &'static str,
-    schema: &'static str,
-    reason: &'static str,
-    comma: bool,
-) {
+fn emit_module_load_gate_loader_runtime_source_fact_map() {
+    let mut idx = 0usize;
+    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
+        raw("        {\"fact\": ");
+        json_str(source.name);
+        raw(", \"schema\": ");
+        json_str(source.schema);
+        raw(", \"id\": ");
+        json_str(source.id);
+        raw(", \"source_method\": ");
+        json_str(source.source_method);
+        raw(", \"source_fact_locator\": ");
+        json_str(source.source_fact_locator);
+        raw(", \"missing_reason\": ");
+        json_str(source.missing_reason);
+        raw(", \"status\": \"missing\", \"present\": false, \"authorizes_load\": false}");
+        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+            raw(",");
+        }
+        crlf();
+        idx += 1;
+    }
+}
+
+fn emit_module_load_gate_loader_runtime_fact(source: ModuleLoaderRuntimeFactSource, comma: bool) {
     raw("        ");
-    json_str(name);
+    json_str(source.name);
     raw_line(": {");
     raw("          \"schema\": ");
-    json_str(schema);
+    json_str(source.schema);
+    raw_line(",");
+    raw("          \"id\": ");
+    json_str(source.id);
+    raw_line(",");
+    raw("          \"source_method\": ");
+    json_str(source.source_method);
+    raw_line(",");
+    raw("          \"source_fact_locator\": ");
+    json_str(source.source_fact_locator);
     raw_line(",");
     raw_line("          \"scope\": \"current_boot\",");
     raw_line("          \"classification\": \"local_only\",");
     raw_line("          \"status\": \"missing\",");
     raw("          \"reason\": ");
-    json_str(reason);
+    json_str(source.missing_reason);
     raw_line(",");
     raw_line("          \"present\": false,");
     raw_line("          \"authorizes_load\": false");
@@ -2217,7 +2205,38 @@ fn emit_module_load_gate_loader_runtime_readiness_compact(
     json_str(module_load_gate_retained_module_evidence_state(binding));
     raw(", \"retained_module_evidence_reason\": ");
     json_str(module_load_gate_retained_module_evidence_reason(binding));
-    raw(", \"service_slot_allocator_ready\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"missing_facts\": [\"raios.module_loader_identity.v0\", \"raios.module_loader_artifact_hash_binding.v0\", \"raios.module_loader_entrypoint_abi.v0\", \"raios.module_loader_address_space_boundary.v0\", \"raios.module_loader_memory_map_constraints.v0\", \"raios.module_loader_capability_import_table.v0\", \"raios.module_loader_service_slot_binding.v0\", \"raios.module_loader_health_state_hooks.v0\", \"raios.module_loader_rollback_hooks.v0\", \"raios.module_loader_audit_rollback_write_boundary_binding.v0\"]}");
+    raw(", \"service_slot_allocator_ready\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"missing_facts\": [\"raios.module_loader_identity.v0\", \"raios.module_loader_artifact_hash_binding.v0\", \"raios.module_loader_entrypoint_abi.v0\", \"raios.module_loader_address_space_boundary.v0\", \"raios.module_loader_memory_map_constraints.v0\", \"raios.module_loader_capability_import_table.v0\", \"raios.module_loader_service_slot_binding.v0\", \"raios.module_loader_health_state_hooks.v0\", \"raios.module_loader_rollback_hooks.v0\", \"raios.module_loader_audit_rollback_write_boundary_binding.v0\"]");
+    raw(", \"source_fact_count\": ");
+    raw_fmt(format_args!("{}", MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT));
+    raw(", \"source_fact_map_complete\": ");
+    raw_bool(module_loader_runtime_source_fact_map_complete());
+    raw(", \"source_fact_map\": [");
+    emit_module_load_gate_loader_runtime_source_fact_map_compact();
+    raw("]}");
+}
+
+fn emit_module_load_gate_loader_runtime_source_fact_map_compact() {
+    let mut idx = 0usize;
+    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
+        raw("{\"fact\": ");
+        json_str(source.name);
+        raw(", \"schema\": ");
+        json_str(source.schema);
+        raw(", \"id\": ");
+        json_str(source.id);
+        raw(", \"source_method\": ");
+        json_str(source.source_method);
+        raw(", \"source_fact_locator\": ");
+        json_str(source.source_fact_locator);
+        raw(", \"missing_reason\": ");
+        json_str(source.missing_reason);
+        raw(", \"status\": \"missing\", \"present\": false, \"authorizes_load\": false}");
+        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+            raw(", ");
+        }
+        idx += 1;
+    }
 }
 
 fn emit_module_load_gate_evidence_hashes_compact(binding: event_log::ModuleLoadGateBinding) {

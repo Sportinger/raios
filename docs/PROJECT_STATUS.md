@@ -17,7 +17,10 @@ look for ownership boundaries; around 3k-5k LOC, actively split if a stable
 boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
-Last verified locally: 2026-05-24 on Windows with QEMU 11 after wiring
+Last verified locally: 2026-05-24 on Windows with QEMU 11 after propagating
+the loader-runtime source-method/source-fact-locator map into the denied
+`module.load_ephemeral` loader-runtime readiness projection, its compact
+audit/event binding, and `module.load_gate_loader_runtime_selftest`, wiring
 `module.loader_runtime` aggregate source-method and source-fact-locator
 citations for all ten typed normal-module loader-runtime facts, adding
 `module.loader_runtime_selftest` source-map coverage and Shadow VM source-map
@@ -817,17 +820,16 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Propagate the same source-method/source-fact-locator map into the denied
-`module.load_ephemeral` loader-runtime readiness projection and its compact
-audit/event binding.
+Add the first non-authorizing retained source-evidence binding for
+`module.loader_identity`.
 
-The current Phase-6 loader-runtime aggregate now cites each addressable typed
-loader-fact diagnostic from `module.loader_runtime` and
-`module.loader_runtime_selftest`. The next durable slice should keep load
-authority denied while making the denied load gate's embedded
-`loader_runtime_readiness` object expose the same fact source methods and
-locators. Update the full Shadow VM load-gate profile so the denied
-`module.load_ephemeral` projection cannot drift from the aggregate source map.
+The current Phase-6 loader-runtime aggregate and denied
+`module.load_ephemeral` loader-runtime readiness projection now cite the same
+ten addressable typed loader-fact diagnostics. The next durable slice should
+let `module.loader_identity` produce a typed current-boot source-evidence
+record that `module.loader_runtime` can consume as evidence, while still
+keeping loader descriptors, artifact bytes, service-slot allocation, service
+inventory mutation, and load attempts denied.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:
@@ -1432,6 +1434,12 @@ Historical verified recovery foundation retained for reference:
   inventory. It also exposes `source_fact_count: 10`,
   `source_fact_map_complete: true`, and a local source map for the aggregate
   facts.
+- The denied `module.load_ephemeral` loader-runtime readiness projection and
+  compact audit/event binding reuse the same ten-entry source map. Each
+  embedded missing loader-runtime fact now carries a stable id, source method,
+  source fact locator, missing reason, current-boot/local-only scope, and
+  non-authorizing status. `module.load_gate_loader_runtime_selftest` exposes
+  and checks the same map without mutating the event log or attempting a load.
 - `module.loader_identity` now exposes `raios.module_loader_identity.v0` as a
   read-only current-boot diagnostic for the first typed normal-module
   loader-runtime fact. It reports the live fact as missing/local-only and
@@ -1816,8 +1824,8 @@ Historical verified recovery foundation retained for reference:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest full report:
-  `release\vm-reports\shadow-20260524-215620-23136.json` with 5071/5071
-  predicates, 232 executed commands, and `duration_ms: 277411`.
+  `release\vm-reports\shadow-20260524-231433-11728.json` with 5117/5117
+  predicates, 232 executed commands, and `duration_ms: 257620`.
   Latest focused reports:
   `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 17108`, and

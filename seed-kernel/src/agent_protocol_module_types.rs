@@ -417,6 +417,121 @@ pub(crate) struct ModuleServiceSlotAllocatorSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderRuntimeFactSource {
+    pub(crate) name: &'static str,
+    pub(crate) schema: &'static str,
+    pub(crate) id: &'static str,
+    pub(crate) missing_reason: &'static str,
+    pub(crate) source_method: &'static str,
+    pub(crate) source_fact_locator: &'static str,
+}
+
+pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT: usize = 10;
+
+pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSource;
+    MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT] = [
+    ModuleLoaderRuntimeFactSource {
+        name: "loader_identity",
+        schema: "raios.module_loader_identity.v0",
+        id: "module.loader_runtime.identity.current_boot",
+        missing_reason: "module_loader_identity_missing",
+        source_method: "module.loader_identity",
+        source_fact_locator: "module.loader_identity.loader_identity",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "artifact_hash_binding",
+        schema: "raios.module_loader_artifact_hash_binding.v0",
+        id: "module.loader_runtime.artifact_hash_binding.current_boot",
+        missing_reason: "module_loader_artifact_hash_binding_missing",
+        source_method: "module.loader_artifact_hash_binding",
+        source_fact_locator: "module.loader_artifact_hash_binding.artifact_hash_binding",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "entrypoint_abi",
+        schema: "raios.module_loader_entrypoint_abi.v0",
+        id: "module.loader_runtime.entrypoint_abi.current_boot",
+        missing_reason: "module_loader_entrypoint_abi_missing",
+        source_method: "module.loader_entrypoint_abi",
+        source_fact_locator: "module.loader_entrypoint_abi.entrypoint_abi",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "address_space_boundary",
+        schema: "raios.module_loader_address_space_boundary.v0",
+        id: "module.loader_runtime.address_space_boundary.current_boot",
+        missing_reason: "module_loader_address_space_boundary_missing",
+        source_method: "module.loader_address_space_boundary",
+        source_fact_locator: "module.loader_address_space_boundary.address_space_boundary",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "memory_map_constraints",
+        schema: "raios.module_loader_memory_map_constraints.v0",
+        id: "module.loader_runtime.memory_map_constraints.current_boot",
+        missing_reason: "module_loader_memory_map_constraints_missing",
+        source_method: "module.loader_memory_map_constraints",
+        source_fact_locator: "module.loader_memory_map_constraints.memory_map_constraints",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "capability_import_table",
+        schema: "raios.module_loader_capability_import_table.v0",
+        id: "module.loader_runtime.capability_import_table.current_boot",
+        missing_reason: "module_loader_capability_import_table_missing",
+        source_method: "module.loader_capability_import_table",
+        source_fact_locator: "module.loader_capability_import_table.capability_import_table",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "service_slot_binding",
+        schema: "raios.module_loader_service_slot_binding.v0",
+        id: "module.loader_runtime.service_slot_binding.current_boot",
+        missing_reason: "module_loader_service_slot_binding_missing",
+        source_method: "module.loader_service_slot_binding",
+        source_fact_locator: "module.loader_service_slot_binding.service_slot_binding",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "health_state_hooks",
+        schema: "raios.module_loader_health_state_hooks.v0",
+        id: "module.loader_runtime.health_state_hooks.current_boot",
+        missing_reason: "module_loader_health_state_hooks_missing",
+        source_method: "module.loader_health_state_hooks",
+        source_fact_locator: "module.loader_health_state_hooks.health_state_hooks",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "rollback_hooks",
+        schema: "raios.module_loader_rollback_hooks.v0",
+        id: "module.loader_runtime.rollback_hooks.current_boot",
+        missing_reason: "module_loader_rollback_hooks_missing",
+        source_method: "module.loader_rollback_hooks",
+        source_fact_locator: "module.loader_rollback_hooks.rollback_hooks",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "audit_rollback_write_boundary_binding",
+        schema: "raios.module_loader_audit_rollback_write_boundary_binding.v0",
+        id: "module.loader_runtime.audit_rollback_write_boundary_binding.current_boot",
+        missing_reason: "module_loader_audit_rollback_write_boundary_binding_missing",
+        source_method: "module.loader_audit_rollback_write_boundary_binding",
+        source_fact_locator:
+            "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding",
+    },
+];
+
+pub(crate) fn module_loader_runtime_source_fact_map_complete() -> bool {
+    let mut idx = 0usize;
+    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
+        if source.name.is_empty()
+            || source.schema.is_empty()
+            || source.id.is_empty()
+            || source.missing_reason.is_empty()
+            || source.source_method.is_empty()
+            || source.source_fact_locator.is_empty()
+        {
+            return false;
+        }
+        idx += 1;
+    }
+    true
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct ModuleLoaderRuntimeFact {
     pub(crate) present: bool,
     pub(crate) schema_ok: bool,
