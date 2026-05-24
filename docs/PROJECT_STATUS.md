@@ -12,7 +12,9 @@ framebuffer redraws for serial command-mode echo, caching Shadow VM serial-log
 reads, moving Shadow VM harness support/reporting/serial helper functions into
 `vm-harness/shadow-vm-smoke-support.ps1`, splitting Shadow VM profile
 validation into focused `vm-harness/shadow-vm-smoke-profile-*.ps1` slices
-while keeping the same QEMU/serial command flow, moving recovery load-binding
+while keeping the same QEMU/serial command flow, splitting the oversized module
+audit/rollback write-boundary implementation into focused
+`seed-kernel/src/agent_protocol_module_write_boundary_*.rs` modules, moving recovery load-binding
 evaluation, retained-chain mismatch checks,
 and load-binding selftest fixtures into
 `seed-kernel/src/agent_protocol_recovery_load_binding.rs`, moving recovery
@@ -406,8 +408,8 @@ diagnostic matrix.
 
 Latest guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-140848-4296.json` with 4500/4500
-predicates, 206 `executed_commands` entries, `duration_ms: 223030`, and no
+`release\vm-reports\shadow-20260524-160613-24624.json` with 4500/4500
+predicates, 206 `executed_commands` entries, `duration_ms: 250938`, and no
 static command inventory,
 covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and

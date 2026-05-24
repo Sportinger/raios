@@ -8,6 +8,8 @@ reference parsers/evaluators/event-log binding builders into
 Shadow VM harness support/reporting/serial helper functions into
 `vm-harness/shadow-vm-smoke-support.ps1`, splitting Shadow VM profile
 validation into focused `vm-harness/shadow-vm-smoke-profile-*.ps1` slices,
+splitting the module audit/rollback write-boundary implementation into focused
+`seed-kernel/src/agent_protocol_module_write_boundary_*.rs` modules,
 moving
 recovery memory/durable/service/dispatch-behavior/executor/side-effect
 reference evaluators into
@@ -125,9 +127,12 @@ serial without forcing a framebuffer redraw after each poll chunk, which keeps
 the same recovery evidence but cuts the focused recovery smoke wall time on this
 host. The Shadow VM harness entrypoint is now a small profile dispatcher; the
 largest profile slice is the recovery command-authority block rather than one
-monolithic smoke file. Current evidence: full report
-`release/vm-reports/shadow-20260524-140848-4296.json` recorded 4500/4500
-predicates with 206 executed commands and `duration_ms: 223030`; quick report
+monolithic smoke file. The module write-boundary file is now a facade over
+availability, write-policy, storage-layout, append-engine, append-contract,
+append-payload, append-intent, write-boundary, and shared emit-helper modules.
+Current evidence: full report
+`release/vm-reports/shadow-20260524-160613-24624.json` recorded 4500/4500
+predicates with 206 executed commands and `duration_ms: 250938`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-140503-24772.json` recorded 2725/2725
@@ -372,9 +377,9 @@ Latest maintenance verification:
   passed on 2026-05-23.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260524-140848-4296.json` with 4500/4500
+  `release\vm-reports\shadow-20260524-160613-24624.json` with 4500/4500
   predicates, 206 `executed_commands` entries derived from the actual serial
-  run, and `duration_ms: 223030`, including `module.manifest_diagnostic`,
+  run, and `duration_ms: 250938`, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
   `module.vm_report_diagnostic_selftest`, `module.grant_diagnostic`,
