@@ -34,7 +34,9 @@ envelope, dispatch-denial, and body-canonicalization types into
 handler/status/rollback-authorization/target-binding types into
 `seed-kernel/src/agent_protocol_recovery_command_authorization_types.rs`,
 moving memory/durable-write/service-inventory/command-effect gate types into
-`seed-kernel/src/agent_protocol_recovery_command_effect_types.rs`, and
+`seed-kernel/src/agent_protocol_recovery_command_effect_types.rs`, moving
+recovery artifact/lifeline request selftest emit helpers into
+`seed-kernel/src/agent_protocol_recovery_artifact_selftest_emit.rs`, and
 preserving the
 previously verified guest
 `module.audit_rollback_availability`,
@@ -337,7 +339,7 @@ methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 
 Latest focused recovery guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-005353-19420.json` with 2725/2725
+`release\vm-reports\shadow-20260524-072218-21216.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
@@ -764,7 +766,9 @@ behavior:
   handler/status/rollback-authorization/target-binding types into
   `seed-kernel/src/agent_protocol_recovery_command_authorization_types.rs`,
   and memory/durable-write/service-inventory/command-effect gate types into
-  `seed-kernel/src/agent_protocol_recovery_command_effect_types.rs`
+  `seed-kernel/src/agent_protocol_recovery_command_effect_types.rs`, plus
+  recovery artifact/lifeline request selftest emit helpers into
+  `seed-kernel/src/agent_protocol_recovery_artifact_selftest_emit.rs`
 - next, leave the broad recovery dispatch candidate/evaluator in
   `agent_protocol_recovery.rs` until its non-execution dependencies have a
   stable boundary, then continue with smaller focused extraction slices over
@@ -1566,7 +1570,7 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
   predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260524-005353-19420.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-072218-21216.json` with 2725/2725
   recovery predicates and 142 executed commands. Both reports derive
   `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
