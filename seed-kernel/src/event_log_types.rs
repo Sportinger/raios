@@ -254,6 +254,39 @@ pub struct ModuleServiceSlotReservation {
 }
 
 #[derive(Clone, Copy)]
+pub struct ModuleLoaderIdentitySourceEvidence {
+    pub schema: &'static str,
+    pub fact_schema: &'static str,
+    pub fact_id: &'static str,
+    pub source_method: &'static str,
+    pub source_fact_locator: &'static str,
+    pub readiness_status: &'static str,
+    pub readiness_reason: &'static str,
+    pub identity_status: &'static str,
+    pub identity_reason: &'static str,
+    pub identity_present: bool,
+    pub identity_scope: &'static str,
+    pub identity_schema_ok: bool,
+    pub identity_provenance_ok: bool,
+    pub identity_classification: &'static str,
+    pub retained_module_evidence_present: bool,
+    pub service_slot_allocator_readiness_present: bool,
+    pub service_slot_allocator_ready: bool,
+    pub audit_rollback_write_boundary_present: bool,
+    pub binds_retained_module_evidence: bool,
+    pub binds_service_slot_allocator: bool,
+    pub binds_audit_rollback_write_boundary: bool,
+    pub manifest_reference_event_id: Option<EventId>,
+    pub artifact_reference_event_id: Option<EventId>,
+    pub vm_test_report_reference_event_id: Option<EventId>,
+    pub local_attestation_reference_event_id: Option<EventId>,
+    pub local_approval_reference_event_id: Option<EventId>,
+    pub computed_grant_reference_event_id: Option<EventId>,
+    pub audit_rollback_reference_event_id: Option<EventId>,
+    pub service_slot_reservation_event_id: Option<EventId>,
+}
+
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateBinding {
     pub manifest_reference_event_id: Option<EventId>,
     pub manifest_reference: Option<ModuleManifestReference>,
@@ -864,6 +897,7 @@ pub enum EventBindings {
     ModuleComputedGrantReference(ModuleComputedGrantReference),
     ModuleAuditRollbackReference(ModuleAuditRollbackReference),
     ModuleServiceSlotReservation(ModuleServiceSlotReservation),
+    ModuleLoaderIdentitySourceEvidence(ModuleLoaderIdentitySourceEvidence),
     ModuleLoadGate(ModuleLoadGateBinding),
     RecoveryArtifactLoadDenied(RecoveryArtifactLoadDenialBinding),
     RecoveryArtifactIdentityReference(RecoveryArtifactIdentityReference),

@@ -7,8 +7,8 @@ use crate::{
     agent_protocol_recovery::emit_recovery_artifact_load_denial_event_binding,
     agent_protocol_support::{
         begin_response, crlf, emit_inline_string_array, end_response, indent, json_event_id,
-        json_event_sequence, json_sha256, json_sha256_option, json_str, method_eq, method_head_eq,
-        raw, raw_bool, raw_fmt, raw_line,
+        json_event_id_option, json_event_sequence, json_sha256, json_sha256_option, json_str,
+        method_eq, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
     },
     agent_protocol_system::{emit_problem_objects, emit_service_ids, emit_status_state},
     event_log, provider, serial,
@@ -744,6 +744,53 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_sha256(binding.rollback_plan_hash);
             raw(", \"pre_load_service_inventory_hash\": ");
             json_sha256(binding.pre_load_service_inventory_hash);
+            raw("}}");
+        }
+        event_log::EventBindings::ModuleLoaderIdentitySourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"fact_schema\": ");
+            json_str(binding.fact_schema);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"fact_id\": ");
+            json_str(binding.fact_id);
+            raw(", \"identity_status\": ");
+            json_str(binding.identity_status);
+            raw(", \"identity_reason\": ");
+            json_str(binding.identity_reason);
+            raw(", \"identity_present\": ");
+            raw_bool(binding.identity_present);
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": false, \"accepts_artifact_bytes\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false, \"retained_module_evidence_present\": ");
+            raw_bool(binding.retained_module_evidence_present);
+            raw(", \"service_slot_allocator_readiness_present\": ");
+            raw_bool(binding.service_slot_allocator_readiness_present);
+            raw(", \"service_slot_allocator_ready\": ");
+            raw_bool(binding.service_slot_allocator_ready);
+            raw(", \"audit_rollback_write_boundary_present\": ");
+            raw_bool(binding.audit_rollback_write_boundary_present);
+            raw(", \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
+            json_event_id_option(binding.manifest_reference_event_id);
+            raw(", \"candidate_artifact_reference_event_id\": ");
+            json_event_id_option(binding.artifact_reference_event_id);
+            raw(", \"vm_test_report_reference_event_id\": ");
+            json_event_id_option(binding.vm_test_report_reference_event_id);
+            raw(", \"local_attestation_reference_event_id\": ");
+            json_event_id_option(binding.local_attestation_reference_event_id);
+            raw(", \"local_approval_reference_event_id\": ");
+            json_event_id_option(binding.local_approval_reference_event_id);
+            raw(", \"computed_grant_reference_event_id\": ");
+            json_event_id_option(binding.computed_grant_reference_event_id);
+            raw(", \"audit_rollback_reference_event_id\": ");
+            json_event_id_option(binding.audit_rollback_reference_event_id);
+            raw(", \"service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
             raw("}}");
         }
         event_log::EventBindings::ModuleLoadGate(binding) => {

@@ -566,17 +566,19 @@ evidence and reports typed missing `raios.ram_only_service_slot_allocator.v0`,
 The module loader-runtime readiness diagnostic emits
 `raios.module_loader_runtime_readiness.v0` and the selftest emits
 `raios.module_loader_runtime_readiness_selftest.v0`. It consumes retained
-module evidence and the service-slot allocator diagnostic only as local-only
-current-boot inputs, reports missing loader identity, artifact-hash binding,
-entrypoint ABI, address-space and memory-map isolation, capability import table,
-service-slot binding, health/rollback hooks, and audit/rollback write-boundary
-binding facts, and keeps `loads_artifact: false`,
+module evidence, the service-slot allocator diagnostic, and the latest retained
+`module.loader_identity` source-evidence event only as local-only current-boot
+inputs, reports missing loader identity, artifact-hash binding, entrypoint ABI,
+address-space and memory-map isolation, capability import table, service-slot
+binding, health/rollback hooks, and audit/rollback write-boundary binding
+facts, and keeps `loads_artifact: false`,
 `allocates_service_slot: false`, `service_inventory_change: none`,
 `can_load_now: false`, and `load_attempted: false`. Each aggregate
 loader-runtime fact now carries the addressable source diagnostic method and
 source fact locator, and `module.loader_runtime_selftest` exposes a
 `source_fact_map` so the aggregate required-fact list can be checked against
-the typed source methods. The denied `module.load_ephemeral`
+the typed source methods. The selftest also includes an observed-current-boot
+loader identity source-evidence case. The denied `module.load_ephemeral`
 `loader_runtime_readiness` projection and its compact audit/event binding reuse
 the same ten-entry source map, so load-denial evidence and aggregate readiness
 cannot drift.
@@ -586,11 +588,16 @@ and the selftest emits `raios.module_loader_identity_selftest.v0`. It makes the
 first loader-runtime fact addressable as a local-only current-boot diagnostic,
 but does not accept loader descriptors or artifact bytes. The live diagnostic
 reports the identity fact as missing until retained module evidence,
-service-slot allocator runtime, and audit/write-boundary bindings exist. The
-selftest covers missing retained evidence, missing allocator readiness/runtime,
-missing audit/write boundary, identity scope/schema/provenance failures,
-missing retained-evidence/service-slot/audit-boundary bindings, missing
-identity, and all-inputs-present-but-non-authorizing identity evidence.
+service-slot allocator runtime, and audit/write-boundary bindings exist. It
+also records a separate
+`raios.module_loader_identity_source_evidence.v0` binding in the current-boot
+RAM event log; that binding is local-only, non-authorizing, accepts no loader
+descriptor or artifact bytes, and is consumed by `module.loader_runtime` only
+as observed source evidence. The selftest covers missing retained evidence,
+missing allocator readiness/runtime, missing audit/write boundary, identity
+scope/schema/provenance failures, missing
+retained-evidence/service-slot/audit-boundary bindings, missing identity, and
+all-inputs-present-but-non-authorizing identity evidence.
 
 The module loader artifact-hash binding diagnostic emits
 `raios.module_loader_artifact_hash_binding.v0` and the selftest emits

@@ -40,14 +40,30 @@ pub(crate) fn emit_module_loader_identity() {
         identity: module_loader_identity_missing_fact(),
     };
     let evaluation = evaluate_module_loader_identity_candidate(candidate);
+    let source_evidence = module_loader_identity_source_evidence(
+        candidate,
+        evaluation,
+        manifest.as_ref().map(|(event_id, _)| *event_id),
+        artifact.as_ref().map(|(event_id, _)| *event_id),
+        vm_report.as_ref().map(|(event_id, _)| *event_id),
+        local_attestation.as_ref().map(|(event_id, _)| *event_id),
+        local_approval.as_ref().map(|(event_id, _)| *event_id),
+        computed_grant.as_ref().map(|(event_id, _)| *event_id),
+        audit_rollback.as_ref().map(|(event_id, _)| *event_id),
+        service_slot.as_ref().map(|(event_id, _)| *event_id),
+    );
+    let source_evidence_event_id =
+        event_log::record_module_loader_identity_source_evidence(source_evidence);
 
     begin_response("module.loader_identity");
     raw_line("      \"schema\": \"raios.module_loader_identity.v0\",");
     raw_line("      \"scope\": \"current_boot\",");
     raw_line("      \"classification\": \"local_only\",");
     raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"global_event_log_mutation\": \"none\",");
+    raw_line("      \"mutates_global_event_log\": true,");
+    raw_line(
+        "      \"global_event_log_mutation\": \"retained_current_boot_source_evidence_only\",",
+    );
     raw_line("      \"accepts_loader_descriptor\": false,");
     raw_line("      \"accepts_artifact_bytes\": false,");
     raw_line("      \"loads_artifact\": false,");
@@ -68,9 +84,11 @@ pub(crate) fn emit_module_loader_identity() {
         service_slot.as_ref().map(|(event_id, _)| *event_id),
     );
     raw_line(",");
+    emit_module_loader_identity_source_evidence(source_evidence_event_id, source_evidence);
+    raw_line(",");
     emit_module_loader_identity_required_bindings(candidate, evaluation);
     raw_line(",");
-    emit_module_loader_identity_fact(candidate.identity, evaluation);
+    emit_module_loader_identity_fact(candidate.identity, evaluation, source_evidence_event_id);
     raw_line(",");
     emit_module_loader_identity_policy_result(candidate, evaluation);
     raw_line(",");
@@ -213,6 +231,74 @@ fn emit_module_loader_identity_retained_module_evidence(
     raw_line("      }");
 }
 
+fn emit_module_loader_identity_source_evidence(
+    event_id: event_log::EventId,
+    evidence: event_log::ModuleLoaderIdentitySourceEvidence,
+) {
+    raw_line("      \"source_evidence\": {");
+    raw("        \"schema\": ");
+    json_str(evidence.schema);
+    raw_line(",");
+    raw_line("        \"state\": \"retained\",");
+    raw_line("        \"status\": \"retained_current_boot_source_evidence\",");
+    raw_line("        \"reason\": \"module_loader_identity_source_evidence_recorded\",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+    raw("        \"event_id\": ");
+    json_event_id_option(Some(event_id));
+    raw_line(",");
+    raw("        \"fact_schema\": ");
+    json_str(evidence.fact_schema);
+    raw_line(",");
+    raw("        \"fact_id\": ");
+    json_str(evidence.fact_id);
+    raw_line(",");
+    raw("        \"source_method\": ");
+    json_str(evidence.source_method);
+    raw_line(",");
+    raw("        \"source_fact_locator\": ");
+    json_str(evidence.source_fact_locator);
+    raw_line(",");
+    raw("        \"readiness_status\": ");
+    json_str(evidence.readiness_status);
+    raw_line(",");
+    raw("        \"readiness_reason\": ");
+    json_str(evidence.readiness_reason);
+    raw_line(",");
+    raw("        \"identity_status\": ");
+    json_str(evidence.identity_status);
+    raw_line(",");
+    raw("        \"identity_reason\": ");
+    json_str(evidence.identity_reason);
+    raw_line(",");
+    raw("        \"identity_present\": ");
+    raw_bool(evidence.identity_present);
+    raw_line(",");
+    raw("        \"retained_module_evidence_present\": ");
+    raw_bool(evidence.retained_module_evidence_present);
+    raw_line(",");
+    raw("        \"service_slot_allocator_readiness_present\": ");
+    raw_bool(evidence.service_slot_allocator_readiness_present);
+    raw_line(",");
+    raw("        \"service_slot_allocator_ready\": ");
+    raw_bool(evidence.service_slot_allocator_ready);
+    raw_line(",");
+    raw("        \"audit_rollback_write_boundary_present\": ");
+    raw_bool(evidence.audit_rollback_write_boundary_present);
+    raw_line(",");
+    raw_line("        \"accepts_loader_descriptor\": false,");
+    raw_line("        \"accepts_artifact_bytes\": false,");
+    raw_line("        \"loads_artifact\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"can_load_now\": false,");
+    raw_line("        \"load_attempted\": false,");
+    raw_line("        \"authorizes_load\": false");
+    raw_line("      }");
+}
+
 fn emit_module_loader_identity_required_bindings(
     candidate: ModuleLoaderIdentityCandidate,
     evaluation: ModuleLoaderIdentityEvaluation,
@@ -239,6 +325,7 @@ fn emit_module_loader_identity_required_bindings(
 fn emit_module_loader_identity_fact(
     fact: ModuleLoaderRuntimeFact,
     evaluation: ModuleLoaderIdentityEvaluation,
+    source_evidence_event_id: event_log::EventId,
 ) {
     raw_line("      \"loader_identity\": {");
     raw_line("        \"schema\": \"raios.module_loader_identity.v0\",");
@@ -274,6 +361,15 @@ fn emit_module_loader_identity_fact(
     raw_bool(fact.binds_audit_rollback_write_boundary);
     raw_line(",");
     raw_line("        \"fact_id\": \"module.loader_runtime.identity.current_boot\",");
+    raw_line("        \"source_method\": \"module.loader_identity\",");
+    raw_line("        \"source_fact_locator\": \"module.loader_identity.loader_identity\",");
+    raw("        \"source_evidence_event_id\": ");
+    json_event_id_option(Some(source_evidence_event_id));
+    raw_line(",");
+    raw_line(
+        "        \"source_evidence_schema\": \"raios.module_loader_identity_source_evidence.v0\",",
+    );
+    raw_line("        \"source_evidence_state\": \"retained_current_boot\",");
     raw_line("        \"persistence\": \"none\",");
     raw_line("        \"durable\": false,");
     raw_line("        \"loads_artifact\": false,");
@@ -364,6 +460,52 @@ fn emit_module_loader_identity_selftest_case(case: &ModuleLoaderIdentitySelfTest
         raw(",");
     }
     crlf();
+}
+
+fn module_loader_identity_source_evidence(
+    candidate: ModuleLoaderIdentityCandidate,
+    evaluation: ModuleLoaderIdentityEvaluation,
+    manifest_event_id: Option<event_log::EventId>,
+    artifact_event_id: Option<event_log::EventId>,
+    vm_report_event_id: Option<event_log::EventId>,
+    local_attestation_event_id: Option<event_log::EventId>,
+    local_approval_event_id: Option<event_log::EventId>,
+    computed_grant_event_id: Option<event_log::EventId>,
+    audit_rollback_event_id: Option<event_log::EventId>,
+    service_slot_event_id: Option<event_log::EventId>,
+) -> event_log::ModuleLoaderIdentitySourceEvidence {
+    event_log::ModuleLoaderIdentitySourceEvidence {
+        schema: "raios.module_loader_identity_source_evidence.v0",
+        fact_schema: "raios.module_loader_identity.v0",
+        fact_id: "module.loader_runtime.identity.current_boot",
+        source_method: "module.loader_identity",
+        source_fact_locator: "module.loader_identity.loader_identity",
+        readiness_status: evaluation.status,
+        readiness_reason: evaluation.reason,
+        identity_status: evaluation.identity_status,
+        identity_reason: evaluation.identity_reason,
+        identity_present: candidate.identity.present,
+        identity_scope: candidate.identity.scope,
+        identity_schema_ok: candidate.identity.schema_ok,
+        identity_provenance_ok: candidate.identity.provenance_ok,
+        identity_classification: candidate.identity.classification,
+        retained_module_evidence_present: candidate.retained_module_evidence_present,
+        service_slot_allocator_readiness_present: candidate
+            .service_slot_allocator_readiness_present,
+        service_slot_allocator_ready: candidate.service_slot_allocator_ready,
+        audit_rollback_write_boundary_present: candidate.audit_rollback_write_boundary_present,
+        binds_retained_module_evidence: candidate.identity.binds_retained_module_evidence,
+        binds_service_slot_allocator: candidate.identity.binds_service_slot_allocator,
+        binds_audit_rollback_write_boundary: candidate.identity.binds_audit_rollback_write_boundary,
+        manifest_reference_event_id: manifest_event_id,
+        artifact_reference_event_id: artifact_event_id,
+        vm_test_report_reference_event_id: vm_report_event_id,
+        local_attestation_reference_event_id: local_attestation_event_id,
+        local_approval_reference_event_id: local_approval_event_id,
+        computed_grant_reference_event_id: computed_grant_event_id,
+        audit_rollback_reference_event_id: audit_rollback_event_id,
+        service_slot_reservation_event_id: service_slot_event_id,
+    }
 }
 
 fn evaluate_module_loader_identity_candidate(
@@ -669,6 +811,13 @@ fn module_loader_identity_missing_fact() -> ModuleLoaderRuntimeFact {
         binds_retained_module_evidence: false,
         binds_service_slot_allocator: false,
         binds_audit_rollback_write_boundary: false,
+        source_evidence_event_id: None,
+        source_evidence_schema: "raios.module_loader_identity_source_evidence.v0",
+        source_evidence_state: "addressable_not_observed",
+        source_evidence_status: "missing",
+        source_evidence_reason: "module_loader_identity_source_evidence_missing",
+        source_evidence_method: "module.loader_identity",
+        source_evidence_fact_locator: "module.loader_identity.loader_identity",
     }
 }
 
@@ -682,5 +831,12 @@ fn module_loader_identity_available_fact() -> ModuleLoaderRuntimeFact {
         binds_retained_module_evidence: true,
         binds_service_slot_allocator: true,
         binds_audit_rollback_write_boundary: true,
+        source_evidence_event_id: None,
+        source_evidence_schema: "raios.module_loader_identity_source_evidence.v0",
+        source_evidence_state: "test_fixture_not_retained",
+        source_evidence_status: "available",
+        source_evidence_reason: "module_loader_identity_available",
+        source_evidence_method: "module.loader_identity",
+        source_evidence_fact_locator: "module.loader_identity.loader_identity",
     }
 }

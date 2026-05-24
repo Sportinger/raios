@@ -886,3 +886,14 @@ pub(crate) const MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE: &[&str] = &[
     "hash_reference_only",
     "load_not_attempted",
 ];
+pub(crate) const MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE: &[&str] = &[
+    "module_loader_identity_source_evidence",
+    "module_loader_identity_status",
+    "module_loader_identity_reason",
+    "source_method",
+    "source_fact_locator",
+    "current_boot_ram_event_log_only",
+    "descriptor_not_accepted",
+    "artifact_bytes_not_accepted",
+    "load_not_attempted",
+];

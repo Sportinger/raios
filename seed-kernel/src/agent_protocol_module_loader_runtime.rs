@@ -17,6 +17,8 @@ pub(crate) fn emit_module_loader_runtime() {
     let computed_grant = event_log::latest_module_computed_grant_reference();
     let audit_rollback = event_log::latest_module_audit_rollback_reference();
     let service_slot = event_log::latest_module_service_slot_reservation();
+    let loader_identity_source_evidence =
+        event_log::latest_module_loader_identity_source_evidence();
     let candidate = module_loader_runtime_snapshot(
         manifest.is_some(),
         artifact.is_some(),
@@ -26,6 +28,7 @@ pub(crate) fn emit_module_loader_runtime() {
         computed_grant.is_some(),
         audit_rollback.is_some(),
         service_slot.is_some(),
+        loader_identity_source_evidence,
     );
     let evaluation = evaluate_module_loader_runtime_candidate(candidate);
 
@@ -535,6 +538,29 @@ fn emit_module_loader_runtime_fact(
     raw("          \"source_fact_locator\": ");
     json_str(source.source_fact_locator);
     raw_line(",");
+    if method_eq(source.name, "loader_identity") {
+        raw("          \"source_evidence_event_id\": ");
+        json_event_id_option(fact.source_evidence_event_id);
+        raw_line(",");
+        raw("          \"source_evidence_schema\": ");
+        json_str(fact.source_evidence_schema);
+        raw_line(",");
+        raw("          \"source_evidence_state\": ");
+        json_str(fact.source_evidence_state);
+        raw_line(",");
+        raw("          \"source_evidence_status\": ");
+        json_str(fact.source_evidence_status);
+        raw_line(",");
+        raw("          \"source_evidence_reason\": ");
+        json_str(fact.source_evidence_reason);
+        raw_line(",");
+        raw("          \"source_evidence_method\": ");
+        json_str(fact.source_evidence_method);
+        raw_line(",");
+        raw("          \"source_evidence_fact_locator\": ");
+        json_str(fact.source_evidence_fact_locator);
+        raw_line(",");
+    }
     raw("          \"scope\": ");
     json_str(fact.scope);
     raw_line(",");
@@ -684,6 +710,14 @@ fn emit_module_loader_runtime_selftest_case(case: &ModuleLoaderRuntimeSelfTestCa
     json_str(case.actual_status);
     raw(", \"actual_reason\": ");
     json_str(case.actual_reason);
+    raw(", \"actual_loader_identity_source_evidence_present\": ");
+    raw_bool(case.actual_loader_identity_source_evidence_present);
+    raw(", \"actual_loader_identity_source_evidence_state\": ");
+    json_str(case.actual_loader_identity_source_evidence_state);
+    raw(", \"actual_loader_identity_source_evidence_status\": ");
+    json_str(case.actual_loader_identity_source_evidence_status);
+    raw(", \"actual_loader_identity_source_evidence_reason\": ");
+    json_str(case.actual_loader_identity_source_evidence_reason);
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"can_load\": false, \"load_attempted\": false}");
@@ -702,6 +736,10 @@ fn module_loader_runtime_snapshot(
     computed_grant_reference_present: bool,
     audit_rollback_reference_present: bool,
     service_slot_reservation_present: bool,
+    loader_identity_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderIdentitySourceEvidence,
+    )>,
 ) -> ModuleLoaderRuntimeCandidate {
     ModuleLoaderRuntimeCandidate {
         manifest_reference_present,
@@ -714,7 +752,9 @@ fn module_loader_runtime_snapshot(
         service_slot_reservation_present,
         service_slot_allocator_readiness_present: true,
         service_slot_allocator_ready: false,
-        loader_identity: module_loader_runtime_missing_fact(),
+        loader_identity: module_loader_runtime_loader_identity_fact(
+            loader_identity_source_evidence,
+        ),
         artifact_hash_binding: module_loader_runtime_missing_fact(),
         entrypoint_abi: module_loader_runtime_missing_fact(),
         address_space_boundary: module_loader_runtime_missing_fact(),
@@ -753,6 +793,49 @@ fn module_loader_runtime_ready_snapshot() -> ModuleLoaderRuntimeCandidate {
     }
 }
 
+fn module_loader_runtime_loader_identity_fact(
+    source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderIdentitySourceEvidence,
+    )>,
+) -> ModuleLoaderRuntimeFact {
+    let Some((event_id, evidence)) = source_evidence else {
+        return module_loader_runtime_missing_fact();
+    };
+
+    ModuleLoaderRuntimeFact {
+        present: evidence.identity_present,
+        schema_ok: evidence.identity_schema_ok,
+        scope: evidence.identity_scope,
+        provenance_ok: evidence.identity_provenance_ok,
+        classification: evidence.identity_classification,
+        binds_retained_module_evidence: evidence.binds_retained_module_evidence,
+        binds_service_slot_allocator: evidence.binds_service_slot_allocator,
+        binds_audit_rollback_write_boundary: evidence.binds_audit_rollback_write_boundary,
+        source_evidence_event_id: Some(event_id),
+        source_evidence_schema: evidence.schema,
+        source_evidence_state: if evidence.identity_present {
+            "observed_current_boot_present"
+        } else {
+            "observed_current_boot_missing"
+        },
+        source_evidence_status: evidence.identity_status,
+        source_evidence_reason: evidence.identity_reason,
+        source_evidence_method: evidence.source_method,
+        source_evidence_fact_locator: evidence.source_fact_locator,
+    }
+}
+
+fn module_loader_runtime_observed_loader_identity_missing_fact() -> ModuleLoaderRuntimeFact {
+    ModuleLoaderRuntimeFact {
+        source_evidence_event_id: Some(event_log::EventId { sequence: 42 }),
+        source_evidence_state: "observed_current_boot_missing",
+        source_evidence_status: "missing",
+        source_evidence_reason: "module_loader_identity_missing",
+        ..module_loader_runtime_missing_fact()
+    }
+}
+
 fn module_loader_runtime_missing_fact() -> ModuleLoaderRuntimeFact {
     ModuleLoaderRuntimeFact {
         present: false,
@@ -763,6 +846,13 @@ fn module_loader_runtime_missing_fact() -> ModuleLoaderRuntimeFact {
         binds_retained_module_evidence: false,
         binds_service_slot_allocator: false,
         binds_audit_rollback_write_boundary: false,
+        source_evidence_event_id: None,
+        source_evidence_schema: "raios.module_loader_identity_source_evidence.v0",
+        source_evidence_state: "addressable_not_observed",
+        source_evidence_status: "missing",
+        source_evidence_reason: "module_loader_identity_source_evidence_missing",
+        source_evidence_method: "module.loader_identity",
+        source_evidence_fact_locator: "module.loader_identity.loader_identity",
     }
 }
 
@@ -776,6 +866,13 @@ fn module_loader_runtime_available_fact() -> ModuleLoaderRuntimeFact {
         binds_retained_module_evidence: true,
         binds_service_slot_allocator: true,
         binds_audit_rollback_write_boundary: true,
+        source_evidence_event_id: None,
+        source_evidence_schema: "raios.module_loader_identity_source_evidence.v0",
+        source_evidence_state: "test_fixture_not_retained",
+        source_evidence_status: "available",
+        source_evidence_reason: "module_loader_identity_available",
+        source_evidence_method: "module.loader_identity",
+        source_evidence_fact_locator: "module.loader_identity.loader_identity",
     }
 }
 
@@ -1385,6 +1482,15 @@ fn module_loader_runtime_selftest_cases(
             },
         ),
         module_loader_runtime_selftest_case(
+            "loader_identity_observed_source_evidence_missing",
+            "denied_missing_loader_runtime_fact",
+            "module_loader_identity_missing",
+            ModuleLoaderRuntimeCandidate {
+                loader_identity: module_loader_runtime_observed_loader_identity_missing_fact(),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
             "artifact_hash_binding_missing",
             "denied_missing_loader_runtime_fact",
             "module_loader_artifact_hash_binding_missing",
@@ -1487,6 +1593,19 @@ fn module_loader_runtime_selftest_case(
         expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
+        actual_loader_identity_source_evidence_present: candidate
+            .loader_identity
+            .source_evidence_event_id
+            .is_some(),
+        actual_loader_identity_source_evidence_state: candidate
+            .loader_identity
+            .source_evidence_state,
+        actual_loader_identity_source_evidence_status: candidate
+            .loader_identity
+            .source_evidence_status,
+        actual_loader_identity_source_evidence_reason: candidate
+            .loader_identity
+            .source_evidence_reason,
         passed: method_eq(actual.status, expected_status)
             && method_eq(actual.reason, expected_reason)
             && !actual.loads_artifact

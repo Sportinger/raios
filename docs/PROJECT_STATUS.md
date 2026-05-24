@@ -17,7 +17,10 @@ look for ownership boundaries; around 3k-5k LOC, actively split if a stable
 boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
-Last verified locally: 2026-05-24 on Windows with QEMU 11 after propagating
+Last verified locally: 2026-05-25 on Windows with QEMU 11 after adding
+retained local-only current-boot source evidence for `module.loader_identity`
+and teaching `module.loader_runtime` plus its selftest to consume it while
+preserving denied load authority, after propagating
 the loader-runtime source-method/source-fact-locator map into the denied
 `module.load_ephemeral` loader-runtime readiness projection, its compact
 audit/event binding, and `module.load_gate_loader_runtime_selftest`, wiring
@@ -820,16 +823,18 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Add the first non-authorizing retained source-evidence binding for
-`module.loader_identity`.
+Add the next non-authorizing retained source-evidence binding for
+`module.loader_artifact_hash_binding`.
 
 The current Phase-6 loader-runtime aggregate and denied
-`module.load_ephemeral` loader-runtime readiness projection now cite the same
-ten addressable typed loader-fact diagnostics. The next durable slice should
-let `module.loader_identity` produce a typed current-boot source-evidence
-record that `module.loader_runtime` can consume as evidence, while still
-keeping loader descriptors, artifact bytes, service-slot allocation, service
-inventory mutation, and load attempts denied.
+`module.load_ephemeral` loader-runtime readiness projection cite the same ten
+addressable typed loader-fact diagnostics. `module.loader_identity` now emits a
+typed current-boot source-evidence record that `module.loader_runtime` consumes
+as observed, non-authorizing evidence. The next durable slice should extend the
+same retained-source-evidence pattern to
+`module.loader_artifact_hash_binding`, still keeping loader descriptors,
+artifact bytes, service-slot allocation, service inventory mutation, and load
+attempts denied.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:
@@ -1416,8 +1421,9 @@ Historical verified recovery foundation retained for reference:
 - `module.loader_runtime` now exposes
   `raios.module_loader_runtime_readiness.v0` as a read-only current-boot
   diagnostic over the missing normal-module loader/runtime side of Phase 6. It
-  consumes retained module evidence and service-slot allocator readiness only
-  as local-only current-boot inputs, reports missing typed loader identity,
+  consumes retained module evidence, service-slot allocator readiness, and the
+  latest retained `module.loader_identity` source-evidence event only as
+  local-only current-boot inputs, reports missing typed loader identity,
   artifact hash binding, entrypoint ABI, address-space and memory-map
   isolation, capability import table, service-slot binding, health/rollback
   hooks, and audit/rollback write-boundary binding facts, and keeps
@@ -1429,7 +1435,8 @@ Historical verified recovery foundation retained for reference:
 - `module.loader_runtime_selftest` covers missing retained evidence,
   service-slot allocator readiness/runtime gaps, stale/scope/schema/provenance
   and retained-evidence/service-slot/audit-boundary binding failures, each
-  missing loader-runtime fact, and the final all-inputs-ready
+  missing loader-runtime fact, the observed-current-boot loader identity
+  source-evidence case, and the final all-inputs-ready
   `defined_non_executable` case without loading artifacts or mutating service
   inventory. It also exposes `source_fact_count: 10`,
   `source_fact_map_complete: true`, and a local source map for the aggregate
@@ -1445,6 +1452,11 @@ Historical verified recovery foundation retained for reference:
   loader-runtime fact. It reports the live fact as missing/local-only and
   requires retained module evidence, service-slot allocator readiness/runtime,
   and audit/rollback write-boundary binding before it can become available.
+  The live diagnostic records a separate
+  `raios.module_loader_identity_source_evidence.v0` event in the current-boot
+  RAM event log; that record is local-only, non-authorizing, accepts no loader
+  descriptor or artifact bytes, and is consumed by `module.loader_runtime`
+  only as observed source evidence.
   `module.loader_identity_selftest` covers missing retained evidence,
   allocator readiness/runtime gaps, missing audit/write boundary,
   identity scope/schema/provenance failures, missing retained-evidence,
@@ -1824,8 +1836,8 @@ Historical verified recovery foundation retained for reference:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest full report:
-  `release\vm-reports\shadow-20260524-231433-11728.json` with 5117/5117
-  predicates, 232 executed commands, and `duration_ms: 257620`.
+  `release\vm-reports\shadow-20260525-011138-31168.json` with 5144/5144
+  predicates, 233 executed commands, and `duration_ms: 258197`.
   Latest focused reports:
   `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 17108`, and
