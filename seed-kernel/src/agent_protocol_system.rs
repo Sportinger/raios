@@ -229,6 +229,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "module.service_slot_diagnostic_selftest",
     "module.service_slot_allocator",
     "module.service_slot_allocator_selftest",
+    "module.loader_runtime",
+    "module.loader_runtime_selftest",
     "module.audit_rollback_availability",
     "module.audit_rollback_availability_selftest",
     "module.audit_rollback_write_policy",

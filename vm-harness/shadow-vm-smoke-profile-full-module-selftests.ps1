@@ -91,6 +91,43 @@
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "agent module.loader_runtime_selftest" -ExpectedMarker "RAIOS_AGENT_END module.loader_runtime_selftest"
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_schema" -Needle '"schema": "raios.module_loader_runtime_readiness_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_count" -Needle '"case_count": 27' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_missing_manifest_case" -Needle '"case": "missing_manifest_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_missing_manifest_reason" -Needle '"actual_reason": "retained_module_manifest_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_allocator_readiness_case" -Needle '"case": "missing_service_slot_allocator_readiness"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_allocator_runtime_case" -Needle '"case": "service_slot_allocator_runtime_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_allocator_runtime_status" -Needle '"actual_status": "denied_missing_service_slot_allocator_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_scope_case" -Needle '"case": "loader_identity_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_schema_case" -Needle '"case": "loader_identity_wrong_schema"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_provenance_case" -Needle '"case": "loader_identity_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_retained_binding_case" -Needle '"case": "loader_identity_retained_evidence_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_allocator_binding_case" -Needle '"case": "loader_identity_service_slot_allocator_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_audit_binding_case" -Needle '"case": "loader_identity_audit_write_boundary_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_hash_case" -Needle '"case": "artifact_hash_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_entrypoint_case" -Needle '"case": "entrypoint_abi_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_address_space_case" -Needle '"case": "address_space_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_memory_map_case" -Needle '"case": "memory_map_constraints_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_capability_table_case" -Needle '"case": "capability_import_table_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_slot_case" -Needle '"case": "service_slot_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_health_case" -Needle '"case": "health_state_hooks_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_rollback_case" -Needle '"case": "rollback_hooks_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_write_boundary_case" -Needle '"case": "audit_rollback_write_boundary_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_ready_case" -Needle '"case": "all_inputs_ready_defined_non_executable"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_ready_status" -Needle '"actual_status": "defined_non_executable"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
     Send-AgentCommand -Command "agent module.audit_rollback_availability_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_availability_selftest"
     Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_availability_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1

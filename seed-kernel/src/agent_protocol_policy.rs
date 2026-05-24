@@ -171,6 +171,8 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         || method_eq(method, "module.service_slot_diagnostic_selftest")
         || method_eq(method, "module.service_slot_allocator")
         || method_eq(method, "module.service_slot_allocator_selftest")
+        || method_eq(method, "module.loader_runtime")
+        || method_eq(method, "module.loader_runtime_selftest")
         || method_eq(method, "module.audit_rollback_availability")
         || method_eq(method, "module.audit_rollback_availability_selftest")
         || method_eq(method, "module.audit_rollback_write_policy")

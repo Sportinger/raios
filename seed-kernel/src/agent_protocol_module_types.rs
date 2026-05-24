@@ -417,6 +417,102 @@ pub(crate) struct ModuleServiceSlotAllocatorSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderRuntimeFact {
+    pub(crate) present: bool,
+    pub(crate) schema_ok: bool,
+    pub(crate) scope: &'static str,
+    pub(crate) provenance_ok: bool,
+    pub(crate) classification: &'static str,
+    pub(crate) binds_retained_module_evidence: bool,
+    pub(crate) binds_service_slot_allocator: bool,
+    pub(crate) binds_audit_rollback_write_boundary: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderRuntimeCandidate {
+    pub(crate) manifest_reference_present: bool,
+    pub(crate) artifact_reference_present: bool,
+    pub(crate) vm_report_reference_present: bool,
+    pub(crate) local_attestation_reference_present: bool,
+    pub(crate) local_approval_reference_present: bool,
+    pub(crate) computed_grant_reference_present: bool,
+    pub(crate) audit_rollback_reference_present: bool,
+    pub(crate) service_slot_reservation_present: bool,
+    pub(crate) service_slot_allocator_readiness_present: bool,
+    pub(crate) service_slot_allocator_ready: bool,
+    pub(crate) loader_identity: ModuleLoaderRuntimeFact,
+    pub(crate) artifact_hash_binding: ModuleLoaderRuntimeFact,
+    pub(crate) entrypoint_abi: ModuleLoaderRuntimeFact,
+    pub(crate) address_space_boundary: ModuleLoaderRuntimeFact,
+    pub(crate) memory_map_constraints: ModuleLoaderRuntimeFact,
+    pub(crate) capability_import_table: ModuleLoaderRuntimeFact,
+    pub(crate) service_slot_binding: ModuleLoaderRuntimeFact,
+    pub(crate) health_state_hooks: ModuleLoaderRuntimeFact,
+    pub(crate) rollback_hooks: ModuleLoaderRuntimeFact,
+    pub(crate) audit_rollback_write_boundary_binding: ModuleLoaderRuntimeFact,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderRuntimeEvaluation {
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
+    pub(crate) manifest_reference_status: &'static str,
+    pub(crate) manifest_reference_reason: &'static str,
+    pub(crate) artifact_reference_status: &'static str,
+    pub(crate) artifact_reference_reason: &'static str,
+    pub(crate) vm_report_reference_status: &'static str,
+    pub(crate) vm_report_reference_reason: &'static str,
+    pub(crate) local_attestation_reference_status: &'static str,
+    pub(crate) local_attestation_reference_reason: &'static str,
+    pub(crate) local_approval_reference_status: &'static str,
+    pub(crate) local_approval_reference_reason: &'static str,
+    pub(crate) computed_grant_reference_status: &'static str,
+    pub(crate) computed_grant_reference_reason: &'static str,
+    pub(crate) audit_rollback_reference_status: &'static str,
+    pub(crate) audit_rollback_reference_reason: &'static str,
+    pub(crate) service_slot_reservation_status: &'static str,
+    pub(crate) service_slot_reservation_reason: &'static str,
+    pub(crate) service_slot_allocator_readiness_status: &'static str,
+    pub(crate) service_slot_allocator_readiness_reason: &'static str,
+    pub(crate) service_slot_allocator_runtime_status: &'static str,
+    pub(crate) service_slot_allocator_runtime_reason: &'static str,
+    pub(crate) loader_identity_status: &'static str,
+    pub(crate) loader_identity_reason: &'static str,
+    pub(crate) artifact_hash_binding_status: &'static str,
+    pub(crate) artifact_hash_binding_reason: &'static str,
+    pub(crate) entrypoint_abi_status: &'static str,
+    pub(crate) entrypoint_abi_reason: &'static str,
+    pub(crate) address_space_boundary_status: &'static str,
+    pub(crate) address_space_boundary_reason: &'static str,
+    pub(crate) memory_map_constraints_status: &'static str,
+    pub(crate) memory_map_constraints_reason: &'static str,
+    pub(crate) capability_import_table_status: &'static str,
+    pub(crate) capability_import_table_reason: &'static str,
+    pub(crate) service_slot_binding_status: &'static str,
+    pub(crate) service_slot_binding_reason: &'static str,
+    pub(crate) health_state_hooks_status: &'static str,
+    pub(crate) health_state_hooks_reason: &'static str,
+    pub(crate) rollback_hooks_status: &'static str,
+    pub(crate) rollback_hooks_reason: &'static str,
+    pub(crate) audit_rollback_write_boundary_binding_status: &'static str,
+    pub(crate) audit_rollback_write_boundary_binding_reason: &'static str,
+    pub(crate) loads_artifact: bool,
+    pub(crate) allocates_service_slot: bool,
+    pub(crate) creates_service_inventory_records: bool,
+    pub(crate) can_load: bool,
+    pub(crate) load_attempted: bool,
+}
+
+pub(crate) struct ModuleLoaderRuntimeSelfTestCase {
+    pub(crate) name: &'static str,
+    pub(crate) expected_status: &'static str,
+    pub(crate) expected_reason: &'static str,
+    pub(crate) actual_status: &'static str,
+    pub(crate) actual_reason: &'static str,
+    pub(crate) passed: bool,
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct ModuleAuditRollbackAvailabilityFact {
     pub(crate) present: bool,
     pub(crate) schema_ok: bool,
@@ -1131,6 +1227,7 @@ pub(crate) const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 14;
+pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 27;
 pub(crate) const MODULE_AUDIT_ROLLBACK_AVAILABILITY_SELFTEST_CASES: usize = 8;
 pub(crate) const MODULE_AUDIT_ROLLBACK_WRITE_POLICY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_SELFTEST_CASES: usize = 15;

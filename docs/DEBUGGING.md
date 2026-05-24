@@ -439,6 +439,8 @@ agent module.service_slot_diagnostic <reservation_hash> <retained_reference_even
 agent module.service_slot_diagnostic_selftest
 agent module.service_slot_allocator
 agent module.service_slot_allocator_selftest
+agent module.loader_runtime
+agent module.loader_runtime_selftest
 agent module.audit_rollback_availability
 agent module.audit_rollback_availability_selftest
 agent module.audit_rollback_write_policy
@@ -479,7 +481,9 @@ The expected guest schemas are
 `raios.module_computed_grant_diagnostic.v0`,
 `raios.module_computed_grant_diagnostic_selftest.v0`,
 `raios.module_service_slot_allocator_readiness.v0`, and
-`raios.module_service_slot_allocator_readiness_selftest.v0`. The manifest-reference
+`raios.module_service_slot_allocator_readiness_selftest.v0`,
+`raios.module_loader_runtime_readiness.v0`, and
+`raios.module_loader_runtime_readiness_selftest.v0`. The manifest-reference
 schemas must keep `accepts_manifest_json: false`,
 `accepts_unsigned_service_code: false`, and `accepts_artifact_bytes: false`; all
 of these diagnostics must keep `service_inventory_change: none` and
@@ -516,6 +520,17 @@ evidence and reports typed missing `raios.ram_only_service_slot_allocator.v0`,
 `raios.service_unload_cleanup_plan.v0` facts. It must keep
 `allocates_service_slot: false`, `creates_service_inventory_records: false`,
 `can_allocate: false`, `can_load_now: false`, and `load_attempted: false`.
+
+The module loader-runtime readiness diagnostic emits
+`raios.module_loader_runtime_readiness.v0` and the selftest emits
+`raios.module_loader_runtime_readiness_selftest.v0`. It consumes retained
+module evidence and the service-slot allocator diagnostic only as local-only
+current-boot inputs, reports missing loader identity, artifact-hash binding,
+entrypoint ABI, address-space and memory-map isolation, capability import table,
+service-slot binding, health/rollback hooks, and audit/rollback write-boundary
+binding facts, and keeps `loads_artifact: false`,
+`allocates_service_slot: false`, `service_inventory_change: none`,
+`can_load_now: false`, and `load_attempted: false`.
 
 The audit/rollback availability diagnostic emits
 `raios.module_audit_rollback_availability.v0` and the selftest emits

@@ -18,8 +18,10 @@ boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
 Last verified locally: 2026-05-24 on Windows with QEMU 11 after adding
-read-only `module.service_slot_allocator` readiness diagnostics and selftests
-for the missing Phase-6 RAM-only service-slot allocator/runtime boundary,
+read-only `module.loader_runtime` readiness diagnostics and selftests for the
+missing Phase-6 normal-module loader-runtime boundary, read-only
+`module.service_slot_allocator` readiness diagnostics and selftests for the
+missing Phase-6 RAM-only service-slot allocator/runtime boundary,
 suppressing framebuffer redraws for serial command-mode echo, caching Shadow VM serial-log
 reads, moving Shadow VM harness support/reporting/serial helper functions into
 `vm-harness/shadow-vm-smoke-support.ps1`, splitting Shadow VM profile
@@ -1383,6 +1385,23 @@ The verified foundation for that task is:
   missing registry binding, health-state model, unload cleanup, durable audit,
   rollback install, loader availability, and the final all-inputs-ready case
   while still denying allocation and load authority.
+- `module.loader_runtime` now exposes
+  `raios.module_loader_runtime_readiness.v0` as a read-only current-boot
+  diagnostic over the missing normal-module loader/runtime side of Phase 6. It
+  consumes retained module evidence and service-slot allocator readiness only
+  as local-only current-boot inputs, reports missing typed loader identity,
+  artifact hash binding, entrypoint ABI, address-space and memory-map
+  isolation, capability import table, service-slot binding, health/rollback
+  hooks, and audit/rollback write-boundary binding facts, and keeps
+  `loads_artifact`, `allocates_service_slot`,
+  `creates_service_inventory_records`, `can_load_now`, and `load_attempted`
+  false.
+- `module.loader_runtime_selftest` covers missing retained evidence,
+  service-slot allocator readiness/runtime gaps, stale/scope/schema/provenance
+  and retained-evidence/service-slot/audit-boundary binding failures, each
+  missing loader-runtime fact, and the final all-inputs-ready
+  `defined_non_executable` case without loading artifacts or mutating service
+  inventory.
 - `module.audit_rollback_availability` now exposes
   `raios.module_audit_rollback_availability.v0` as a read-only current-boot
   diagnostic over typed `raios.durable_audit_ledger.v0` and

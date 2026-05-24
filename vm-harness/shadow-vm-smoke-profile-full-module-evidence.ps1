@@ -616,3 +616,27 @@
         @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
         @{ Suffix = "inventory_none"; Needle = '"service_inventory_change": "none"' }
     )
+
+    Send-AgentCommand -Command "agent module.loader_runtime" -ExpectedMarker "RAIOS_AGENT_END module.loader_runtime"
+    Assert-LogContainsFields -NamePrefix "protocol:module_loader_runtime_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.module_loader_runtime_readiness.v0"' },
+        @{ Suffix = "local_only"; Needle = '"classification": "local_only"' },
+        @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
+        @{ Suffix = "no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
+        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
+        @{ Suffix = "no_load"; Needle = '"loads_artifact": false' },
+        @{ Suffix = "no_slots"; Needle = '"allocates_service_slot": false' },
+        @{ Suffix = "no_inventory_records"; Needle = '"creates_service_inventory_records": false' },
+        @{ Suffix = "inventory_none"; Needle = '"service_inventory_change": "none"' },
+        @{ Suffix = "manifest_present"; Needle = '"retained_module_manifest_reference_available"' },
+        @{ Suffix = "artifact_present"; Needle = '"retained_module_candidate_artifact_reference_available"' },
+        @{ Suffix = "service_slot_present"; Needle = '"retained_module_service_slot_reservation_available"' },
+        @{ Suffix = "allocator_schema"; Needle = '"schema": "raios.module_service_slot_allocator_readiness.v0"' },
+        @{ Suffix = "allocator_source"; Needle = '"source_method": "module.service_slot_allocator"' },
+        @{ Suffix = "allocator_not_ready"; Needle = '"service_slot_allocator_ready": false' },
+        @{ Suffix = "readiness_status"; Needle = '"readiness_status": "denied_missing_service_slot_allocator_runtime"' },
+        @{ Suffix = "readiness_reason"; Needle = '"readiness_reason": "service_slot_allocator_runtime_missing"' },
+        @{ Suffix = "loader_fact_schema"; Needle = '"schema": "raios.module_loader_identity.v0"' },
+        @{ Suffix = "loader_fact_missing"; Needle = '"reason": "module_loader_identity_missing"' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
