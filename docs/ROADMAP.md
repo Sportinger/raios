@@ -9,7 +9,7 @@ extraction, lifeline protocol emit extraction, lifeline command-vocabulary emit
 extraction, loader-runtime emit extraction, and rollback/persistence/memory/
 admission, command envelope/dispatch/body/handler, status/rollback-target, and
 memory/durable/service/effect plus load-binding emit extraction, plus Shadow VM
-report evidence cleanup. The
+report evidence cleanup, and recovery artifact-reference emit extraction. The
 recovery lifeline command
 vocabulary/spec helpers now live in
 `seed-kernel/src/agent_protocol_recovery_lifeline.rs`; recovery diagnostics and
@@ -37,6 +37,8 @@ Handler/status/rollback-authorization/target-binding types now live in
 `seed-kernel/src/agent_protocol_recovery_command_authorization_types.rs`.
 Memory/durable-write/service-inventory/command-effect gate types now live in
 `seed-kernel/src/agent_protocol_recovery_command_effect_types.rs`. The
+recovery artifact-reference emit helpers now live in
+`seed-kernel/src/agent_protocol_recovery_artifact_reference_emit.rs`. The
 recovery artifact/lifeline request selftest emit helpers now live in
 `seed-kernel/src/agent_protocol_recovery_artifact_selftest_emit.rs`. The
 lifeline protocol emit helpers now live in
@@ -84,7 +86,7 @@ was removed. Current evidence: full report
 predicates with 206 executed commands; quick report
 `release/vm-reports/shadow-20260523-174556-23200.json` recorded 136/136
 predicates with 13 executed commands, and recovery report
-`release/vm-reports/shadow-20260524-084058-28164.json` recorded 2725/2725
+`release/vm-reports/shadow-20260524-090146-28348.json` recorded 2725/2725
 predicates with 142 executed commands.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
@@ -280,18 +282,19 @@ Latest maintenance verification:
 - `cargo fmt --all -- --check` passed after extracting recovery lifeline command
   specs, execution-stage helpers, and recovery method/constant/runtime/
   command-dispatch/authorization/command-effect type-surface helpers plus
-  artifact selftest, lifeline protocol, command-vocabulary, loader-runtime,
-  rollback/persistence/memory/admission, command envelope/dispatch/body/
-  handler, status/rollback-target, and memory/durable/service/effect emit
-  helpers plus recovery load-binding emit helpers.
+  artifact-reference, artifact selftest, lifeline protocol, command-vocabulary,
+  loader-runtime, rollback/persistence/memory/admission, command
+  envelope/dispatch/body/handler, status/rollback-target, and
+  memory/durable/service/effect emit helpers plus recovery load-binding emit
+  helpers.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`
   passed after extracting recovery lifeline command specs and execution-stage
   helpers plus recovery method/constant/runtime/command-dispatch/authorization/
-  command-effect type-surface helpers plus artifact selftest, lifeline protocol,
-  command-vocabulary, loader-runtime, rollback/persistence/memory, and
-  admission plus command envelope/dispatch/body/handler, status/
-  rollback-target, memory/durable/service/effect, and recovery load-binding
-  emit helpers.
+  command-effect type-surface helpers plus artifact-reference, artifact
+  selftest, lifeline protocol, command-vocabulary, loader-runtime,
+  rollback/persistence/memory, and admission plus command
+  envelope/dispatch/body/handler, status/rollback-target,
+  memory/durable/service/effect, and recovery load-binding emit helpers.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180`
   passed on 2026-05-23 and wrote
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136

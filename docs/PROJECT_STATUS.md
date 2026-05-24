@@ -35,6 +35,8 @@ handler/status/rollback-authorization/target-binding types into
 `seed-kernel/src/agent_protocol_recovery_command_authorization_types.rs`,
 moving memory/durable-write/service-inventory/command-effect gate types into
 `seed-kernel/src/agent_protocol_recovery_command_effect_types.rs`, moving
+recovery artifact-reference emit helpers into
+`seed-kernel/src/agent_protocol_recovery_artifact_reference_emit.rs`, moving
 recovery artifact/lifeline request selftest emit helpers into
 `seed-kernel/src/agent_protocol_recovery_artifact_selftest_emit.rs`, moving
 lifeline protocol emit helpers into
@@ -799,6 +801,8 @@ behavior:
   `seed-kernel/src/agent_protocol_recovery_command_authorization_types.rs`,
   and memory/durable-write/service-inventory/command-effect gate types into
   `seed-kernel/src/agent_protocol_recovery_command_effect_types.rs`, plus
+  recovery artifact-reference emit helpers into
+  `seed-kernel/src/agent_protocol_recovery_artifact_reference_emit.rs`,
   recovery artifact/lifeline request selftest emit helpers into
   `seed-kernel/src/agent_protocol_recovery_artifact_selftest_emit.rs`, and
   lifeline protocol emit helpers into
@@ -1634,7 +1638,7 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
   predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260524-084058-28164.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-090146-28348.json` with 2725/2725
   recovery predicates and 142 executed commands. Both reports derive
   `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
