@@ -6,7 +6,9 @@ Last updated: 2026-05-24 by Codex after moving recovery lifeline command
 reference parsers/evaluators/event-log binding builders into
 `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`, moving
 Shadow VM harness support/reporting/serial helper functions into
-`vm-harness/shadow-vm-smoke-support.ps1`, moving
+`vm-harness/shadow-vm-smoke-support.ps1`, splitting Shadow VM profile
+validation into focused `vm-harness/shadow-vm-smoke-profile-*.ps1` slices,
+moving
 recovery memory/durable/service/dispatch-behavior/executor/side-effect
 reference evaluators into
 `seed-kernel/src/agent_protocol_recovery_command_effect_reference_eval.rs`,
@@ -121,13 +123,15 @@ records per-command `executed_commands`; the old static report command inventory
 was removed. The serial command path now echoes long hash-reference commands to
 serial without forcing a framebuffer redraw after each poll chunk, which keeps
 the same recovery evidence but cuts the focused recovery smoke wall time on this
-host. Current evidence: full report
-`release/vm-reports/shadow-20260523-223645-13488.json` recorded 4500/4500
-predicates with 206 executed commands; quick report
-`release/vm-reports/shadow-20260524-135620-27680.json` recorded 136/136
-predicates with 13 executed commands and `duration_ms: 17212`; recovery report
-`release/vm-reports/shadow-20260524-123754-26184.json` recorded 2725/2725
-predicates with 142 executed commands and `duration_ms: 157906`.
+host. The Shadow VM harness entrypoint is now a small profile dispatcher; the
+largest profile slice is the recovery command-authority block rather than one
+monolithic smoke file. Current evidence: full report
+`release/vm-reports/shadow-20260524-140848-4296.json` recorded 4500/4500
+predicates with 206 executed commands and `duration_ms: 223030`; quick report
+`release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
+predicates with 13 executed commands and `duration_ms: 17108`; recovery report
+`release/vm-reports/shadow-20260524-140503-24772.json` recorded 2725/2725
+predicates with 142 executed commands and `duration_ms: 159960`.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
 diagnostics with
@@ -349,14 +353,14 @@ Latest maintenance verification:
   memory/durable/service/effect, and recovery load-binding emit helpers.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180`
   passed on 2026-05-24 and wrote
-  `release\vm-reports\shadow-20260524-135620-27680.json` with 136/136
+  `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136
   predicates, 13 `executed_commands` entries derived from the actual serial
-  run, and `duration_ms: 17212`.
+  run, and `duration_ms: 17108`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`
   passed on 2026-05-24 and wrote
-  `release\vm-reports\shadow-20260524-123754-26184.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-140503-24772.json` with 2725/2725
   predicates, 142 `executed_commands` entries derived from the actual serial
-  run, and `duration_ms: 157906`.
+  run, and `duration_ms: 159960`.
 - `git diff --check` passed.
 - `cargo fmt --all -- --check` passed.
 - `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
@@ -368,9 +372,9 @@ Latest maintenance verification:
   passed on 2026-05-23.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
   passed and wrote
-  `release\vm-reports\shadow-20260523-223645-13488.json` with 4500/4500
-  predicates and 206 `executed_commands` entries derived from the actual serial
-  run, including `module.manifest_diagnostic`,
+  `release\vm-reports\shadow-20260524-140848-4296.json` with 4500/4500
+  predicates, 206 `executed_commands` entries derived from the actual serial
+  run, and `duration_ms: 223030`, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
   `module.vm_report_diagnostic_selftest`, `module.grant_diagnostic`,

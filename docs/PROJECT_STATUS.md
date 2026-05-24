@@ -10,7 +10,9 @@ command lists or prose summaries.
 Last verified locally: 2026-05-24 on Windows with QEMU 11 after suppressing
 framebuffer redraws for serial command-mode echo, caching Shadow VM serial-log
 reads, moving Shadow VM harness support/reporting/serial helper functions into
-`vm-harness/shadow-vm-smoke-support.ps1`, moving recovery load-binding
+`vm-harness/shadow-vm-smoke-support.ps1`, splitting Shadow VM profile
+validation into focused `vm-harness/shadow-vm-smoke-profile-*.ps1` slices
+while keeping the same QEMU/serial command flow, moving recovery load-binding
 evaluation, retained-chain mismatch checks,
 and load-binding selftest fixtures into
 `seed-kernel/src/agent_protocol_recovery_load_binding.rs`, moving recovery
@@ -387,7 +389,7 @@ negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
 Latest quick guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-135620-27680.json` with 136/136
+`release\vm-reports\shadow-20260524-140441-10224.json` with 136/136
 predicates, 13 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through boot readiness, core read-only
 methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
@@ -395,17 +397,18 @@ methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 
 Latest focused recovery guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-123754-26184.json` with 2725/2725
+`release\vm-reports\shadow-20260524-140503-24772.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
 and RAM-only recovery audit visibility while skipping the normal module-loading
 diagnostic matrix.
 
-Latest guest-protocol verification: 2026-05-23 on Windows with
+Latest guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260523-223645-13488.json` with 4500/4500
-predicates, 206 `executed_commands` entries, and no static command inventory,
+`release\vm-reports\shadow-20260524-140848-4296.json` with 4500/4500
+predicates, 206 `executed_commands` entries, `duration_ms: 223030`, and no
+static command inventory,
 covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
 candidate-artifact references, absent/accepted/stale/mismatched/binding-checked
@@ -1672,10 +1675,10 @@ The verified foundation for that task is:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest focused reports:
-  `release\vm-reports\shadow-20260524-135620-27680.json` with 136/136 quick
-  predicates, 13 executed commands, and `duration_ms: 17212`, and
-  `release\vm-reports\shadow-20260524-123754-26184.json` with 2725/2725
-  recovery predicates, 142 executed commands, and `duration_ms: 157906`.
+  `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
+  predicates, 13 executed commands, and `duration_ms: 17108`, and
+  `release\vm-reports\shadow-20260524-140503-24772.json` with 2725/2725
+  recovery predicates, 142 executed commands, and `duration_ms: 159960`.
   Both reports derive `commands` from observed serial execution. The recovery
   profile still exercises the same predicate/command count, but serial command
   echo no longer forces framebuffer redraws while long hash-reference commands

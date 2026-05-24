@@ -135,13 +135,16 @@ timeout of at least 30 minutes and pass `-TimeoutSeconds 180` if the default
 45-second per-command serial timeout is too tight. Do not treat a 10-minute
 outer tool timeout as a guest or protocol failure by itself; inspect the
 generated `release\vm-reports\shadow-*.json` and the temp `serial.log`.
+The entry script dispatches into focused `shadow-vm-smoke-profile-*.ps1`
+profile slices, so profile-specific failures should be debugged in the matching
+slice rather than in one monolithic harness file.
 
 Stage-0 serial command-mode input echoes bytes to the serial log without
 forcing framebuffer redraws during long pasted commands; this keeps long
 hash-reference recovery diagnostics on the real serial path without paying a
 full UI render for every input chunk. The 2026-05-24 focused recovery report
-`release\vm-reports\shadow-20260524-094635-20820.json` passed 2725/2725
-predicates with 142 executed commands in `duration_ms: 160808`.
+`release\vm-reports\shadow-20260524-140503-24772.json` passed 2725/2725
+predicates with 142 executed commands in `duration_ms: 159960`.
 
 For fast iteration, run the same real QEMU/serial path with the quick profile:
 

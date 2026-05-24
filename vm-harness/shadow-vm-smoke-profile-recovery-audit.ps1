@@ -1,0 +1,16 @@
+        Assert-LogContains -Name "recovery:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_limit" -Needle '"limit": 256' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_identity_source" -Needle '"source_method": "recovery.identity_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_trust_source" -Needle '"source_method": "recovery.trust_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_vm_test_source" -Needle '"source_method": "recovery.vm_test_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_local_approval_source" -Needle '"source_method": "recovery.local_approval_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_loader_source" -Needle '"source_method": "recovery.loader_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_rollback_evidence_source" -Needle '"source_method": "recovery.rollback_evidence_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_lifeline_request_source" -Needle '"source_method": "recovery.lifeline_request_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_load_binding_source" -Needle '"source_method": "recovery.load_binding"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_load_binding_selftest_source" -Needle '"source_method": "recovery.load_binding_selftest"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_execution_completion_denial_source" -Needle '"source_method": "recovery.lifeline_command_execution_completion_denial_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_service_boundary_source" -Needle '"source_method": "recovery.service_inventory_side_effect_boundary_diagnostic"' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_ram_only" -Needle '"persistence": "none"' -TimeoutSeconds 1
