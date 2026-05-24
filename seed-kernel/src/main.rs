@@ -43,6 +43,7 @@ mod agent_protocol_recovery_command_effect_types;
 mod agent_protocol_recovery_constants;
 mod agent_protocol_recovery_execution;
 mod agent_protocol_recovery_lifeline;
+mod agent_protocol_recovery_lifeline_command_vocabulary_emit;
 mod agent_protocol_recovery_lifeline_protocol_emit;
 mod agent_protocol_recovery_lifeline_protocol_types;
 mod agent_protocol_recovery_load_binding;
