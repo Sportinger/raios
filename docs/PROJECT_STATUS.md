@@ -7,6 +7,16 @@ splitting stable boundaries early, separating runtime/diagnostic/harness/handoff
 surfaces, and making observed execution evidence more authoritative than copied
 command lists or prose summaries.
 
+Build-time hygiene memory: do opportunistic cleanup while building when a clear,
+low-risk ownership boundary appears. Extract runtime, diagnostic, selftest,
+emit, harness, or docs surfaces before they become emergency refactors. Do not
+force speculative refactors while behavior, trust boundaries, or protocol shape
+are still unclear; finish the real slice first, then cut along the stable
+boundary that emerged. Use file size as an early warning: around 1k-2k LOC,
+look for ownership boundaries; around 3k-5k LOC, actively split if a stable
+boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
+requires a deliberate split plan before more behavior is added.
+
 Last verified locally: 2026-05-24 on Windows with QEMU 11 after adding
 read-only `module.service_slot_allocator` readiness diagnostics and selftests
 for the missing Phase-6 RAM-only service-slot allocator/runtime boundary,

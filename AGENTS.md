@@ -98,6 +98,16 @@ Still shape every durable slice so it can become raiOS memory later:
 
 - split a file or document as soon as a stable boundary is visible; do not wait
   for oversized protocol files or handoff docs to become expensive to untangle
+- treat cleanup as part of normal building when it is low-risk and useful:
+  extracting a clear runtime/diagnostic/selftest/emit/harness boundary early is
+  preferred over letting a temporary monolith grow
+- avoid speculative cleanup while the behavior, trust boundary, or protocol
+  shape is still unclear; finish the real slice first, then cut along the
+  stable boundary that emerged
+- use size as an early warning: around 1k-2k LOC, look for ownership boundaries;
+  around 3k-5k LOC, actively split if a stable boundary exists; above 10k LOC
+  should be exceptional and documented; 20k+ LOC requires a deliberate split
+  plan before adding more behavior
 - separate runtime paths, diagnostics/selftests, harness logic, and handoff
   prose instead of mixing them into one growing surface
 - keep evidence authoritative: derive reports from observed execution, not
