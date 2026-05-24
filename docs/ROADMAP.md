@@ -5,6 +5,8 @@
 Last updated: 2026-05-24 by Codex after moving recovery lifeline command
 reference parsers/evaluators/event-log binding builders into
 `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`, moving
+Shadow VM harness support/reporting/serial helper functions into
+`vm-harness/shadow-vm-smoke-support.ps1`, moving
 recovery memory/durable/service/dispatch-behavior/executor/side-effect
 reference evaluators into
 `seed-kernel/src/agent_protocol_recovery_command_effect_reference_eval.rs`,
@@ -122,8 +124,8 @@ the same recovery evidence but cuts the focused recovery smoke wall time on this
 host. Current evidence: full report
 `release/vm-reports/shadow-20260523-223645-13488.json` recorded 4500/4500
 predicates with 206 executed commands; quick report
-`release/vm-reports/shadow-20260524-094611-25144.json` recorded 136/136
-predicates with 13 executed commands and `duration_ms: 16874`; recovery report
+`release/vm-reports/shadow-20260524-135620-27680.json` recorded 136/136
+predicates with 13 executed commands and `duration_ms: 17212`; recovery report
 `release/vm-reports/shadow-20260524-123754-26184.json` recorded 2725/2725
 predicates with 142 executed commands and `duration_ms: 157906`.
 
@@ -347,9 +349,9 @@ Latest maintenance verification:
   memory/durable/service/effect, and recovery load-binding emit helpers.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180`
   passed on 2026-05-24 and wrote
-  `release\vm-reports\shadow-20260524-094611-25144.json` with 136/136
+  `release\vm-reports\shadow-20260524-135620-27680.json` with 136/136
   predicates, 13 `executed_commands` entries derived from the actual serial
-  run, and `duration_ms: 16874`.
+  run, and `duration_ms: 17212`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`
   passed on 2026-05-24 and wrote
   `release\vm-reports\shadow-20260524-123754-26184.json` with 2725/2725

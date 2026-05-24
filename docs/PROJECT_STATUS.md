@@ -9,7 +9,9 @@ command lists or prose summaries.
 
 Last verified locally: 2026-05-24 on Windows with QEMU 11 after suppressing
 framebuffer redraws for serial command-mode echo, caching Shadow VM serial-log
-reads, moving recovery load-binding evaluation, retained-chain mismatch checks,
+reads, moving Shadow VM harness support/reporting/serial helper functions into
+`vm-harness/shadow-vm-smoke-support.ps1`, moving recovery load-binding
+evaluation, retained-chain mismatch checks,
 and load-binding selftest fixtures into
 `seed-kernel/src/agent_protocol_recovery_load_binding.rs`, moving recovery
 lifeline protocol/vocabulary/runtime/rollback/persistence/memory/admission
@@ -383,9 +385,9 @@ covering OTA/registry tooling plus the non-authorizing
 `raios.module_audit_rollback_diagnostic.v0` audit/rollback candidates, and
 negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
-Latest quick guest-protocol verification: 2026-05-23 on Windows with
+Latest quick guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260523-174556-23200.json` with 136/136
+`release\vm-reports\shadow-20260524-135620-27680.json` with 136/136
 predicates, 13 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through boot readiness, core read-only
 methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
@@ -1670,8 +1672,8 @@ The verified foundation for that task is:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest focused reports:
-  `release\vm-reports\shadow-20260524-094611-25144.json` with 136/136 quick
-  predicates, 13 executed commands, and `duration_ms: 16874`, and
+  `release\vm-reports\shadow-20260524-135620-27680.json` with 136/136 quick
+  predicates, 13 executed commands, and `duration_ms: 17212`, and
   `release\vm-reports\shadow-20260524-123754-26184.json` with 2725/2725
   recovery predicates, 142 executed commands, and `duration_ms: 157906`.
   Both reports derive `commands` from observed serial execution. The recovery
