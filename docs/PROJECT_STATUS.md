@@ -18,6 +18,8 @@ boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
 Last verified locally: 2026-05-24 on Windows with QEMU 11 after adding
+local-only `module.load_gate_loader_runtime_selftest` coverage for the denied
+load-gate loader-runtime projection,
 denied `module.load_ephemeral` reporting for retained-evidence,
 service-slot allocator readiness, and loader-runtime readiness boundaries,
 read-only `module.loader_runtime` readiness diagnostics and selftests for the
@@ -1576,6 +1578,14 @@ The verified foundation for that task is:
   service-slot, and reservation-hash retained service-slot reservation cases.
   Rejected cases report `rejected_retained_reference` and keep accepted
   `service_slot_reservation_hash` evidence absent.
+- `module.load_gate_loader_runtime_selftest` now exposes local-only
+  `raios.module_load_gate_loader_runtime_selftest.v0` test infrastructure for
+  the denied load-gate loader-runtime projection. It covers missing/rejected
+  retained module evidence, missing/rejected retained service-slot reservation
+  projection, and the all-retained-evidence-ready state that remains blocked
+  by missing service-slot allocator runtime, while keeping descriptor/artifact
+  input, service-slot allocation, service inventory mutation, and load attempts
+  disabled.
 - `module.grant_diagnostic_selftest` covers absent, accepted-current-boot,
   stale previous-boot, mismatched manifest-hash, and wrong-policy computed
   grant references without loading artifacts or mutating service inventory.

@@ -465,6 +465,7 @@ agent module.load_gate_approval_selftest
 agent module.load_gate_retained_selftest
 agent module.load_gate_audit_rollback_selftest
 agent module.load_gate_service_slot_selftest
+agent module.load_gate_loader_runtime_selftest
 ```
 
 The expected guest schemas are
@@ -483,7 +484,8 @@ The expected guest schemas are
 `raios.module_service_slot_allocator_readiness.v0`, and
 `raios.module_service_slot_allocator_readiness_selftest.v0`,
 `raios.module_loader_runtime_readiness.v0`, and
-`raios.module_loader_runtime_readiness_selftest.v0`. The manifest-reference
+`raios.module_loader_runtime_readiness_selftest.v0`, and
+`raios.module_load_gate_loader_runtime_selftest.v0`. The manifest-reference
 schemas must keep `accepts_manifest_json: false`,
 `accepts_unsigned_service_code: false`, and `accepts_artifact_bytes: false`; all
 of these diagnostics must keep `service_inventory_change: none` and
@@ -987,6 +989,16 @@ wrong-schema, substituted, computed-grant/audit/rollback hash mismatches,
 inventory mismatch, slot mismatch, and reservation-hash mismatch for retained
 service-slot reservations; rejected cases must keep
 `accepted_service_slot_reservation_hash: false`.
+
+`module.load_gate_loader_runtime_selftest` emits
+`raios.module_load_gate_loader_runtime_selftest.v0`; it must keep
+`mutates_global_event_log: false`, `accepts_loader_descriptor: false`,
+`accepts_artifact_bytes: false`, `loads_artifact: false`,
+`allocates_service_slot: false`, `creates_service_inventory_records: false`,
+and `can_load: false`. It covers missing/rejected retained evidence,
+missing/rejected retained service-slot reservation projection, and the
+all-retained-evidence-ready state that remains denied by the missing
+service-slot allocator runtime; all cases must keep load attempts disabled.
 
 `module.load_gate_attestation_selftest` emits
 `raios.module_load_gate_local_attestation_selftest.v0`; it must keep

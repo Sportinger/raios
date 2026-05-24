@@ -676,3 +676,33 @@
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_rejected_hash_not_exposed" -Needle '"accepted_service_slot_reservation_hash": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_service_slot_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.load_gate_loader_runtime_selftest" -ExpectedMarker "RAIOS_AGENT_END module.load_gate_loader_runtime_selftest"
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_schema" -Needle '"schema": "raios.module_load_gate_loader_runtime_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_not_ready" -Needle '"service_slot_allocator_ready": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_count" -Needle '"case_count": 5' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_manifest_case" -Needle '"case": "missing_manifest_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_manifest_reason" -Needle '"actual_reason": "retained_module_manifest_reference_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_artifact_case" -Needle '"case": "rejected_artifact_reference"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_artifact_reason" -Needle '"actual_reason": "retained_candidate_artifact_reference_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_slot_case" -Needle '"case": "missing_service_slot_reservation"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_slot_reason" -Needle '"actual_reason": "ram_only_service_slot_unallocated"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_slot_case" -Needle '"case": "rejected_service_slot_reservation"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_slot_allocator_state" -Needle '"actual_service_slot_allocator_state": "blocked_by_rejected_service_slot_reservation"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_missing_case" -Needle '"case": "all_retained_evidence_ready_allocator_runtime_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_missing_status" -Needle '"actual_status": "denied_missing_service_slot_allocator_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_retained_available_state" -Needle '"actual_retained_module_evidence_state": "available"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_missing_state" -Needle '"actual_service_slot_allocator_state": "missing_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_loader_runtime_blocked_state" -Needle '"actual_loader_runtime_state": "blocked_by_service_slot_allocator_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_loader_identity" -Needle '"raios.module_loader_identity.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1

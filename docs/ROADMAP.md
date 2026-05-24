@@ -3,6 +3,8 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-24 by Codex after adding read-only
+`module.load_gate_loader_runtime_selftest` coverage for the denied load-gate
+loader-runtime readiness projection,
 denied `module.load_ephemeral` reporting for retained-evidence,
 service-slot allocator readiness, and loader-runtime readiness boundaries,
 read-only `module.loader_runtime` readiness diagnostics and selftests for the Phase-6
@@ -637,6 +639,14 @@ Current verified cursor:
   `allocates_service_slot`, `creates_service_inventory_records`,
   `service_inventory_change`, `can_load_now`, and `load_attempted`
   non-authorizing.
+- `module.load_gate_loader_runtime_selftest` now exposes
+  `raios.module_load_gate_loader_runtime_selftest.v0` as local-only test
+  infrastructure for the denied load-gate loader-runtime projection. It covers
+  missing/rejected retained module evidence, missing/rejected retained
+  service-slot reservation projection, and the all-retained-evidence-ready
+  state that remains blocked by missing service-slot allocator runtime, without
+  accepting loader descriptors, artifact bytes, service-slot allocation, or
+  service inventory mutation.
 - `module.audit_rollback_availability` now exposes
   `raios.module_audit_rollback_availability.v0` as a read-only current-boot
   diagnostic over typed `raios.durable_audit_ledger.v0` and
@@ -1117,23 +1127,28 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Add `module.load_gate_loader_runtime_selftest` for the denied load gate's
-loader-runtime readiness projection.
+Add read-only `module.loader_identity` diagnostics for the current-boot
+normal-module loader identity fact.
 ```
 
 `module.load_ephemeral` now reports retained-evidence, service-slot allocator
 readiness, and loader-runtime readiness states in its denied response and audit
-binding. The next durable Phase-6 slice should add focused local-only selftest
-coverage for that projection: missing retained evidence, rejected retained
-evidence, missing service-slot allocator runtime, and all-inputs-ready but still
-non-executable loader-runtime states, without adding load authority.
+binding, and `module.load_gate_loader_runtime_selftest` covers that denied
+projection. The next durable Phase-6 slice should start making the typed
+loader-runtime fact boundary addressable with a read-only
+`raios.module_loader_identity.v0` diagnostic and selftest. It must report the
+fact as missing/current-boot/local-only, require retained module evidence,
+service-slot allocator readiness, and audit/rollback write-boundary binding as
+inputs, and keep load authority disabled.
 
 Next three tasks:
 
-1. Add `module.load_gate_loader_runtime_selftest` as local-only test
-   infrastructure for the denied load-gate loader-runtime projection.
-2. Wire the selftest into policy, read methods, DEBUGGING docs, and the full
-   Shadow VM module selftest profile.
+1. Add `module.loader_identity` as a read-only current-boot diagnostic for
+   `raios.module_loader_identity.v0`.
+2. Add `module.loader_identity_selftest` covering missing, previous-boot,
+   schema/provenance, missing retained-evidence binding, missing
+   service-slot-allocator binding, missing audit/write-boundary binding, and
+   all-inputs-present-but-non-authorizing cases.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next Phase-6 slice.

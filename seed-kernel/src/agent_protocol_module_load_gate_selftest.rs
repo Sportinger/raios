@@ -3,6 +3,7 @@ use crate::{
         computed_module_audit_record_hash, computed_module_grant_hash,
         computed_module_rollback_plan_hash, computed_module_service_slot_reservation_hash,
         evaluate_module_load_gate_audit_rollback_candidate,
+        evaluate_module_load_gate_loader_runtime_candidate,
         evaluate_module_load_gate_retained_candidate,
         evaluate_module_load_gate_service_slot_candidate,
     },
@@ -646,6 +647,99 @@ pub(crate) fn module_load_gate_service_slot_selftest_cases(
     ]
 }
 
+pub(crate) fn module_load_gate_loader_runtime_selftest_cases(
+) -> [ModuleLoadGateLoaderRuntimeSelfTestCase; MODULE_LOAD_GATE_LOADER_RUNTIME_SELFTEST_CASES] {
+    let ready = module_load_gate_loader_runtime_ready_candidate();
+    [
+        module_load_gate_loader_runtime_selftest_case(
+            "missing_manifest_reference",
+            "denied_missing_retained_module_evidence",
+            "retained_module_manifest_reference_missing",
+            "missing",
+            "blocked_by_service_slot_reservation",
+            "blocked_by_retained_module_evidence",
+            ModuleLoadGateLoaderRuntimeCandidate {
+                manifest_reference_state: "missing",
+                manifest_reference_reason: "retained_module_manifest_reference_missing",
+                artifact_reference_state: "missing",
+                artifact_reference_reason: "retained_candidate_artifact_reference_missing",
+                vm_report_reference_state: "missing",
+                vm_report_reference_reason: "retained_vm_test_report_reference_missing",
+                local_attestation_reference_state: "missing",
+                local_attestation_reference_reason: "retained_local_attestation_reference_missing",
+                local_approval_reference_state: "missing",
+                local_approval_reference_reason: "retained_local_approval_reference_missing",
+                computed_grant_reference_state: "missing",
+                computed_grant_reference_reason: "computed_capability_grant_reference_missing",
+                audit_rollback_reference_state: "missing",
+                audit_rollback_reference_reason: "rollback_install_missing",
+                service_slot_reservation_state: "missing",
+                service_slot_reservation_reason: "ram_only_service_slot_unallocated",
+            },
+        ),
+        module_load_gate_loader_runtime_selftest_case(
+            "rejected_artifact_reference",
+            "denied_missing_retained_module_evidence",
+            "retained_candidate_artifact_reference_hash_mismatch",
+            "rejected",
+            "blocked_by_service_slot_reservation",
+            "blocked_by_retained_module_evidence",
+            ModuleLoadGateLoaderRuntimeCandidate {
+                artifact_reference_state: "rejected",
+                artifact_reference_reason: "retained_candidate_artifact_reference_hash_mismatch",
+                vm_report_reference_state: "missing",
+                vm_report_reference_reason: "retained_vm_test_report_reference_missing",
+                local_attestation_reference_state: "missing",
+                local_attestation_reference_reason: "retained_local_attestation_reference_missing",
+                local_approval_reference_state: "missing",
+                local_approval_reference_reason: "retained_local_approval_reference_missing",
+                computed_grant_reference_state: "missing",
+                computed_grant_reference_reason: "computed_capability_grant_reference_missing",
+                audit_rollback_reference_state: "missing",
+                audit_rollback_reference_reason: "rollback_install_missing",
+                service_slot_reservation_state: "missing",
+                service_slot_reservation_reason: "ram_only_service_slot_unallocated",
+                ..ready
+            },
+        ),
+        module_load_gate_loader_runtime_selftest_case(
+            "missing_service_slot_reservation",
+            "denied_missing_retained_module_evidence",
+            "ram_only_service_slot_unallocated",
+            "missing",
+            "blocked_by_service_slot_reservation",
+            "blocked_by_retained_module_evidence",
+            ModuleLoadGateLoaderRuntimeCandidate {
+                service_slot_reservation_state: "missing",
+                service_slot_reservation_reason: "ram_only_service_slot_unallocated",
+                ..ready
+            },
+        ),
+        module_load_gate_loader_runtime_selftest_case(
+            "rejected_service_slot_reservation",
+            "denied_missing_retained_module_evidence",
+            "retained_service_slot_reservation_hash_mismatch",
+            "rejected",
+            "blocked_by_rejected_service_slot_reservation",
+            "blocked_by_retained_module_evidence",
+            ModuleLoadGateLoaderRuntimeCandidate {
+                service_slot_reservation_state: "rejected",
+                service_slot_reservation_reason: "retained_service_slot_reservation_hash_mismatch",
+                ..ready
+            },
+        ),
+        module_load_gate_loader_runtime_selftest_case(
+            "all_retained_evidence_ready_allocator_runtime_missing",
+            "denied_missing_service_slot_allocator_runtime",
+            "service_slot_allocator_runtime_missing",
+            "available",
+            "missing_runtime",
+            "blocked_by_service_slot_allocator_runtime",
+            ready,
+        ),
+    ]
+}
+
 fn module_load_gate_retained_selftest_case(
     name: &'static str,
     expected_status: &'static str,
@@ -708,6 +802,84 @@ fn module_load_gate_service_slot_selftest_case(
         passed: method_eq(actual.status, expected_status)
             && method_eq(actual.reason, expected_reason)
             && actual.accepted_service_slot_reservation_hash == expected_hash_exposed
+            && !actual.can_load
+            && !actual.load_attempted,
+    }
+}
+
+fn module_load_gate_loader_runtime_selftest_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    expected_retained_module_evidence_state: &'static str,
+    expected_service_slot_allocator_state: &'static str,
+    expected_loader_runtime_state: &'static str,
+    candidate: ModuleLoadGateLoaderRuntimeCandidate,
+) -> ModuleLoadGateLoaderRuntimeSelfTestCase {
+    let actual = evaluate_module_load_gate_loader_runtime_candidate(candidate);
+    let expected_retained_module_evidence_reason = if method_eq(
+        expected_status,
+        "denied_missing_service_slot_allocator_runtime",
+    ) {
+        "retained_module_evidence_available"
+    } else {
+        expected_reason
+    };
+    let expected_service_slot_allocator_status =
+        if method_eq(expected_service_slot_allocator_state, "missing_runtime") {
+            "missing"
+        } else {
+            "blocked"
+        };
+    let expected_service_slot_allocator_reason =
+        if method_eq(expected_service_slot_allocator_state, "missing_runtime") {
+            "service_slot_allocator_runtime_missing"
+        } else if method_eq(
+            expected_service_slot_allocator_state,
+            "blocked_by_rejected_service_slot_reservation",
+        ) {
+            expected_reason
+        } else {
+            "retained_service_slot_reservation_missing"
+        };
+    ModuleLoadGateLoaderRuntimeSelfTestCase {
+        name,
+        expected_status,
+        expected_reason,
+        expected_retained_module_evidence_state,
+        expected_service_slot_allocator_state,
+        expected_loader_runtime_state,
+        actual_status: actual.status,
+        actual_reason: actual.reason,
+        actual_retained_module_evidence_state: actual.retained_module_evidence_state,
+        actual_retained_module_evidence_reason: actual.retained_module_evidence_reason,
+        actual_service_slot_allocator_state: actual.service_slot_allocator_state,
+        actual_service_slot_allocator_status: actual.service_slot_allocator_status,
+        actual_service_slot_allocator_reason: actual.service_slot_allocator_reason,
+        actual_loader_runtime_state: actual.loader_runtime_state,
+        passed: method_eq(actual.status, expected_status)
+            && method_eq(actual.reason, expected_reason)
+            && method_eq(
+                actual.retained_module_evidence_state,
+                expected_retained_module_evidence_state,
+            )
+            && method_eq(
+                actual.service_slot_allocator_state,
+                expected_service_slot_allocator_state,
+            )
+            && method_eq(
+                actual.retained_module_evidence_reason,
+                expected_retained_module_evidence_reason,
+            )
+            && method_eq(
+                actual.service_slot_allocator_status,
+                expected_service_slot_allocator_status,
+            )
+            && method_eq(
+                actual.service_slot_allocator_reason,
+                expected_service_slot_allocator_reason,
+            )
+            && method_eq(actual.loader_runtime_state, expected_loader_runtime_state)
             && !actual.can_load
             && !actual.load_attempted,
     }
@@ -919,6 +1091,27 @@ fn module_load_gate_test_service_slot_reservation_with_override(
     })
 }
 
+fn module_load_gate_loader_runtime_ready_candidate() -> ModuleLoadGateLoaderRuntimeCandidate {
+    ModuleLoadGateLoaderRuntimeCandidate {
+        manifest_reference_state: "available",
+        manifest_reference_reason: "retained_module_manifest_reference_available",
+        artifact_reference_state: "available",
+        artifact_reference_reason: "retained_candidate_artifact_reference_available",
+        vm_report_reference_state: "available",
+        vm_report_reference_reason: "retained_vm_test_report_reference_available",
+        local_attestation_reference_state: "available",
+        local_attestation_reference_reason: "retained_local_attestation_reference_available",
+        local_approval_reference_state: "available",
+        local_approval_reference_reason: "retained_local_approval_reference_available",
+        computed_grant_reference_state: "available",
+        computed_grant_reference_reason: "computed_capability_grant_reference_available",
+        audit_rollback_reference_state: "available",
+        audit_rollback_reference_reason: "retained_audit_rollback_reference_available",
+        service_slot_reservation_state: "available",
+        service_slot_reservation_reason: "retained_service_slot_reservation_available",
+    }
+}
+
 pub(crate) fn module_load_gate_test_reference(
     manifest_hash: [u8; 32],
     artifact_hash: [u8; 32],
@@ -977,4 +1170,9 @@ pub(crate) fn module_load_gate_audit_rollback_selftest_method(method: &str) -> b
 pub(crate) fn module_load_gate_service_slot_selftest_method(method: &str) -> bool {
     method_head_eq(method, "module.load_gate_service_slot_selftest")
         || method_head_eq(method, "module.service_slot_gate_selftest")
+}
+
+pub(crate) fn module_load_gate_loader_runtime_selftest_method(method: &str) -> bool {
+    method_head_eq(method, "module.load_gate_loader_runtime_selftest")
+        || method_head_eq(method, "module.loader_runtime_gate_selftest")
 }

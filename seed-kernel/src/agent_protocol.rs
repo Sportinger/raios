@@ -23,11 +23,13 @@ use crate::{
     agent_protocol_module_load_gate::{
         emit_module_load_ephemeral_denied, emit_module_load_gate_approval_selftest,
         emit_module_load_gate_artifact_selftest, emit_module_load_gate_attestation_selftest,
-        emit_module_load_gate_audit_rollback_selftest, emit_module_load_gate_manifest_selftest,
+        emit_module_load_gate_audit_rollback_selftest,
+        emit_module_load_gate_loader_runtime_selftest, emit_module_load_gate_manifest_selftest,
         emit_module_load_gate_retained_selftest, emit_module_load_gate_service_slot_selftest,
         emit_module_load_gate_vm_report_selftest, module_load_gate_approval_selftest_method,
         module_load_gate_artifact_selftest_method, module_load_gate_attestation_selftest_method,
-        module_load_gate_audit_rollback_selftest_method, module_load_gate_manifest_selftest_method,
+        module_load_gate_audit_rollback_selftest_method,
+        module_load_gate_loader_runtime_selftest_method, module_load_gate_manifest_selftest_method,
         module_load_gate_retained_selftest_method, module_load_gate_service_slot_selftest_method,
         module_load_gate_vm_report_selftest_method,
     },
@@ -581,6 +583,11 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("module.load_gate_service_slot_selftest");
         emit_module_load_gate_service_slot_selftest();
         return DispatchOutcome::Response("module.load_gate_service_slot_selftest");
+    }
+    if module_load_gate_loader_runtime_selftest_method(method) {
+        record_read("module.load_gate_loader_runtime_selftest");
+        emit_module_load_gate_loader_runtime_selftest();
+        return DispatchOutcome::Response("module.load_gate_loader_runtime_selftest");
     }
     if recovery_artifact_identity_diagnostic_method(method) {
         record_read("recovery.identity_diagnostic");

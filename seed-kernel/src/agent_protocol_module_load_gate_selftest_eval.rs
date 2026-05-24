@@ -1121,6 +1121,77 @@ pub(crate) fn evaluate_module_load_gate_service_slot_candidate(
     )
 }
 
+pub(crate) fn evaluate_module_load_gate_loader_runtime_candidate(
+    candidate: ModuleLoadGateLoaderRuntimeCandidate,
+) -> ModuleLoadGateLoaderRuntimeEvaluation {
+    let retained_module_evidence_complete =
+        module_load_gate_loader_runtime_retained_evidence_complete(candidate);
+    let retained_module_evidence_state = if retained_module_evidence_complete {
+        "available"
+    } else if module_load_gate_loader_runtime_retained_evidence_rejected(candidate) {
+        "rejected"
+    } else {
+        "missing"
+    };
+    let retained_module_evidence_reason =
+        module_load_gate_loader_runtime_retained_evidence_reason(candidate);
+    let service_slot_allocator_state = if module_load_gate_loader_runtime_reference_available(
+        candidate.service_slot_reservation_state,
+    ) {
+        "missing_runtime"
+    } else if module_load_gate_loader_runtime_reference_rejected(
+        candidate.service_slot_reservation_state,
+    ) {
+        "blocked_by_rejected_service_slot_reservation"
+    } else {
+        "blocked_by_service_slot_reservation"
+    };
+    let service_slot_allocator_status = if module_load_gate_loader_runtime_reference_available(
+        candidate.service_slot_reservation_state,
+    ) {
+        "missing"
+    } else {
+        "blocked"
+    };
+    let service_slot_allocator_reason = if module_load_gate_loader_runtime_reference_available(
+        candidate.service_slot_reservation_state,
+    ) {
+        "service_slot_allocator_runtime_missing"
+    } else if module_load_gate_loader_runtime_reference_rejected(
+        candidate.service_slot_reservation_state,
+    ) {
+        candidate.service_slot_reservation_reason
+    } else {
+        "retained_service_slot_reservation_missing"
+    };
+    let (loader_runtime_state, status, reason) = if retained_module_evidence_complete {
+        (
+            "blocked_by_service_slot_allocator_runtime",
+            "denied_missing_service_slot_allocator_runtime",
+            "service_slot_allocator_runtime_missing",
+        )
+    } else {
+        (
+            "blocked_by_retained_module_evidence",
+            "denied_missing_retained_module_evidence",
+            retained_module_evidence_reason,
+        )
+    };
+
+    ModuleLoadGateLoaderRuntimeEvaluation {
+        status,
+        reason,
+        retained_module_evidence_state,
+        retained_module_evidence_reason,
+        service_slot_allocator_state,
+        service_slot_allocator_status,
+        service_slot_allocator_reason,
+        loader_runtime_state,
+        can_load: false,
+        load_attempted: false,
+    }
+}
+
 fn module_audit_rollback_event_reference_matches(
     event_reference: event_log::ModuleAuditRollbackReference,
     candidate_reference: event_log::ModuleAuditRollbackReference,
@@ -1236,6 +1307,100 @@ fn module_service_slot_reservation_hash_mismatch(
     }
 
     None
+}
+
+fn module_load_gate_loader_runtime_retained_evidence_complete(
+    candidate: ModuleLoadGateLoaderRuntimeCandidate,
+) -> bool {
+    module_load_gate_loader_runtime_reference_available(candidate.manifest_reference_state)
+        && module_load_gate_loader_runtime_reference_available(candidate.artifact_reference_state)
+        && module_load_gate_loader_runtime_reference_available(candidate.vm_report_reference_state)
+        && module_load_gate_loader_runtime_reference_available(
+            candidate.local_attestation_reference_state,
+        )
+        && module_load_gate_loader_runtime_reference_available(
+            candidate.local_approval_reference_state,
+        )
+        && module_load_gate_loader_runtime_reference_available(
+            candidate.computed_grant_reference_state,
+        )
+        && module_load_gate_loader_runtime_reference_available(
+            candidate.audit_rollback_reference_state,
+        )
+        && module_load_gate_loader_runtime_reference_available(
+            candidate.service_slot_reservation_state,
+        )
+}
+
+fn module_load_gate_loader_runtime_retained_evidence_rejected(
+    candidate: ModuleLoadGateLoaderRuntimeCandidate,
+) -> bool {
+    module_load_gate_loader_runtime_reference_rejected(candidate.manifest_reference_state)
+        || module_load_gate_loader_runtime_reference_rejected(candidate.artifact_reference_state)
+        || module_load_gate_loader_runtime_reference_rejected(candidate.vm_report_reference_state)
+        || module_load_gate_loader_runtime_reference_rejected(
+            candidate.local_attestation_reference_state,
+        )
+        || module_load_gate_loader_runtime_reference_rejected(
+            candidate.local_approval_reference_state,
+        )
+        || module_load_gate_loader_runtime_reference_rejected(
+            candidate.computed_grant_reference_state,
+        )
+        || module_load_gate_loader_runtime_reference_rejected(
+            candidate.audit_rollback_reference_state,
+        )
+        || module_load_gate_loader_runtime_reference_rejected(
+            candidate.service_slot_reservation_state,
+        )
+}
+
+fn module_load_gate_loader_runtime_retained_evidence_reason(
+    candidate: ModuleLoadGateLoaderRuntimeCandidate,
+) -> &'static str {
+    if !module_load_gate_loader_runtime_reference_available(candidate.manifest_reference_state) {
+        return candidate.manifest_reference_reason;
+    }
+    if !module_load_gate_loader_runtime_reference_available(candidate.artifact_reference_state) {
+        return candidate.artifact_reference_reason;
+    }
+    if !module_load_gate_loader_runtime_reference_available(candidate.vm_report_reference_state) {
+        return candidate.vm_report_reference_reason;
+    }
+    if !module_load_gate_loader_runtime_reference_available(
+        candidate.local_attestation_reference_state,
+    ) {
+        return candidate.local_attestation_reference_reason;
+    }
+    if !module_load_gate_loader_runtime_reference_available(
+        candidate.local_approval_reference_state,
+    ) {
+        return candidate.local_approval_reference_reason;
+    }
+    if !module_load_gate_loader_runtime_reference_available(
+        candidate.computed_grant_reference_state,
+    ) {
+        return candidate.computed_grant_reference_reason;
+    }
+    if !module_load_gate_loader_runtime_reference_available(
+        candidate.audit_rollback_reference_state,
+    ) {
+        return candidate.audit_rollback_reference_reason;
+    }
+    if !module_load_gate_loader_runtime_reference_available(
+        candidate.service_slot_reservation_state,
+    ) {
+        return candidate.service_slot_reservation_reason;
+    }
+    "retained_module_evidence_available"
+}
+
+fn module_load_gate_loader_runtime_reference_available(state: &'static str) -> bool {
+    method_eq(state, "available")
+}
+
+fn module_load_gate_loader_runtime_reference_rejected(state: &'static str) -> bool {
+    method_eq(state, "rejected")
 }
 
 fn module_load_gate_service_slot_check(

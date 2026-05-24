@@ -255,6 +255,7 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "module.load_gate_retained_selftest",
     "module.load_gate_audit_rollback_selftest",
     "module.load_gate_service_slot_selftest",
+    "module.load_gate_loader_runtime_selftest",
     "recovery.identity_diagnostic",
     "recovery.identity_diagnostic_selftest",
     "recovery.trust_diagnostic",

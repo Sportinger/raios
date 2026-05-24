@@ -1218,6 +1218,58 @@ pub(crate) struct ModuleLoadGateServiceSlotSelfTestCase {
     pub(crate) passed: bool,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLoadGateLoaderRuntimeCandidate {
+    pub(crate) manifest_reference_state: &'static str,
+    pub(crate) manifest_reference_reason: &'static str,
+    pub(crate) artifact_reference_state: &'static str,
+    pub(crate) artifact_reference_reason: &'static str,
+    pub(crate) vm_report_reference_state: &'static str,
+    pub(crate) vm_report_reference_reason: &'static str,
+    pub(crate) local_attestation_reference_state: &'static str,
+    pub(crate) local_attestation_reference_reason: &'static str,
+    pub(crate) local_approval_reference_state: &'static str,
+    pub(crate) local_approval_reference_reason: &'static str,
+    pub(crate) computed_grant_reference_state: &'static str,
+    pub(crate) computed_grant_reference_reason: &'static str,
+    pub(crate) audit_rollback_reference_state: &'static str,
+    pub(crate) audit_rollback_reference_reason: &'static str,
+    pub(crate) service_slot_reservation_state: &'static str,
+    pub(crate) service_slot_reservation_reason: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLoadGateLoaderRuntimeEvaluation {
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
+    pub(crate) retained_module_evidence_state: &'static str,
+    pub(crate) retained_module_evidence_reason: &'static str,
+    pub(crate) service_slot_allocator_state: &'static str,
+    pub(crate) service_slot_allocator_status: &'static str,
+    pub(crate) service_slot_allocator_reason: &'static str,
+    pub(crate) loader_runtime_state: &'static str,
+    pub(crate) can_load: bool,
+    pub(crate) load_attempted: bool,
+}
+
+pub(crate) struct ModuleLoadGateLoaderRuntimeSelfTestCase {
+    pub(crate) name: &'static str,
+    pub(crate) expected_status: &'static str,
+    pub(crate) expected_reason: &'static str,
+    pub(crate) expected_retained_module_evidence_state: &'static str,
+    pub(crate) expected_service_slot_allocator_state: &'static str,
+    pub(crate) expected_loader_runtime_state: &'static str,
+    pub(crate) actual_status: &'static str,
+    pub(crate) actual_reason: &'static str,
+    pub(crate) actual_retained_module_evidence_state: &'static str,
+    pub(crate) actual_retained_module_evidence_reason: &'static str,
+    pub(crate) actual_service_slot_allocator_state: &'static str,
+    pub(crate) actual_service_slot_allocator_status: &'static str,
+    pub(crate) actual_service_slot_allocator_reason: &'static str,
+    pub(crate) actual_loader_runtime_state: &'static str,
+    pub(crate) passed: bool,
+}
+
 pub(crate) const MODULE_MANIFEST_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_ARTIFACT_SELFTEST_CASES: usize = 7;
 pub(crate) const MODULE_VM_REPORT_SELFTEST_CASES: usize = 8;
@@ -1244,6 +1296,7 @@ pub(crate) const MODULE_LOAD_GATE_LOCAL_APPROVAL_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_LOAD_GATE_RETAINED_SELFTEST_CASES: usize = 7;
 pub(crate) const MODULE_LOAD_GATE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 23;
 pub(crate) const MODULE_LOAD_GATE_SERVICE_SLOT_SELFTEST_CASES: usize = 13;
+pub(crate) const MODULE_LOAD_GATE_LOADER_RUNTIME_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_GRANT_TEST_MANIFEST_HASH: [u8; 32] = [0x11; 32];
 pub(crate) const MODULE_GRANT_TEST_ARTIFACT_HASH: [u8; 32] = [0x22; 32];
 pub(crate) const MODULE_GRANT_TEST_VM_REPORT_HASH: [u8; 32] = [0x33; 32];

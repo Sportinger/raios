@@ -197,6 +197,7 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         || method_eq(method, "module.load_gate_retained_selftest")
         || method_eq(method, "module.load_gate_audit_rollback_selftest")
         || method_eq(method, "module.load_gate_service_slot_selftest")
+        || method_eq(method, "module.load_gate_loader_runtime_selftest")
     {
         "cap.module.grant_diagnostic.read"
     } else {
