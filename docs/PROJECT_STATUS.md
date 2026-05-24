@@ -7,8 +7,10 @@ splitting stable boundaries early, separating runtime/diagnostic/harness/handoff
 surfaces, and making observed execution evidence more authoritative than copied
 command lists or prose summaries.
 
-Last verified locally: 2026-05-24 on Windows with QEMU 11 after suppressing
-framebuffer redraws for serial command-mode echo, caching Shadow VM serial-log
+Last verified locally: 2026-05-24 on Windows with QEMU 11 after adding
+read-only `module.service_slot_allocator` readiness diagnostics and selftests
+for the missing Phase-6 RAM-only service-slot allocator/runtime boundary,
+suppressing framebuffer redraws for serial command-mode echo, caching Shadow VM serial-log
 reads, moving Shadow VM harness support/reporting/serial helper functions into
 `vm-harness/shadow-vm-smoke-support.ps1`, splitting Shadow VM profile
 validation into focused `vm-harness/shadow-vm-smoke-profile-*.ps1` slices
@@ -383,7 +385,7 @@ local-only retained local-approval reference gate selftests.
 Direct OpenAI pin-mismatch plus SPKI pinned-trust smokes using a fake local API
 key remain previously verified from the prior handoff.
 
-Latest host-tool verification: 2026-05-23 on Windows with
+Latest host-tool verification: 2026-05-24 on Windows with
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
 covering OTA/registry tooling plus the non-authorizing
 `raios.computed_capability_grant.v0` diagnostic, host-side
@@ -409,8 +411,8 @@ diagnostic matrix.
 
 Latest guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-160613-24624.json` with 4500/4500
-predicates, 206 `executed_commands` entries, `duration_ms: 250938`, and no
+`release\vm-reports\shadow-20260524-184613-23604.json` with 4557/4557
+predicates, 209 `executed_commands` entries, `duration_ms: 181285`, and no
 static command inventory,
 covering absent/accepted/stale/mismatched/invalid module-manifest
 hash-reference diagnostics, RAM-only retention of valid manifest and
@@ -488,7 +490,10 @@ selftests over retained computed-grant/audit/rollback event ids, canonical
 reservation hashes, pre-load service-inventory hashes, and `ram_only:` slot ids,
 including live denied load-gate visibility of valid retained service-slot
 reservation evidence without allocation, local-only negative service-slot gate
-selftests, and the separate denied recovery artifact load boundary proving
+selftests, read-only `module.service_slot_allocator` readiness diagnostics over
+missing RAM-only allocator runtime, service registry binding, health-state,
+unload/cleanup, durable-audit, rollback-install, and loader gates, plus
+allocator-readiness selftests, and the separate denied recovery artifact load boundary proving
 `cap.recovery.load_artifact`, typed missing recovery identity/trust/VM-test/
 approval/loader/rollback facts, event-log binding, no normal module capability
 reuse, no recovery artifact load, and no service inventory change, plus
@@ -1352,6 +1357,22 @@ The verified foundation for that task is:
   service-slot cases without mutating the global event log, creating retained
   reservation records, allocating slots, loading artifacts, or changing service
   inventory.
+- `module.service_slot_allocator` now exposes
+  `raios.module_service_slot_allocator_readiness.v0` as a read-only
+  current-boot diagnostic over the missing RAM-only allocator/runtime side of
+  Phase 6. It consumes retained service-slot reservation evidence only as a
+  local-only hash reference, reports missing
+  `raios.ram_only_service_slot_allocator.v0`,
+  `raios.service_slot_registry_binding.v0`,
+  `raios.service_health_state_model.v0`, and
+  `raios.service_unload_cleanup_plan.v0` facts, and keeps
+  `allocates_service_slot`, `creates_service_inventory_records`,
+  `can_allocate`, `can_load_now`, and `load_attempted` false.
+- `module.service_slot_allocator_selftest` covers missing retained
+  reservation evidence, allocator scope/schema/provenance/binding failures,
+  missing registry binding, health-state model, unload cleanup, durable audit,
+  rollback install, loader availability, and the final all-inputs-ready case
+  while still denying allocation and load authority.
 - `module.audit_rollback_availability` now exposes
   `raios.module_audit_rollback_availability.v0` as a read-only current-boot
   diagnostic over typed `raios.durable_audit_ledger.v0` and

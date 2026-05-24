@@ -30,6 +30,7 @@ mod agent_protocol_module_load_gate_selftest_eval;
 mod agent_protocol_module_load_gate_selftest_reference_cases;
 mod agent_protocol_module_reference;
 mod agent_protocol_module_service_slot;
+mod agent_protocol_module_service_slot_allocator;
 mod agent_protocol_module_types;
 mod agent_protocol_module_write_boundary;
 mod agent_protocol_module_write_boundary_append_contract;

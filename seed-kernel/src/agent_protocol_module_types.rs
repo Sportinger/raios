@@ -358,6 +358,65 @@ pub(crate) struct ModuleServiceSlotSelfTestCase {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAllocatorFact {
+    pub(crate) present: bool,
+    pub(crate) schema_ok: bool,
+    pub(crate) scope: &'static str,
+    pub(crate) provenance_ok: bool,
+    pub(crate) classification: &'static str,
+    pub(crate) binds_retained_reservation: bool,
+    pub(crate) binds_allocator_runtime: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAllocatorCandidate {
+    pub(crate) retained_reservation_present: bool,
+    pub(crate) allocator_runtime: ModuleServiceSlotAllocatorFact,
+    pub(crate) registry_binding: ModuleServiceSlotAllocatorFact,
+    pub(crate) health_state: ModuleServiceSlotAllocatorFact,
+    pub(crate) unload_cleanup: ModuleServiceSlotAllocatorFact,
+    pub(crate) durable_audit_written: bool,
+    pub(crate) rollback_plan_installed: bool,
+    pub(crate) module_loader_available: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAllocatorEvaluation {
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
+    pub(crate) retained_reservation_status: &'static str,
+    pub(crate) retained_reservation_reason: &'static str,
+    pub(crate) allocator_runtime_status: &'static str,
+    pub(crate) allocator_runtime_reason: &'static str,
+    pub(crate) registry_binding_status: &'static str,
+    pub(crate) registry_binding_reason: &'static str,
+    pub(crate) health_state_status: &'static str,
+    pub(crate) health_state_reason: &'static str,
+    pub(crate) unload_cleanup_status: &'static str,
+    pub(crate) unload_cleanup_reason: &'static str,
+    pub(crate) durable_audit_status: &'static str,
+    pub(crate) durable_audit_reason: &'static str,
+    pub(crate) rollback_status: &'static str,
+    pub(crate) rollback_reason: &'static str,
+    pub(crate) module_loader_status: &'static str,
+    pub(crate) module_loader_reason: &'static str,
+    pub(crate) allocates_service_slot: bool,
+    pub(crate) creates_service_inventory_records: bool,
+    pub(crate) can_allocate: bool,
+    pub(crate) can_load: bool,
+    pub(crate) load_attempted: bool,
+}
+
+pub(crate) struct ModuleServiceSlotAllocatorSelfTestCase {
+    pub(crate) name: &'static str,
+    pub(crate) expected_status: &'static str,
+    pub(crate) expected_reason: &'static str,
+    pub(crate) actual_status: &'static str,
+    pub(crate) actual_reason: &'static str,
+    pub(crate) passed: bool,
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct ModuleAuditRollbackAvailabilityFact {
     pub(crate) present: bool,
     pub(crate) schema_ok: bool,
@@ -1071,6 +1130,7 @@ pub(crate) const MODULE_LOCAL_APPROVAL_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 14;
 pub(crate) const MODULE_AUDIT_ROLLBACK_AVAILABILITY_SELFTEST_CASES: usize = 8;
 pub(crate) const MODULE_AUDIT_ROLLBACK_WRITE_POLICY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_SELFTEST_CASES: usize = 15;

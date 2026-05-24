@@ -43,6 +43,10 @@ use crate::{
         emit_module_service_slot_diagnostic, emit_module_service_slot_diagnostic_selftest,
         module_service_slot_diagnostic_method, module_service_slot_diagnostic_selftest_method,
     },
+    agent_protocol_module_service_slot_allocator::{
+        emit_module_service_slot_allocator, emit_module_service_slot_allocator_selftest,
+        module_service_slot_allocator_method, module_service_slot_allocator_selftest_method,
+    },
     agent_protocol_module_write_boundary::{
         emit_module_audit_rollback_append_contract,
         emit_module_audit_rollback_append_contract_selftest,
@@ -433,6 +437,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("module.service_slot_diagnostic_selftest");
         emit_module_service_slot_diagnostic_selftest();
         return DispatchOutcome::Response("module.service_slot_diagnostic_selftest");
+    }
+    if module_service_slot_allocator_method(method) {
+        record_read("module.service_slot_allocator");
+        emit_module_service_slot_allocator();
+        return DispatchOutcome::Response("module.service_slot_allocator");
+    }
+    if module_service_slot_allocator_selftest_method(method) {
+        record_read("module.service_slot_allocator_selftest");
+        emit_module_service_slot_allocator_selftest();
+        return DispatchOutcome::Response("module.service_slot_allocator_selftest");
     }
     if module_audit_rollback_availability_method(method) {
         record_read("module.audit_rollback_availability");

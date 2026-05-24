@@ -2,7 +2,9 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-24 by Codex after moving recovery lifeline command
+Last updated: 2026-05-24 by Codex after adding read-only
+`module.service_slot_allocator` readiness diagnostics and selftests for the
+Phase-6 RAM-only service-slot allocator/runtime boundary, moving recovery lifeline command
 reference parsers/evaluators/event-log binding builders into
 `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`, moving
 Shadow VM harness support/reporting/serial helper functions into
@@ -133,9 +135,14 @@ largest profile slice is the recovery command-authority block rather than one
 monolithic smoke file. The module write-boundary file is now a facade over
 availability, write-policy, storage-layout, append-engine, append-contract,
 append-payload, append-intent, write-boundary, and shared emit-helper modules.
+The Phase-6 RAM-only service-slot allocator/runtime boundary now has a
+read-only `module.service_slot_allocator` readiness diagnostic and selftest in
+`seed-kernel/src/agent_protocol_module_service_slot_allocator.rs`; it consumes
+retained service-slot reservation evidence only as local-only input and still
+allocates no slots.
 Current evidence: full report
-`release/vm-reports/shadow-20260524-160613-24624.json` recorded 4500/4500
-predicates with 206 executed commands and `duration_ms: 250938`; quick report
+`release/vm-reports/shadow-20260524-184613-23604.json` recorded 4557/4557
+predicates with 209 executed commands and `duration_ms: 181285`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
@@ -372,17 +379,17 @@ Latest maintenance verification:
 - `git diff --check` passed.
 - `cargo fmt --all -- --check` passed.
 - `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
-  passed on 2026-05-23.
+  passed on 2026-05-24.
 - `cargo test --locked -p registry-core -p registry-tools` passed after adding
   the computed grant diagnostic, audit/rollback diagnostic, and their negative
   evidence tests.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`
   passed on 2026-05-23.
-- `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 180`
   passed and wrote
-  `release\vm-reports\shadow-20260524-160613-24624.json` with 4500/4500
-  predicates, 206 `executed_commands` entries derived from the actual serial
-  run, and `duration_ms: 250938`, including `module.manifest_diagnostic`,
+  `release\vm-reports\shadow-20260524-184613-23604.json` with 4557/4557
+  predicates, 209 `executed_commands` entries derived from the actual serial
+  run, and `duration_ms: 181285`, including `module.manifest_diagnostic`,
   `module.manifest_diagnostic_selftest`, `module.artifact_diagnostic`,
   `module.artifact_diagnostic_selftest`, `module.vm_report_diagnostic`,
   `module.vm_report_diagnostic_selftest`, `module.grant_diagnostic`,
@@ -394,6 +401,8 @@ Latest maintenance verification:
   `module.audit_rollback_diagnostic`,
   `module.audit_rollback_diagnostic_selftest`,
   `module.service_slot_diagnostic`, `module.service_slot_diagnostic_selftest`,
+  `module.service_slot_allocator`,
+  `module.service_slot_allocator_selftest`,
   `module.audit_rollback_availability`,
   `module.audit_rollback_availability_selftest`,
   `module.audit_rollback_write_policy`,
@@ -598,6 +607,15 @@ Current verified cursor:
   `raios.module_service_slot_reservation.v0` bindings, and keeps
   `allocates_service_slot`, `creates_service_inventory_records`,
   `can_load_now`, and `load_attempted` false.
+- `module.service_slot_allocator` now exposes
+  `raios.module_service_slot_allocator_readiness.v0` as a read-only
+  current-boot diagnostic over missing RAM-only allocator/runtime facts. It
+  consumes retained service-slot reservation evidence only as local-only
+  current-boot input, reports missing allocator runtime, registry binding,
+  service health-state, unload/cleanup, durable-audit, rollback-install, and
+  loader gates, and keeps `allocates_service_slot`,
+  `creates_service_inventory_records`, `can_allocate`, `can_load_now`, and
+  `load_attempted` false.
 - `module.audit_rollback_availability` now exposes
   `raios.module_audit_rollback_availability.v0` as a read-only current-boot
   diagnostic over typed `raios.durable_audit_ledger.v0` and
@@ -903,7 +921,8 @@ Current verified cursor:
 Current phase: Phase 6 has host-side computed grant plus audit/rollback
 evidence diagnostics, guest-side read-only manifest, candidate-artifact,
 VM-report, computed-grant, local-attestation, local-approval, audit/rollback,
-and service-slot reservation hash-reference diagnostics, current-boot retained
+service-slot reservation hash-reference diagnostics, and service-slot allocator
+readiness diagnostics, current-boot retained
 manifest, artifact, VM-report, computed-grant, local-attestation,
 local-approval, audit/rollback, and service-slot reservation bindings, and a
 fail-closed module load gate that validates retained manifest, artifact,
@@ -913,7 +932,7 @@ as non-authorizing evidence. Negative manifest, artifact, VM-report,
 retained-reference, local-attestation, local-approval, audit/rollback,
 service-slot reservation, availability, write-policy, storage-layout,
 append-engine, append-contract, append payload-hash, and append-intent selftests
-are covered, including the live
+are covered, including service-slot allocator readiness selftests and the live
 VM-report, local-attestation, local-approval, and service-slot reservation gate
 predicates. A separate recovery artifact load boundary now denies
 `recovery.load_artifact`/`module.load_recovery_artifact` on
@@ -1077,36 +1096,32 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Keep recovery protocol ownership split across focused modules and continue only
-behavior-neutral extraction slices whose boundaries are already stable.
+Add the next Phase-6 read-only normal-module runtime boundary:
+`module.loader_runtime` / `module.loader_runtime_selftest`.
 ```
 
-`seed-kernel/src/agent_protocol_recovery.rs` is now below the 10k-line threshold
-after moving command reference parsers/evaluators into
-`seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs` and command
-memory/durable/service/dispatch-behavior/executor/side-effect reference
-evaluators into
-`seed-kernel/src/agent_protocol_recovery_command_effect_reference_eval.rs`, with
-handler/status/rollback/target/effect command reference selftest fixtures in
-`seed-kernel/src/agent_protocol_recovery_command_reference_selftests.rs` and
-command envelope/dispatch/body evaluator selftest helpers in
-`seed-kernel/src/agent_protocol_recovery_command_eval.rs`. Continue future
-cleanup only around stable ownership boundaries, such as remaining protocol retained
-chain helpers or further splitting the focused command evaluator modules.
-Do not change public method names, schema ids, boundary ids, denial reasons,
-canonical hash lines, event-log binding, dispatch behavior, or shadow-smoke
-expectations. This is a behavior-neutral cleanup to make the next execution
-boundaries faster and less error-prone, not a protocol redesign.
+`module.service_slot_allocator` now makes the missing RAM-only service-slot
+allocator/runtime boundary explicit without allocating slots. The next durable
+Phase-6 slice should do the same for the normal module loader runtime: expose
+typed missing loader identity, artifact hash binding, entrypoint ABI,
+address-space/memory-map isolation, capability import table, service-slot
+binding, health/rollback hooks, and audit/rollback write-boundary inputs. It
+must consume retained module evidence and service-slot allocator readiness only
+as local-only current-boot inputs, keep `loads_artifact: false`,
+`allocates_service_slot: false`, `service_inventory_change: none`,
+`can_load_now: false`, and `load_attempted: false`, and include negative
+selftests for stale/schema/provenance/binding gaps.
 
 Next three tasks:
 
-1. Keep `agent_protocol_recovery.rs` below the 10k-line threshold while avoiding
-   cross-module ownership churn.
-2. Continue extracting smaller focused helpers only when the write set stays inside one
-   module boundary.
+1. Add `module.loader_runtime` and `module.loader_runtime_selftest` as
+   read-only denied Phase-6 readiness diagnostics for normal modules.
+2. Wire the new loader-runtime facts into `module.load_ephemeral` reporting so
+   the load gate can distinguish retained evidence, service-slot readiness, and
+   loader-runtime readiness.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
-   committing the next refactor slice.
+   committing the next Phase-6 slice.
 
 Current blockers and non-goals:
 

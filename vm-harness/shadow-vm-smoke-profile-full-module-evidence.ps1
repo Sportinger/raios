@@ -544,6 +544,22 @@
     Assert-LogContains -Name "protocol:module_service_slot_diag_absent_reason" -Needle '"validation_reason": "service_slot_reservation_reference_absent"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_diag_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "agent module.service_slot_allocator" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_allocator"
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_schema" -Needle '"schema": "raios.module_service_slot_allocator_readiness.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_records" -Needle '"creates_service_slot_reservation_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_absent_state" -Needle '"retained_service_slot_reservation": {' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_absent_reason" -Needle '"reason": "retained_service_slot_reservation_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_absent_status" -Needle '"readiness_status": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_fact_schema" -Needle '"schema": "raios.ram_only_service_slot_allocator.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_runtime_missing" -Needle '"reason": "service_slot_allocator_runtime_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_can_allocate_false" -Needle '"can_allocate": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
     $moduleServiceSlotCanonical = @(
         "canonicalization=raios.module_service_slot_reservation.canonical.v0",
         "schema=raios.module_service_slot_reservation.v0",
@@ -581,4 +597,22 @@
         @{ Suffix = "policy_no_reserved_slot"; Needle = '"service_slot_reserved": false' },
         @{ Suffix = "policy_can_load_false"; Needle = '"can_load_now": false' },
         @{ Suffix = "policy_inventory_none"; Needle = '"service_inventory_change": "none"' }
+    )
+
+    Send-AgentCommand -Command "agent module.service_slot_allocator" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_allocator"
+    Assert-LogContainsFields -NamePrefix "protocol:module_service_slot_allocator_after_reservation_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "reservation_present"; Needle = '"retained_service_slot_reservation_present": true' },
+        @{ Suffix = "reservation_state"; Needle = '"status": "retained_hash_reference_only_not_allocated"' },
+        @{ Suffix = "reservation_not_allocator"; Needle = '"reason": "service_slot_reservation_is_evidence_not_allocator_state"' },
+        @{ Suffix = "reservation_hash_echo"; Needle = "`"reservation_hash`": `"sha256:$moduleServiceSlotReservationHash`"" },
+        @{ Suffix = "slot_echo"; Needle = "`"ram_only_service_slot_id`": `"$moduleAuditRamOnlyServiceSlotId`"" },
+        @{ Suffix = "readiness_status"; Needle = '"readiness_status": "missing"' },
+        @{ Suffix = "readiness_reason"; Needle = '"readiness_reason": "service_slot_allocator_runtime_missing"' },
+        @{ Suffix = "runtime_available_false"; Needle = '"allocator_runtime_available": false' },
+        @{ Suffix = "registry_available_false"; Needle = '"registry_binding_available": false' },
+        @{ Suffix = "durable_false"; Needle = '"durable_audit_written": false' },
+        @{ Suffix = "rollback_false"; Needle = '"rollback_plan_installed": false' },
+        @{ Suffix = "can_allocate_false"; Needle = '"can_allocate": false' },
+        @{ Suffix = "can_load_false"; Needle = '"can_load_now": false' },
+        @{ Suffix = "inventory_none"; Needle = '"service_inventory_change": "none"' }
     )

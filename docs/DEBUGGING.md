@@ -437,6 +437,8 @@ agent module.audit_rollback_diagnostic_selftest
 agent module.service_slot_diagnostic
 agent module.service_slot_diagnostic <reservation_hash> <retained_reference_event_id> <retained_audit_rollback_reference_event_id> <computed_grant_hash> <audit_record_hash> <rollback_plan_hash> <pre_load_service_inventory_hash> <ram_only_service_slot_id> [current_boot]
 agent module.service_slot_diagnostic_selftest
+agent module.service_slot_allocator
+agent module.service_slot_allocator_selftest
 agent module.audit_rollback_availability
 agent module.audit_rollback_availability_selftest
 agent module.audit_rollback_write_policy
@@ -474,8 +476,10 @@ The expected guest schemas are
 `raios.module_local_attestation_reference_diagnostic_selftest.v0`,
 `raios.module_local_approval_reference_diagnostic.v0`,
 `raios.module_local_approval_reference_diagnostic_selftest.v0`,
-`raios.module_computed_grant_diagnostic.v0`, and
-`raios.module_computed_grant_diagnostic_selftest.v0`. The manifest-reference
+`raios.module_computed_grant_diagnostic.v0`,
+`raios.module_computed_grant_diagnostic_selftest.v0`,
+`raios.module_service_slot_allocator_readiness.v0`, and
+`raios.module_service_slot_allocator_readiness_selftest.v0`. The manifest-reference
 schemas must keep `accepts_manifest_json: false`,
 `accepts_unsigned_service_code: false`, and `accepts_artifact_bytes: false`; all
 of these diagnostics must keep `service_inventory_change: none` and
@@ -501,6 +505,17 @@ When valid, it records only a local-only current-boot
 retained_hash_reference_load_still_denied`; it still keeps
 `allocates_service_slot: false`, `creates_service_inventory_records: false`,
 `service_inventory_change: none`, and `load_attempted: false`.
+
+The service-slot allocator readiness diagnostic emits
+`raios.module_service_slot_allocator_readiness.v0` and the selftest emits
+`raios.module_service_slot_allocator_readiness_selftest.v0`. It consumes the
+latest retained service-slot reservation only as local-only current-boot
+evidence and reports typed missing `raios.ram_only_service_slot_allocator.v0`,
+`raios.service_slot_registry_binding.v0`,
+`raios.service_health_state_model.v0`, and
+`raios.service_unload_cleanup_plan.v0` facts. It must keep
+`allocates_service_slot: false`, `creates_service_inventory_records: false`,
+`can_allocate: false`, `can_load_now: false`, and `load_attempted: false`.
 
 The audit/rollback availability diagnostic emits
 `raios.module_audit_rollback_availability.v0` and the selftest emits
