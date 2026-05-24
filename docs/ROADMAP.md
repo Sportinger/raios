@@ -2,9 +2,13 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-24 by Codex after moving recovery lifeline protocol/
-vocabulary/runtime/rollback/persistence/memory/admission evaluators and
-selftest fixtures into
+Last updated: 2026-05-24 by Codex after moving recovery lifeline command
+reference parsers/evaluators/event-log binding builders into
+`seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`, moving
+command envelope/dispatch/body and downstream command evaluator selftest helpers
+into `seed-kernel/src/agent_protocol_recovery_command_eval.rs`, moving recovery
+lifeline protocol/vocabulary/runtime/rollback/persistence/memory/admission
+evaluators and selftest fixtures into
 `seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs`, moving recovery
 load-binding evaluation, retained-chain mismatch checks, and load-binding
 selftest fixtures into `seed-kernel/src/agent_protocol_recovery_load_binding.rs`,
@@ -86,6 +90,11 @@ and `seed-kernel/src/agent_protocol_recovery_command_effect_emit.rs`.
 Recovery lifeline protocol/vocabulary/runtime/rollback/persistence/memory/
 admission evaluators and selftest fixtures now live in
 `seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs`. Recovery
+lifeline command reference parsers, evaluators, and event-log binding builders
+now live in
+`seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`. Command
+envelope/dispatch/body and downstream command evaluator selftest helpers now
+live in `seed-kernel/src/agent_protocol_recovery_command_eval.rs`. Recovery
 load-binding evaluation and retained-chain mismatch checks now live in
 `seed-kernel/src/agent_protocol_recovery_load_binding.rs`, and load-binding
 emit helpers now live in `seed-kernel/src/agent_protocol_recovery_load_binding_emit.rs`. The
@@ -104,8 +113,8 @@ host. Current evidence: full report
 predicates with 206 executed commands; quick report
 `release/vm-reports/shadow-20260524-094611-25144.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 16874`; recovery report
-`release/vm-reports/shadow-20260524-100325-13192.json` recorded 2725/2725
-predicates with 142 executed commands and `duration_ms: 156221`.
+`release/vm-reports/shadow-20260524-101315-27892.json` recorded 2725/2725
+predicates with 142 executed commands and `duration_ms: 158371`.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
 diagnostics with
@@ -298,6 +307,7 @@ append-payload, writer, service-slot, and `module.load_ephemeral` authority.
 Latest maintenance verification:
 
 - `cargo fmt --all -- --check` passed after moving recovery lifeline
+  command reference/evaluator modules, moving recovery lifeline
   evaluators/selftest fixtures, moving recovery load-binding evaluation and
   selftest fixtures, suppressing serial command-mode echo redraws, caching
   Shadow VM serial-log reads, and extracting recovery lifeline command specs,
@@ -309,7 +319,8 @@ Latest maintenance verification:
   memory/durable/service/effect emit helpers plus recovery load-binding emit
   helpers.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`
-  passed after moving recovery lifeline evaluators/selftest fixtures, moving
+  passed after moving recovery lifeline command reference/evaluator modules,
+  moving recovery lifeline evaluators/selftest fixtures, moving
   recovery load-binding evaluation and selftest fixtures, suppressing serial
   command-mode echo redraws, and extracting recovery lifeline command specs and
   execution-stage helpers plus recovery
@@ -326,9 +337,9 @@ Latest maintenance verification:
   run, and `duration_ms: 16874`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`
   passed on 2026-05-24 and wrote
-  `release\vm-reports\shadow-20260524-100325-13192.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-101315-27892.json` with 2725/2725
   predicates, 142 `executed_commands` entries derived from the actual serial
-  run, and `duration_ms: 156221`.
+  run, and `duration_ms: 158371`.
 - `git diff --check` passed.
 - `cargo fmt --all -- --check` passed.
 - `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
@@ -1037,22 +1048,17 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Continue the behavior-neutral recovery lifeline command execution-stage
-refactor.
+Keep recovery protocol ownership split across focused modules and continue only
+behavior-neutral extraction slices whose boundaries are already stable.
 ```
 
-Start from the retained execution stage chain through
-`raios.recovery_lifeline_command_execution_completion_denial.v0`. The shared
-execution-stage descriptor/input ownership, method/argument matching helpers,
-stage descriptor constants, execution-stage boundary IDs, reference-check type,
-parser/evaluator, hash-validation, and live-chain validation helpers already
-live in `seed-kernel/src/agent_protocol_recovery_execution.rs`, alongside
-execution-stage response emission, retained-event recording, thin public
-wrapper methods, method-predicate wiring, and retained execution-stage
-chain-presence evaluation. Next, leave the broad recovery dispatch
-candidate/evaluator in `agent_protocol_recovery.rs` until its non-execution
-dependencies have a stable boundary, then continue with smaller focused
-extraction slices.
+`seed-kernel/src/agent_protocol_recovery.rs` is now below the 10k-line threshold
+after moving command reference parsers/evaluators into
+`seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs` and command
+envelope/dispatch/body plus downstream command evaluator selftest helpers into
+`seed-kernel/src/agent_protocol_recovery_command_eval.rs`. Continue future
+cleanup only around stable ownership boundaries, such as remaining protocol retained
+chain helpers or further splitting the focused command evaluator modules.
 Do not change public method names, schema ids, boundary ids, denial reasons,
 canonical hash lines, event-log binding, dispatch behavior, or shadow-smoke
 expectations. This is a behavior-neutral cleanup to make the next execution
@@ -1060,10 +1066,9 @@ boundaries faster and less error-prone, not a protocol redesign.
 
 Next three tasks:
 
-1. Keep the broad recovery dispatch candidate/evaluator in
-   `agent_protocol_recovery.rs` until its non-execution dependencies have a
-   stable boundary.
-2. Continue extracting smaller focused helpers whose write set stays inside one
+1. Keep `agent_protocol_recovery.rs` below the 10k-line threshold while avoiding
+   cross-module ownership churn.
+2. Continue extracting smaller focused helpers only when the write set stays inside one
    module boundary.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before

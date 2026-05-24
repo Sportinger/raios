@@ -14,7 +14,12 @@ and load-binding selftest fixtures into
 `seed-kernel/src/agent_protocol_recovery_load_binding.rs`, moving recovery
 lifeline protocol/vocabulary/runtime/rollback/persistence/memory/admission
 evaluators and selftest fixtures into
-`seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs`, and extracting the
+`seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs`, moving recovery
+lifeline command reference parsers, evaluators, and event-log binding builders
+into `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`,
+moving command envelope/dispatch/body and downstream command evaluator
+selftest helpers into
+`seed-kernel/src/agent_protocol_recovery_command_eval.rs`, and extracting the
 recovery lifeline command specs into
 `seed-kernel/src/agent_protocol_recovery_lifeline.rs`, updating Shadow VM
 reports to derive `commands`/`executed_commands` from actual serial command
@@ -383,7 +388,7 @@ methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 
 Latest focused recovery guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-080544-16272.json` with 2725/2725
+`release\vm-reports\shadow-20260524-101315-27892.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
@@ -814,6 +819,11 @@ behavior:
   `seed-kernel/src/agent_protocol_recovery_command_authorization_types.rs`,
   and memory/durable-write/service-inventory/command-effect gate types into
   `seed-kernel/src/agent_protocol_recovery_command_effect_types.rs`, plus
+  recovery lifeline command reference parsers, evaluators, and event-log
+  binding builders into
+  `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`, plus
+  command envelope/dispatch/body and downstream command evaluator selftest
+  helpers into `seed-kernel/src/agent_protocol_recovery_command_eval.rs`, plus
   recovery artifact-reference emit helpers into
   `seed-kernel/src/agent_protocol_recovery_artifact_reference_emit.rs`,
   recovery artifact/lifeline request selftest emit helpers into
@@ -850,10 +860,10 @@ behavior:
   and `seed-kernel/src/agent_protocol_recovery_command_effect_emit.rs`, plus
   recovery load-binding emit helpers into
   `seed-kernel/src/agent_protocol_recovery_load_binding_emit.rs`
-- next, leave the broad recovery dispatch candidate/evaluator in
-  `agent_protocol_recovery.rs` until its non-execution dependencies have a
-  stable boundary, then continue with smaller focused extraction slices over
-  parser/evaluator/type clusters whose ownership can stay inside one module
+- `seed-kernel/src/agent_protocol_recovery.rs` is now below the 10k-line
+  threshold; continue future extraction only over stable ownership boundaries
+  such as remaining protocol retained-chain helpers or further splitting the
+  focused command evaluator modules
 - preserve every public method name, schema id, boundary id, denial reason,
   canonical hash line, event-log binding, and shadow-smoke expectation exactly
   except for file/module ownership
@@ -1651,8 +1661,8 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260524-094611-25144.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 16874`, and
-  `release\vm-reports\shadow-20260524-100325-13192.json` with 2725/2725
-  recovery predicates, 142 executed commands, and `duration_ms: 156221`.
+  `release\vm-reports\shadow-20260524-101315-27892.json` with 2725/2725
+  recovery predicates, 142 executed commands, and `duration_ms: 158371`.
   Both reports derive `commands` from observed serial execution. The recovery
   profile still exercises the same predicate/command count, but serial command
   echo no longer forces framebuffer redraws while long hash-reference commands
