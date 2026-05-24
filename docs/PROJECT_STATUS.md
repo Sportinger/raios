@@ -11,7 +11,10 @@ Last verified locally: 2026-05-24 on Windows with QEMU 11 after suppressing
 framebuffer redraws for serial command-mode echo, caching Shadow VM serial-log
 reads, moving recovery load-binding evaluation, retained-chain mismatch checks,
 and load-binding selftest fixtures into
-`seed-kernel/src/agent_protocol_recovery_load_binding.rs`, and extracting the
+`seed-kernel/src/agent_protocol_recovery_load_binding.rs`, moving recovery
+lifeline protocol/vocabulary/runtime/rollback/persistence/memory/admission
+evaluators and selftest fixtures into
+`seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs`, and extracting the
 recovery lifeline command specs into
 `seed-kernel/src/agent_protocol_recovery_lifeline.rs`, updating Shadow VM
 reports to derive `commands`/`executed_commands` from actual serial command
@@ -1648,8 +1651,8 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260524-094611-25144.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 16874`, and
-  `release\vm-reports\shadow-20260524-095547-6840.json` with 2725/2725
-  recovery predicates, 142 executed commands, and `duration_ms: 157879`.
+  `release\vm-reports\shadow-20260524-100325-13192.json` with 2725/2725
+  recovery predicates, 142 executed commands, and `duration_ms: 156221`.
   Both reports derive `commands` from observed serial execution. The recovery
   profile still exercises the same predicate/command count, but serial command
   echo no longer forces framebuffer redraws while long hash-reference commands
