@@ -202,6 +202,137 @@ fn module_load_gate_service_slot_reason(binding: event_log::ModuleLoadGateBindin
     }
 }
 
+fn module_load_gate_retained_module_evidence_complete(
+    binding: event_log::ModuleLoadGateBinding,
+) -> bool {
+    module_load_gate_manifest_reference_valid(binding)
+        && module_load_gate_candidate_artifact_reference_valid(binding)
+        && module_load_gate_vm_test_report_reference_valid(binding)
+        && module_load_gate_local_attestation_reference_valid(binding)
+        && module_load_gate_local_approval_reference_valid(binding)
+        && binding.retained_reference.is_some()
+        && module_load_gate_audit_rollback_reference_valid(binding)
+        && module_load_gate_service_slot_reservation_valid(binding)
+}
+
+fn module_load_gate_retained_module_evidence_rejected(
+    binding: event_log::ModuleLoadGateBinding,
+) -> bool {
+    module_load_gate_manifest_reference_rejected(binding)
+        || module_load_gate_candidate_artifact_reference_rejected(binding)
+        || module_load_gate_vm_test_report_reference_rejected(binding)
+        || module_load_gate_local_attestation_reference_rejected(binding)
+        || module_load_gate_local_approval_reference_rejected(binding)
+        || module_load_gate_audit_rollback_reference_rejected(binding)
+        || module_load_gate_service_slot_reservation_rejected(binding)
+}
+
+fn module_load_gate_retained_module_evidence_state(
+    binding: event_log::ModuleLoadGateBinding,
+) -> &'static str {
+    if module_load_gate_retained_module_evidence_complete(binding) {
+        "available"
+    } else if module_load_gate_retained_module_evidence_rejected(binding) {
+        "rejected"
+    } else {
+        "missing"
+    }
+}
+
+fn module_load_gate_retained_module_evidence_reason(
+    binding: event_log::ModuleLoadGateBinding,
+) -> &'static str {
+    if !module_load_gate_manifest_reference_valid(binding) {
+        return module_load_gate_manifest_reason(binding);
+    }
+    if !module_load_gate_candidate_artifact_reference_valid(binding) {
+        return module_load_gate_candidate_artifact_reason(binding);
+    }
+    if !module_load_gate_vm_test_report_reference_valid(binding) {
+        return module_load_gate_vm_test_report_reason(binding);
+    }
+    if !module_load_gate_local_attestation_reference_valid(binding) {
+        return module_load_gate_local_attestation_reason(binding);
+    }
+    if !module_load_gate_local_approval_reference_valid(binding) {
+        return module_load_gate_local_approval_reason(binding);
+    }
+    if binding.retained_reference.is_none() {
+        return module_load_gate_computed_grant_reason(binding);
+    }
+    if !module_load_gate_audit_rollback_reference_valid(binding) {
+        return module_load_gate_rollback_reason(binding);
+    }
+    if !module_load_gate_service_slot_reservation_valid(binding) {
+        return module_load_gate_service_slot_reason(binding);
+    }
+    "retained_module_evidence_available"
+}
+
+fn module_load_gate_service_slot_allocator_state(
+    binding: event_log::ModuleLoadGateBinding,
+) -> &'static str {
+    if module_load_gate_service_slot_reservation_valid(binding) {
+        "missing_runtime"
+    } else if module_load_gate_service_slot_reservation_rejected(binding) {
+        "blocked_by_rejected_service_slot_reservation"
+    } else {
+        "blocked_by_service_slot_reservation"
+    }
+}
+
+fn module_load_gate_service_slot_allocator_status(
+    binding: event_log::ModuleLoadGateBinding,
+) -> &'static str {
+    if module_load_gate_service_slot_reservation_valid(binding) {
+        "missing"
+    } else {
+        "blocked"
+    }
+}
+
+fn module_load_gate_service_slot_allocator_reason(
+    binding: event_log::ModuleLoadGateBinding,
+) -> &'static str {
+    if module_load_gate_service_slot_reservation_valid(binding) {
+        "service_slot_allocator_runtime_missing"
+    } else if module_load_gate_service_slot_reservation_rejected(binding) {
+        binding.service_slot_reservation_reason
+    } else {
+        "retained_service_slot_reservation_missing"
+    }
+}
+
+fn module_load_gate_loader_runtime_state(
+    binding: event_log::ModuleLoadGateBinding,
+) -> &'static str {
+    if !module_load_gate_retained_module_evidence_complete(binding) {
+        "blocked_by_retained_module_evidence"
+    } else {
+        "blocked_by_service_slot_allocator_runtime"
+    }
+}
+
+fn module_load_gate_loader_runtime_status(
+    binding: event_log::ModuleLoadGateBinding,
+) -> &'static str {
+    if module_load_gate_retained_module_evidence_complete(binding) {
+        "denied_missing_service_slot_allocator_runtime"
+    } else {
+        "denied_missing_retained_module_evidence"
+    }
+}
+
+fn module_load_gate_loader_runtime_reason(
+    binding: event_log::ModuleLoadGateBinding,
+) -> &'static str {
+    if module_load_gate_retained_module_evidence_complete(binding) {
+        "service_slot_allocator_runtime_missing"
+    } else {
+        module_load_gate_retained_module_evidence_reason(binding)
+    }
+}
+
 fn module_load_gate_audit_rollback_reference_valid(
     binding: event_log::ModuleLoadGateBinding,
 ) -> bool {
@@ -974,6 +1105,159 @@ fn emit_module_load_gate_service_slot_reservation(binding: event_log::ModuleLoad
     raw("    }");
 }
 
+fn emit_module_load_gate_service_slot_allocator_readiness(
+    binding: event_log::ModuleLoadGateBinding,
+) {
+    raw_line("    \"service_slot_allocator_readiness\": {");
+    raw_line("      \"schema\": \"raios.module_service_slot_allocator_readiness.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"source_method\": \"module.service_slot_allocator\",");
+    raw("      \"state\": ");
+    json_str(module_load_gate_service_slot_allocator_state(binding));
+    raw_line(",");
+    raw("      \"readiness_status\": ");
+    json_str(module_load_gate_service_slot_allocator_status(binding));
+    raw_line(",");
+    raw("      \"readiness_reason\": ");
+    json_str(module_load_gate_service_slot_allocator_reason(binding));
+    raw_line(",");
+    raw("      \"retained_service_slot_reservation_status\": ");
+    json_str(module_load_gate_service_slot_state(binding));
+    raw_line(",");
+    raw("      \"retained_service_slot_reservation_reason\": ");
+    json_str(module_load_gate_service_slot_reason(binding));
+    raw_line(",");
+    raw_line("      \"service_slot_allocator_ready\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"can_load_now\": false,");
+    raw_line("      \"load_attempted\": false");
+    raw_line("    }");
+}
+
+fn emit_module_load_gate_loader_runtime_readiness(binding: event_log::ModuleLoadGateBinding) {
+    raw_line("    \"loader_runtime_readiness\": {");
+    raw_line("      \"schema\": \"raios.module_loader_runtime_readiness.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"state\": ");
+    json_str(module_load_gate_loader_runtime_state(binding));
+    raw_line(",");
+    raw("      \"readiness_status\": ");
+    json_str(module_load_gate_loader_runtime_status(binding));
+    raw_line(",");
+    raw("      \"readiness_reason\": ");
+    json_str(module_load_gate_loader_runtime_reason(binding));
+    raw_line(",");
+    raw("      \"retained_module_evidence_state\": ");
+    json_str(module_load_gate_retained_module_evidence_state(binding));
+    raw_line(",");
+    raw("      \"retained_module_evidence_reason\": ");
+    json_str(module_load_gate_retained_module_evidence_reason(binding));
+    raw_line(",");
+    raw_line("      \"service_slot_allocator_ready\": false,");
+    raw_line("      \"accepts_loader_descriptor\": false,");
+    raw_line("      \"accepts_artifact_bytes\": false,");
+    raw_line("      \"loads_artifact\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"can_load_now\": false,");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"loader_runtime_facts\": {");
+    emit_module_load_gate_loader_runtime_fact(
+        "loader_identity",
+        "raios.module_loader_identity.v0",
+        "module_loader_identity_missing",
+        true,
+    );
+    emit_module_load_gate_loader_runtime_fact(
+        "artifact_hash_binding",
+        "raios.module_loader_artifact_hash_binding.v0",
+        "module_loader_artifact_hash_binding_missing",
+        true,
+    );
+    emit_module_load_gate_loader_runtime_fact(
+        "entrypoint_abi",
+        "raios.module_loader_entrypoint_abi.v0",
+        "module_loader_entrypoint_abi_missing",
+        true,
+    );
+    emit_module_load_gate_loader_runtime_fact(
+        "address_space_boundary",
+        "raios.module_loader_address_space_boundary.v0",
+        "module_loader_address_space_boundary_missing",
+        true,
+    );
+    emit_module_load_gate_loader_runtime_fact(
+        "memory_map_constraints",
+        "raios.module_loader_memory_map_constraints.v0",
+        "module_loader_memory_map_constraints_missing",
+        true,
+    );
+    emit_module_load_gate_loader_runtime_fact(
+        "capability_import_table",
+        "raios.module_loader_capability_import_table.v0",
+        "module_loader_capability_import_table_missing",
+        true,
+    );
+    emit_module_load_gate_loader_runtime_fact(
+        "service_slot_binding",
+        "raios.module_loader_service_slot_binding.v0",
+        "module_loader_service_slot_binding_missing",
+        true,
+    );
+    emit_module_load_gate_loader_runtime_fact(
+        "health_state_hooks",
+        "raios.module_loader_health_state_hooks.v0",
+        "module_loader_health_state_hooks_missing",
+        true,
+    );
+    emit_module_load_gate_loader_runtime_fact(
+        "rollback_hooks",
+        "raios.module_loader_rollback_hooks.v0",
+        "module_loader_rollback_hooks_missing",
+        true,
+    );
+    emit_module_load_gate_loader_runtime_fact(
+        "audit_rollback_write_boundary_binding",
+        "raios.module_loader_audit_rollback_write_boundary_binding.v0",
+        "module_loader_audit_rollback_write_boundary_binding_missing",
+        false,
+    );
+    raw_line("      }");
+    raw_line("    }");
+}
+
+fn emit_module_load_gate_loader_runtime_fact(
+    name: &'static str,
+    schema: &'static str,
+    reason: &'static str,
+    comma: bool,
+) {
+    raw("        ");
+    json_str(name);
+    raw_line(": {");
+    raw("          \"schema\": ");
+    json_str(schema);
+    raw_line(",");
+    raw_line("          \"scope\": \"current_boot\",");
+    raw_line("          \"classification\": \"local_only\",");
+    raw_line("          \"status\": \"missing\",");
+    raw("          \"reason\": ");
+    json_str(reason);
+    raw_line(",");
+    raw_line("          \"present\": false,");
+    raw_line("          \"authorizes_load\": false");
+    raw("        }");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
 fn emit_module_load_gate_evidence_hashes(binding: event_log::ModuleLoadGateBinding) {
     if let Some(reference) = binding.retained_reference {
         raw("      \"computed_capability_grant_hash\": ");
@@ -1340,10 +1624,16 @@ pub(crate) fn emit_module_load_ephemeral_denied(
     raw("      \"durable_audit_record\": ");
     json_str(module_load_gate_durable_audit_state(gate_binding));
     raw_line(",");
-    raw_line("      \"loader\": \"unavailable\",");
     raw("      \"service_slot\": ");
     json_str(module_load_gate_service_slot_state(gate_binding));
     raw_line(",");
+    raw("      \"service_slot_allocator\": ");
+    json_str(module_load_gate_service_slot_allocator_state(gate_binding));
+    raw_line(",");
+    raw("      \"loader_runtime\": ");
+    json_str(module_load_gate_loader_runtime_state(gate_binding));
+    raw_line(",");
+    raw_line("      \"loader\": \"unavailable\",");
     raw_line("      \"artifact_loaded\": false,");
     raw_line("      \"service_started\": false,");
     raw_line("      \"persistence\": \"none\",");
@@ -1364,6 +1654,10 @@ pub(crate) fn emit_module_load_ephemeral_denied(
     emit_module_load_gate_audit_rollback_reference(gate_binding);
     raw_line(",");
     emit_module_load_gate_service_slot_reservation(gate_binding);
+    raw_line(",");
+    emit_module_load_gate_service_slot_allocator_readiness(gate_binding);
+    raw_line(",");
+    emit_module_load_gate_loader_runtime_readiness(gate_binding);
     raw_line(",");
     emit_module_load_gate_audit_rollback_requirements(gate_binding);
     raw_line(",");
@@ -1413,6 +1707,16 @@ pub(crate) fn emit_module_load_ephemeral_denied(
     raw(", \"reason\": ");
     json_str(module_load_gate_service_slot_reason(gate_binding));
     raw_line("},");
+    raw("      {\"gate\": \"service_slot_allocator\", \"state\": ");
+    json_str(module_load_gate_service_slot_allocator_state(gate_binding));
+    raw(", \"reason\": ");
+    json_str(module_load_gate_service_slot_allocator_reason(gate_binding));
+    raw_line("},");
+    raw("      {\"gate\": \"loader_runtime\", \"state\": ");
+    json_str(module_load_gate_loader_runtime_state(gate_binding));
+    raw(", \"reason\": ");
+    json_str(module_load_gate_loader_runtime_reason(gate_binding));
+    raw_line("},");
     raw_line(
         "      {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}",
     );
@@ -1426,7 +1730,9 @@ pub(crate) fn emit_module_load_ephemeral_denied(
     raw_line("      \"local_approval\",");
     raw_line("      \"raios.audit_record.v0\",");
     raw_line("      \"rollback_plan\",");
-    raw_line("      \"ram_only_service_slot\"");
+    raw_line("      \"ram_only_service_slot\",");
+    raw_line("      \"raios.module_service_slot_allocator_readiness.v0\",");
+    raw_line("      \"raios.module_loader_runtime_readiness.v0\"");
     raw_line("    ],");
     raw_line("    \"evidence\": {");
     raw("      \"denial_event_id\": ");
@@ -1459,8 +1765,13 @@ pub(crate) fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoad
     json_str(module_load_gate_rollback_state(binding));
     raw(", \"durable_audit_record\": ");
     json_str(module_load_gate_durable_audit_state(binding));
-    raw(", \"loader\": \"unavailable\", \"service_slot\": ");
+    raw(", \"service_slot\": ");
     json_str(module_load_gate_service_slot_state(binding));
+    raw(", \"service_slot_allocator\": ");
+    json_str(module_load_gate_service_slot_allocator_state(binding));
+    raw(", \"loader_runtime\": ");
+    json_str(module_load_gate_loader_runtime_state(binding));
+    raw(", \"loader\": \"unavailable\"");
     raw(", \"artifact_loaded\": false, \"service_started\": false, \"persistence\": \"none\", \"can_load\": false}, \"retained_module_manifest_reference\": ");
     emit_module_load_gate_manifest_reference_compact(binding);
     raw(", \"retained_candidate_artifact_reference\": ");
@@ -1477,6 +1788,10 @@ pub(crate) fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoad
     emit_module_load_gate_audit_rollback_reference_compact(binding);
     raw(", \"retained_service_slot_reservation\": ");
     emit_module_load_gate_service_slot_reservation_compact(binding);
+    raw(", \"service_slot_allocator_readiness\": ");
+    emit_module_load_gate_service_slot_allocator_readiness_compact(binding);
+    raw(", \"loader_runtime_readiness\": ");
+    emit_module_load_gate_loader_runtime_readiness_compact(binding);
     raw(", \"audit_rollback_requirements\": ");
     emit_module_load_gate_audit_rollback_requirements_compact(binding);
     raw(", \"blocked_by\": [{\"gate\": \"module_manifest\", \"state\": ");
@@ -1515,7 +1830,15 @@ pub(crate) fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoad
     json_str(module_load_gate_service_slot_state(binding));
     raw(", \"reason\": ");
     json_str(module_load_gate_service_slot_reason(binding));
-    raw("}, {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}], \"required\": [\"raios.module_manifest.v0\", \"candidate_artifact_sha256\", \"raios.vm_test_report.v0\", \"raios.local_attestation.v0\", \"raios.computed_capability_grant.v0\", \"local_approval\", \"raios.audit_record.v0\", \"rollback_plan\", \"ram_only_service_slot\"], \"evidence\": {\"event_scope\": \"current_boot\", ");
+    raw("}, {\"gate\": \"service_slot_allocator\", \"state\": ");
+    json_str(module_load_gate_service_slot_allocator_state(binding));
+    raw(", \"reason\": ");
+    json_str(module_load_gate_service_slot_allocator_reason(binding));
+    raw("}, {\"gate\": \"loader_runtime\", \"state\": ");
+    json_str(module_load_gate_loader_runtime_state(binding));
+    raw(", \"reason\": ");
+    json_str(module_load_gate_loader_runtime_reason(binding));
+    raw("}, {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}], \"required\": [\"raios.module_manifest.v0\", \"candidate_artifact_sha256\", \"raios.vm_test_report.v0\", \"raios.local_attestation.v0\", \"raios.computed_capability_grant.v0\", \"local_approval\", \"raios.audit_record.v0\", \"rollback_plan\", \"ram_only_service_slot\", \"raios.module_service_slot_allocator_readiness.v0\", \"raios.module_loader_runtime_readiness.v0\"], \"evidence\": {\"event_scope\": \"current_boot\", ");
     emit_module_load_gate_evidence_hashes_compact(binding);
     raw(", \"service_inventory_change\": \"none\", \"load_attempted\": false}}");
 }
@@ -1865,6 +2188,36 @@ fn emit_module_load_gate_service_slot_reservation_compact(
         json_str(binding.service_slot_reservation_reason);
         raw(", \"can_load_now\": false, \"load_attempted\": false}");
     }
+}
+
+fn emit_module_load_gate_service_slot_allocator_readiness_compact(
+    binding: event_log::ModuleLoadGateBinding,
+) {
+    raw("{\"schema\": \"raios.module_service_slot_allocator_readiness.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"source_method\": \"module.service_slot_allocator\", \"state\": ");
+    json_str(module_load_gate_service_slot_allocator_state(binding));
+    raw(", \"readiness_status\": ");
+    json_str(module_load_gate_service_slot_allocator_status(binding));
+    raw(", \"readiness_reason\": ");
+    json_str(module_load_gate_service_slot_allocator_reason(binding));
+    raw(", \"retained_service_slot_reservation_status\": ");
+    json_str(module_load_gate_service_slot_state(binding));
+    raw(", \"service_slot_allocator_ready\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false}");
+}
+
+fn emit_module_load_gate_loader_runtime_readiness_compact(
+    binding: event_log::ModuleLoadGateBinding,
+) {
+    raw("{\"schema\": \"raios.module_loader_runtime_readiness.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"state\": ");
+    json_str(module_load_gate_loader_runtime_state(binding));
+    raw(", \"readiness_status\": ");
+    json_str(module_load_gate_loader_runtime_status(binding));
+    raw(", \"readiness_reason\": ");
+    json_str(module_load_gate_loader_runtime_reason(binding));
+    raw(", \"retained_module_evidence_state\": ");
+    json_str(module_load_gate_retained_module_evidence_state(binding));
+    raw(", \"retained_module_evidence_reason\": ");
+    json_str(module_load_gate_retained_module_evidence_reason(binding));
+    raw(", \"service_slot_allocator_ready\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"missing_facts\": [\"raios.module_loader_identity.v0\", \"raios.module_loader_artifact_hash_binding.v0\", \"raios.module_loader_entrypoint_abi.v0\", \"raios.module_loader_address_space_boundary.v0\", \"raios.module_loader_memory_map_constraints.v0\", \"raios.module_loader_capability_import_table.v0\", \"raios.module_loader_service_slot_binding.v0\", \"raios.module_loader_health_state_hooks.v0\", \"raios.module_loader_rollback_hooks.v0\", \"raios.module_loader_audit_rollback_write_boundary_binding.v0\"]}");
 }
 
 fn emit_module_load_gate_evidence_hashes_compact(binding: event_log::ModuleLoadGateBinding) {

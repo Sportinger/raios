@@ -891,7 +891,20 @@ retained, the denial should report
 `service_slot: retained_hash_reference_only_not_allocated`,
 `retained_service_slot_reservation_not_allocated`, and
 `service_slot_reservation_hash`, while still keeping
-`allocates_service_slot: false`.
+`allocates_service_slot: false`. With the full retained evidence chain present,
+the same denial should now also report
+`service_slot_allocator_readiness.schema:
+raios.module_service_slot_allocator_readiness.v0`,
+`service_slot_allocator: missing_runtime`,
+`service_slot_allocator_ready: false`,
+`loader_runtime_readiness.schema:
+raios.module_loader_runtime_readiness.v0`,
+`loader_runtime: blocked_by_service_slot_allocator_runtime`,
+`readiness_status: denied_missing_service_slot_allocator_runtime`, and
+typed missing loader-runtime facts such as
+`raios.module_loader_identity.v0`, while still keeping
+`loads_artifact: false`, `creates_service_inventory_records: false`,
+`service_inventory_change: none`, and `load_attempted: false`.
 
 The live denied load gate revalidates a retained audit/rollback reference
 before reporting those retained states. If the retained record points at a

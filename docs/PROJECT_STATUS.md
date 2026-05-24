@@ -18,6 +18,8 @@ boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
 Last verified locally: 2026-05-24 on Windows with QEMU 11 after adding
+denied `module.load_ephemeral` reporting for retained-evidence,
+service-slot allocator readiness, and loader-runtime readiness boundaries,
 read-only `module.loader_runtime` readiness diagnostics and selftests for the
 missing Phase-6 normal-module loader-runtime boundary, read-only
 `module.service_slot_allocator` readiness diagnostics and selftests for the
@@ -1554,6 +1556,19 @@ The verified foundation for that task is:
   `allocates_service_slot: false`, `can_load: false`,
   `service_inventory_change: none`, and
   `load_attempted: false`.
+- `module.load_ephemeral` and `service.load_ephemeral` now also distinguish the
+  next Phase-6 boundaries inside the denied gate: retained module evidence
+  completeness, read-only `raios.module_service_slot_allocator_readiness.v0`,
+  and read-only `raios.module_loader_runtime_readiness.v0`. With valid retained
+  service-slot evidence, the gate reports
+  `service_slot_allocator: missing_runtime`,
+  `service_slot_allocator_ready: false`,
+  `loader_runtime: blocked_by_service_slot_allocator_runtime`,
+  `readiness_status: denied_missing_service_slot_allocator_runtime`, and typed
+  missing loader-runtime facts such as `raios.module_loader_identity.v0`, while
+  keeping `loads_artifact`, `allocates_service_slot`,
+  `creates_service_inventory_records`, `can_load_now`, and `load_attempted`
+  false.
 - `module.load_gate_service_slot_selftest` now exposes local-only
   `raios.module_load_gate_service_slot_selftest.v0` test infrastructure for
   missing, accepted-current-boot, stale/dropped, wrong-schema, substituted,

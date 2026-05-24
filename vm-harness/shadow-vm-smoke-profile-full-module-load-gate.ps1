@@ -78,6 +78,22 @@
     Assert-LogContains -Name "policy:module_retained_service_slot_hash" -Needle "`"reservation_hash`": `"sha256:$moduleServiceSlotReservationHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_retained_service_slot_no_allocation" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_retained_service_slot_no_inventory" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_slot_allocator_state" -Needle '"service_slot_allocator": "missing_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_slot_allocator_readiness_schema" -Needle '"schema": "raios.module_service_slot_allocator_readiness.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_slot_allocator_readiness_source" -Needle '"source_method": "module.service_slot_allocator"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_slot_allocator_readiness_status" -Needle '"readiness_status": "missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_slot_allocator_readiness_reason" -Needle '"readiness_reason": "service_slot_allocator_runtime_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_slot_allocator_ready_false" -Needle '"service_slot_allocator_ready": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_state" -Needle '"loader_runtime": "blocked_by_service_slot_allocator_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_schema" -Needle '"schema": "raios.module_loader_runtime_readiness.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_status" -Needle '"readiness_status": "denied_missing_service_slot_allocator_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_reason" -Needle '"readiness_reason": "service_slot_allocator_runtime_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_retained_evidence" -Needle '"retained_module_evidence_state": "available"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_fact_schema" -Needle '"schema": "raios.module_loader_identity.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_fact_missing" -Needle '"reason": "module_loader_identity_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_artifact_not_loaded" -Needle '"artifact_loaded": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_service_not_started" -Needle '"service_started": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
@@ -100,6 +116,8 @@
     Assert-LogContains -Name "policy:module_audit_record_required" -Needle "raios.audit_record.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_rollback_required" -Needle "rollback_plan" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_service_slot_required" -Needle "ram_only_service_slot" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_service_slot_allocator_required" -Needle "raios.module_service_slot_allocator_readiness.v0" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_required" -Needle "raios.module_loader_runtime_readiness.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_rollback_requirements_schema" -Needle '"schema": "raios.module_load_gate_audit_rollback_requirements.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_rollback_requirements_status" -Needle '"status": "required_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_rollback_requirements_no_writes" -Needle '"writes_enabled": false' -TimeoutSeconds 1
