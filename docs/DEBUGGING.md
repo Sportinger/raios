@@ -572,7 +572,11 @@ entrypoint ABI, address-space and memory-map isolation, capability import table,
 service-slot binding, health/rollback hooks, and audit/rollback write-boundary
 binding facts, and keeps `loads_artifact: false`,
 `allocates_service_slot: false`, `service_inventory_change: none`,
-`can_load_now: false`, and `load_attempted: false`.
+`can_load_now: false`, and `load_attempted: false`. Each aggregate
+loader-runtime fact now carries the addressable source diagnostic method and
+source fact locator, and `module.loader_runtime_selftest` exposes a
+`source_fact_map` so the aggregate required-fact list can be checked against
+the typed source methods.
 
 The module loader identity diagnostic emits `raios.module_loader_identity.v0`
 and the selftest emits `raios.module_loader_identity_selftest.v0`. It makes the

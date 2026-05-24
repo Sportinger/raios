@@ -17,7 +17,11 @@ look for ownership boundaries; around 3k-5k LOC, actively split if a stable
 boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
-Last verified locally: 2026-05-24 on Windows with QEMU 11 after adding
+Last verified locally: 2026-05-24 on Windows with QEMU 11 after wiring
+`module.loader_runtime` aggregate source-method and source-fact-locator
+citations for all ten typed normal-module loader-runtime facts, adding
+`module.loader_runtime_selftest` source-map coverage and Shadow VM source-map
+predicates,
 read-only diagnostics and selftests for the remaining eight typed
 normal-module loader-runtime fact boundaries,
 read-only `module.loader_artifact_hash_binding` diagnostics and selftests for
@@ -813,8 +817,20 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Continue splitting the recovery lifeline command machinery without changing
-behavior:
+Propagate the same source-method/source-fact-locator map into the denied
+`module.load_ephemeral` loader-runtime readiness projection and its compact
+audit/event binding.
+
+The current Phase-6 loader-runtime aggregate now cites each addressable typed
+loader-fact diagnostic from `module.loader_runtime` and
+`module.loader_runtime_selftest`. The next durable slice should keep load
+authority denied while making the denied load gate's embedded
+`loader_runtime_readiness` object expose the same fact source methods and
+locators. Update the full Shadow VM load-gate profile so the denied
+`module.load_ephemeral` projection cannot drift from the aggregate source map.
+
+Historical recovery refactor notes retained below are no longer the active
+roadmap cursor:
 
 - the latest behavior-neutral slice moved the six recovery lifeline command
   specs and dispatch boundary constant into
@@ -936,7 +952,7 @@ behavior:
   boundary is visible, split it before files or docs become large, and make
   reports derive from observed execution rather than duplicated static lists
 
-The verified foundation for that task is:
+Historical verified recovery foundation retained for reference:
 
 - `recovery.lifeline_command_execution_completion_denial_diagnostic` and
   `recovery.lifeline_command_execution_completion_denial_diagnostic_selftest`
@@ -1405,13 +1421,17 @@ The verified foundation for that task is:
   hooks, and audit/rollback write-boundary binding facts, and keeps
   `loads_artifact`, `allocates_service_slot`,
   `creates_service_inventory_records`, `can_load_now`, and `load_attempted`
-  false.
+  false. Each aggregate fact and loader-fact `blocked_by` entry cites the
+  source diagnostic method and source fact locator for the corresponding typed
+  method.
 - `module.loader_runtime_selftest` covers missing retained evidence,
   service-slot allocator readiness/runtime gaps, stale/scope/schema/provenance
   and retained-evidence/service-slot/audit-boundary binding failures, each
   missing loader-runtime fact, and the final all-inputs-ready
   `defined_non_executable` case without loading artifacts or mutating service
-  inventory.
+  inventory. It also exposes `source_fact_count: 10`,
+  `source_fact_map_complete: true`, and a local source map for the aggregate
+  facts.
 - `module.loader_identity` now exposes `raios.module_loader_identity.v0` as a
   read-only current-boot diagnostic for the first typed normal-module
   loader-runtime fact. It reports the live fact as missing/local-only and
@@ -1795,6 +1815,9 @@ The verified foundation for that task is:
   dispatch-denial boundary id, canonical command-body metadata hash/reference,
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
+  Latest full report:
+  `release\vm-reports\shadow-20260524-215620-23136.json` with 5071/5071
+  predicates, 232 executed commands, and `duration_ms: 277411`.
   Latest focused reports:
   `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 17108`, and

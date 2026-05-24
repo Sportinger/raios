@@ -8,6 +8,92 @@ pub(crate) fn module_loader_runtime_selftest_method(method: &str) -> bool {
     method_head_eq(method, "module.loader_runtime_selftest")
 }
 
+#[derive(Clone, Copy)]
+struct ModuleLoaderRuntimeFactSource {
+    name: &'static str,
+    schema: &'static str,
+    id: &'static str,
+    source_method: &'static str,
+    source_fact_locator: &'static str,
+}
+
+const MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT: usize = 10;
+
+const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSource;
+    MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT] = [
+    ModuleLoaderRuntimeFactSource {
+        name: "loader_identity",
+        schema: "raios.module_loader_identity.v0",
+        id: "module.loader_runtime.identity.current_boot",
+        source_method: "module.loader_identity",
+        source_fact_locator: "module.loader_identity.loader_identity",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "artifact_hash_binding",
+        schema: "raios.module_loader_artifact_hash_binding.v0",
+        id: "module.loader_runtime.artifact_hash_binding.current_boot",
+        source_method: "module.loader_artifact_hash_binding",
+        source_fact_locator: "module.loader_artifact_hash_binding.artifact_hash_binding",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "entrypoint_abi",
+        schema: "raios.module_loader_entrypoint_abi.v0",
+        id: "module.loader_runtime.entrypoint_abi.current_boot",
+        source_method: "module.loader_entrypoint_abi",
+        source_fact_locator: "module.loader_entrypoint_abi.entrypoint_abi",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "address_space_boundary",
+        schema: "raios.module_loader_address_space_boundary.v0",
+        id: "module.loader_runtime.address_space_boundary.current_boot",
+        source_method: "module.loader_address_space_boundary",
+        source_fact_locator: "module.loader_address_space_boundary.address_space_boundary",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "memory_map_constraints",
+        schema: "raios.module_loader_memory_map_constraints.v0",
+        id: "module.loader_runtime.memory_map_constraints.current_boot",
+        source_method: "module.loader_memory_map_constraints",
+        source_fact_locator: "module.loader_memory_map_constraints.memory_map_constraints",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "capability_import_table",
+        schema: "raios.module_loader_capability_import_table.v0",
+        id: "module.loader_runtime.capability_import_table.current_boot",
+        source_method: "module.loader_capability_import_table",
+        source_fact_locator: "module.loader_capability_import_table.capability_import_table",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "service_slot_binding",
+        schema: "raios.module_loader_service_slot_binding.v0",
+        id: "module.loader_runtime.service_slot_binding.current_boot",
+        source_method: "module.loader_service_slot_binding",
+        source_fact_locator: "module.loader_service_slot_binding.service_slot_binding",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "health_state_hooks",
+        schema: "raios.module_loader_health_state_hooks.v0",
+        id: "module.loader_runtime.health_state_hooks.current_boot",
+        source_method: "module.loader_health_state_hooks",
+        source_fact_locator: "module.loader_health_state_hooks.health_state_hooks",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "rollback_hooks",
+        schema: "raios.module_loader_rollback_hooks.v0",
+        id: "module.loader_runtime.rollback_hooks.current_boot",
+        source_method: "module.loader_rollback_hooks",
+        source_fact_locator: "module.loader_rollback_hooks.rollback_hooks",
+    },
+    ModuleLoaderRuntimeFactSource {
+        name: "audit_rollback_write_boundary_binding",
+        schema: "raios.module_loader_audit_rollback_write_boundary_binding.v0",
+        id: "module.loader_runtime.audit_rollback_write_boundary_binding.current_boot",
+        source_method: "module.loader_audit_rollback_write_boundary_binding",
+        source_fact_locator:
+            "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding",
+    },
+];
+
 pub(crate) fn emit_module_loader_runtime() {
     let manifest = event_log::latest_module_manifest_reference();
     let artifact = event_log::latest_module_candidate_artifact_reference();
@@ -149,63 +235,63 @@ pub(crate) fn emit_module_loader_runtime() {
         evaluation.service_slot_allocator_runtime_status,
         evaluation.service_slot_allocator_runtime_reason,
     );
-    emit_module_loader_runtime_gate(
+    emit_module_loader_runtime_fact_gate(
         &mut wrote,
-        "loader_identity",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[0],
         evaluation.loader_identity_status,
         evaluation.loader_identity_reason,
     );
-    emit_module_loader_runtime_gate(
+    emit_module_loader_runtime_fact_gate(
         &mut wrote,
-        "artifact_hash_binding",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[1],
         evaluation.artifact_hash_binding_status,
         evaluation.artifact_hash_binding_reason,
     );
-    emit_module_loader_runtime_gate(
+    emit_module_loader_runtime_fact_gate(
         &mut wrote,
-        "entrypoint_abi",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
         evaluation.entrypoint_abi_status,
         evaluation.entrypoint_abi_reason,
     );
-    emit_module_loader_runtime_gate(
+    emit_module_loader_runtime_fact_gate(
         &mut wrote,
-        "address_space_boundary",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
         evaluation.address_space_boundary_status,
         evaluation.address_space_boundary_reason,
     );
-    emit_module_loader_runtime_gate(
+    emit_module_loader_runtime_fact_gate(
         &mut wrote,
-        "memory_map_constraints",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
         evaluation.memory_map_constraints_status,
         evaluation.memory_map_constraints_reason,
     );
-    emit_module_loader_runtime_gate(
+    emit_module_loader_runtime_fact_gate(
         &mut wrote,
-        "capability_import_table",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
         evaluation.capability_import_table_status,
         evaluation.capability_import_table_reason,
     );
-    emit_module_loader_runtime_gate(
+    emit_module_loader_runtime_fact_gate(
         &mut wrote,
-        "service_slot_binding",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
         evaluation.service_slot_binding_status,
         evaluation.service_slot_binding_reason,
     );
-    emit_module_loader_runtime_gate(
+    emit_module_loader_runtime_fact_gate(
         &mut wrote,
-        "health_state_hooks",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
         evaluation.health_state_hooks_status,
         evaluation.health_state_hooks_reason,
     );
-    emit_module_loader_runtime_gate(
+    emit_module_loader_runtime_fact_gate(
         &mut wrote,
-        "rollback_hooks",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
         evaluation.rollback_hooks_status,
         evaluation.rollback_hooks_reason,
     );
-    emit_module_loader_runtime_gate(
+    emit_module_loader_runtime_fact_gate(
         &mut wrote,
-        "audit_rollback_write_boundary_binding",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
         evaluation.audit_rollback_write_boundary_binding_status,
         evaluation.audit_rollback_write_boundary_binding_reason,
     );
@@ -216,12 +302,14 @@ pub(crate) fn emit_module_loader_runtime() {
 
 pub(crate) fn emit_module_loader_runtime_selftest() {
     let cases = module_loader_runtime_selftest_cases();
+    let source_fact_map_complete = module_loader_runtime_source_fact_map_complete();
     let mut passed = true;
     let mut idx = 0usize;
     while idx < cases.len() {
         passed = passed && cases[idx].passed;
         idx += 1;
     }
+    passed = passed && source_fact_map_complete;
 
     begin_response("module.loader_runtime_selftest");
     raw_line("      \"schema\": \"raios.module_loader_runtime_readiness_selftest.v0\",");
@@ -243,6 +331,15 @@ pub(crate) fn emit_module_loader_runtime_selftest() {
     raw("      \"passed\": ");
     raw_bool(passed);
     raw_line(",");
+    raw("      \"source_fact_count\": ");
+    raw_fmt(format_args!("{}", MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT));
+    raw_line(",");
+    raw("      \"source_fact_map_complete\": ");
+    raw_bool(source_fact_map_complete);
+    raw_line(",");
+    raw_line("      \"source_fact_map\": [");
+    emit_module_loader_runtime_source_fact_map();
+    raw_line("      ],");
     raw_line("      \"cases\": [");
     idx = 0;
     while idx < cases.len() {
@@ -430,90 +527,70 @@ fn emit_module_loader_runtime_facts(
 ) {
     raw_line("      \"loader_runtime_facts\": {");
     emit_module_loader_runtime_fact(
-        "loader_identity",
-        "raios.module_loader_identity.v0",
-        "module.loader_runtime.identity.current_boot",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[0],
         candidate.loader_identity,
         evaluation.loader_identity_status,
         evaluation.loader_identity_reason,
         true,
     );
     emit_module_loader_runtime_fact(
-        "artifact_hash_binding",
-        "raios.module_loader_artifact_hash_binding.v0",
-        "module.loader_runtime.artifact_hash_binding.current_boot",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[1],
         candidate.artifact_hash_binding,
         evaluation.artifact_hash_binding_status,
         evaluation.artifact_hash_binding_reason,
         true,
     );
     emit_module_loader_runtime_fact(
-        "entrypoint_abi",
-        "raios.module_loader_entrypoint_abi.v0",
-        "module.loader_runtime.entrypoint_abi.current_boot",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
         candidate.entrypoint_abi,
         evaluation.entrypoint_abi_status,
         evaluation.entrypoint_abi_reason,
         true,
     );
     emit_module_loader_runtime_fact(
-        "address_space_boundary",
-        "raios.module_loader_address_space_boundary.v0",
-        "module.loader_runtime.address_space_boundary.current_boot",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
         candidate.address_space_boundary,
         evaluation.address_space_boundary_status,
         evaluation.address_space_boundary_reason,
         true,
     );
     emit_module_loader_runtime_fact(
-        "memory_map_constraints",
-        "raios.module_loader_memory_map_constraints.v0",
-        "module.loader_runtime.memory_map_constraints.current_boot",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
         candidate.memory_map_constraints,
         evaluation.memory_map_constraints_status,
         evaluation.memory_map_constraints_reason,
         true,
     );
     emit_module_loader_runtime_fact(
-        "capability_import_table",
-        "raios.module_loader_capability_import_table.v0",
-        "module.loader_runtime.capability_import_table.current_boot",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
         candidate.capability_import_table,
         evaluation.capability_import_table_status,
         evaluation.capability_import_table_reason,
         true,
     );
     emit_module_loader_runtime_fact(
-        "service_slot_binding",
-        "raios.module_loader_service_slot_binding.v0",
-        "module.loader_runtime.service_slot_binding.current_boot",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
         candidate.service_slot_binding,
         evaluation.service_slot_binding_status,
         evaluation.service_slot_binding_reason,
         true,
     );
     emit_module_loader_runtime_fact(
-        "health_state_hooks",
-        "raios.module_loader_health_state_hooks.v0",
-        "module.loader_runtime.health_state_hooks.current_boot",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
         candidate.health_state_hooks,
         evaluation.health_state_hooks_status,
         evaluation.health_state_hooks_reason,
         true,
     );
     emit_module_loader_runtime_fact(
-        "rollback_hooks",
-        "raios.module_loader_rollback_hooks.v0",
-        "module.loader_runtime.rollback_hooks.current_boot",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
         candidate.rollback_hooks,
         evaluation.rollback_hooks_status,
         evaluation.rollback_hooks_reason,
         true,
     );
     emit_module_loader_runtime_fact(
-        "audit_rollback_write_boundary_binding",
-        "raios.module_loader_audit_rollback_write_boundary_binding.v0",
-        "module.loader_runtime.audit_rollback_write_boundary_binding.current_boot",
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
         candidate.audit_rollback_write_boundary_binding,
         evaluation.audit_rollback_write_boundary_binding_status,
         evaluation.audit_rollback_write_boundary_binding_reason,
@@ -523,22 +600,26 @@ fn emit_module_loader_runtime_facts(
 }
 
 fn emit_module_loader_runtime_fact(
-    name: &'static str,
-    schema: &'static str,
-    id: &'static str,
+    source: ModuleLoaderRuntimeFactSource,
     fact: ModuleLoaderRuntimeFact,
     status: &'static str,
     reason: &'static str,
     comma: bool,
 ) {
     raw("        ");
-    json_str(name);
+    json_str(source.name);
     raw_line(": {");
     raw("          \"schema\": ");
-    json_str(schema);
+    json_str(source.schema);
     raw_line(",");
     raw("          \"id\": ");
-    json_str(id);
+    json_str(source.id);
+    raw_line(",");
+    raw("          \"source_method\": ");
+    json_str(source.source_method);
+    raw_line(",");
+    raw("          \"source_fact_locator\": ");
+    json_str(source.source_fact_locator);
     raw_line(",");
     raw("          \"scope\": ");
     json_str(fact.scope);
@@ -589,7 +670,13 @@ fn emit_module_loader_runtime_fact(
     raw_line("            \"module_loader_runtime\": \"raios.module_loader_runtime_readiness.v0\"");
     raw_line("          },");
     raw_line("          \"provenance\": {");
-    raw_line("            \"source_method\": \"module.loader_runtime\",");
+    raw("            \"source_method\": ");
+    json_str(source.source_method);
+    raw_line(",");
+    raw("            \"source_fact_locator\": ");
+    json_str(source.source_fact_locator);
+    raw_line(",");
+    raw_line("            \"aggregate_method\": \"module.loader_runtime\",");
     raw_line("            \"source_transport\": \"serial-console\",");
     raw_line("            \"event_scope\": \"current_boot\",");
     raw_line("            \"record_id\": null");
@@ -619,6 +706,74 @@ fn emit_module_loader_runtime_gate(
     raw(", \"reason\": ");
     json_str(reason);
     raw("}");
+}
+
+fn emit_module_loader_runtime_fact_gate(
+    wrote: &mut bool,
+    source: ModuleLoaderRuntimeFactSource,
+    state: &'static str,
+    reason: &'static str,
+) {
+    if *wrote {
+        raw_line(",");
+    } else {
+        *wrote = true;
+    }
+    raw("        {\"gate\": ");
+    json_str(source.name);
+    raw(", \"state\": ");
+    json_str(state);
+    raw(", \"reason\": ");
+    json_str(reason);
+    raw(", \"schema\": ");
+    json_str(source.schema);
+    raw(", \"fact_id\": ");
+    json_str(source.id);
+    raw(", \"source_method\": ");
+    json_str(source.source_method);
+    raw(", \"source_fact_locator\": ");
+    json_str(source.source_fact_locator);
+    raw("}");
+}
+
+fn emit_module_loader_runtime_source_fact_map() {
+    let mut idx = 0usize;
+    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
+        raw("        {\"fact\": ");
+        json_str(source.name);
+        raw(", \"schema\": ");
+        json_str(source.schema);
+        raw(", \"aggregate_fact_id\": ");
+        json_str(source.id);
+        raw(", \"source_method\": ");
+        json_str(source.source_method);
+        raw(", \"source_fact_locator\": ");
+        json_str(source.source_fact_locator);
+        raw(", \"addressable\": true, \"included_in_required_fact_list\": true}");
+        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+            raw(",");
+        }
+        crlf();
+        idx += 1;
+    }
+}
+
+fn module_loader_runtime_source_fact_map_complete() -> bool {
+    let mut idx = 0usize;
+    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
+        if source.name.is_empty()
+            || source.schema.is_empty()
+            || source.id.is_empty()
+            || source.source_method.is_empty()
+            || source.source_fact_locator.is_empty()
+        {
+            return false;
+        }
+        idx += 1;
+    }
+    true
 }
 
 fn emit_module_loader_runtime_selftest_case(case: &ModuleLoaderRuntimeSelfTestCase, comma: bool) {

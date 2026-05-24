@@ -2,7 +2,12 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-24 by Codex after adding read-only
+Last updated: 2026-05-24 by Codex after wiring `module.loader_runtime`
+aggregate source-method and source-fact-locator citations for all ten typed
+normal-module loader-runtime facts, adding a
+`module.loader_runtime_selftest` source map plus full Shadow VM source-map
+predicates,
+adding read-only
 diagnostics and selftests for the remaining eight typed normal-module
 loader-runtime fact boundaries,
 `module.loader_artifact_hash_binding` diagnostics and selftests for the second
@@ -153,8 +158,8 @@ read-only `module.service_slot_allocator` readiness diagnostic and selftest in
 retained service-slot reservation evidence only as local-only input and still
 allocates no slots.
 Current evidence: full report
-`release/vm-reports/shadow-20260524-184613-23604.json` recorded 4557/4557
-predicates with 209 executed commands and `duration_ms: 181285`; quick report
+`release/vm-reports/shadow-20260524-215620-23136.json` recorded 5071/5071
+predicates with 232 executed commands and `duration_ms: 277411`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
@@ -637,7 +642,10 @@ Current verified cursor:
   capability import table, service-slot binding, health/rollback hooks, and
   audit/rollback write-boundary binding, and keeps `loads_artifact`,
   `allocates_service_slot`, `service_inventory_change`, `can_load_now`, and
-  `load_attempted` non-authorizing.
+  `load_attempted` non-authorizing. Each aggregate loader-runtime fact and
+  loader-fact `blocked_by` entry now cites the addressable source diagnostic
+  method and source fact locator. `module.loader_runtime_selftest` exposes a
+  ten-entry source map and the full Shadow VM module profiles check it.
 - `module.loader_identity` now exposes `raios.module_loader_identity.v0` as a
   read-only current-boot diagnostic for the first typed normal-module
   loader-runtime fact. The live fact is missing/local-only until retained
@@ -1160,27 +1168,28 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Wire the `module.loader_runtime` aggregate to cite the now-addressable typed
-loader-fact diagnostics as source methods/locators.
+Propagate the `module.loader_runtime` source-method/source-fact-locator map
+into the denied `module.load_ephemeral` loader-runtime readiness projection and
+its compact audit/event binding.
 ```
 
 `module.load_ephemeral` now reports retained-evidence, service-slot allocator
 readiness, and loader-runtime readiness states in its denied response and audit
 binding, and `module.load_gate_loader_runtime_selftest` covers that denied
-projection. All typed normal-module loader-runtime fact diagnostics are now
-addressable without granting load authority. The next durable Phase-6 slice
-should tighten the aggregate `module.loader_runtime` response so each reported
-missing fact includes its source diagnostic method/fact locator and so the
-aggregate selftest verifies that the loader-runtime readiness boundary and the
-addressable typed fact methods stay in sync.
+projection. The aggregate `module.loader_runtime` response now cites every
+typed loader-fact source method/locator and the aggregate selftest verifies a
+ten-entry source map. The next durable Phase-6 slice should make the denied
+load gate's embedded `loader_runtime_readiness` object expose the same source
+map so load-denial evidence and the aggregate readiness diagnostic cannot
+drift.
 
 Next three tasks:
 
-1. Add source diagnostic method/fact locator fields for every
-   `module.loader_runtime` loader fact.
-2. Extend `module.loader_runtime_selftest` and the full Shadow VM module
-   selftest profile so the aggregate required-fact list is checked against the
-   addressable typed fact methods.
+1. Add source diagnostic method/fact locator fields for every loader-runtime
+   fact emitted by the denied `module.load_ephemeral` readiness projection.
+2. Extend `module.load_gate_loader_runtime_selftest` and the full Shadow VM
+   module load-gate profile so the denied projection is checked against the
+   aggregate source map.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next Phase-6 slice.

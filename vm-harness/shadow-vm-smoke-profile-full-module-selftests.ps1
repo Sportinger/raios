@@ -91,6 +91,19 @@
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
+    $loaderRuntimeAggregateSources = @(
+        @{ Suffix = "identity"; Method = "module.loader_identity"; Locator = "module.loader_identity.loader_identity" },
+        @{ Suffix = "artifact_hash"; Method = "module.loader_artifact_hash_binding"; Locator = "module.loader_artifact_hash_binding.artifact_hash_binding" },
+        @{ Suffix = "entrypoint"; Method = "module.loader_entrypoint_abi"; Locator = "module.loader_entrypoint_abi.entrypoint_abi" },
+        @{ Suffix = "address_space"; Method = "module.loader_address_space_boundary"; Locator = "module.loader_address_space_boundary.address_space_boundary" },
+        @{ Suffix = "memory_map"; Method = "module.loader_memory_map_constraints"; Locator = "module.loader_memory_map_constraints.memory_map_constraints" },
+        @{ Suffix = "capability_table"; Method = "module.loader_capability_import_table"; Locator = "module.loader_capability_import_table.capability_import_table" },
+        @{ Suffix = "service_slot"; Method = "module.loader_service_slot_binding"; Locator = "module.loader_service_slot_binding.service_slot_binding" },
+        @{ Suffix = "health"; Method = "module.loader_health_state_hooks"; Locator = "module.loader_health_state_hooks.health_state_hooks" },
+        @{ Suffix = "rollback"; Method = "module.loader_rollback_hooks"; Locator = "module.loader_rollback_hooks.rollback_hooks" },
+        @{ Suffix = "write_boundary"; Method = "module.loader_audit_rollback_write_boundary_binding"; Locator = "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding" }
+    )
+
     Send-AgentCommand -Command "agent module.loader_runtime_selftest" -ExpectedMarker "RAIOS_AGENT_END module.loader_runtime_selftest"
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_schema" -Needle '"schema": "raios.module_loader_runtime_readiness_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
@@ -103,6 +116,12 @@
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_count" -Needle '"case_count": 27' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_source_count" -Needle '"source_fact_count": 10' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_source_map_complete" -Needle '"source_fact_map_complete": true' -TimeoutSeconds 1
+    foreach ($source in $loaderRuntimeAggregateSources) {
+        Assert-LogContains -Name ("protocol:module_loader_runtime_selftest_" + $source.Suffix + "_source_method") -Needle ('"source_method": "' + $source.Method + '"') -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:module_loader_runtime_selftest_" + $source.Suffix + "_source_locator") -Needle ('"source_fact_locator": "' + $source.Locator + '"') -TimeoutSeconds 1
+    }
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_missing_manifest_case" -Needle '"case": "missing_manifest_reference"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_missing_manifest_reason" -Needle '"actual_reason": "retained_module_manifest_reference_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_allocator_readiness_case" -Needle '"case": "missing_service_slot_allocator_readiness"' -TimeoutSeconds 1
