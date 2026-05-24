@@ -6,6 +6,7 @@ use crate::{
     agent_protocol_recovery_command_body_emit::*,
     agent_protocol_recovery_command_dispatch_emit::*,
     agent_protocol_recovery_command_effect_emit::*,
+    agent_protocol_recovery_command_effect_reference_eval::*,
     agent_protocol_recovery_command_envelope_emit::*,
     agent_protocol_recovery_command_eval::*,
     agent_protocol_recovery_command_handler_emit::*,

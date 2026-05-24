@@ -45,6 +45,7 @@ mod agent_protocol_recovery_command_body_emit;
 mod agent_protocol_recovery_command_dispatch_emit;
 mod agent_protocol_recovery_command_dispatch_types;
 mod agent_protocol_recovery_command_effect_emit;
+mod agent_protocol_recovery_command_effect_reference_eval;
 mod agent_protocol_recovery_command_effect_types;
 mod agent_protocol_recovery_command_envelope_emit;
 mod agent_protocol_recovery_command_eval;

@@ -1,6 +1,7 @@
 use crate::{
     agent_protocol_recovery_command_authorization_types::*,
     agent_protocol_recovery_command_dispatch_types::*,
+    agent_protocol_recovery_command_effect_reference_eval::*,
     agent_protocol_recovery_command_effect_types::*,
     agent_protocol_recovery_command_reference_eval::*,
     agent_protocol_recovery_constants::*,

@@ -5,6 +5,10 @@
 Last updated: 2026-05-24 by Codex after moving recovery lifeline command
 reference parsers/evaluators/event-log binding builders into
 `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`, moving
+recovery memory/durable/service/dispatch-behavior/executor/side-effect
+reference evaluators into
+`seed-kernel/src/agent_protocol_recovery_command_effect_reference_eval.rs`,
+moving
 command envelope/dispatch/body and downstream command evaluator selftest helpers
 into `seed-kernel/src/agent_protocol_recovery_command_eval.rs`, moving recovery
 lifeline protocol/vocabulary/runtime/rollback/persistence/memory/admission
@@ -93,6 +97,10 @@ admission evaluators and selftest fixtures now live in
 lifeline command reference parsers, evaluators, and event-log binding builders
 now live in
 `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`. Command
+memory/durable/service/dispatch-behavior/executor/side-effect reference
+evaluators now live in
+`seed-kernel/src/agent_protocol_recovery_command_effect_reference_eval.rs`.
+Command
 envelope/dispatch/body and downstream command evaluator selftest helpers now
 live in `seed-kernel/src/agent_protocol_recovery_command_eval.rs`. Recovery
 load-binding evaluation and retained-chain mismatch checks now live in
@@ -113,8 +121,8 @@ host. Current evidence: full report
 predicates with 206 executed commands; quick report
 `release/vm-reports/shadow-20260524-094611-25144.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 16874`; recovery report
-`release/vm-reports/shadow-20260524-101315-27892.json` recorded 2725/2725
-predicates with 142 executed commands and `duration_ms: 158371`.
+`release/vm-reports/shadow-20260524-121306-23512.json` recorded 2725/2725
+predicates with 142 executed commands and `duration_ms: 180590`.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
 diagnostics with
@@ -307,6 +315,7 @@ append-payload, writer, service-slot, and `module.load_ephemeral` authority.
 Latest maintenance verification:
 
 - `cargo fmt --all -- --check` passed after moving recovery lifeline
+  command effect reference evaluators, moving recovery lifeline
   command reference/evaluator modules, moving recovery lifeline
   evaluators/selftest fixtures, moving recovery load-binding evaluation and
   selftest fixtures, suppressing serial command-mode echo redraws, caching
@@ -319,7 +328,8 @@ Latest maintenance verification:
   memory/durable/service/effect emit helpers plus recovery load-binding emit
   helpers.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`
-  passed after moving recovery lifeline command reference/evaluator modules,
+  passed after moving recovery lifeline command effect reference evaluators,
+  moving recovery lifeline command reference/evaluator modules,
   moving recovery lifeline evaluators/selftest fixtures, moving
   recovery load-binding evaluation and selftest fixtures, suppressing serial
   command-mode echo redraws, and extracting recovery lifeline command specs and
@@ -337,9 +347,9 @@ Latest maintenance verification:
   run, and `duration_ms: 16874`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`
   passed on 2026-05-24 and wrote
-  `release\vm-reports\shadow-20260524-101315-27892.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-121306-23512.json` with 2725/2725
   predicates, 142 `executed_commands` entries derived from the actual serial
-  run, and `duration_ms: 158371`.
+  run, and `duration_ms: 180590`.
 - `git diff --check` passed.
 - `cargo fmt --all -- --check` passed.
 - `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
@@ -1055,8 +1065,11 @@ behavior-neutral extraction slices whose boundaries are already stable.
 `seed-kernel/src/agent_protocol_recovery.rs` is now below the 10k-line threshold
 after moving command reference parsers/evaluators into
 `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs` and command
-envelope/dispatch/body plus downstream command evaluator selftest helpers into
-`seed-kernel/src/agent_protocol_recovery_command_eval.rs`. Continue future
+memory/durable/service/dispatch-behavior/executor/side-effect reference
+evaluators into
+`seed-kernel/src/agent_protocol_recovery_command_effect_reference_eval.rs`, with
+command envelope/dispatch/body plus downstream command evaluator selftest
+helpers in `seed-kernel/src/agent_protocol_recovery_command_eval.rs`. Continue future
 cleanup only around stable ownership boundaries, such as remaining protocol retained
 chain helpers or further splitting the focused command evaluator modules.
 Do not change public method names, schema ids, boundary ids, denial reasons,

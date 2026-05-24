@@ -17,6 +17,9 @@ evaluators and selftest fixtures into
 `seed-kernel/src/agent_protocol_recovery_lifeline_eval.rs`, moving recovery
 lifeline command reference parsers, evaluators, and event-log binding builders
 into `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`,
+moving recovery memory/durable/service/dispatch-behavior/executor/side-effect
+reference evaluators into
+`seed-kernel/src/agent_protocol_recovery_command_effect_reference_eval.rs`,
 moving command envelope/dispatch/body and downstream command evaluator
 selftest helpers into
 `seed-kernel/src/agent_protocol_recovery_command_eval.rs`, and extracting the
@@ -388,7 +391,7 @@ methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 
 Latest focused recovery guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-101315-27892.json` with 2725/2725
+`release\vm-reports\shadow-20260524-121306-23512.json` with 2725/2725
 predicates, 142 `executed_commands` entries, and no static command inventory,
 covering the real QEMU/serial path through the recovery artifact boundary,
 recovery evidence retention, lifeline-command diagnostics, load-binding denial,
@@ -822,6 +825,10 @@ behavior:
   recovery lifeline command reference parsers, evaluators, and event-log
   binding builders into
   `seed-kernel/src/agent_protocol_recovery_command_reference_eval.rs`, plus
+  recovery memory/durable/service/dispatch-behavior/executor/side-effect
+  reference evaluators into
+  `seed-kernel/src/agent_protocol_recovery_command_effect_reference_eval.rs`,
+  plus
   command envelope/dispatch/body and downstream command evaluator selftest
   helpers into `seed-kernel/src/agent_protocol_recovery_command_eval.rs`, plus
   recovery artifact-reference emit helpers into
@@ -1661,8 +1668,8 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260524-094611-25144.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 16874`, and
-  `release\vm-reports\shadow-20260524-101315-27892.json` with 2725/2725
-  recovery predicates, 142 executed commands, and `duration_ms: 158371`.
+  `release\vm-reports\shadow-20260524-121306-23512.json` with 2725/2725
+  recovery predicates, 142 executed commands, and `duration_ms: 180590`.
   Both reports derive `commands` from observed serial execution. The recovery
   profile still exercises the same predicate/command count, but serial command
   echo no longer forces framebuffer redraws while long hash-reference commands
