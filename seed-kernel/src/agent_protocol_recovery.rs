@@ -11,6 +11,7 @@ use crate::{
     agent_protocol_recovery_command_eval::*,
     agent_protocol_recovery_command_handler_emit::*,
     agent_protocol_recovery_command_reference_eval::*,
+    agent_protocol_recovery_command_reference_selftests::*,
     agent_protocol_recovery_constants::*,
     agent_protocol_recovery_durable_write_emit::*,
     agent_protocol_recovery_execution::{

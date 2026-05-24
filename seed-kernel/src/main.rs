@@ -51,6 +51,7 @@ mod agent_protocol_recovery_command_envelope_emit;
 mod agent_protocol_recovery_command_eval;
 mod agent_protocol_recovery_command_handler_emit;
 mod agent_protocol_recovery_command_reference_eval;
+mod agent_protocol_recovery_command_reference_selftests;
 mod agent_protocol_recovery_constants;
 mod agent_protocol_recovery_durable_write_emit;
 mod agent_protocol_recovery_execution;
