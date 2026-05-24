@@ -2,9 +2,11 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-24 by Codex after an early-boundary recovery lifeline
-refactor, recovery method/constant/runtime/command-dispatch/authorization
-and command-effect type-surface extraction, recovery artifact selftest emit
+Last updated: 2026-05-24 by Codex after suppressing framebuffer redraws for
+serial command-mode echo, caching Shadow VM serial-log reads, an
+early-boundary recovery lifeline refactor, recovery method/constant/runtime/
+command-dispatch/authorization and command-effect type-surface extraction,
+recovery artifact selftest emit
 extraction, lifeline protocol emit extraction, lifeline command-vocabulary emit
 extraction, loader-runtime emit extraction, and rollback/persistence/memory/
 admission, command envelope/dispatch/body/handler, status/rollback-target, and
@@ -85,13 +87,16 @@ bindings, dispatch behavior, and shadow-smoke expectations are unchanged. The
 Shadow VM harness now
 derives report `commands` from actual serial `Send-AgentCommand` calls and
 records per-command `executed_commands`; the old static report command inventory
-was removed. Current evidence: full report
+was removed. The serial command path now echoes long hash-reference commands to
+serial without forcing a framebuffer redraw after each poll chunk, which keeps
+the same recovery evidence but cuts the focused recovery smoke wall time on this
+host. Current evidence: full report
 `release/vm-reports/shadow-20260523-223645-13488.json` recorded 4500/4500
 predicates with 206 executed commands; quick report
-`release/vm-reports/shadow-20260523-174556-23200.json` recorded 136/136
-predicates with 13 executed commands, and recovery report
-`release/vm-reports/shadow-20260524-092347-26332.json` recorded 2725/2725
-predicates with 142 executed commands.
+`release/vm-reports/shadow-20260524-094611-25144.json` recorded 136/136
+predicates with 13 executed commands and `duration_ms: 16874`; recovery report
+`release/vm-reports/shadow-20260524-094635-20820.json` recorded 2725/2725
+predicates with 142 executed commands and `duration_ms: 160808`.
 
 Previous cursor context: 2026-05-22 by Codex after extending guest recovery lifeline
 diagnostics with
@@ -283,8 +288,9 @@ append-payload, writer, service-slot, and `module.load_ephemeral` authority.
 
 Latest maintenance verification:
 
-- `cargo fmt --all -- --check` passed after extracting recovery lifeline command
-  specs, execution-stage helpers, and recovery method/constant/runtime/
+- `cargo fmt --all -- --check` passed after suppressing serial command-mode
+  echo redraws, caching Shadow VM serial-log reads, and extracting recovery
+  lifeline command specs, execution-stage helpers, and recovery method/constant/runtime/
   command-dispatch/authorization/command-effect type-surface helpers plus
   artifact-reference evaluator, artifact-reference emit, artifact selftest,
   lifeline protocol, command-vocabulary, loader-runtime, rollback/persistence/memory/admission, command
@@ -292,23 +298,24 @@ Latest maintenance verification:
   memory/durable/service/effect emit helpers plus recovery load-binding emit
   helpers.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`
-  passed after extracting recovery lifeline command specs and execution-stage
-  helpers plus recovery method/constant/runtime/command-dispatch/authorization/
+  passed after suppressing serial command-mode echo redraws and extracting
+  recovery lifeline command specs and execution-stage helpers plus recovery
+  method/constant/runtime/command-dispatch/authorization/
   command-effect type-surface helpers plus artifact-reference evaluator,
   artifact-reference emit, artifact selftest, lifeline protocol, command-vocabulary, loader-runtime,
   rollback/persistence/memory, and admission plus command
   envelope/dispatch/body/handler, status/rollback-target,
   memory/durable/service/effect, and recovery load-binding emit helpers.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180`
-  passed on 2026-05-23 and wrote
-  `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136
-  predicates and 13 `executed_commands` entries derived from the actual serial
-  run.
+  passed on 2026-05-24 and wrote
+  `release\vm-reports\shadow-20260524-094611-25144.json` with 136/136
+  predicates, 13 `executed_commands` entries derived from the actual serial
+  run, and `duration_ms: 16874`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`
   passed on 2026-05-24 and wrote
-  `release\vm-reports\shadow-20260524-080544-16272.json` with 2725/2725
-  predicates and 142 `executed_commands` entries derived from the actual serial
-  run.
+  `release\vm-reports\shadow-20260524-094635-20820.json` with 2725/2725
+  predicates, 142 `executed_commands` entries derived from the actual serial
+  run, and `duration_ms: 160808`.
 - `git diff --check` passed.
 - `cargo fmt --all -- --check` passed.
 - `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`

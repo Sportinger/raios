@@ -38,6 +38,10 @@ $ResolvedImage = $null
 $ResolvedArtifact = $null
 $ResolvedManifest = $null
 $ManifestValidation = $null
+$script:SerialLogCachePath = $null
+$script:SerialLogCacheLength = [int64]-1
+$script:SerialLogCacheWriteTicks = [int64]-1
+$script:SerialLogCacheContent = $null
 
 function Resolve-OptionalPath {
     param([string]$Path)
@@ -87,13 +91,49 @@ function Get-NullablePath {
     return $Path
 }
 
+function Get-SerialLogContent {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    try {
+        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+    }
+    catch {
+        return $null
+    }
+
+    $length = [int64]$item.Length
+    $writeTicks = [int64]$item.LastWriteTimeUtc.Ticks
+    if (
+        $script:SerialLogCachePath -eq $Path -and
+        $script:SerialLogCacheLength -eq $length -and
+        $script:SerialLogCacheWriteTicks -eq $writeTicks -and
+        $null -ne $script:SerialLogCacheContent
+    ) {
+        return $script:SerialLogCacheContent
+    }
+
+    $content = Get-Content -Raw -LiteralPath $Path -ErrorAction SilentlyContinue
+    if ($null -eq $content) {
+        return $null
+    }
+
+    $script:SerialLogCachePath = $Path
+    $script:SerialLogCacheLength = $length
+    $script:SerialLogCacheWriteTicks = $writeTicks
+    $script:SerialLogCacheContent = $content
+    return $content
+}
+
 function Get-SerialLogTail {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) {
         return "serial log not created"
     }
 
-    $content = Get-Content -Raw -LiteralPath $Path -ErrorAction SilentlyContinue
+    $content = Get-SerialLogContent -Path $Path
     if ($null -eq $content) {
         return "serial log unreadable"
     }
@@ -142,11 +182,9 @@ function Wait-ForLogText {
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
-        if (Test-Path -LiteralPath $Path) {
-            $content = Get-Content -Raw -LiteralPath $Path -ErrorAction SilentlyContinue
-            if ($content -clike "*$Needle*") {
-                return $true
-            }
+        $content = Get-SerialLogContent -Path $Path
+        if ($null -ne $content -and $content -clike "*$Needle*") {
+            return $true
         }
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $deadline)
@@ -155,11 +193,9 @@ function Wait-ForLogText {
 }
 
 function Get-SerialLogOffset {
-    if (Test-Path -LiteralPath $SerialLog) {
-        $content = Get-Content -Raw -LiteralPath $SerialLog -ErrorAction SilentlyContinue
-        if ($null -ne $content) {
-            return [int64]$content.Length
-        }
+    $content = Get-SerialLogContent -Path $SerialLog
+    if ($null -ne $content) {
+        return [int64]$content.Length
     }
     return [int64]0
 }
@@ -175,28 +211,26 @@ function Wait-ForLogTextAfterOffset {
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         Drain-SerialTcpOutput -Stream $script:SerialTcpDrainStream
-        if (Test-Path -LiteralPath $Path) {
-            $content = Get-Content -Raw -LiteralPath $Path -ErrorAction SilentlyContinue
-            if ($null -ne $content) {
-                $start = [int64]$Offset
-                if ($start -lt 0) {
-                    $start = [int64]0
-                }
-                if ($start -gt [int64]$content.Length) {
-                    $start = [int64]$content.Length
-                }
-                $after = if ($start -eq [int64]0) {
-                    $content
-                }
-                elseif ($start -lt [int64]$content.Length) {
-                    $content.Substring([int]$start)
-                }
-                else {
-                    ""
-                }
-                if ($after -clike "*$Needle*") {
-                    return $true
-                }
+        $content = Get-SerialLogContent -Path $Path
+        if ($null -ne $content) {
+            $start = [int64]$Offset
+            if ($start -lt 0) {
+                $start = [int64]0
+            }
+            if ($start -gt [int64]$content.Length) {
+                $start = [int64]$content.Length
+            }
+            $after = if ($start -eq [int64]0) {
+                $content
+            }
+            elseif ($start -lt [int64]$content.Length) {
+                $content.Substring([int]$start)
+            }
+            else {
+                ""
+            }
+            if ($after -clike "*$Needle*") {
+                return $true
             }
         }
         Start-Sleep -Milliseconds 200
@@ -278,11 +312,9 @@ function Assert-LogDoesNotContain {
         [string]$Needle
     )
 
-    $content = if (Test-Path -LiteralPath $SerialLog) {
-        Get-Content -Raw -LiteralPath $SerialLog -ErrorAction SilentlyContinue
-    }
-    else {
-        ""
+    $content = Get-SerialLogContent -Path $SerialLog
+    if ($null -eq $content) {
+        $content = ""
     }
     $passed = -not ($content.Contains($Needle))
     $actual = if ($passed) { "absent" } else { "found" }
@@ -433,7 +465,10 @@ function Get-LastAgentResponseJson {
         [string]$Method
     )
 
-    $content = Get-Content -Raw -LiteralPath $SerialLog -ErrorAction Stop
+    $content = Get-SerialLogContent -Path $SerialLog
+    if ($null -eq $content) {
+        throw "No serial log content found in $SerialLog"
+    }
     $begin = "RAIOS_AGENT_BEGIN $Method"
     $end = "RAIOS_AGENT_END $Method"
     $beginIndex = $content.LastIndexOf($begin, [System.StringComparison]::Ordinal)

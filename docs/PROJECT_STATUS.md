@@ -7,7 +7,9 @@ splitting stable boundaries early, separating runtime/diagnostic/harness/handoff
 surfaces, and making observed execution evidence more authoritative than copied
 command lists or prose summaries.
 
-Last verified locally: 2026-05-24 on Windows with QEMU 11 after extracting the
+Last verified locally: 2026-05-24 on Windows with QEMU 11 after suppressing
+framebuffer redraws for serial command-mode echo, caching Shadow VM serial-log
+reads, and extracting the
 recovery lifeline command specs into
 `seed-kernel/src/agent_protocol_recovery_lifeline.rs`, updating Shadow VM
 reports to derive `commands`/`executed_commands` from actual serial command
@@ -1642,11 +1644,14 @@ The verified foundation for that task is:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest focused reports:
-  `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
-  predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260524-092347-26332.json` with 2725/2725
-  recovery predicates and 142 executed commands. Both reports derive
-  `commands` from observed serial execution.
+  `release\vm-reports\shadow-20260524-094611-25144.json` with 136/136 quick
+  predicates, 13 executed commands, and `duration_ms: 16874`, and
+  `release\vm-reports\shadow-20260524-094635-20820.json` with 2725/2725
+  recovery predicates, 142 executed commands, and `duration_ms: 160808`.
+  Both reports derive `commands` from observed serial execution. The recovery
+  profile still exercises the same predicate/command count, but serial command
+  echo no longer forces framebuffer redraws while long hash-reference commands
+  are being received.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
   local image built with a fake API key and intentionally wrong SPKI pin. It
   verified the real request envelope marker appears on the `ask` path, omits raw

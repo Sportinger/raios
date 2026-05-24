@@ -1070,8 +1070,31 @@ fn apply_action(action: ByteAction, runtime: ui::RuntimeStatus) -> bool {
 fn process_serial_byte(byte: u8, runtime: ui::RuntimeStatus) -> bool {
     let action = {
         let mut state = CONSOLE.lock();
-        state.handle_serial_byte(byte)
+        let command_mode = state.mode == ConsoleMode::Command;
+        (state.handle_serial_byte(byte), command_mode)
     };
+    apply_serial_action(action.0, runtime, action.1)
+}
+
+fn apply_serial_action(action: ByteAction, runtime: ui::RuntimeStatus, command_mode: bool) -> bool {
+    if command_mode {
+        match action {
+            ByteAction::Echo(byte) => {
+                serial::write_byte(byte);
+                return false;
+            }
+            ByteAction::Backspace => {
+                serial::write_fmt(format_args!("\x08 \x08"));
+                return false;
+            }
+            ByteAction::Bell => {
+                serial::write_byte(0x07);
+                return false;
+            }
+            _ => {}
+        }
+    }
+
     apply_action(action, runtime)
 }
 
