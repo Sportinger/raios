@@ -18,6 +18,8 @@ boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
 Last verified locally: 2026-05-24 on Windows with QEMU 11 after adding
+read-only diagnostics and selftests for the remaining eight typed
+normal-module loader-runtime fact boundaries,
 read-only `module.loader_artifact_hash_binding` diagnostics and selftests for
 the second normal-module loader-runtime fact boundary,
 read-only `module.loader_identity` diagnostics and selftests for the first
@@ -1431,6 +1433,22 @@ The verified foundation for that task is:
   retained-evidence/service-slot/audit-boundary/loader-identity bindings,
   missing artifact-hash binding, and all-inputs-present-but-non-authorizing
   artifact-hash binding evidence.
+- The remaining typed normal-module loader-runtime facts are now addressable as
+  read-only current-boot diagnostics with matching selftests:
+  `module.loader_entrypoint_abi`,
+  `module.loader_address_space_boundary`,
+  `module.loader_memory_map_constraints`,
+  `module.loader_capability_import_table`,
+  `module.loader_service_slot_binding`,
+  `module.loader_health_state_hooks`,
+  `module.loader_rollback_hooks`, and
+  `module.loader_audit_rollback_write_boundary_binding`. These diagnostics are
+  emitted through the shared `agent_protocol_module_loader_fact` boundary and
+  keep descriptor input, artifact input, service-slot allocation, service
+  inventory mutation, and load attempts disabled. Their selftests cover missing
+  prerequisites, previous-boot, schema/provenance failures, retained-evidence,
+  service-slot-allocator, audit/write-boundary, previous-loader-fact binding
+  gaps, missing fact, and all-inputs-present-but-non-authorizing cases.
 - `module.audit_rollback_availability` now exposes
   `raios.module_audit_rollback_availability.v0` as a read-only current-boot
   diagnostic over typed `raios.durable_audit_ledger.v0` and

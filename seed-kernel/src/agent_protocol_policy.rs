@@ -177,6 +177,28 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         || method_eq(method, "module.loader_identity_selftest")
         || method_eq(method, "module.loader_artifact_hash_binding")
         || method_eq(method, "module.loader_artifact_hash_binding_selftest")
+        || method_eq(method, "module.loader_entrypoint_abi")
+        || method_eq(method, "module.loader_entrypoint_abi_selftest")
+        || method_eq(method, "module.loader_address_space_boundary")
+        || method_eq(method, "module.loader_address_space_boundary_selftest")
+        || method_eq(method, "module.loader_memory_map_constraints")
+        || method_eq(method, "module.loader_memory_map_constraints_selftest")
+        || method_eq(method, "module.loader_capability_import_table")
+        || method_eq(method, "module.loader_capability_import_table_selftest")
+        || method_eq(method, "module.loader_service_slot_binding")
+        || method_eq(method, "module.loader_service_slot_binding_selftest")
+        || method_eq(method, "module.loader_health_state_hooks")
+        || method_eq(method, "module.loader_health_state_hooks_selftest")
+        || method_eq(method, "module.loader_rollback_hooks")
+        || method_eq(method, "module.loader_rollback_hooks_selftest")
+        || method_eq(
+            method,
+            "module.loader_audit_rollback_write_boundary_binding",
+        )
+        || method_eq(
+            method,
+            "module.loader_audit_rollback_write_boundary_binding_selftest",
+        )
         || method_eq(method, "module.audit_rollback_availability")
         || method_eq(method, "module.audit_rollback_availability_selftest")
         || method_eq(method, "module.audit_rollback_write_policy")

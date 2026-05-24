@@ -3,6 +3,8 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-24 by Codex after adding read-only
+diagnostics and selftests for the remaining eight typed normal-module
+loader-runtime fact boundaries,
 `module.loader_artifact_hash_binding` diagnostics and selftests for the second
 typed normal-module loader-runtime fact boundary,
 `module.loader_identity` diagnostics and selftests for the first typed
@@ -653,6 +655,16 @@ Current verified cursor:
   scope/schema/provenance failures, required binding gaps including
   loader-identity binding, missing artifact-hash binding, and
   all-inputs-present-but-non-authorizing artifact-hash binding evidence.
+- The remaining typed normal-module loader-runtime facts are now addressable as
+  read-only current-boot diagnostics with matching selftests:
+  entrypoint ABI, address-space boundary, memory-map constraints, capability
+  import table, service-slot binding, health-state hooks, rollback hooks, and
+  audit/rollback write-boundary binding. These diagnostics share
+  `seed-kernel/src/agent_protocol_module_loader_fact.rs`, require retained
+  module evidence, service-slot allocator readiness/runtime, audit/write
+  boundary, and the previous loader fact, and keep descriptor input, artifact
+  input, service inventory mutation, service-slot allocation, and load
+  authority disabled.
 - `module.load_ephemeral` now mirrors those Phase-6 readiness boundaries in
   its denied `raios.module_load_gate.v0` response and event-log binding. The
   gate distinguishes retained module evidence, service-slot allocator runtime
@@ -1148,33 +1160,27 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Add read-only `module.loader_entrypoint_abi` diagnostics for the current-boot
-normal-module loader entrypoint ABI fact.
+Wire the `module.loader_runtime` aggregate to cite the now-addressable typed
+loader-fact diagnostics as source methods/locators.
 ```
 
 `module.load_ephemeral` now reports retained-evidence, service-slot allocator
 readiness, and loader-runtime readiness states in its denied response and audit
 binding, and `module.load_gate_loader_runtime_selftest` covers that denied
-projection. `module.loader_identity` and
-`module.loader_artifact_hash_binding` now make the first two typed
-loader-runtime facts addressable without granting load authority. The next
-durable Phase-6 slice should add the adjacent read-only
-`raios.module_loader_entrypoint_abi.v0` diagnostic and selftest. It must report
-the fact as missing/current-boot/local-only, require retained module evidence,
-service-slot allocator readiness/runtime, audit/rollback write-boundary
-binding, loader identity, and artifact-hash binding as inputs, and keep
-descriptor input, artifact input, service inventory mutation, and load
-authority disabled.
+projection. All typed normal-module loader-runtime fact diagnostics are now
+addressable without granting load authority. The next durable Phase-6 slice
+should tighten the aggregate `module.loader_runtime` response so each reported
+missing fact includes its source diagnostic method/fact locator and so the
+aggregate selftest verifies that the loader-runtime readiness boundary and the
+addressable typed fact methods stay in sync.
 
 Next three tasks:
 
-1. Add `module.loader_entrypoint_abi` as a read-only current-boot diagnostic
-   for `raios.module_loader_entrypoint_abi.v0`.
-2. Add `module.loader_entrypoint_abi_selftest` covering missing prerequisites,
-   previous-boot, schema/provenance failures, retained-evidence,
-   service-slot-allocator, audit/write-boundary, loader-identity, and
-   artifact-hash-binding gaps, missing entrypoint ABI, and
-   all-inputs-present-but-non-authorizing cases.
+1. Add source diagnostic method/fact locator fields for every
+   `module.loader_runtime` loader fact.
+2. Extend `module.loader_runtime_selftest` and the full Shadow VM module
+   selftest profile so the aggregate required-fact list is checked against the
+   addressable typed fact methods.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next Phase-6 slice.

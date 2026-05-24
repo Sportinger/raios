@@ -445,6 +445,22 @@ agent module.loader_identity
 agent module.loader_identity_selftest
 agent module.loader_artifact_hash_binding
 agent module.loader_artifact_hash_binding_selftest
+agent module.loader_entrypoint_abi
+agent module.loader_entrypoint_abi_selftest
+agent module.loader_address_space_boundary
+agent module.loader_address_space_boundary_selftest
+agent module.loader_memory_map_constraints
+agent module.loader_memory_map_constraints_selftest
+agent module.loader_capability_import_table
+agent module.loader_capability_import_table_selftest
+agent module.loader_service_slot_binding
+agent module.loader_service_slot_binding_selftest
+agent module.loader_health_state_hooks
+agent module.loader_health_state_hooks_selftest
+agent module.loader_rollback_hooks
+agent module.loader_rollback_hooks_selftest
+agent module.loader_audit_rollback_write_boundary_binding
+agent module.loader_audit_rollback_write_boundary_binding_selftest
 agent module.audit_rollback_availability
 agent module.audit_rollback_availability_selftest
 agent module.audit_rollback_write_policy
@@ -493,6 +509,22 @@ The expected guest schemas are
 `raios.module_loader_identity_selftest.v0`, and
 `raios.module_loader_artifact_hash_binding.v0`,
 `raios.module_loader_artifact_hash_binding_selftest.v0`, and
+`raios.module_loader_entrypoint_abi.v0`,
+`raios.module_loader_entrypoint_abi_selftest.v0`,
+`raios.module_loader_address_space_boundary.v0`,
+`raios.module_loader_address_space_boundary_selftest.v0`,
+`raios.module_loader_memory_map_constraints.v0`,
+`raios.module_loader_memory_map_constraints_selftest.v0`,
+`raios.module_loader_capability_import_table.v0`,
+`raios.module_loader_capability_import_table_selftest.v0`,
+`raios.module_loader_service_slot_binding.v0`,
+`raios.module_loader_service_slot_binding_selftest.v0`,
+`raios.module_loader_health_state_hooks.v0`,
+`raios.module_loader_health_state_hooks_selftest.v0`,
+`raios.module_loader_rollback_hooks.v0`,
+`raios.module_loader_rollback_hooks_selftest.v0`,
+`raios.module_loader_audit_rollback_write_boundary_binding.v0`,
+`raios.module_loader_audit_rollback_write_boundary_binding_selftest.v0`, and
 `raios.module_load_gate_loader_runtime_selftest.v0`. The manifest-reference
 schemas must keep `accepts_manifest_json: false`,
 `accepts_unsigned_service_code: false`, and `accepts_artifact_bytes: false`; all
@@ -565,6 +597,24 @@ missing loader identity, artifact-hash binding scope/schema/provenance
 failures, retained-evidence/service-slot/audit-boundary/loader-identity binding
 gaps, missing artifact-hash binding, and all-inputs-present-but-non-authorizing
 artifact-hash binding evidence.
+
+The remaining module loader fact diagnostics emit read-only current-boot
+schemas for `raios.module_loader_entrypoint_abi.v0`,
+`raios.module_loader_address_space_boundary.v0`,
+`raios.module_loader_memory_map_constraints.v0`,
+`raios.module_loader_capability_import_table.v0`,
+`raios.module_loader_service_slot_binding.v0`,
+`raios.module_loader_health_state_hooks.v0`,
+`raios.module_loader_rollback_hooks.v0`, and
+`raios.module_loader_audit_rollback_write_boundary_binding.v0`, each with a
+matching `_selftest` schema. They are chained facts: each diagnostic requires
+retained module evidence, service-slot allocator readiness/runtime,
+audit/write-boundary availability, and the previous loader fact before its own
+fact can become available. They must keep loader descriptor input, artifact byte
+input, service inventory mutation, service-slot allocation, and load attempts
+disabled. The selftests cover missing prerequisites, previous-boot,
+schema/provenance failures, required binding gaps, missing fact, and
+all-inputs-present-but-non-authorizing fact evidence.
 
 The audit/rollback availability diagnostic emits
 `raios.module_audit_rollback_availability.v0` and the selftest emits

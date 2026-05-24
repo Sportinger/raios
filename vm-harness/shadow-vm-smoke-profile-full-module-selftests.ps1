@@ -213,6 +213,57 @@
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
+    $loaderFactDiagnostics = @(
+        @{ Method = "module.loader_entrypoint_abi"; Selftest = "module.loader_entrypoint_abi_selftest"; Schema = "raios.module_loader_entrypoint_abi.v0"; SelftestSchema = "raios.module_loader_entrypoint_abi_selftest.v0"; FactId = "module.loader_runtime.entrypoint_abi.current_boot"; MissingReason = "module_loader_entrypoint_abi_missing"; BindingReason = "module_loader_entrypoint_abi_artifact_hash_binding_binding_missing"; NonAuthorizingReason = "module_loader_entrypoint_abi_not_load_authority" },
+        @{ Method = "module.loader_address_space_boundary"; Selftest = "module.loader_address_space_boundary_selftest"; Schema = "raios.module_loader_address_space_boundary.v0"; SelftestSchema = "raios.module_loader_address_space_boundary_selftest.v0"; FactId = "module.loader_runtime.address_space_boundary.current_boot"; MissingReason = "module_loader_address_space_boundary_missing"; BindingReason = "module_loader_address_space_boundary_entrypoint_abi_binding_missing"; NonAuthorizingReason = "module_loader_address_space_boundary_not_load_authority" },
+        @{ Method = "module.loader_memory_map_constraints"; Selftest = "module.loader_memory_map_constraints_selftest"; Schema = "raios.module_loader_memory_map_constraints.v0"; SelftestSchema = "raios.module_loader_memory_map_constraints_selftest.v0"; FactId = "module.loader_runtime.memory_map_constraints.current_boot"; MissingReason = "module_loader_memory_map_constraints_missing"; BindingReason = "module_loader_memory_map_constraints_address_space_boundary_binding_missing"; NonAuthorizingReason = "module_loader_memory_map_constraints_not_load_authority" },
+        @{ Method = "module.loader_capability_import_table"; Selftest = "module.loader_capability_import_table_selftest"; Schema = "raios.module_loader_capability_import_table.v0"; SelftestSchema = "raios.module_loader_capability_import_table_selftest.v0"; FactId = "module.loader_runtime.capability_import_table.current_boot"; MissingReason = "module_loader_capability_import_table_missing"; BindingReason = "module_loader_capability_import_table_memory_map_constraints_binding_missing"; NonAuthorizingReason = "module_loader_capability_import_table_not_load_authority" },
+        @{ Method = "module.loader_service_slot_binding"; Selftest = "module.loader_service_slot_binding_selftest"; Schema = "raios.module_loader_service_slot_binding.v0"; SelftestSchema = "raios.module_loader_service_slot_binding_selftest.v0"; FactId = "module.loader_runtime.service_slot_binding.current_boot"; MissingReason = "module_loader_service_slot_binding_missing"; BindingReason = "module_loader_service_slot_binding_capability_import_table_binding_missing"; NonAuthorizingReason = "module_loader_service_slot_binding_not_load_authority" },
+        @{ Method = "module.loader_health_state_hooks"; Selftest = "module.loader_health_state_hooks_selftest"; Schema = "raios.module_loader_health_state_hooks.v0"; SelftestSchema = "raios.module_loader_health_state_hooks_selftest.v0"; FactId = "module.loader_runtime.health_state_hooks.current_boot"; MissingReason = "module_loader_health_state_hooks_missing"; BindingReason = "module_loader_health_state_hooks_service_slot_binding_binding_missing"; NonAuthorizingReason = "module_loader_health_state_hooks_not_load_authority" },
+        @{ Method = "module.loader_rollback_hooks"; Selftest = "module.loader_rollback_hooks_selftest"; Schema = "raios.module_loader_rollback_hooks.v0"; SelftestSchema = "raios.module_loader_rollback_hooks_selftest.v0"; FactId = "module.loader_runtime.rollback_hooks.current_boot"; MissingReason = "module_loader_rollback_hooks_missing"; BindingReason = "module_loader_rollback_hooks_health_state_hooks_binding_missing"; NonAuthorizingReason = "module_loader_rollback_hooks_not_load_authority" },
+        @{ Method = "module.loader_audit_rollback_write_boundary_binding"; Selftest = "module.loader_audit_rollback_write_boundary_binding_selftest"; Schema = "raios.module_loader_audit_rollback_write_boundary_binding.v0"; SelftestSchema = "raios.module_loader_audit_rollback_write_boundary_binding_selftest.v0"; FactId = "module.loader_runtime.audit_rollback_write_boundary_binding.current_boot"; MissingReason = "module_loader_audit_rollback_write_boundary_binding_missing"; BindingReason = "module_loader_audit_rollback_write_boundary_binding_rollback_hooks_binding_missing"; NonAuthorizingReason = "module_loader_audit_rollback_write_boundary_binding_not_load_authority" }
+    )
+    foreach ($fact in $loaderFactDiagnostics) {
+        $prefix = $fact.Method.Replace("module.", "module_").Replace(".", "_")
+        Send-AgentCommand -Command ("agent " + $fact.Method) -ExpectedMarker ("RAIOS_AGENT_END " + $fact.Method)
+        Assert-LogContains -Name ("protocol:" + $prefix + "_schema") -Needle ('"schema": "' + $fact.Schema + '"') -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_local_only") -Needle '"classification": "local_only"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_no_mutation") -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_no_descriptor") -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_no_artifact_bytes") -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_no_load") -Needle '"loads_artifact": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_no_slots") -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_no_inventory_records") -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_missing_reason") -Needle ('"reason": "' + $fact.MissingReason + '"') -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_fact_id") -Needle ('"fact_id": "' + $fact.FactId + '"') -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_can_load_false") -Needle '"can_load_now": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $prefix + "_load_attempted_false") -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+        $selfPrefix = $fact.Selftest.Replace("module.", "module_").Replace(".", "_")
+        Send-AgentCommand -Command ("agent " + $fact.Selftest) -ExpectedMarker ("RAIOS_AGENT_END " + $fact.Selftest)
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_schema") -Needle ('"schema": "' + $fact.SelftestSchema + '"') -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_local_only") -Needle '"classification": "local_only"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_no_mutation") -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_no_descriptor") -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_no_artifact_bytes") -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_count") -Needle '"case_count": 14' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_passed") -Needle '"passed": true' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_missing_evidence_case") -Needle '"case": "missing_retained_module_evidence"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_allocator_runtime_case") -Needle '"case": "service_slot_allocator_runtime_missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_dependency_case") -Needle '"case": "previous_loader_fact_missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_previous_boot_case") -Needle '"case": "loader_fact_previous_boot"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_schema_case") -Needle '"case": "loader_fact_schema_mismatch"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_provenance_case") -Needle '"case": "loader_fact_provenance_missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_binding_case") -Needle '"case": "loader_fact_previous_loader_fact_binding_missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_binding_reason") -Needle ('"actual_reason": "' + $fact.BindingReason + '"') -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_missing_case") -Needle '"case": "loader_fact_missing"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_missing_reason") -Needle ('"actual_reason": "' + $fact.MissingReason + '"') -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_ready_case") -Needle '"case": "all_inputs_present_fact_non_authorizing"' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_ready_reason") -Needle ('"actual_reason": "' + $fact.NonAuthorizingReason + '"') -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_can_load_false") -Needle '"can_load": false' -TimeoutSeconds 1
+        Assert-LogContains -Name ("protocol:" + $selfPrefix + "_load_attempted_false") -Needle '"load_attempted": false' -TimeoutSeconds 1
+    }
+
     Send-AgentCommand -Command "agent module.audit_rollback_availability_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_availability_selftest"
     Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_availability_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1

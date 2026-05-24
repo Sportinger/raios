@@ -39,6 +39,11 @@ use crate::{
         module_loader_artifact_hash_binding_method,
         module_loader_artifact_hash_binding_selftest_method,
     },
+    agent_protocol_module_loader_fact::{
+        canonical_module_loader_fact_method, canonical_module_loader_fact_selftest_method,
+        emit_module_loader_fact, emit_module_loader_fact_selftest, module_loader_fact_method,
+        module_loader_fact_selftest_method,
+    },
     agent_protocol_module_loader_identity::{
         emit_module_loader_identity, emit_module_loader_identity_selftest,
         module_loader_identity_method, module_loader_identity_selftest_method,
@@ -493,6 +498,18 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("module.loader_artifact_hash_binding_selftest");
         emit_module_loader_artifact_hash_binding_selftest();
         return DispatchOutcome::Response("module.loader_artifact_hash_binding_selftest");
+    }
+    if module_loader_fact_method(method) {
+        let canonical = canonical_module_loader_fact_method(method);
+        record_read(canonical);
+        emit_module_loader_fact(method);
+        return DispatchOutcome::Response(canonical);
+    }
+    if module_loader_fact_selftest_method(method) {
+        let canonical = canonical_module_loader_fact_selftest_method(method);
+        record_read(canonical);
+        emit_module_loader_fact_selftest(method);
+        return DispatchOutcome::Response(canonical);
     }
     if module_audit_rollback_availability_method(method) {
         record_read("module.audit_rollback_availability");
