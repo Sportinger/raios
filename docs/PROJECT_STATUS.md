@@ -60,7 +60,13 @@ emit helpers into
 `seed-kernel/src/agent_protocol_recovery_status_handler_emit.rs`,
 `seed-kernel/src/agent_protocol_recovery_rollback_preview_emit.rs`,
 `seed-kernel/src/agent_protocol_recovery_rollback_apply_emit.rs`, and
-`seed-kernel/src/agent_protocol_recovery_target_binding_emit.rs`, and
+`seed-kernel/src/agent_protocol_recovery_target_binding_emit.rs`, moving
+memory-write, durable-write, service-inventory side-effect, and command-effect
+emit helpers into
+`seed-kernel/src/agent_protocol_recovery_memory_write_emit.rs`,
+`seed-kernel/src/agent_protocol_recovery_durable_write_emit.rs`,
+`seed-kernel/src/agent_protocol_recovery_service_inventory_effect_emit.rs`,
+and `seed-kernel/src/agent_protocol_recovery_command_effect_emit.rs`, and
 preserving the
 previously verified guest
 `module.audit_rollback_availability`,
@@ -816,7 +822,13 @@ behavior:
   `seed-kernel/src/agent_protocol_recovery_status_handler_emit.rs`,
   `seed-kernel/src/agent_protocol_recovery_rollback_preview_emit.rs`,
   `seed-kernel/src/agent_protocol_recovery_rollback_apply_emit.rs`, and
-  `seed-kernel/src/agent_protocol_recovery_target_binding_emit.rs`
+  `seed-kernel/src/agent_protocol_recovery_target_binding_emit.rs`, plus
+  memory-write, durable-write, service-inventory side-effect, and
+  command-effect emit helpers into
+  `seed-kernel/src/agent_protocol_recovery_memory_write_emit.rs`,
+  `seed-kernel/src/agent_protocol_recovery_durable_write_emit.rs`,
+  `seed-kernel/src/agent_protocol_recovery_service_inventory_effect_emit.rs`,
+  and `seed-kernel/src/agent_protocol_recovery_command_effect_emit.rs`
 - next, leave the broad recovery dispatch candidate/evaluator in
   `agent_protocol_recovery.rs` until its non-execution dependencies have a
   stable boundary, then continue with smaller focused extraction slices over
@@ -1618,7 +1630,7 @@ The verified foundation for that task is:
   Latest focused reports:
   `release\vm-reports\shadow-20260523-174556-23200.json` with 136/136 quick
   predicates and 13 executed commands, and
-  `release\vm-reports\shadow-20260524-082539-26616.json` with 2725/2725
+  `release\vm-reports\shadow-20260524-083254-20684.json` with 2725/2725
   recovery predicates and 142 executed commands. Both reports derive
   `commands` from observed serial execution.
 - `vm-harness\openai-direct-smoke.ps1 -ExpectPinMismatch` was run against a
