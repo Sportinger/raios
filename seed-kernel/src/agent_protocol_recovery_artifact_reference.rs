@@ -1,9 +1,4 @@
 use crate::{
-    agent_protocol_recovery::{
-        recovery_load_binding_retained_loader_mismatch,
-        recovery_load_binding_retained_local_approval_mismatch,
-        recovery_load_binding_retained_rollback_evidence_mismatch,
-    },
     agent_protocol_recovery_artifact_types::{
         RecoveryIdentityReferenceCheck, RecoveryIdentitySelfTestCase,
         RecoveryLifelineRequestReferenceCheck, RecoveryLifelineRequestReferenceInput,
@@ -20,6 +15,11 @@ use crate::{
         RECOVERY_LOADER_SELFTEST_CASES, RECOVERY_LOCAL_APPROVAL_SELFTEST_CASES,
         RECOVERY_ROLLBACK_EVIDENCE_SELFTEST_CASES, RECOVERY_TRUST_SELFTEST_CASES,
         RECOVERY_VM_TEST_SELFTEST_CASES,
+    },
+    agent_protocol_recovery_load_binding::{
+        recovery_load_binding_retained_loader_mismatch,
+        recovery_load_binding_retained_local_approval_mismatch,
+        recovery_load_binding_retained_rollback_evidence_mismatch,
     },
     agent_protocol_support::{
         current_boot_event_id_str, method_eq, parse_current_boot_event_id, parse_sha256_ref,

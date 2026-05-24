@@ -1,13 +1,11 @@
 use crate::{
-    agent_protocol_recovery::{
+    agent_protocol_recovery_load_binding::{
         recovery_load_binding_retained_loader_mismatch,
         recovery_load_binding_retained_local_approval_mismatch,
         recovery_load_binding_retained_rollback_evidence_mismatch,
         recovery_load_binding_retained_trust_mismatch,
-        recovery_load_binding_retained_vm_test_mismatch,
-    },
-    agent_protocol_recovery_load_binding::{
-        RecoveryLoadBindingCheck, RecoveryLoadBindingSelfTestCase,
+        recovery_load_binding_retained_vm_test_mismatch, RecoveryLoadBindingCheck,
+        RecoveryLoadBindingSelfTestCase,
     },
     agent_protocol_support::{crlf, json_event_id, json_sha256, json_str, raw, raw_bool, raw_line},
     event_log,
