@@ -28,6 +28,7 @@ mod agent_protocol_module_load_gate_selftest;
 mod agent_protocol_module_load_gate_selftest_emit;
 mod agent_protocol_module_load_gate_selftest_eval;
 mod agent_protocol_module_load_gate_selftest_reference_cases;
+mod agent_protocol_module_loader_artifact_hash_binding;
 mod agent_protocol_module_loader_identity;
 mod agent_protocol_module_loader_runtime;
 mod agent_protocol_module_reference;

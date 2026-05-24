@@ -170,6 +170,49 @@
     Assert-LogContains -Name "protocol:module_loader_identity_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_identity_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
+    Send-AgentCommand -Command "agent module.loader_artifact_hash_binding" -ExpectedMarker "RAIOS_AGENT_END module.loader_artifact_hash_binding"
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_schema" -Needle '"schema": "raios.module_loader_artifact_hash_binding.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_missing" -Needle '"reason": "module_loader_artifact_hash_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_fact_id" -Needle '"fact_id": "module.loader_runtime.artifact_hash_binding.current_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_can_load_false" -Needle '"can_load_now": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
+    Send-AgentCommand -Command "agent module.loader_artifact_hash_binding_selftest" -ExpectedMarker "RAIOS_AGENT_END module.loader_artifact_hash_binding_selftest"
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_schema" -Needle '"schema": "raios.module_loader_artifact_hash_binding_selftest.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_count" -Needle '"case_count": 14' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_missing_evidence_case" -Needle '"case": "missing_retained_module_evidence"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_allocator_readiness_case" -Needle '"case": "missing_service_slot_allocator_readiness"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_allocator_runtime_case" -Needle '"case": "service_slot_allocator_runtime_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_loader_identity_case" -Needle '"case": "loader_identity_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_scope_case" -Needle '"case": "artifact_hash_binding_previous_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_schema_case" -Needle '"case": "artifact_hash_binding_schema_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_provenance_case" -Needle '"case": "artifact_hash_binding_provenance_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_retained_binding_case" -Needle '"case": "artifact_hash_binding_retained_evidence_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_allocator_binding_case" -Needle '"case": "artifact_hash_binding_service_slot_allocator_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_audit_binding_case" -Needle '"case": "artifact_hash_binding_audit_write_boundary_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_identity_binding_case" -Needle '"case": "artifact_hash_binding_loader_identity_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_missing_case" -Needle '"case": "artifact_hash_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_missing_status" -Needle '"actual_status": "denied_missing_loader_artifact_hash_binding"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_ready_case" -Needle '"case": "all_inputs_present_artifact_hash_binding_non_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_ready_status" -Needle '"actual_status": "available_non_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
+
     Send-AgentCommand -Command "agent module.audit_rollback_availability_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_availability_selftest"
     Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_schema" -Needle '"schema": "raios.module_audit_rollback_availability_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_audit_rollback_availability_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1

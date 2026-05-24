@@ -33,6 +33,12 @@ use crate::{
         module_load_gate_retained_selftest_method, module_load_gate_service_slot_selftest_method,
         module_load_gate_vm_report_selftest_method,
     },
+    agent_protocol_module_loader_artifact_hash_binding::{
+        emit_module_loader_artifact_hash_binding,
+        emit_module_loader_artifact_hash_binding_selftest,
+        module_loader_artifact_hash_binding_method,
+        module_loader_artifact_hash_binding_selftest_method,
+    },
     agent_protocol_module_loader_identity::{
         emit_module_loader_identity, emit_module_loader_identity_selftest,
         module_loader_identity_method, module_loader_identity_selftest_method,
@@ -477,6 +483,16 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         record_read("module.loader_identity_selftest");
         emit_module_loader_identity_selftest();
         return DispatchOutcome::Response("module.loader_identity_selftest");
+    }
+    if module_loader_artifact_hash_binding_method(method) {
+        record_read("module.loader_artifact_hash_binding");
+        emit_module_loader_artifact_hash_binding();
+        return DispatchOutcome::Response("module.loader_artifact_hash_binding");
+    }
+    if module_loader_artifact_hash_binding_selftest_method(method) {
+        record_read("module.loader_artifact_hash_binding_selftest");
+        emit_module_loader_artifact_hash_binding_selftest();
+        return DispatchOutcome::Response("module.loader_artifact_hash_binding_selftest");
     }
     if module_audit_rollback_availability_method(method) {
         record_read("module.audit_rollback_availability");

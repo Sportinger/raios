@@ -233,6 +233,8 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "module.loader_runtime_selftest",
     "module.loader_identity",
     "module.loader_identity_selftest",
+    "module.loader_artifact_hash_binding",
+    "module.loader_artifact_hash_binding_selftest",
     "module.audit_rollback_availability",
     "module.audit_rollback_availability_selftest",
     "module.audit_rollback_write_policy",

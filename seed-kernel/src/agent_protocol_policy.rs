@@ -175,6 +175,8 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         || method_eq(method, "module.loader_runtime_selftest")
         || method_eq(method, "module.loader_identity")
         || method_eq(method, "module.loader_identity_selftest")
+        || method_eq(method, "module.loader_artifact_hash_binding")
+        || method_eq(method, "module.loader_artifact_hash_binding_selftest")
         || method_eq(method, "module.audit_rollback_availability")
         || method_eq(method, "module.audit_rollback_availability_selftest")
         || method_eq(method, "module.audit_rollback_write_policy")

@@ -443,6 +443,8 @@ agent module.loader_runtime
 agent module.loader_runtime_selftest
 agent module.loader_identity
 agent module.loader_identity_selftest
+agent module.loader_artifact_hash_binding
+agent module.loader_artifact_hash_binding_selftest
 agent module.audit_rollback_availability
 agent module.audit_rollback_availability_selftest
 agent module.audit_rollback_write_policy
@@ -489,6 +491,8 @@ The expected guest schemas are
 `raios.module_loader_runtime_readiness_selftest.v0`,
 `raios.module_loader_identity.v0`,
 `raios.module_loader_identity_selftest.v0`, and
+`raios.module_loader_artifact_hash_binding.v0`,
+`raios.module_loader_artifact_hash_binding_selftest.v0`, and
 `raios.module_load_gate_loader_runtime_selftest.v0`. The manifest-reference
 schemas must keep `accepts_manifest_json: false`,
 `accepts_unsigned_service_code: false`, and `accepts_artifact_bytes: false`; all
@@ -548,6 +552,19 @@ selftest covers missing retained evidence, missing allocator readiness/runtime,
 missing audit/write boundary, identity scope/schema/provenance failures,
 missing retained-evidence/service-slot/audit-boundary bindings, missing
 identity, and all-inputs-present-but-non-authorizing identity evidence.
+
+The module loader artifact-hash binding diagnostic emits
+`raios.module_loader_artifact_hash_binding.v0` and the selftest emits
+`raios.module_loader_artifact_hash_binding_selftest.v0`. It makes the second
+loader-runtime fact addressable as local-only current-boot evidence and adds an
+explicit loader-identity binding requirement. It must keep loader descriptor
+input, artifact byte input, service inventory mutation, service-slot
+allocation, and load attempts disabled. The selftest covers missing retained
+evidence, allocator readiness/runtime gaps, missing audit/write boundary,
+missing loader identity, artifact-hash binding scope/schema/provenance
+failures, retained-evidence/service-slot/audit-boundary/loader-identity binding
+gaps, missing artifact-hash binding, and all-inputs-present-but-non-authorizing
+artifact-hash binding evidence.
 
 The audit/rollback availability diagnostic emits
 `raios.module_audit_rollback_availability.v0` and the selftest emits
