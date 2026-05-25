@@ -899,6 +899,21 @@ pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_EVIDENCE: &[&str] = &
     "service_inventory_unchanged",
     "load_not_attempted",
 ];
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_EVIDENCE: &[&str] = &[
+    "module_service_slot_allocator_prerequisite_source_evidence",
+    "service_slot_allocator_prerequisite_status",
+    "service_slot_allocator_prerequisite_reason",
+    "allocator_runtime_source_evidence_event_id",
+    "registry_binding_source_evidence_event_id",
+    "health_state_source_evidence_event_id",
+    "unload_cleanup_source_evidence_event_id",
+    "source_method",
+    "source_fact_locator",
+    "current_boot_ram_event_log_only",
+    "service_slot_not_allocated",
+    "service_inventory_unchanged",
+    "load_not_attempted",
+];
 pub(crate) const MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE: &[&str] = &[
     "module_loader_identity_source_evidence",
     "module_loader_identity_status",

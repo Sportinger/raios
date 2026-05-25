@@ -781,6 +781,47 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             raw_bool(binding.binds_allocator_runtime);
             raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
         }
+        event_log::EventBindings::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"prerequisite_schema\": ");
+            json_str(binding.prerequisite_schema);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"prerequisite_id\": ");
+            json_str(binding.prerequisite_id);
+            raw(", \"prerequisite_status\": ");
+            json_str(binding.prerequisite_status);
+            raw(", \"prerequisite_reason\": ");
+            json_str(binding.prerequisite_reason);
+            raw(", \"prerequisite_available\": ");
+            raw_bool(binding.prerequisite_available);
+            raw(", \"retained_service_slot_reservation_present\": ");
+            raw_bool(binding.retained_service_slot_reservation_present);
+            raw(", \"allocator_runtime_available\": ");
+            raw_bool(binding.allocator_runtime_available);
+            raw(", \"registry_binding_available\": ");
+            raw_bool(binding.registry_binding_available);
+            raw(", \"health_state_available\": ");
+            raw_bool(binding.health_state_available);
+            raw(", \"unload_cleanup_available\": ");
+            raw_bool(binding.unload_cleanup_available);
+            raw(", \"allocator_runtime_source_evidence_event_id\": ");
+            json_event_id_option(binding.allocator_runtime_source_evidence_event_id);
+            raw(", \"registry_binding_source_evidence_event_id\": ");
+            json_event_id_option(binding.registry_binding_source_evidence_event_id);
+            raw(", \"health_state_source_evidence_event_id\": ");
+            json_event_id_option(binding.health_state_source_evidence_event_id);
+            raw(", \"unload_cleanup_source_evidence_event_id\": ");
+            json_event_id_option(binding.unload_cleanup_source_evidence_event_id);
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+        }
         event_log::EventBindings::ModuleLoaderIdentitySourceEvidence(binding) => {
             raw(", \"bindings\": {\"schema\": ");
             json_str(binding.schema);

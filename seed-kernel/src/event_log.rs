@@ -7,11 +7,12 @@ use crate::event_log_evidence::{
     MODULE_LOADER_FACT_SOURCE_EVIDENCE, MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE,
     MODULE_LOAD_GATE_EVIDENCE, MODULE_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
     MODULE_LOCAL_ATTESTATION_REFERENCE_EVIDENCE, MODULE_MANIFEST_REFERENCE_EVIDENCE,
-    MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_EVIDENCE, MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE,
-    MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE, PROVIDER_BINDING_CONSUMPTION_EVIDENCE,
-    PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE, PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE,
-    PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE, PROVIDER_REQUEST_BINDING_EVIDENCE,
-    PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
+    MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_EVIDENCE,
+    MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_EVIDENCE,
+    MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE, MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE,
+    PROVIDER_BINDING_CONSUMPTION_EVIDENCE, PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
+    PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE, PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
+    PROVIDER_REQUEST_BINDING_EVIDENCE, PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
     RECOVERY_ARTIFACT_IDENTITY_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_LOADER_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE, RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_EVIDENCE,
@@ -53,7 +54,8 @@ pub use crate::event_log_types::{
     ModuleLoadGateBinding, ModuleLoaderArtifactHashBindingSourceEvidence,
     ModuleLoaderFactSourceEvidence, ModuleLoaderIdentitySourceEvidence,
     ModuleLocalApprovalReference, ModuleLocalAttestationReference, ModuleManifestReference,
-    ModuleServiceSlotAllocatorFactSourceEvidence, ModuleServiceSlotId,
+    ModuleServiceSlotAllocatorFactSourceEvidence,
+    ModuleServiceSlotAllocatorPrerequisiteSourceEvidence, ModuleServiceSlotId,
     ModuleServiceSlotReservation, ModuleVmTestReportReference, ProviderBindingConsumption,
     ProviderBindingGateCheck, ProviderBindingGateSelfTestCase, ProviderContextHashes,
     ProviderContextInjectionAuthorization, ProviderContextInjectionGateCheck,
@@ -1539,6 +1541,40 @@ impl EventLog {
             if let Some(event) = self.events[source] {
                 if let EventBindings::ModuleServiceSlotAllocatorFactSourceEvidence(binding) =
                     event.bindings
+                {
+                    if binding.source_fact_locator == source_fact_locator {
+                        return Some((
+                            EventId {
+                                sequence: event.sequence,
+                            },
+                            binding,
+                        ));
+                    }
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_service_slot_allocator_prerequisite_source_evidence(
+        &self,
+        source_fact_locator: &'static str,
+    ) -> Option<(
+        EventId,
+        ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+    )> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence(
+                    binding,
+                ) = event.bindings
                 {
                     if binding.source_fact_locator == source_fact_locator {
                         return Some((
@@ -3639,6 +3675,26 @@ pub fn record_module_service_slot_allocator_fact_source_evidence(
     })
 }
 
+pub fn record_module_service_slot_allocator_prerequisite_source_evidence(
+    binding: ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.service_slot_allocator.prerequisite_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: "cap.module.load_ephemeral",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.prerequisite_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence(binding),
+    })
+}
+
 pub fn record_module_loader_identity_source_evidence(
     binding: ModuleLoaderIdentitySourceEvidence,
 ) -> EventId {
@@ -4006,6 +4062,16 @@ pub fn latest_module_service_slot_allocator_fact_source_evidence(
 ) -> Option<(EventId, ModuleServiceSlotAllocatorFactSourceEvidence)> {
     LOG.lock()
         .latest_module_service_slot_allocator_fact_source_evidence(source_fact_locator)
+}
+
+pub fn latest_module_service_slot_allocator_prerequisite_source_evidence(
+    source_fact_locator: &'static str,
+) -> Option<(
+    EventId,
+    ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+)> {
+    LOG.lock()
+        .latest_module_service_slot_allocator_prerequisite_source_evidence(source_fact_locator)
 }
 
 pub fn latest_module_loader_identity_source_evidence(

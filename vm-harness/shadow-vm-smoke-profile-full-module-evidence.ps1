@@ -562,6 +562,12 @@
         @{ Suffix = "health_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.service_health_state_model"' },
         @{ Suffix = "cleanup_schema"; Needle = '"schema": "raios.service_unload_cleanup_plan_source_evidence.v0"' },
         @{ Suffix = "cleanup_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.service_unload_cleanup_plan"' },
+        @{ Suffix = "durable_schema"; Needle = '"schema": "raios.service_slot_allocator_durable_audit_write_source_evidence.v0"' },
+        @{ Suffix = "durable_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.durable_audit_write"' },
+        @{ Suffix = "rollback_schema"; Needle = '"schema": "raios.service_slot_allocator_rollback_install_source_evidence.v0"' },
+        @{ Suffix = "rollback_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.rollback_plan_install"' },
+        @{ Suffix = "loader_schema"; Needle = '"schema": "raios.service_slot_allocator_module_loader_source_evidence.v0"' },
+        @{ Suffix = "loader_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.module_loader"' },
         @{ Suffix = "retained"; Needle = '"status": "retained_current_boot_source_evidence"' },
         @{ Suffix = "event"; Needle = '"event_id": "event.current_boot.' }
     )
@@ -571,6 +577,10 @@
     Assert-LogContains -Name "protocol:module_service_slot_allocator_fact_schema" -Needle '"schema": "raios.ram_only_service_slot_allocator.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_fact_source_observed" -Needle '"source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_fact_source_event" -Needle '"source_evidence_event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_prereq_gates" -Needle '"allocator_prerequisite_gates": {' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_durable_prereq" -Needle '"durable_audit_write": {' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_rollback_prereq" -Needle '"rollback_plan_install": {' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_loader_prereq" -Needle '"module_loader": {' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_runtime_missing" -Needle '"reason": "service_slot_allocator_runtime_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_can_allocate_false" -Needle '"can_allocate": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1

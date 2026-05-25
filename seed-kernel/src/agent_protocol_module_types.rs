@@ -454,15 +454,105 @@ pub(crate) fn module_service_slot_allocator_source_fact_map_complete() -> bool {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAllocatorPrerequisite {
+    pub(crate) available: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAllocatorPrerequisiteSource {
+    pub(crate) name: &'static str,
+    pub(crate) schema: &'static str,
+    pub(crate) id: &'static str,
+    pub(crate) missing_status: &'static str,
+    pub(crate) missing_reason: &'static str,
+    pub(crate) source_method: &'static str,
+    pub(crate) source_fact_locator: &'static str,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_missing_reason: &'static str,
+}
+
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_COUNT: usize = 3;
+
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES:
+    [ModuleServiceSlotAllocatorPrerequisiteSource;
+        MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_COUNT] = [
+    ModuleServiceSlotAllocatorPrerequisiteSource {
+        name: "durable_audit_write",
+        schema: "raios.audit_record.v0",
+        id: "module.service_slot_allocator.durable_audit_write.current_boot",
+        missing_status: "missing",
+        missing_reason: "durable_audit_write_missing",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.durable_audit_write",
+        source_evidence_schema:
+            "raios.service_slot_allocator_durable_audit_write_source_evidence.v0",
+        source_evidence_missing_reason:
+            "service_slot_allocator_durable_audit_write_source_evidence_missing",
+    },
+    ModuleServiceSlotAllocatorPrerequisiteSource {
+        name: "rollback_plan_install",
+        schema: "raios.rollback_plan.v0",
+        id: "module.service_slot_allocator.rollback_plan_install.current_boot",
+        missing_status: "missing",
+        missing_reason: "rollback_install_missing",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.rollback_plan_install",
+        source_evidence_schema: "raios.service_slot_allocator_rollback_install_source_evidence.v0",
+        source_evidence_missing_reason:
+            "service_slot_allocator_rollback_install_source_evidence_missing",
+    },
+    ModuleServiceSlotAllocatorPrerequisiteSource {
+        name: "module_loader",
+        schema: "raios.module_loader.v0",
+        id: "module.service_slot_allocator.module_loader.current_boot",
+        missing_status: "unavailable",
+        missing_reason: "module_loader_unimplemented",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.module_loader",
+        source_evidence_schema: "raios.service_slot_allocator_module_loader_source_evidence.v0",
+        source_evidence_missing_reason:
+            "service_slot_allocator_module_loader_source_evidence_missing",
+    },
+];
+
+pub(crate) fn module_service_slot_allocator_prerequisite_source_map_complete() -> bool {
+    let mut idx = 0usize;
+    while idx < MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_COUNT {
+        let source = MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[idx];
+        if source.name.is_empty()
+            || source.schema.is_empty()
+            || source.id.is_empty()
+            || source.missing_status.is_empty()
+            || source.missing_reason.is_empty()
+            || source.source_method.is_empty()
+            || source.source_fact_locator.is_empty()
+            || source.source_evidence_schema.is_empty()
+            || source.source_evidence_missing_reason.is_empty()
+        {
+            return false;
+        }
+        idx += 1;
+    }
+    true
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct ModuleServiceSlotAllocatorCandidate {
     pub(crate) retained_reservation_present: bool,
     pub(crate) allocator_runtime: ModuleServiceSlotAllocatorFact,
     pub(crate) registry_binding: ModuleServiceSlotAllocatorFact,
     pub(crate) health_state: ModuleServiceSlotAllocatorFact,
     pub(crate) unload_cleanup: ModuleServiceSlotAllocatorFact,
-    pub(crate) durable_audit_written: bool,
-    pub(crate) rollback_plan_installed: bool,
-    pub(crate) module_loader_available: bool,
+    pub(crate) durable_audit_write: ModuleServiceSlotAllocatorPrerequisite,
+    pub(crate) rollback_plan_install: ModuleServiceSlotAllocatorPrerequisite,
+    pub(crate) module_loader: ModuleServiceSlotAllocatorPrerequisite,
 }
 
 #[derive(Clone, Copy)]
@@ -514,6 +604,18 @@ pub(crate) struct ModuleServiceSlotAllocatorSelfTestCase {
     pub(crate) actual_unload_cleanup_source_evidence_state: &'static str,
     pub(crate) actual_unload_cleanup_source_evidence_status: &'static str,
     pub(crate) actual_unload_cleanup_source_evidence_reason: &'static str,
+    pub(crate) actual_durable_audit_source_evidence_present: bool,
+    pub(crate) actual_durable_audit_source_evidence_state: &'static str,
+    pub(crate) actual_durable_audit_source_evidence_status: &'static str,
+    pub(crate) actual_durable_audit_source_evidence_reason: &'static str,
+    pub(crate) actual_rollback_install_source_evidence_present: bool,
+    pub(crate) actual_rollback_install_source_evidence_state: &'static str,
+    pub(crate) actual_rollback_install_source_evidence_status: &'static str,
+    pub(crate) actual_rollback_install_source_evidence_reason: &'static str,
+    pub(crate) actual_module_loader_source_evidence_present: bool,
+    pub(crate) actual_module_loader_source_evidence_state: &'static str,
+    pub(crate) actual_module_loader_source_evidence_status: &'static str,
+    pub(crate) actual_module_loader_source_evidence_reason: &'static str,
     pub(crate) passed: bool,
 }
 
@@ -1675,7 +1777,7 @@ pub(crate) const MODULE_LOCAL_APPROVAL_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
-pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 18;
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 21;
 pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 37;
 pub(crate) const MODULE_LOADER_IDENTITY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_LOADER_ARTIFACT_HASH_BINDING_SELFTEST_CASES: usize = 14;

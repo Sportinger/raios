@@ -561,7 +561,9 @@ evidence, records retained current-boot source-evidence for typed missing
 `raios.service_slot_registry_binding.v0`,
 `raios.service_health_state_model.v0`, and
 `raios.service_unload_cleanup_plan.v0` facts, and reports those facts as
-observed-current-boot missing. It must keep
+observed-current-boot missing. It also records source-evidence for the
+durable-audit write, rollback-install, and module-loader prerequisite gates
+while they remain unavailable. It must keep
 `allocates_service_slot: false`, `creates_service_inventory_records: false`,
 `can_allocate: false`, `can_load_now: false`, and `load_attempted: false`.
 

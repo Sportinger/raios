@@ -174,11 +174,12 @@ selftest in
 `seed-kernel/src/agent_protocol_module_service_slot_allocator.rs`; it consumes
 retained service-slot reservation evidence only as local-only input, records
 retained current-boot source-evidence for the four missing allocator runtime,
-registry binding, health-state, and unload-cleanup facts, and still allocates
-no slots.
+registry binding, health-state, and unload-cleanup facts plus the durable-audit
+write, rollback-install, and module-loader prerequisite gates, and still
+allocates no slots.
 Current evidence: full report
-`release/vm-reports/shadow-20260525-094036-11176.json` recorded 5482/5482
-predicates with 243 executed commands and `duration_ms: 380961`; quick report
+`release/vm-reports/shadow-20260525-100103-23660.json` recorded 5498/5498
+predicates with 243 executed commands and `duration_ms: 337151`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
@@ -1217,10 +1218,10 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Continue the RAM-only service-slot allocator foundation by adding typed,
-non-authorizing source-evidence for the durable-audit write,
-rollback-install, and module-loader prerequisite gates under
-`module.service_slot_allocator`.
+Start the real RAM-only service-slot allocator runtime foundation by replacing
+the observed-missing `raios.ram_only_service_slot_allocator.v0` source evidence
+with a current-boot allocator runtime fact that is still fail-closed and does
+not allocate, mutate service inventory, or load artifacts.
 ```
 
 `module.load_ephemeral` reports retained-evidence, service-slot allocator
@@ -1236,16 +1237,18 @@ service-slot, inventory, or load authority. `module.service_slot_allocator`
 now makes its four core allocator facts addressable as retained current-boot
 source evidence; the next durable Phase-6 slice should do the same for the
 remaining durable-audit, rollback-install, and module-loader prerequisite
-gates.
+gates. Those gates are now also addressable as retained current-boot source
+evidence, so the next durable Phase-6 slice should start making the allocator
+runtime itself real while retaining explicit denials for allocation and load.
 
 Next three tasks:
 
-1. Add retained, local-only, current-boot source-evidence event bindings for
-   the durable-audit write and rollback-install prerequisite gates under
-   `module.service_slot_allocator`.
-2. Add the module-loader prerequisite source-evidence binding and make
-   `module.service_slot_allocator_selftest` cover the observed missing gate
-   without granting allocation or load authority.
+1. Add a real current-boot `raios.ram_only_service_slot_allocator.v0` runtime
+   fact under `module.service_slot_allocator` that remains fail-closed and does
+   not allocate slots.
+2. Teach `module.service_slot_allocator_selftest` and the full Shadow VM module
+   profiles to distinguish an available allocator runtime from still-missing
+   registry/health/unload and prerequisite gates.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next Phase-6 slice.
