@@ -573,7 +573,8 @@ but non-authorizing, so the final allocator readiness denial is
 The module loader-runtime readiness diagnostic emits
 `raios.module_loader_runtime_readiness.v0` and the selftest emits
 `raios.module_loader_runtime_readiness_selftest.v0`. It consumes retained
-module evidence, the service-slot allocator diagnostic, and the latest retained
+module evidence, the retained service-slot allocator source-evidence
+projection, and the latest retained
 `module.loader_identity` plus `module.loader_artifact_hash_binding`
 plus `module.loader_entrypoint_abi`, `module.loader_address_space_boundary`,
 `module.loader_memory_map_constraints`,
@@ -591,7 +592,12 @@ keeps `loads_artifact: false`,
 loader-runtime fact now carries the addressable source diagnostic method and
 source fact locator, and `module.loader_runtime_selftest` exposes a
 `source_fact_map` so the aggregate required-fact list can be checked against
-the typed source methods. The selftest also includes observed-current-boot
+the typed source methods. With valid retained allocator source evidence, the
+live diagnostic should report
+`readiness_status: denied_allocator_authority_unimplemented` and
+`readiness_reason: service_slot_allocator_authority_unimplemented`; the
+selftest still includes the negative runtime-missing case. The selftest also
+includes observed-current-boot
 loader identity, artifact-hash, entrypoint-ABI, address-space, memory-map,
 capability-table, service-slot, health-hook, rollback-hook, and write-boundary
 source-evidence cases. The denied
@@ -604,8 +610,11 @@ and the selftest emits `raios.module_loader_identity_selftest.v0`. It makes the
 first loader-runtime fact addressable as a local-only current-boot diagnostic,
 but does not accept loader descriptors or artifact bytes. The live diagnostic
 reports the identity fact as missing until retained module evidence,
-service-slot allocator runtime, and audit/write-boundary bindings exist. It
-also records a separate
+the retained service-slot allocator source-evidence projection, and
+audit/write-boundary bindings exist. With valid retained allocator source
+evidence, the live diagnostic reports
+`service_slot_allocator_authority_unimplemented` rather than the older static
+runtime-missing placeholder. It also records a separate
 `raios.module_loader_identity_source_evidence.v0` binding in the current-boot
 RAM event log; that binding is local-only, non-authorizing, accepts no loader
 descriptor or artifact bytes, and is consumed by `module.loader_runtime` only

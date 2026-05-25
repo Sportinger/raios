@@ -1,4 +1,7 @@
-use crate::{agent_protocol_module_types::*, agent_protocol_support::*, event_log};
+use crate::{
+    agent_protocol_module_service_slot_allocator_projection::latest_module_service_slot_allocator_readiness_projection,
+    agent_protocol_module_types::*, agent_protocol_support::*, event_log,
+};
 
 pub(crate) fn module_loader_runtime_method(method: &str) -> bool {
     method_head_eq(method, "module.loader_runtime")
@@ -50,6 +53,7 @@ pub(crate) fn emit_module_loader_runtime() {
         computed_grant.is_some(),
         audit_rollback.is_some(),
         service_slot.is_some(),
+        service_slot.as_ref().map(|(event_id, _)| *event_id),
         loader_identity_source_evidence,
         artifact_hash_binding_source_evidence,
         entrypoint_abi_source_evidence,
@@ -858,6 +862,7 @@ fn module_loader_runtime_snapshot(
     computed_grant_reference_present: bool,
     audit_rollback_reference_present: bool,
     service_slot_reservation_present: bool,
+    service_slot_reservation_event_id: Option<event_log::EventId>,
     loader_identity_source_evidence: Option<(
         event_log::EventId,
         event_log::ModuleLoaderIdentitySourceEvidence,
@@ -899,6 +904,9 @@ fn module_loader_runtime_snapshot(
         event_log::ModuleLoaderFactSourceEvidence,
     )>,
 ) -> ModuleLoaderRuntimeCandidate {
+    let service_slot_allocator = latest_module_service_slot_allocator_readiness_projection(
+        service_slot_reservation_event_id,
+    );
     ModuleLoaderRuntimeCandidate {
         manifest_reference_present,
         artifact_reference_present,
@@ -908,8 +916,10 @@ fn module_loader_runtime_snapshot(
         computed_grant_reference_present,
         audit_rollback_reference_present,
         service_slot_reservation_present,
-        service_slot_allocator_readiness_present: true,
-        service_slot_allocator_ready: false,
+        service_slot_allocator_readiness_present: service_slot_allocator.readiness_present,
+        service_slot_allocator_ready: service_slot_allocator.ready,
+        service_slot_allocator_unready_status: service_slot_allocator.unready_status,
+        service_slot_allocator_unready_reason: service_slot_allocator.unready_reason,
         loader_identity: module_loader_runtime_loader_identity_fact(
             loader_identity_source_evidence,
         ),
@@ -963,6 +973,8 @@ fn module_loader_runtime_ready_snapshot() -> ModuleLoaderRuntimeCandidate {
         service_slot_reservation_present: true,
         service_slot_allocator_readiness_present: true,
         service_slot_allocator_ready: true,
+        service_slot_allocator_unready_status: "available",
+        service_slot_allocator_unready_reason: "service_slot_allocator_runtime_available",
         loader_identity: module_loader_runtime_available_fact_for(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[0],
         ),
@@ -1232,17 +1244,27 @@ fn evaluate_module_loader_runtime_candidate(
             "retained_module_service_slot_reservation_missing",
         );
     let (service_slot_allocator_readiness_status, service_slot_allocator_readiness_reason) =
-        evaluate_module_loader_runtime_evidence(
-            candidate.service_slot_allocator_readiness_present,
-            "service_slot_allocator_readiness_available",
-            "service_slot_allocator_readiness_missing",
-        );
+        if !candidate.service_slot_allocator_readiness_present {
+            ("missing", "service_slot_allocator_readiness_missing")
+        } else if candidate.service_slot_allocator_ready {
+            ("available", "service_slot_allocator_readiness_available")
+        } else {
+            (
+                candidate.service_slot_allocator_unready_status,
+                candidate.service_slot_allocator_unready_reason,
+            )
+        };
     let (service_slot_allocator_runtime_status, service_slot_allocator_runtime_reason) =
-        evaluate_module_loader_runtime_evidence(
-            candidate.service_slot_allocator_ready,
-            "service_slot_allocator_runtime_available",
-            "service_slot_allocator_runtime_missing",
-        );
+        if candidate.service_slot_allocator_ready {
+            ("available", "service_slot_allocator_runtime_available")
+        } else if method_eq(
+            candidate.service_slot_allocator_unready_status,
+            "denied_missing_service_slot_allocator_runtime",
+        ) {
+            ("missing", candidate.service_slot_allocator_unready_reason)
+        } else {
+            ("available", "service_slot_allocator_runtime_available")
+        };
 
     let (loader_identity_status, loader_identity_reason) = evaluate_module_loader_runtime_fact(
         candidate.loader_identity,
@@ -1411,8 +1433,8 @@ fn evaluate_module_loader_runtime_candidate(
         )
     } else if !candidate.service_slot_allocator_ready {
         (
-            "denied_missing_service_slot_allocator_runtime",
-            service_slot_allocator_runtime_reason,
+            candidate.service_slot_allocator_unready_status,
+            candidate.service_slot_allocator_unready_reason,
         )
     } else if method_eq(loader_identity_status, "rejected") {
         ("rejected", loader_identity_reason)
@@ -1700,6 +1722,9 @@ fn module_loader_runtime_selftest_cases(
             "service_slot_allocator_runtime_missing",
             ModuleLoaderRuntimeCandidate {
                 service_slot_allocator_ready: false,
+                service_slot_allocator_unready_status:
+                    "denied_missing_service_slot_allocator_runtime",
+                service_slot_allocator_unready_reason: "service_slot_allocator_runtime_missing",
                 ..ready
             },
         ),

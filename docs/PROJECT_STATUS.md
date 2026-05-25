@@ -17,7 +17,14 @@ look for ownership boundaries; around 3k-5k LOC, actively split if a stable
 boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
-Last verified locally: 2026-05-25 on Windows with QEMU 11 after binding the
+Last verified locally: 2026-05-25 on Windows with QEMU 11 after propagating the
+real retained `module.service_slot_allocator` readiness projection into the
+standalone normal-module loader diagnostics (`module.loader_identity`,
+`module.loader_artifact_hash_binding`, the typed loader fact diagnostics, and
+`module.loader_runtime`) so their live source-evidence projections now report
+`service_slot_allocator_authority_unimplemented` instead of static
+runtime-missing placeholders once allocator source evidence has been observed,
+after binding the
 denied `module.load_ephemeral` / `service.load_ephemeral` service-slot
 allocator readiness projection to the retained
 `module.service_slot_allocator` source-evidence chain so the full retained
@@ -863,14 +870,13 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Propagate the same real service-slot allocator readiness outcome into the
-normal module-loader diagnostics (`module.loader_identity`,
-`module.loader_artifact_hash_binding`, the typed loader fact boundaries, and
-`module.loader_runtime`) so their source-evidence projections no longer rely on
-static `service_slot_allocator_runtime_missing` placeholders once
-`module.service_slot_allocator` has observed the allocator facts and prerequisite
-chain. Keep descriptor/artifact intake, service-slot allocation, service
-inventory mutation, and load attempts denied.
+Define the first explicit service-slot allocator authority boundary instead of
+leaving `service_slot_allocator_authority_unimplemented` as a terminal string.
+It should consume the retained allocator facts and prerequisite source evidence,
+name the future authority inputs required for a real RAM-only service-slot
+allocation, and still keep descriptor/artifact intake, service-slot allocation,
+service inventory mutation, and load attempts denied until the authority and
+loader-runtime contracts are complete.
 
 The current Phase-6 loader-runtime aggregate and denied
 `module.load_ephemeral` loader-runtime readiness projection cite the same ten
@@ -893,11 +899,16 @@ the module-loader prerequisite boundary is now present but non-authorizing. The
 direct readiness diagnostic advances to
 `service_slot_allocator_authority_unimplemented`. The denied module load gate
 now consumes that real readiness outcome and reports the same authority denial
-in its service-slot allocator and loader-runtime readiness projections. The next
-durable slice should propagate the same real readiness outcome into the
-standalone loader diagnostics while keeping service-slot allocation, service
-inventory mutation, loader descriptor intake, artifact bytes, and load attempts
-denied until the rest of the gate is complete.
+in its service-slot allocator and loader-runtime readiness projections. The
+standalone loader diagnostics now consume the same retained allocator projection
+before recording loader source-evidence, so live loader identity, artifact-hash,
+typed loader fact, and aggregate loader-runtime responses report the same
+`service_slot_allocator_authority_unimplemented` denial while preserving the
+runtime-missing negative selftests. The next durable slice should replace that
+terminal authority string with an explicit typed allocator-authority boundary
+while keeping service-slot allocation, service inventory mutation, loader
+descriptor intake, artifact bytes, and load attempts denied until the rest of
+the gate is complete.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:
@@ -1492,7 +1503,8 @@ Historical verified recovery foundation retained for reference:
 - `module.loader_runtime` now exposes
   `raios.module_loader_runtime_readiness.v0` as a read-only current-boot
   diagnostic over the missing normal-module loader/runtime side of Phase 6. It
-  consumes retained module evidence, service-slot allocator readiness, and the
+  consumes retained module evidence, retained service-slot allocator
+  source-evidence readiness, and the
   latest retained `module.loader_identity` and
   `module.loader_artifact_hash_binding`, `module.loader_entrypoint_abi`,
   `module.loader_address_space_boundary`,
@@ -1508,9 +1520,13 @@ Historical verified recovery foundation retained for reference:
   hooks, and audit/rollback write-boundary binding facts, and keeps
   `loads_artifact`, `allocates_service_slot`,
   `creates_service_inventory_records`, `can_load_now`, and `load_attempted`
-  false. Each aggregate fact and loader-fact `blocked_by` entry cites the
-  source diagnostic method and source fact locator for the corresponding typed
-  method.
+  false. With valid retained allocator source evidence, the live aggregate and
+  loader source-evidence responses now report
+  `denied_allocator_authority_unimplemented` /
+  `service_slot_allocator_authority_unimplemented` instead of the old static
+  runtime-missing placeholder. Each aggregate fact and loader-fact `blocked_by`
+  entry cites the source diagnostic method and source fact locator for the
+  corresponding typed method.
 - `module.loader_runtime_selftest` covers missing retained evidence,
   service-slot allocator readiness/runtime gaps, stale/scope/schema/provenance
   and retained-evidence/service-slot/audit-boundary binding failures, each
@@ -1935,8 +1951,8 @@ Historical verified recovery foundation retained for reference:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest full report:
-  `release\vm-reports\shadow-20260525-112019-14276.json` with 5525/5525
-  predicates, 243 executed commands, and `duration_ms: 388619`.
+  `release\vm-reports\shadow-20260525-114855-976.json` with 5525/5525
+  predicates, 243 executed commands, and `duration_ms: 341064`.
   Latest focused reports:
   `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 17108`, and

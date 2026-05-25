@@ -2,7 +2,14 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-25 by Codex after binding the denied
+Last updated: 2026-05-25 by Codex after propagating the real retained
+`module.service_slot_allocator` readiness projection into the standalone
+normal-module loader diagnostics (`module.loader_identity`,
+`module.loader_artifact_hash_binding`, the typed loader fact diagnostics, and
+`module.loader_runtime`) so their live source-evidence projections now report
+`service_slot_allocator_authority_unimplemented` instead of static
+runtime-missing placeholders once allocator source evidence has been observed,
+after binding the denied
 `module.load_ephemeral` / `service.load_ephemeral` service-slot allocator
 readiness projection to the retained `module.service_slot_allocator`
 source-evidence chain, so the full retained module evidence path now reports
@@ -202,9 +209,14 @@ retained allocator source-evidence records and projects the final
 `service_slot_allocator_authority_unimplemented` denial through both
 `raios.module_service_slot_allocator_readiness.v0` and
 `raios.module_loader_runtime_readiness.v0` while still loading nothing.
+Standalone normal-module loader diagnostics now consume the same retained
+allocator projection before recording loader source evidence, so live loader
+identity, artifact-hash, typed loader fact, and aggregate loader-runtime
+responses report `service_slot_allocator_authority_unimplemented` while the
+runtime-missing negative selftests remain available.
 Current evidence: full report
-`release/vm-reports/shadow-20260525-112019-14276.json` recorded 5525/5525
-predicates with 243 executed commands and `duration_ms: 388619`; quick report
+`release/vm-reports/shadow-20260525-114855-976.json` recorded 5525/5525
+predicates with 243 executed commands and `duration_ms: 341064`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
@@ -685,7 +697,8 @@ Current verified cursor:
 - `module.loader_runtime` now exposes
   `raios.module_loader_runtime_readiness.v0` as a read-only current-boot
   diagnostic over missing normal-module loader-runtime facts. It consumes
-  retained module evidence, service-slot allocator readiness, and the latest
+  retained module evidence, retained service-slot allocator source-evidence
+  readiness, and the latest
   retained `module.loader_identity` plus
   `module.loader_artifact_hash_binding`, `module.loader_entrypoint_abi`,
   `module.loader_address_space_boundary`,
@@ -700,9 +713,13 @@ Current verified cursor:
   capability import table, service-slot binding, health/rollback hooks, and
   audit/rollback write-boundary binding, and keeps `loads_artifact`,
   `allocates_service_slot`, `service_inventory_change`, `can_load_now`, and
-  `load_attempted` non-authorizing. Each aggregate loader-runtime fact and
-  loader-fact `blocked_by` entry now cites the addressable source diagnostic
-  method and source fact locator. `module.loader_runtime_selftest` exposes a
+  `load_attempted` non-authorizing. With valid retained allocator source
+  evidence, the live aggregate and loader source-evidence responses now report
+  `denied_allocator_authority_unimplemented` /
+  `service_slot_allocator_authority_unimplemented` instead of the old static
+  runtime-missing placeholder. Each aggregate loader-runtime fact and loader-fact
+  `blocked_by` entry now cites the addressable source diagnostic method and
+  source fact locator. `module.loader_runtime_selftest` exposes a
   ten-entry source map, includes observed-current-boot loader identity,
   artifact-hash, entrypoint-ABI, address-space, memory-map, capability-table,
   service-slot, health-hook, rollback-hook, and write-boundary source-evidence
@@ -710,7 +727,7 @@ Current verified cursor:
 - `module.loader_identity` now exposes `raios.module_loader_identity.v0` as a
   read-only current-boot diagnostic for the first typed normal-module
   loader-runtime fact. The live fact is missing/local-only until retained
-  module evidence, service-slot allocator readiness/runtime, and
+  module evidence, retained service-slot allocator source-evidence readiness, and
   audit/rollback write-boundary binding exist. The live diagnostic records a
   separate `raios.module_loader_identity_source_evidence.v0` event in the
   current-boot RAM event log; that record is local-only, non-authorizing,
@@ -1249,12 +1266,11 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Bind the denied `module.load_ephemeral` and `service.load_ephemeral`
-service-slot allocator readiness projection to the real
-`module.service_slot_allocator` outcome instead of the static
-`service_slot_allocator_runtime_missing` placeholder, while keeping loader
-runtime, descriptor/artifact intake, service-slot allocation, service inventory
-mutation, and load attempts denied.
+Define the first explicit service-slot allocator authority boundary over the
+retained allocator facts and prerequisite source evidence, replacing
+`service_slot_allocator_authority_unimplemented` as a terminal string while
+still denying service-slot allocation, service inventory mutation,
+descriptor/artifact intake, and load attempts.
 ```
 
 `module.load_ephemeral` reports retained-evidence, service-slot allocator
@@ -1275,17 +1291,19 @@ when those allocator facts are available. The module-loader prerequisite
 boundary is now present but non-authorizing; the direct readiness diagnostic
 therefore advances to `service_slot_allocator_authority_unimplemented` while
 retaining explicit denials for allocation and load.
+The denied load gate and the standalone normal-module loader diagnostics now
+consume that real allocator readiness projection and report the same authority
+denial once allocator source evidence has been observed.
 
 Next three tasks:
 
-1. Bind the denied module-load service-slot allocator readiness projection to
-   the real `module.service_slot_allocator` output.
-2. Teach `module.load_gate_loader_runtime_selftest` and the full Shadow VM
-   module profiles to distinguish allocator-authority-denied from the older
-   missing-runtime placeholder.
-3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
-   workspace Cargo tests, format check, diff check, and secret scan before
-   committing the next Phase-6 slice.
+1. Add a typed, read-only service-slot allocator authority boundary and
+   source-evidence record over the retained allocator fact/prerequisite chain.
+2. Teach `module.service_slot_allocator`, `module.load_ephemeral`, and the
+   standalone loader diagnostics to cite that authority boundary while keeping
+   `allocates_service_slot: false` and `load_attempted: false`.
+3. Run the full release build, shadow VM smoke, workspace Cargo tests, format
+   check, diff check, and secret scan before committing the next Phase-6 slice.
 
 Current blockers and non-goals:
 

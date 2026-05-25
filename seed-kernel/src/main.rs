@@ -35,6 +35,7 @@ mod agent_protocol_module_loader_runtime;
 mod agent_protocol_module_reference;
 mod agent_protocol_module_service_slot;
 mod agent_protocol_module_service_slot_allocator;
+mod agent_protocol_module_service_slot_allocator_projection;
 mod agent_protocol_module_types;
 mod agent_protocol_module_write_boundary;
 mod agent_protocol_module_write_boundary_append_contract;

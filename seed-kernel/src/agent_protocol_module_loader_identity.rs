@@ -1,4 +1,5 @@
 use crate::{
+    agent_protocol_module_service_slot_allocator_projection::latest_module_service_slot_allocator_readiness_projection,
     agent_protocol_module_types::*,
     agent_protocol_support::{
         begin_response, crlf, end_response, json_event_id_option, json_str, method_eq,
@@ -32,10 +33,15 @@ pub(crate) fn emit_module_loader_identity() {
         && computed_grant.is_some()
         && audit_rollback.is_some()
         && service_slot.is_some();
+    let service_slot_allocator = latest_module_service_slot_allocator_readiness_projection(
+        service_slot.as_ref().map(|(event_id, _)| *event_id),
+    );
     let candidate = ModuleLoaderIdentityCandidate {
         retained_module_evidence_present,
-        service_slot_allocator_readiness_present: true,
-        service_slot_allocator_ready: false,
+        service_slot_allocator_readiness_present: service_slot_allocator.readiness_present,
+        service_slot_allocator_ready: service_slot_allocator.ready,
+        service_slot_allocator_unready_status: service_slot_allocator.unready_status,
+        service_slot_allocator_unready_reason: service_slot_allocator.unready_reason,
         audit_rollback_write_boundary_present: false,
         identity: module_loader_identity_missing_fact(),
     };
@@ -518,16 +524,26 @@ fn evaluate_module_loader_identity_candidate(
             ("missing", "retained_module_evidence_missing")
         };
     let (service_slot_allocator_readiness_status, service_slot_allocator_readiness_reason) =
-        if candidate.service_slot_allocator_readiness_present {
+        if !candidate.service_slot_allocator_readiness_present {
+            ("missing", "service_slot_allocator_readiness_missing")
+        } else if candidate.service_slot_allocator_ready {
             ("available", "service_slot_allocator_readiness_available")
         } else {
-            ("missing", "service_slot_allocator_readiness_missing")
+            (
+                candidate.service_slot_allocator_unready_status,
+                candidate.service_slot_allocator_unready_reason,
+            )
         };
     let (service_slot_allocator_runtime_status, service_slot_allocator_runtime_reason) =
         if candidate.service_slot_allocator_ready {
             ("available", "service_slot_allocator_runtime_available")
+        } else if method_eq(
+            candidate.service_slot_allocator_unready_status,
+            "denied_missing_service_slot_allocator_runtime",
+        ) {
+            ("missing", candidate.service_slot_allocator_unready_reason)
         } else {
-            ("missing", "service_slot_allocator_runtime_missing")
+            ("available", "service_slot_allocator_runtime_available")
         };
     let (audit_rollback_write_boundary_status, audit_rollback_write_boundary_reason) =
         if candidate.audit_rollback_write_boundary_present {
@@ -556,8 +572,8 @@ fn evaluate_module_loader_identity_candidate(
         )
     } else if !candidate.service_slot_allocator_ready {
         (
-            "denied_missing_service_slot_allocator_runtime",
-            service_slot_allocator_runtime_reason,
+            candidate.service_slot_allocator_unready_status,
+            candidate.service_slot_allocator_unready_reason,
         )
     } else if !candidate.audit_rollback_write_boundary_present {
         (
@@ -664,6 +680,9 @@ fn module_loader_identity_selftest_cases(
             "service_slot_allocator_runtime_missing",
             ModuleLoaderIdentityCandidate {
                 service_slot_allocator_ready: false,
+                service_slot_allocator_unready_status:
+                    "denied_missing_service_slot_allocator_runtime",
+                service_slot_allocator_unready_reason: "service_slot_allocator_runtime_missing",
                 ..ready
             },
         ),
@@ -796,6 +815,8 @@ fn module_loader_identity_ready_candidate() -> ModuleLoaderIdentityCandidate {
         retained_module_evidence_present: true,
         service_slot_allocator_readiness_present: true,
         service_slot_allocator_ready: true,
+        service_slot_allocator_unready_status: "available",
+        service_slot_allocator_unready_reason: "service_slot_allocator_runtime_available",
         audit_rollback_write_boundary_present: true,
         identity: module_loader_identity_available_fact(),
     }
