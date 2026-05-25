@@ -568,9 +568,9 @@ The module loader-runtime readiness diagnostic emits
 `raios.module_loader_runtime_readiness_selftest.v0`. It consumes retained
 module evidence, the service-slot allocator diagnostic, and the latest retained
 `module.loader_identity` plus `module.loader_artifact_hash_binding`
-source-evidence events only as local-only current-boot inputs, reports missing
-loader identity, artifact-hash binding, entrypoint ABI, address-space and
-memory-map isolation, capability import table, service-slot binding,
+plus `module.loader_entrypoint_abi` source-evidence events only as local-only
+current-boot inputs, reports missing loader identity, artifact-hash binding,
+entrypoint ABI, address-space and memory-map isolation, capability import table, service-slot binding,
 health/rollback hooks, and audit/rollback write-boundary binding facts, and
 keeps `loads_artifact: false`,
 `allocates_service_slot: false`, `service_inventory_change: none`,
@@ -579,7 +579,7 @@ loader-runtime fact now carries the addressable source diagnostic method and
 source fact locator, and `module.loader_runtime_selftest` exposes a
 `source_fact_map` so the aggregate required-fact list can be checked against
 the typed source methods. The selftest also includes observed-current-boot
-loader identity and artifact-hash source-evidence cases. The denied
+loader identity, artifact-hash, and entrypoint-ABI source-evidence cases. The denied
 `module.load_ephemeral` `loader_runtime_readiness` projection and its compact
 audit/event binding reuse the same ten-entry source map, so load-denial
 evidence and aggregate readiness cannot drift.
@@ -619,8 +619,21 @@ retained-evidence/service-slot/audit-boundary/loader-identity binding gaps,
 missing artifact-hash binding, and all-inputs-present-but-non-authorizing
 artifact-hash binding evidence.
 
-The remaining module loader fact diagnostics emit read-only current-boot
-schemas for `raios.module_loader_entrypoint_abi.v0`,
+The module loader entrypoint-ABI diagnostic emits
+`raios.module_loader_entrypoint_abi.v0` and the selftest emits
+`raios.module_loader_entrypoint_abi_selftest.v0`. It makes the third
+loader-runtime fact addressable as local-only current-boot evidence and adds an
+explicit artifact-hash binding dependency. The live diagnostic records
+`raios.module_loader_entrypoint_abi_source_evidence.v0` in the current-boot RAM
+event log; that binding is local-only, non-authorizing, accepts no loader
+descriptor or artifact bytes, cites the retained artifact-hash source-evidence
+event when present, and is consumed by `module.loader_runtime` only as observed
+source evidence. It must keep loader descriptor input, artifact byte input,
+service inventory mutation, service-slot allocation, and load attempts
+disabled.
+
+The remaining module loader fact diagnostics after entrypoint ABI emit
+read-only current-boot schemas for
 `raios.module_loader_address_space_boundary.v0`,
 `raios.module_loader_memory_map_constraints.v0`,
 `raios.module_loader_capability_import_table.v0`,

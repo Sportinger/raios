@@ -21,6 +21,8 @@ pub(crate) fn emit_module_loader_runtime() {
         event_log::latest_module_loader_identity_source_evidence();
     let artifact_hash_binding_source_evidence =
         event_log::latest_module_loader_artifact_hash_binding_source_evidence();
+    let entrypoint_abi_source_evidence =
+        event_log::latest_module_loader_entrypoint_abi_source_evidence();
     let candidate = module_loader_runtime_snapshot(
         manifest.is_some(),
         artifact.is_some(),
@@ -32,6 +34,7 @@ pub(crate) fn emit_module_loader_runtime() {
         service_slot.is_some(),
         loader_identity_source_evidence,
         artifact_hash_binding_source_evidence,
+        entrypoint_abi_source_evidence,
     );
     let evaluation = evaluate_module_loader_runtime_candidate(candidate);
 
@@ -634,7 +637,9 @@ fn emit_module_loader_runtime_fact(
 fn module_loader_runtime_fact_source_evidence_visible(
     source: ModuleLoaderRuntimeFactSource,
 ) -> bool {
-    method_eq(source.name, "loader_identity") || method_eq(source.name, "artifact_hash_binding")
+    method_eq(source.name, "loader_identity")
+        || method_eq(source.name, "artifact_hash_binding")
+        || method_eq(source.name, "entrypoint_abi")
 }
 
 fn emit_module_loader_runtime_gate(
@@ -739,6 +744,14 @@ fn emit_module_loader_runtime_selftest_case(case: &ModuleLoaderRuntimeSelfTestCa
     json_str(case.actual_artifact_hash_source_evidence_status);
     raw(", \"actual_artifact_hash_source_evidence_reason\": ");
     json_str(case.actual_artifact_hash_source_evidence_reason);
+    raw(", \"actual_entrypoint_abi_source_evidence_present\": ");
+    raw_bool(case.actual_entrypoint_abi_source_evidence_present);
+    raw(", \"actual_entrypoint_abi_source_evidence_state\": ");
+    json_str(case.actual_entrypoint_abi_source_evidence_state);
+    raw(", \"actual_entrypoint_abi_source_evidence_status\": ");
+    json_str(case.actual_entrypoint_abi_source_evidence_status);
+    raw(", \"actual_entrypoint_abi_source_evidence_reason\": ");
+    json_str(case.actual_entrypoint_abi_source_evidence_reason);
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"can_load\": false, \"load_attempted\": false}");
@@ -765,6 +778,10 @@ fn module_loader_runtime_snapshot(
         event_log::EventId,
         event_log::ModuleLoaderArtifactHashBindingSourceEvidence,
     )>,
+    entrypoint_abi_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderFactSourceEvidence,
+    )>,
 ) -> ModuleLoaderRuntimeCandidate {
     ModuleLoaderRuntimeCandidate {
         manifest_reference_present,
@@ -783,9 +800,7 @@ fn module_loader_runtime_snapshot(
         artifact_hash_binding: module_loader_runtime_artifact_hash_binding_fact(
             artifact_hash_binding_source_evidence,
         ),
-        entrypoint_abi: module_loader_runtime_missing_fact_for(
-            MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
-        ),
+        entrypoint_abi: module_loader_runtime_entrypoint_abi_fact(entrypoint_abi_source_evidence),
         address_space_boundary: module_loader_runtime_missing_fact_for(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
         ),
@@ -921,6 +936,39 @@ fn module_loader_runtime_artifact_hash_binding_fact(
     }
 }
 
+fn module_loader_runtime_entrypoint_abi_fact(
+    source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderFactSourceEvidence,
+    )>,
+) -> ModuleLoaderRuntimeFact {
+    let Some((event_id, evidence)) = source_evidence else {
+        return module_loader_runtime_missing_fact_for(MODULE_LOADER_RUNTIME_FACT_SOURCES[2]);
+    };
+
+    ModuleLoaderRuntimeFact {
+        present: evidence.fact_present,
+        schema_ok: evidence.fact_schema_ok,
+        scope: evidence.fact_scope,
+        provenance_ok: evidence.fact_provenance_ok,
+        classification: evidence.fact_classification,
+        binds_retained_module_evidence: evidence.binds_retained_module_evidence,
+        binds_service_slot_allocator: evidence.binds_service_slot_allocator,
+        binds_audit_rollback_write_boundary: evidence.binds_audit_rollback_write_boundary,
+        source_evidence_event_id: Some(event_id),
+        source_evidence_schema: evidence.schema,
+        source_evidence_state: if evidence.fact_present {
+            "observed_current_boot_present"
+        } else {
+            "observed_current_boot_missing"
+        },
+        source_evidence_status: evidence.fact_status,
+        source_evidence_reason: evidence.fact_reason,
+        source_evidence_method: evidence.source_method,
+        source_evidence_fact_locator: evidence.source_fact_locator,
+    }
+}
+
 fn module_loader_runtime_observed_loader_identity_missing_fact() -> ModuleLoaderRuntimeFact {
     ModuleLoaderRuntimeFact {
         source_evidence_event_id: Some(event_log::EventId { sequence: 42 }),
@@ -938,6 +986,16 @@ fn module_loader_runtime_observed_artifact_hash_binding_missing_fact() -> Module
         source_evidence_status: "missing",
         source_evidence_reason: "module_loader_artifact_hash_binding_missing",
         ..module_loader_runtime_missing_fact_for(MODULE_LOADER_RUNTIME_FACT_SOURCES[1])
+    }
+}
+
+fn module_loader_runtime_observed_entrypoint_abi_missing_fact() -> ModuleLoaderRuntimeFact {
+    ModuleLoaderRuntimeFact {
+        source_evidence_event_id: Some(event_log::EventId { sequence: 44 }),
+        source_evidence_state: "observed_current_boot_missing",
+        source_evidence_status: "missing",
+        source_evidence_reason: "module_loader_entrypoint_abi_missing",
+        ..module_loader_runtime_missing_fact_for(MODULE_LOADER_RUNTIME_FACT_SOURCES[2])
     }
 }
 
@@ -1633,6 +1691,15 @@ fn module_loader_runtime_selftest_cases(
             },
         ),
         module_loader_runtime_selftest_case(
+            "entrypoint_abi_observed_source_evidence_missing",
+            "denied_missing_loader_runtime_fact",
+            "module_loader_entrypoint_abi_missing",
+            ModuleLoaderRuntimeCandidate {
+                entrypoint_abi: module_loader_runtime_observed_entrypoint_abi_missing_fact(),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
             "address_space_boundary_missing",
             "denied_missing_loader_runtime_fact",
             "module_loader_address_space_boundary_missing",
@@ -1756,6 +1823,17 @@ fn module_loader_runtime_selftest_case(
             .source_evidence_status,
         actual_artifact_hash_source_evidence_reason: candidate
             .artifact_hash_binding
+            .source_evidence_reason,
+        actual_entrypoint_abi_source_evidence_present: candidate
+            .entrypoint_abi
+            .source_evidence_event_id
+            .is_some(),
+        actual_entrypoint_abi_source_evidence_state: candidate.entrypoint_abi.source_evidence_state,
+        actual_entrypoint_abi_source_evidence_status: candidate
+            .entrypoint_abi
+            .source_evidence_status,
+        actual_entrypoint_abi_source_evidence_reason: candidate
+            .entrypoint_abi
             .source_evidence_reason,
         passed: method_eq(actual.status, expected_status)
             && method_eq(actual.reason, expected_reason)

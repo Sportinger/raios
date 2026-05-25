@@ -830,6 +830,55 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_event_id_option(binding.loader_identity_source_evidence_event_id);
             raw("}");
         }
+        event_log::EventBindings::ModuleLoaderFactSourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"fact_schema\": ");
+            json_str(binding.fact_schema);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"fact_id\": ");
+            json_str(binding.fact_id);
+            raw(", \"fact_status\": ");
+            json_str(binding.fact_status);
+            raw(", \"fact_reason\": ");
+            json_str(binding.fact_reason);
+            raw(", \"fact_present\": ");
+            raw_bool(binding.fact_present);
+            raw(", \"dependency_gate\": ");
+            json_str(binding.dependency_gate);
+            raw(", \"dependency_schema\": ");
+            json_str(binding.dependency_schema);
+            raw(", \"dependency_method\": ");
+            json_str(binding.dependency_method);
+            raw(", \"dependency_present\": ");
+            raw_bool(binding.dependency_present);
+            raw(", \"dependency_source_evidence_event_id\": ");
+            json_event_id_option(binding.dependency_source_evidence_event_id);
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": false, \"accepts_artifact_bytes\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false, \"retained_module_evidence_present\": ");
+            raw_bool(binding.retained_module_evidence_present);
+            raw(", \"service_slot_allocator_readiness_present\": ");
+            raw_bool(binding.service_slot_allocator_readiness_present);
+            raw(", \"service_slot_allocator_ready\": ");
+            raw_bool(binding.service_slot_allocator_ready);
+            raw(", \"audit_rollback_write_boundary_present\": ");
+            raw_bool(binding.audit_rollback_write_boundary_present);
+            raw(", \"binds_retained_module_evidence\": ");
+            raw_bool(binding.binds_retained_module_evidence);
+            raw(", \"binds_service_slot_allocator\": ");
+            raw_bool(binding.binds_service_slot_allocator);
+            raw(", \"binds_audit_rollback_write_boundary\": ");
+            raw_bool(binding.binds_audit_rollback_write_boundary);
+            raw(", \"binds_dependency\": ");
+            raw_bool(binding.binds_dependency);
+            raw("}");
+        }
         event_log::EventBindings::ModuleLoadGate(binding) => {
             emit_module_load_gate_event_binding(binding);
         }

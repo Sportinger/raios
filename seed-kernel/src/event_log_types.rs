@@ -315,6 +315,37 @@ pub struct ModuleLoaderArtifactHashBindingSourceEvidence {
 }
 
 #[derive(Clone, Copy)]
+pub struct ModuleLoaderFactSourceEvidence {
+    pub schema: &'static str,
+    pub fact_schema: &'static str,
+    pub fact_id: &'static str,
+    pub source_method: &'static str,
+    pub source_fact_locator: &'static str,
+    pub readiness_status: &'static str,
+    pub readiness_reason: &'static str,
+    pub fact_status: &'static str,
+    pub fact_reason: &'static str,
+    pub fact_present: bool,
+    pub fact_scope: &'static str,
+    pub fact_schema_ok: bool,
+    pub fact_provenance_ok: bool,
+    pub fact_classification: &'static str,
+    pub retained_module_evidence_present: bool,
+    pub service_slot_allocator_readiness_present: bool,
+    pub service_slot_allocator_ready: bool,
+    pub audit_rollback_write_boundary_present: bool,
+    pub dependency_present: bool,
+    pub dependency_gate: &'static str,
+    pub dependency_schema: &'static str,
+    pub dependency_method: &'static str,
+    pub dependency_source_evidence_event_id: Option<EventId>,
+    pub binds_retained_module_evidence: bool,
+    pub binds_service_slot_allocator: bool,
+    pub binds_audit_rollback_write_boundary: bool,
+    pub binds_dependency: bool,
+}
+
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateBinding {
     pub manifest_reference_event_id: Option<EventId>,
     pub manifest_reference: Option<ModuleManifestReference>,
@@ -927,6 +958,7 @@ pub enum EventBindings {
     ModuleServiceSlotReservation(ModuleServiceSlotReservation),
     ModuleLoaderIdentitySourceEvidence(ModuleLoaderIdentitySourceEvidence),
     ModuleLoaderArtifactHashBindingSourceEvidence(ModuleLoaderArtifactHashBindingSourceEvidence),
+    ModuleLoaderFactSourceEvidence(ModuleLoaderFactSourceEvidence),
     ModuleLoadGate(ModuleLoadGateBinding),
     RecoveryArtifactLoadDenied(RecoveryArtifactLoadDenialBinding),
     RecoveryArtifactIdentityReference(RecoveryArtifactIdentityReference),

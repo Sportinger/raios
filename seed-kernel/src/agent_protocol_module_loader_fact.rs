@@ -1,7 +1,7 @@
 use crate::{
     agent_protocol_support::{
-        begin_response, crlf, end_response, json_str, method_eq, method_head_eq, raw, raw_bool,
-        raw_fmt, raw_line,
+        begin_response, crlf, end_response, json_event_id_option, json_str, method_eq,
+        method_head_eq, raw, raw_bool, raw_fmt, raw_line,
     },
     event_log,
 };
@@ -16,6 +16,8 @@ struct ModuleLoaderFactSpec {
     selftest_schema: &'static str,
     field: &'static str,
     fact_id: &'static str,
+    source_fact_locator: &'static str,
+    source_evidence_schema: &'static str,
     scope_reason: &'static str,
     schema_reason: &'static str,
     missing_reason: &'static str,
@@ -97,6 +99,8 @@ const MODULE_LOADER_FACT_SPECS: [ModuleLoaderFactSpec; 8] = [
         selftest_schema: "raios.module_loader_entrypoint_abi_selftest.v0",
         field: "entrypoint_abi",
         fact_id: "module.loader_runtime.entrypoint_abi.current_boot",
+        source_fact_locator: "module.loader_entrypoint_abi.entrypoint_abi",
+        source_evidence_schema: "raios.module_loader_entrypoint_abi_source_evidence.v0",
         scope_reason: "module_loader_entrypoint_abi_scope_must_be_current_boot",
         schema_reason: "module_loader_entrypoint_abi_schema_mismatch",
         missing_reason: "module_loader_entrypoint_abi_missing",
@@ -121,6 +125,8 @@ const MODULE_LOADER_FACT_SPECS: [ModuleLoaderFactSpec; 8] = [
         selftest_schema: "raios.module_loader_address_space_boundary_selftest.v0",
         field: "address_space_boundary",
         fact_id: "module.loader_runtime.address_space_boundary.current_boot",
+        source_fact_locator: "module.loader_address_space_boundary.address_space_boundary",
+        source_evidence_schema: "raios.module_loader_address_space_boundary_source_evidence.v0",
         scope_reason: "module_loader_address_space_boundary_scope_must_be_current_boot",
         schema_reason: "module_loader_address_space_boundary_schema_mismatch",
         missing_reason: "module_loader_address_space_boundary_missing",
@@ -147,6 +153,9 @@ const MODULE_LOADER_FACT_SPECS: [ModuleLoaderFactSpec; 8] = [
         selftest_schema: "raios.module_loader_memory_map_constraints_selftest.v0",
         field: "memory_map_constraints",
         fact_id: "module.loader_runtime.memory_map_constraints.current_boot",
+        source_fact_locator: "module.loader_memory_map_constraints.memory_map_constraints",
+        source_evidence_schema:
+            "raios.module_loader_memory_map_constraints_source_evidence.v0",
         scope_reason: "module_loader_memory_map_constraints_scope_must_be_current_boot",
         schema_reason: "module_loader_memory_map_constraints_schema_mismatch",
         missing_reason: "module_loader_memory_map_constraints_missing",
@@ -173,6 +182,9 @@ const MODULE_LOADER_FACT_SPECS: [ModuleLoaderFactSpec; 8] = [
         selftest_schema: "raios.module_loader_capability_import_table_selftest.v0",
         field: "capability_import_table",
         fact_id: "module.loader_runtime.capability_import_table.current_boot",
+        source_fact_locator: "module.loader_capability_import_table.capability_import_table",
+        source_evidence_schema:
+            "raios.module_loader_capability_import_table_source_evidence.v0",
         scope_reason: "module_loader_capability_import_table_scope_must_be_current_boot",
         schema_reason: "module_loader_capability_import_table_schema_mismatch",
         missing_reason: "module_loader_capability_import_table_missing",
@@ -199,6 +211,8 @@ const MODULE_LOADER_FACT_SPECS: [ModuleLoaderFactSpec; 8] = [
         selftest_schema: "raios.module_loader_service_slot_binding_selftest.v0",
         field: "service_slot_binding",
         fact_id: "module.loader_runtime.service_slot_binding.current_boot",
+        source_fact_locator: "module.loader_service_slot_binding.service_slot_binding",
+        source_evidence_schema: "raios.module_loader_service_slot_binding_source_evidence.v0",
         scope_reason: "module_loader_service_slot_binding_scope_must_be_current_boot",
         schema_reason: "module_loader_service_slot_binding_schema_mismatch",
         missing_reason: "module_loader_service_slot_binding_missing",
@@ -224,6 +238,8 @@ const MODULE_LOADER_FACT_SPECS: [ModuleLoaderFactSpec; 8] = [
         selftest_schema: "raios.module_loader_health_state_hooks_selftest.v0",
         field: "health_state_hooks",
         fact_id: "module.loader_runtime.health_state_hooks.current_boot",
+        source_fact_locator: "module.loader_health_state_hooks.health_state_hooks",
+        source_evidence_schema: "raios.module_loader_health_state_hooks_source_evidence.v0",
         scope_reason: "module_loader_health_state_hooks_scope_must_be_current_boot",
         schema_reason: "module_loader_health_state_hooks_schema_mismatch",
         missing_reason: "module_loader_health_state_hooks_missing",
@@ -249,6 +265,8 @@ const MODULE_LOADER_FACT_SPECS: [ModuleLoaderFactSpec; 8] = [
         selftest_schema: "raios.module_loader_rollback_hooks_selftest.v0",
         field: "rollback_hooks",
         fact_id: "module.loader_runtime.rollback_hooks.current_boot",
+        source_fact_locator: "module.loader_rollback_hooks.rollback_hooks",
+        source_evidence_schema: "raios.module_loader_rollback_hooks_source_evidence.v0",
         scope_reason: "module_loader_rollback_hooks_scope_must_be_current_boot",
         schema_reason: "module_loader_rollback_hooks_schema_mismatch",
         missing_reason: "module_loader_rollback_hooks_missing",
@@ -272,6 +290,10 @@ const MODULE_LOADER_FACT_SPECS: [ModuleLoaderFactSpec; 8] = [
         selftest_schema: "raios.module_loader_audit_rollback_write_boundary_binding_selftest.v0",
         field: "audit_rollback_write_boundary_binding",
         fact_id: "module.loader_runtime.audit_rollback_write_boundary_binding.current_boot",
+        source_fact_locator:
+            "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding",
+        source_evidence_schema:
+            "raios.module_loader_audit_rollback_write_boundary_binding_source_evidence.v0",
         scope_reason:
             "module_loader_audit_rollback_write_boundary_binding_scope_must_be_current_boot",
         schema_reason: "module_loader_audit_rollback_write_boundary_binding_schema_mismatch",
@@ -320,15 +342,32 @@ pub(crate) fn emit_module_loader_fact(method: &str) {
     let Some(spec) = module_loader_fact_spec(method) else {
         return;
     };
+    let retained_module_evidence_present = module_loader_fact_retained_module_evidence_present();
+    let dependency_source_evidence_event_id =
+        module_loader_fact_dependency_source_evidence_event_id(spec);
     let candidate = ModuleLoaderFactCandidate {
-        retained_module_evidence_present: module_loader_fact_retained_module_evidence_present(),
+        retained_module_evidence_present,
         service_slot_allocator_readiness_present: true,
         service_slot_allocator_ready: false,
         audit_rollback_write_boundary_present: false,
-        dependency_present: false,
+        dependency_present: module_loader_fact_dependency_present(spec),
         fact: module_loader_fact_missing_fact(),
     };
     let evaluation = evaluate_module_loader_fact_candidate(spec, candidate);
+    let source_evidence = if module_loader_fact_source_evidence_enabled(spec) {
+        let evidence = module_loader_fact_source_evidence(
+            spec,
+            candidate,
+            evaluation,
+            dependency_source_evidence_event_id,
+        );
+        Some((
+            event_log::record_module_loader_fact_source_evidence(evidence),
+            evidence,
+        ))
+    } else {
+        None
+    };
 
     begin_response(spec.method);
     raw("      \"schema\": ");
@@ -337,8 +376,16 @@ pub(crate) fn emit_module_loader_fact(method: &str) {
     raw_line("      \"scope\": \"current_boot\",");
     raw_line("      \"classification\": \"local_only\",");
     raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"global_event_log_mutation\": \"none\",");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(source_evidence.is_some());
+    raw_line(",");
+    if source_evidence.is_some() {
+        raw_line(
+            "      \"global_event_log_mutation\": \"retained_current_boot_source_evidence_only\",",
+        );
+    } else {
+        raw_line("      \"global_event_log_mutation\": \"none\",");
+    }
     raw_line("      \"accepts_loader_descriptor\": false,");
     raw_line("      \"accepts_artifact_bytes\": false,");
     raw_line("      \"loads_artifact\": false,");
@@ -347,9 +394,18 @@ pub(crate) fn emit_module_loader_fact(method: &str) {
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"can_load_now\": false,");
     raw_line("      \"load_attempted\": false,");
+    if let Some((event_id, evidence)) = source_evidence {
+        emit_module_loader_fact_source_evidence(event_id, evidence);
+        raw_line(",");
+    }
     emit_module_loader_fact_required_bindings(spec, candidate, evaluation);
     raw_line(",");
-    emit_module_loader_fact_object(spec, candidate.fact, evaluation);
+    emit_module_loader_fact_object(
+        spec,
+        candidate.fact,
+        evaluation,
+        source_evidence.map(|(event_id, _)| event_id),
+    );
     raw_line(",");
     emit_module_loader_fact_policy_result(candidate, evaluation);
     raw_line(",");
@@ -440,6 +496,34 @@ fn module_loader_fact_retained_module_evidence_present() -> bool {
         && event_log::latest_module_service_slot_reservation().is_some()
 }
 
+fn module_loader_fact_source_evidence_enabled(spec: ModuleLoaderFactSpec) -> bool {
+    method_eq(spec.method, "module.loader_entrypoint_abi")
+}
+
+fn module_loader_fact_dependency_source_evidence_event_id(
+    spec: ModuleLoaderFactSpec,
+) -> Option<event_log::EventId> {
+    if method_eq(spec.method, "module.loader_entrypoint_abi") {
+        event_log::latest_module_loader_artifact_hash_binding_source_evidence()
+            .map(|(event_id, _)| event_id)
+    } else {
+        None
+    }
+}
+
+fn module_loader_fact_dependency_present(spec: ModuleLoaderFactSpec) -> bool {
+    if method_eq(spec.method, "module.loader_entrypoint_abi") {
+        event_log::latest_module_loader_artifact_hash_binding_source_evidence()
+            .map(|(_, evidence)| {
+                evidence.artifact_hash_binding_present
+                    && method_eq(evidence.artifact_hash_binding_status, "available")
+            })
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
 fn emit_module_loader_fact_required_bindings(
     spec: ModuleLoaderFactSpec,
     candidate: ModuleLoaderFactCandidate,
@@ -474,10 +558,82 @@ fn emit_module_loader_fact_required_bindings(
     raw_line("      }");
 }
 
+fn emit_module_loader_fact_source_evidence(
+    event_id: event_log::EventId,
+    evidence: event_log::ModuleLoaderFactSourceEvidence,
+) {
+    raw_line("      \"source_evidence\": {");
+    raw("        \"schema\": ");
+    json_str(evidence.schema);
+    raw_line(",");
+    raw_line("        \"state\": \"retained\",");
+    raw_line("        \"status\": \"retained_current_boot_source_evidence\",");
+    raw_line("        \"reason\": \"module_loader_fact_source_evidence_recorded\",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+    raw("        \"event_id\": ");
+    json_event_id_option(Some(event_id));
+    raw_line(",");
+    raw("        \"fact_schema\": ");
+    json_str(evidence.fact_schema);
+    raw_line(",");
+    raw("        \"fact_id\": ");
+    json_str(evidence.fact_id);
+    raw_line(",");
+    raw("        \"source_method\": ");
+    json_str(evidence.source_method);
+    raw_line(",");
+    raw("        \"source_fact_locator\": ");
+    json_str(evidence.source_fact_locator);
+    raw_line(",");
+    raw("        \"readiness_status\": ");
+    json_str(evidence.readiness_status);
+    raw_line(",");
+    raw("        \"readiness_reason\": ");
+    json_str(evidence.readiness_reason);
+    raw_line(",");
+    raw("        \"fact_status\": ");
+    json_str(evidence.fact_status);
+    raw_line(",");
+    raw("        \"fact_reason\": ");
+    json_str(evidence.fact_reason);
+    raw_line(",");
+    raw("        \"fact_present\": ");
+    raw_bool(evidence.fact_present);
+    raw_line(",");
+    raw("        \"dependency_gate\": ");
+    json_str(evidence.dependency_gate);
+    raw_line(",");
+    raw("        \"dependency_schema\": ");
+    json_str(evidence.dependency_schema);
+    raw_line(",");
+    raw("        \"dependency_method\": ");
+    json_str(evidence.dependency_method);
+    raw_line(",");
+    raw("        \"dependency_present\": ");
+    raw_bool(evidence.dependency_present);
+    raw_line(",");
+    raw("        \"dependency_source_evidence_event_id\": ");
+    json_event_id_option(evidence.dependency_source_evidence_event_id);
+    raw_line(",");
+    raw_line("        \"accepts_loader_descriptor\": false,");
+    raw_line("        \"accepts_artifact_bytes\": false,");
+    raw_line("        \"loads_artifact\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"can_load_now\": false,");
+    raw_line("        \"load_attempted\": false,");
+    raw_line("        \"authorizes_load\": false");
+    raw_line("      }");
+}
+
 fn emit_module_loader_fact_object(
     spec: ModuleLoaderFactSpec,
     fact: ModuleLoaderFact,
     evaluation: ModuleLoaderFactEvaluation,
+    source_evidence_event_id: Option<event_log::EventId>,
 ) {
     raw("      ");
     json_str(spec.field);
@@ -524,6 +680,21 @@ fn emit_module_loader_fact_object(
     raw("        \"fact_id\": ");
     json_str(spec.fact_id);
     raw_line(",");
+    raw("        \"source_method\": ");
+    json_str(spec.method);
+    raw_line(",");
+    raw("        \"source_fact_locator\": ");
+    json_str(spec.source_fact_locator);
+    raw_line(",");
+    if source_evidence_event_id.is_some() {
+        raw("        \"source_evidence_event_id\": ");
+        json_event_id_option(source_evidence_event_id);
+        raw_line(",");
+        raw("        \"source_evidence_schema\": ");
+        json_str(spec.source_evidence_schema);
+        raw_line(",");
+        raw_line("        \"source_evidence_state\": \"retained_current_boot\",");
+    }
     raw_line("        \"persistence\": \"none\",");
     raw_line("        \"durable\": false,");
     raw_line("        \"loads_artifact\": false,");
@@ -785,6 +956,44 @@ fn evaluate_module_loader_fact(
         return ("rejected", spec.dependency_binding_reason);
     }
     ("available", spec.available_reason)
+}
+
+fn module_loader_fact_source_evidence(
+    spec: ModuleLoaderFactSpec,
+    candidate: ModuleLoaderFactCandidate,
+    evaluation: ModuleLoaderFactEvaluation,
+    dependency_source_evidence_event_id: Option<event_log::EventId>,
+) -> event_log::ModuleLoaderFactSourceEvidence {
+    event_log::ModuleLoaderFactSourceEvidence {
+        schema: spec.source_evidence_schema,
+        fact_schema: spec.schema,
+        fact_id: spec.fact_id,
+        source_method: spec.method,
+        source_fact_locator: spec.source_fact_locator,
+        readiness_status: evaluation.status,
+        readiness_reason: evaluation.reason,
+        fact_status: evaluation.fact_status,
+        fact_reason: evaluation.fact_reason,
+        fact_present: candidate.fact.present,
+        fact_scope: candidate.fact.scope,
+        fact_schema_ok: candidate.fact.schema_ok,
+        fact_provenance_ok: candidate.fact.provenance_ok,
+        fact_classification: candidate.fact.classification,
+        retained_module_evidence_present: candidate.retained_module_evidence_present,
+        service_slot_allocator_readiness_present: candidate
+            .service_slot_allocator_readiness_present,
+        service_slot_allocator_ready: candidate.service_slot_allocator_ready,
+        audit_rollback_write_boundary_present: candidate.audit_rollback_write_boundary_present,
+        dependency_present: candidate.dependency_present,
+        dependency_gate: spec.dependency_gate,
+        dependency_schema: spec.dependency_schema,
+        dependency_method: spec.dependency_method,
+        dependency_source_evidence_event_id,
+        binds_retained_module_evidence: candidate.fact.binds_retained_module_evidence,
+        binds_service_slot_allocator: candidate.fact.binds_service_slot_allocator,
+        binds_audit_rollback_write_boundary: candidate.fact.binds_audit_rollback_write_boundary,
+        binds_dependency: candidate.fact.binds_dependency,
+    }
 }
 
 fn module_loader_fact_selftest_cases(

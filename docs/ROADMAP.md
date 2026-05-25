@@ -3,11 +3,12 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-25 by Codex after adding retained local-only
-current-boot source evidence for `module.loader_artifact_hash_binding` and
-teaching `module.loader_runtime` plus its selftest to consume both
-loader-identity and artifact-hash source evidence while preserving denied load
-authority, after adding retained source evidence for `module.loader_identity`,
-after propagating the
+current-boot source evidence for `module.loader_entrypoint_abi` and teaching
+`module.loader_runtime` plus its selftest to consume loader-identity,
+artifact-hash, and entrypoint-ABI source evidence while preserving denied load
+authority, after adding retained source evidence for
+`module.loader_artifact_hash_binding`, after adding retained source evidence
+for `module.loader_identity`, after propagating the
 loader-runtime source-method/source-fact-locator map into the denied
 `module.load_ephemeral` loader-runtime readiness projection, its compact
 audit/event binding, and `module.load_gate_loader_runtime_selftest`, wiring
@@ -167,8 +168,8 @@ read-only `module.service_slot_allocator` readiness diagnostic and selftest in
 retained service-slot reservation evidence only as local-only input and still
 allocates no slots.
 Current evidence: full report
-`release/vm-reports/shadow-20260525-080755-23244.json` recorded 5179/5179
-predicates with 234 executed commands and `duration_ms: 286664`; quick report
+`release/vm-reports/shadow-20260525-082436-20464.json` recorded 5211/5211
+predicates with 235 executed commands and `duration_ms: 305305`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
@@ -647,18 +648,19 @@ Current verified cursor:
   diagnostic over missing normal-module loader-runtime facts. It consumes
   retained module evidence, service-slot allocator readiness, and the latest
   retained `module.loader_identity` plus
-  `module.loader_artifact_hash_binding` source-evidence events only as
-  local-only current-boot inputs, reports typed missing loader identity,
-  artifact-hash binding, entrypoint ABI, address-space/memory-map isolation,
+  `module.loader_artifact_hash_binding` plus `module.loader_entrypoint_abi`
+  source-evidence events only as local-only current-boot inputs, reports typed
+  missing loader identity, artifact-hash binding, entrypoint ABI,
+  address-space/memory-map isolation,
   capability import table, service-slot binding, health/rollback hooks, and
   audit/rollback write-boundary binding, and keeps `loads_artifact`,
   `allocates_service_slot`, `service_inventory_change`, `can_load_now`, and
   `load_attempted` non-authorizing. Each aggregate loader-runtime fact and
   loader-fact `blocked_by` entry now cites the addressable source diagnostic
   method and source fact locator. `module.loader_runtime_selftest` exposes a
-  ten-entry source map, includes observed-current-boot loader identity and
-  artifact-hash source-evidence cases, and the full Shadow VM module profiles
-  check it.
+  ten-entry source map, includes observed-current-boot loader identity,
+  artifact-hash, and entrypoint-ABI source-evidence cases, and the full Shadow
+  VM module profiles check it.
 - `module.loader_identity` now exposes `raios.module_loader_identity.v0` as a
   read-only current-boot diagnostic for the first typed normal-module
   loader-runtime fact. The live fact is missing/local-only until retained
@@ -680,14 +682,20 @@ Current verified cursor:
   `raios.module_loader_artifact_hash_binding_source_evidence.v0` event in the
   current-boot RAM event log, cites the retained loader-identity
   source-evidence event id when present, and `module.loader_runtime` consumes
-  it only as observed, non-authorizing source evidence. Its selftest covers missing
-  prerequisites, scope/schema/provenance failures, required binding gaps
+  it only as observed, non-authorizing source evidence. Its selftest covers
+  missing prerequisites, scope/schema/provenance failures, required binding gaps
   including loader-identity binding, missing artifact-hash binding, and
   all-inputs-present-but-non-authorizing artifact-hash binding evidence.
-- The remaining typed normal-module loader-runtime facts are now addressable as
-  read-only current-boot diagnostics with matching selftests:
-  entrypoint ABI, address-space boundary, memory-map constraints, capability
-  import table, service-slot binding, health-state hooks, rollback hooks, and
+- `module.loader_entrypoint_abi` now records retained
+  `raios.module_loader_entrypoint_abi_source_evidence.v0` in the current-boot
+  RAM event log. The record is local-only, non-authorizing, accepts no loader
+  descriptor or artifact bytes, cites the retained artifact-hash source-evidence
+  event id when present, and is consumed by `module.loader_runtime` only as
+  observed source evidence.
+- The remaining typed normal-module loader-runtime facts after entrypoint ABI
+  are now addressable as read-only current-boot diagnostics with matching
+  selftests: address-space boundary, memory-map constraints, capability import
+  table, service-slot binding, health-state hooks, rollback hooks, and
   audit/rollback write-boundary binding. These diagnostics share
   `seed-kernel/src/agent_protocol_module_loader_fact.rs`, require retained
   module evidence, service-slot allocator readiness/runtime, audit/write
@@ -1190,7 +1198,7 @@ Exact next task:
 
 ```text
 Add the next non-authorizing retained source-evidence binding for
-`module.loader_entrypoint_abi`.
+`module.loader_address_space_boundary`.
 ```
 
 `module.load_ephemeral` reports retained-evidence, service-slot allocator
@@ -1199,18 +1207,19 @@ binding, and `module.load_gate_loader_runtime_selftest` covers that denied
 projection. The aggregate `module.loader_runtime` response cites every typed
 loader-fact source method/locator and now consumes the retained
 `module.loader_identity` plus `module.loader_artifact_hash_binding`
-source-evidence records as observed current-boot evidence without granting
-loader descriptor, artifact, service-slot, inventory, or load authority. The
-next durable Phase-6 slice should apply the same source-evidence pattern to
-`module.loader_entrypoint_abi`.
+plus `module.loader_entrypoint_abi` source-evidence records as observed
+current-boot evidence without granting loader descriptor, artifact,
+service-slot, inventory, or load authority. The next durable Phase-6 slice
+should apply the same source-evidence pattern to
+`module.loader_address_space_boundary`.
 
 Next three tasks:
 
 1. Add a retained, local-only, current-boot source-evidence event binding for
-   `module.loader_entrypoint_abi` that records entrypoint ABI
+   `module.loader_address_space_boundary` that records address-space boundary
    availability/missing status without accepting descriptors or artifact bytes.
 2. Teach `module.loader_runtime` and `module.loader_runtime_selftest` to
-   consume that typed entrypoint ABI source evidence after artifact-hash
+   consume that typed address-space source evidence after entrypoint-ABI
    evidence while still denying load authority.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
