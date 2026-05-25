@@ -22,7 +22,22 @@ pub(crate) fn emit_module_loader_runtime() {
     let artifact_hash_binding_source_evidence =
         event_log::latest_module_loader_artifact_hash_binding_source_evidence();
     let entrypoint_abi_source_evidence =
-        event_log::latest_module_loader_entrypoint_abi_source_evidence();
+        event_log::latest_module_loader_fact_source_evidence("module.loader_entrypoint_abi");
+    let address_space_source_evidence = event_log::latest_module_loader_fact_source_evidence(
+        "module.loader_address_space_boundary",
+    );
+    let memory_map_source_evidence = event_log::latest_module_loader_fact_source_evidence(
+        "module.loader_memory_map_constraints",
+    );
+    let capability_table_source_evidence = event_log::latest_module_loader_fact_source_evidence(
+        "module.loader_capability_import_table",
+    );
+    let service_slot_source_evidence =
+        event_log::latest_module_loader_fact_source_evidence("module.loader_service_slot_binding");
+    let health_source_evidence =
+        event_log::latest_module_loader_fact_source_evidence("module.loader_health_state_hooks");
+    let rollback_source_evidence =
+        event_log::latest_module_loader_fact_source_evidence("module.loader_rollback_hooks");
     let candidate = module_loader_runtime_snapshot(
         manifest.is_some(),
         artifact.is_some(),
@@ -35,6 +50,12 @@ pub(crate) fn emit_module_loader_runtime() {
         loader_identity_source_evidence,
         artifact_hash_binding_source_evidence,
         entrypoint_abi_source_evidence,
+        address_space_source_evidence,
+        memory_map_source_evidence,
+        capability_table_source_evidence,
+        service_slot_source_evidence,
+        health_source_evidence,
+        rollback_source_evidence,
     );
     let evaluation = evaluate_module_loader_runtime_candidate(candidate);
 
@@ -640,6 +661,12 @@ fn module_loader_runtime_fact_source_evidence_visible(
     method_eq(source.name, "loader_identity")
         || method_eq(source.name, "artifact_hash_binding")
         || method_eq(source.name, "entrypoint_abi")
+        || method_eq(source.name, "address_space_boundary")
+        || method_eq(source.name, "memory_map_constraints")
+        || method_eq(source.name, "capability_import_table")
+        || method_eq(source.name, "service_slot_binding")
+        || method_eq(source.name, "health_state_hooks")
+        || method_eq(source.name, "rollback_hooks")
 }
 
 fn emit_module_loader_runtime_gate(
@@ -752,6 +779,54 @@ fn emit_module_loader_runtime_selftest_case(case: &ModuleLoaderRuntimeSelfTestCa
     json_str(case.actual_entrypoint_abi_source_evidence_status);
     raw(", \"actual_entrypoint_abi_source_evidence_reason\": ");
     json_str(case.actual_entrypoint_abi_source_evidence_reason);
+    raw(", \"actual_address_space_source_evidence_present\": ");
+    raw_bool(case.actual_address_space_source_evidence_present);
+    raw(", \"actual_address_space_source_evidence_state\": ");
+    json_str(case.actual_address_space_source_evidence_state);
+    raw(", \"actual_address_space_source_evidence_status\": ");
+    json_str(case.actual_address_space_source_evidence_status);
+    raw(", \"actual_address_space_source_evidence_reason\": ");
+    json_str(case.actual_address_space_source_evidence_reason);
+    raw(", \"actual_memory_map_source_evidence_present\": ");
+    raw_bool(case.actual_memory_map_source_evidence_present);
+    raw(", \"actual_memory_map_source_evidence_state\": ");
+    json_str(case.actual_memory_map_source_evidence_state);
+    raw(", \"actual_memory_map_source_evidence_status\": ");
+    json_str(case.actual_memory_map_source_evidence_status);
+    raw(", \"actual_memory_map_source_evidence_reason\": ");
+    json_str(case.actual_memory_map_source_evidence_reason);
+    raw(", \"actual_capability_table_source_evidence_present\": ");
+    raw_bool(case.actual_capability_table_source_evidence_present);
+    raw(", \"actual_capability_table_source_evidence_state\": ");
+    json_str(case.actual_capability_table_source_evidence_state);
+    raw(", \"actual_capability_table_source_evidence_status\": ");
+    json_str(case.actual_capability_table_source_evidence_status);
+    raw(", \"actual_capability_table_source_evidence_reason\": ");
+    json_str(case.actual_capability_table_source_evidence_reason);
+    raw(", \"actual_service_slot_source_evidence_present\": ");
+    raw_bool(case.actual_service_slot_source_evidence_present);
+    raw(", \"actual_service_slot_source_evidence_state\": ");
+    json_str(case.actual_service_slot_source_evidence_state);
+    raw(", \"actual_service_slot_source_evidence_status\": ");
+    json_str(case.actual_service_slot_source_evidence_status);
+    raw(", \"actual_service_slot_source_evidence_reason\": ");
+    json_str(case.actual_service_slot_source_evidence_reason);
+    raw(", \"actual_health_source_evidence_present\": ");
+    raw_bool(case.actual_health_source_evidence_present);
+    raw(", \"actual_health_source_evidence_state\": ");
+    json_str(case.actual_health_source_evidence_state);
+    raw(", \"actual_health_source_evidence_status\": ");
+    json_str(case.actual_health_source_evidence_status);
+    raw(", \"actual_health_source_evidence_reason\": ");
+    json_str(case.actual_health_source_evidence_reason);
+    raw(", \"actual_rollback_source_evidence_present\": ");
+    raw_bool(case.actual_rollback_source_evidence_present);
+    raw(", \"actual_rollback_source_evidence_state\": ");
+    json_str(case.actual_rollback_source_evidence_state);
+    raw(", \"actual_rollback_source_evidence_status\": ");
+    json_str(case.actual_rollback_source_evidence_status);
+    raw(", \"actual_rollback_source_evidence_reason\": ");
+    json_str(case.actual_rollback_source_evidence_reason);
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"can_load\": false, \"load_attempted\": false}");
@@ -782,6 +857,30 @@ fn module_loader_runtime_snapshot(
         event_log::EventId,
         event_log::ModuleLoaderFactSourceEvidence,
     )>,
+    address_space_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderFactSourceEvidence,
+    )>,
+    memory_map_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderFactSourceEvidence,
+    )>,
+    capability_table_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderFactSourceEvidence,
+    )>,
+    service_slot_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderFactSourceEvidence,
+    )>,
+    health_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderFactSourceEvidence,
+    )>,
+    rollback_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderFactSourceEvidence,
+    )>,
 ) -> ModuleLoaderRuntimeCandidate {
     ModuleLoaderRuntimeCandidate {
         manifest_reference_present,
@@ -800,24 +899,33 @@ fn module_loader_runtime_snapshot(
         artifact_hash_binding: module_loader_runtime_artifact_hash_binding_fact(
             artifact_hash_binding_source_evidence,
         ),
-        entrypoint_abi: module_loader_runtime_entrypoint_abi_fact(entrypoint_abi_source_evidence),
-        address_space_boundary: module_loader_runtime_missing_fact_for(
+        entrypoint_abi: module_loader_runtime_loader_fact_source_fact(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
+            entrypoint_abi_source_evidence,
+        ),
+        address_space_boundary: module_loader_runtime_loader_fact_source_fact(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
+            address_space_source_evidence,
         ),
-        memory_map_constraints: module_loader_runtime_missing_fact_for(
+        memory_map_constraints: module_loader_runtime_loader_fact_source_fact(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
+            memory_map_source_evidence,
         ),
-        capability_import_table: module_loader_runtime_missing_fact_for(
+        capability_import_table: module_loader_runtime_loader_fact_source_fact(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
+            capability_table_source_evidence,
         ),
-        service_slot_binding: module_loader_runtime_missing_fact_for(
+        service_slot_binding: module_loader_runtime_loader_fact_source_fact(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
+            service_slot_source_evidence,
         ),
-        health_state_hooks: module_loader_runtime_missing_fact_for(
+        health_state_hooks: module_loader_runtime_loader_fact_source_fact(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
+            health_source_evidence,
         ),
-        rollback_hooks: module_loader_runtime_missing_fact_for(
+        rollback_hooks: module_loader_runtime_loader_fact_source_fact(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
+            rollback_source_evidence,
         ),
         audit_rollback_write_boundary_binding: module_loader_runtime_missing_fact_for(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
@@ -936,14 +1044,15 @@ fn module_loader_runtime_artifact_hash_binding_fact(
     }
 }
 
-fn module_loader_runtime_entrypoint_abi_fact(
+fn module_loader_runtime_loader_fact_source_fact(
+    source: ModuleLoaderRuntimeFactSource,
     source_evidence: Option<(
         event_log::EventId,
         event_log::ModuleLoaderFactSourceEvidence,
     )>,
 ) -> ModuleLoaderRuntimeFact {
     let Some((event_id, evidence)) = source_evidence else {
-        return module_loader_runtime_missing_fact_for(MODULE_LOADER_RUNTIME_FACT_SOURCES[2]);
+        return module_loader_runtime_missing_fact_for(source);
     };
 
     ModuleLoaderRuntimeFact {
@@ -990,12 +1099,22 @@ fn module_loader_runtime_observed_artifact_hash_binding_missing_fact() -> Module
 }
 
 fn module_loader_runtime_observed_entrypoint_abi_missing_fact() -> ModuleLoaderRuntimeFact {
+    module_loader_runtime_observed_loader_fact_missing_fact(
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
+        44,
+    )
+}
+
+fn module_loader_runtime_observed_loader_fact_missing_fact(
+    source: ModuleLoaderRuntimeFactSource,
+    sequence: u64,
+) -> ModuleLoaderRuntimeFact {
     ModuleLoaderRuntimeFact {
-        source_evidence_event_id: Some(event_log::EventId { sequence: 44 }),
+        source_evidence_event_id: Some(event_log::EventId { sequence }),
         source_evidence_state: "observed_current_boot_missing",
         source_evidence_status: "missing",
-        source_evidence_reason: "module_loader_entrypoint_abi_missing",
-        ..module_loader_runtime_missing_fact_for(MODULE_LOADER_RUNTIME_FACT_SOURCES[2])
+        source_evidence_reason: source.missing_reason,
+        ..module_loader_runtime_missing_fact_for(source)
     }
 }
 
@@ -1711,12 +1830,36 @@ fn module_loader_runtime_selftest_cases(
             },
         ),
         module_loader_runtime_selftest_case(
+            "address_space_boundary_observed_source_evidence_missing",
+            "denied_missing_loader_runtime_fact",
+            "module_loader_address_space_boundary_missing",
+            ModuleLoaderRuntimeCandidate {
+                address_space_boundary: module_loader_runtime_observed_loader_fact_missing_fact(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
+                    45,
+                ),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
             "memory_map_constraints_missing",
             "denied_missing_loader_runtime_fact",
             "module_loader_memory_map_constraints_missing",
             ModuleLoaderRuntimeCandidate {
                 memory_map_constraints: module_loader_runtime_missing_fact_for(
                     MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
+                ),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
+            "memory_map_constraints_observed_source_evidence_missing",
+            "denied_missing_loader_runtime_fact",
+            "module_loader_memory_map_constraints_missing",
+            ModuleLoaderRuntimeCandidate {
+                memory_map_constraints: module_loader_runtime_observed_loader_fact_missing_fact(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
+                    46,
                 ),
                 ..ready
             },
@@ -1733,12 +1876,36 @@ fn module_loader_runtime_selftest_cases(
             },
         ),
         module_loader_runtime_selftest_case(
+            "capability_import_table_observed_source_evidence_missing",
+            "denied_missing_loader_runtime_fact",
+            "module_loader_capability_import_table_missing",
+            ModuleLoaderRuntimeCandidate {
+                capability_import_table: module_loader_runtime_observed_loader_fact_missing_fact(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
+                    47,
+                ),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
             "service_slot_binding_missing",
             "denied_missing_loader_runtime_fact",
             "module_loader_service_slot_binding_missing",
             ModuleLoaderRuntimeCandidate {
                 service_slot_binding: module_loader_runtime_missing_fact_for(
                     MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
+                ),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
+            "service_slot_binding_observed_source_evidence_missing",
+            "denied_missing_loader_runtime_fact",
+            "module_loader_service_slot_binding_missing",
+            ModuleLoaderRuntimeCandidate {
+                service_slot_binding: module_loader_runtime_observed_loader_fact_missing_fact(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
+                    48,
                 ),
                 ..ready
             },
@@ -1755,12 +1922,36 @@ fn module_loader_runtime_selftest_cases(
             },
         ),
         module_loader_runtime_selftest_case(
+            "health_state_hooks_observed_source_evidence_missing",
+            "denied_missing_loader_runtime_fact",
+            "module_loader_health_state_hooks_missing",
+            ModuleLoaderRuntimeCandidate {
+                health_state_hooks: module_loader_runtime_observed_loader_fact_missing_fact(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
+                    49,
+                ),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
             "rollback_hooks_missing",
             "denied_missing_loader_runtime_fact",
             "module_loader_rollback_hooks_missing",
             ModuleLoaderRuntimeCandidate {
                 rollback_hooks: module_loader_runtime_missing_fact_for(
                     MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
+                ),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
+            "rollback_hooks_observed_source_evidence_missing",
+            "denied_missing_loader_runtime_fact",
+            "module_loader_rollback_hooks_missing",
+            ModuleLoaderRuntimeCandidate {
+                rollback_hooks: module_loader_runtime_observed_loader_fact_missing_fact(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
+                    50,
                 ),
                 ..ready
             },
@@ -1835,6 +2026,72 @@ fn module_loader_runtime_selftest_case(
         actual_entrypoint_abi_source_evidence_reason: candidate
             .entrypoint_abi
             .source_evidence_reason,
+        actual_address_space_source_evidence_present: candidate
+            .address_space_boundary
+            .source_evidence_event_id
+            .is_some(),
+        actual_address_space_source_evidence_state: candidate
+            .address_space_boundary
+            .source_evidence_state,
+        actual_address_space_source_evidence_status: candidate
+            .address_space_boundary
+            .source_evidence_status,
+        actual_address_space_source_evidence_reason: candidate
+            .address_space_boundary
+            .source_evidence_reason,
+        actual_memory_map_source_evidence_present: candidate
+            .memory_map_constraints
+            .source_evidence_event_id
+            .is_some(),
+        actual_memory_map_source_evidence_state: candidate
+            .memory_map_constraints
+            .source_evidence_state,
+        actual_memory_map_source_evidence_status: candidate
+            .memory_map_constraints
+            .source_evidence_status,
+        actual_memory_map_source_evidence_reason: candidate
+            .memory_map_constraints
+            .source_evidence_reason,
+        actual_capability_table_source_evidence_present: candidate
+            .capability_import_table
+            .source_evidence_event_id
+            .is_some(),
+        actual_capability_table_source_evidence_state: candidate
+            .capability_import_table
+            .source_evidence_state,
+        actual_capability_table_source_evidence_status: candidate
+            .capability_import_table
+            .source_evidence_status,
+        actual_capability_table_source_evidence_reason: candidate
+            .capability_import_table
+            .source_evidence_reason,
+        actual_service_slot_source_evidence_present: candidate
+            .service_slot_binding
+            .source_evidence_event_id
+            .is_some(),
+        actual_service_slot_source_evidence_state: candidate
+            .service_slot_binding
+            .source_evidence_state,
+        actual_service_slot_source_evidence_status: candidate
+            .service_slot_binding
+            .source_evidence_status,
+        actual_service_slot_source_evidence_reason: candidate
+            .service_slot_binding
+            .source_evidence_reason,
+        actual_health_source_evidence_present: candidate
+            .health_state_hooks
+            .source_evidence_event_id
+            .is_some(),
+        actual_health_source_evidence_state: candidate.health_state_hooks.source_evidence_state,
+        actual_health_source_evidence_status: candidate.health_state_hooks.source_evidence_status,
+        actual_health_source_evidence_reason: candidate.health_state_hooks.source_evidence_reason,
+        actual_rollback_source_evidence_present: candidate
+            .rollback_hooks
+            .source_evidence_event_id
+            .is_some(),
+        actual_rollback_source_evidence_state: candidate.rollback_hooks.source_evidence_state,
+        actual_rollback_source_evidence_status: candidate.rollback_hooks.source_evidence_status,
+        actual_rollback_source_evidence_reason: candidate.rollback_hooks.source_evidence_reason,
         passed: method_eq(actual.status, expected_status)
             && method_eq(actual.reason, expected_reason)
             && !actual.loads_artifact

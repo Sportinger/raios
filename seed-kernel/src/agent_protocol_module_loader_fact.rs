@@ -498,6 +498,12 @@ fn module_loader_fact_retained_module_evidence_present() -> bool {
 
 fn module_loader_fact_source_evidence_enabled(spec: ModuleLoaderFactSpec) -> bool {
     method_eq(spec.method, "module.loader_entrypoint_abi")
+        || method_eq(spec.method, "module.loader_address_space_boundary")
+        || method_eq(spec.method, "module.loader_memory_map_constraints")
+        || method_eq(spec.method, "module.loader_capability_import_table")
+        || method_eq(spec.method, "module.loader_service_slot_binding")
+        || method_eq(spec.method, "module.loader_health_state_hooks")
+        || method_eq(spec.method, "module.loader_rollback_hooks")
 }
 
 fn module_loader_fact_dependency_source_evidence_event_id(
@@ -507,7 +513,8 @@ fn module_loader_fact_dependency_source_evidence_event_id(
         event_log::latest_module_loader_artifact_hash_binding_source_evidence()
             .map(|(event_id, _)| event_id)
     } else {
-        None
+        event_log::latest_module_loader_fact_source_evidence(spec.dependency_method)
+            .map(|(event_id, _)| event_id)
     }
 }
 
@@ -520,7 +527,11 @@ fn module_loader_fact_dependency_present(spec: ModuleLoaderFactSpec) -> bool {
             })
             .unwrap_or(false)
     } else {
-        false
+        event_log::latest_module_loader_fact_source_evidence(spec.dependency_method)
+            .map(|(_, evidence)| {
+                evidence.fact_present && method_eq(evidence.fact_status, "available")
+            })
+            .unwrap_or(false)
     }
 }
 

@@ -19,11 +19,17 @@ requires a deliberate split plan before more behavior is added.
 
 Last verified locally: 2026-05-25 on Windows with QEMU 11 after adding
 retained local-only current-boot source evidence for
-`module.loader_entrypoint_abi` and teaching `module.loader_runtime` plus its
-selftest to consume loader-identity, artifact-hash, and entrypoint-ABI source
-evidence while preserving denied load authority, after adding retained source
-evidence for `module.loader_artifact_hash_binding`, after adding retained
-source evidence for `module.loader_identity`, after propagating
+`module.loader_address_space_boundary`,
+`module.loader_memory_map_constraints`,
+`module.loader_capability_import_table`,
+`module.loader_service_slot_binding`,
+`module.loader_health_state_hooks`, and `module.loader_rollback_hooks`, and
+teaching `module.loader_runtime` plus its selftest to consume loader-identity,
+artifact-hash, entrypoint-ABI, and those six chained loader-fact
+source-evidence records while preserving denied load authority, after adding
+retained source evidence for `module.loader_entrypoint_abi`,
+`module.loader_artifact_hash_binding`, and `module.loader_identity`, after
+propagating
 the loader-runtime source-method/source-fact-locator map into the denied
 `module.load_ephemeral` loader-runtime readiness projection, its compact
 audit/event binding, and `module.load_gate_loader_runtime_selftest`, wiring
@@ -827,18 +833,23 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 ## Exact Next Task
 
 Add the next non-authorizing retained source-evidence binding for
-`module.loader_address_space_boundary`.
+`module.loader_audit_rollback_write_boundary_binding`.
 
 The current Phase-6 loader-runtime aggregate and denied
 `module.load_ephemeral` loader-runtime readiness projection cite the same ten
 addressable typed loader-fact diagnostics. `module.loader_identity`,
-`module.loader_artifact_hash_binding`, and `module.loader_entrypoint_abi` now
+`module.loader_artifact_hash_binding`, `module.loader_entrypoint_abi`,
+`module.loader_address_space_boundary`,
+`module.loader_memory_map_constraints`,
+`module.loader_capability_import_table`,
+`module.loader_service_slot_binding`,
+`module.loader_health_state_hooks`, and `module.loader_rollback_hooks` now
 emit typed current-boot source-evidence records that `module.loader_runtime`
 consumes as observed, non-authorizing evidence. The next durable slice should
 extend the same retained-source-evidence pattern to
-`module.loader_address_space_boundary`, still keeping loader descriptors,
-artifact bytes, service-slot allocation, service inventory mutation, and load
-attempts denied.
+`module.loader_audit_rollback_write_boundary_binding`, still keeping loader
+descriptors, artifact bytes, service-slot allocation, service inventory
+mutation, and load attempts denied.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:
@@ -1427,7 +1438,12 @@ Historical verified recovery foundation retained for reference:
   diagnostic over the missing normal-module loader/runtime side of Phase 6. It
   consumes retained module evidence, service-slot allocator readiness, and the
   latest retained `module.loader_identity` and
-  `module.loader_artifact_hash_binding`, and `module.loader_entrypoint_abi`
+  `module.loader_artifact_hash_binding`, `module.loader_entrypoint_abi`,
+  `module.loader_address_space_boundary`,
+  `module.loader_memory_map_constraints`,
+  `module.loader_capability_import_table`,
+  `module.loader_service_slot_binding`,
+  `module.loader_health_state_hooks`, and `module.loader_rollback_hooks`
   source-evidence events only as local-only current-boot inputs, reports
   missing typed loader identity, artifact hash binding, entrypoint ABI,
   address-space and memory-map
@@ -1442,7 +1458,8 @@ Historical verified recovery foundation retained for reference:
   service-slot allocator readiness/runtime gaps, stale/scope/schema/provenance
   and retained-evidence/service-slot/audit-boundary binding failures, each
   missing loader-runtime fact, observed-current-boot loader identity,
-  artifact-hash, and entrypoint-ABI source-evidence cases, and the final
+  artifact-hash, entrypoint-ABI, address-space, memory-map, capability-table,
+  service-slot, health-hook, and rollback-hook source-evidence cases, and the final
   all-inputs-ready
   `defined_non_executable` case without loading artifacts or mutating service
   inventory. It also exposes `source_fact_count: 10`,
@@ -1492,16 +1509,20 @@ Historical verified recovery foundation retained for reference:
   descriptor or artifact bytes, cites the retained artifact-hash source-evidence
   event id when present, and is consumed by `module.loader_runtime` only as
   observed source evidence.
-- The remaining typed normal-module loader-runtime facts after entrypoint ABI
-  are now addressable as read-only current-boot diagnostics with matching
-  selftests:
+- The next six typed normal-module loader-runtime facts after entrypoint ABI now
+  record retained source-evidence events in the current-boot RAM event log:
   `module.loader_address_space_boundary`,
   `module.loader_memory_map_constraints`,
   `module.loader_capability_import_table`,
   `module.loader_service_slot_binding`,
   `module.loader_health_state_hooks`,
-  `module.loader_rollback_hooks`, and
-  `module.loader_audit_rollback_write_boundary_binding`. These diagnostics are
+  and `module.loader_rollback_hooks`. Each record is local-only,
+  non-authorizing, accepts no loader descriptor or artifact bytes, cites the
+  previous retained loader-fact source-evidence event id when present, and is
+  consumed by `module.loader_runtime` only as observed source evidence.
+- The remaining typed normal-module loader-runtime fact,
+  `module.loader_audit_rollback_write_boundary_binding`, is addressable as a
+  read-only current-boot diagnostic with a matching selftest. These diagnostics are
   emitted through the shared `agent_protocol_module_loader_fact` boundary and
   keep descriptor input, artifact input, service-slot allocation, service
   inventory mutation, and load attempts disabled. Their selftests cover missing
@@ -1855,8 +1876,8 @@ Historical verified recovery foundation retained for reference:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest full report:
-  `release\vm-reports\shadow-20260525-082436-20464.json` with 5211/5211
-  predicates, 235 executed commands, and `duration_ms: 305305`.
+  `release\vm-reports\shadow-20260525-090202-25136.json` with 5425/5425
+  predicates, 242 executed commands, and `duration_ms: 314821`.
   Latest focused reports:
   `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 17108`, and

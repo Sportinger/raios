@@ -686,6 +686,39 @@
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    $loaderFactSourceEvidenceDiagnostics = @(
+        @{ Prefix = "module_loader_address_space_boundary"; Method = "module.loader_address_space_boundary"; Schema = "raios.module_loader_address_space_boundary.v0"; SourceSchema = "raios.module_loader_address_space_boundary_source_evidence.v0"; Locator = "module.loader_address_space_boundary.address_space_boundary"; MissingReason = "module_loader_address_space_boundary_missing" },
+        @{ Prefix = "module_loader_memory_map_constraints"; Method = "module.loader_memory_map_constraints"; Schema = "raios.module_loader_memory_map_constraints.v0"; SourceSchema = "raios.module_loader_memory_map_constraints_source_evidence.v0"; Locator = "module.loader_memory_map_constraints.memory_map_constraints"; MissingReason = "module_loader_memory_map_constraints_missing" },
+        @{ Prefix = "module_loader_capability_import_table"; Method = "module.loader_capability_import_table"; Schema = "raios.module_loader_capability_import_table.v0"; SourceSchema = "raios.module_loader_capability_import_table_source_evidence.v0"; Locator = "module.loader_capability_import_table.capability_import_table"; MissingReason = "module_loader_capability_import_table_missing" },
+        @{ Prefix = "module_loader_service_slot_binding"; Method = "module.loader_service_slot_binding"; Schema = "raios.module_loader_service_slot_binding.v0"; SourceSchema = "raios.module_loader_service_slot_binding_source_evidence.v0"; Locator = "module.loader_service_slot_binding.service_slot_binding"; MissingReason = "module_loader_service_slot_binding_missing" },
+        @{ Prefix = "module_loader_health_state_hooks"; Method = "module.loader_health_state_hooks"; Schema = "raios.module_loader_health_state_hooks.v0"; SourceSchema = "raios.module_loader_health_state_hooks_source_evidence.v0"; Locator = "module.loader_health_state_hooks.health_state_hooks"; MissingReason = "module_loader_health_state_hooks_missing" },
+        @{ Prefix = "module_loader_rollback_hooks"; Method = "module.loader_rollback_hooks"; Schema = "raios.module_loader_rollback_hooks.v0"; SourceSchema = "raios.module_loader_rollback_hooks_source_evidence.v0"; Locator = "module.loader_rollback_hooks.rollback_hooks"; MissingReason = "module_loader_rollback_hooks_missing" }
+    )
+    foreach ($fact in $loaderFactSourceEvidenceDiagnostics) {
+        Send-AgentCommand -Command ("agent " + $fact.Method) -ExpectedMarker ("RAIOS_AGENT_END " + $fact.Method)
+        Assert-LogContainsFields -NamePrefix ("protocol:" + $fact.Prefix + "_source_evidence_") -TimeoutSeconds 1 -Fields @(
+            @{ Suffix = "schema"; Needle = ('"schema": "' + $fact.Schema + '"') },
+            @{ Suffix = "mutates_source_evidence_only"; Needle = '"mutates_global_event_log": true' },
+            @{ Suffix = "mutation_scope"; Needle = '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' },
+            @{ Suffix = "source_schema"; Needle = ('"schema": "' + $fact.SourceSchema + '"') },
+            @{ Suffix = "source_retained"; Needle = '"status": "retained_current_boot_source_evidence"' },
+            @{ Suffix = "source_event_id"; Needle = '"event_id": "event.current_boot.' },
+            @{ Suffix = "source_method"; Needle = ('"source_method": "' + $fact.Method + '"') },
+            @{ Suffix = "source_locator"; Needle = ('"source_fact_locator": "' + $fact.Locator + '"') },
+            @{ Suffix = "retained_evidence_present"; Needle = '"retained_module_evidence_present": true' },
+            @{ Suffix = "readiness_status"; Needle = '"readiness_status": "denied_missing_service_slot_allocator_runtime"' },
+            @{ Suffix = "readiness_reason"; Needle = '"readiness_reason": "service_slot_allocator_runtime_missing"' },
+            @{ Suffix = "fact_missing"; Needle = ('"fact_reason": "' + $fact.MissingReason + '"') },
+            @{ Suffix = "dependency_source_event"; Needle = '"dependency_source_evidence_event_id": "event.current_boot.' },
+            @{ Suffix = "fact_source_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
+            @{ Suffix = "source_state"; Needle = '"source_evidence_state": "retained_current_boot"' },
+            @{ Suffix = "no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
+            @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
+            @{ Suffix = "no_load"; Needle = '"loads_artifact": false' },
+            @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+        )
+    }
+
     Send-AgentCommand -Command "agent module.loader_runtime" -ExpectedMarker "RAIOS_AGENT_END module.loader_runtime"
     Assert-LogContainsFields -NamePrefix "protocol:module_loader_runtime_" -TimeoutSeconds 1 -Fields @(
         @{ Suffix = "schema"; Needle = '"schema": "raios.module_loader_runtime_readiness.v0"' },
@@ -730,16 +763,46 @@
         @{ Suffix = "entrypoint_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_entrypoint_abi_missing"' },
         @{ Suffix = "address_space_source"; Needle = '"source_method": "module.loader_address_space_boundary"' },
         @{ Suffix = "address_space_locator"; Needle = '"source_fact_locator": "module.loader_address_space_boundary.address_space_boundary"' },
+        @{ Suffix = "address_space_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_address_space_boundary_source_evidence.v0"' },
+        @{ Suffix = "address_space_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
+        @{ Suffix = "address_space_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
+        @{ Suffix = "address_space_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
+        @{ Suffix = "address_space_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_address_space_boundary_missing"' },
         @{ Suffix = "memory_map_source"; Needle = '"source_method": "module.loader_memory_map_constraints"' },
         @{ Suffix = "memory_map_locator"; Needle = '"source_fact_locator": "module.loader_memory_map_constraints.memory_map_constraints"' },
+        @{ Suffix = "memory_map_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_memory_map_constraints_source_evidence.v0"' },
+        @{ Suffix = "memory_map_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
+        @{ Suffix = "memory_map_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
+        @{ Suffix = "memory_map_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
+        @{ Suffix = "memory_map_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_memory_map_constraints_missing"' },
         @{ Suffix = "capability_table_source"; Needle = '"source_method": "module.loader_capability_import_table"' },
         @{ Suffix = "capability_table_locator"; Needle = '"source_fact_locator": "module.loader_capability_import_table.capability_import_table"' },
+        @{ Suffix = "capability_table_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_capability_import_table_source_evidence.v0"' },
+        @{ Suffix = "capability_table_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
+        @{ Suffix = "capability_table_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
+        @{ Suffix = "capability_table_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
+        @{ Suffix = "capability_table_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_capability_import_table_missing"' },
         @{ Suffix = "service_slot_source"; Needle = '"source_method": "module.loader_service_slot_binding"' },
         @{ Suffix = "service_slot_locator"; Needle = '"source_fact_locator": "module.loader_service_slot_binding.service_slot_binding"' },
+        @{ Suffix = "service_slot_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_service_slot_binding_source_evidence.v0"' },
+        @{ Suffix = "service_slot_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
+        @{ Suffix = "service_slot_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
+        @{ Suffix = "service_slot_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
+        @{ Suffix = "service_slot_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_service_slot_binding_missing"' },
         @{ Suffix = "health_source"; Needle = '"source_method": "module.loader_health_state_hooks"' },
         @{ Suffix = "health_locator"; Needle = '"source_fact_locator": "module.loader_health_state_hooks.health_state_hooks"' },
+        @{ Suffix = "health_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_health_state_hooks_source_evidence.v0"' },
+        @{ Suffix = "health_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
+        @{ Suffix = "health_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
+        @{ Suffix = "health_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
+        @{ Suffix = "health_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_health_state_hooks_missing"' },
         @{ Suffix = "rollback_source"; Needle = '"source_method": "module.loader_rollback_hooks"' },
         @{ Suffix = "rollback_locator"; Needle = '"source_fact_locator": "module.loader_rollback_hooks.rollback_hooks"' },
+        @{ Suffix = "rollback_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_rollback_hooks_source_evidence.v0"' },
+        @{ Suffix = "rollback_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
+        @{ Suffix = "rollback_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
+        @{ Suffix = "rollback_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
+        @{ Suffix = "rollback_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_rollback_hooks_missing"' },
         @{ Suffix = "write_boundary_source"; Needle = '"source_method": "module.loader_audit_rollback_write_boundary_binding"' },
         @{ Suffix = "write_boundary_locator"; Needle = '"source_fact_locator": "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding"' },
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }

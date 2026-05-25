@@ -114,7 +114,7 @@
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_count" -Needle '"case_count": 30' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_count" -Needle '"case_count": 36' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_source_count" -Needle '"source_fact_count": 10' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_source_map_complete" -Needle '"source_fact_map_complete": true' -TimeoutSeconds 1
@@ -145,11 +145,29 @@
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_entrypoint_source_evidence_present" -Needle '"actual_entrypoint_abi_source_evidence_present": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_entrypoint_source_evidence_observed" -Needle '"actual_entrypoint_abi_source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_address_space_case" -Needle '"case": "address_space_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_address_space_source_evidence_case" -Needle '"case": "address_space_boundary_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_address_space_source_evidence_present" -Needle '"actual_address_space_source_evidence_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_address_space_source_evidence_observed" -Needle '"actual_address_space_source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_memory_map_case" -Needle '"case": "memory_map_constraints_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_memory_map_source_evidence_case" -Needle '"case": "memory_map_constraints_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_memory_map_source_evidence_present" -Needle '"actual_memory_map_source_evidence_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_memory_map_source_evidence_observed" -Needle '"actual_memory_map_source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_capability_table_case" -Needle '"case": "capability_import_table_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_capability_table_source_evidence_case" -Needle '"case": "capability_import_table_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_capability_table_source_evidence_present" -Needle '"actual_capability_table_source_evidence_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_capability_table_source_evidence_observed" -Needle '"actual_capability_table_source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_slot_case" -Needle '"case": "service_slot_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_slot_source_evidence_case" -Needle '"case": "service_slot_binding_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_slot_source_evidence_present" -Needle '"actual_service_slot_source_evidence_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_slot_source_evidence_observed" -Needle '"actual_service_slot_source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_health_case" -Needle '"case": "health_state_hooks_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_health_source_evidence_case" -Needle '"case": "health_state_hooks_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_health_source_evidence_present" -Needle '"actual_health_source_evidence_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_health_source_evidence_observed" -Needle '"actual_health_source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_rollback_case" -Needle '"case": "rollback_hooks_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_rollback_source_evidence_case" -Needle '"case": "rollback_hooks_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_rollback_source_evidence_present" -Needle '"actual_rollback_source_evidence_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_rollback_source_evidence_observed" -Needle '"actual_rollback_source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_write_boundary_case" -Needle '"case": "audit_rollback_write_boundary_binding_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_ready_case" -Needle '"case": "all_inputs_ready_defined_non_executable"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_ready_status" -Needle '"actual_status": "defined_non_executable"' -TimeoutSeconds 1
@@ -257,14 +275,27 @@
         @{ Method = "module.loader_rollback_hooks"; Selftest = "module.loader_rollback_hooks_selftest"; Schema = "raios.module_loader_rollback_hooks.v0"; SelftestSchema = "raios.module_loader_rollback_hooks_selftest.v0"; FactId = "module.loader_runtime.rollback_hooks.current_boot"; MissingReason = "module_loader_rollback_hooks_missing"; BindingReason = "module_loader_rollback_hooks_health_state_hooks_binding_missing"; NonAuthorizingReason = "module_loader_rollback_hooks_not_load_authority" },
         @{ Method = "module.loader_audit_rollback_write_boundary_binding"; Selftest = "module.loader_audit_rollback_write_boundary_binding_selftest"; Schema = "raios.module_loader_audit_rollback_write_boundary_binding.v0"; SelftestSchema = "raios.module_loader_audit_rollback_write_boundary_binding_selftest.v0"; FactId = "module.loader_runtime.audit_rollback_write_boundary_binding.current_boot"; MissingReason = "module_loader_audit_rollback_write_boundary_binding_missing"; BindingReason = "module_loader_audit_rollback_write_boundary_binding_rollback_hooks_binding_missing"; NonAuthorizingReason = "module_loader_audit_rollback_write_boundary_binding_not_load_authority" }
     )
+    $loaderFactSourceEvidenceMethods = @(
+        "module.loader_entrypoint_abi",
+        "module.loader_address_space_boundary",
+        "module.loader_memory_map_constraints",
+        "module.loader_capability_import_table",
+        "module.loader_service_slot_binding",
+        "module.loader_health_state_hooks",
+        "module.loader_rollback_hooks"
+    )
     foreach ($fact in $loaderFactDiagnostics) {
         $prefix = $fact.Method.Replace("module.", "module_").Replace(".", "_")
         Send-AgentCommand -Command ("agent " + $fact.Method) -ExpectedMarker ("RAIOS_AGENT_END " + $fact.Method)
         Assert-LogContains -Name ("protocol:" + $prefix + "_schema") -Needle ('"schema": "' + $fact.Schema + '"') -TimeoutSeconds 1
         Assert-LogContains -Name ("protocol:" + $prefix + "_local_only") -Needle '"classification": "local_only"' -TimeoutSeconds 1
-        if ($fact.Method -eq "module.loader_entrypoint_abi") {
+        if ($loaderFactSourceEvidenceMethods -contains $fact.Method) {
+            $sourceSchema = $fact.Schema -replace '\.v0$', '_source_evidence.v0'
             Assert-LogContains -Name ("protocol:" + $prefix + "_source_evidence_mutation") -Needle '"mutates_global_event_log": true' -TimeoutSeconds 1
-            Assert-LogContains -Name ("protocol:" + $prefix + "_source_evidence_schema") -Needle '"schema": "raios.module_loader_entrypoint_abi_source_evidence.v0"' -TimeoutSeconds 1
+            Assert-LogContains -Name ("protocol:" + $prefix + "_source_evidence_mutation_scope") -Needle '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' -TimeoutSeconds 1
+            Assert-LogContains -Name ("protocol:" + $prefix + "_source_evidence_schema") -Needle ('"schema": "' + $sourceSchema + '"') -TimeoutSeconds 1
+            Assert-LogContains -Name ("protocol:" + $prefix + "_source_evidence_status") -Needle '"status": "retained_current_boot_source_evidence"' -TimeoutSeconds 1
+            Assert-LogContains -Name ("protocol:" + $prefix + "_source_evidence_method") -Needle ('"source_method": "' + $fact.Method + '"') -TimeoutSeconds 1
             Assert-LogContains -Name ("protocol:" + $prefix + "_source_evidence_event") -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
             Assert-LogContains -Name ("protocol:" + $prefix + "_fact_source_event") -Needle '"source_evidence_event_id": "event.current_boot.' -TimeoutSeconds 1
             Assert-LogContains -Name ("protocol:" + $prefix + "_fact_source_state") -Needle '"source_evidence_state": "retained_current_boot"' -TimeoutSeconds 1

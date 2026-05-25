@@ -3961,10 +3961,11 @@ pub fn latest_module_loader_artifact_hash_binding_source_evidence(
         .latest_module_loader_artifact_hash_binding_source_evidence()
 }
 
-pub fn latest_module_loader_entrypoint_abi_source_evidence(
+pub fn latest_module_loader_fact_source_evidence(
+    source_method: &'static str,
 ) -> Option<(EventId, ModuleLoaderFactSourceEvidence)> {
     LOG.lock()
-        .latest_module_loader_fact_source_evidence("module.loader_entrypoint_abi")
+        .latest_module_loader_fact_source_evidence(source_method)
 }
 
 fn normalize_limit(limit: usize) -> usize {
