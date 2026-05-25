@@ -114,7 +114,7 @@
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_count" -Needle '"case_count": 28' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_count" -Needle '"case_count": 29' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_source_count" -Needle '"source_fact_count": 10' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_source_map_complete" -Needle '"source_fact_map_complete": true' -TimeoutSeconds 1
@@ -137,6 +137,9 @@
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_identity_source_evidence_present" -Needle '"actual_loader_identity_source_evidence_present": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_identity_source_evidence_observed" -Needle '"actual_loader_identity_source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_hash_case" -Needle '"case": "artifact_hash_binding_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_hash_source_evidence_case" -Needle '"case": "artifact_hash_binding_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_hash_source_evidence_present" -Needle '"actual_artifact_hash_source_evidence_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_hash_source_evidence_observed" -Needle '"actual_artifact_hash_source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_entrypoint_case" -Needle '"case": "entrypoint_abi_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_address_space_case" -Needle '"case": "address_space_boundary_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_memory_map_case" -Needle '"case": "memory_map_constraints_missing"' -TimeoutSeconds 1
@@ -195,7 +198,11 @@
     Send-AgentCommand -Command "agent module.loader_artifact_hash_binding" -ExpectedMarker "RAIOS_AGENT_END module.loader_artifact_hash_binding"
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_schema" -Needle '"schema": "raios.module_loader_artifact_hash_binding.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_source_evidence_mutation" -Needle '"mutates_global_event_log": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_source_evidence_mutation_scope" -Needle '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_source_evidence_schema" -Needle '"schema": "raios.module_loader_artifact_hash_binding_source_evidence.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_source_evidence_status" -Needle '"status": "retained_current_boot_source_evidence"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_source_evidence_event" -Needle '"event_id": "event.current_boot.' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
@@ -203,6 +210,8 @@
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_missing" -Needle '"reason": "module_loader_artifact_hash_binding_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_fact_id" -Needle '"fact_id": "module.loader_runtime.artifact_hash_binding.current_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_fact_source_event" -Needle '"source_evidence_event_id": "event.current_boot.' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_fact_source_state" -Needle '"source_evidence_state": "retained_current_boot"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_can_load_false" -Needle '"can_load_now": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_artifact_hash_binding_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
 

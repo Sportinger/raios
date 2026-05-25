@@ -793,6 +793,43 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_event_id_option(binding.service_slot_reservation_event_id);
             raw("}}");
         }
+        event_log::EventBindings::ModuleLoaderArtifactHashBindingSourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"fact_schema\": ");
+            json_str(binding.fact_schema);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"fact_id\": ");
+            json_str(binding.fact_id);
+            raw(", \"artifact_hash_binding_status\": ");
+            json_str(binding.artifact_hash_binding_status);
+            raw(", \"artifact_hash_binding_reason\": ");
+            json_str(binding.artifact_hash_binding_reason);
+            raw(", \"artifact_hash_binding_present\": ");
+            raw_bool(binding.artifact_hash_binding_present);
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": false, \"accepts_artifact_bytes\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false, \"retained_module_evidence_present\": ");
+            raw_bool(binding.retained_module_evidence_present);
+            raw(", \"service_slot_allocator_readiness_present\": ");
+            raw_bool(binding.service_slot_allocator_readiness_present);
+            raw(", \"service_slot_allocator_ready\": ");
+            raw_bool(binding.service_slot_allocator_ready);
+            raw(", \"audit_rollback_write_boundary_present\": ");
+            raw_bool(binding.audit_rollback_write_boundary_present);
+            raw(", \"loader_identity_present\": ");
+            raw_bool(binding.loader_identity_present);
+            raw(", \"binds_loader_identity\": ");
+            raw_bool(binding.binds_loader_identity);
+            raw(", \"loader_identity_source_evidence_event_id\": ");
+            json_event_id_option(binding.loader_identity_source_evidence_event_id);
+            raw("}");
+        }
         event_log::EventBindings::ModuleLoadGate(binding) => {
             emit_module_load_gate_event_binding(binding);
         }

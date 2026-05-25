@@ -639,6 +639,30 @@
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    Send-AgentCommand -Command "agent module.loader_artifact_hash_binding" -ExpectedMarker "RAIOS_AGENT_END module.loader_artifact_hash_binding"
+    Assert-LogContainsFields -NamePrefix "protocol:module_loader_artifact_hash_binding_source_evidence_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "schema"; Needle = '"schema": "raios.module_loader_artifact_hash_binding.v0"' },
+        @{ Suffix = "mutates_source_evidence_only"; Needle = '"mutates_global_event_log": true' },
+        @{ Suffix = "mutation_scope"; Needle = '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' },
+        @{ Suffix = "source_schema"; Needle = '"schema": "raios.module_loader_artifact_hash_binding_source_evidence.v0"' },
+        @{ Suffix = "source_retained"; Needle = '"status": "retained_current_boot_source_evidence"' },
+        @{ Suffix = "source_event_id"; Needle = '"event_id": "event.current_boot.' },
+        @{ Suffix = "source_method"; Needle = '"source_method": "module.loader_artifact_hash_binding"' },
+        @{ Suffix = "source_locator"; Needle = '"source_fact_locator": "module.loader_artifact_hash_binding.artifact_hash_binding"' },
+        @{ Suffix = "retained_evidence_present"; Needle = '"retained_module_evidence_present": true' },
+        @{ Suffix = "readiness_status"; Needle = '"readiness_status": "denied_missing_service_slot_allocator_runtime"' },
+        @{ Suffix = "readiness_reason"; Needle = '"readiness_reason": "service_slot_allocator_runtime_missing"' },
+        @{ Suffix = "artifact_missing"; Needle = '"artifact_hash_binding_reason": "module_loader_artifact_hash_binding_missing"' },
+        @{ Suffix = "identity_source_present"; Needle = '"loader_identity_source_evidence_present": true' },
+        @{ Suffix = "identity_source_event"; Needle = '"loader_identity_source_evidence_event_id": "event.current_boot.' },
+        @{ Suffix = "fact_source_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
+        @{ Suffix = "source_state"; Needle = '"source_evidence_state": "retained_current_boot"' },
+        @{ Suffix = "no_descriptor"; Needle = '"accepts_loader_descriptor": false' },
+        @{ Suffix = "no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
+        @{ Suffix = "no_load"; Needle = '"loads_artifact": false' },
+        @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
+    )
+
     Send-AgentCommand -Command "agent module.loader_runtime" -ExpectedMarker "RAIOS_AGENT_END module.loader_runtime"
     Assert-LogContainsFields -NamePrefix "protocol:module_loader_runtime_" -TimeoutSeconds 1 -Fields @(
         @{ Suffix = "schema"; Needle = '"schema": "raios.module_loader_runtime_readiness.v0"' },
@@ -669,6 +693,11 @@
         @{ Suffix = "loader_identity_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_identity_missing"' },
         @{ Suffix = "artifact_hash_source"; Needle = '"source_method": "module.loader_artifact_hash_binding"' },
         @{ Suffix = "artifact_hash_locator"; Needle = '"source_fact_locator": "module.loader_artifact_hash_binding.artifact_hash_binding"' },
+        @{ Suffix = "artifact_hash_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_artifact_hash_binding_source_evidence.v0"' },
+        @{ Suffix = "artifact_hash_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
+        @{ Suffix = "artifact_hash_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
+        @{ Suffix = "artifact_hash_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
+        @{ Suffix = "artifact_hash_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_artifact_hash_binding_missing"' },
         @{ Suffix = "entrypoint_source"; Needle = '"source_method": "module.loader_entrypoint_abi"' },
         @{ Suffix = "entrypoint_locator"; Needle = '"source_fact_locator": "module.loader_entrypoint_abi.entrypoint_abi"' },
         @{ Suffix = "address_space_source"; Needle = '"source_method": "module.loader_address_space_boundary"' },

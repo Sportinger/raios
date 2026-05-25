@@ -19,6 +19,8 @@ pub(crate) fn emit_module_loader_runtime() {
     let service_slot = event_log::latest_module_service_slot_reservation();
     let loader_identity_source_evidence =
         event_log::latest_module_loader_identity_source_evidence();
+    let artifact_hash_binding_source_evidence =
+        event_log::latest_module_loader_artifact_hash_binding_source_evidence();
     let candidate = module_loader_runtime_snapshot(
         manifest.is_some(),
         artifact.is_some(),
@@ -29,6 +31,7 @@ pub(crate) fn emit_module_loader_runtime() {
         audit_rollback.is_some(),
         service_slot.is_some(),
         loader_identity_source_evidence,
+        artifact_hash_binding_source_evidence,
     );
     let evaluation = evaluate_module_loader_runtime_candidate(candidate);
 
@@ -538,7 +541,7 @@ fn emit_module_loader_runtime_fact(
     raw("          \"source_fact_locator\": ");
     json_str(source.source_fact_locator);
     raw_line(",");
-    if method_eq(source.name, "loader_identity") {
+    if module_loader_runtime_fact_source_evidence_visible(source) {
         raw("          \"source_evidence_event_id\": ");
         json_event_id_option(fact.source_evidence_event_id);
         raw_line(",");
@@ -628,6 +631,12 @@ fn emit_module_loader_runtime_fact(
     crlf();
 }
 
+fn module_loader_runtime_fact_source_evidence_visible(
+    source: ModuleLoaderRuntimeFactSource,
+) -> bool {
+    method_eq(source.name, "loader_identity") || method_eq(source.name, "artifact_hash_binding")
+}
+
 fn emit_module_loader_runtime_gate(
     wrote: &mut bool,
     gate: &'static str,
@@ -690,6 +699,10 @@ fn emit_module_loader_runtime_source_fact_map() {
         json_str(source.source_method);
         raw(", \"source_fact_locator\": ");
         json_str(source.source_fact_locator);
+        raw(", \"source_evidence_schema\": ");
+        json_str(source.source_evidence_schema);
+        raw(", \"source_evidence_missing_reason\": ");
+        json_str(source.source_evidence_missing_reason);
         raw(", \"addressable\": true, \"included_in_required_fact_list\": true}");
         if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
             raw(",");
@@ -718,6 +731,14 @@ fn emit_module_loader_runtime_selftest_case(case: &ModuleLoaderRuntimeSelfTestCa
     json_str(case.actual_loader_identity_source_evidence_status);
     raw(", \"actual_loader_identity_source_evidence_reason\": ");
     json_str(case.actual_loader_identity_source_evidence_reason);
+    raw(", \"actual_artifact_hash_source_evidence_present\": ");
+    raw_bool(case.actual_artifact_hash_source_evidence_present);
+    raw(", \"actual_artifact_hash_source_evidence_state\": ");
+    json_str(case.actual_artifact_hash_source_evidence_state);
+    raw(", \"actual_artifact_hash_source_evidence_status\": ");
+    json_str(case.actual_artifact_hash_source_evidence_status);
+    raw(", \"actual_artifact_hash_source_evidence_reason\": ");
+    json_str(case.actual_artifact_hash_source_evidence_reason);
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"can_load\": false, \"load_attempted\": false}");
@@ -740,6 +761,10 @@ fn module_loader_runtime_snapshot(
         event_log::EventId,
         event_log::ModuleLoaderIdentitySourceEvidence,
     )>,
+    artifact_hash_binding_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderArtifactHashBindingSourceEvidence,
+    )>,
 ) -> ModuleLoaderRuntimeCandidate {
     ModuleLoaderRuntimeCandidate {
         manifest_reference_present,
@@ -755,20 +780,37 @@ fn module_loader_runtime_snapshot(
         loader_identity: module_loader_runtime_loader_identity_fact(
             loader_identity_source_evidence,
         ),
-        artifact_hash_binding: module_loader_runtime_missing_fact(),
-        entrypoint_abi: module_loader_runtime_missing_fact(),
-        address_space_boundary: module_loader_runtime_missing_fact(),
-        memory_map_constraints: module_loader_runtime_missing_fact(),
-        capability_import_table: module_loader_runtime_missing_fact(),
-        service_slot_binding: module_loader_runtime_missing_fact(),
-        health_state_hooks: module_loader_runtime_missing_fact(),
-        rollback_hooks: module_loader_runtime_missing_fact(),
-        audit_rollback_write_boundary_binding: module_loader_runtime_missing_fact(),
+        artifact_hash_binding: module_loader_runtime_artifact_hash_binding_fact(
+            artifact_hash_binding_source_evidence,
+        ),
+        entrypoint_abi: module_loader_runtime_missing_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
+        ),
+        address_space_boundary: module_loader_runtime_missing_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
+        ),
+        memory_map_constraints: module_loader_runtime_missing_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
+        ),
+        capability_import_table: module_loader_runtime_missing_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
+        ),
+        service_slot_binding: module_loader_runtime_missing_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
+        ),
+        health_state_hooks: module_loader_runtime_missing_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
+        ),
+        rollback_hooks: module_loader_runtime_missing_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
+        ),
+        audit_rollback_write_boundary_binding: module_loader_runtime_missing_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
+        ),
     }
 }
 
 fn module_loader_runtime_ready_snapshot() -> ModuleLoaderRuntimeCandidate {
-    let available = module_loader_runtime_available_fact();
     ModuleLoaderRuntimeCandidate {
         manifest_reference_present: true,
         artifact_reference_present: true,
@@ -780,16 +822,36 @@ fn module_loader_runtime_ready_snapshot() -> ModuleLoaderRuntimeCandidate {
         service_slot_reservation_present: true,
         service_slot_allocator_readiness_present: true,
         service_slot_allocator_ready: true,
-        loader_identity: available,
-        artifact_hash_binding: available,
-        entrypoint_abi: available,
-        address_space_boundary: available,
-        memory_map_constraints: available,
-        capability_import_table: available,
-        service_slot_binding: available,
-        health_state_hooks: available,
-        rollback_hooks: available,
-        audit_rollback_write_boundary_binding: available,
+        loader_identity: module_loader_runtime_available_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[0],
+        ),
+        artifact_hash_binding: module_loader_runtime_available_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[1],
+        ),
+        entrypoint_abi: module_loader_runtime_available_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
+        ),
+        address_space_boundary: module_loader_runtime_available_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
+        ),
+        memory_map_constraints: module_loader_runtime_available_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
+        ),
+        capability_import_table: module_loader_runtime_available_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
+        ),
+        service_slot_binding: module_loader_runtime_available_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
+        ),
+        health_state_hooks: module_loader_runtime_available_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
+        ),
+        rollback_hooks: module_loader_runtime_available_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
+        ),
+        audit_rollback_write_boundary_binding: module_loader_runtime_available_fact_for(
+            MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
+        ),
     }
 }
 
@@ -800,7 +862,7 @@ fn module_loader_runtime_loader_identity_fact(
     )>,
 ) -> ModuleLoaderRuntimeFact {
     let Some((event_id, evidence)) = source_evidence else {
-        return module_loader_runtime_missing_fact();
+        return module_loader_runtime_missing_fact_for(MODULE_LOADER_RUNTIME_FACT_SOURCES[0]);
     };
 
     ModuleLoaderRuntimeFact {
@@ -826,17 +888,62 @@ fn module_loader_runtime_loader_identity_fact(
     }
 }
 
+fn module_loader_runtime_artifact_hash_binding_fact(
+    source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderArtifactHashBindingSourceEvidence,
+    )>,
+) -> ModuleLoaderRuntimeFact {
+    let Some((event_id, evidence)) = source_evidence else {
+        return module_loader_runtime_missing_fact_for(MODULE_LOADER_RUNTIME_FACT_SOURCES[1]);
+    };
+
+    ModuleLoaderRuntimeFact {
+        present: evidence.artifact_hash_binding_present,
+        schema_ok: evidence.artifact_hash_binding_schema_ok,
+        scope: evidence.artifact_hash_binding_scope,
+        provenance_ok: evidence.artifact_hash_binding_provenance_ok,
+        classification: evidence.artifact_hash_binding_classification,
+        binds_retained_module_evidence: evidence.binds_retained_module_evidence,
+        binds_service_slot_allocator: evidence.binds_service_slot_allocator,
+        binds_audit_rollback_write_boundary: evidence.binds_audit_rollback_write_boundary,
+        source_evidence_event_id: Some(event_id),
+        source_evidence_schema: evidence.schema,
+        source_evidence_state: if evidence.artifact_hash_binding_present {
+            "observed_current_boot_present"
+        } else {
+            "observed_current_boot_missing"
+        },
+        source_evidence_status: evidence.artifact_hash_binding_status,
+        source_evidence_reason: evidence.artifact_hash_binding_reason,
+        source_evidence_method: evidence.source_method,
+        source_evidence_fact_locator: evidence.source_fact_locator,
+    }
+}
+
 fn module_loader_runtime_observed_loader_identity_missing_fact() -> ModuleLoaderRuntimeFact {
     ModuleLoaderRuntimeFact {
         source_evidence_event_id: Some(event_log::EventId { sequence: 42 }),
         source_evidence_state: "observed_current_boot_missing",
         source_evidence_status: "missing",
         source_evidence_reason: "module_loader_identity_missing",
-        ..module_loader_runtime_missing_fact()
+        ..module_loader_runtime_missing_fact_for(MODULE_LOADER_RUNTIME_FACT_SOURCES[0])
     }
 }
 
-fn module_loader_runtime_missing_fact() -> ModuleLoaderRuntimeFact {
+fn module_loader_runtime_observed_artifact_hash_binding_missing_fact() -> ModuleLoaderRuntimeFact {
+    ModuleLoaderRuntimeFact {
+        source_evidence_event_id: Some(event_log::EventId { sequence: 43 }),
+        source_evidence_state: "observed_current_boot_missing",
+        source_evidence_status: "missing",
+        source_evidence_reason: "module_loader_artifact_hash_binding_missing",
+        ..module_loader_runtime_missing_fact_for(MODULE_LOADER_RUNTIME_FACT_SOURCES[1])
+    }
+}
+
+fn module_loader_runtime_missing_fact_for(
+    source: ModuleLoaderRuntimeFactSource,
+) -> ModuleLoaderRuntimeFact {
     ModuleLoaderRuntimeFact {
         present: false,
         schema_ok: true,
@@ -847,16 +954,18 @@ fn module_loader_runtime_missing_fact() -> ModuleLoaderRuntimeFact {
         binds_service_slot_allocator: false,
         binds_audit_rollback_write_boundary: false,
         source_evidence_event_id: None,
-        source_evidence_schema: "raios.module_loader_identity_source_evidence.v0",
+        source_evidence_schema: source.source_evidence_schema,
         source_evidence_state: "addressable_not_observed",
         source_evidence_status: "missing",
-        source_evidence_reason: "module_loader_identity_source_evidence_missing",
-        source_evidence_method: "module.loader_identity",
-        source_evidence_fact_locator: "module.loader_identity.loader_identity",
+        source_evidence_reason: source.source_evidence_missing_reason,
+        source_evidence_method: source.source_method,
+        source_evidence_fact_locator: source.source_fact_locator,
     }
 }
 
-fn module_loader_runtime_available_fact() -> ModuleLoaderRuntimeFact {
+fn module_loader_runtime_available_fact_for(
+    source: ModuleLoaderRuntimeFactSource,
+) -> ModuleLoaderRuntimeFact {
     ModuleLoaderRuntimeFact {
         present: true,
         schema_ok: true,
@@ -867,12 +976,12 @@ fn module_loader_runtime_available_fact() -> ModuleLoaderRuntimeFact {
         binds_service_slot_allocator: true,
         binds_audit_rollback_write_boundary: true,
         source_evidence_event_id: None,
-        source_evidence_schema: "raios.module_loader_identity_source_evidence.v0",
+        source_evidence_schema: source.source_evidence_schema,
         source_evidence_state: "test_fixture_not_retained",
         source_evidence_status: "available",
-        source_evidence_reason: "module_loader_identity_available",
-        source_evidence_method: "module.loader_identity",
-        source_evidence_fact_locator: "module.loader_identity.loader_identity",
+        source_evidence_reason: "module_loader_runtime_source_evidence_test_fixture_not_retained",
+        source_evidence_method: source.source_method,
+        source_evidence_fact_locator: source.source_fact_locator,
     }
 }
 
@@ -1308,7 +1417,6 @@ fn module_loader_runtime_facts_complete(evaluation: ModuleLoaderRuntimeEvaluatio
 fn module_loader_runtime_selftest_cases(
 ) -> [ModuleLoaderRuntimeSelfTestCase; MODULE_LOADER_RUNTIME_SELFTEST_CASES] {
     let ready = module_loader_runtime_ready_snapshot();
-    let missing_fact = module_loader_runtime_missing_fact();
     [
         module_loader_runtime_selftest_case(
             "missing_manifest_reference",
@@ -1477,7 +1585,9 @@ fn module_loader_runtime_selftest_cases(
             "denied_missing_loader_runtime_fact",
             "module_loader_identity_missing",
             ModuleLoaderRuntimeCandidate {
-                loader_identity: missing_fact,
+                loader_identity: module_loader_runtime_missing_fact_for(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[0],
+                ),
                 ..ready
             },
         ),
@@ -1495,7 +1605,19 @@ fn module_loader_runtime_selftest_cases(
             "denied_missing_loader_runtime_fact",
             "module_loader_artifact_hash_binding_missing",
             ModuleLoaderRuntimeCandidate {
-                artifact_hash_binding: missing_fact,
+                artifact_hash_binding: module_loader_runtime_missing_fact_for(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[1],
+                ),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
+            "artifact_hash_binding_observed_source_evidence_missing",
+            "denied_missing_loader_runtime_fact",
+            "module_loader_artifact_hash_binding_missing",
+            ModuleLoaderRuntimeCandidate {
+                artifact_hash_binding:
+                    module_loader_runtime_observed_artifact_hash_binding_missing_fact(),
                 ..ready
             },
         ),
@@ -1504,7 +1626,9 @@ fn module_loader_runtime_selftest_cases(
             "denied_missing_loader_runtime_fact",
             "module_loader_entrypoint_abi_missing",
             ModuleLoaderRuntimeCandidate {
-                entrypoint_abi: missing_fact,
+                entrypoint_abi: module_loader_runtime_missing_fact_for(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
+                ),
                 ..ready
             },
         ),
@@ -1513,7 +1637,9 @@ fn module_loader_runtime_selftest_cases(
             "denied_missing_loader_runtime_fact",
             "module_loader_address_space_boundary_missing",
             ModuleLoaderRuntimeCandidate {
-                address_space_boundary: missing_fact,
+                address_space_boundary: module_loader_runtime_missing_fact_for(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
+                ),
                 ..ready
             },
         ),
@@ -1522,7 +1648,9 @@ fn module_loader_runtime_selftest_cases(
             "denied_missing_loader_runtime_fact",
             "module_loader_memory_map_constraints_missing",
             ModuleLoaderRuntimeCandidate {
-                memory_map_constraints: missing_fact,
+                memory_map_constraints: module_loader_runtime_missing_fact_for(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
+                ),
                 ..ready
             },
         ),
@@ -1531,7 +1659,9 @@ fn module_loader_runtime_selftest_cases(
             "denied_missing_loader_runtime_fact",
             "module_loader_capability_import_table_missing",
             ModuleLoaderRuntimeCandidate {
-                capability_import_table: missing_fact,
+                capability_import_table: module_loader_runtime_missing_fact_for(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
+                ),
                 ..ready
             },
         ),
@@ -1540,7 +1670,9 @@ fn module_loader_runtime_selftest_cases(
             "denied_missing_loader_runtime_fact",
             "module_loader_service_slot_binding_missing",
             ModuleLoaderRuntimeCandidate {
-                service_slot_binding: missing_fact,
+                service_slot_binding: module_loader_runtime_missing_fact_for(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
+                ),
                 ..ready
             },
         ),
@@ -1549,7 +1681,9 @@ fn module_loader_runtime_selftest_cases(
             "denied_missing_loader_runtime_fact",
             "module_loader_health_state_hooks_missing",
             ModuleLoaderRuntimeCandidate {
-                health_state_hooks: missing_fact,
+                health_state_hooks: module_loader_runtime_missing_fact_for(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
+                ),
                 ..ready
             },
         ),
@@ -1558,7 +1692,9 @@ fn module_loader_runtime_selftest_cases(
             "denied_missing_loader_runtime_fact",
             "module_loader_rollback_hooks_missing",
             ModuleLoaderRuntimeCandidate {
-                rollback_hooks: missing_fact,
+                rollback_hooks: module_loader_runtime_missing_fact_for(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
+                ),
                 ..ready
             },
         ),
@@ -1567,7 +1703,9 @@ fn module_loader_runtime_selftest_cases(
             "denied_missing_loader_runtime_fact",
             "module_loader_audit_rollback_write_boundary_binding_missing",
             ModuleLoaderRuntimeCandidate {
-                audit_rollback_write_boundary_binding: missing_fact,
+                audit_rollback_write_boundary_binding: module_loader_runtime_missing_fact_for(
+                    MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
+                ),
                 ..ready
             },
         ),
@@ -1605,6 +1743,19 @@ fn module_loader_runtime_selftest_case(
             .source_evidence_status,
         actual_loader_identity_source_evidence_reason: candidate
             .loader_identity
+            .source_evidence_reason,
+        actual_artifact_hash_source_evidence_present: candidate
+            .artifact_hash_binding
+            .source_evidence_event_id
+            .is_some(),
+        actual_artifact_hash_source_evidence_state: candidate
+            .artifact_hash_binding
+            .source_evidence_state,
+        actual_artifact_hash_source_evidence_status: candidate
+            .artifact_hash_binding
+            .source_evidence_status,
+        actual_artifact_hash_source_evidence_reason: candidate
+            .artifact_hash_binding
             .source_evidence_reason,
         passed: method_eq(actual.status, expected_status)
             && method_eq(actual.reason, expected_reason)

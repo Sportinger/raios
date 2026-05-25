@@ -1,9 +1,10 @@
 use crate::{
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        begin_response, crlf, end_response, json_str, method_eq, method_head_eq, raw, raw_bool,
-        raw_fmt, raw_line,
+        begin_response, crlf, end_response, json_event_id_option, json_str, method_eq,
+        method_head_eq, raw, raw_bool, raw_fmt, raw_line,
     },
+    event_log,
 };
 
 pub(crate) fn module_loader_artifact_hash_binding_method(method: &str) -> bool {
@@ -15,23 +16,58 @@ pub(crate) fn module_loader_artifact_hash_binding_selftest_method(method: &str) 
 }
 
 pub(crate) fn emit_module_loader_artifact_hash_binding() {
+    let manifest = event_log::latest_module_manifest_reference();
+    let artifact = event_log::latest_module_candidate_artifact_reference();
+    let vm_report = event_log::latest_module_vm_test_report_reference();
+    let local_attestation = event_log::latest_module_local_attestation_reference();
+    let local_approval = event_log::latest_module_local_approval_reference();
+    let computed_grant = event_log::latest_module_computed_grant_reference();
+    let audit_rollback = event_log::latest_module_audit_rollback_reference();
+    let service_slot = event_log::latest_module_service_slot_reservation();
+    let loader_identity_source_evidence =
+        event_log::latest_module_loader_identity_source_evidence();
+    let loader_identity_source_evidence_present = loader_identity_source_evidence.is_some();
+    let loader_identity_source_evidence_event_id =
+        loader_identity_source_evidence.map(|(event_id, _)| event_id);
+    let retained_module_evidence_present = manifest.is_some()
+        && artifact.is_some()
+        && vm_report.is_some()
+        && local_attestation.is_some()
+        && local_approval.is_some()
+        && computed_grant.is_some()
+        && audit_rollback.is_some()
+        && service_slot.is_some();
+    let loader_identity_present = loader_identity_source_evidence
+        .map(|(_, evidence)| {
+            evidence.identity_present && method_eq(evidence.identity_status, "available")
+        })
+        .unwrap_or(false);
     let candidate = ModuleLoaderArtifactHashBindingCandidate {
-        retained_module_evidence_present: false,
+        retained_module_evidence_present,
         service_slot_allocator_readiness_present: true,
         service_slot_allocator_ready: false,
         audit_rollback_write_boundary_present: false,
-        loader_identity_present: false,
+        loader_identity_present,
         artifact_hash_binding: module_loader_artifact_hash_binding_missing_fact(),
     };
     let evaluation = evaluate_module_loader_artifact_hash_binding_candidate(candidate);
+    let source_evidence = module_loader_artifact_hash_binding_source_evidence(
+        candidate,
+        evaluation,
+        loader_identity_source_evidence_event_id,
+    );
+    let source_evidence_event_id =
+        event_log::record_module_loader_artifact_hash_binding_source_evidence(source_evidence);
 
     begin_response("module.loader_artifact_hash_binding");
     raw_line("      \"schema\": \"raios.module_loader_artifact_hash_binding.v0\",");
     raw_line("      \"scope\": \"current_boot\",");
     raw_line("      \"classification\": \"local_only\",");
     raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"global_event_log_mutation\": \"none\",");
+    raw_line("      \"mutates_global_event_log\": true,");
+    raw_line(
+        "      \"global_event_log_mutation\": \"retained_current_boot_source_evidence_only\",",
+    );
     raw_line("      \"accepts_loader_descriptor\": false,");
     raw_line("      \"accepts_artifact_bytes\": false,");
     raw_line("      \"loads_artifact\": false,");
@@ -40,9 +76,22 @@ pub(crate) fn emit_module_loader_artifact_hash_binding() {
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"can_load_now\": false,");
     raw_line("      \"load_attempted\": false,");
-    emit_module_loader_artifact_hash_binding_required_bindings(candidate, evaluation);
+    emit_module_loader_artifact_hash_binding_source_evidence(
+        source_evidence_event_id,
+        source_evidence,
+    );
     raw_line(",");
-    emit_module_loader_artifact_hash_binding_fact(candidate.artifact_hash_binding, evaluation);
+    emit_module_loader_artifact_hash_binding_required_bindings(
+        candidate,
+        evaluation,
+        loader_identity_source_evidence_present,
+    );
+    raw_line(",");
+    emit_module_loader_artifact_hash_binding_fact(
+        candidate.artifact_hash_binding,
+        evaluation,
+        source_evidence_event_id,
+    );
     raw_line(",");
     emit_module_loader_artifact_hash_binding_policy_result(candidate, evaluation);
     raw_line(",");
@@ -132,6 +181,7 @@ pub(crate) fn emit_module_loader_artifact_hash_binding_selftest() {
 fn emit_module_loader_artifact_hash_binding_required_bindings(
     candidate: ModuleLoaderArtifactHashBindingCandidate,
     evaluation: ModuleLoaderArtifactHashBindingEvaluation,
+    loader_identity_source_evidence_present: bool,
 ) {
     raw_line("      \"required_bindings\": {");
     raw("        \"retained_module_evidence\": ");
@@ -149,15 +199,101 @@ fn emit_module_loader_artifact_hash_binding_required_bindings(
     raw("        \"loader_identity\": ");
     json_str(evaluation.loader_identity_status);
     raw_line(",");
+    raw("        \"loader_identity_source_evidence_present\": ");
+    raw_bool(loader_identity_source_evidence_present);
+    raw_line(",");
+    raw("        \"loader_identity_available\": ");
+    raw_bool(candidate.loader_identity_present);
+    raw_line(",");
     raw("        \"artifact_hash_binding_fact_present\": ");
     raw_bool(candidate.artifact_hash_binding.present);
     crlf();
     raw_line("      }");
 }
 
+fn emit_module_loader_artifact_hash_binding_source_evidence(
+    event_id: event_log::EventId,
+    evidence: event_log::ModuleLoaderArtifactHashBindingSourceEvidence,
+) {
+    raw_line("      \"source_evidence\": {");
+    raw("        \"schema\": ");
+    json_str(evidence.schema);
+    raw_line(",");
+    raw_line("        \"state\": \"retained\",");
+    raw_line("        \"status\": \"retained_current_boot_source_evidence\",");
+    raw_line(
+        "        \"reason\": \"module_loader_artifact_hash_binding_source_evidence_recorded\",",
+    );
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"retention\": \"current_boot_ram_event_log\",");
+    raw("        \"event_id\": ");
+    json_event_id_option(Some(event_id));
+    raw_line(",");
+    raw("        \"fact_schema\": ");
+    json_str(evidence.fact_schema);
+    raw_line(",");
+    raw("        \"fact_id\": ");
+    json_str(evidence.fact_id);
+    raw_line(",");
+    raw("        \"source_method\": ");
+    json_str(evidence.source_method);
+    raw_line(",");
+    raw("        \"source_fact_locator\": ");
+    json_str(evidence.source_fact_locator);
+    raw_line(",");
+    raw("        \"readiness_status\": ");
+    json_str(evidence.readiness_status);
+    raw_line(",");
+    raw("        \"readiness_reason\": ");
+    json_str(evidence.readiness_reason);
+    raw_line(",");
+    raw("        \"artifact_hash_binding_status\": ");
+    json_str(evidence.artifact_hash_binding_status);
+    raw_line(",");
+    raw("        \"artifact_hash_binding_reason\": ");
+    json_str(evidence.artifact_hash_binding_reason);
+    raw_line(",");
+    raw("        \"artifact_hash_binding_present\": ");
+    raw_bool(evidence.artifact_hash_binding_present);
+    raw_line(",");
+    raw("        \"retained_module_evidence_present\": ");
+    raw_bool(evidence.retained_module_evidence_present);
+    raw_line(",");
+    raw("        \"service_slot_allocator_readiness_present\": ");
+    raw_bool(evidence.service_slot_allocator_readiness_present);
+    raw_line(",");
+    raw("        \"service_slot_allocator_ready\": ");
+    raw_bool(evidence.service_slot_allocator_ready);
+    raw_line(",");
+    raw("        \"audit_rollback_write_boundary_present\": ");
+    raw_bool(evidence.audit_rollback_write_boundary_present);
+    raw_line(",");
+    raw("        \"loader_identity_present\": ");
+    raw_bool(evidence.loader_identity_present);
+    raw_line(",");
+    raw("        \"binds_loader_identity\": ");
+    raw_bool(evidence.binds_loader_identity);
+    raw_line(",");
+    raw("        \"loader_identity_source_evidence_event_id\": ");
+    json_event_id_option(evidence.loader_identity_source_evidence_event_id);
+    raw_line(",");
+    raw_line("        \"accepts_loader_descriptor\": false,");
+    raw_line("        \"accepts_artifact_bytes\": false,");
+    raw_line("        \"loads_artifact\": false,");
+    raw_line("        \"allocates_service_slot\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"can_load_now\": false,");
+    raw_line("        \"load_attempted\": false,");
+    raw_line("        \"authorizes_load\": false");
+    raw_line("      }");
+}
+
 fn emit_module_loader_artifact_hash_binding_fact(
     fact: ModuleLoaderArtifactHashBindingFact,
     evaluation: ModuleLoaderArtifactHashBindingEvaluation,
+    source_evidence_event_id: event_log::EventId,
 ) {
     raw_line("      \"artifact_hash_binding\": {");
     raw_line("        \"schema\": \"raios.module_loader_artifact_hash_binding.v0\",");
@@ -196,6 +332,17 @@ fn emit_module_loader_artifact_hash_binding_fact(
     raw_bool(fact.binds_loader_identity);
     raw_line(",");
     raw_line("        \"fact_id\": \"module.loader_runtime.artifact_hash_binding.current_boot\",");
+    raw_line("        \"source_method\": \"module.loader_artifact_hash_binding\",");
+    raw_line(
+        "        \"source_fact_locator\": \"module.loader_artifact_hash_binding.artifact_hash_binding\",",
+    );
+    raw("        \"source_evidence_event_id\": ");
+    json_event_id_option(Some(source_evidence_event_id));
+    raw_line(",");
+    raw_line(
+        "        \"source_evidence_schema\": \"raios.module_loader_artifact_hash_binding_source_evidence.v0\",",
+    );
+    raw_line("        \"source_evidence_state\": \"retained_current_boot\",");
     raw_line("        \"persistence\": \"none\",");
     raw_line("        \"durable\": false,");
     raw_line("        \"loads_artifact\": false,");
@@ -295,6 +442,44 @@ fn emit_module_loader_artifact_hash_binding_selftest_case(
         raw(",");
     }
     crlf();
+}
+
+fn module_loader_artifact_hash_binding_source_evidence(
+    candidate: ModuleLoaderArtifactHashBindingCandidate,
+    evaluation: ModuleLoaderArtifactHashBindingEvaluation,
+    loader_identity_source_evidence_event_id: Option<event_log::EventId>,
+) -> event_log::ModuleLoaderArtifactHashBindingSourceEvidence {
+    event_log::ModuleLoaderArtifactHashBindingSourceEvidence {
+        schema: "raios.module_loader_artifact_hash_binding_source_evidence.v0",
+        fact_schema: "raios.module_loader_artifact_hash_binding.v0",
+        fact_id: "module.loader_runtime.artifact_hash_binding.current_boot",
+        source_method: "module.loader_artifact_hash_binding",
+        source_fact_locator: "module.loader_artifact_hash_binding.artifact_hash_binding",
+        readiness_status: evaluation.status,
+        readiness_reason: evaluation.reason,
+        artifact_hash_binding_status: evaluation.artifact_hash_binding_status,
+        artifact_hash_binding_reason: evaluation.artifact_hash_binding_reason,
+        artifact_hash_binding_present: candidate.artifact_hash_binding.present,
+        artifact_hash_binding_scope: candidate.artifact_hash_binding.scope,
+        artifact_hash_binding_schema_ok: candidate.artifact_hash_binding.schema_ok,
+        artifact_hash_binding_provenance_ok: candidate.artifact_hash_binding.provenance_ok,
+        artifact_hash_binding_classification: candidate.artifact_hash_binding.classification,
+        retained_module_evidence_present: candidate.retained_module_evidence_present,
+        service_slot_allocator_readiness_present: candidate
+            .service_slot_allocator_readiness_present,
+        service_slot_allocator_ready: candidate.service_slot_allocator_ready,
+        audit_rollback_write_boundary_present: candidate.audit_rollback_write_boundary_present,
+        loader_identity_present: candidate.loader_identity_present,
+        binds_retained_module_evidence: candidate
+            .artifact_hash_binding
+            .binds_retained_module_evidence,
+        binds_service_slot_allocator: candidate.artifact_hash_binding.binds_service_slot_allocator,
+        binds_audit_rollback_write_boundary: candidate
+            .artifact_hash_binding
+            .binds_audit_rollback_write_boundary,
+        binds_loader_identity: candidate.artifact_hash_binding.binds_loader_identity,
+        loader_identity_source_evidence_event_id,
+    }
 }
 
 fn evaluate_module_loader_artifact_hash_binding_candidate(

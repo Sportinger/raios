@@ -287,6 +287,34 @@ pub struct ModuleLoaderIdentitySourceEvidence {
 }
 
 #[derive(Clone, Copy)]
+pub struct ModuleLoaderArtifactHashBindingSourceEvidence {
+    pub schema: &'static str,
+    pub fact_schema: &'static str,
+    pub fact_id: &'static str,
+    pub source_method: &'static str,
+    pub source_fact_locator: &'static str,
+    pub readiness_status: &'static str,
+    pub readiness_reason: &'static str,
+    pub artifact_hash_binding_status: &'static str,
+    pub artifact_hash_binding_reason: &'static str,
+    pub artifact_hash_binding_present: bool,
+    pub artifact_hash_binding_scope: &'static str,
+    pub artifact_hash_binding_schema_ok: bool,
+    pub artifact_hash_binding_provenance_ok: bool,
+    pub artifact_hash_binding_classification: &'static str,
+    pub retained_module_evidence_present: bool,
+    pub service_slot_allocator_readiness_present: bool,
+    pub service_slot_allocator_ready: bool,
+    pub audit_rollback_write_boundary_present: bool,
+    pub loader_identity_present: bool,
+    pub binds_retained_module_evidence: bool,
+    pub binds_service_slot_allocator: bool,
+    pub binds_audit_rollback_write_boundary: bool,
+    pub binds_loader_identity: bool,
+    pub loader_identity_source_evidence_event_id: Option<EventId>,
+}
+
+#[derive(Clone, Copy)]
 pub struct ModuleLoadGateBinding {
     pub manifest_reference_event_id: Option<EventId>,
     pub manifest_reference: Option<ModuleManifestReference>,
@@ -898,6 +926,7 @@ pub enum EventBindings {
     ModuleAuditRollbackReference(ModuleAuditRollbackReference),
     ModuleServiceSlotReservation(ModuleServiceSlotReservation),
     ModuleLoaderIdentitySourceEvidence(ModuleLoaderIdentitySourceEvidence),
+    ModuleLoaderArtifactHashBindingSourceEvidence(ModuleLoaderArtifactHashBindingSourceEvidence),
     ModuleLoadGate(ModuleLoadGateBinding),
     RecoveryArtifactLoadDenied(RecoveryArtifactLoadDenialBinding),
     RecoveryArtifactIdentityReference(RecoveryArtifactIdentityReference),

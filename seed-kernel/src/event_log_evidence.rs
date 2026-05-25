@@ -897,3 +897,15 @@ pub(crate) const MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE: &[&str] = &[
     "artifact_bytes_not_accepted",
     "load_not_attempted",
 ];
+pub(crate) const MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE: &[&str] = &[
+    "module_loader_artifact_hash_binding_source_evidence",
+    "module_loader_artifact_hash_binding_status",
+    "module_loader_artifact_hash_binding_reason",
+    "loader_identity_source_evidence_event_id",
+    "source_method",
+    "source_fact_locator",
+    "current_boot_ram_event_log_only",
+    "descriptor_not_accepted",
+    "artifact_bytes_not_accepted",
+    "load_not_attempted",
+];

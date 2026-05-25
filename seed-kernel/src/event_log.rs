@@ -3,13 +3,14 @@ use spin::Mutex;
 use crate::event_log_evidence::{
     DENIED_EVIDENCE, DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE,
     MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE, MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE,
-    MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE, MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE,
-    MODULE_LOAD_GATE_EVIDENCE, MODULE_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
-    MODULE_LOCAL_ATTESTATION_REFERENCE_EVIDENCE, MODULE_MANIFEST_REFERENCE_EVIDENCE,
-    MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE, MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE,
-    PROVIDER_BINDING_CONSUMPTION_EVIDENCE, PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
-    PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE, PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
-    PROVIDER_REQUEST_BINDING_EVIDENCE, PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
+    MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE, MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE,
+    MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE, MODULE_LOAD_GATE_EVIDENCE,
+    MODULE_LOCAL_APPROVAL_REFERENCE_EVIDENCE, MODULE_LOCAL_ATTESTATION_REFERENCE_EVIDENCE,
+    MODULE_MANIFEST_REFERENCE_EVIDENCE, MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE,
+    MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE, PROVIDER_BINDING_CONSUMPTION_EVIDENCE,
+    PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE, PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE,
+    PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE, PROVIDER_REQUEST_BINDING_EVIDENCE,
+    PROVIDER_REQUEST_ENVELOPE_EVIDENCE, READ_EVIDENCE,
     RECOVERY_ARTIFACT_IDENTITY_REFERENCE_EVIDENCE, RECOVERY_ARTIFACT_LOADER_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE, RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
     RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_EVIDENCE,
@@ -48,7 +49,8 @@ use crate::event_log_types::{
 pub use crate::event_log_types::{
     DurableAuditRollbackWriteAuthorityReference, Event, EventBindings, EventId, EventSnapshot,
     ModuleAuditRollbackReference, ModuleCandidateArtifactReference, ModuleComputedGrantReference,
-    ModuleLoadGateBinding, ModuleLoaderIdentitySourceEvidence, ModuleLocalApprovalReference,
+    ModuleLoadGateBinding, ModuleLoaderArtifactHashBindingSourceEvidence,
+    ModuleLoaderIdentitySourceEvidence, ModuleLocalApprovalReference,
     ModuleLocalAttestationReference, ModuleManifestReference, ModuleServiceSlotId,
     ModuleServiceSlotReservation, ModuleVmTestReportReference, ProviderBindingConsumption,
     ProviderBindingGateCheck, ProviderBindingGateSelfTestCase, ProviderContextHashes,
@@ -1533,6 +1535,33 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::ModuleLoaderIdentitySourceEvidence(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_artifact_hash_binding_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderArtifactHashBindingSourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderArtifactHashBindingSourceEvidence(binding) =
+                    event.bindings
+                {
                     return Some((
                         EventId {
                             sequence: event.sequence,
@@ -3550,6 +3579,26 @@ pub fn record_module_loader_identity_source_evidence(
     })
 }
 
+pub fn record_module_loader_artifact_hash_binding_source_evidence(
+    binding: ModuleLoaderArtifactHashBindingSourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_artifact_hash_binding.source_evidence.retained",
+        source_method: "module.loader_artifact_hash_binding",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: "cap.module.load_ephemeral",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "module.loader_runtime.artifact_hash_binding.current_boot",
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderArtifactHashBindingSourceEvidence(binding),
+    })
+}
+
 pub fn record_provider_request_binding_denied(hashes: ProviderContextHashes) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -3855,6 +3904,12 @@ pub fn latest_module_service_slot_reservation() -> Option<(EventId, ModuleServic
 pub fn latest_module_loader_identity_source_evidence(
 ) -> Option<(EventId, ModuleLoaderIdentitySourceEvidence)> {
     LOG.lock().latest_module_loader_identity_source_evidence()
+}
+
+pub fn latest_module_loader_artifact_hash_binding_source_evidence(
+) -> Option<(EventId, ModuleLoaderArtifactHashBindingSourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_artifact_hash_binding_source_evidence()
 }
 
 fn normalize_limit(limit: usize) -> usize {

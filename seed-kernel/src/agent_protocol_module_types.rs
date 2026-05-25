@@ -424,6 +424,8 @@ pub(crate) struct ModuleLoaderRuntimeFactSource {
     pub(crate) missing_reason: &'static str,
     pub(crate) source_method: &'static str,
     pub(crate) source_fact_locator: &'static str,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_missing_reason: &'static str,
 }
 
 pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT: usize = 10;
@@ -437,6 +439,8 @@ pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSou
         missing_reason: "module_loader_identity_missing",
         source_method: "module.loader_identity",
         source_fact_locator: "module.loader_identity.loader_identity",
+        source_evidence_schema: "raios.module_loader_identity_source_evidence.v0",
+        source_evidence_missing_reason: "module_loader_identity_source_evidence_missing",
     },
     ModuleLoaderRuntimeFactSource {
         name: "artifact_hash_binding",
@@ -445,6 +449,9 @@ pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSou
         missing_reason: "module_loader_artifact_hash_binding_missing",
         source_method: "module.loader_artifact_hash_binding",
         source_fact_locator: "module.loader_artifact_hash_binding.artifact_hash_binding",
+        source_evidence_schema: "raios.module_loader_artifact_hash_binding_source_evidence.v0",
+        source_evidence_missing_reason:
+            "module_loader_artifact_hash_binding_source_evidence_missing",
     },
     ModuleLoaderRuntimeFactSource {
         name: "entrypoint_abi",
@@ -453,6 +460,9 @@ pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSou
         missing_reason: "module_loader_entrypoint_abi_missing",
         source_method: "module.loader_entrypoint_abi",
         source_fact_locator: "module.loader_entrypoint_abi.entrypoint_abi",
+        source_evidence_schema: "raios.module_loader_entrypoint_abi_source_evidence.v0",
+        source_evidence_missing_reason:
+            "module_loader_entrypoint_abi_source_evidence_missing",
     },
     ModuleLoaderRuntimeFactSource {
         name: "address_space_boundary",
@@ -461,6 +471,10 @@ pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSou
         missing_reason: "module_loader_address_space_boundary_missing",
         source_method: "module.loader_address_space_boundary",
         source_fact_locator: "module.loader_address_space_boundary.address_space_boundary",
+        source_evidence_schema:
+            "raios.module_loader_address_space_boundary_source_evidence.v0",
+        source_evidence_missing_reason:
+            "module_loader_address_space_boundary_source_evidence_missing",
     },
     ModuleLoaderRuntimeFactSource {
         name: "memory_map_constraints",
@@ -469,6 +483,10 @@ pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSou
         missing_reason: "module_loader_memory_map_constraints_missing",
         source_method: "module.loader_memory_map_constraints",
         source_fact_locator: "module.loader_memory_map_constraints.memory_map_constraints",
+        source_evidence_schema:
+            "raios.module_loader_memory_map_constraints_source_evidence.v0",
+        source_evidence_missing_reason:
+            "module_loader_memory_map_constraints_source_evidence_missing",
     },
     ModuleLoaderRuntimeFactSource {
         name: "capability_import_table",
@@ -477,6 +495,10 @@ pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSou
         missing_reason: "module_loader_capability_import_table_missing",
         source_method: "module.loader_capability_import_table",
         source_fact_locator: "module.loader_capability_import_table.capability_import_table",
+        source_evidence_schema:
+            "raios.module_loader_capability_import_table_source_evidence.v0",
+        source_evidence_missing_reason:
+            "module_loader_capability_import_table_source_evidence_missing",
     },
     ModuleLoaderRuntimeFactSource {
         name: "service_slot_binding",
@@ -485,6 +507,9 @@ pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSou
         missing_reason: "module_loader_service_slot_binding_missing",
         source_method: "module.loader_service_slot_binding",
         source_fact_locator: "module.loader_service_slot_binding.service_slot_binding",
+        source_evidence_schema: "raios.module_loader_service_slot_binding_source_evidence.v0",
+        source_evidence_missing_reason:
+            "module_loader_service_slot_binding_source_evidence_missing",
     },
     ModuleLoaderRuntimeFactSource {
         name: "health_state_hooks",
@@ -493,6 +518,9 @@ pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSou
         missing_reason: "module_loader_health_state_hooks_missing",
         source_method: "module.loader_health_state_hooks",
         source_fact_locator: "module.loader_health_state_hooks.health_state_hooks",
+        source_evidence_schema: "raios.module_loader_health_state_hooks_source_evidence.v0",
+        source_evidence_missing_reason:
+            "module_loader_health_state_hooks_source_evidence_missing",
     },
     ModuleLoaderRuntimeFactSource {
         name: "rollback_hooks",
@@ -501,6 +529,8 @@ pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSou
         missing_reason: "module_loader_rollback_hooks_missing",
         source_method: "module.loader_rollback_hooks",
         source_fact_locator: "module.loader_rollback_hooks.rollback_hooks",
+        source_evidence_schema: "raios.module_loader_rollback_hooks_source_evidence.v0",
+        source_evidence_missing_reason: "module_loader_rollback_hooks_source_evidence_missing",
     },
     ModuleLoaderRuntimeFactSource {
         name: "audit_rollback_write_boundary_binding",
@@ -510,6 +540,10 @@ pub(crate) const MODULE_LOADER_RUNTIME_FACT_SOURCES: [ModuleLoaderRuntimeFactSou
         source_method: "module.loader_audit_rollback_write_boundary_binding",
         source_fact_locator:
             "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding",
+        source_evidence_schema:
+            "raios.module_loader_audit_rollback_write_boundary_binding_source_evidence.v0",
+        source_evidence_missing_reason:
+            "module_loader_audit_rollback_write_boundary_binding_source_evidence_missing",
     },
 ];
 
@@ -523,6 +557,8 @@ pub(crate) fn module_loader_runtime_source_fact_map_complete() -> bool {
             || source.missing_reason.is_empty()
             || source.source_method.is_empty()
             || source.source_fact_locator.is_empty()
+            || source.source_evidence_schema.is_empty()
+            || source.source_evidence_missing_reason.is_empty()
         {
             return false;
         }
@@ -635,6 +671,10 @@ pub(crate) struct ModuleLoaderRuntimeSelfTestCase {
     pub(crate) actual_loader_identity_source_evidence_state: &'static str,
     pub(crate) actual_loader_identity_source_evidence_status: &'static str,
     pub(crate) actual_loader_identity_source_evidence_reason: &'static str,
+    pub(crate) actual_artifact_hash_source_evidence_present: bool,
+    pub(crate) actual_artifact_hash_source_evidence_state: &'static str,
+    pub(crate) actual_artifact_hash_source_evidence_status: &'static str,
+    pub(crate) actual_artifact_hash_source_evidence_reason: &'static str,
     pub(crate) passed: bool,
 }
 
@@ -1503,7 +1543,7 @@ pub(crate) const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 14;
-pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 28;
+pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 29;
 pub(crate) const MODULE_LOADER_IDENTITY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_LOADER_ARTIFACT_HASH_BINDING_SELFTEST_CASES: usize = 14;
 pub(crate) const MODULE_AUDIT_ROLLBACK_AVAILABILITY_SELFTEST_CASES: usize = 8;
