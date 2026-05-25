@@ -504,6 +504,10 @@ fn module_loader_fact_source_evidence_enabled(spec: ModuleLoaderFactSpec) -> boo
         || method_eq(spec.method, "module.loader_service_slot_binding")
         || method_eq(spec.method, "module.loader_health_state_hooks")
         || method_eq(spec.method, "module.loader_rollback_hooks")
+        || method_eq(
+            spec.method,
+            "module.loader_audit_rollback_write_boundary_binding",
+        )
 }
 
 fn module_loader_fact_dependency_source_evidence_event_id(

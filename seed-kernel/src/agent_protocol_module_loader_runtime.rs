@@ -38,6 +38,9 @@ pub(crate) fn emit_module_loader_runtime() {
         event_log::latest_module_loader_fact_source_evidence("module.loader_health_state_hooks");
     let rollback_source_evidence =
         event_log::latest_module_loader_fact_source_evidence("module.loader_rollback_hooks");
+    let write_boundary_source_evidence = event_log::latest_module_loader_fact_source_evidence(
+        "module.loader_audit_rollback_write_boundary_binding",
+    );
     let candidate = module_loader_runtime_snapshot(
         manifest.is_some(),
         artifact.is_some(),
@@ -56,6 +59,7 @@ pub(crate) fn emit_module_loader_runtime() {
         service_slot_source_evidence,
         health_source_evidence,
         rollback_source_evidence,
+        write_boundary_source_evidence,
     );
     let evaluation = evaluate_module_loader_runtime_candidate(candidate);
 
@@ -667,6 +671,7 @@ fn module_loader_runtime_fact_source_evidence_visible(
         || method_eq(source.name, "service_slot_binding")
         || method_eq(source.name, "health_state_hooks")
         || method_eq(source.name, "rollback_hooks")
+        || method_eq(source.name, "audit_rollback_write_boundary_binding")
 }
 
 fn emit_module_loader_runtime_gate(
@@ -827,6 +832,14 @@ fn emit_module_loader_runtime_selftest_case(case: &ModuleLoaderRuntimeSelfTestCa
     json_str(case.actual_rollback_source_evidence_status);
     raw(", \"actual_rollback_source_evidence_reason\": ");
     json_str(case.actual_rollback_source_evidence_reason);
+    raw(", \"actual_write_boundary_source_evidence_present\": ");
+    raw_bool(case.actual_write_boundary_source_evidence_present);
+    raw(", \"actual_write_boundary_source_evidence_state\": ");
+    json_str(case.actual_write_boundary_source_evidence_state);
+    raw(", \"actual_write_boundary_source_evidence_status\": ");
+    json_str(case.actual_write_boundary_source_evidence_status);
+    raw(", \"actual_write_boundary_source_evidence_reason\": ");
+    json_str(case.actual_write_boundary_source_evidence_reason);
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"can_load\": false, \"load_attempted\": false}");
@@ -881,6 +894,10 @@ fn module_loader_runtime_snapshot(
         event_log::EventId,
         event_log::ModuleLoaderFactSourceEvidence,
     )>,
+    write_boundary_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderFactSourceEvidence,
+    )>,
 ) -> ModuleLoaderRuntimeCandidate {
     ModuleLoaderRuntimeCandidate {
         manifest_reference_present,
@@ -927,8 +944,9 @@ fn module_loader_runtime_snapshot(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
             rollback_source_evidence,
         ),
-        audit_rollback_write_boundary_binding: module_loader_runtime_missing_fact_for(
+        audit_rollback_write_boundary_binding: module_loader_runtime_loader_fact_source_fact(
             MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
+            write_boundary_source_evidence,
         ),
     }
 }
@@ -1968,6 +1986,19 @@ fn module_loader_runtime_selftest_cases(
             },
         ),
         module_loader_runtime_selftest_case(
+            "audit_rollback_write_boundary_binding_observed_source_evidence_missing",
+            "denied_missing_loader_runtime_fact",
+            "module_loader_audit_rollback_write_boundary_binding_missing",
+            ModuleLoaderRuntimeCandidate {
+                audit_rollback_write_boundary_binding:
+                    module_loader_runtime_observed_loader_fact_missing_fact(
+                        MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
+                        51,
+                    ),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
             "all_inputs_ready_defined_non_executable",
             "defined_non_executable",
             "module_loader_runtime_behavior_not_implemented",
@@ -2092,6 +2123,19 @@ fn module_loader_runtime_selftest_case(
         actual_rollback_source_evidence_state: candidate.rollback_hooks.source_evidence_state,
         actual_rollback_source_evidence_status: candidate.rollback_hooks.source_evidence_status,
         actual_rollback_source_evidence_reason: candidate.rollback_hooks.source_evidence_reason,
+        actual_write_boundary_source_evidence_present: candidate
+            .audit_rollback_write_boundary_binding
+            .source_evidence_event_id
+            .is_some(),
+        actual_write_boundary_source_evidence_state: candidate
+            .audit_rollback_write_boundary_binding
+            .source_evidence_state,
+        actual_write_boundary_source_evidence_status: candidate
+            .audit_rollback_write_boundary_binding
+            .source_evidence_status,
+        actual_write_boundary_source_evidence_reason: candidate
+            .audit_rollback_write_boundary_binding
+            .source_evidence_reason,
         passed: method_eq(actual.status, expected_status)
             && method_eq(actual.reason, expected_reason)
             && !actual.loads_artifact

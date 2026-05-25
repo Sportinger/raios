@@ -703,6 +703,10 @@ pub(crate) struct ModuleLoaderRuntimeSelfTestCase {
     pub(crate) actual_rollback_source_evidence_state: &'static str,
     pub(crate) actual_rollback_source_evidence_status: &'static str,
     pub(crate) actual_rollback_source_evidence_reason: &'static str,
+    pub(crate) actual_write_boundary_source_evidence_present: bool,
+    pub(crate) actual_write_boundary_source_evidence_state: &'static str,
+    pub(crate) actual_write_boundary_source_evidence_status: &'static str,
+    pub(crate) actual_write_boundary_source_evidence_reason: &'static str,
     pub(crate) passed: bool,
 }
 
@@ -1571,7 +1575,7 @@ pub(crate) const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 14;
-pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 36;
+pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 37;
 pub(crate) const MODULE_LOADER_IDENTITY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_LOADER_ARTIFACT_HASH_BINDING_SELFTEST_CASES: usize = 14;
 pub(crate) const MODULE_AUDIT_ROLLBACK_AVAILABILITY_SELFTEST_CASES: usize = 8;

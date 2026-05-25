@@ -692,7 +692,8 @@
         @{ Prefix = "module_loader_capability_import_table"; Method = "module.loader_capability_import_table"; Schema = "raios.module_loader_capability_import_table.v0"; SourceSchema = "raios.module_loader_capability_import_table_source_evidence.v0"; Locator = "module.loader_capability_import_table.capability_import_table"; MissingReason = "module_loader_capability_import_table_missing" },
         @{ Prefix = "module_loader_service_slot_binding"; Method = "module.loader_service_slot_binding"; Schema = "raios.module_loader_service_slot_binding.v0"; SourceSchema = "raios.module_loader_service_slot_binding_source_evidence.v0"; Locator = "module.loader_service_slot_binding.service_slot_binding"; MissingReason = "module_loader_service_slot_binding_missing" },
         @{ Prefix = "module_loader_health_state_hooks"; Method = "module.loader_health_state_hooks"; Schema = "raios.module_loader_health_state_hooks.v0"; SourceSchema = "raios.module_loader_health_state_hooks_source_evidence.v0"; Locator = "module.loader_health_state_hooks.health_state_hooks"; MissingReason = "module_loader_health_state_hooks_missing" },
-        @{ Prefix = "module_loader_rollback_hooks"; Method = "module.loader_rollback_hooks"; Schema = "raios.module_loader_rollback_hooks.v0"; SourceSchema = "raios.module_loader_rollback_hooks_source_evidence.v0"; Locator = "module.loader_rollback_hooks.rollback_hooks"; MissingReason = "module_loader_rollback_hooks_missing" }
+        @{ Prefix = "module_loader_rollback_hooks"; Method = "module.loader_rollback_hooks"; Schema = "raios.module_loader_rollback_hooks.v0"; SourceSchema = "raios.module_loader_rollback_hooks_source_evidence.v0"; Locator = "module.loader_rollback_hooks.rollback_hooks"; MissingReason = "module_loader_rollback_hooks_missing" },
+        @{ Prefix = "module_loader_audit_rollback_write_boundary_binding"; Method = "module.loader_audit_rollback_write_boundary_binding"; Schema = "raios.module_loader_audit_rollback_write_boundary_binding.v0"; SourceSchema = "raios.module_loader_audit_rollback_write_boundary_binding_source_evidence.v0"; Locator = "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding"; MissingReason = "module_loader_audit_rollback_write_boundary_binding_missing" }
     )
     foreach ($fact in $loaderFactSourceEvidenceDiagnostics) {
         Send-AgentCommand -Command ("agent " + $fact.Method) -ExpectedMarker ("RAIOS_AGENT_END " + $fact.Method)
@@ -805,5 +806,10 @@
         @{ Suffix = "rollback_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_rollback_hooks_missing"' },
         @{ Suffix = "write_boundary_source"; Needle = '"source_method": "module.loader_audit_rollback_write_boundary_binding"' },
         @{ Suffix = "write_boundary_locator"; Needle = '"source_fact_locator": "module.loader_audit_rollback_write_boundary_binding.audit_rollback_write_boundary_binding"' },
+        @{ Suffix = "write_boundary_source_evidence_schema"; Needle = '"source_evidence_schema": "raios.module_loader_audit_rollback_write_boundary_binding_source_evidence.v0"' },
+        @{ Suffix = "write_boundary_source_evidence_observed"; Needle = '"source_evidence_state": "observed_current_boot_missing"' },
+        @{ Suffix = "write_boundary_source_evidence_event"; Needle = '"source_evidence_event_id": "event.current_boot.' },
+        @{ Suffix = "write_boundary_source_evidence_status"; Needle = '"source_evidence_status": "missing"' },
+        @{ Suffix = "write_boundary_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_audit_rollback_write_boundary_binding_missing"' },
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )

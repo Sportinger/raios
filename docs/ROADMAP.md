@@ -7,9 +7,10 @@ current-boot source evidence for `module.loader_address_space_boundary`,
 `module.loader_memory_map_constraints`,
 `module.loader_capability_import_table`,
 `module.loader_service_slot_binding`,
-`module.loader_health_state_hooks`, and `module.loader_rollback_hooks`, and
-teaching `module.loader_runtime` plus its selftest to consume loader-identity,
-artifact-hash, entrypoint-ABI, and those six chained loader-fact
+`module.loader_health_state_hooks`, `module.loader_rollback_hooks`, and
+`module.loader_audit_rollback_write_boundary_binding`, and teaching
+`module.loader_runtime` plus its selftest to consume loader-identity,
+artifact-hash, entrypoint-ABI, and all seven chained loader-fact
 source-evidence records while preserving denied load authority, after adding
 retained source evidence for `module.loader_entrypoint_abi`,
 `module.loader_artifact_hash_binding`, and `module.loader_identity`, after
@@ -173,8 +174,8 @@ read-only `module.service_slot_allocator` readiness diagnostic and selftest in
 retained service-slot reservation evidence only as local-only input and still
 allocates no slots.
 Current evidence: full report
-`release/vm-reports/shadow-20260525-090202-25136.json` recorded 5425/5425
-predicates with 242 executed commands and `duration_ms: 314821`; quick report
+`release/vm-reports/shadow-20260525-091355-34192.json` recorded 5460/5460
+predicates with 243 executed commands and `duration_ms: 300068`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
@@ -658,7 +659,8 @@ Current verified cursor:
   `module.loader_memory_map_constraints`,
   `module.loader_capability_import_table`,
   `module.loader_service_slot_binding`,
-  `module.loader_health_state_hooks`, and `module.loader_rollback_hooks`
+  `module.loader_health_state_hooks`, `module.loader_rollback_hooks`, and
+  `module.loader_audit_rollback_write_boundary_binding`
   source-evidence events only as local-only current-boot inputs, reports typed
   missing loader identity, artifact-hash binding, entrypoint ABI,
   address-space/memory-map isolation,
@@ -670,8 +672,8 @@ Current verified cursor:
   method and source fact locator. `module.loader_runtime_selftest` exposes a
   ten-entry source map, includes observed-current-boot loader identity,
   artifact-hash, entrypoint-ABI, address-space, memory-map, capability-table,
-  service-slot, health-hook, and rollback-hook source-evidence cases, and the
-  full Shadow VM module profiles check it.
+  service-slot, health-hook, rollback-hook, and write-boundary source-evidence
+  cases, and the full Shadow VM module profiles check it.
 - `module.loader_identity` now exposes `raios.module_loader_identity.v0` as a
   read-only current-boot diagnostic for the first typed normal-module
   loader-runtime fact. The live fact is missing/local-only until retained
@@ -703,17 +705,14 @@ Current verified cursor:
   descriptor or artifact bytes, cites the retained artifact-hash source-evidence
   event id when present, and is consumed by `module.loader_runtime` only as
   observed source evidence.
-- The next six typed normal-module loader-runtime facts after entrypoint ABI
+- The next seven typed normal-module loader-runtime facts after entrypoint ABI
   now record retained source-evidence events in the current-boot RAM event log:
   address-space boundary, memory-map constraints, capability import table,
-  service-slot binding, health-state hooks, and rollback hooks. Each record is
-  local-only, non-authorizing, accepts no loader descriptor or artifact bytes,
-  cites the previous retained loader-fact source-evidence event id when
-  present, and is consumed by `module.loader_runtime` only as observed source
-  evidence.
-- The remaining typed normal-module loader-runtime fact, audit/rollback
-  write-boundary binding, is addressable as a read-only current-boot diagnostic
-  with a matching selftest. These diagnostics share
+  service-slot binding, health-state hooks, rollback hooks, and audit/rollback
+  write-boundary binding. Each record is local-only, non-authorizing, accepts no
+  loader descriptor or artifact bytes, cites the previous retained loader-fact
+  source-evidence event id when present, and is consumed by
+  `module.loader_runtime` only as observed source evidence. These diagnostics share
   `seed-kernel/src/agent_protocol_module_loader_fact.rs`, require retained
   module evidence, service-slot allocator readiness/runtime, audit/write
   boundary, and the previous loader fact, and keep descriptor input, artifact
@@ -1214,8 +1213,9 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Add the next non-authorizing retained source-evidence binding for
-`module.loader_audit_rollback_write_boundary_binding`.
+Start the RAM-only service-slot allocator runtime foundation by adding a typed,
+non-authorizing `raios.ram_only_service_slot_allocator.v0` fact/source-evidence
+boundary under `module.service_slot_allocator`.
 ```
 
 `module.load_ephemeral` reports retained-evidence, service-slot allocator
@@ -1224,21 +1224,22 @@ binding, and `module.load_gate_loader_runtime_selftest` covers that denied
 projection. The aggregate `module.loader_runtime` response cites every typed
 loader-fact source method/locator and now consumes the retained
 `module.loader_identity` plus `module.loader_artifact_hash_binding`
-plus `module.loader_entrypoint_abi` through `module.loader_rollback_hooks`
-source-evidence records as observed current-boot evidence without granting
-loader descriptor, artifact, service-slot, inventory, or load authority. The
-next durable Phase-6 slice should apply the same source-evidence pattern to
-`module.loader_audit_rollback_write_boundary_binding`.
+plus `module.loader_entrypoint_abi` through
+`module.loader_audit_rollback_write_boundary_binding` source-evidence records
+as observed current-boot evidence without granting loader descriptor, artifact,
+service-slot, inventory, or load authority. The next durable Phase-6 slice
+should make the currently missing service-slot allocator runtime gate
+addressable as a typed fact boundary.
 
 Next three tasks:
 
 1. Add a retained, local-only, current-boot source-evidence event binding for
-   `module.loader_audit_rollback_write_boundary_binding` that records
-   audit/rollback write-boundary binding availability/missing status without
-   accepting descriptors or artifact bytes.
-2. Teach `module.loader_runtime` and `module.loader_runtime_selftest` to
-   consume that typed audit/rollback write-boundary source evidence after
-   rollback-hook evidence while still denying load authority.
+   `raios.ram_only_service_slot_allocator.v0` under
+   `module.service_slot_allocator` that records allocator-runtime
+   availability/missing status without allocating a slot.
+2. Teach `module.service_slot_allocator` and
+   `module.service_slot_allocator_selftest` to consume that typed allocator
+   runtime source evidence while still denying allocation and load authority.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next Phase-6 slice.
