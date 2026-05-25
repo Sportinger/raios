@@ -11,7 +11,7 @@ pub(crate) fn module_service_slot_allocator_selftest_method(method: &str) -> boo
 pub(crate) fn emit_module_service_slot_allocator() {
     let retained = event_log::latest_module_service_slot_reservation();
     let retained_event_id = retained.as_ref().map(|(event_id, _)| *event_id);
-    let allocator_runtime_source_evidence = module_service_slot_allocator_fact_source_evidence(
+    let allocator_runtime_source_evidence = module_service_slot_allocator_runtime_source_evidence(
         MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0],
         retained_event_id,
         None,
@@ -945,6 +945,27 @@ fn module_service_slot_allocator_fact_source_evidence(
     }
 }
 
+fn module_service_slot_allocator_runtime_source_evidence(
+    source: ModuleServiceSlotAllocatorFactSource,
+    retained_service_slot_reservation_event_id: Option<event_log::EventId>,
+    allocator_runtime_source_evidence_event_id: Option<event_log::EventId>,
+) -> event_log::ModuleServiceSlotAllocatorFactSourceEvidence {
+    let mut evidence = module_service_slot_allocator_fact_source_evidence(
+        source,
+        retained_service_slot_reservation_event_id,
+        allocator_runtime_source_evidence_event_id,
+    );
+    if retained_service_slot_reservation_event_id.is_some() {
+        evidence.fact_status = "available";
+        evidence.fact_reason = "service_slot_allocator_runtime_available";
+        evidence.fact_present = true;
+        evidence.fact_provenance_ok = true;
+        evidence.binds_retained_service_slot_reservation = true;
+        evidence.binds_allocator_runtime = true;
+    }
+    evidence
+}
+
 fn module_service_slot_allocator_prerequisite_source_evidence(
     source: ModuleServiceSlotAllocatorPrerequisiteSource,
     retained_service_slot_reservation_present: bool,
@@ -1390,6 +1411,20 @@ fn module_service_slot_allocator_observed_missing_fact(
     }
 }
 
+fn module_service_slot_allocator_observed_available_fact(
+    source: ModuleServiceSlotAllocatorFactSource,
+    sequence: u64,
+    available_reason: &'static str,
+) -> ModuleServiceSlotAllocatorFact {
+    ModuleServiceSlotAllocatorFact {
+        source_evidence_event_id: Some(event_log::EventId { sequence }),
+        source_evidence_state: "observed_current_boot_available",
+        source_evidence_status: "available",
+        source_evidence_reason: available_reason,
+        ..module_service_slot_allocator_available_fact(source)
+    }
+}
+
 fn module_service_slot_allocator_observed_missing_prerequisite(
     source: ModuleServiceSlotAllocatorPrerequisiteSource,
     sequence: u64,
@@ -1507,6 +1542,20 @@ fn module_service_slot_allocator_selftest_cases(
                 allocator_runtime: module_service_slot_allocator_observed_missing_fact(
                     MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0],
                     42,
+                ),
+                ..module_service_slot_allocator_empty_snapshot(true)
+            },
+        ),
+        module_service_slot_allocator_selftest_case(
+            "service_slot_allocator_runtime_observed_source_evidence_available_registry_missing",
+            "missing",
+            "service_slot_registry_binding_missing",
+            ModuleServiceSlotAllocatorCandidate {
+                retained_reservation_present: true,
+                allocator_runtime: module_service_slot_allocator_observed_available_fact(
+                    MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0],
+                    49,
+                    "service_slot_allocator_runtime_available",
                 ),
                 ..module_service_slot_allocator_empty_snapshot(true)
             },
