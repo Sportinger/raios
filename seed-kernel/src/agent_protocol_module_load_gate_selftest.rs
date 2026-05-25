@@ -729,12 +729,12 @@ pub(crate) fn module_load_gate_loader_runtime_selftest_cases(
             },
         ),
         module_load_gate_loader_runtime_selftest_case(
-            "all_retained_evidence_ready_allocator_runtime_missing",
-            "denied_missing_service_slot_allocator_runtime",
-            "service_slot_allocator_runtime_missing",
+            "all_retained_evidence_ready_allocator_authority_unimplemented",
+            "denied_allocator_authority_unimplemented",
+            "service_slot_allocator_authority_unimplemented",
             "available",
-            "missing_runtime",
-            "blocked_by_service_slot_allocator_runtime",
+            "defined_non_authorizing",
+            "blocked_by_service_slot_allocator_authority",
             ready,
         ),
     ]
@@ -817,31 +817,33 @@ fn module_load_gate_loader_runtime_selftest_case(
     candidate: ModuleLoadGateLoaderRuntimeCandidate,
 ) -> ModuleLoadGateLoaderRuntimeSelfTestCase {
     let actual = evaluate_module_load_gate_loader_runtime_candidate(candidate);
-    let expected_retained_module_evidence_reason = if method_eq(
-        expected_status,
-        "denied_missing_service_slot_allocator_runtime",
-    ) {
-        "retained_module_evidence_available"
-    } else {
-        expected_reason
-    };
-    let expected_service_slot_allocator_status =
-        if method_eq(expected_service_slot_allocator_state, "missing_runtime") {
-            "missing"
+    let expected_retained_module_evidence_reason =
+        if method_eq(expected_status, "denied_allocator_authority_unimplemented") {
+            "retained_module_evidence_available"
         } else {
-            "blocked"
-        };
-    let expected_service_slot_allocator_reason =
-        if method_eq(expected_service_slot_allocator_state, "missing_runtime") {
-            "service_slot_allocator_runtime_missing"
-        } else if method_eq(
-            expected_service_slot_allocator_state,
-            "blocked_by_rejected_service_slot_reservation",
-        ) {
             expected_reason
-        } else {
-            "retained_service_slot_reservation_missing"
         };
+    let expected_service_slot_allocator_status = if method_eq(
+        expected_service_slot_allocator_state,
+        "defined_non_authorizing",
+    ) {
+        "denied_allocator_authority_unimplemented"
+    } else {
+        "blocked"
+    };
+    let expected_service_slot_allocator_reason = if method_eq(
+        expected_service_slot_allocator_state,
+        "defined_non_authorizing",
+    ) {
+        "service_slot_allocator_authority_unimplemented"
+    } else if method_eq(
+        expected_service_slot_allocator_state,
+        "blocked_by_rejected_service_slot_reservation",
+    ) {
+        expected_reason
+    } else {
+        "retained_service_slot_reservation_missing"
+    };
     ModuleLoadGateLoaderRuntimeSelfTestCase {
         name,
         expected_status,

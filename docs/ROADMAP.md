@@ -2,7 +2,12 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-05-25 by Codex after promoting the
+Last updated: 2026-05-25 by Codex after binding the denied
+`module.load_ephemeral` / `service.load_ephemeral` service-slot allocator
+readiness projection to the retained `module.service_slot_allocator`
+source-evidence chain, so the full retained module evidence path now reports
+`service_slot_allocator_authority_unimplemented` instead of the old static
+runtime-missing placeholder, after promoting the
 `module.service_slot_allocator` module-loader prerequisite boundary to an
 observed-current-boot available but non-authorizing boundary once durable-audit
 write and rollback-install evidence are available, while still blocking on
@@ -192,10 +197,14 @@ binding, health-state, and unload-cleanup facts plus the durable-audit write,
 rollback-install, and module-loader prerequisite gates, promotes the allocator
 runtime, registry binding, health-state, and unload-cleanup facts to
 observed-current-boot available after a retained service-slot reservation, and
-still allocates no slots.
+still allocates no slots. The denied module load gate now consumes those
+retained allocator source-evidence records and projects the final
+`service_slot_allocator_authority_unimplemented` denial through both
+`raios.module_service_slot_allocator_readiness.v0` and
+`raios.module_loader_runtime_readiness.v0` while still loading nothing.
 Current evidence: full report
-`release/vm-reports/shadow-20260525-110235-34172.json` recorded 5525/5525
-predicates with 243 executed commands and `duration_ms: 333563`; quick report
+`release/vm-reports/shadow-20260525-112019-14276.json` recorded 5525/5525
+predicates with 243 executed commands and `duration_ms: 388619`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
@@ -744,8 +753,11 @@ Current verified cursor:
   authority disabled.
 - `module.load_ephemeral` now mirrors those Phase-6 readiness boundaries in
   its denied `raios.module_load_gate.v0` response and event-log binding. The
-  gate distinguishes retained module evidence, service-slot allocator runtime
-  readiness, and loader-runtime readiness while keeping `loads_artifact`,
+  gate distinguishes retained module evidence, retained service-slot allocator
+  source-evidence readiness, and loader-runtime readiness. With the retained
+  allocator source-evidence chain present it reports the same
+  `service_slot_allocator_authority_unimplemented` denial as
+  `module.service_slot_allocator`, while keeping `loads_artifact`,
   `allocates_service_slot`, `creates_service_inventory_records`,
   `service_inventory_change`, `can_load_now`, and `load_attempted`
   non-authorizing.
@@ -754,7 +766,7 @@ Current verified cursor:
   infrastructure for the denied load-gate loader-runtime projection. It covers
   missing/rejected retained module evidence, missing/rejected retained
   service-slot reservation projection, and the all-retained-evidence-ready
-  state that remains blocked by missing service-slot allocator runtime, without
+  state that remains blocked by unimplemented service-slot allocator authority, without
   accepting loader descriptors, artifact bytes, service-slot allocation, or
   service inventory mutation.
 - `module.audit_rollback_availability` now exposes

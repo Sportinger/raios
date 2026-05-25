@@ -961,11 +961,11 @@
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_slot_reason" -Needle '"actual_reason": "ram_only_service_slot_unallocated"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_slot_case" -Needle '"case": "rejected_service_slot_reservation"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_slot_allocator_state" -Needle '"actual_service_slot_allocator_state": "blocked_by_rejected_service_slot_reservation"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_missing_case" -Needle '"case": "all_retained_evidence_ready_allocator_runtime_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_missing_status" -Needle '"actual_status": "denied_missing_service_slot_allocator_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_case" -Needle '"case": "all_retained_evidence_ready_allocator_authority_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_status" -Needle '"actual_status": "denied_allocator_authority_unimplemented"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_retained_available_state" -Needle '"actual_retained_module_evidence_state": "available"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_missing_state" -Needle '"actual_service_slot_allocator_state": "missing_runtime"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_loader_runtime_blocked_state" -Needle '"actual_loader_runtime_state": "blocked_by_service_slot_allocator_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_state" -Needle '"actual_service_slot_allocator_state": "defined_non_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_loader_runtime_blocked_state" -Needle '"actual_loader_runtime_state": "blocked_by_service_slot_allocator_authority"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_loader_identity" -Needle '"raios.module_loader_identity.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1

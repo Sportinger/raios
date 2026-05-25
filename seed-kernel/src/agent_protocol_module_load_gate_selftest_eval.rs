@@ -1138,7 +1138,7 @@ pub(crate) fn evaluate_module_load_gate_loader_runtime_candidate(
     let service_slot_allocator_state = if module_load_gate_loader_runtime_reference_available(
         candidate.service_slot_reservation_state,
     ) {
-        "missing_runtime"
+        "defined_non_authorizing"
     } else if module_load_gate_loader_runtime_reference_rejected(
         candidate.service_slot_reservation_state,
     ) {
@@ -1149,14 +1149,14 @@ pub(crate) fn evaluate_module_load_gate_loader_runtime_candidate(
     let service_slot_allocator_status = if module_load_gate_loader_runtime_reference_available(
         candidate.service_slot_reservation_state,
     ) {
-        "missing"
+        "denied_allocator_authority_unimplemented"
     } else {
         "blocked"
     };
     let service_slot_allocator_reason = if module_load_gate_loader_runtime_reference_available(
         candidate.service_slot_reservation_state,
     ) {
-        "service_slot_allocator_runtime_missing"
+        "service_slot_allocator_authority_unimplemented"
     } else if module_load_gate_loader_runtime_reference_rejected(
         candidate.service_slot_reservation_state,
     ) {
@@ -1166,9 +1166,9 @@ pub(crate) fn evaluate_module_load_gate_loader_runtime_candidate(
     };
     let (loader_runtime_state, status, reason) = if retained_module_evidence_complete {
         (
-            "blocked_by_service_slot_allocator_runtime",
-            "denied_missing_service_slot_allocator_runtime",
-            "service_slot_allocator_runtime_missing",
+            "blocked_by_service_slot_allocator_authority",
+            "denied_allocator_authority_unimplemented",
+            "service_slot_allocator_authority_unimplemented",
         )
     } else {
         (

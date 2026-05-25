@@ -274,35 +274,19 @@ fn module_load_gate_retained_module_evidence_reason(
 fn module_load_gate_service_slot_allocator_state(
     binding: event_log::ModuleLoadGateBinding,
 ) -> &'static str {
-    if module_load_gate_service_slot_reservation_valid(binding) {
-        "missing_runtime"
-    } else if module_load_gate_service_slot_reservation_rejected(binding) {
-        "blocked_by_rejected_service_slot_reservation"
-    } else {
-        "blocked_by_service_slot_reservation"
-    }
+    module_load_gate_service_slot_allocator_projection(binding).state
 }
 
 fn module_load_gate_service_slot_allocator_status(
     binding: event_log::ModuleLoadGateBinding,
 ) -> &'static str {
-    if module_load_gate_service_slot_reservation_valid(binding) {
-        "missing"
-    } else {
-        "blocked"
-    }
+    module_load_gate_service_slot_allocator_projection(binding).status
 }
 
 fn module_load_gate_service_slot_allocator_reason(
     binding: event_log::ModuleLoadGateBinding,
 ) -> &'static str {
-    if module_load_gate_service_slot_reservation_valid(binding) {
-        "service_slot_allocator_runtime_missing"
-    } else if module_load_gate_service_slot_reservation_rejected(binding) {
-        binding.service_slot_reservation_reason
-    } else {
-        "retained_service_slot_reservation_missing"
-    }
+    module_load_gate_service_slot_allocator_projection(binding).reason
 }
 
 fn module_load_gate_loader_runtime_state(
@@ -310,8 +294,13 @@ fn module_load_gate_loader_runtime_state(
 ) -> &'static str {
     if !module_load_gate_retained_module_evidence_complete(binding) {
         "blocked_by_retained_module_evidence"
+    } else if method_eq(
+        module_load_gate_service_slot_allocator_projection(binding).status,
+        "denied_allocator_authority_unimplemented",
+    ) {
+        "blocked_by_service_slot_allocator_authority"
     } else {
-        "blocked_by_service_slot_allocator_runtime"
+        "blocked_by_service_slot_allocator_readiness"
     }
 }
 
@@ -319,7 +308,7 @@ fn module_load_gate_loader_runtime_status(
     binding: event_log::ModuleLoadGateBinding,
 ) -> &'static str {
     if module_load_gate_retained_module_evidence_complete(binding) {
-        "denied_missing_service_slot_allocator_runtime"
+        module_load_gate_service_slot_allocator_projection(binding).status
     } else {
         "denied_missing_retained_module_evidence"
     }
@@ -329,10 +318,328 @@ fn module_load_gate_loader_runtime_reason(
     binding: event_log::ModuleLoadGateBinding,
 ) -> &'static str {
     if module_load_gate_retained_module_evidence_complete(binding) {
-        "service_slot_allocator_runtime_missing"
+        module_load_gate_service_slot_allocator_projection(binding).reason
     } else {
         module_load_gate_retained_module_evidence_reason(binding)
     }
+}
+
+#[derive(Clone, Copy)]
+struct ModuleLoadGateServiceSlotAllocatorProjection {
+    state: &'static str,
+    status: &'static str,
+    reason: &'static str,
+    ready: bool,
+}
+
+fn module_load_gate_service_slot_allocator_projection(
+    binding: event_log::ModuleLoadGateBinding,
+) -> ModuleLoadGateServiceSlotAllocatorProjection {
+    if module_load_gate_service_slot_reservation_rejected(binding) {
+        return ModuleLoadGateServiceSlotAllocatorProjection {
+            state: "blocked_by_rejected_service_slot_reservation",
+            status: "blocked",
+            reason: binding.service_slot_reservation_reason,
+            ready: false,
+        };
+    }
+    if !module_load_gate_service_slot_reservation_valid(binding) {
+        return ModuleLoadGateServiceSlotAllocatorProjection {
+            state: "blocked_by_service_slot_reservation",
+            status: "blocked",
+            reason: "retained_service_slot_reservation_missing",
+            ready: false,
+        };
+    }
+
+    let allocator_runtime_source = MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0];
+    let allocator_runtime = event_log::latest_module_service_slot_allocator_fact_source_evidence(
+        allocator_runtime_source.source_fact_locator,
+    );
+    let Some((allocator_runtime_event_id, allocator_runtime)) = allocator_runtime else {
+        return module_load_gate_service_slot_allocator_missing_projection(
+            "missing_runtime",
+            allocator_runtime_source.source_evidence_missing_reason,
+        );
+    };
+    if !module_load_gate_service_slot_allocator_fact_source_available(
+        binding,
+        allocator_runtime,
+        None,
+    ) {
+        return module_load_gate_service_slot_allocator_missing_projection(
+            "missing_runtime",
+            module_load_gate_service_slot_allocator_fact_source_reason(
+                binding,
+                allocator_runtime,
+                None,
+            ),
+        );
+    }
+    let registry_binding_source = MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[1];
+    let registry_binding = event_log::latest_module_service_slot_allocator_fact_source_evidence(
+        registry_binding_source.source_fact_locator,
+    );
+    let Some((registry_binding_event_id, registry_binding)) = registry_binding else {
+        return module_load_gate_service_slot_allocator_missing_projection(
+            "missing_registry_binding",
+            registry_binding_source.source_evidence_missing_reason,
+        );
+    };
+    if !module_load_gate_service_slot_allocator_fact_source_available(
+        binding,
+        registry_binding,
+        Some(allocator_runtime_event_id),
+    ) {
+        return module_load_gate_service_slot_allocator_missing_projection(
+            "missing_registry_binding",
+            module_load_gate_service_slot_allocator_fact_source_reason(
+                binding,
+                registry_binding,
+                Some(allocator_runtime_event_id),
+            ),
+        );
+    }
+    let health_state_source = MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[2];
+    let health_state = event_log::latest_module_service_slot_allocator_fact_source_evidence(
+        health_state_source.source_fact_locator,
+    );
+    let Some((health_state_event_id, health_state)) = health_state else {
+        return module_load_gate_service_slot_allocator_missing_projection(
+            "missing_health_state",
+            health_state_source.source_evidence_missing_reason,
+        );
+    };
+    if !module_load_gate_service_slot_allocator_fact_source_available(
+        binding,
+        health_state,
+        Some(allocator_runtime_event_id),
+    ) {
+        return module_load_gate_service_slot_allocator_missing_projection(
+            "missing_health_state",
+            module_load_gate_service_slot_allocator_fact_source_reason(
+                binding,
+                health_state,
+                Some(allocator_runtime_event_id),
+            ),
+        );
+    }
+    let unload_cleanup_source = MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[3];
+    let unload_cleanup = event_log::latest_module_service_slot_allocator_fact_source_evidence(
+        unload_cleanup_source.source_fact_locator,
+    );
+    let Some((unload_cleanup_event_id, unload_cleanup)) = unload_cleanup else {
+        return module_load_gate_service_slot_allocator_missing_projection(
+            "missing_unload_cleanup",
+            unload_cleanup_source.source_evidence_missing_reason,
+        );
+    };
+    if !module_load_gate_service_slot_allocator_fact_source_available(
+        binding,
+        unload_cleanup,
+        Some(allocator_runtime_event_id),
+    ) {
+        return module_load_gate_service_slot_allocator_missing_projection(
+            "missing_unload_cleanup",
+            module_load_gate_service_slot_allocator_fact_source_reason(
+                binding,
+                unload_cleanup,
+                Some(allocator_runtime_event_id),
+            ),
+        );
+    }
+    let durable_audit_source = MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[0];
+    let durable_audit =
+        event_log::latest_module_service_slot_allocator_prerequisite_source_evidence(
+            durable_audit_source.source_fact_locator,
+        );
+    let Some((_, durable_audit)) = durable_audit else {
+        return ModuleLoadGateServiceSlotAllocatorProjection {
+            state: "missing_durable_audit_write",
+            status: "denied_missing_durable_audit_write",
+            reason: durable_audit_source.source_evidence_missing_reason,
+            ready: false,
+        };
+    };
+    if !module_load_gate_service_slot_allocator_prerequisite_source_available(
+        durable_audit,
+        allocator_runtime_event_id,
+        registry_binding_event_id,
+        health_state_event_id,
+        unload_cleanup_event_id,
+    ) {
+        return ModuleLoadGateServiceSlotAllocatorProjection {
+            state: "missing_durable_audit_write",
+            status: "denied_missing_durable_audit_write",
+            reason: module_load_gate_service_slot_allocator_prerequisite_source_reason(
+                durable_audit,
+                allocator_runtime_event_id,
+                registry_binding_event_id,
+                health_state_event_id,
+                unload_cleanup_event_id,
+            ),
+            ready: false,
+        };
+    }
+
+    let rollback_install_source = MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[1];
+    let rollback_install =
+        event_log::latest_module_service_slot_allocator_prerequisite_source_evidence(
+            rollback_install_source.source_fact_locator,
+        );
+    let Some((_, rollback_install)) = rollback_install else {
+        return ModuleLoadGateServiceSlotAllocatorProjection {
+            state: "missing_rollback_install",
+            status: "denied_missing_rollback_install",
+            reason: rollback_install_source.source_evidence_missing_reason,
+            ready: false,
+        };
+    };
+    if !module_load_gate_service_slot_allocator_prerequisite_source_available(
+        rollback_install,
+        allocator_runtime_event_id,
+        registry_binding_event_id,
+        health_state_event_id,
+        unload_cleanup_event_id,
+    ) {
+        return ModuleLoadGateServiceSlotAllocatorProjection {
+            state: "missing_rollback_install",
+            status: "denied_missing_rollback_install",
+            reason: module_load_gate_service_slot_allocator_prerequisite_source_reason(
+                rollback_install,
+                allocator_runtime_event_id,
+                registry_binding_event_id,
+                health_state_event_id,
+                unload_cleanup_event_id,
+            ),
+            ready: false,
+        };
+    }
+
+    let module_loader_source = MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[2];
+    let module_loader =
+        event_log::latest_module_service_slot_allocator_prerequisite_source_evidence(
+            module_loader_source.source_fact_locator,
+        );
+    let Some((_, module_loader)) = module_loader else {
+        return ModuleLoadGateServiceSlotAllocatorProjection {
+            state: "module_loader_boundary_missing",
+            status: "denied_loader_unimplemented",
+            reason: module_loader_source.source_evidence_missing_reason,
+            ready: false,
+        };
+    };
+    if !module_load_gate_service_slot_allocator_prerequisite_source_available(
+        module_loader,
+        allocator_runtime_event_id,
+        registry_binding_event_id,
+        health_state_event_id,
+        unload_cleanup_event_id,
+    ) {
+        return ModuleLoadGateServiceSlotAllocatorProjection {
+            state: "module_loader_unimplemented",
+            status: "denied_loader_unimplemented",
+            reason: module_load_gate_service_slot_allocator_prerequisite_source_reason(
+                module_loader,
+                allocator_runtime_event_id,
+                registry_binding_event_id,
+                health_state_event_id,
+                unload_cleanup_event_id,
+            ),
+            ready: false,
+        };
+    }
+
+    ModuleLoadGateServiceSlotAllocatorProjection {
+        state: "defined_non_authorizing",
+        status: "denied_allocator_authority_unimplemented",
+        reason: "service_slot_allocator_authority_unimplemented",
+        ready: false,
+    }
+}
+
+fn module_load_gate_service_slot_allocator_missing_projection(
+    state: &'static str,
+    reason: &'static str,
+) -> ModuleLoadGateServiceSlotAllocatorProjection {
+    ModuleLoadGateServiceSlotAllocatorProjection {
+        state,
+        status: "missing",
+        reason,
+        ready: false,
+    }
+}
+
+fn module_load_gate_service_slot_allocator_fact_source_available(
+    binding: event_log::ModuleLoadGateBinding,
+    evidence: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    expected_allocator_runtime_source_evidence_event_id: Option<event_log::EventId>,
+) -> bool {
+    evidence.fact_present
+        && evidence.fact_schema_ok
+        && evidence.fact_provenance_ok
+        && evidence.binds_retained_service_slot_reservation
+        && evidence.binds_allocator_runtime
+        && evidence.retained_service_slot_reservation_event_id
+            == binding.service_slot_reservation_event_id
+        && evidence.allocator_runtime_source_evidence_event_id
+            == expected_allocator_runtime_source_evidence_event_id
+}
+
+fn module_load_gate_service_slot_allocator_fact_source_reason(
+    binding: event_log::ModuleLoadGateBinding,
+    evidence: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    expected_allocator_runtime_source_evidence_event_id: Option<event_log::EventId>,
+) -> &'static str {
+    if evidence.retained_service_slot_reservation_event_id
+        != binding.service_slot_reservation_event_id
+    {
+        "service_slot_allocator_retained_reservation_binding_mismatch"
+    } else if evidence.allocator_runtime_source_evidence_event_id
+        != expected_allocator_runtime_source_evidence_event_id
+    {
+        "service_slot_allocator_runtime_source_evidence_binding_mismatch"
+    } else {
+        evidence.fact_reason
+    }
+}
+
+fn module_load_gate_service_slot_allocator_prerequisite_source_available(
+    evidence: event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+    allocator_runtime_event_id: event_log::EventId,
+    registry_binding_event_id: event_log::EventId,
+    health_state_event_id: event_log::EventId,
+    unload_cleanup_event_id: event_log::EventId,
+) -> bool {
+    evidence.prerequisite_available
+        && evidence.allocator_runtime_source_evidence_event_id == Some(allocator_runtime_event_id)
+        && evidence.registry_binding_source_evidence_event_id == Some(registry_binding_event_id)
+        && evidence.health_state_source_evidence_event_id == Some(health_state_event_id)
+        && evidence.unload_cleanup_source_evidence_event_id == Some(unload_cleanup_event_id)
+}
+
+fn module_load_gate_service_slot_allocator_prerequisite_source_reason(
+    evidence: event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+    allocator_runtime_event_id: event_log::EventId,
+    registry_binding_event_id: event_log::EventId,
+    health_state_event_id: event_log::EventId,
+    unload_cleanup_event_id: event_log::EventId,
+) -> &'static str {
+    if evidence.allocator_runtime_source_evidence_event_id != Some(allocator_runtime_event_id)
+        || evidence.registry_binding_source_evidence_event_id != Some(registry_binding_event_id)
+        || evidence.health_state_source_evidence_event_id != Some(health_state_event_id)
+        || evidence.unload_cleanup_source_evidence_event_id != Some(unload_cleanup_event_id)
+    {
+        "service_slot_allocator_prerequisite_source_evidence_binding_mismatch"
+    } else {
+        evidence.prerequisite_reason
+    }
+}
+
+fn module_load_gate_service_slot_allocator_ready(
+    binding: event_log::ModuleLoadGateBinding,
+) -> bool {
+    module_load_gate_service_slot_allocator_projection(binding).ready
 }
 
 fn module_load_gate_audit_rollback_reference_valid(
@@ -1130,7 +1437,9 @@ fn emit_module_load_gate_service_slot_allocator_readiness(
     raw("      \"retained_service_slot_reservation_reason\": ");
     json_str(module_load_gate_service_slot_reason(binding));
     raw_line(",");
-    raw_line("      \"service_slot_allocator_ready\": false,");
+    raw("      \"service_slot_allocator_ready\": ");
+    raw_bool(module_load_gate_service_slot_allocator_ready(binding));
+    raw_line(",");
     raw_line("      \"allocates_service_slot\": false,");
     raw_line("      \"creates_service_inventory_records\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
@@ -1159,7 +1468,9 @@ fn emit_module_load_gate_loader_runtime_readiness(binding: event_log::ModuleLoad
     raw("      \"retained_module_evidence_reason\": ");
     json_str(module_load_gate_retained_module_evidence_reason(binding));
     raw_line(",");
-    raw_line("      \"service_slot_allocator_ready\": false,");
+    raw("      \"service_slot_allocator_ready\": ");
+    raw_bool(module_load_gate_service_slot_allocator_ready(binding));
+    raw_line(",");
     raw_line("      \"accepts_loader_descriptor\": false,");
     raw_line("      \"accepts_artifact_bytes\": false,");
     raw_line("      \"loads_artifact\": false,");
@@ -2189,7 +2500,9 @@ fn emit_module_load_gate_service_slot_allocator_readiness_compact(
     json_str(module_load_gate_service_slot_allocator_reason(binding));
     raw(", \"retained_service_slot_reservation_status\": ");
     json_str(module_load_gate_service_slot_state(binding));
-    raw(", \"service_slot_allocator_ready\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false}");
+    raw(", \"service_slot_allocator_ready\": ");
+    raw_bool(module_load_gate_service_slot_allocator_ready(binding));
+    raw(", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false}");
 }
 
 fn emit_module_load_gate_loader_runtime_readiness_compact(
@@ -2205,7 +2518,9 @@ fn emit_module_load_gate_loader_runtime_readiness_compact(
     json_str(module_load_gate_retained_module_evidence_state(binding));
     raw(", \"retained_module_evidence_reason\": ");
     json_str(module_load_gate_retained_module_evidence_reason(binding));
-    raw(", \"service_slot_allocator_ready\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"missing_facts\": [\"raios.module_loader_identity.v0\", \"raios.module_loader_artifact_hash_binding.v0\", \"raios.module_loader_entrypoint_abi.v0\", \"raios.module_loader_address_space_boundary.v0\", \"raios.module_loader_memory_map_constraints.v0\", \"raios.module_loader_capability_import_table.v0\", \"raios.module_loader_service_slot_binding.v0\", \"raios.module_loader_health_state_hooks.v0\", \"raios.module_loader_rollback_hooks.v0\", \"raios.module_loader_audit_rollback_write_boundary_binding.v0\"]");
+    raw(", \"service_slot_allocator_ready\": ");
+    raw_bool(module_load_gate_service_slot_allocator_ready(binding));
+    raw(", \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"missing_facts\": [\"raios.module_loader_identity.v0\", \"raios.module_loader_artifact_hash_binding.v0\", \"raios.module_loader_entrypoint_abi.v0\", \"raios.module_loader_address_space_boundary.v0\", \"raios.module_loader_memory_map_constraints.v0\", \"raios.module_loader_capability_import_table.v0\", \"raios.module_loader_service_slot_binding.v0\", \"raios.module_loader_health_state_hooks.v0\", \"raios.module_loader_rollback_hooks.v0\", \"raios.module_loader_audit_rollback_write_boundary_binding.v0\"]");
     raw(", \"source_fact_count\": ");
     raw_fmt(format_args!("{}", MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT));
     raw(", \"source_fact_map_complete\": ");

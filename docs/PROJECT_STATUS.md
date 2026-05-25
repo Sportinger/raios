@@ -17,7 +17,13 @@ look for ownership boundaries; around 3k-5k LOC, actively split if a stable
 boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
-Last verified locally: 2026-05-25 on Windows with QEMU 11 after promoting
+Last verified locally: 2026-05-25 on Windows with QEMU 11 after binding the
+denied `module.load_ephemeral` / `service.load_ephemeral` service-slot
+allocator readiness projection to the retained
+`module.service_slot_allocator` source-evidence chain so the full retained
+module evidence path now reports
+`service_slot_allocator_authority_unimplemented` instead of the old static
+runtime-missing placeholder, after promoting
 the `module.service_slot_allocator` module-loader prerequisite boundary to an
 observed-current-boot available but non-authorizing boundary once durable-audit
 write and rollback-install evidence are available, while still blocking on
@@ -857,12 +863,14 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Bind the denied `module.load_ephemeral` and `service.load_ephemeral`
-service-slot allocator readiness projection to the real
-`module.service_slot_allocator` outcome instead of the static
-`service_slot_allocator_runtime_missing` placeholder, while keeping loader
-runtime, descriptor/artifact intake, service-slot allocation, service inventory
-mutation, and load attempts denied.
+Propagate the same real service-slot allocator readiness outcome into the
+normal module-loader diagnostics (`module.loader_identity`,
+`module.loader_artifact_hash_binding`, the typed loader fact boundaries, and
+`module.loader_runtime`) so their source-evidence projections no longer rely on
+static `service_slot_allocator_runtime_missing` placeholders once
+`module.service_slot_allocator` has observed the allocator facts and prerequisite
+chain. Keep descriptor/artifact intake, service-slot allocation, service
+inventory mutation, and load attempts denied.
 
 The current Phase-6 loader-runtime aggregate and denied
 `module.load_ephemeral` loader-runtime readiness projection cite the same ten
@@ -883,11 +891,13 @@ registry binding, health-state model, unload cleanup plan, durable-audit write,
 and rollback-install prerequisite are now observed-current-boot available, so
 the module-loader prerequisite boundary is now present but non-authorizing. The
 direct readiness diagnostic advances to
-`service_slot_allocator_authority_unimplemented`. The next durable slice should
-propagate that real readiness outcome into the denied module load projections
-while keeping service-slot allocation, service inventory mutation, loader
-descriptor intake, artifact bytes, and load attempts denied until the rest of
-the gate is complete.
+`service_slot_allocator_authority_unimplemented`. The denied module load gate
+now consumes that real readiness outcome and reports the same authority denial
+in its service-slot allocator and loader-runtime readiness projections. The next
+durable slice should propagate the same real readiness outcome into the
+standalone loader diagnostics while keeping service-slot allocation, service
+inventory mutation, loader descriptor intake, artifact bytes, and load attempts
+denied until the rest of the gate is complete.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:
@@ -1732,11 +1742,13 @@ Historical verified recovery foundation retained for reference:
   next Phase-6 boundaries inside the denied gate: retained module evidence
   completeness, read-only `raios.module_service_slot_allocator_readiness.v0`,
   and read-only `raios.module_loader_runtime_readiness.v0`. With valid retained
-  service-slot evidence, the gate reports
-  `service_slot_allocator: missing_runtime`,
+  service-slot evidence plus retained `module.service_slot_allocator` source
+  evidence, the gate reports
+  `service_slot_allocator: defined_non_authorizing`,
   `service_slot_allocator_ready: false`,
-  `loader_runtime: blocked_by_service_slot_allocator_runtime`,
-  `readiness_status: denied_missing_service_slot_allocator_runtime`, and typed
+  `loader_runtime: blocked_by_service_slot_allocator_authority`,
+  `readiness_status: denied_allocator_authority_unimplemented`,
+  `readiness_reason: service_slot_allocator_authority_unimplemented`, and typed
   missing loader-runtime facts such as `raios.module_loader_identity.v0`, while
   keeping `loads_artifact`, `allocates_service_slot`,
   `creates_service_inventory_records`, `can_load_now`, and `load_attempted`
@@ -1753,7 +1765,7 @@ Historical verified recovery foundation retained for reference:
   the denied load-gate loader-runtime projection. It covers missing/rejected
   retained module evidence, missing/rejected retained service-slot reservation
   projection, and the all-retained-evidence-ready state that remains blocked
-  by missing service-slot allocator runtime, while keeping descriptor/artifact
+  by unimplemented service-slot allocator authority, while keeping descriptor/artifact
   input, service-slot allocation, service inventory mutation, and load attempts
   disabled.
 - `module.grant_diagnostic_selftest` covers absent, accepted-current-boot,
@@ -1923,8 +1935,8 @@ Historical verified recovery foundation retained for reference:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest full report:
-  `release\vm-reports\shadow-20260525-110235-34172.json` with 5525/5525
-  predicates, 243 executed commands, and `duration_ms: 333563`.
+  `release\vm-reports\shadow-20260525-112019-14276.json` with 5525/5525
+  predicates, 243 executed commands, and `duration_ms: 388619`.
   Latest focused reports:
   `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 17108`, and

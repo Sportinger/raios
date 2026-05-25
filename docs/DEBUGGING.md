@@ -1031,12 +1031,13 @@ retained, the denial should report
 the same denial should now also report
 `service_slot_allocator_readiness.schema:
 raios.module_service_slot_allocator_readiness.v0`,
-`service_slot_allocator: missing_runtime`,
+`service_slot_allocator: defined_non_authorizing`,
 `service_slot_allocator_ready: false`,
 `loader_runtime_readiness.schema:
 raios.module_loader_runtime_readiness.v0`,
-`loader_runtime: blocked_by_service_slot_allocator_runtime`,
-`readiness_status: denied_missing_service_slot_allocator_runtime`, and
+`loader_runtime: blocked_by_service_slot_allocator_authority`,
+`readiness_status: denied_allocator_authority_unimplemented`,
+`readiness_reason: service_slot_allocator_authority_unimplemented`, and
 typed missing loader-runtime facts such as
 `raios.module_loader_identity.v0`, while still keeping
 `loads_artifact: false`, `creates_service_inventory_records: false`,
@@ -1131,8 +1132,8 @@ service-slot reservations; rejected cases must keep
 `allocates_service_slot: false`, `creates_service_inventory_records: false`,
 and `can_load: false`. It covers missing/rejected retained evidence,
 missing/rejected retained service-slot reservation projection, and the
-all-retained-evidence-ready state that remains denied by the missing
-service-slot allocator runtime; all cases must keep load attempts disabled.
+all-retained-evidence-ready state that remains denied by unimplemented
+service-slot allocator authority; all cases must keep load attempts disabled.
 It also emits `source_fact_count: 10`, `source_fact_map_complete: true`, and a
 local-only `source_fact_map` matching the denied load-gate
 `loader_runtime_readiness` projection.

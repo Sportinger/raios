@@ -100,12 +100,12 @@
     Assert-LogContains -Name "protocol:module_load_audit_retained_service_slot_event_id" -Needle '"retained_service_slot_reservation_event_id": "event.current_boot.' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_retained_service_slot_no_allocation" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_retained_service_slot_no_inventory" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_audit_service_slot_allocator_state" -Needle '"service_slot_allocator": "missing_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_service_slot_allocator_state" -Needle '"service_slot_allocator": "defined_non_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_service_slot_allocator_schema" -Needle '"service_slot_allocator_readiness": {"schema": "raios.module_service_slot_allocator_readiness.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_audit_service_slot_allocator_reason" -Needle '"readiness_reason": "service_slot_allocator_runtime_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_state" -Needle '"loader_runtime": "blocked_by_service_slot_allocator_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_service_slot_allocator_reason" -Needle '"readiness_reason": "service_slot_allocator_authority_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_state" -Needle '"loader_runtime": "blocked_by_service_slot_allocator_authority"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_schema" -Needle '"loader_runtime_readiness": {"schema": "raios.module_loader_runtime_readiness.v0"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_status" -Needle '"readiness_status": "denied_missing_service_slot_allocator_runtime"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_status" -Needle '"readiness_status": "denied_allocator_authority_unimplemented"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_no_load" -Needle '"loader_runtime_readiness": {"schema": "raios.module_loader_runtime_readiness.v0", "scope": "current_boot", "classification": "local_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_count" -Needle '"source_fact_count": 10, "source_fact_map_complete": true, "source_fact_map": ' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_map_identity" -Needle '"fact": "loader_identity"' -TimeoutSeconds 1
