@@ -18,12 +18,15 @@ boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
 Last verified locally: 2026-05-25 on Windows with QEMU 11 after promoting
+the `module.service_slot_allocator` durable-audit write and rollback-install
+prerequisite gates to observed-current-boot available once a retained
+service-slot reservation and all allocator facts are available, while still
+blocking on `module_loader_unimplemented`, after promoting
 `module.service_slot_allocator` to report
 `raios.service_slot_registry_binding.v0`,
 `raios.service_health_state_model.v0`, and
 `raios.service_unload_cleanup_plan.v0` as observed-current-boot available facts
-after a retained service-slot reservation and available allocator runtime while
-still blocking on `durable_audit_write_missing`, after promoting
+after a retained service-slot reservation and available allocator runtime, after promoting
 `raios.ram_only_service_slot_allocator.v0` as an observed-current-boot available
 runtime fact after a retained service-slot reservation, after adding retained local-only
 current-boot source evidence for the
@@ -851,11 +854,12 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Add the first real current-boot durable-audit write prerequisite under
-`module.service_slot_allocator`, keeping it local-only, provenance-bound to the
-retained service-slot reservation, available allocator facts, and audit evidence
-source, and still fail-closed without allocating slots, mutating service
-inventory, accepting loader descriptors/artifact bytes, or loading artifacts.
+Add the first real current-boot module-loader prerequisite boundary under
+`module.service_slot_allocator`, keeping it local-only and bound to retained
+service-slot reservation, available allocator facts, durable-audit write, and
+rollback-install evidence. It must still fail-closed without accepting loader
+descriptors/artifact bytes, allocating slots, mutating service inventory, or
+loading artifacts.
 
 The current Phase-6 loader-runtime aggregate and denied
 `module.load_ephemeral` loader-runtime readiness projection cite the same ten
@@ -872,12 +876,13 @@ consumes as observed, non-authorizing evidence. `module.service_slot_allocator`
 now records observed current-boot source evidence for the allocator readiness
 facts and the durable-audit, rollback-install, and module-loader prerequisite
 gates. With a valid retained service-slot reservation and allocator runtime, the
-registry binding, health-state model, and unload cleanup plan are now
-observed-current-boot available, so the direct readiness diagnostic advances to
-`durable_audit_write_missing`. The next durable slice should make that
-durable-audit prerequisite real while keeping service-slot allocation, service
-inventory mutation, loader descriptor intake, artifact bytes, and load attempts
-denied until the rest of the gate is complete.
+registry binding, health-state model, unload cleanup plan, durable-audit write,
+and rollback-install prerequisite are now observed-current-boot available, so
+the direct readiness diagnostic advances to `module_loader_unimplemented`. The
+next durable slice should make that module-loader prerequisite boundary real
+while keeping service-slot allocation, service inventory mutation, loader
+descriptor intake, artifact bytes, and load attempts denied until the rest of
+the gate is complete.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:
@@ -1455,10 +1460,11 @@ Historical verified recovery foundation retained for reference:
   `raios.service_slot_registry_binding.v0`,
   `raios.service_health_state_model.v0`, and
   `raios.service_unload_cleanup_plan.v0` into observed-current-boot available
-  facts once a retained service-slot reservation exists. The durable-audit
-  write, rollback-install, and module-loader prerequisite gates still remain
-  observed-current-boot missing/unavailable, so the live allocator readiness
-  advances to `durable_audit_write_missing` while keeping
+  facts once a retained service-slot reservation exists. The durable-audit write
+  and rollback-install prerequisite gates now also become observed-current-boot
+  available when those facts are available. The module-loader prerequisite gate
+  still remains observed-current-boot unavailable, so the live allocator
+  readiness advances to `module_loader_unimplemented` while keeping
   `allocates_service_slot`, `creates_service_inventory_records`,
   `can_allocate`, `can_load_now`, and `load_attempted` false.
 - `module.service_slot_allocator_selftest` covers missing retained
@@ -1911,8 +1917,8 @@ Historical verified recovery foundation retained for reference:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest full report:
-  `release\vm-reports\shadow-20260525-103333-12176.json` with 5515/5515
-  predicates, 243 executed commands, and `duration_ms: 331316`.
+  `release\vm-reports\shadow-20260525-105148-21968.json` with 5522/5522
+  predicates, 243 executed commands, and `duration_ms: 357492`.
   Latest focused reports:
   `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 17108`, and

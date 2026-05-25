@@ -3,12 +3,15 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-05-25 by Codex after promoting
+the `module.service_slot_allocator` durable-audit write and rollback-install
+prerequisite gates to observed-current-boot available once a retained
+service-slot reservation and all allocator facts are available, while still
+blocking on `module_loader_unimplemented`, after promoting
 `module.service_slot_allocator` to report
 `raios.service_slot_registry_binding.v0`,
 `raios.service_health_state_model.v0`, and
 `raios.service_unload_cleanup_plan.v0` as observed-current-boot available facts
-after a retained service-slot reservation and available allocator runtime while
-still blocking on `durable_audit_write_missing`, after promoting
+after a retained service-slot reservation and available allocator runtime, after promoting
 `raios.ram_only_service_slot_allocator.v0` as an observed-current-boot available
 runtime fact after a retained service-slot reservation, after adding retained local-only
 current-boot source evidence for `module.loader_address_space_boundary`,
@@ -188,8 +191,8 @@ runtime, registry binding, health-state, and unload-cleanup facts to
 observed-current-boot available after a retained service-slot reservation, and
 still allocates no slots.
 Current evidence: full report
-`release/vm-reports/shadow-20260525-103333-12176.json` recorded 5515/5515
-predicates with 243 executed commands and `duration_ms: 331316`; quick report
+`release/vm-reports/shadow-20260525-105148-21968.json` recorded 5522/5522
+predicates with 243 executed commands and `duration_ms: 357492`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
@@ -1231,11 +1234,12 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Add the first real current-boot durable-audit write prerequisite under
-`module.service_slot_allocator`, keeping it local-only, provenance-bound to the
-retained service-slot reservation, available allocator facts, and audit evidence
-source, and still fail-closed without allocating slots, mutating service
-inventory, accepting loader descriptors/artifact bytes, or loading artifacts.
+Add the first real current-boot module-loader prerequisite boundary under
+`module.service_slot_allocator`, keeping it local-only and bound to retained
+service-slot reservation, available allocator facts, durable-audit write, and
+rollback-install evidence. It must still fail-closed without accepting loader
+descriptors/artifact bytes, allocating slots, mutating service inventory, or
+loading artifacts.
 ```
 
 `module.load_ephemeral` reports retained-evidence, service-slot allocator
@@ -1250,18 +1254,21 @@ as observed current-boot evidence without granting loader descriptor, artifact,
 service-slot, inventory, or load authority. `module.service_slot_allocator`
 now makes its allocator runtime, registry binding, health-state model, and
 unload cleanup plan real as observed-current-boot source evidence when a
-retained service-slot reservation exists; the direct readiness diagnostic
-therefore advances to `durable_audit_write_missing` while retaining explicit
+retained service-slot reservation exists. Its durable-audit write and
+rollback-install prerequisite gates are now also observed-current-boot available
+when those allocator facts are available; the direct readiness diagnostic
+therefore advances to `module_loader_unimplemented` while retaining explicit
 denials for allocation and load.
 
 Next three tasks:
 
-1. Add a real current-boot durable-audit write prerequisite under
-   `module.service_slot_allocator` that remains fail-closed and does not
-   allocate slots or mutate service inventory.
+1. Add a real current-boot module-loader prerequisite boundary under
+   `module.service_slot_allocator` that remains fail-closed and does not accept
+   descriptors/artifact bytes, allocate slots, mutate service inventory, or
+   load artifacts.
 2. Teach `module.service_slot_allocator_selftest` and the full Shadow VM module
-   profiles to distinguish an available durable-audit write prerequisite from
-   still-missing rollback-install and module-loader gates.
+   profiles to distinguish a real module-loader prerequisite boundary from the
+   still non-authorizing allocator authority gate.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next Phase-6 slice.

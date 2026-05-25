@@ -85,26 +85,29 @@ pub(crate) fn emit_module_service_slot_allocator() {
             unload_cleanup_source_evidence_event_id,
             unload_cleanup_source_evidence,
         ));
-    let durable_audit_source_evidence = module_service_slot_allocator_prerequisite_source_evidence(
-        MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[0],
-        retained.is_some(),
-        allocator_runtime_observed_source_evidence,
-        registry_binding_observed_source_evidence,
-        health_state_observed_source_evidence,
-        unload_cleanup_observed_source_evidence,
-    );
+    let durable_audit_source_evidence =
+        module_service_slot_allocator_bound_prerequisite_source_evidence(
+            MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[0],
+            retained.is_some(),
+            allocator_runtime_observed_source_evidence,
+            registry_binding_observed_source_evidence,
+            health_state_observed_source_evidence,
+            unload_cleanup_observed_source_evidence,
+            "durable_audit_write_available",
+        );
     let durable_audit_source_evidence_event_id =
         event_log::record_module_service_slot_allocator_prerequisite_source_evidence(
             durable_audit_source_evidence,
         );
     let rollback_install_source_evidence =
-        module_service_slot_allocator_prerequisite_source_evidence(
+        module_service_slot_allocator_bound_prerequisite_source_evidence(
             MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[1],
             retained.is_some(),
             allocator_runtime_observed_source_evidence,
             registry_binding_observed_source_evidence,
             health_state_observed_source_evidence,
             unload_cleanup_observed_source_evidence,
+            "rollback_plan_install_available",
         );
     let rollback_install_source_evidence_event_id =
         event_log::record_module_service_slot_allocator_prerequisite_source_evidence(
@@ -1043,6 +1046,66 @@ fn module_service_slot_allocator_prerequisite_source_evidence(
     }
 }
 
+fn module_service_slot_allocator_bound_prerequisite_source_evidence(
+    source: ModuleServiceSlotAllocatorPrerequisiteSource,
+    retained_service_slot_reservation_present: bool,
+    allocator_runtime_source_evidence: (
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    ),
+    registry_binding_source_evidence: (
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    ),
+    health_state_source_evidence: (
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    ),
+    unload_cleanup_source_evidence: (
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    ),
+    available_reason: &'static str,
+) -> event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence {
+    let mut evidence = module_service_slot_allocator_prerequisite_source_evidence(
+        source,
+        retained_service_slot_reservation_present,
+        allocator_runtime_source_evidence,
+        registry_binding_source_evidence,
+        health_state_source_evidence,
+        unload_cleanup_source_evidence,
+    );
+    if retained_service_slot_reservation_present
+        && module_service_slot_allocator_fact_source_evidence_available(
+            allocator_runtime_source_evidence.1,
+        )
+        && module_service_slot_allocator_fact_source_evidence_available(
+            registry_binding_source_evidence.1,
+        )
+        && module_service_slot_allocator_fact_source_evidence_available(
+            health_state_source_evidence.1,
+        )
+        && module_service_slot_allocator_fact_source_evidence_available(
+            unload_cleanup_source_evidence.1,
+        )
+    {
+        evidence.prerequisite_status = "available";
+        evidence.prerequisite_reason = available_reason;
+        evidence.prerequisite_available = true;
+    }
+    evidence
+}
+
+fn module_service_slot_allocator_fact_source_evidence_available(
+    evidence: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+) -> bool {
+    evidence.fact_present
+        && evidence.fact_schema_ok
+        && evidence.fact_provenance_ok
+        && evidence.binds_retained_service_slot_reservation
+        && evidence.binds_allocator_runtime
+}
+
 fn module_service_slot_allocator_snapshot(
     retained_reservation_present: bool,
     allocator_runtime_source_evidence: Option<(
@@ -1472,6 +1535,23 @@ fn module_service_slot_allocator_observed_missing_prerequisite(
     }
 }
 
+fn module_service_slot_allocator_observed_available_prerequisite(
+    source: ModuleServiceSlotAllocatorPrerequisiteSource,
+    sequence: u64,
+    available_reason: &'static str,
+) -> ModuleServiceSlotAllocatorPrerequisite {
+    ModuleServiceSlotAllocatorPrerequisite {
+        available: true,
+        source_evidence_event_id: Some(event_log::EventId { sequence }),
+        source_evidence_state: "observed_current_boot_available",
+        source_evidence_status: "available",
+        source_evidence_reason: available_reason,
+        source_evidence_method: source.source_method,
+        source_evidence_fact_locator: source.source_fact_locator,
+        source_evidence_schema: source.source_evidence_schema,
+    }
+}
+
 fn module_service_slot_allocator_selftest_cases(
 ) -> [ModuleServiceSlotAllocatorSelfTestCase; MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES] {
     let missing = module_service_slot_allocator_empty_snapshot(false);
@@ -1756,6 +1836,22 @@ fn module_service_slot_allocator_selftest_cases(
             },
         ),
         module_service_slot_allocator_selftest_case(
+            "durable_audit_write_observed_source_evidence_available_rollback_missing",
+            "denied_missing_rollback_install",
+            "rollback_install_missing",
+            ModuleServiceSlotAllocatorCandidate {
+                durable_audit_write: module_service_slot_allocator_observed_available_prerequisite(
+                    MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[0],
+                    53,
+                    "durable_audit_write_available",
+                ),
+                rollback_plan_install: module_service_slot_allocator_missing_prerequisite(
+                    MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[1],
+                ),
+                ..ready
+            },
+        ),
+        module_service_slot_allocator_selftest_case(
             "rollback_install_missing",
             "denied_missing_rollback_install",
             "rollback_install_missing",
@@ -1774,6 +1870,24 @@ fn module_service_slot_allocator_selftest_cases(
                 rollback_plan_install: module_service_slot_allocator_observed_missing_prerequisite(
                     MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[1],
                     47,
+                ),
+                ..ready
+            },
+        ),
+        module_service_slot_allocator_selftest_case(
+            "rollback_install_observed_source_evidence_available_module_loader_unimplemented",
+            "denied_loader_unimplemented",
+            "module_loader_unimplemented",
+            ModuleServiceSlotAllocatorCandidate {
+                durable_audit_write: durable_available,
+                rollback_plan_install:
+                    module_service_slot_allocator_observed_available_prerequisite(
+                        MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[1],
+                        54,
+                        "rollback_plan_install_available",
+                    ),
+                module_loader: module_service_slot_allocator_missing_prerequisite(
+                    MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[2],
                 ),
                 ..ready
             },

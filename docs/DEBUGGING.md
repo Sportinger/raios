@@ -562,8 +562,9 @@ reports `raios.ram_only_service_slot_allocator.v0` as
 observed-current-boot available once a retained service-slot reservation exists.
 With that runtime present it also reports the registry binding, health-state
 model, and unload cleanup plan as observed-current-boot available. The
-durable-audit write, rollback-install, and module-loader prerequisite gates
-remain missing or unavailable. It must keep
+durable-audit write and rollback-install prerequisite gates also become
+observed-current-boot available when those allocator facts are available. The
+module-loader prerequisite gate remains unavailable. It must keep
 `allocates_service_slot: false`, `creates_service_inventory_records: false`,
 `can_allocate: false`, `can_load_now: false`, and `load_attempted: false`.
 
