@@ -72,7 +72,7 @@
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_count" -Needle '"case_count": 22' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_count" -Needle '"case_count": 25' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_missing_reservation_case" -Needle '"case": "missing_retained_service_slot_reservation"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_missing_reservation_reason" -Needle '"actual_reason": "retained_service_slot_reservation_missing"' -TimeoutSeconds 1
@@ -86,13 +86,19 @@
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_allocator_available_reason" -Needle '"actual_allocator_runtime_source_evidence_reason": "service_slot_allocator_runtime_available"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_registry_missing_case" -Needle '"case": "service_slot_registry_binding_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_registry_observed_case" -Needle '"case": "service_slot_registry_binding_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_registry_observed_available_case" -Needle '"case": "service_slot_registry_binding_observed_source_evidence_available_health_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_registry_available_reason" -Needle '"actual_registry_binding_source_evidence_reason": "service_slot_registry_binding_available"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_registry_source_present" -Needle '"actual_registry_binding_source_evidence_present": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_registry_binding_reason" -Needle '"actual_reason": "service_slot_registry_allocator_runtime_binding_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_health_case" -Needle '"case": "service_health_state_model_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_health_observed_case" -Needle '"case": "service_health_state_model_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_health_observed_available_case" -Needle '"case": "service_health_state_model_observed_source_evidence_available_unload_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_health_available_reason" -Needle '"actual_health_state_source_evidence_reason": "service_health_state_model_available"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_health_source_present" -Needle '"actual_health_state_source_evidence_present": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_cleanup_case" -Needle '"case": "service_unload_cleanup_plan_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_cleanup_observed_case" -Needle '"case": "service_unload_cleanup_plan_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_cleanup_observed_available_case" -Needle '"case": "service_unload_cleanup_plan_observed_source_evidence_available_durable_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_cleanup_available_reason" -Needle '"actual_unload_cleanup_source_evidence_reason": "service_unload_cleanup_plan_available"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_cleanup_source_present" -Needle '"actual_unload_cleanup_source_evidence_present": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_durable_case" -Needle '"case": "durable_audit_write_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_durable_observed_case" -Needle '"case": "durable_audit_write_observed_source_evidence_missing"' -TimeoutSeconds 1

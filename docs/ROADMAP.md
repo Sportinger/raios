@@ -4,9 +4,13 @@
 
 Last updated: 2026-05-25 by Codex after promoting
 `module.service_slot_allocator` to report
+`raios.service_slot_registry_binding.v0`,
+`raios.service_health_state_model.v0`, and
+`raios.service_unload_cleanup_plan.v0` as observed-current-boot available facts
+after a retained service-slot reservation and available allocator runtime while
+still blocking on `durable_audit_write_missing`, after promoting
 `raios.ram_only_service_slot_allocator.v0` as an observed-current-boot available
-runtime fact after a retained service-slot reservation while still blocking on
-`service_slot_registry_binding_missing`, after adding retained local-only
+runtime fact after a retained service-slot reservation, after adding retained local-only
 current-boot source evidence for `module.loader_address_space_boundary`,
 `module.loader_memory_map_constraints`,
 `module.loader_capability_import_table`,
@@ -180,11 +184,12 @@ retained service-slot reservation evidence only as local-only input, records
 retained current-boot source-evidence for the allocator runtime, registry
 binding, health-state, and unload-cleanup facts plus the durable-audit write,
 rollback-install, and module-loader prerequisite gates, promotes the allocator
-runtime fact to observed-current-boot available after a retained service-slot
-reservation, and still allocates no slots.
+runtime, registry binding, health-state, and unload-cleanup facts to
+observed-current-boot available after a retained service-slot reservation, and
+still allocates no slots.
 Current evidence: full report
-`release/vm-reports/shadow-20260525-101220-33896.json` recorded 5504/5504
-predicates with 243 executed commands and `duration_ms: 333569`; quick report
+`release/vm-reports/shadow-20260525-103333-12176.json` recorded 5515/5515
+predicates with 243 executed commands and `duration_ms: 331316`; quick report
 `release/vm-reports/shadow-20260524-140441-10224.json` recorded 136/136
 predicates with 13 executed commands and `duration_ms: 17108`; recovery report
 `release/vm-reports/shadow-20260524-175144-24260.json` recorded 2725/2725
@@ -656,9 +661,10 @@ Current verified cursor:
   input, records retained source-evidence for the allocator runtime, registry
   binding, service health-state, and unload/cleanup facts, and now reports the
   allocator runtime as observed-current-boot available once a valid retained
-  service-slot reservation exists. The registry binding, service health-state,
-  unload/cleanup, durable-audit, rollback-install, and loader gates still remain
-  missing/unavailable, and it keeps `allocates_service_slot`,
+  service-slot reservation exists. With that runtime present it also reports
+  the registry binding, service health-state, and unload/cleanup facts as
+  observed-current-boot available. The durable-audit, rollback-install, and
+  loader gates still remain missing/unavailable, and it keeps `allocates_service_slot`,
   `creates_service_inventory_records`, `can_allocate`, `can_load_now`, and
   `load_attempted` false.
 - `module.loader_runtime` now exposes
@@ -1225,11 +1231,11 @@ No code loading exists yet.
 Exact next task:
 
 ```text
-Add the first real current-boot service-slot registry binding fact under
+Add the first real current-boot durable-audit write prerequisite under
 `module.service_slot_allocator`, keeping it local-only, provenance-bound to the
-retained service-slot reservation and allocator runtime source evidence, and
-still fail-closed without allocating slots, mutating service inventory,
-accepting loader descriptors/artifact bytes, or loading artifacts.
+retained service-slot reservation, available allocator facts, and audit evidence
+source, and still fail-closed without allocating slots, mutating service
+inventory, accepting loader descriptors/artifact bytes, or loading artifacts.
 ```
 
 `module.load_ephemeral` reports retained-evidence, service-slot allocator
@@ -1242,19 +1248,20 @@ plus `module.loader_entrypoint_abi` through
 `module.loader_audit_rollback_write_boundary_binding` source-evidence records
 as observed current-boot evidence without granting loader descriptor, artifact,
 service-slot, inventory, or load authority. `module.service_slot_allocator`
-now makes its allocator runtime real as observed-current-boot source evidence
-when a retained service-slot reservation exists; the direct readiness diagnostic
-therefore advances to `service_slot_registry_binding_missing` while retaining
-explicit denials for allocation and load.
+now makes its allocator runtime, registry binding, health-state model, and
+unload cleanup plan real as observed-current-boot source evidence when a
+retained service-slot reservation exists; the direct readiness diagnostic
+therefore advances to `durable_audit_write_missing` while retaining explicit
+denials for allocation and load.
 
 Next three tasks:
 
-1. Add a real current-boot `raios.service_slot_registry_binding.v0` fact under
-   `module.service_slot_allocator` that remains fail-closed and does not mutate
-   service inventory.
+1. Add a real current-boot durable-audit write prerequisite under
+   `module.service_slot_allocator` that remains fail-closed and does not
+   allocate slots or mutate service inventory.
 2. Teach `module.service_slot_allocator_selftest` and the full Shadow VM module
-   profiles to distinguish an available registry binding from still-missing
-   health/unload and prerequisite gates.
+   profiles to distinguish an available durable-audit write prerequisite from
+   still-missing rollback-install and module-loader gates.
 3. Run the full release build, shadow VM smoke with `-TimeoutSeconds 180`,
    workspace Cargo tests, format check, diff check, and secret scan before
    committing the next Phase-6 slice.
