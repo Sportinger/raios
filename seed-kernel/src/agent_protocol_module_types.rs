@@ -366,6 +366,91 @@ pub(crate) struct ModuleServiceSlotAllocatorFact {
     pub(crate) classification: &'static str,
     pub(crate) binds_retained_reservation: bool,
     pub(crate) binds_allocator_runtime: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAllocatorFactSource {
+    pub(crate) name: &'static str,
+    pub(crate) schema: &'static str,
+    pub(crate) id: &'static str,
+    pub(crate) missing_reason: &'static str,
+    pub(crate) source_method: &'static str,
+    pub(crate) source_fact_locator: &'static str,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_missing_reason: &'static str,
+}
+
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_COUNT: usize = 4;
+
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES:
+    [ModuleServiceSlotAllocatorFactSource; MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_COUNT] = [
+    ModuleServiceSlotAllocatorFactSource {
+        name: "service_slot_allocator_runtime",
+        schema: "raios.ram_only_service_slot_allocator.v0",
+        id: "module.service_slot_allocator.runtime.current_boot",
+        missing_reason: "service_slot_allocator_runtime_missing",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.service_slot_allocator_runtime",
+        source_evidence_schema: "raios.service_slot_allocator_runtime_source_evidence.v0",
+        source_evidence_missing_reason: "service_slot_allocator_runtime_source_evidence_missing",
+    },
+    ModuleServiceSlotAllocatorFactSource {
+        name: "service_slot_registry_binding",
+        schema: "raios.service_slot_registry_binding.v0",
+        id: "module.service_slot_registry.binding.current_boot",
+        missing_reason: "service_slot_registry_binding_missing",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.service_slot_registry_binding",
+        source_evidence_schema: "raios.service_slot_registry_binding_source_evidence.v0",
+        source_evidence_missing_reason: "service_slot_registry_binding_source_evidence_missing",
+    },
+    ModuleServiceSlotAllocatorFactSource {
+        name: "service_health_state_model",
+        schema: "raios.service_health_state_model.v0",
+        id: "module.service_health_state.model.current_boot",
+        missing_reason: "service_health_state_model_missing",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.service_health_state_model",
+        source_evidence_schema: "raios.service_health_state_model_source_evidence.v0",
+        source_evidence_missing_reason: "service_health_state_model_source_evidence_missing",
+    },
+    ModuleServiceSlotAllocatorFactSource {
+        name: "service_unload_cleanup_plan",
+        schema: "raios.service_unload_cleanup_plan.v0",
+        id: "module.service_unload.cleanup.current_boot",
+        missing_reason: "service_unload_cleanup_plan_missing",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.service_unload_cleanup_plan",
+        source_evidence_schema: "raios.service_unload_cleanup_plan_source_evidence.v0",
+        source_evidence_missing_reason: "service_unload_cleanup_plan_source_evidence_missing",
+    },
+];
+
+pub(crate) fn module_service_slot_allocator_source_fact_map_complete() -> bool {
+    let mut idx = 0usize;
+    while idx < MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_COUNT {
+        let source = MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[idx];
+        if source.name.is_empty()
+            || source.schema.is_empty()
+            || source.id.is_empty()
+            || source.missing_reason.is_empty()
+            || source.source_method.is_empty()
+            || source.source_fact_locator.is_empty()
+            || source.source_evidence_schema.is_empty()
+            || source.source_evidence_missing_reason.is_empty()
+        {
+            return false;
+        }
+        idx += 1;
+    }
+    true
 }
 
 #[derive(Clone, Copy)]
@@ -413,6 +498,22 @@ pub(crate) struct ModuleServiceSlotAllocatorSelfTestCase {
     pub(crate) expected_reason: &'static str,
     pub(crate) actual_status: &'static str,
     pub(crate) actual_reason: &'static str,
+    pub(crate) actual_allocator_runtime_source_evidence_present: bool,
+    pub(crate) actual_allocator_runtime_source_evidence_state: &'static str,
+    pub(crate) actual_allocator_runtime_source_evidence_status: &'static str,
+    pub(crate) actual_allocator_runtime_source_evidence_reason: &'static str,
+    pub(crate) actual_registry_binding_source_evidence_present: bool,
+    pub(crate) actual_registry_binding_source_evidence_state: &'static str,
+    pub(crate) actual_registry_binding_source_evidence_status: &'static str,
+    pub(crate) actual_registry_binding_source_evidence_reason: &'static str,
+    pub(crate) actual_health_state_source_evidence_present: bool,
+    pub(crate) actual_health_state_source_evidence_state: &'static str,
+    pub(crate) actual_health_state_source_evidence_status: &'static str,
+    pub(crate) actual_health_state_source_evidence_reason: &'static str,
+    pub(crate) actual_unload_cleanup_source_evidence_present: bool,
+    pub(crate) actual_unload_cleanup_source_evidence_state: &'static str,
+    pub(crate) actual_unload_cleanup_source_evidence_status: &'static str,
+    pub(crate) actual_unload_cleanup_source_evidence_reason: &'static str,
     pub(crate) passed: bool,
 }
 
@@ -1574,7 +1675,7 @@ pub(crate) const MODULE_LOCAL_APPROVAL_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
-pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 14;
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 18;
 pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 37;
 pub(crate) const MODULE_LOADER_IDENTITY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_LOADER_ARTIFACT_HASH_BINDING_SELFTEST_CASES: usize = 14;

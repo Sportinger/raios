@@ -10,7 +10,82 @@ pub(crate) fn module_service_slot_allocator_selftest_method(method: &str) -> boo
 
 pub(crate) fn emit_module_service_slot_allocator() {
     let retained = event_log::latest_module_service_slot_reservation();
-    let candidate = module_service_slot_allocator_snapshot(retained.is_some());
+    let retained_event_id = retained.as_ref().map(|(event_id, _)| *event_id);
+    let allocator_runtime_source_evidence = module_service_slot_allocator_fact_source_evidence(
+        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0],
+        retained_event_id,
+        None,
+    );
+    let allocator_runtime_source_evidence_event_id =
+        event_log::record_module_service_slot_allocator_fact_source_evidence(
+            allocator_runtime_source_evidence,
+        );
+    let registry_binding_source_evidence = module_service_slot_allocator_fact_source_evidence(
+        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[1],
+        retained_event_id,
+        Some(allocator_runtime_source_evidence_event_id),
+    );
+    let registry_binding_source_evidence_event_id =
+        event_log::record_module_service_slot_allocator_fact_source_evidence(
+            registry_binding_source_evidence,
+        );
+    let health_state_source_evidence = module_service_slot_allocator_fact_source_evidence(
+        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[2],
+        retained_event_id,
+        Some(allocator_runtime_source_evidence_event_id),
+    );
+    let health_state_source_evidence_event_id =
+        event_log::record_module_service_slot_allocator_fact_source_evidence(
+            health_state_source_evidence,
+        );
+    let unload_cleanup_source_evidence = module_service_slot_allocator_fact_source_evidence(
+        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[3],
+        retained_event_id,
+        Some(allocator_runtime_source_evidence_event_id),
+    );
+    let unload_cleanup_source_evidence_event_id =
+        event_log::record_module_service_slot_allocator_fact_source_evidence(
+            unload_cleanup_source_evidence,
+        );
+    let allocator_runtime_observed_source_evidence =
+        event_log::latest_module_service_slot_allocator_fact_source_evidence(
+            MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0].source_fact_locator,
+        )
+        .unwrap_or((
+            allocator_runtime_source_evidence_event_id,
+            allocator_runtime_source_evidence,
+        ));
+    let registry_binding_observed_source_evidence =
+        event_log::latest_module_service_slot_allocator_fact_source_evidence(
+            MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[1].source_fact_locator,
+        )
+        .unwrap_or((
+            registry_binding_source_evidence_event_id,
+            registry_binding_source_evidence,
+        ));
+    let health_state_observed_source_evidence =
+        event_log::latest_module_service_slot_allocator_fact_source_evidence(
+            MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[2].source_fact_locator,
+        )
+        .unwrap_or((
+            health_state_source_evidence_event_id,
+            health_state_source_evidence,
+        ));
+    let unload_cleanup_observed_source_evidence =
+        event_log::latest_module_service_slot_allocator_fact_source_evidence(
+            MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[3].source_fact_locator,
+        )
+        .unwrap_or((
+            unload_cleanup_source_evidence_event_id,
+            unload_cleanup_source_evidence,
+        ));
+    let candidate = module_service_slot_allocator_snapshot(
+        retained.is_some(),
+        Some(allocator_runtime_observed_source_evidence),
+        Some(registry_binding_observed_source_evidence),
+        Some(health_state_observed_source_evidence),
+        Some(unload_cleanup_observed_source_evidence),
+    );
     let evaluation = evaluate_module_service_slot_allocator_candidate(candidate);
 
     begin_response("module.service_slot_allocator");
@@ -18,8 +93,10 @@ pub(crate) fn emit_module_service_slot_allocator() {
     raw_line("      \"scope\": \"current_boot\",");
     raw_line("      \"classification\": \"local_only\",");
     raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"global_event_log_mutation\": \"none\",");
+    raw_line("      \"mutates_global_event_log\": true,");
+    raw_line(
+        "      \"global_event_log_mutation\": \"retained_current_boot_source_evidence_only\",",
+    );
     raw_line("      \"creates_service_slot_reservation_records\": false,");
     raw_line("      \"allocates_service_slot\": false,");
     raw_line("      \"creates_service_inventory_records\": false,");
@@ -28,6 +105,17 @@ pub(crate) fn emit_module_service_slot_allocator() {
     raw_line("      \"can_allocate\": false,");
     raw_line("      \"can_load_now\": false,");
     raw_line("      \"load_attempted\": false,");
+    emit_module_service_slot_allocator_source_evidence(
+        allocator_runtime_source_evidence_event_id,
+        allocator_runtime_source_evidence,
+        registry_binding_source_evidence_event_id,
+        registry_binding_source_evidence,
+        health_state_source_evidence_event_id,
+        health_state_source_evidence,
+        unload_cleanup_source_evidence_event_id,
+        unload_cleanup_source_evidence,
+    );
+    raw_line(",");
     emit_module_service_slot_allocator_retained_reservation(retained);
     raw_line(",");
     emit_module_service_slot_allocator_facts(candidate, evaluation);
@@ -165,6 +253,97 @@ pub(crate) fn emit_module_service_slot_allocator_selftest() {
     end_response("module.service_slot_allocator_selftest");
 }
 
+fn emit_module_service_slot_allocator_source_evidence(
+    allocator_runtime_event_id: event_log::EventId,
+    allocator_runtime: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    registry_binding_event_id: event_log::EventId,
+    registry_binding: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    health_state_event_id: event_log::EventId,
+    health_state: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    unload_cleanup_event_id: event_log::EventId,
+    unload_cleanup: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+) {
+    raw_line("      \"source_evidence\": [");
+    emit_module_service_slot_allocator_source_evidence_item(
+        allocator_runtime_event_id,
+        allocator_runtime,
+        true,
+    );
+    emit_module_service_slot_allocator_source_evidence_item(
+        registry_binding_event_id,
+        registry_binding,
+        true,
+    );
+    emit_module_service_slot_allocator_source_evidence_item(
+        health_state_event_id,
+        health_state,
+        true,
+    );
+    emit_module_service_slot_allocator_source_evidence_item(
+        unload_cleanup_event_id,
+        unload_cleanup,
+        false,
+    );
+    raw_line("      ]");
+}
+
+fn emit_module_service_slot_allocator_source_evidence_item(
+    event_id: event_log::EventId,
+    evidence: event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    comma: bool,
+) {
+    raw_line("        {");
+    raw("          \"event_id\": ");
+    json_event_id(event_id);
+    raw_line(",");
+    raw("          \"schema\": ");
+    json_str(evidence.schema);
+    raw_line(",");
+    raw_line("          \"status\": \"retained_current_boot_source_evidence\",");
+    raw_line(
+        "          \"reason\": \"module_service_slot_allocator_fact_source_evidence_recorded\",",
+    );
+    raw("          \"fact_schema\": ");
+    json_str(evidence.fact_schema);
+    raw_line(",");
+    raw("          \"fact_id\": ");
+    json_str(evidence.fact_id);
+    raw_line(",");
+    raw("          \"source_method\": ");
+    json_str(evidence.source_method);
+    raw_line(",");
+    raw("          \"source_fact_locator\": ");
+    json_str(evidence.source_fact_locator);
+    raw_line(",");
+    raw("          \"fact_status\": ");
+    json_str(evidence.fact_status);
+    raw_line(",");
+    raw("          \"fact_reason\": ");
+    json_str(evidence.fact_reason);
+    raw_line(",");
+    raw("          \"fact_present\": ");
+    raw_bool(evidence.fact_present);
+    raw_line(",");
+    raw("          \"retained_service_slot_reservation_event_id\": ");
+    json_event_id_option(evidence.retained_service_slot_reservation_event_id);
+    raw_line(",");
+    raw("          \"allocator_runtime_source_evidence_event_id\": ");
+    json_event_id_option(evidence.allocator_runtime_source_evidence_event_id);
+    raw_line(",");
+    raw("          \"source_evidence_retained\": true,");
+    raw_line("          \"retention\": \"current_boot_ram_event_log\",");
+    raw_line("          \"allocates_service_slot\": false,");
+    raw_line("          \"creates_service_inventory_records\": false,");
+    raw_line("          \"service_inventory_change\": \"none\",");
+    raw_line("          \"can_load_now\": false,");
+    raw_line("          \"load_attempted\": false");
+    raw("        }");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
 fn emit_module_service_slot_allocator_retained_reservation(
     retained: Option<(event_log::EventId, event_log::ModuleServiceSlotReservation)>,
 ) {
@@ -234,36 +413,28 @@ fn emit_module_service_slot_allocator_facts(
 ) {
     raw_line("      \"allocator_readiness_facts\": {");
     emit_module_service_slot_allocator_fact(
-        "service_slot_allocator_runtime",
-        "raios.ram_only_service_slot_allocator.v0",
-        "module.service_slot_allocator.runtime.current_boot",
+        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0],
         candidate.allocator_runtime,
         evaluation.allocator_runtime_status,
         evaluation.allocator_runtime_reason,
         true,
     );
     emit_module_service_slot_allocator_fact(
-        "service_slot_registry_binding",
-        "raios.service_slot_registry_binding.v0",
-        "module.service_slot_registry.binding.current_boot",
+        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[1],
         candidate.registry_binding,
         evaluation.registry_binding_status,
         evaluation.registry_binding_reason,
         true,
     );
     emit_module_service_slot_allocator_fact(
-        "service_health_state_model",
-        "raios.service_health_state_model.v0",
-        "module.service_health_state.model.current_boot",
+        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[2],
         candidate.health_state,
         evaluation.health_state_status,
         evaluation.health_state_reason,
         true,
     );
     emit_module_service_slot_allocator_fact(
-        "service_unload_cleanup_plan",
-        "raios.service_unload_cleanup_plan.v0",
-        "module.service_unload.cleanup.current_boot",
+        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[3],
         candidate.unload_cleanup,
         evaluation.unload_cleanup_status,
         evaluation.unload_cleanup_reason,
@@ -273,22 +444,47 @@ fn emit_module_service_slot_allocator_facts(
 }
 
 fn emit_module_service_slot_allocator_fact(
-    name: &'static str,
-    schema: &'static str,
-    id: &'static str,
+    source: ModuleServiceSlotAllocatorFactSource,
     fact: ModuleServiceSlotAllocatorFact,
     status: &'static str,
     reason: &'static str,
     comma: bool,
 ) {
     raw("        ");
-    json_str(name);
+    json_str(source.name);
     raw_line(": {");
     raw("          \"schema\": ");
-    json_str(schema);
+    json_str(source.schema);
     raw_line(",");
     raw("          \"id\": ");
-    json_str(id);
+    json_str(source.id);
+    raw_line(",");
+    raw("          \"source_method\": ");
+    json_str(source.source_method);
+    raw_line(",");
+    raw("          \"source_fact_locator\": ");
+    json_str(source.source_fact_locator);
+    raw_line(",");
+    raw("          \"source_evidence_event_id\": ");
+    json_event_id_option(fact.source_evidence_event_id);
+    raw_line(",");
+    raw("          \"source_evidence_schema\": ");
+    json_str(fact.source_evidence_schema);
+    raw_line(",");
+    raw("          \"source_evidence_state\": ");
+    json_str(fact.source_evidence_state);
+    raw_line(",");
+    raw("          \"source_evidence_status\": ");
+    json_str(fact.source_evidence_status);
+    raw_line(",");
+    raw("          \"source_evidence_reason\": ");
+    json_str(fact.source_evidence_reason);
+    raw_line(",");
+    raw("          \"source_evidence_method\": ");
+    json_str(fact.source_evidence_method);
+    raw_line(",");
+    raw("          \"source_evidence_fact_locator\": ");
+    json_str(fact.source_evidence_fact_locator);
     raw_line(",");
     raw("          \"scope\": ");
     json_str(fact.scope);
@@ -336,7 +532,12 @@ fn emit_module_service_slot_allocator_fact(
     raw_line("            \"module_loader\": \"raios.module_loader.v0\"");
     raw_line("          },");
     raw_line("          \"provenance\": {");
-    raw_line("            \"source_method\": \"module.service_slot_allocator\",");
+    raw("            \"source_method\": ");
+    json_str(source.source_method);
+    raw_line(",");
+    raw("            \"source_fact_locator\": ");
+    json_str(source.source_fact_locator);
+    raw_line(",");
     raw_line("            \"source_transport\": \"serial-console\",");
     raw_line("            \"event_scope\": \"current_boot\",");
     raw_line("            \"record_id\": null");
@@ -382,6 +583,38 @@ fn emit_module_service_slot_allocator_selftest_case(
     json_str(case.actual_status);
     raw(", \"actual_reason\": ");
     json_str(case.actual_reason);
+    raw(", \"actual_allocator_runtime_source_evidence_present\": ");
+    raw_bool(case.actual_allocator_runtime_source_evidence_present);
+    raw(", \"actual_allocator_runtime_source_evidence_state\": ");
+    json_str(case.actual_allocator_runtime_source_evidence_state);
+    raw(", \"actual_allocator_runtime_source_evidence_status\": ");
+    json_str(case.actual_allocator_runtime_source_evidence_status);
+    raw(", \"actual_allocator_runtime_source_evidence_reason\": ");
+    json_str(case.actual_allocator_runtime_source_evidence_reason);
+    raw(", \"actual_registry_binding_source_evidence_present\": ");
+    raw_bool(case.actual_registry_binding_source_evidence_present);
+    raw(", \"actual_registry_binding_source_evidence_state\": ");
+    json_str(case.actual_registry_binding_source_evidence_state);
+    raw(", \"actual_registry_binding_source_evidence_status\": ");
+    json_str(case.actual_registry_binding_source_evidence_status);
+    raw(", \"actual_registry_binding_source_evidence_reason\": ");
+    json_str(case.actual_registry_binding_source_evidence_reason);
+    raw(", \"actual_health_state_source_evidence_present\": ");
+    raw_bool(case.actual_health_state_source_evidence_present);
+    raw(", \"actual_health_state_source_evidence_state\": ");
+    json_str(case.actual_health_state_source_evidence_state);
+    raw(", \"actual_health_state_source_evidence_status\": ");
+    json_str(case.actual_health_state_source_evidence_status);
+    raw(", \"actual_health_state_source_evidence_reason\": ");
+    json_str(case.actual_health_state_source_evidence_reason);
+    raw(", \"actual_unload_cleanup_source_evidence_present\": ");
+    raw_bool(case.actual_unload_cleanup_source_evidence_present);
+    raw(", \"actual_unload_cleanup_source_evidence_state\": ");
+    json_str(case.actual_unload_cleanup_source_evidence_state);
+    raw(", \"actual_unload_cleanup_source_evidence_status\": ");
+    json_str(case.actual_unload_cleanup_source_evidence_status);
+    raw(", \"actual_unload_cleanup_source_evidence_reason\": ");
+    json_str(case.actual_unload_cleanup_source_evidence_reason);
     raw(", \"passed\": ");
     raw_bool(case.passed);
     raw(", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"can_allocate\": false, \"can_load\": false, \"load_attempted\": false}");
@@ -391,22 +624,115 @@ fn emit_module_service_slot_allocator_selftest_case(
     crlf();
 }
 
+fn module_service_slot_allocator_fact_source_evidence(
+    source: ModuleServiceSlotAllocatorFactSource,
+    retained_service_slot_reservation_event_id: Option<event_log::EventId>,
+    allocator_runtime_source_evidence_event_id: Option<event_log::EventId>,
+) -> event_log::ModuleServiceSlotAllocatorFactSourceEvidence {
+    event_log::ModuleServiceSlotAllocatorFactSourceEvidence {
+        schema: source.source_evidence_schema,
+        fact_schema: source.schema,
+        fact_id: source.id,
+        source_method: source.source_method,
+        source_fact_locator: source.source_fact_locator,
+        readiness_status: "retained_current_boot_source_evidence",
+        readiness_reason: "module_service_slot_allocator_fact_source_evidence_recorded",
+        fact_status: "missing",
+        fact_reason: source.missing_reason,
+        fact_present: false,
+        fact_scope: "current_boot",
+        fact_schema_ok: true,
+        fact_provenance_ok: false,
+        fact_classification: "local_only",
+        retained_service_slot_reservation_present: retained_service_slot_reservation_event_id
+            .is_some(),
+        allocator_runtime_source_evidence_present: allocator_runtime_source_evidence_event_id
+            .is_some(),
+        binds_retained_service_slot_reservation: false,
+        binds_allocator_runtime: false,
+        retained_service_slot_reservation_event_id,
+        allocator_runtime_source_evidence_event_id,
+    }
+}
+
 fn module_service_slot_allocator_snapshot(
     retained_reservation_present: bool,
+    allocator_runtime_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    )>,
+    registry_binding_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    )>,
+    health_state_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    )>,
+    unload_cleanup_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    )>,
 ) -> ModuleServiceSlotAllocatorCandidate {
     ModuleServiceSlotAllocatorCandidate {
         retained_reservation_present,
-        allocator_runtime: module_service_slot_allocator_missing_fact(),
-        registry_binding: module_service_slot_allocator_missing_fact(),
-        health_state: module_service_slot_allocator_missing_fact(),
-        unload_cleanup: module_service_slot_allocator_missing_fact(),
+        allocator_runtime: module_service_slot_allocator_fact_from_source_evidence(
+            MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0],
+            allocator_runtime_source_evidence,
+        ),
+        registry_binding: module_service_slot_allocator_fact_from_source_evidence(
+            MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[1],
+            registry_binding_source_evidence,
+        ),
+        health_state: module_service_slot_allocator_fact_from_source_evidence(
+            MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[2],
+            health_state_source_evidence,
+        ),
+        unload_cleanup: module_service_slot_allocator_fact_from_source_evidence(
+            MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[3],
+            unload_cleanup_source_evidence,
+        ),
         durable_audit_written: false,
         rollback_plan_installed: false,
         module_loader_available: false,
     }
 }
 
-fn module_service_slot_allocator_missing_fact() -> ModuleServiceSlotAllocatorFact {
+fn module_service_slot_allocator_fact_from_source_evidence(
+    source: ModuleServiceSlotAllocatorFactSource,
+    source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    )>,
+) -> ModuleServiceSlotAllocatorFact {
+    if let Some((event_id, evidence)) = source_evidence {
+        return ModuleServiceSlotAllocatorFact {
+            present: evidence.fact_present,
+            schema_ok: evidence.fact_schema_ok,
+            scope: evidence.fact_scope,
+            provenance_ok: evidence.fact_provenance_ok,
+            classification: evidence.fact_classification,
+            binds_retained_reservation: evidence.binds_retained_service_slot_reservation,
+            binds_allocator_runtime: evidence.binds_allocator_runtime,
+            source_evidence_event_id: Some(event_id),
+            source_evidence_schema: evidence.schema,
+            source_evidence_state: if evidence.fact_present {
+                "observed_current_boot_available"
+            } else {
+                "observed_current_boot_missing"
+            },
+            source_evidence_status: evidence.fact_status,
+            source_evidence_reason: evidence.fact_reason,
+            source_evidence_method: evidence.source_method,
+            source_evidence_fact_locator: evidence.source_fact_locator,
+        };
+    }
+    module_service_slot_allocator_missing_fact(source)
+}
+
+fn module_service_slot_allocator_missing_fact(
+    source: ModuleServiceSlotAllocatorFactSource,
+) -> ModuleServiceSlotAllocatorFact {
     ModuleServiceSlotAllocatorFact {
         present: false,
         schema_ok: true,
@@ -415,10 +741,19 @@ fn module_service_slot_allocator_missing_fact() -> ModuleServiceSlotAllocatorFac
         classification: "local_only",
         binds_retained_reservation: false,
         binds_allocator_runtime: false,
+        source_evidence_event_id: None,
+        source_evidence_schema: source.source_evidence_schema,
+        source_evidence_state: "addressable_not_observed",
+        source_evidence_status: "missing",
+        source_evidence_reason: source.source_evidence_missing_reason,
+        source_evidence_method: source.source_method,
+        source_evidence_fact_locator: source.source_fact_locator,
     }
 }
 
-fn module_service_slot_allocator_available_fact() -> ModuleServiceSlotAllocatorFact {
+fn module_service_slot_allocator_available_fact(
+    source: ModuleServiceSlotAllocatorFactSource,
+) -> ModuleServiceSlotAllocatorFact {
     ModuleServiceSlotAllocatorFact {
         present: true,
         schema_ok: true,
@@ -427,6 +762,13 @@ fn module_service_slot_allocator_available_fact() -> ModuleServiceSlotAllocatorF
         classification: "local_only",
         binds_retained_reservation: true,
         binds_allocator_runtime: true,
+        source_evidence_event_id: None,
+        source_evidence_schema: source.source_evidence_schema,
+        source_evidence_state: "test_fixture_not_retained",
+        source_evidence_status: "available",
+        source_evidence_reason: "service_slot_allocator_fact_available",
+        source_evidence_method: source.source_method,
+        source_evidence_fact_locator: source.source_fact_locator,
     }
 }
 
@@ -610,16 +952,36 @@ fn evaluate_module_service_slot_allocator_fact(
     ("available", available_reason)
 }
 
+fn module_service_slot_allocator_observed_missing_fact(
+    source: ModuleServiceSlotAllocatorFactSource,
+    sequence: u64,
+) -> ModuleServiceSlotAllocatorFact {
+    ModuleServiceSlotAllocatorFact {
+        source_evidence_event_id: Some(event_log::EventId { sequence }),
+        source_evidence_state: "observed_current_boot_missing",
+        source_evidence_status: "missing",
+        source_evidence_reason: source.missing_reason,
+        ..module_service_slot_allocator_missing_fact(source)
+    }
+}
+
 fn module_service_slot_allocator_selftest_cases(
 ) -> [ModuleServiceSlotAllocatorSelfTestCase; MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES] {
-    let missing = module_service_slot_allocator_snapshot(false);
-    let available = module_service_slot_allocator_available_fact();
+    let missing = module_service_slot_allocator_snapshot(false, None, None, None, None);
+    let allocator_available =
+        module_service_slot_allocator_available_fact(MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0]);
+    let registry_available =
+        module_service_slot_allocator_available_fact(MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[1]);
+    let health_available =
+        module_service_slot_allocator_available_fact(MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[2]);
+    let unload_available =
+        module_service_slot_allocator_available_fact(MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[3]);
     let ready = ModuleServiceSlotAllocatorCandidate {
         retained_reservation_present: true,
-        allocator_runtime: available,
-        registry_binding: available,
-        health_state: available,
-        unload_cleanup: available,
+        allocator_runtime: allocator_available,
+        registry_binding: registry_available,
+        health_state: health_available,
+        unload_cleanup: unload_available,
         durable_audit_written: true,
         rollback_plan_installed: true,
         module_loader_available: true,
@@ -639,7 +1001,7 @@ fn module_service_slot_allocator_selftest_cases(
                 retained_reservation_present: true,
                 allocator_runtime: ModuleServiceSlotAllocatorFact {
                     scope: "previous_boot",
-                    ..available
+                    ..allocator_available
                 },
                 ..ready
             },
@@ -651,7 +1013,7 @@ fn module_service_slot_allocator_selftest_cases(
             ModuleServiceSlotAllocatorCandidate {
                 allocator_runtime: ModuleServiceSlotAllocatorFact {
                     schema_ok: false,
-                    ..available
+                    ..allocator_available
                 },
                 ..ready
             },
@@ -663,7 +1025,7 @@ fn module_service_slot_allocator_selftest_cases(
             ModuleServiceSlotAllocatorCandidate {
                 allocator_runtime: ModuleServiceSlotAllocatorFact {
                     provenance_ok: false,
-                    ..available
+                    ..allocator_available
                 },
                 ..ready
             },
@@ -675,7 +1037,7 @@ fn module_service_slot_allocator_selftest_cases(
             ModuleServiceSlotAllocatorCandidate {
                 allocator_runtime: ModuleServiceSlotAllocatorFact {
                     binds_retained_reservation: false,
-                    ..available
+                    ..allocator_available
                 },
                 ..ready
             },
@@ -686,7 +1048,20 @@ fn module_service_slot_allocator_selftest_cases(
             "service_slot_allocator_runtime_missing",
             ModuleServiceSlotAllocatorCandidate {
                 retained_reservation_present: true,
-                ..module_service_slot_allocator_snapshot(true)
+                ..module_service_slot_allocator_snapshot(true, None, None, None, None)
+            },
+        ),
+        module_service_slot_allocator_selftest_case(
+            "service_slot_allocator_runtime_observed_source_evidence_missing",
+            "missing",
+            "service_slot_allocator_runtime_missing",
+            ModuleServiceSlotAllocatorCandidate {
+                retained_reservation_present: true,
+                allocator_runtime: module_service_slot_allocator_observed_missing_fact(
+                    MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[0],
+                    42,
+                ),
+                ..module_service_slot_allocator_snapshot(true, None, None, None, None)
             },
         ),
         module_service_slot_allocator_selftest_case(
@@ -695,8 +1070,22 @@ fn module_service_slot_allocator_selftest_cases(
             "service_slot_registry_binding_missing",
             ModuleServiceSlotAllocatorCandidate {
                 retained_reservation_present: true,
-                allocator_runtime: available,
-                ..module_service_slot_allocator_snapshot(true)
+                allocator_runtime: allocator_available,
+                ..module_service_slot_allocator_snapshot(true, None, None, None, None)
+            },
+        ),
+        module_service_slot_allocator_selftest_case(
+            "service_slot_registry_binding_observed_source_evidence_missing",
+            "missing",
+            "service_slot_registry_binding_missing",
+            ModuleServiceSlotAllocatorCandidate {
+                retained_reservation_present: true,
+                allocator_runtime: allocator_available,
+                registry_binding: module_service_slot_allocator_observed_missing_fact(
+                    MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[1],
+                    43,
+                ),
+                ..module_service_slot_allocator_snapshot(true, None, None, None, None)
             },
         ),
         module_service_slot_allocator_selftest_case(
@@ -706,7 +1095,7 @@ fn module_service_slot_allocator_selftest_cases(
             ModuleServiceSlotAllocatorCandidate {
                 registry_binding: ModuleServiceSlotAllocatorFact {
                     binds_allocator_runtime: false,
-                    ..available
+                    ..registry_available
                 },
                 ..ready
             },
@@ -717,9 +1106,24 @@ fn module_service_slot_allocator_selftest_cases(
             "service_health_state_model_missing",
             ModuleServiceSlotAllocatorCandidate {
                 retained_reservation_present: true,
-                allocator_runtime: available,
-                registry_binding: available,
-                ..module_service_slot_allocator_snapshot(true)
+                allocator_runtime: allocator_available,
+                registry_binding: registry_available,
+                ..module_service_slot_allocator_snapshot(true, None, None, None, None)
+            },
+        ),
+        module_service_slot_allocator_selftest_case(
+            "service_health_state_model_observed_source_evidence_missing",
+            "missing",
+            "service_health_state_model_missing",
+            ModuleServiceSlotAllocatorCandidate {
+                retained_reservation_present: true,
+                allocator_runtime: allocator_available,
+                registry_binding: registry_available,
+                health_state: module_service_slot_allocator_observed_missing_fact(
+                    MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[2],
+                    44,
+                ),
+                ..module_service_slot_allocator_snapshot(true, None, None, None, None)
             },
         ),
         module_service_slot_allocator_selftest_case(
@@ -728,10 +1132,26 @@ fn module_service_slot_allocator_selftest_cases(
             "service_unload_cleanup_plan_missing",
             ModuleServiceSlotAllocatorCandidate {
                 retained_reservation_present: true,
-                allocator_runtime: available,
-                registry_binding: available,
-                health_state: available,
-                ..module_service_slot_allocator_snapshot(true)
+                allocator_runtime: allocator_available,
+                registry_binding: registry_available,
+                health_state: health_available,
+                ..module_service_slot_allocator_snapshot(true, None, None, None, None)
+            },
+        ),
+        module_service_slot_allocator_selftest_case(
+            "service_unload_cleanup_plan_observed_source_evidence_missing",
+            "missing",
+            "service_unload_cleanup_plan_missing",
+            ModuleServiceSlotAllocatorCandidate {
+                retained_reservation_present: true,
+                allocator_runtime: allocator_available,
+                registry_binding: registry_available,
+                health_state: health_available,
+                unload_cleanup: module_service_slot_allocator_observed_missing_fact(
+                    MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCES[3],
+                    45,
+                ),
+                ..module_service_slot_allocator_snapshot(true, None, None, None, None)
             },
         ),
         module_service_slot_allocator_selftest_case(
@@ -783,8 +1203,53 @@ fn module_service_slot_allocator_selftest_case(
         expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
+        actual_allocator_runtime_source_evidence_present: candidate
+            .allocator_runtime
+            .source_evidence_event_id
+            .is_some(),
+        actual_allocator_runtime_source_evidence_state: candidate
+            .allocator_runtime
+            .source_evidence_state,
+        actual_allocator_runtime_source_evidence_status: candidate
+            .allocator_runtime
+            .source_evidence_status,
+        actual_allocator_runtime_source_evidence_reason: candidate
+            .allocator_runtime
+            .source_evidence_reason,
+        actual_registry_binding_source_evidence_present: candidate
+            .registry_binding
+            .source_evidence_event_id
+            .is_some(),
+        actual_registry_binding_source_evidence_state: candidate
+            .registry_binding
+            .source_evidence_state,
+        actual_registry_binding_source_evidence_status: candidate
+            .registry_binding
+            .source_evidence_status,
+        actual_registry_binding_source_evidence_reason: candidate
+            .registry_binding
+            .source_evidence_reason,
+        actual_health_state_source_evidence_present: candidate
+            .health_state
+            .source_evidence_event_id
+            .is_some(),
+        actual_health_state_source_evidence_state: candidate.health_state.source_evidence_state,
+        actual_health_state_source_evidence_status: candidate.health_state.source_evidence_status,
+        actual_health_state_source_evidence_reason: candidate.health_state.source_evidence_reason,
+        actual_unload_cleanup_source_evidence_present: candidate
+            .unload_cleanup
+            .source_evidence_event_id
+            .is_some(),
+        actual_unload_cleanup_source_evidence_state: candidate.unload_cleanup.source_evidence_state,
+        actual_unload_cleanup_source_evidence_status: candidate
+            .unload_cleanup
+            .source_evidence_status,
+        actual_unload_cleanup_source_evidence_reason: candidate
+            .unload_cleanup
+            .source_evidence_reason,
         passed: method_eq(actual.status, expected_status)
             && method_eq(actual.reason, expected_reason)
+            && module_service_slot_allocator_source_fact_map_complete()
             && !actual.allocates_service_slot
             && !actual.creates_service_inventory_records
             && !actual.can_allocate

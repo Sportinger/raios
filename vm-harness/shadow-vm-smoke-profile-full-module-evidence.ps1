@@ -547,15 +547,30 @@
     Send-AgentCommand -Command "agent module.service_slot_allocator" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_allocator"
     Assert-LogContains -Name "protocol:module_service_slot_allocator_schema" -Needle '"schema": "raios.module_service_slot_allocator_readiness.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_no_mutation" -Needle '"mutates_global_event_log": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_source_evidence_mutation" -Needle '"mutates_global_event_log": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_source_evidence_scope" -Needle '"global_event_log_mutation": "retained_current_boot_source_evidence_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_no_records" -Needle '"creates_service_slot_reservation_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
+    Assert-LogContainsFields -NamePrefix "protocol:module_service_slot_allocator_source_evidence_" -TimeoutSeconds 1 -Fields @(
+        @{ Suffix = "runtime_schema"; Needle = '"schema": "raios.service_slot_allocator_runtime_source_evidence.v0"' },
+        @{ Suffix = "runtime_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.service_slot_allocator_runtime"' },
+        @{ Suffix = "registry_schema"; Needle = '"schema": "raios.service_slot_registry_binding_source_evidence.v0"' },
+        @{ Suffix = "registry_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.service_slot_registry_binding"' },
+        @{ Suffix = "health_schema"; Needle = '"schema": "raios.service_health_state_model_source_evidence.v0"' },
+        @{ Suffix = "health_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.service_health_state_model"' },
+        @{ Suffix = "cleanup_schema"; Needle = '"schema": "raios.service_unload_cleanup_plan_source_evidence.v0"' },
+        @{ Suffix = "cleanup_locator"; Needle = '"source_fact_locator": "module.service_slot_allocator.service_unload_cleanup_plan"' },
+        @{ Suffix = "retained"; Needle = '"status": "retained_current_boot_source_evidence"' },
+        @{ Suffix = "event"; Needle = '"event_id": "event.current_boot.' }
+    )
     Assert-LogContains -Name "protocol:module_service_slot_allocator_absent_state" -Needle '"retained_service_slot_reservation": {' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_absent_reason" -Needle '"reason": "retained_service_slot_reservation_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_absent_status" -Needle '"readiness_status": "missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_fact_schema" -Needle '"schema": "raios.ram_only_service_slot_allocator.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_fact_source_observed" -Needle '"source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_fact_source_event" -Needle '"source_evidence_event_id": "event.current_boot.' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_runtime_missing" -Needle '"reason": "service_slot_allocator_runtime_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_can_allocate_false" -Needle '"can_allocate": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1

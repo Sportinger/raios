@@ -254,6 +254,30 @@ pub struct ModuleServiceSlotReservation {
 }
 
 #[derive(Clone, Copy)]
+pub struct ModuleServiceSlotAllocatorFactSourceEvidence {
+    pub schema: &'static str,
+    pub fact_schema: &'static str,
+    pub fact_id: &'static str,
+    pub source_method: &'static str,
+    pub source_fact_locator: &'static str,
+    pub readiness_status: &'static str,
+    pub readiness_reason: &'static str,
+    pub fact_status: &'static str,
+    pub fact_reason: &'static str,
+    pub fact_present: bool,
+    pub fact_scope: &'static str,
+    pub fact_schema_ok: bool,
+    pub fact_provenance_ok: bool,
+    pub fact_classification: &'static str,
+    pub retained_service_slot_reservation_present: bool,
+    pub allocator_runtime_source_evidence_present: bool,
+    pub binds_retained_service_slot_reservation: bool,
+    pub binds_allocator_runtime: bool,
+    pub retained_service_slot_reservation_event_id: Option<EventId>,
+    pub allocator_runtime_source_evidence_event_id: Option<EventId>,
+}
+
+#[derive(Clone, Copy)]
 pub struct ModuleLoaderIdentitySourceEvidence {
     pub schema: &'static str,
     pub fact_schema: &'static str,
@@ -956,6 +980,7 @@ pub enum EventBindings {
     ModuleComputedGrantReference(ModuleComputedGrantReference),
     ModuleAuditRollbackReference(ModuleAuditRollbackReference),
     ModuleServiceSlotReservation(ModuleServiceSlotReservation),
+    ModuleServiceSlotAllocatorFactSourceEvidence(ModuleServiceSlotAllocatorFactSourceEvidence),
     ModuleLoaderIdentitySourceEvidence(ModuleLoaderIdentitySourceEvidence),
     ModuleLoaderArtifactHashBindingSourceEvidence(ModuleLoaderArtifactHashBindingSourceEvidence),
     ModuleLoaderFactSourceEvidence(ModuleLoaderFactSourceEvidence),

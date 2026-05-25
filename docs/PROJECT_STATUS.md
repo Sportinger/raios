@@ -18,7 +18,13 @@ boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
 Last verified locally: 2026-05-25 on Windows with QEMU 11 after adding
-retained local-only current-boot source evidence for
+retained local-only current-boot source evidence for the four
+`module.service_slot_allocator` fact boundaries
+(`raios.ram_only_service_slot_allocator.v0`,
+`raios.service_slot_registry_binding.v0`,
+`raios.service_health_state_model.v0`, and
+`raios.service_unload_cleanup_plan.v0`) while preserving denied allocation and
+load authority, after adding retained local-only current-boot source evidence for
 `module.loader_address_space_boundary`,
 `module.loader_memory_map_constraints`,
 `module.loader_capability_import_table`,
@@ -833,9 +839,10 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Start the RAM-only service-slot allocator runtime foundation by adding a typed,
-non-authorizing `raios.ram_only_service_slot_allocator.v0` fact/source-evidence
-boundary under `module.service_slot_allocator`.
+Continue the RAM-only service-slot allocator foundation by adding typed,
+non-authorizing source-evidence for the durable-audit write,
+rollback-install, and module-loader prerequisite gates under
+`module.service_slot_allocator`.
 
 The current Phase-6 loader-runtime aggregate and denied
 `module.load_ephemeral` loader-runtime readiness projection cite the same ten
@@ -848,11 +855,12 @@ addressable typed loader-fact diagnostics. `module.loader_identity`,
 `module.loader_health_state_hooks`, `module.loader_rollback_hooks`, and
 `module.loader_audit_rollback_write_boundary_binding` now
 emit typed current-boot source-evidence records that `module.loader_runtime`
-consumes as observed, non-authorizing evidence. The next durable slice should
-start turning the currently missing service-slot allocator runtime gate into an
-addressable typed fact boundary, still keeping service-slot allocation, service
-inventory mutation, loader descriptor intake, artifact bytes, and load attempts
-denied.
+consumes as observed, non-authorizing evidence. `module.service_slot_allocator`
+now records observed current-boot source evidence for the four missing allocator
+readiness facts; the next durable slice should make the remaining
+durable-audit, rollback-install, and module-loader prerequisite gates equally
+addressable, still keeping service-slot allocation, service inventory mutation,
+loader descriptor intake, artifact bytes, and load attempts denied.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:
@@ -1421,21 +1429,24 @@ Historical verified recovery foundation retained for reference:
   reservation records, allocating slots, loading artifacts, or changing service
   inventory.
 - `module.service_slot_allocator` now exposes
-  `raios.module_service_slot_allocator_readiness.v0` as a read-only
+  `raios.module_service_slot_allocator_readiness.v0` as a source-evidence-only
   current-boot diagnostic over the missing RAM-only allocator/runtime side of
   Phase 6. It consumes retained service-slot reservation evidence only as a
-  local-only hash reference, reports missing
+  local-only hash reference, records retained current-boot source-evidence
+  events for missing
   `raios.ram_only_service_slot_allocator.v0`,
   `raios.service_slot_registry_binding.v0`,
   `raios.service_health_state_model.v0`, and
-  `raios.service_unload_cleanup_plan.v0` facts, and keeps
+  `raios.service_unload_cleanup_plan.v0` facts, reports those facts as
+  observed-current-boot missing, and keeps
   `allocates_service_slot`, `creates_service_inventory_records`,
   `can_allocate`, `can_load_now`, and `load_attempted` false.
 - `module.service_slot_allocator_selftest` covers missing retained
   reservation evidence, allocator scope/schema/provenance/binding failures,
-  missing registry binding, health-state model, unload cleanup, durable audit,
-  rollback install, loader availability, and the final all-inputs-ready case
-  while still denying allocation and load authority.
+  observed source-evidence for the missing allocator runtime, registry
+  binding, health-state model, unload cleanup, durable audit, rollback install,
+  loader availability, and the final all-inputs-ready case while still denying
+  allocation and load authority.
 - `module.loader_runtime` now exposes
   `raios.module_loader_runtime_readiness.v0` as a read-only current-boot
   diagnostic over the missing normal-module loader/runtime side of Phase 6. It
@@ -1880,8 +1891,8 @@ Historical verified recovery foundation retained for reference:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest full report:
-  `release\vm-reports\shadow-20260525-091355-34192.json` with 5460/5460
-  predicates, 243 executed commands, and `duration_ms: 300068`.
+  `release\vm-reports\shadow-20260525-094036-11176.json` with 5482/5482
+  predicates, 243 executed commands, and `duration_ms: 380961`.
   Latest focused reports:
   `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 17108`, and

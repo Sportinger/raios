@@ -556,10 +556,12 @@ The service-slot allocator readiness diagnostic emits
 `raios.module_service_slot_allocator_readiness.v0` and the selftest emits
 `raios.module_service_slot_allocator_readiness_selftest.v0`. It consumes the
 latest retained service-slot reservation only as local-only current-boot
-evidence and reports typed missing `raios.ram_only_service_slot_allocator.v0`,
+evidence, records retained current-boot source-evidence for typed missing
+`raios.ram_only_service_slot_allocator.v0`,
 `raios.service_slot_registry_binding.v0`,
 `raios.service_health_state_model.v0`, and
-`raios.service_unload_cleanup_plan.v0` facts. It must keep
+`raios.service_unload_cleanup_plan.v0` facts, and reports those facts as
+observed-current-boot missing. It must keep
 `allocates_service_slot: false`, `creates_service_inventory_records: false`,
 `can_allocate: false`, `can_load_now: false`, and `load_attempted: false`.
 

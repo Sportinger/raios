@@ -746,6 +746,41 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_sha256(binding.pre_load_service_inventory_hash);
             raw("}}");
         }
+        event_log::EventBindings::ModuleServiceSlotAllocatorFactSourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"fact_schema\": ");
+            json_str(binding.fact_schema);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"fact_id\": ");
+            json_str(binding.fact_id);
+            raw(", \"fact_status\": ");
+            json_str(binding.fact_status);
+            raw(", \"fact_reason\": ");
+            json_str(binding.fact_reason);
+            raw(", \"fact_present\": ");
+            raw_bool(binding.fact_present);
+            raw(", \"retained_service_slot_reservation_present\": ");
+            raw_bool(binding.retained_service_slot_reservation_present);
+            raw(", \"allocator_runtime_source_evidence_present\": ");
+            raw_bool(binding.allocator_runtime_source_evidence_present);
+            raw(", \"retained_service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.retained_service_slot_reservation_event_id);
+            raw(", \"allocator_runtime_source_evidence_event_id\": ");
+            json_event_id_option(binding.allocator_runtime_source_evidence_event_id);
+            raw(", \"binds_retained_service_slot_reservation\": ");
+            raw_bool(binding.binds_retained_service_slot_reservation);
+            raw(", \"binds_allocator_runtime\": ");
+            raw_bool(binding.binds_allocator_runtime);
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+        }
         event_log::EventBindings::ModuleLoaderIdentitySourceEvidence(binding) => {
             raw(", \"bindings\": {\"schema\": ");
             json_str(binding.schema);
