@@ -113,14 +113,17 @@ pub(crate) fn emit_module_service_slot_allocator() {
         event_log::record_module_service_slot_allocator_prerequisite_source_evidence(
             rollback_install_source_evidence,
         );
-    let module_loader_source_evidence = module_service_slot_allocator_prerequisite_source_evidence(
-        MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[2],
-        retained.is_some(),
-        allocator_runtime_observed_source_evidence,
-        registry_binding_observed_source_evidence,
-        health_state_observed_source_evidence,
-        unload_cleanup_observed_source_evidence,
-    );
+    let module_loader_source_evidence =
+        module_service_slot_allocator_module_loader_prerequisite_source_evidence(
+            MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[2],
+            retained.is_some(),
+            allocator_runtime_observed_source_evidence,
+            registry_binding_observed_source_evidence,
+            health_state_observed_source_evidence,
+            unload_cleanup_observed_source_evidence,
+            durable_audit_source_evidence,
+            rollback_install_source_evidence,
+        );
     let module_loader_source_evidence_event_id =
         event_log::record_module_service_slot_allocator_prerequisite_source_evidence(
             module_loader_source_evidence,
@@ -1106,6 +1109,69 @@ fn module_service_slot_allocator_fact_source_evidence_available(
         && evidence.binds_allocator_runtime
 }
 
+fn module_service_slot_allocator_module_loader_prerequisite_source_evidence(
+    source: ModuleServiceSlotAllocatorPrerequisiteSource,
+    retained_service_slot_reservation_present: bool,
+    allocator_runtime_source_evidence: (
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    ),
+    registry_binding_source_evidence: (
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    ),
+    health_state_source_evidence: (
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    ),
+    unload_cleanup_source_evidence: (
+        event_log::EventId,
+        event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+    ),
+    durable_audit_source_evidence: event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+    rollback_install_source_evidence: event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+) -> event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence {
+    let mut evidence = module_service_slot_allocator_prerequisite_source_evidence(
+        source,
+        retained_service_slot_reservation_present,
+        allocator_runtime_source_evidence,
+        registry_binding_source_evidence,
+        health_state_source_evidence,
+        unload_cleanup_source_evidence,
+    );
+    if retained_service_slot_reservation_present
+        && module_service_slot_allocator_fact_source_evidence_available(
+            allocator_runtime_source_evidence.1,
+        )
+        && module_service_slot_allocator_fact_source_evidence_available(
+            registry_binding_source_evidence.1,
+        )
+        && module_service_slot_allocator_fact_source_evidence_available(
+            health_state_source_evidence.1,
+        )
+        && module_service_slot_allocator_fact_source_evidence_available(
+            unload_cleanup_source_evidence.1,
+        )
+        && module_service_slot_allocator_prerequisite_source_evidence_available(
+            durable_audit_source_evidence,
+        )
+        && module_service_slot_allocator_prerequisite_source_evidence_available(
+            rollback_install_source_evidence,
+        )
+    {
+        evidence.prerequisite_status = "available";
+        evidence.prerequisite_reason = "module_loader_boundary_available_non_authorizing";
+        evidence.prerequisite_available = true;
+    }
+    evidence
+}
+
+fn module_service_slot_allocator_prerequisite_source_evidence_available(
+    evidence: event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+) -> bool {
+    evidence.prerequisite_available
+}
+
 fn module_service_slot_allocator_snapshot(
     retained_reservation_present: bool,
     allocator_runtime_source_evidence: Option<(
@@ -1399,7 +1465,7 @@ fn evaluate_module_service_slot_allocator_candidate(
         "unavailable"
     };
     let module_loader_reason = if candidate.module_loader.available {
-        "module_loader_available"
+        "module_loader_boundary_available_non_authorizing"
     } else {
         "module_loader_unimplemented"
     };
@@ -1911,6 +1977,19 @@ fn module_service_slot_allocator_selftest_cases(
                 module_loader: module_service_slot_allocator_observed_missing_prerequisite(
                     MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[2],
                     48,
+                ),
+                ..ready
+            },
+        ),
+        module_service_slot_allocator_selftest_case(
+            "module_loader_observed_source_evidence_available_allocator_authority_unimplemented",
+            "denied_allocator_authority_unimplemented",
+            "service_slot_allocator_authority_unimplemented",
+            ModuleServiceSlotAllocatorCandidate {
+                module_loader: module_service_slot_allocator_observed_available_prerequisite(
+                    MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCES[2],
+                    55,
+                    "module_loader_boundary_available_non_authorizing",
                 ),
                 ..ready
             },

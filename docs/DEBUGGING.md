@@ -564,7 +564,9 @@ With that runtime present it also reports the registry binding, health-state
 model, and unload cleanup plan as observed-current-boot available. The
 durable-audit write and rollback-install prerequisite gates also become
 observed-current-boot available when those allocator facts are available. The
-module-loader prerequisite gate remains unavailable. It must keep
+module-loader prerequisite boundary also becomes observed-current-boot available
+but non-authorizing, so the final allocator readiness denial is
+`service_slot_allocator_authority_unimplemented`. It must keep
 `allocates_service_slot: false`, `creates_service_inventory_records: false`,
 `can_allocate: false`, `can_load_now: false`, and `load_attempted: false`.
 

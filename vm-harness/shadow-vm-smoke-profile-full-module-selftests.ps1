@@ -72,7 +72,7 @@
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_count" -Needle '"case_count": 27' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_count" -Needle '"case_count": 28' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_missing_reservation_case" -Needle '"case": "missing_retained_service_slot_reservation"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_missing_reservation_reason" -Needle '"actual_reason": "retained_service_slot_reservation_missing"' -TimeoutSeconds 1
@@ -112,6 +112,8 @@
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_rollback_source_present" -Needle '"actual_rollback_install_source_evidence_present": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_case" -Needle '"case": "module_loader_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_observed_case" -Needle '"case": "module_loader_observed_source_evidence_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_observed_available_case" -Needle '"case": "module_loader_observed_source_evidence_available_allocator_authority_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_available_reason" -Needle '"actual_module_loader_source_evidence_reason": "module_loader_boundary_available_non_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_source_present" -Needle '"actual_module_loader_source_evidence_present": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_ready_case" -Needle '"case": "all_inputs_ready_still_non_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_ready_status" -Needle '"actual_status": "denied_allocator_authority_unimplemented"' -TimeoutSeconds 1
