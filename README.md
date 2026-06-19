@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>A personal operating system that safely changes itself.</strong>
+  <strong>A personal operating system that safely changes itself. (not another custom linux kernel) </strong>
 </p>
 
 raiOS starts from one bet: AI will make software cheap to create, but dangerous
