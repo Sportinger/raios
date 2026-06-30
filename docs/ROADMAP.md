@@ -3,7 +3,7 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-06-30 by Codex after verifying the executable page-mapping
-plan boundary and moving the cursor to executable page mapping. Keep this
+boundary and moving the cursor to descriptor/executable-page binding. Keep this
 section compact. The authoritative,
 unabridged current state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -26,16 +26,16 @@ Latest verified implementation slice:
   commit-result, descriptor-acceptance authority, descriptor-parser contract,
   descriptor-parser result, descriptor schema-validation, descriptor
   capability-validation, descriptor load-plan, executable load-plan authority,
-  executable load-plan result, executable image-layout, and executable
-  page-mapping plan boundaries
+  executable load-plan result, executable image-layout, executable
+  page-mapping plan, and executable page-mapping boundaries
 - all lifecycle boundaries report explicit non-authorizing reasons and keep
   descriptor intake, descriptor bytes, parsed descriptor production,
   validated descriptor production, descriptor schema validation, descriptor
   capability validation, capability-validated descriptor production,
   executable load-plan authority, executable load-plan production, executable
-  image-layout production, executable page-mapping plan production,
-  capability-validated descriptor binding to executable pages, descriptor
-  parsing, artifact bytes, artifact load, executable mapping,
+  image-layout production, executable page-mapping plan production, executable
+  page mapping, capability-validated descriptor binding to executable pages,
+  descriptor parsing, artifact bytes, artifact load, executable mapping,
   entrypoint transfer, service start, health record creation, running-state
   marking, start-audit record writing, unload/cleanup, live-load commit,
   load-commit audit writing, commit rollback install, result recording, service
@@ -45,27 +45,28 @@ Latest verified implementation slice:
 Latest full verification:
 
 ```text
-release\vm-reports\shadow-20260630-225503-6760.json
-6332/6332 predicates, 243 executed commands, duration_ms: 503590
+release\vm-reports\shadow-20260630-231712-2448.json
+6389/6389 predicates, 243 executed commands, duration_ms: 497027
 ```
 
 Exact next task:
 
 ```text
-Define raios.module_loader_executable_page_mapping_boundary.v0 as the next
-typed, read-only normal-module boundary. It should consume the retained
-executable page-mapping plan boundary plus executable image-layout,
-executable load-plan result/authority, descriptor load-plan, full retained
-module, service-slot, loader-runtime, audit/rollback, rollback-hook,
-health-hook, entrypoint, memory-map, capability-table, and live-load lifecycle
-evidence chain. It must still map no executable pages, bind no descriptor to
+Define raios.module_loader_descriptor_executable_page_binding_boundary.v0 as
+the next typed, read-only normal-module boundary. It should consume the retained
+executable page-mapping boundary plus executable page-mapping plan,
+executable image-layout, executable load-plan result/authority, descriptor
+load-plan, full retained module, service-slot, loader-runtime, audit/rollback,
+rollback-hook, health-hook, entrypoint, memory-map, capability-table, and
+live-load lifecycle evidence chain. It must still bind no
+capability-validated descriptor to executable pages, map no new executable
 pages, commit no live load, mutate no inventory, write no durable audit state,
 install no rollback state, and attempt no load.
 ```
 
 Next three tasks:
 
-1. Add `raios.module_loader_executable_page_mapping_boundary.v0` as a
+1. Add `raios.module_loader_descriptor_executable_page_binding_boundary.v0` as a
    current-boot, local-only, non-authorizing source-evidence boundary.
 2. Project it through `module.loader_runtime`, denied `module.load_ephemeral`,
    compact audit/event bindings, event-log memory rendering, and selftests.

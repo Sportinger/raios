@@ -277,8 +277,8 @@ Verified in the VM today:
   commit-rollback, commit-result, descriptor-acceptance authority,
   descriptor-parser contract, descriptor-parser result, and descriptor
   schema-validation, capability-validation, load-plan, executable load-plan
-  authority/result, executable image-layout, and executable page-mapping plan
-  boundaries, all still
+  authority/result, executable image-layout, executable page-mapping plan, and
+  executable page-mapping boundaries, all still
   non-authorizing
 - a Shadow VM smoke harness that verifies the real boot and serial protocol path
   and writes `raios.vm_test_report.v0` reports

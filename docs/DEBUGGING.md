@@ -146,8 +146,8 @@ If a full smoke fails with a host-side TCP write exception or a truncated long
 serial command after all predicates up to the previous command passed, rerun
 with smaller chunks plus write delay before treating it as a guest regression.
 The 2026-06-30 full module-loader report
-`release\vm-reports\shadow-20260630-225503-6760.json` used
-`-TimeoutSeconds 300 -SerialWriteChunkSize 64 -SerialWriteDelayMilliseconds 2 -SerialTcpPort 4569`;
+`release\vm-reports\shadow-20260630-231712-2448.json` used
+`-TimeoutSeconds 300 -SerialWriteChunkSize 64 -SerialWriteDelayMilliseconds 2 -SerialTcpPort 4570`;
 earlier same-slice runs with a 180-second command window timed out while waiting
 for final markers in long module-loader responses.
 
@@ -643,7 +643,8 @@ also records the live-load sequence as read-only current-boot source evidence:
 `raios.module_loader_executable_load_plan_authority_boundary.v0`, and
 `raios.module_loader_executable_load_plan_result_boundary.v0`, and
 `raios.module_loader_executable_image_layout_boundary.v0`, and
-`raios.module_loader_executable_page_mapping_plan_boundary.v0`. Those
+`raios.module_loader_executable_page_mapping_plan_boundary.v0`, and
+`raios.module_loader_executable_page_mapping_boundary.v0`. Those
 boundaries consume the retained intake, execution, registry, service-slot,
 health-hook, rollback-hook, audit/rollback, and loader-fact evidence chain only
 as provenance, remain non-authorizing, and keep artifact loading, executable
@@ -654,8 +655,9 @@ audit writing, commit rollback install, load-result recording, durable writes,
 rollback installation, descriptor acceptance, parsed descriptor production,
 validated descriptor production, descriptor schema validation, descriptor
 capability validation, capability-validated descriptor production, executable
-page-mapping plan production, executable image-layout production, executable
-load-plan authority, executable load-plan production, descriptor load-plan production,
+page-mapping plan production, executable page mapping, executable image-layout
+production, executable load-plan authority, executable load-plan production,
+descriptor load-plan production,
 capability-validated descriptor executable binding, descriptor parsing,
 descriptor-byte intake, and load attempts false.
 

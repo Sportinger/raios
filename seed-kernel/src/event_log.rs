@@ -22,6 +22,7 @@ use crate::event_log_evidence::{
     MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_FACT_SOURCE_EVIDENCE, MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE,
@@ -2630,6 +2631,34 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::ModuleLoaderExecutablePageMappingPlanBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_executable_page_mapping_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderExecutablePageMappingBoundarySourceEvidence(
                     binding,
                 ) = event.bindings
                 {
@@ -5407,6 +5436,26 @@ pub fn record_module_loader_executable_page_mapping_plan_boundary_source_evidenc
     })
 }
 
+pub fn record_module_loader_executable_page_mapping_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.executable_page_mapping_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderExecutablePageMappingBoundarySourceEvidence(binding),
+    })
+}
+
 pub fn record_provider_request_binding_denied(hashes: ProviderContextHashes) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -5953,6 +6002,12 @@ pub fn latest_module_loader_executable_page_mapping_plan_boundary_source_evidenc
 ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
     LOG.lock()
         .latest_module_loader_executable_page_mapping_plan_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_executable_page_mapping_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_executable_page_mapping_boundary_source_evidence()
 }
 
 fn normalize_limit(limit: usize) -> usize {

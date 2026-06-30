@@ -293,6 +293,23 @@
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_plan_boundary_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_plan_boundary_no_descriptor_bytes" -Needle '"accepts_descriptor_bytes": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_plan_boundary_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary" -Needle '"executable_page_mapping_boundary": {"schema": "raios.module_loader_executable_page_mapping_boundary.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_reason" -Needle '"reason": "module_loader_executable_page_mapping_boundary_non_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_maps" -Needle '"maps_executable_pages": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_page_mapping_plan" -Needle '"produces_executable_page_mapping_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_image_layout" -Needle '"produces_executable_image_layout": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_authority" -Needle '"authorizes_executable_load_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_load_plan" -Needle '"produces_executable_load_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_executable_binding" -Needle '"binds_capability_validated_descriptor_to_executable_pages": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_capability_validation" -Needle '"validates_descriptor_capabilities": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_capability_validated_descriptor" -Needle '"produces_capability_validated_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_schema_validation" -Needle '"validates_descriptor_schema": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_validated_descriptor" -Needle '"produces_validated_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_result" -Needle '"produces_parsed_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_parse" -Needle '"parses_descriptor_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_descriptor_bytes" -Needle '"accepts_descriptor_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_page_mapping_boundary_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_no_load" -Needle '"loader_runtime_readiness": {"schema": "raios.module_loader_runtime_readiness.v0", "scope": "current_boot", "classification": "local_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_count" -Needle '"source_fact_count": 10, "source_fact_map_complete": true, "source_fact_map": ' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_map_identity" -Needle '"fact": "loader_identity"' -TimeoutSeconds 1
