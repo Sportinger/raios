@@ -72,7 +72,7 @@
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_count" -Needle '"case_count": 28' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_count" -Needle '"case_count": 29' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_missing_reservation_case" -Needle '"case": "missing_retained_service_slot_reservation"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_missing_reservation_reason" -Needle '"actual_reason": "retained_service_slot_reservation_missing"' -TimeoutSeconds 1
@@ -112,11 +112,13 @@
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_rollback_source_present" -Needle '"actual_rollback_install_source_evidence_present": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_case" -Needle '"case": "module_loader_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_observed_case" -Needle '"case": "module_loader_observed_source_evidence_missing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_observed_available_case" -Needle '"case": "module_loader_observed_source_evidence_available_allocator_authority_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_observed_available_case" -Needle '"case": "module_loader_observed_source_evidence_available_allocator_authority_boundary"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_available_reason" -Needle '"actual_module_loader_source_evidence_reason": "module_loader_boundary_available_non_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_loader_source_present" -Needle '"actual_module_loader_source_evidence_present": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_registry_commit_gate_case" -Needle '"case": "registry_write_commit_gate_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_registry_commit_gate_reason" -Needle '"actual_reason": "service_slot_registry_write_commit_gate_source_chain_incomplete"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_ready_case" -Needle '"case": "all_inputs_ready_still_non_authorizing"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_ready_status" -Needle '"actual_status": "denied_allocator_authority_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_ready_status" -Needle '"actual_status": "denied_allocator_authority_not_granted"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_can_allocate_false" -Needle '"can_allocate": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_service_slot_allocator_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1
@@ -144,7 +146,7 @@
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_count" -Needle '"case_count": 37' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_count" -Needle '"case_count": 65' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_source_count" -Needle '"source_fact_count": 10' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_source_map_complete" -Needle '"source_fact_map_complete": true' -TimeoutSeconds 1
@@ -202,6 +204,90 @@
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_write_boundary_source_evidence_case" -Needle '"case": "audit_rollback_write_boundary_binding_observed_source_evidence_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_write_boundary_source_evidence_present" -Needle '"actual_write_boundary_source_evidence_present": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_write_boundary_source_evidence_observed" -Needle '"actual_write_boundary_source_evidence_state": "observed_current_boot_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_execution_commit_gate_case" -Needle '"case": "execution_commit_gate_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_execution_commit_gate_status" -Needle '"actual_status": "denied_missing_module_loader_runtime_execution_commit_gate"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_execution_commit_gate_reason" -Needle '"actual_reason": "module_loader_runtime_execution_commit_gate_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_intake_boundary_case" -Needle '"case": "descriptor_intake_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_intake_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_descriptor_intake_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_intake_boundary_reason" -Needle '"actual_reason": "module_loader_descriptor_intake_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_byte_intake_boundary_case" -Needle '"case": "artifact_byte_intake_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_byte_intake_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_artifact_byte_intake_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_byte_intake_boundary_reason" -Needle '"actual_reason": "module_loader_artifact_byte_intake_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_execution_authorization_boundary_case" -Needle '"case": "execution_authorization_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_execution_authorization_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_execution_authorization_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_execution_authorization_boundary_reason" -Needle '"actual_reason": "module_loader_execution_authorization_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_registry_mutation_boundary_case" -Needle '"case": "service_registry_mutation_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_registry_mutation_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_service_registry_mutation_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_registry_mutation_boundary_reason" -Needle '"actual_reason": "module_loader_service_registry_mutation_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_load_attempt_boundary_case" -Needle '"case": "load_attempt_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_load_attempt_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_load_attempt_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_load_attempt_boundary_reason" -Needle '"actual_reason": "module_loader_load_attempt_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_load_boundary_case" -Needle '"case": "artifact_load_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_load_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_artifact_load_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_artifact_load_boundary_reason" -Needle '"actual_reason": "module_loader_artifact_load_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_mapping_boundary_case" -Needle '"case": "executable_mapping_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_mapping_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_executable_mapping_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_mapping_boundary_reason" -Needle '"actual_reason": "module_loader_executable_mapping_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_entrypoint_transfer_boundary_case" -Needle '"case": "entrypoint_transfer_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_entrypoint_transfer_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_entrypoint_transfer_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_entrypoint_transfer_boundary_reason" -Needle '"actual_reason": "module_loader_entrypoint_transfer_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_start_boundary_case" -Needle '"case": "service_start_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_start_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_service_start_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_start_boundary_reason" -Needle '"actual_reason": "module_loader_service_start_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_health_binding_boundary_case" -Needle '"case": "service_health_binding_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_health_binding_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_service_health_binding_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_health_binding_boundary_reason" -Needle '"actual_reason": "module_loader_service_health_binding_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_running_state_boundary_case" -Needle '"case": "service_running_state_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_running_state_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_service_running_state_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_running_state_boundary_reason" -Needle '"actual_reason": "module_loader_service_running_state_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_start_audit_boundary_case" -Needle '"case": "service_start_audit_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_start_audit_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_service_start_audit_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_start_audit_boundary_reason" -Needle '"actual_reason": "module_loader_service_start_audit_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_unload_cleanup_boundary_case" -Needle '"case": "service_unload_cleanup_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_unload_cleanup_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_service_unload_cleanup_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_service_unload_cleanup_boundary_reason" -Needle '"actual_reason": "module_loader_service_unload_cleanup_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_live_load_commit_boundary_case" -Needle '"case": "live_load_commit_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_live_load_commit_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_live_load_commit_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_live_load_commit_boundary_reason" -Needle '"actual_reason": "module_loader_live_load_commit_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_commit_audit_boundary_case" -Needle '"case": "commit_audit_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_commit_audit_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_commit_audit_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_commit_audit_boundary_reason" -Needle '"actual_reason": "module_loader_commit_audit_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_commit_rollback_boundary_case" -Needle '"case": "commit_rollback_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_commit_rollback_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_commit_rollback_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_commit_rollback_boundary_reason" -Needle '"actual_reason": "module_loader_commit_rollback_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_commit_result_boundary_case" -Needle '"case": "commit_result_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_commit_result_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_commit_result_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_commit_result_boundary_reason" -Needle '"actual_reason": "module_loader_commit_result_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_acceptance_authority_boundary_case" -Needle '"case": "descriptor_acceptance_authority_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_acceptance_authority_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_descriptor_acceptance_authority_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_acceptance_authority_boundary_reason" -Needle '"actual_reason": "module_loader_descriptor_acceptance_authority_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_parser_contract_boundary_case" -Needle '"case": "descriptor_parser_contract_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_parser_contract_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_descriptor_parser_contract_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_parser_contract_boundary_reason" -Needle '"actual_reason": "module_loader_descriptor_parser_contract_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_parser_result_boundary_case" -Needle '"case": "descriptor_parser_result_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_parser_result_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_descriptor_parser_result_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_parser_result_boundary_reason" -Needle '"actual_reason": "module_loader_descriptor_parser_result_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_schema_validation_boundary_case" -Needle '"case": "descriptor_schema_validation_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_schema_validation_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_descriptor_schema_validation_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_schema_validation_boundary_reason" -Needle '"actual_reason": "module_loader_descriptor_schema_validation_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_capability_validation_boundary_case" -Needle '"case": "descriptor_capability_validation_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_capability_validation_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_descriptor_capability_validation_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_capability_validation_boundary_reason" -Needle '"actual_reason": "module_loader_descriptor_capability_validation_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_load_plan_boundary_case" -Needle '"case": "descriptor_load_plan_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_load_plan_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_descriptor_load_plan_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_descriptor_load_plan_boundary_reason" -Needle '"actual_reason": "module_loader_descriptor_load_plan_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_load_plan_authority_boundary_case" -Needle '"case": "executable_load_plan_authority_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_load_plan_authority_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_executable_load_plan_authority_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_load_plan_authority_boundary_reason" -Needle '"actual_reason": "module_loader_executable_load_plan_authority_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_load_plan_result_boundary_case" -Needle '"case": "executable_load_plan_result_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_load_plan_result_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_executable_load_plan_result_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_load_plan_result_boundary_reason" -Needle '"actual_reason": "module_loader_executable_load_plan_result_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_image_layout_boundary_case" -Needle '"case": "executable_image_layout_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_image_layout_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_executable_image_layout_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_image_layout_boundary_reason" -Needle '"actual_reason": "module_loader_executable_image_layout_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_page_mapping_plan_boundary_case" -Needle '"case": "executable_page_mapping_plan_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_page_mapping_plan_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_executable_page_mapping_plan_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_page_mapping_plan_boundary_reason" -Needle '"actual_reason": "module_loader_executable_page_mapping_plan_boundary_source_chain_incomplete"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_ready_case" -Needle '"case": "all_inputs_ready_defined_non_executable"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_ready_status" -Needle '"actual_status": "defined_non_executable"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
@@ -961,11 +1047,22 @@
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_missing_slot_reason" -Needle '"actual_reason": "ram_only_service_slot_unallocated"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_slot_case" -Needle '"case": "rejected_service_slot_reservation"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_rejected_slot_allocator_state" -Needle '"actual_service_slot_allocator_state": "blocked_by_rejected_service_slot_reservation"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_case" -Needle '"case": "all_retained_evidence_ready_allocator_authority_unimplemented"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_status" -Needle '"actual_status": "denied_allocator_authority_unimplemented"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_case" -Needle '"case": "all_retained_evidence_ready_allocator_authority_boundary_denied"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_status" -Needle '"actual_status": "denied_allocator_authority_not_granted"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_retained_available_state" -Needle '"actual_retained_module_evidence_state": "available"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_allocator_authority_state" -Needle '"actual_service_slot_allocator_state": "defined_non_authorizing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_loader_runtime_blocked_state" -Needle '"actual_loader_runtime_state": "blocked_by_service_slot_allocator_authority"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_allocation_intent" -Needle '"raios.service_slot_allocation_intent.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_policy_decision" -Needle '"raios.service_slot_allocator_policy_decision.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_registry_write" -Needle '"raios.service_slot_registry_write_authority.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_loader_contract" -Needle '"raios.module_loader_runtime_contract.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_health_monitor" -Needle '"raios.service_health_monitor_binding.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_cleanup_authority" -Needle '"raios.service_unload_cleanup_authority.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_authority_decision" -Needle '"raios.module_service_slot_allocator_authority_decision.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_registry_commit_gate" -Needle '"raios.service_slot_registry_write_commit_gate.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_execution_commit_gate" -Needle '"raios.module_loader_runtime_execution_commit_gate.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_descriptor_intake_boundary" -Needle '"raios.module_loader_descriptor_intake_boundary.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_artifact_byte_intake_boundary" -Needle '"raios.module_loader_artifact_byte_intake_boundary.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_required_loader_identity" -Needle '"raios.module_loader_identity.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_gate_loader_runtime_selftest_load_attempted_false" -Needle '"load_attempted": false' -TimeoutSeconds 1

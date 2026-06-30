@@ -624,6 +624,18 @@ pub(crate) fn emit_module_load_gate_loader_runtime_selftest() {
     raw_line("      \"required_bindings\": [");
     raw_line("        \"retained_module_evidence\",");
     raw_line("        \"raios.module_service_slot_allocator_readiness.v0\",");
+    raw_line("        \"raios.module_service_slot_allocator_authority.v0\",");
+    raw_line("        \"raios.service_slot_allocation_intent.v0\",");
+    raw_line("        \"raios.service_slot_allocator_policy_decision.v0\",");
+    raw_line("        \"raios.service_slot_registry_write_authority.v0\",");
+    raw_line("        \"raios.module_loader_runtime_contract.v0\",");
+    raw_line("        \"raios.service_health_monitor_binding.v0\",");
+    raw_line("        \"raios.service_unload_cleanup_authority.v0\",");
+    raw_line("        \"raios.module_service_slot_allocator_authority_decision.v0\",");
+    raw_line("        \"raios.service_slot_registry_write_commit_gate.v0\",");
+    raw_line("        \"raios.module_loader_runtime_execution_commit_gate.v0\",");
+    raw_line("        \"raios.module_loader_descriptor_intake_boundary.v0\",");
+    raw_line("        \"raios.module_loader_artifact_byte_intake_boundary.v0\",");
     raw_line("        \"raios.module_loader_identity.v0\",");
     raw_line("        \"raios.module_loader_artifact_hash_binding.v0\",");
     raw_line("        \"raios.module_loader_entrypoint_abi.v0\",");

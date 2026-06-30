@@ -217,6 +217,62 @@ function Drain-SerialTcpOutput {
     }
 }
 
+function Close-SerialTcpConnection {
+    try {
+        if ($null -ne $script:SerialTcpStream) {
+            Drain-SerialTcpOutput -Stream $script:SerialTcpStream
+        }
+    }
+    catch {
+    }
+    if ($null -ne $script:SerialTcpClient) {
+        $script:SerialTcpClient.Close()
+    }
+    $script:SerialTcpClient = $null
+    $script:SerialTcpStream = $null
+    $script:SerialTcpDrainStream = $null
+}
+
+function Get-SerialTcpStream {
+    param(
+        [int]$Port,
+        [int]$TimeoutSeconds
+    )
+
+    if ($null -ne $script:SerialTcpClient -and
+        $null -ne $script:SerialTcpStream -and
+        $script:SerialTcpClient.Connected -and
+        $script:SerialTcpStream.CanWrite) {
+        return $script:SerialTcpStream
+    }
+
+    Close-SerialTcpConnection
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $candidate = [System.Net.Sockets.TcpClient]::new()
+        $candidate.NoDelay = $true
+        try {
+            $connect = $candidate.BeginConnect("127.0.0.1", $Port, $null, $null)
+            if ($connect.AsyncWaitHandle.WaitOne([TimeSpan]::FromMilliseconds(500))) {
+                $candidate.EndConnect($connect)
+                $script:SerialTcpClient = $candidate
+                $script:SerialTcpStream = $candidate.GetStream()
+                return $script:SerialTcpStream
+            }
+        }
+        catch {
+            $candidate.Close()
+            Start-Sleep -Milliseconds 100
+            continue
+        }
+        $candidate.Close()
+        Start-Sleep -Milliseconds 100
+    }
+
+    throw "Timed out connecting to QEMU serial TCP port $Port"
+}
+
 function Add-Predicate {
     param(
         [string]$Name,
@@ -354,34 +410,9 @@ function Send-AgentCommand {
     $predicateName = if ($Name.Length -gt 0) { $Name } else { "command:$Command" }
     $passed = $false
     $sent = $false
-    $client = $null
     $stream = $null
     try {
-        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-        while ([DateTime]::UtcNow -lt $deadline) {
-            $candidate = [System.Net.Sockets.TcpClient]::new()
-            $candidate.NoDelay = $true
-            try {
-                $connect = $candidate.BeginConnect("127.0.0.1", $SerialTcpPort, $null, $null)
-                if ($connect.AsyncWaitHandle.WaitOne([TimeSpan]::FromMilliseconds(500))) {
-                    $candidate.EndConnect($connect)
-                    $client = $candidate
-                    break
-                }
-            }
-            catch {
-                $candidate.Close()
-                Start-Sleep -Milliseconds 100
-                continue
-            }
-            $candidate.Close()
-            Start-Sleep -Milliseconds 100
-        }
-        if (-not $client) {
-            throw "Timed out connecting to QEMU serial TCP port $SerialTcpPort"
-        }
-
-        $stream = $client.GetStream()
+        $stream = Get-SerialTcpStream -Port $SerialTcpPort -TimeoutSeconds $TimeoutSeconds
         $script:SerialTcpDrainStream = $stream
         Write-SerialTcpText -Stream $stream -Text "$Command`r"
         $sent = $true
@@ -394,6 +425,8 @@ function Send-AgentCommand {
         if (-not $passed) {
             throw "Timed out waiting for '$ExpectedMarker' in $SerialLog after offset $startOffset"
         }
+        Start-Sleep -Milliseconds 150
+        Drain-SerialTcpOutput -Stream $stream
     }
     finally {
         $commandEndedAt = [DateTime]::UtcNow
@@ -411,9 +444,6 @@ function Send-AgentCommand {
         $script:SerialTcpDrainStream = $null
         if ($null -ne $stream) {
             Drain-SerialTcpOutput -Stream $stream
-        }
-        if ($null -ne $client) {
-            $client.Close()
         }
     }
 }

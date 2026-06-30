@@ -17,24 +17,142 @@ look for ownership boundaries; around 3k-5k LOC, actively split if a stable
 boundary exists; above 10k LOC should be exceptional and documented; 20k+ LOC
 requires a deliberate split plan before more behavior is added.
 
-Last verified locally: 2026-05-25 on Windows with QEMU 11 after propagating the
+Documentation ownership memory: keep `README.md` as product thesis, quickstart,
+and concise current reality; keep `docs/ROADMAP.md` as phase direction plus the
+compact active cursor; keep this file as the authoritative detailed status,
+exact next task, verification evidence, known gaps, and unabridged
+implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
+profiles, protocol probes, and failure modes.
+
+Last verified locally: 2026-06-30 on Windows with QEMU 11 after adding the
+typed, read-only
+`raios.module_loader_executable_page_mapping_plan_boundary.v0` on top of the
+normal-module executable image-layout boundary, executable load-plan result,
+executable load-plan authority, descriptor load-plan, descriptor
+capability-validation, descriptor schema-validation, descriptor-parser result,
+descriptor-parser contract, descriptor-acceptance authority, live-load, and
+commit sequence. It consumes the retained
+`raios.module_loader_executable_image_layout_boundary.v0`,
+retained `raios.module_loader_executable_load_plan_result_boundary.v0`,
+retained `raios.module_loader_executable_load_plan_authority_boundary.v0`,
+retained `raios.module_loader_descriptor_load_plan_boundary.v0`, retained
+module evidence, RAM-only service-slot reservation/binding, loader-runtime
+source evidence, health hooks, rollback hooks, audit/rollback write-boundary
+evidence, and the full observed live-load lifecycle chain only as current-boot
+provenance. It reports
+`module_loader_executable_page_mapping_plan_boundary_non_authorizing` while
+keeping executable page-mapping plan production, executable image-layout
+production, executable load-plan authority, executable load-plan production,
+capability-validated descriptor binding to executable pages, descriptor
+capability validation, capability-validated descriptor production, validated
+descriptor production, descriptor schema validation, parsed descriptor
+production, descriptor parsing, loader descriptor acceptance, descriptor bytes,
+artifact bytes, artifact loading, executable page mapping, entrypoint transfer,
+service start/running/unload, health record creation, service-start audit
+writing, live-load commit, load-commit audit writing, commit rollback record
+install, load-result recording, service registry mutation, service-inventory
+record creation, service-slot allocation, durable-audit state writes,
+rollback-state installation, and load attempts false. `module.loader_runtime`,
+denied `module.load_ephemeral` /
+`service.load_ephemeral`, compact audit/event bindings, event-log memory
+rendering, and selftests now cite the full chain through executable image
+layout and page-mapping plan. Full Shadow VM smoke passed in
+`release/vm-reports/shadow-20260630-225503-6760.json` with 6332/6332
+predicates, 243 executed commands, and `duration_ms: 503590`; that run used
+`-TimeoutSeconds 300`, `-SerialWriteChunkSize 64`,
+`-SerialWriteDelayMilliseconds 2`, and `-SerialTcpPort 4569` after earlier
+180-second command-window timeouts in long module-loader responses. This
+follows the
+four typed, read-only commit boundaries:
+`raios.module_loader_live_load_commit_boundary.v0`,
+`raios.module_loader_commit_audit_boundary.v0`,
+`raios.module_loader_commit_rollback_boundary.v0`, and
+`raios.module_loader_commit_result_boundary.v0`. This
+follows the
+typed, read-only
+`raios.module_loader_execution_authorization_boundary.v0` and
+`raios.module_loader_service_registry_mutation_boundary.v0` over the retained
+artifact-byte intake boundary, descriptor-intake boundary, loader-runtime
+execution commit gate, normal-module loader-runtime source-evidence chain,
+retained module evidence, RAM-only service-slot reservation,
+entrypoint/address-space/memory-map source evidence, audit/rollback
+write-boundary source evidence, service-slot binding source evidence, and
+service-slot registry write commit gate. This follows the
+typed, read-only `raios.module_loader_artifact_byte_intake_boundary.v0` over
+the retained descriptor-intake boundary, retained loader-runtime execution
+commit gate, normal-module loader-runtime source-evidence chain, retained
+manifest/artifact hash references, loader artifact-hash binding source
+evidence, retained module evidence, and RAM-only service-slot reservation. That
+boundary reports `module_loader_artifact_byte_intake_boundary_non_authorizing`,
+is retained only as current-boot source evidence, and keeps loader descriptor
+intake, descriptor bytes, artifact bytes, artifact-byte intake, execution
+authorization, service registry mutation, service-slot allocation,
+durable-audit state writes, rollback-state installation, artifact loading, and
+load attempts false. This follows the typed, read-only
+`raios.module_loader_descriptor_intake_boundary.v0` over
+the retained service-slot registry write commit gate, retained loader-runtime
+execution commit gate, normal-module loader-runtime source-evidence chain,
+retained module hash references, and RAM-only service-slot reservation. That
+boundary reports `module_loader_descriptor_intake_boundary_non_authorizing`, is
+retained only as current-boot source evidence, and keeps loader descriptor
+intake, descriptor bytes, artifact bytes, execution authorization, service
+registry mutation, service-slot allocation, durable-audit state writes,
+rollback-state installation, artifact loading, and load attempts false. This
+follows the typed, read-only
+`raios.module_loader_runtime_execution_commit_gate.v0` over the retained
+`raios.module_service_slot_allocator_authority_decision.v0`, retained
+`raios.module_loader_runtime_contract.v0` input, normal-module loader-runtime
+source-evidence chain, loader service-slot binding evidence, audit/rollback
+write-boundary evidence, and RAM-only service-slot reservation. That gate
+reports `module_loader_runtime_execution_commit_gate_non_authorizing`, is
+retained only as current-boot source evidence, and keeps loader descriptor
+intake, artifact byte intake, execution authorization, service registry
+mutation, service-slot allocation, durable-audit state writes, rollback-state
+installation, artifact loading, and load attempts false. This follows the typed,
+read-only
+`raios.service_slot_registry_write_commit_gate.v0` over the retained
+`raios.module_service_slot_allocator_authority_decision.v0`, retained
+`raios.service_slot_registry_write_authority.v0` input, service-slot registry
+binding, durable-audit write evidence, rollback-install evidence, and RAM-only
+service-slot reservation. That commit gate reports
+`service_slot_registry_write_commit_gate_non_authorizing` and keeps service
+registry mutation, service-slot allocation, durable-audit state writes,
+rollback-state installation, artifact loading, and load attempts false, after
+adding the typed, read-only composite
+`raios.module_service_slot_allocator_authority_decision.v0` over the six named
+authority inputs under `raios.module_service_slot_allocator_authority.v0`:
+`raios.service_slot_allocation_intent.v0`,
+`raios.service_slot_allocator_policy_decision.v0`,
+`raios.service_slot_registry_write_authority.v0`,
+`raios.module_loader_runtime_contract.v0`,
+`raios.service_health_monitor_binding.v0`, and
+`raios.service_unload_cleanup_authority.v0`. The kernel now records
+current-boot source-evidence records for each input, records a composite
+authority-decision source-evidence record that binds all six input
+source-evidence ids, proves the input chain complete, and projects the decision
+as `defined_non_authorizing` through
+`module.service_slot_allocator`, denied `module.load_ephemeral` /
+`service.load_ephemeral`, `module.loader_runtime`, and the standalone normal
+module loader diagnostics while still denying allocation, service inventory
+mutation, descriptor/artifact intake, and load attempts, after defining
+`raios.service_slot_allocation_intent.v0`, after defining the
+typed, read-only `raios.module_service_slot_allocator_authority.v0` boundary and
+projecting
+`denied_allocator_authority_not_granted` /
+`service_slot_allocator_authority_boundary_non_authorizing` through
+`module.service_slot_allocator`, denied `module.load_ephemeral` /
+`service.load_ephemeral`, `module.loader_runtime`, and the standalone normal
+module loader diagnostics while still denying allocation, service inventory
+mutation, descriptor/artifact intake, and load attempts, after propagating the
 real retained `module.service_slot_allocator` readiness projection into the
 standalone normal-module loader diagnostics (`module.loader_identity`,
 `module.loader_artifact_hash_binding`, the typed loader fact diagnostics, and
-`module.loader_runtime`) so their live source-evidence projections now report
-`service_slot_allocator_authority_unimplemented` instead of static
-runtime-missing placeholders once allocator source evidence has been observed,
-after binding the
-denied `module.load_ephemeral` / `service.load_ephemeral` service-slot
-allocator readiness projection to the retained
-`module.service_slot_allocator` source-evidence chain so the full retained
-module evidence path now reports
-`service_slot_allocator_authority_unimplemented` instead of the old static
-runtime-missing placeholder, after promoting
+`module.loader_runtime`), after binding the denied `module.load_ephemeral` /
+`service.load_ephemeral` service-slot allocator readiness projection to the
+retained `module.service_slot_allocator` source-evidence chain, after promoting
 the `module.service_slot_allocator` module-loader prerequisite boundary to an
 observed-current-boot available but non-authorizing boundary once durable-audit
-write and rollback-install evidence are available, while still blocking on
-`service_slot_allocator_authority_unimplemented`, after promoting
+write and rollback-install evidence are available, after promoting
 the durable-audit write and rollback-install prerequisite gates to
 observed-current-boot available once a retained service-slot reservation and all
 allocator facts are available, after promoting
@@ -463,6 +581,28 @@ local-only retained local-approval reference gate selftests.
 Direct OpenAI pin-mismatch plus SPKI pinned-trust smokes using a fake local API
 key remain previously verified from the prior handoff.
 
+Latest current-cursor verification: 2026-06-30 on Windows with
+`scripts\build-seed-kernel.ps1 -Profile release`,
+`cargo fmt --all -- --check`,
+`cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`,
+`git diff --check`, `scripts\scan-secrets.ps1`, and
+`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 300 -SerialWriteChunkSize 64 -SerialWriteDelayMilliseconds 2 -SerialTcpPort 4569`.
+The passing full report is
+`release\vm-reports\shadow-20260630-225503-6760.json` with 6332/6332
+predicates, 243/243 executed commands, and `duration_ms: 503590`, covering the
+load-attempt, artifact-load, executable-mapping, entrypoint-transfer,
+service-start, service-health-binding, service-running-state,
+service-start-audit, service-unload-cleanup, live-load-commit, commit-audit,
+commit-rollback, commit-result, descriptor-acceptance authority, and
+descriptor-parser contract plus descriptor-parser result and descriptor
+schema-validation plus descriptor capability-validation, descriptor load-plan,
+executable load-plan authority, executable load-plan result, executable
+image-layout, and executable page-mapping plan loader-runtime boundaries, denied
+load-gate/audit projections, event-log memory bindings, and the updated
+loader-runtime selftest matrix. Earlier same-slice runs with a 180-second
+per-command window timed out in long module-loader responses; the passing run
+used a 300-second command window plus chunked serial writes.
+
 Latest host-tool verification: 2026-05-24 on Windows with
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
 covering OTA/registry tooling plus the non-authorizing
@@ -470,10 +610,11 @@ covering OTA/registry tooling plus the non-authorizing
 `raios.module_audit_rollback_diagnostic.v0` audit/rollback candidates, and
 negative manifest/artifact/report/attestation/audit/rollback evidence cases.
 
-Latest quick guest-protocol verification: 2026-05-24 on Windows with
-`vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-140441-10224.json` with 136/136
-predicates, 13 `executed_commands` entries, and no static command inventory,
+Latest quick guest-protocol verification: 2026-06-30 on Windows with
+`vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180 -SerialWriteChunkSize 64 -SerialWriteDelayMilliseconds 2 -SerialTcpPort 4568`,
+report `release\vm-reports\shadow-20260630-225419-7620.json` with 136/136
+predicates, 13 `executed_commands` entries, `duration_ms: 32290`, and no
+static command inventory,
 covering the real QEMU/serial path through boot readiness, core read-only
 methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 `recovery.load_artifact`, and RAM-only audit visibility.
@@ -487,7 +628,7 @@ recovery evidence retention, lifeline-command diagnostics, load-binding denial,
 and RAM-only recovery audit visibility while skipping the normal module-loading
 diagnostic matrix.
 
-Latest guest-protocol verification: 2026-05-24 on Windows with
+Historical full guest-protocol verification: 2026-05-24 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 180`, report
 `release\vm-reports\shadow-20260524-184613-23604.json` with 4557/4557
 predicates, 209 `executed_commands` entries, `duration_ms: 181285`, and no
@@ -870,45 +1011,70 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the first explicit service-slot allocator authority boundary instead of
-leaving `service_slot_allocator_authority_unimplemented` as a terminal string.
-It should consume the retained allocator facts and prerequisite source evidence,
-name the future authority inputs required for a real RAM-only service-slot
-allocation, and still keep descriptor/artifact intake, service-slot allocation,
-service inventory mutation, and load attempts denied until the authority and
-loader-runtime contracts are complete.
+Define the next typed, read-only normal-module executable page-mapping
+boundary:
+`raios.module_loader_executable_page_mapping_boundary.v0`. It should consume
+the retained executable page-mapping plan boundary, retained executable
+image-layout boundary, retained executable load-plan result boundary, retained
+executable load-plan authority boundary, retained descriptor load-plan
+boundary, and the full retained module evidence, service-slot
+reservation/binding, loader-runtime source evidence, audit/rollback
+write-boundary evidence, health hooks, rollback hooks, entrypoint ABI,
+memory-map constraints, capability import table, and live-load lifecycle chain.
+It should report an explicit no-page-mapping result without mapping executable
+pages, binding a capability-validated descriptor to executable pages, producing
+an executable page mapping plan, producing an executable image layout,
+producing an executable load plan, accepting loader descriptors, accepting
+artifact bytes, jumping to an entrypoint, committing a live load, mutating
+service inventory, allocating a slot, writing durable audit state, installing
+rollback state, or attempting a load.
 
-The current Phase-6 loader-runtime aggregate and denied
-`module.load_ephemeral` loader-runtime readiness projection cite the same ten
-addressable typed loader-fact diagnostics. `module.loader_identity`,
-`module.loader_artifact_hash_binding`, `module.loader_entrypoint_abi`,
-`module.loader_address_space_boundary`,
-`module.loader_memory_map_constraints`,
-`module.loader_capability_import_table`,
-`module.loader_service_slot_binding`,
-`module.loader_health_state_hooks`, `module.loader_rollback_hooks`, and
-`module.loader_audit_rollback_write_boundary_binding` now
-emit typed current-boot source-evidence records that `module.loader_runtime`
-consumes as observed, non-authorizing evidence. `module.service_slot_allocator`
-now records observed current-boot source evidence for the allocator readiness
-facts and the durable-audit, rollback-install, and module-loader prerequisite
-gates. With a valid retained service-slot reservation and allocator runtime, the
-registry binding, health-state model, unload cleanup plan, durable-audit write,
-and rollback-install prerequisite are now observed-current-boot available, so
-the module-loader prerequisite boundary is now present but non-authorizing. The
-direct readiness diagnostic advances to
-`service_slot_allocator_authority_unimplemented`. The denied module load gate
-now consumes that real readiness outcome and reports the same authority denial
-in its service-slot allocator and loader-runtime readiness projections. The
-standalone loader diagnostics now consume the same retained allocator projection
-before recording loader source-evidence, so live loader identity, artifact-hash,
-typed loader fact, and aggregate loader-runtime responses report the same
-`service_slot_allocator_authority_unimplemented` denial while preserving the
-runtime-missing negative selftests. The next durable slice should replace that
-terminal authority string with an explicit typed allocator-authority boundary
-while keeping service-slot allocation, service inventory mutation, loader
-descriptor intake, artifact bytes, and load attempts denied until the rest of
-the gate is complete.
+The current Phase-6 loader-runtime aggregate, denied `module.load_ephemeral`
+loader-runtime readiness projection, compact audit/event binding, event-log
+memory rendering, and `module.loader_runtime_selftest` now cite the live-load
+sequence through
+`raios.module_loader_load_attempt_boundary.v0`,
+`raios.module_loader_artifact_load_boundary.v0`,
+`raios.module_loader_executable_mapping_boundary.v0`,
+`raios.module_loader_entrypoint_transfer_boundary.v0`, and
+`raios.module_loader_service_start_boundary.v0`,
+`raios.module_loader_service_health_binding_boundary.v0`,
+`raios.module_loader_service_running_state_boundary.v0`,
+`raios.module_loader_service_start_audit_boundary.v0`, and
+`raios.module_loader_service_unload_cleanup_boundary.v0`,
+`raios.module_loader_live_load_commit_boundary.v0`,
+`raios.module_loader_commit_audit_boundary.v0`,
+`raios.module_loader_commit_rollback_boundary.v0`, and
+`raios.module_loader_commit_result_boundary.v0`, followed by
+`raios.module_loader_descriptor_acceptance_authority_boundary.v0`,
+`raios.module_loader_descriptor_parser_contract_boundary.v0`,
+`raios.module_loader_descriptor_parser_result_boundary.v0`, and
+`raios.module_loader_descriptor_schema_validation_boundary.v0`, and
+`raios.module_loader_descriptor_capability_validation_boundary.v0`, and
+`raios.module_loader_descriptor_load_plan_boundary.v0`, and
+`raios.module_loader_executable_load_plan_authority_boundary.v0`, and
+`raios.module_loader_executable_load_plan_result_boundary.v0`, and
+`raios.module_loader_executable_image_layout_boundary.v0`, and
+`raios.module_loader_executable_page_mapping_plan_boundary.v0`, as observed,
+current-boot, non-authorizing boundaries. These follow the descriptor/artifact
+intake, execution authorization, service-registry mutation, retained module
+evidence, RAM-only service-slot, normal loader-runtime source-evidence chain,
+health hooks, rollback hooks, and audit/rollback write-boundary evidence while
+keeping executable page-mapping plan production, executable image-layout
+production, executable load-plan authority, executable load-plan production,
+executable page binding, descriptor capability validation,
+capability-validated descriptor production, descriptor schema validation,
+validated descriptor production, descriptor parser output, parsed descriptor
+production, descriptor parsing, descriptor acceptance, descriptor bytes,
+artifact loading, executable page mapping, entrypoint transfer, service start,
+service-health record creation, service running-state marking, service-start
+audit record writing, service unload/cleanup, live-load commit, load-commit
+audit writing, commit rollback install, load-result recording, execution
+authorization, service registry mutation, service-inventory record creation,
+service-slot allocation, durable-audit state writes, rollback-state
+installation, and load attempts false. The next durable slice should add an
+explicit executable page-mapping boundary before any executable pages or live
+service can be loaded.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:
@@ -1016,7 +1182,7 @@ roadmap cursor:
   `vm-harness\shadow-vm-smoke.ps1`
 - when running `vm-harness\shadow-vm-smoke.ps1` through an agent tool on this
   Windows/QEMU setup, allow at least a 30-minute outer timeout, pass
-  `-TimeoutSeconds 180` when the default per-command serial timeout is too
+  `-TimeoutSeconds 300` when the default per-command serial timeout is too
   tight, and check `release\vm-reports\shadow-*.json` plus the temp
   `serial.log` before treating a timeout as a protocol failure
 - for fast iteration, `vm-harness\shadow-vm-smoke.ps1 -Profile quick` runs the
@@ -1490,16 +1656,24 @@ Historical verified recovery foundation retained for reference:
   and rollback-install prerequisite gates now also become observed-current-boot
   available when those facts are available. The module-loader prerequisite
   boundary also becomes observed-current-boot available but non-authorizing. The
-  live allocator readiness advances to
-  `service_slot_allocator_authority_unimplemented` while keeping
-  `allocates_service_slot`, `creates_service_inventory_records`,
-  `can_allocate`, `can_load_now`, and `load_attempted` false.
+  diagnostic records a local-only current-boot
+  `raios.module_service_slot_allocator_authority_source_evidence.v0` event,
+  exposes a nested `raios.module_service_slot_allocator_authority.v0`
+  authority boundary that names the future authority inputs, and advances live
+  allocator readiness through the composite
+  `raios.module_service_slot_allocator_authority_decision.v0` and
+  `raios.service_slot_registry_write_commit_gate.v0` diagnostics to
+  `service_slot_allocator_authority_boundary_non_authorizing` while keeping
+  registry mutation, slot allocation, durable-audit state writes,
+  rollback-state installation, service-inventory mutation, `can_allocate`,
+  `can_load_now`, and `load_attempted` false.
 - `module.service_slot_allocator_selftest` covers missing retained
   reservation evidence, allocator scope/schema/provenance/binding failures,
   observed source-evidence for the missing and available allocator runtime,
   registry binding, health-state model, unload cleanup, durable audit, rollback
-  install, module-loader prerequisite, and the final all-inputs-ready case while
-  still denying allocation and load authority.
+  install, module-loader prerequisite, registry-write commit gate missing, and
+  the final all-inputs-ready case while still denying registry, allocation,
+  audit, rollback, and load authority.
 - `module.loader_runtime` now exposes
   `raios.module_loader_runtime_readiness.v0` as a read-only current-boot
   diagnostic over the missing normal-module loader/runtime side of Phase 6. It
@@ -1522,8 +1696,9 @@ Historical verified recovery foundation retained for reference:
   `creates_service_inventory_records`, `can_load_now`, and `load_attempted`
   false. With valid retained allocator source evidence, the live aggregate and
   loader source-evidence responses now report
-  `denied_allocator_authority_unimplemented` /
-  `service_slot_allocator_authority_unimplemented` instead of the old static
+  `denied_allocator_authority_not_granted` /
+  `service_slot_allocator_authority_boundary_non_authorizing`, cite the
+  allocator-authority boundary, and no longer fall back to the old static
   runtime-missing placeholder. Each aggregate fact and loader-fact `blocked_by`
   entry cites the source diagnostic method and source fact locator for the
   corresponding typed method.
@@ -1533,8 +1708,9 @@ Historical verified recovery foundation retained for reference:
   missing loader-runtime fact, observed-current-boot loader identity,
   artifact-hash, entrypoint-ABI, address-space, memory-map, capability-table,
   service-slot, health-hook, rollback-hook, and write-boundary source-evidence
-  cases, and the final
-  all-inputs-ready
+  cases, the non-authorizing live-load attempt, artifact-load,
+  executable-mapping, entrypoint-transfer, and service-start boundary cases,
+  and the final all-inputs-ready
   `defined_non_executable` case without loading artifacts or mutating service
   inventory. It also exposes `source_fact_count: 10`,
   `source_fact_map_complete: true`, and a local source map for the aggregate
@@ -1763,10 +1939,11 @@ Historical verified recovery foundation retained for reference:
   `service_slot_allocator: defined_non_authorizing`,
   `service_slot_allocator_ready: false`,
   `loader_runtime: blocked_by_service_slot_allocator_authority`,
-  `readiness_status: denied_allocator_authority_unimplemented`,
-  `readiness_reason: service_slot_allocator_authority_unimplemented`, and typed
-  missing loader-runtime facts such as `raios.module_loader_identity.v0`, while
-  keeping `loads_artifact`, `allocates_service_slot`,
+  `readiness_status: denied_allocator_authority_not_granted`,
+  `readiness_reason: service_slot_allocator_authority_boundary_non_authorizing`,
+  and a nested `raios.module_service_slot_allocator_authority.v0` boundary, plus
+  typed missing loader-runtime facts such as `raios.module_loader_identity.v0`,
+  while keeping `loads_artifact`, `allocates_service_slot`,
   `creates_service_inventory_records`, `can_load_now`, and `load_attempted`
   false.
 - `module.load_gate_service_slot_selftest` now exposes local-only
@@ -1781,9 +1958,9 @@ Historical verified recovery foundation retained for reference:
   the denied load-gate loader-runtime projection. It covers missing/rejected
   retained module evidence, missing/rejected retained service-slot reservation
   projection, and the all-retained-evidence-ready state that remains blocked
-  by unimplemented service-slot allocator authority, while keeping descriptor/artifact
-  input, service-slot allocation, service inventory mutation, and load attempts
-  disabled.
+  by the non-authorizing service-slot allocator authority boundary, while
+  keeping descriptor/artifact input, service-slot allocation, service inventory
+  mutation, and load attempts disabled.
 - `module.grant_diagnostic_selftest` covers absent, accepted-current-boot,
   stale previous-boot, mismatched manifest-hash, and wrong-policy computed
   grant references without loading artifacts or mutating service inventory.
@@ -1951,11 +2128,11 @@ Historical verified recovery foundation retained for reference:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest full report:
-  `release\vm-reports\shadow-20260525-114855-976.json` with 5525/5525
-  predicates, 243 executed commands, and `duration_ms: 341064`.
+  `release\vm-reports\shadow-20260630-225503-6760.json` with 6332/6332
+  predicates, 243 executed commands, and `duration_ms: 503590`.
   Latest focused reports:
-  `release\vm-reports\shadow-20260524-140441-10224.json` with 136/136 quick
-  predicates, 13 executed commands, and `duration_ms: 17108`, and
+  `release\vm-reports\shadow-20260630-225419-7620.json` with 136/136 quick
+  predicates, 13 executed commands, and `duration_ms: 32290`, and
   `release\vm-reports\shadow-20260524-175144-24260.json` with 2725/2725
   recovery predicates, 142 executed commands, and `duration_ms: 138960`.
   Both reports derive `commands` from observed serial execution. The recovery

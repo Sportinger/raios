@@ -250,232 +250,50 @@ raiOS holds a small set of architectural principles that override convenience:
 
 ## Current Reality
 
-This section is honest about what exists in the repository today versus the
-vision above.
+This repository is the Stage-0 seed of raiOS: a bootable Rust kernel that proves
+the machine can come up, render a UI, accept input, reach the network, expose a
+native agent protocol, and deny unsafe system mutation through typed evidence.
 
-What boots and works in the VM right now:
+Verified in the VM today:
 
-- UEFI handoff via Limine into a Rust kernel
-- Framebuffer chat UI with `AI`, `CONSOLE`, and `SET` modes
-- Input from serial, USB-HID keyboard, USB-HID mouse, QEMU USB-HID tablet, and
-  PS/2 fallback, with a small framebuffer cursor overlay and Tab/arrow-key
-  focus ring
-- Intel e1000 NIC brought up via DHCP
-- Entropy seeded from RDRAND
-- Direct OpenAI transport with verified DNS, TCP, TLS 1.3, HTTPS, and Responses
-  API behavior
-- A fail-closed provider trust gate that refuses to write HTTPS or copy the API
-  key unless a valid SPKI or leaf-certificate pin is configured
-- A native serial `raios.agent.v0` protocol with typed read-only snapshot,
-  capability, service inventory, memory context, event log, and provider gate
-  methods
-- A denied-by-default `raios.module_load_gate.v0` for `module.load_ephemeral`
-  and `service.load_ephemeral`, including current-boot audit/event evidence and
-  `load_attempted: false`
-- Host and guest read-only computed-grant diagnostics for
-  `cap.module.load_ephemeral`, including canonical hash-reference checks while
-  live loading remains disabled
-- Guest read-only module-manifest hash-reference diagnostics for
-  `raios.module_manifest_reference.v0`, accepting no manifest JSON, artifact
-  bytes, or unsigned service code
-- Guest read-only candidate-artifact hash-reference diagnostics for
-  `raios.module_candidate_artifact_reference.v0`, binding the retained manifest
-  and computed-grant events without accepting artifact bytes
-- Guest read-only VM-test-report hash-reference diagnostics for
-  `raios.module_vm_test_report_reference.v0`, binding retained manifest,
-  candidate-artifact, and computed-grant events without accepting report JSON
-- Guest read-only local-attestation hash-reference diagnostics for
-  `raios.module_local_attestation_reference.v0`, binding retained manifest,
-  candidate-artifact, VM-test-report, and computed-grant events without
-  accepting attestation JSON
-- Guest read-only local-approval hash-reference diagnostics for
-  `raios.module_local_approval_reference.v0`, binding retained manifest,
-  candidate-artifact, VM-test-report, local-attestation, and computed-grant
-  events without accepting approval text
-- Host-only canonical audit/rollback diagnostics for `raios.audit_record.v0`
-  and `raios.rollback_plan.v0`, still non-authorizing and not installed in the
-  guest
-- Guest audit/rollback hash-reference diagnostics for those host
-  candidates, retained only as RAM-only current-boot event evidence and still
+- UEFI/Limine boot into the higher-half Rust kernel
+- framebuffer UI with `AI`, `CONSOLE`, and `SET` modes
+- serial command input plus USB-HID keyboard, mouse, and tablet input in QEMU
+- Intel e1000 DHCP networking and entropy from RDRAND
+- direct OpenAI transport through DNS, TCP, TLS 1.3, HTTPS, and Responses API parsing
+- fail-closed provider trust gates for SPKI or leaf-certificate pins
+- native serial `raios.agent.v0` read-only methods for snapshot, capabilities,
+  service inventory, problem state, memory context, event log, and provider gates
+- RAM-only current-boot event evidence and provider-minimal context projection,
+  with provider export and automatic context injection still denied
+- denied-by-default module and recovery load boundaries with retained hash
+  references, audit/rollback diagnostics, service-slot diagnostics, loader-runtime
+  diagnostics, and Shadow VM evidence
+- Phase-6 normal-module loader diagnostics through descriptor/artifact intake,
+  execution authorization, service-registry mutation, live-load attempt,
+  artifact-load, executable-mapping, entrypoint-transfer, service-start,
+  service-health-binding, service-running-state, service-start-audit, and
+  service-unload-cleanup boundaries, plus live-load commit, commit-audit,
+  commit-rollback, commit-result, descriptor-acceptance authority,
+  descriptor-parser contract, descriptor-parser result, and descriptor
+  schema-validation, capability-validation, load-plan, executable load-plan
+  authority/result, executable image-layout, and executable page-mapping plan
+  boundaries, all still
   non-authorizing
-- Guest service-slot reservation hash-reference diagnostics that bind a
-  `ram_only:` slot id to retained computed-grant and audit/rollback references,
-  canonical hashes, and the pre-load service-inventory hash while allocating no
-  slot and loading nothing
-- Guest read-only audit/rollback availability diagnostics for typed
-  `raios.durable_audit_ledger.v0` and `raios.rollback_store.v0` current-boot
-  facts, reporting both as missing/non-authorizing instead of creating fake
-  durable state
-- Guest read-only audit/rollback write-policy diagnostics for typed
-  `raios.durable_audit_write_policy.v0` and
-  `raios.rollback_install_policy.v0` current-boot facts, reporting both as
-  missing/non-authorizing while naming the retained-evidence and availability
-  bindings a future writer must prove
-- Guest read-only audit/rollback storage-layout diagnostics for typed
-  `raios.persistence_device_inventory.v0` and
-  `raios.audit_rollback_storage_layout.v0` current-boot facts, reporting both
-  as missing/non-authorizing and separating device identity, partition
-  inventory, layout regions, append slots, and recovery separation from write
-  authority
-- Guest read-only audit/rollback append-engine readiness diagnostics for typed
-  `raios.audit_ledger_append_engine.v0` and
-  `raios.rollback_store_transaction_engine.v0` current-boot facts, reporting
-  both as missing/non-authorizing while separating append-only, flush, replay,
-  storage-layout binding, write-policy binding, and recovery separation from
-  write authority
-- Guest read-only audit/rollback append/storage contract diagnostics for typed
-  `raios.audit_ledger_append_envelope.v0` and
-  `raios.rollback_store_transaction_envelope.v0` current-boot facts, reporting
-  both as missing/non-authorizing while consuming the storage-layout and
-  append-engine facts separately from availability and policy facts and naming
-  explicit stable-id/provenance bindings for future append envelopes
-- Guest read-only audit/rollback append payload-hash diagnostics for typed
-  `raios.audit_record_append_payload_hash_envelope.v0` and
-  `raios.rollback_transaction_append_payload_hash_envelope.v0` current-boot
-  facts, deriving local-only envelope hashes from retained audit/rollback
-  candidates, retained service-slot evidence, the pre-load write-request shape,
-  and bound append-contract ids without treating those hashes as durable
-  authority
-- Guest read-only audit/rollback append-intent diagnostics for typed
-  `raios.audit_record_append_intent.v0` and
-  `raios.rollback_transaction_append_intent.v0` current-boot facts, reporting
-  both as missing/non-authorizing while consuming the bound append contract plus
-  payload-hash envelope readiness and naming required append-contract,
-  append-engine, storage-layout, write-policy, availability, payload-hash, and
-  provenance bindings for future append requests
-- Guest read-only audit/rollback write-boundary diagnostics that consume the
-  retained module evidence chain, service-slot reservation, availability facts,
-  write-policy facts, storage-layout facts, append-engine facts through the
-  append contract, append/storage contract facts, append payload-hash envelopes,
-  and append-intent facts, emit
-  `raios.module_pre_load_audit_rollback_write_request.v0` plus explicit denial
-  evidence, and keep durable audit writes, rollback installs, storage-layout
-  availability, append engines, and append intents missing rather than treating
-  hash references as authority
-- A separate denied `recovery.load_artifact` /
-  `module.load_recovery_artifact` boundary for recovery artifacts, using
-  `cap.recovery.load_artifact` instead of `cap.module.load_ephemeral` and
-  exposing typed current-boot denial evidence for missing recovery artifact
-  identity, trust, VM-test, local approval, loader, and rollback evidence while
-  keeping normal module append-intent and writer facts non-authorizing
-- Guest read-only recovery artifact identity/trust/VM-test/local-approval/
-  loader/rollback-evidence
-  hash-reference diagnostics that retain valid
-  `raios.recovery_artifact_identity.v0`,
-  `raios.recovery_artifact_trust.v0`,
-  `raios.recovery_artifact_vm_test.v0`, and
-  `raios.recovery_artifact_local_approval.v0`,
-  `raios.recovery_artifact_loader.v0`, and
-  `raios.recovery_artifact_rollback_evidence.v0` references only as
-  local-only, current-boot, non-authorizing event evidence without accepting
-  artifact bytes, VM-test JSON, approval text, loader descriptors, or rollback
-  evidence JSON
-- Read-only `recovery.load_binding` and `recovery.load_binding_selftest`
-  diagnostics that bind retained recovery identity/trust/VM-test/local-approval
-  loader/rollback-evidence references when present, reject normal module
-  append-intent, append-payload, writer, service-slot, and
-  `module.load_ephemeral` authority, and keep recovery artifacts non-loaded,
-  non-durable, local-only, and non-authorizing until the recovery lifeline
-  protocol exists
-- Read-only `recovery.lifeline_request_diagnostic` and
-  `recovery.lifeline_request_diagnostic_selftest` diagnostics that bind a
-  valid `raios.recovery_lifeline_request.v0` hash reference to all six retained
-  recovery evidence ids while keeping the request local-only, current-boot,
-  non-authorizing, non-durable, and unable to load a recovery artifact or
-  allocate a service slot
-- Read-only `recovery.lifeline_protocol_diagnostic` and
-  `recovery.lifeline_protocol_diagnostic_selftest` diagnostics that consume the
-  retained recovery lifeline request plus its six bound recovery evidence ids,
-  reject stale, previous-boot, wrong-schema, substituted, and mismatched chains,
-  and expose typed local-only missing facts for lifeline protocol state,
-  command vocabulary, loader runtime isolation, rollback transaction engine,
-  durable audit/rollback persistence, and recovery memory provenance without
-  enabling recovery shell behavior
-- Read-only `recovery.lifeline_command_vocabulary` and
-  `recovery.lifeline_command_vocabulary_selftest` diagnostics that enumerate
-  the first recovery lifeline command ids, argument-envelope schemas, required
-  capabilities, and denial reasons only after the retained lifeline request and
-  evidence chain validate, while accepting no command envelope and dispatching
-  no recovery behavior
-- Read-only `recovery.loader_runtime_isolation` and
-  `recovery.loader_runtime_isolation_selftest` diagnostics that define the
-  recovery loader runtime isolation boundary, enumerate address-space,
-  entrypoint ABI, memory-map, capability-import, artifact-hash, provider
-  separation, and normal-module separation facts as missing local-only inputs,
-  and reject invalid request/protocol-state/command-vocabulary chains while
-  loading nothing
-- Read-only `recovery.rollback_transaction_engine` and
-  `recovery.rollback_transaction_engine_selftest` diagnostics that reuse the
-  retained lifeline request/evidence chain, command-vocabulary envelope, and
-  loader runtime isolation boundary, enumerate rollback target, transaction
-  provenance, last-good, disabled-module set, artifact-hash, replay,
-  recovery-capability import, and atomic apply/abort facts as missing
-  local-only inputs, and keep rollback preview/apply non-executable
-- Read-only `recovery.durable_audit_rollback_persistence` and
-  `recovery.durable_audit_rollback_persistence_selftest` diagnostics that
-  consume the rollback transaction-engine boundary, enumerate persistence
-  device, storage-layout, audit-log, rollback-store, replay-cursor,
-  last-good-checkpoint, write-ordering, crash-consistency, integrity-root, and
-  recovery-memory-provenance facts as missing local-only inputs, and keep all
-  durable writes, replay, rollback apply, and recovery-memory writes disabled
-- RAM-only current-boot event binding for valid computed-grant hash references,
-  still non-authorizing and local-only
-- RAM-only current-boot event binding for valid module-manifest hash references,
-  still non-authorizing and local-only
-- RAM-only current-boot event binding for valid candidate-artifact hash
-  references, still non-authorizing and local-only
-- RAM-only current-boot event binding for valid VM-test-report hash references,
-  still non-authorizing and local-only
-- RAM-only current-boot event binding for valid local-attestation hash
-  references, still non-authorizing and local-only
-- RAM-only current-boot event binding for valid local-approval hash references,
-  still non-authorizing and local-only
-- The denied module load gate reports retained computed-grant references as
-  hash evidence while keeping `can_load: false`
-- The denied module load gate validates retained manifest references before
-  reporting them as non-authorizing manifest hash evidence
-- The denied module load gate validates retained candidate-artifact references
-  before reporting them as non-authorizing artifact hash evidence
-- The denied module load gate validates retained VM-test-report references
-  before reporting them as non-authorizing report hash evidence
-- The denied module load gate validates retained local-attestation references
-  before reporting them as non-authorizing attestation hash evidence
-- The denied module load gate validates retained local-approval references
-  before reporting them as non-authorizing approval hash evidence
-- The denied module load gate validates retained audit/rollback references
-  against the current-boot event log and canonical hashes before reporting them
-  as non-authorizing hash evidence
-- Local-only retained-reference gate selftests cover stale, substituted, and
-  mismatched module-grant evidence candidates without mutating the event log
-- The denied module load gate now names required durable audit and rollback
-  bindings and has local-only selftests for missing/mismatched audit and
-  rollback evidence, still without loading artifacts or changing services
-- A Shadow VM smoke harness that emits `raios.vm_test_report.v0` evidence over
-  the real boot and serial protocol path
-- `SET` mode and a `setup` command that accept an API key into a sealed RAM
-  region without echoing it to the serial log
-- Detection of the Surface Pro 4 Marvell AVASTAR 88W8897 Wi-Fi NIC on PCI, plus
-  RAM-only SSID and passphrase capture in the settings UI
+- a Shadow VM smoke harness that verifies the real boot and serial protocol path
+  and writes `raios.vm_test_report.v0` reports
 
-What is described above but not yet implemented:
+Still intentionally missing:
 
-- The capability ledger and policy engine
-- Signed replaceable modules and the runtime to load and isolate them
-- Persistence, the rollback transaction log, and the recovery shell as
-  described
-- The permanent core as a write-protected, audited boundary
-- TLS and HTTPS as a replaceable service rather than kernel-resident code
-- Wi-Fi firmware upload, association, WPA, and packet transport for the
-  detected Marvell target
-- Provider-agnostic trust beyond the first OpenAI SPKI/cert-pin slices
-- Re-binding to new hardware as a supported operation
+- signed replaceable modules and an isolated runtime that can actually load them
+- positive module/service/config mutation authority
+- durable audit ledger, rollback store, persistent memory, and recovery shell
+- TLS/HTTPS as a replaceable service instead of kernel-resident Stage-0 code
+- Wi-Fi firmware upload, association, WPA, and packet transport
+- broad provider trust, WebPKI, and provider-agnostic adapters
+- re-binding to new hardware as a supported flow
 
-The repository today is the **seed** of the system described above: a bootable
-Stage-0 that proves the machine can come up, render itself, accept input, reach
-the network, and talk to a provider end-to-end. The architecture above is the
-direction every subsequent change is steering toward.
-
-For the exact next task and current verified state, see
-`docs/PROJECT_STATUS.md`. For the phased plan, see `docs/ROADMAP.md`. For the
-foundational architecture decision, see
-`docs/architecture-decisions/0001-raios-agent-protocol.md`.
+The detailed, unabridged current state and exact next engineering task live in
+`docs/PROJECT_STATUS.md`. The phase plan lives in `docs/ROADMAP.md`; build,
+run, and smoke-test commands live in `docs/DEBUGGING.md`; the foundational
+protocol and memory decisions live in `docs/architecture-decisions/`.

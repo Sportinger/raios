@@ -3,12 +3,45 @@ use spin::Mutex;
 use crate::event_log_evidence::{
     DENIED_EVIDENCE, DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE,
     MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE, MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE,
-    MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE, MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE,
+    MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
+    MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE,
+    MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_FACT_SOURCE_EVIDENCE, MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE,
-    MODULE_LOAD_GATE_EVIDENCE, MODULE_LOCAL_APPROVAL_REFERENCE_EVIDENCE,
-    MODULE_LOCAL_ATTESTATION_REFERENCE_EVIDENCE, MODULE_MANIFEST_REFERENCE_EVIDENCE,
+    MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_EVIDENCE,
+    MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_SERVICE_START_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SOURCE_EVIDENCE, MODULE_LOAD_GATE_EVIDENCE,
+    MODULE_LOCAL_APPROVAL_REFERENCE_EVIDENCE, MODULE_LOCAL_ATTESTATION_REFERENCE_EVIDENCE,
+    MODULE_MANIFEST_REFERENCE_EVIDENCE, MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_EVIDENCE,
+    MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_EVIDENCE,
+    MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SOURCE_EVIDENCE,
     MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_EVIDENCE,
     MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_EVIDENCE,
+    MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCE_EVIDENCE,
+    MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_EVIDENCE,
     MODULE_SERVICE_SLOT_RESERVATION_EVIDENCE, MODULE_VM_TEST_REPORT_REFERENCE_EVIDENCE,
     PROVIDER_BINDING_CONSUMPTION_EVIDENCE, PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE,
     PROVIDER_EXPORT_DENIAL_AUDIT_EVIDENCE, PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE,
@@ -51,19 +84,29 @@ use crate::event_log_types::{
 pub use crate::event_log_types::{
     DurableAuditRollbackWriteAuthorityReference, Event, EventBindings, EventId, EventSnapshot,
     ModuleAuditRollbackReference, ModuleCandidateArtifactReference, ModuleComputedGrantReference,
-    ModuleLoadGateBinding, ModuleLoaderArtifactHashBindingSourceEvidence,
-    ModuleLoaderFactSourceEvidence, ModuleLoaderIdentitySourceEvidence,
-    ModuleLocalApprovalReference, ModuleLocalAttestationReference, ModuleManifestReference,
+    ModuleLoadGateBinding, ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
+    ModuleLoaderArtifactHashBindingSourceEvidence,
+    ModuleLoaderDescriptorIntakeBoundarySourceEvidence,
+    ModuleLoaderExecutionAuthorizationBoundarySourceEvidence, ModuleLoaderFactSourceEvidence,
+    ModuleLoaderIdentitySourceEvidence, ModuleLoaderLiveLoadBoundarySourceEvidence,
+    ModuleLoaderRuntimeExecutionCommitGateSourceEvidence,
+    ModuleLoaderServiceRegistryMutationBoundarySourceEvidence, ModuleLocalApprovalReference,
+    ModuleLocalAttestationReference, ModuleManifestReference,
+    ModuleServiceSlotAllocationIntentSourceEvidence,
+    ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
+    ModuleServiceSlotAllocatorAuthoritySourceEvidence,
     ModuleServiceSlotAllocatorFactSourceEvidence,
-    ModuleServiceSlotAllocatorPrerequisiteSourceEvidence, ModuleServiceSlotId,
-    ModuleServiceSlotReservation, ModuleVmTestReportReference, ProviderBindingConsumption,
-    ProviderBindingGateCheck, ProviderBindingGateSelfTestCase, ProviderContextHashes,
-    ProviderContextInjectionAuthorization, ProviderContextInjectionGateCheck,
-    ProviderContextInjectionGateSelfTestCase, ProviderExportAuditBinding, ProviderRequestBinding,
-    ProviderRequestEnvelopeBinding, RecoveryArtifactIdentityReference,
-    RecoveryArtifactLoadDenialBinding, RecoveryArtifactLoaderReference,
-    RecoveryArtifactLocalApprovalReference, RecoveryArtifactRollbackEvidenceReference,
-    RecoveryArtifactTrustReference, RecoveryArtifactVmTestReference, RecoveryCommandTargetLocator,
+    ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+    ModuleServiceSlotAuthorityInputSourceEvidence, ModuleServiceSlotId,
+    ModuleServiceSlotRegistryWriteCommitGateSourceEvidence, ModuleServiceSlotReservation,
+    ModuleVmTestReportReference, ProviderBindingConsumption, ProviderBindingGateCheck,
+    ProviderBindingGateSelfTestCase, ProviderContextHashes, ProviderContextInjectionAuthorization,
+    ProviderContextInjectionGateCheck, ProviderContextInjectionGateSelfTestCase,
+    ProviderExportAuditBinding, ProviderRequestBinding, ProviderRequestEnvelopeBinding,
+    RecoveryArtifactIdentityReference, RecoveryArtifactLoadDenialBinding,
+    RecoveryArtifactLoaderReference, RecoveryArtifactLocalApprovalReference,
+    RecoveryArtifactRollbackEvidenceReference, RecoveryArtifactTrustReference,
+    RecoveryArtifactVmTestReference, RecoveryCommandTargetLocator,
     RecoveryDisableModuleTargetBindingReference,
     RecoveryLifelineCommandBodyCanonicalizationReference,
     RecoveryLifelineCommandDispatchBehaviorReference, RecoveryLifelineCommandEnvelopeReference,
@@ -1591,6 +1634,152 @@ impl EventLog {
         None
     }
 
+    fn latest_module_service_slot_allocator_authority_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleServiceSlotAllocatorAuthoritySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleServiceSlotAllocatorAuthoritySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_service_slot_allocation_intent_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleServiceSlotAllocationIntentSourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleServiceSlotAllocationIntentSourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_service_slot_authority_input_source_evidence(
+        &self,
+        source_fact_locator: &'static str,
+    ) -> Option<(EventId, ModuleServiceSlotAuthorityInputSourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleServiceSlotAuthorityInputSourceEvidence(binding) =
+                    event.bindings
+                {
+                    if binding.source_fact_locator == source_fact_locator {
+                        return Some((
+                            EventId {
+                                sequence: event.sequence,
+                            },
+                            binding,
+                        ));
+                    }
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_service_slot_allocator_authority_decision_source_evidence(
+        &self,
+    ) -> Option<(
+        EventId,
+        ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
+    )> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_service_slot_registry_write_commit_gate_source_evidence(
+        &self,
+    ) -> Option<(
+        EventId,
+        ModuleServiceSlotRegistryWriteCommitGateSourceEvidence,
+    )> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
     fn latest_module_loader_identity_source_evidence(
         &self,
     ) -> Option<(EventId, ModuleLoaderIdentitySourceEvidence)> {
@@ -1664,6 +1853,792 @@ impl EventLog {
                             binding,
                         ));
                     }
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_runtime_execution_commit_gate_source_evidence(
+        &self,
+    ) -> Option<(
+        EventId,
+        ModuleLoaderRuntimeExecutionCommitGateSourceEvidence,
+    )> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderRuntimeExecutionCommitGateSourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_descriptor_intake_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderDescriptorIntakeBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderDescriptorIntakeBoundarySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_artifact_byte_intake_boundary_source_evidence(
+        &self,
+    ) -> Option<(
+        EventId,
+        ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
+    )> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderArtifactByteIntakeBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_execution_authorization_boundary_source_evidence(
+        &self,
+    ) -> Option<(
+        EventId,
+        ModuleLoaderExecutionAuthorizationBoundarySourceEvidence,
+    )> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_service_registry_mutation_boundary_source_evidence(
+        &self,
+    ) -> Option<(
+        EventId,
+        ModuleLoaderServiceRegistryMutationBoundarySourceEvidence,
+    )> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_load_attempt_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderLoadAttemptBoundarySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_artifact_load_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderArtifactLoadBoundarySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_executable_mapping_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderExecutableMappingBoundarySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_entrypoint_transfer_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderEntrypointTransferBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_service_start_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderServiceStartBoundarySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_service_health_binding_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderServiceHealthBindingBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_service_running_state_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderServiceRunningStateBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_service_start_audit_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderServiceStartAuditBoundarySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_service_unload_cleanup_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderServiceUnloadCleanupBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_live_load_commit_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderLiveLoadCommitBoundarySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_commit_audit_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderCommitAuditBoundarySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_commit_rollback_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderCommitRollbackBoundarySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_commit_result_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderCommitResultBoundarySourceEvidence(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_descriptor_acceptance_authority_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderDescriptorAcceptanceAuthorityBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_descriptor_parser_contract_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderDescriptorParserContractBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_descriptor_parser_result_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderDescriptorParserResultBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_descriptor_schema_validation_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderDescriptorSchemaValidationBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_descriptor_capability_validation_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderDescriptorCapabilityValidationBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_descriptor_load_plan_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderDescriptorLoadPlanBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_executable_load_plan_authority_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderExecutableLoadPlanAuthorityBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_executable_load_plan_result_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderExecutableLoadPlanResultBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_executable_image_layout_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderExecutableImageLayoutBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_executable_page_mapping_plan_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderExecutablePageMappingPlanBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
                 }
             }
             idx += 1;
@@ -3695,6 +4670,106 @@ pub fn record_module_service_slot_allocator_prerequisite_source_evidence(
     })
 }
 
+pub fn record_module_service_slot_allocator_authority_source_evidence(
+    binding: ModuleServiceSlotAllocatorAuthoritySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.service_slot_allocator.authority_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: "cap.module.load_ephemeral",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.authority_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleServiceSlotAllocatorAuthoritySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_service_slot_allocation_intent_source_evidence(
+    binding: ModuleServiceSlotAllocationIntentSourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.service_slot_allocator.allocation_intent_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.intent_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleServiceSlotAllocationIntentSourceEvidence(binding),
+    })
+}
+
+pub fn record_module_service_slot_authority_input_source_evidence(
+    binding: ModuleServiceSlotAuthorityInputSourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.service_slot_allocator.authority_input_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.input_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleServiceSlotAuthorityInputSourceEvidence(binding),
+    })
+}
+
+pub fn record_module_service_slot_allocator_authority_decision_source_evidence(
+    binding: ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.service_slot_allocator.authority_decision_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.decision_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence(binding),
+    })
+}
+
+pub fn record_module_service_slot_registry_write_commit_gate_source_evidence(
+    binding: ModuleServiceSlotRegistryWriteCommitGateSourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.service_slot_allocator.registry_write_commit_gate_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.gate_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence(binding),
+    })
+}
+
 pub fn record_module_loader_identity_source_evidence(
     binding: ModuleLoaderIdentitySourceEvidence,
 ) -> EventId {
@@ -3752,6 +4827,583 @@ pub fn record_module_loader_fact_source_evidence(
         reason: binding.readiness_reason,
         evidence: MODULE_LOADER_FACT_SOURCE_EVIDENCE,
         bindings: EventBindings::ModuleLoaderFactSourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_runtime_execution_commit_gate_source_evidence(
+    binding: ModuleLoaderRuntimeExecutionCommitGateSourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.execution_commit_gate_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.gate_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderRuntimeExecutionCommitGateSourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_descriptor_intake_boundary_source_evidence(
+    binding: ModuleLoaderDescriptorIntakeBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.descriptor_intake_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderDescriptorIntakeBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_artifact_byte_intake_boundary_source_evidence(
+    binding: ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.artifact_byte_intake_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderArtifactByteIntakeBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_execution_authorization_boundary_source_evidence(
+    binding: ModuleLoaderExecutionAuthorizationBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.execution_authorization_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_service_registry_mutation_boundary_source_evidence(
+    binding: ModuleLoaderServiceRegistryMutationBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.service_registry_mutation_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_load_attempt_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.load_attempt_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderLoadAttemptBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_artifact_load_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.artifact_load_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderArtifactLoadBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_executable_mapping_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.executable_mapping_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderExecutableMappingBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_entrypoint_transfer_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.entrypoint_transfer_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderEntrypointTransferBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_service_start_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.service_start_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_SERVICE_START_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderServiceStartBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_service_health_binding_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.service_health_binding_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderServiceHealthBindingBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_service_running_state_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.service_running_state_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderServiceRunningStateBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_service_start_audit_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.service_start_audit_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderServiceStartAuditBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_service_unload_cleanup_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.service_unload_cleanup_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderServiceUnloadCleanupBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_live_load_commit_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.live_load_commit_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderLiveLoadCommitBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_commit_audit_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.commit_audit_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderCommitAuditBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_commit_rollback_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.commit_rollback_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderCommitRollbackBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_commit_result_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.commit_result_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderCommitResultBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_descriptor_acceptance_authority_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.descriptor_acceptance_authority_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SOURCE_EVIDENCE,
+        bindings:
+            EventBindings::ModuleLoaderDescriptorAcceptanceAuthorityBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_descriptor_parser_contract_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.descriptor_parser_contract_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderDescriptorParserContractBoundarySourceEvidence(
+            binding,
+        ),
+    })
+}
+
+pub fn record_module_loader_descriptor_parser_result_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.descriptor_parser_result_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderDescriptorParserResultBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_descriptor_schema_validation_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind:
+            "module.loader_runtime.descriptor_schema_validation_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderDescriptorSchemaValidationBoundarySourceEvidence(
+            binding,
+        ),
+    })
+}
+
+pub fn record_module_loader_descriptor_capability_validation_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind:
+            "module.loader_runtime.descriptor_capability_validation_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderDescriptorCapabilityValidationBoundarySourceEvidence(
+            binding,
+        ),
+    })
+}
+
+pub fn record_module_loader_descriptor_load_plan_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.descriptor_load_plan_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderDescriptorLoadPlanBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_executable_load_plan_authority_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind:
+            "module.loader_runtime.executable_load_plan_authority_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderExecutableLoadPlanAuthorityBoundarySourceEvidence(
+            binding,
+        ),
+    })
+}
+
+pub fn record_module_loader_executable_load_plan_result_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.executable_load_plan_result_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderExecutableLoadPlanResultBoundarySourceEvidence(
+            binding,
+        ),
+    })
+}
+
+pub fn record_module_loader_executable_image_layout_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.executable_image_layout_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderExecutableImageLayoutBoundarySourceEvidence(binding),
+    })
+}
+
+pub fn record_module_loader_executable_page_mapping_plan_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind:
+            "module.loader_runtime.executable_page_mapping_plan_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderExecutablePageMappingPlanBoundarySourceEvidence(
+            binding,
+        ),
     })
 }
 
@@ -4074,6 +5726,41 @@ pub fn latest_module_service_slot_allocator_prerequisite_source_evidence(
         .latest_module_service_slot_allocator_prerequisite_source_evidence(source_fact_locator)
 }
 
+pub fn latest_module_service_slot_allocator_authority_source_evidence(
+) -> Option<(EventId, ModuleServiceSlotAllocatorAuthoritySourceEvidence)> {
+    LOG.lock()
+        .latest_module_service_slot_allocator_authority_source_evidence()
+}
+
+pub fn latest_module_service_slot_allocation_intent_source_evidence(
+) -> Option<(EventId, ModuleServiceSlotAllocationIntentSourceEvidence)> {
+    LOG.lock()
+        .latest_module_service_slot_allocation_intent_source_evidence()
+}
+
+pub fn latest_module_service_slot_authority_input_source_evidence(
+    source_fact_locator: &'static str,
+) -> Option<(EventId, ModuleServiceSlotAuthorityInputSourceEvidence)> {
+    LOG.lock()
+        .latest_module_service_slot_authority_input_source_evidence(source_fact_locator)
+}
+
+pub fn latest_module_service_slot_allocator_authority_decision_source_evidence() -> Option<(
+    EventId,
+    ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
+)> {
+    LOG.lock()
+        .latest_module_service_slot_allocator_authority_decision_source_evidence()
+}
+
+pub fn latest_module_service_slot_registry_write_commit_gate_source_evidence() -> Option<(
+    EventId,
+    ModuleServiceSlotRegistryWriteCommitGateSourceEvidence,
+)> {
+    LOG.lock()
+        .latest_module_service_slot_registry_write_commit_gate_source_evidence()
+}
+
 pub fn latest_module_loader_identity_source_evidence(
 ) -> Option<(EventId, ModuleLoaderIdentitySourceEvidence)> {
     LOG.lock().latest_module_loader_identity_source_evidence()
@@ -4090,6 +5777,182 @@ pub fn latest_module_loader_fact_source_evidence(
 ) -> Option<(EventId, ModuleLoaderFactSourceEvidence)> {
     LOG.lock()
         .latest_module_loader_fact_source_evidence(source_method)
+}
+
+pub fn latest_module_loader_runtime_execution_commit_gate_source_evidence() -> Option<(
+    EventId,
+    ModuleLoaderRuntimeExecutionCommitGateSourceEvidence,
+)> {
+    LOG.lock()
+        .latest_module_loader_runtime_execution_commit_gate_source_evidence()
+}
+
+pub fn latest_module_loader_descriptor_intake_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderDescriptorIntakeBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_descriptor_intake_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_artifact_byte_intake_boundary_source_evidence() -> Option<(
+    EventId,
+    ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
+)> {
+    LOG.lock()
+        .latest_module_loader_artifact_byte_intake_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_execution_authorization_boundary_source_evidence() -> Option<(
+    EventId,
+    ModuleLoaderExecutionAuthorizationBoundarySourceEvidence,
+)> {
+    LOG.lock()
+        .latest_module_loader_execution_authorization_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_service_registry_mutation_boundary_source_evidence() -> Option<(
+    EventId,
+    ModuleLoaderServiceRegistryMutationBoundarySourceEvidence,
+)> {
+    LOG.lock()
+        .latest_module_loader_service_registry_mutation_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_load_attempt_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_load_attempt_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_artifact_load_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_artifact_load_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_executable_mapping_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_executable_mapping_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_entrypoint_transfer_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_entrypoint_transfer_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_service_start_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_service_start_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_service_health_binding_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_service_health_binding_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_service_running_state_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_service_running_state_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_service_start_audit_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_service_start_audit_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_service_unload_cleanup_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_service_unload_cleanup_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_live_load_commit_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_live_load_commit_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_commit_audit_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_commit_audit_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_commit_rollback_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_commit_rollback_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_commit_result_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_commit_result_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_descriptor_acceptance_authority_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_descriptor_acceptance_authority_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_descriptor_parser_contract_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_descriptor_parser_contract_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_descriptor_parser_result_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_descriptor_parser_result_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_descriptor_schema_validation_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_descriptor_schema_validation_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_descriptor_capability_validation_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_descriptor_capability_validation_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_descriptor_load_plan_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_descriptor_load_plan_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_executable_load_plan_authority_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_executable_load_plan_authority_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_executable_load_plan_result_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_executable_load_plan_result_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_executable_image_layout_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_executable_image_layout_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_executable_page_mapping_plan_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_executable_page_mapping_plan_boundary_source_evidence()
 }
 
 fn normalize_limit(limit: usize) -> usize {

@@ -543,6 +543,801 @@ pub(crate) fn module_service_slot_allocator_prerequisite_source_map_complete() -
     true
 }
 
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SCHEMA: &str =
+    "raios.module_service_slot_allocator_authority.v0";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_ID: &str =
+    "module.service_slot_allocator.authority.current_boot";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_service_slot_allocator_authority_source_evidence.v0";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SOURCE_METHOD: &str =
+    "module.service_slot_allocator";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SOURCE_FACT_LOCATOR: &str =
+    "module.service_slot_allocator.allocator_authority";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DENIED_STATUS: &str =
+    "denied_allocator_authority_not_granted";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DENIED_REASON: &str =
+    "service_slot_allocator_authority_boundary_non_authorizing";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_MISSING_STATUS: &str =
+    "denied_missing_service_slot_allocator_authority";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "service_slot_allocator_authority_source_evidence_missing";
+
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SCHEMA: &str =
+    "raios.service_slot_allocation_intent.v0";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATION_INTENT_ID: &str =
+    "module.service_slot_allocator.allocation_intent.current_boot";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.service_slot_allocation_intent_source_evidence.v0";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_METHOD: &str =
+    "module.service_slot_allocator";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_FACT_LOCATOR: &str =
+    "module.service_slot_allocator.allocation_intent";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATION_INTENT_AVAILABLE_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATION_INTENT_AVAILABLE_REASON: &str =
+    "service_slot_allocation_intent_defined_non_authorizing";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATION_INTENT_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "service_slot_allocation_intent_source_evidence_missing";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "service_slot_allocation_intent_source_chain_incomplete";
+
+pub(crate) const MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT: usize = 5;
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAuthorityInputSpec {
+    pub(crate) name: &'static str,
+    pub(crate) schema: &'static str,
+    pub(crate) id: &'static str,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_method: &'static str,
+    pub(crate) source_fact_locator: &'static str,
+    pub(crate) available_status: &'static str,
+    pub(crate) available_reason: &'static str,
+    pub(crate) missing_status: &'static str,
+    pub(crate) source_evidence_missing_reason: &'static str,
+    pub(crate) source_chain_incomplete_reason: &'static str,
+}
+
+pub(crate) const MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCES:
+    [ModuleServiceSlotAuthorityInputSpec; MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT] = [
+    ModuleServiceSlotAuthorityInputSpec {
+        name: "policy_decision",
+        schema: "raios.service_slot_allocator_policy_decision.v0",
+        id: "module.service_slot_allocator.policy_decision.current_boot",
+        source_evidence_schema: "raios.service_slot_allocator_policy_decision_source_evidence.v0",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.policy_decision",
+        available_status: "defined_non_authorizing",
+        available_reason: "service_slot_allocator_policy_decision_defined_non_authorizing",
+        missing_status: "missing",
+        source_evidence_missing_reason:
+            "service_slot_allocator_policy_decision_source_evidence_missing",
+        source_chain_incomplete_reason:
+            "service_slot_allocator_policy_decision_source_chain_incomplete",
+    },
+    ModuleServiceSlotAuthorityInputSpec {
+        name: "registry_write_authority",
+        schema: "raios.service_slot_registry_write_authority.v0",
+        id: "module.service_slot_allocator.registry_write_authority.current_boot",
+        source_evidence_schema: "raios.service_slot_registry_write_authority_source_evidence.v0",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.registry_write_authority",
+        available_status: "defined_non_authorizing",
+        available_reason: "service_slot_registry_write_authority_defined_non_authorizing",
+        missing_status: "missing",
+        source_evidence_missing_reason:
+            "service_slot_registry_write_authority_source_evidence_missing",
+        source_chain_incomplete_reason:
+            "service_slot_registry_write_authority_source_chain_incomplete",
+    },
+    ModuleServiceSlotAuthorityInputSpec {
+        name: "loader_runtime_contract",
+        schema: "raios.module_loader_runtime_contract.v0",
+        id: "module.service_slot_allocator.loader_runtime_contract.current_boot",
+        source_evidence_schema: "raios.module_loader_runtime_contract_source_evidence.v0",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.loader_runtime_contract",
+        available_status: "defined_non_authorizing",
+        available_reason: "module_loader_runtime_contract_defined_non_authorizing",
+        missing_status: "missing",
+        source_evidence_missing_reason: "module_loader_runtime_contract_source_evidence_missing",
+        source_chain_incomplete_reason: "module_loader_runtime_contract_source_chain_incomplete",
+    },
+    ModuleServiceSlotAuthorityInputSpec {
+        name: "health_monitor_binding",
+        schema: "raios.service_health_monitor_binding.v0",
+        id: "module.service_slot_allocator.health_monitor_binding.current_boot",
+        source_evidence_schema: "raios.service_health_monitor_binding_source_evidence.v0",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.health_monitor_binding",
+        available_status: "defined_non_authorizing",
+        available_reason: "service_health_monitor_binding_defined_non_authorizing",
+        missing_status: "missing",
+        source_evidence_missing_reason: "service_health_monitor_binding_source_evidence_missing",
+        source_chain_incomplete_reason: "service_health_monitor_binding_source_chain_incomplete",
+    },
+    ModuleServiceSlotAuthorityInputSpec {
+        name: "unload_cleanup_authority",
+        schema: "raios.service_unload_cleanup_authority.v0",
+        id: "module.service_slot_allocator.unload_cleanup_authority.current_boot",
+        source_evidence_schema: "raios.service_unload_cleanup_authority_source_evidence.v0",
+        source_method: "module.service_slot_allocator",
+        source_fact_locator: "module.service_slot_allocator.unload_cleanup_authority",
+        available_status: "defined_non_authorizing",
+        available_reason: "service_unload_cleanup_authority_defined_non_authorizing",
+        missing_status: "missing",
+        source_evidence_missing_reason: "service_unload_cleanup_authority_source_evidence_missing",
+        source_chain_incomplete_reason: "service_unload_cleanup_authority_source_chain_incomplete",
+    },
+];
+
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SCHEMA: &str =
+    "raios.module_service_slot_allocator_authority_decision.v0";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_ID: &str =
+    "module.service_slot_allocator.authority_decision.current_boot";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_service_slot_allocator_authority_decision_source_evidence.v0";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_METHOD: &str =
+    "module.service_slot_allocator";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_FACT_LOCATOR: &str =
+    "module.service_slot_allocator.authority_decision";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_REASON: &str =
+    "service_slot_allocator_authority_decision_non_authorizing";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "service_slot_allocator_authority_decision_source_evidence_missing";
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "service_slot_allocator_authority_decision_source_chain_incomplete";
+
+pub(crate) const MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SCHEMA: &str =
+    "raios.service_slot_registry_write_commit_gate.v0";
+pub(crate) const MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_ID: &str =
+    "module.service_slot_allocator.registry_write_commit_gate.current_boot";
+pub(crate) const MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.service_slot_registry_write_commit_gate_source_evidence.v0";
+pub(crate) const MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_METHOD: &str =
+    "module.service_slot_allocator";
+pub(crate) const MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_FACT_LOCATOR: &str =
+    "module.service_slot_allocator.registry_write_commit_gate";
+pub(crate) const MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_REASON: &str =
+    "service_slot_registry_write_commit_gate_non_authorizing";
+pub(crate) const MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "service_slot_registry_write_commit_gate_source_evidence_missing";
+pub(crate) const MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "service_slot_registry_write_commit_gate_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SCHEMA: &str =
+    "raios.module_loader_runtime_execution_commit_gate.v0";
+pub(crate) const MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_ID: &str =
+    "module.loader_runtime.execution_commit_gate.current_boot";
+pub(crate) const MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_runtime_execution_commit_gate_source_evidence.v0";
+pub(crate) const MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.execution_commit_gate";
+pub(crate) const MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_REASON: &str =
+    "module_loader_runtime_execution_commit_gate_non_authorizing";
+pub(crate) const MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_runtime_execution_commit_gate_source_evidence_missing";
+pub(crate) const MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_runtime_execution_commit_gate_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_descriptor_intake_boundary.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_ID: &str =
+    "module.loader_runtime.descriptor_intake_boundary.current_boot";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_descriptor_intake_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.descriptor_intake_boundary";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_STATUS: &str = "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_REASON: &str =
+    "module_loader_descriptor_intake_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_descriptor_intake_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_descriptor_intake_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_artifact_byte_intake_boundary.v0";
+pub(crate) const MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_ID: &str =
+    "module.loader_runtime.artifact_byte_intake_boundary.current_boot";
+pub(crate) const MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_artifact_byte_intake_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.artifact_byte_intake_boundary";
+pub(crate) const MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_REASON: &str =
+    "module_loader_artifact_byte_intake_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_artifact_byte_intake_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_artifact_byte_intake_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_execution_authorization_boundary.v0";
+pub(crate) const MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_ID: &str =
+    "module.loader_runtime.execution_authorization_boundary.current_boot";
+pub(crate) const MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_execution_authorization_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.execution_authorization_boundary";
+pub(crate) const MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_REASON: &str =
+    "module_loader_execution_authorization_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_execution_authorization_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_execution_authorization_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_service_registry_mutation_boundary.v0";
+pub(crate) const MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_ID: &str =
+    "module.loader_runtime.service_registry_mutation_boundary.current_boot";
+pub(crate) const MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_service_registry_mutation_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.service_registry_mutation_boundary";
+pub(crate) const MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_REASON: &str =
+    "module_loader_service_registry_mutation_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_service_registry_mutation_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_service_registry_mutation_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_load_attempt_boundary.v0";
+pub(crate) const MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_ID: &str =
+    "module.loader_runtime.load_attempt_boundary.current_boot";
+pub(crate) const MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_load_attempt_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SOURCE_METHOD: &str = "module.loader_runtime";
+pub(crate) const MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.load_attempt_boundary";
+pub(crate) const MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_STATUS: &str = "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_REASON: &str =
+    "module_loader_load_attempt_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_load_attempt_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_LOAD_ATTEMPT_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_load_attempt_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_artifact_load_boundary.v0";
+pub(crate) const MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_ID: &str =
+    "module.loader_runtime.artifact_load_boundary.current_boot";
+pub(crate) const MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_artifact_load_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SOURCE_METHOD: &str = "module.loader_runtime";
+pub(crate) const MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.artifact_load_boundary";
+pub(crate) const MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_STATUS: &str = "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_REASON: &str =
+    "module_loader_artifact_load_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_artifact_load_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_artifact_load_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_executable_mapping_boundary.v0";
+pub(crate) const MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_ID: &str =
+    "module.loader_runtime.executable_mapping_boundary.current_boot";
+pub(crate) const MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_executable_mapping_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.executable_mapping_boundary";
+pub(crate) const MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_STATUS: &str = "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_REASON: &str =
+    "module_loader_executable_mapping_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_executable_mapping_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_MAPPING_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_executable_mapping_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_entrypoint_transfer_boundary.v0";
+pub(crate) const MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_ID: &str =
+    "module.loader_runtime.entrypoint_transfer_boundary.current_boot";
+pub(crate) const MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_entrypoint_transfer_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.entrypoint_transfer_boundary";
+pub(crate) const MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_REASON: &str =
+    "module_loader_entrypoint_transfer_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_entrypoint_transfer_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_entrypoint_transfer_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_SERVICE_START_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_service_start_boundary.v0";
+pub(crate) const MODULE_LOADER_SERVICE_START_BOUNDARY_ID: &str =
+    "module.loader_runtime.service_start_boundary.current_boot";
+pub(crate) const MODULE_LOADER_SERVICE_START_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_service_start_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_SERVICE_START_BOUNDARY_SOURCE_METHOD: &str = "module.loader_runtime";
+pub(crate) const MODULE_LOADER_SERVICE_START_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.service_start_boundary";
+pub(crate) const MODULE_LOADER_SERVICE_START_BOUNDARY_STATUS: &str = "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_START_BOUNDARY_REASON: &str =
+    "module_loader_service_start_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_START_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_SERVICE_START_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_service_start_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_SERVICE_START_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_service_start_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_service_health_binding_boundary.v0";
+pub(crate) const MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_ID: &str =
+    "module.loader_runtime.service_health_binding_boundary.current_boot";
+pub(crate) const MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_service_health_binding_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.service_health_binding_boundary";
+pub(crate) const MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_REASON: &str =
+    "module_loader_service_health_binding_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_service_health_binding_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_SERVICE_HEALTH_BINDING_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_service_health_binding_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_service_running_state_boundary.v0";
+pub(crate) const MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_ID: &str =
+    "module.loader_runtime.service_running_state_boundary.current_boot";
+pub(crate) const MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_service_running_state_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.service_running_state_boundary";
+pub(crate) const MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_REASON: &str =
+    "module_loader_service_running_state_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_service_running_state_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_SERVICE_RUNNING_STATE_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_service_running_state_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_service_start_audit_boundary.v0";
+pub(crate) const MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_ID: &str =
+    "module.loader_runtime.service_start_audit_boundary.current_boot";
+pub(crate) const MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_service_start_audit_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.service_start_audit_boundary";
+pub(crate) const MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_REASON: &str =
+    "module_loader_service_start_audit_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_service_start_audit_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_SERVICE_START_AUDIT_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_service_start_audit_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_service_unload_cleanup_boundary.v0";
+pub(crate) const MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_ID: &str =
+    "module.loader_runtime.service_unload_cleanup_boundary.current_boot";
+pub(crate) const MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_service_unload_cleanup_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.service_unload_cleanup_boundary";
+pub(crate) const MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_REASON: &str =
+    "module_loader_service_unload_cleanup_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_service_unload_cleanup_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_SERVICE_UNLOAD_CLEANUP_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_service_unload_cleanup_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_live_load_commit_boundary.v0";
+pub(crate) const MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_ID: &str =
+    "module.loader_runtime.live_load_commit_boundary.current_boot";
+pub(crate) const MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_live_load_commit_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.live_load_commit_boundary";
+pub(crate) const MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_STATUS: &str = "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_REASON: &str =
+    "module_loader_live_load_commit_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_live_load_commit_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_LIVE_LOAD_COMMIT_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_live_load_commit_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_commit_audit_boundary.v0";
+pub(crate) const MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_ID: &str =
+    "module.loader_runtime.commit_audit_boundary.current_boot";
+pub(crate) const MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_commit_audit_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SOURCE_METHOD: &str = "module.loader_runtime";
+pub(crate) const MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.commit_audit_boundary";
+pub(crate) const MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_STATUS: &str = "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_REASON: &str =
+    "module_loader_commit_audit_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_commit_audit_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_COMMIT_AUDIT_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_commit_audit_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_commit_rollback_boundary.v0";
+pub(crate) const MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_ID: &str =
+    "module.loader_runtime.commit_rollback_boundary.current_boot";
+pub(crate) const MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_commit_rollback_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.commit_rollback_boundary";
+pub(crate) const MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_STATUS: &str = "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_REASON: &str =
+    "module_loader_commit_rollback_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_commit_rollback_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_COMMIT_ROLLBACK_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_commit_rollback_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_commit_result_boundary.v0";
+pub(crate) const MODULE_LOADER_COMMIT_RESULT_BOUNDARY_ID: &str =
+    "module.loader_runtime.commit_result_boundary.current_boot";
+pub(crate) const MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_commit_result_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SOURCE_METHOD: &str = "module.loader_runtime";
+pub(crate) const MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.commit_result_boundary";
+pub(crate) const MODULE_LOADER_COMMIT_RESULT_BOUNDARY_STATUS: &str = "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_COMMIT_RESULT_BOUNDARY_REASON: &str =
+    "module_loader_commit_result_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_COMMIT_RESULT_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_commit_result_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_COMMIT_RESULT_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_commit_result_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_descriptor_acceptance_authority_boundary.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_ID: &str =
+    "module.loader_runtime.descriptor_acceptance_authority_boundary.current_boot";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SOURCE_EVIDENCE_SCHEMA:
+    &str = "raios.module_loader_descriptor_acceptance_authority_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.descriptor_acceptance_authority_boundary";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_REASON: &str =
+    "module_loader_descriptor_acceptance_authority_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_MISSING_STATUS: &str =
+    "missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_descriptor_acceptance_authority_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_ACCEPTANCE_AUTHORITY_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_descriptor_acceptance_authority_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_descriptor_parser_contract_boundary.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_ID: &str =
+    "module.loader_runtime.descriptor_parser_contract_boundary.current_boot";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_descriptor_parser_contract_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.descriptor_parser_contract_boundary";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_REASON: &str =
+    "module_loader_descriptor_parser_contract_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_descriptor_parser_contract_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_CONTRACT_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_descriptor_parser_contract_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_descriptor_parser_result_boundary.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_ID: &str =
+    "module.loader_runtime.descriptor_parser_result_boundary.current_boot";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_descriptor_parser_result_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.descriptor_parser_result_boundary";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_REASON: &str =
+    "module_loader_descriptor_parser_result_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_descriptor_parser_result_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_PARSER_RESULT_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_descriptor_parser_result_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_descriptor_schema_validation_boundary.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_ID: &str =
+    "module.loader_runtime.descriptor_schema_validation_boundary.current_boot";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_descriptor_schema_validation_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.descriptor_schema_validation_boundary";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_REASON: &str =
+    "module_loader_descriptor_schema_validation_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_MISSING_STATUS: &str =
+    "missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_descriptor_schema_validation_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_SCHEMA_VALIDATION_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_descriptor_schema_validation_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_descriptor_capability_validation_boundary.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_ID: &str =
+    "module.loader_runtime.descriptor_capability_validation_boundary.current_boot";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SOURCE_EVIDENCE_SCHEMA:
+    &str = "raios.module_loader_descriptor_capability_validation_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.descriptor_capability_validation_boundary";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_REASON: &str =
+    "module_loader_descriptor_capability_validation_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_MISSING_STATUS: &str =
+    "missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_descriptor_capability_validation_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_CAPABILITY_VALIDATION_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_descriptor_capability_validation_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_descriptor_load_plan_boundary.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_ID: &str =
+    "module.loader_runtime.descriptor_load_plan_boundary.current_boot";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_descriptor_load_plan_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.descriptor_load_plan_boundary";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_REASON: &str =
+    "module_loader_descriptor_load_plan_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON: &str =
+    "module_loader_descriptor_load_plan_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_LOAD_PLAN_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON: &str =
+    "module_loader_descriptor_load_plan_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_executable_load_plan_authority_boundary.v0";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_ID: &str =
+    "module.loader_runtime.executable_load_plan_authority_boundary.current_boot";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SOURCE_EVIDENCE_SCHEMA:
+    &str = "raios.module_loader_executable_load_plan_authority_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.executable_load_plan_authority_boundary";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_REASON: &str =
+    "module_loader_executable_load_plan_authority_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_MISSING_STATUS: &str =
+    "missing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_executable_load_plan_authority_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_AUTHORITY_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_executable_load_plan_authority_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_executable_load_plan_result_boundary.v0";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_ID: &str =
+    "module.loader_runtime.executable_load_plan_result_boundary.current_boot";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_executable_load_plan_result_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.executable_load_plan_result_boundary";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_REASON: &str =
+    "module_loader_executable_load_plan_result_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_MISSING_STATUS: &str =
+    "missing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_executable_load_plan_result_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_LOAD_PLAN_RESULT_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_executable_load_plan_result_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_executable_image_layout_boundary.v0";
+pub(crate) const MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_ID: &str =
+    "module.loader_runtime.executable_image_layout_boundary.current_boot";
+pub(crate) const MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_executable_image_layout_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.executable_image_layout_boundary";
+pub(crate) const MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_REASON: &str =
+    "module_loader_executable_image_layout_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_MISSING_STATUS: &str = "missing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_executable_image_layout_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_executable_image_layout_boundary_source_chain_incomplete";
+
+pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_executable_page_mapping_plan_boundary.v0";
+pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_ID: &str =
+    "module.loader_runtime.executable_page_mapping_plan_boundary.current_boot";
+pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SOURCE_EVIDENCE_SCHEMA: &str =
+    "raios.module_loader_executable_page_mapping_plan_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SOURCE_FACT_LOCATOR: &str =
+    "module.loader_runtime.executable_page_mapping_plan_boundary";
+pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_REASON: &str =
+    "module_loader_executable_page_mapping_plan_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_MISSING_STATUS: &str =
+    "missing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_executable_page_mapping_plan_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_PLAN_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_executable_page_mapping_plan_boundary_source_chain_incomplete";
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAllocatorAuthority {
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) source_chain_complete: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAllocationIntent {
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) source_chain_complete: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAuthorityInput {
+    pub(crate) spec: ModuleServiceSlotAuthorityInputSpec,
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) dependency_source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_chain_complete: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotAllocatorAuthorityDecision {
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) source_chain_complete: bool,
+    pub(crate) input_chain_complete: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleServiceSlotRegistryWriteCommitGate {
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) source_chain_complete: bool,
+    pub(crate) authority_decision_present: bool,
+    pub(crate) registry_write_authority_present: bool,
+    pub(crate) registry_binding_available: bool,
+    pub(crate) durable_audit_write_available: bool,
+    pub(crate) rollback_plan_install_available: bool,
+    pub(crate) retained_service_slot_reservation_present: bool,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ModuleServiceSlotAllocatorCandidate {
     pub(crate) retained_reservation_present: bool,
@@ -553,6 +1348,12 @@ pub(crate) struct ModuleServiceSlotAllocatorCandidate {
     pub(crate) durable_audit_write: ModuleServiceSlotAllocatorPrerequisite,
     pub(crate) rollback_plan_install: ModuleServiceSlotAllocatorPrerequisite,
     pub(crate) module_loader: ModuleServiceSlotAllocatorPrerequisite,
+    pub(crate) allocator_authority: ModuleServiceSlotAllocatorAuthority,
+    pub(crate) allocation_intent: ModuleServiceSlotAllocationIntent,
+    pub(crate) authority_inputs:
+        [ModuleServiceSlotAuthorityInput; MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT],
+    pub(crate) authority_decision: ModuleServiceSlotAllocatorAuthorityDecision,
+    pub(crate) registry_write_commit_gate: ModuleServiceSlotRegistryWriteCommitGate,
 }
 
 #[derive(Clone, Copy)]
@@ -575,6 +1376,16 @@ pub(crate) struct ModuleServiceSlotAllocatorEvaluation {
     pub(crate) rollback_reason: &'static str,
     pub(crate) module_loader_status: &'static str,
     pub(crate) module_loader_reason: &'static str,
+    pub(crate) authority_status: &'static str,
+    pub(crate) authority_reason: &'static str,
+    pub(crate) allocation_intent_status: &'static str,
+    pub(crate) allocation_intent_reason: &'static str,
+    pub(crate) authority_input_statuses: [&'static str; MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT],
+    pub(crate) authority_input_reasons: [&'static str; MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT],
+    pub(crate) authority_decision_status: &'static str,
+    pub(crate) authority_decision_reason: &'static str,
+    pub(crate) registry_write_commit_gate_status: &'static str,
+    pub(crate) registry_write_commit_gate_reason: &'static str,
     pub(crate) allocates_service_slot: bool,
     pub(crate) creates_service_inventory_records: bool,
     pub(crate) can_allocate: bool,
@@ -790,6 +1601,212 @@ pub(crate) struct ModuleLoaderRuntimeFact {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderRuntimeExecutionCommitGate {
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) source_chain_complete: bool,
+    pub(crate) authority_decision_present: bool,
+    pub(crate) loader_runtime_contract_present: bool,
+    pub(crate) loader_runtime_source_evidence_complete: bool,
+    pub(crate) service_slot_binding_source_evidence_present: bool,
+    pub(crate) service_slot_binding_fact_present: bool,
+    pub(crate) audit_rollback_write_boundary_source_evidence_present: bool,
+    pub(crate) audit_rollback_write_boundary_fact_present: bool,
+    pub(crate) retained_service_slot_reservation_present: bool,
+    pub(crate) loader_runtime_source_evidence_event_ids:
+        [Option<event_log::EventId>; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_source_evidence_present:
+        [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_fact_present: [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderDescriptorIntakeBoundary {
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) source_chain_complete: bool,
+    pub(crate) registry_write_commit_gate_present: bool,
+    pub(crate) execution_commit_gate_present: bool,
+    pub(crate) loader_runtime_source_evidence_complete: bool,
+    pub(crate) retained_module_evidence_present: bool,
+    pub(crate) retained_service_slot_reservation_present: bool,
+    pub(crate) loader_runtime_source_evidence_event_ids:
+        [Option<event_log::EventId>; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_source_evidence_present:
+        [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_fact_present: [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderArtifactByteIntakeBoundary {
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) source_chain_complete: bool,
+    pub(crate) descriptor_intake_boundary_present: bool,
+    pub(crate) descriptor_intake_boundary_source_chain_complete: bool,
+    pub(crate) execution_commit_gate_present: bool,
+    pub(crate) artifact_hash_binding_present: bool,
+    pub(crate) retained_artifact_reference_present: bool,
+    pub(crate) retained_module_evidence_present: bool,
+    pub(crate) retained_service_slot_reservation_present: bool,
+    pub(crate) loader_runtime_source_evidence_event_ids:
+        [Option<event_log::EventId>; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_source_evidence_present:
+        [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_fact_present: [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderExecutionAuthorizationBoundary {
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) source_chain_complete: bool,
+    pub(crate) artifact_byte_intake_boundary_present: bool,
+    pub(crate) artifact_byte_intake_boundary_source_chain_complete: bool,
+    pub(crate) descriptor_intake_boundary_present: bool,
+    pub(crate) descriptor_intake_boundary_source_chain_complete: bool,
+    pub(crate) execution_commit_gate_present: bool,
+    pub(crate) entrypoint_abi_source_evidence_present: bool,
+    pub(crate) address_space_source_evidence_present: bool,
+    pub(crate) memory_map_source_evidence_present: bool,
+    pub(crate) audit_rollback_write_boundary_source_evidence_present: bool,
+    pub(crate) retained_module_evidence_present: bool,
+    pub(crate) retained_service_slot_reservation_present: bool,
+    pub(crate) loader_runtime_source_evidence_event_ids:
+        [Option<event_log::EventId>; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_source_evidence_present:
+        [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_fact_present: [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderServiceRegistryMutationBoundary {
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) source_chain_complete: bool,
+    pub(crate) execution_authorization_boundary_present: bool,
+    pub(crate) execution_authorization_boundary_source_chain_complete: bool,
+    pub(crate) registry_write_commit_gate_present: bool,
+    pub(crate) service_slot_binding_source_evidence_present: bool,
+    pub(crate) retained_module_evidence_present: bool,
+    pub(crate) retained_service_slot_reservation_present: bool,
+    pub(crate) loader_runtime_source_evidence_event_ids:
+        [Option<event_log::EventId>; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_source_evidence_present:
+        [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_fact_present: [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleLoaderLiveLoadBoundary {
+    pub(crate) present: bool,
+    pub(crate) source_evidence_event_id: Option<event_log::EventId>,
+    pub(crate) source_evidence_schema: &'static str,
+    pub(crate) source_evidence_state: &'static str,
+    pub(crate) source_evidence_status: &'static str,
+    pub(crate) source_evidence_reason: &'static str,
+    pub(crate) source_evidence_method: &'static str,
+    pub(crate) source_evidence_fact_locator: &'static str,
+    pub(crate) source_chain_complete: bool,
+    pub(crate) load_attempt_boundary_present: bool,
+    pub(crate) load_attempt_boundary_source_chain_complete: bool,
+    pub(crate) artifact_load_boundary_present: bool,
+    pub(crate) artifact_load_boundary_source_chain_complete: bool,
+    pub(crate) executable_mapping_boundary_present: bool,
+    pub(crate) executable_mapping_boundary_source_chain_complete: bool,
+    pub(crate) entrypoint_transfer_boundary_present: bool,
+    pub(crate) entrypoint_transfer_boundary_source_chain_complete: bool,
+    pub(crate) service_start_boundary_present: bool,
+    pub(crate) service_start_boundary_source_chain_complete: bool,
+    pub(crate) service_health_binding_boundary_present: bool,
+    pub(crate) service_health_binding_boundary_source_chain_complete: bool,
+    pub(crate) service_running_state_boundary_present: bool,
+    pub(crate) service_running_state_boundary_source_chain_complete: bool,
+    pub(crate) service_start_audit_boundary_present: bool,
+    pub(crate) service_start_audit_boundary_source_chain_complete: bool,
+    pub(crate) service_unload_cleanup_boundary_present: bool,
+    pub(crate) service_unload_cleanup_boundary_source_chain_complete: bool,
+    pub(crate) live_load_commit_boundary_present: bool,
+    pub(crate) live_load_commit_boundary_source_chain_complete: bool,
+    pub(crate) commit_audit_boundary_present: bool,
+    pub(crate) commit_audit_boundary_source_chain_complete: bool,
+    pub(crate) commit_rollback_boundary_present: bool,
+    pub(crate) commit_rollback_boundary_source_chain_complete: bool,
+    pub(crate) commit_result_boundary_present: bool,
+    pub(crate) commit_result_boundary_source_chain_complete: bool,
+    pub(crate) descriptor_acceptance_authority_boundary_present: bool,
+    pub(crate) descriptor_acceptance_authority_boundary_source_chain_complete: bool,
+    pub(crate) descriptor_parser_contract_boundary_present: bool,
+    pub(crate) descriptor_parser_contract_boundary_source_chain_complete: bool,
+    pub(crate) descriptor_parser_result_boundary_present: bool,
+    pub(crate) descriptor_parser_result_boundary_source_chain_complete: bool,
+    pub(crate) descriptor_schema_validation_boundary_present: bool,
+    pub(crate) descriptor_schema_validation_boundary_source_chain_complete: bool,
+    pub(crate) descriptor_capability_validation_boundary_present: bool,
+    pub(crate) descriptor_capability_validation_boundary_source_chain_complete: bool,
+    pub(crate) descriptor_load_plan_boundary_present: bool,
+    pub(crate) descriptor_load_plan_boundary_source_chain_complete: bool,
+    pub(crate) executable_load_plan_authority_boundary_present: bool,
+    pub(crate) executable_load_plan_authority_boundary_source_chain_complete: bool,
+    pub(crate) executable_load_plan_result_boundary_present: bool,
+    pub(crate) executable_load_plan_result_boundary_source_chain_complete: bool,
+    pub(crate) executable_image_layout_boundary_present: bool,
+    pub(crate) executable_image_layout_boundary_source_chain_complete: bool,
+    pub(crate) artifact_byte_intake_boundary_present: bool,
+    pub(crate) artifact_byte_intake_boundary_source_chain_complete: bool,
+    pub(crate) execution_authorization_boundary_present: bool,
+    pub(crate) execution_authorization_boundary_source_chain_complete: bool,
+    pub(crate) service_registry_mutation_boundary_present: bool,
+    pub(crate) service_registry_mutation_boundary_source_chain_complete: bool,
+    pub(crate) service_slot_binding_source_evidence_present: bool,
+    pub(crate) health_state_hooks_source_evidence_present: bool,
+    pub(crate) artifact_hash_binding_present: bool,
+    pub(crate) entrypoint_abi_source_evidence_present: bool,
+    pub(crate) address_space_source_evidence_present: bool,
+    pub(crate) memory_map_source_evidence_present: bool,
+    pub(crate) capability_import_table_source_evidence_present: bool,
+    pub(crate) audit_rollback_write_boundary_source_evidence_present: bool,
+    pub(crate) retained_module_evidence_present: bool,
+    pub(crate) retained_artifact_reference_present: bool,
+    pub(crate) retained_service_slot_reservation_present: bool,
+    pub(crate) loader_runtime_source_evidence_event_ids:
+        [Option<event_log::EventId>; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_source_evidence_present:
+        [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    pub(crate) loader_runtime_fact_present: [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct ModuleLoaderRuntimeCandidate {
     pub(crate) manifest_reference_present: bool,
     pub(crate) artifact_reference_present: bool,
@@ -813,6 +1830,34 @@ pub(crate) struct ModuleLoaderRuntimeCandidate {
     pub(crate) health_state_hooks: ModuleLoaderRuntimeFact,
     pub(crate) rollback_hooks: ModuleLoaderRuntimeFact,
     pub(crate) audit_rollback_write_boundary_binding: ModuleLoaderRuntimeFact,
+    pub(crate) execution_commit_gate: ModuleLoaderRuntimeExecutionCommitGate,
+    pub(crate) descriptor_intake_boundary: ModuleLoaderDescriptorIntakeBoundary,
+    pub(crate) artifact_byte_intake_boundary: ModuleLoaderArtifactByteIntakeBoundary,
+    pub(crate) execution_authorization_boundary: ModuleLoaderExecutionAuthorizationBoundary,
+    pub(crate) service_registry_mutation_boundary: ModuleLoaderServiceRegistryMutationBoundary,
+    pub(crate) load_attempt_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) artifact_load_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) executable_mapping_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) entrypoint_transfer_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) service_start_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) service_health_binding_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) service_running_state_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) service_start_audit_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) service_unload_cleanup_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) live_load_commit_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) commit_audit_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) commit_rollback_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) commit_result_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) descriptor_acceptance_authority_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) descriptor_parser_contract_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) descriptor_parser_result_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) descriptor_schema_validation_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) descriptor_capability_validation_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) descriptor_load_plan_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) executable_load_plan_authority_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) executable_load_plan_result_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) executable_image_layout_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) executable_page_mapping_plan_boundary: ModuleLoaderLiveLoadBoundary,
 }
 
 #[derive(Clone, Copy)]
@@ -859,6 +1904,62 @@ pub(crate) struct ModuleLoaderRuntimeEvaluation {
     pub(crate) rollback_hooks_reason: &'static str,
     pub(crate) audit_rollback_write_boundary_binding_status: &'static str,
     pub(crate) audit_rollback_write_boundary_binding_reason: &'static str,
+    pub(crate) execution_commit_gate_status: &'static str,
+    pub(crate) execution_commit_gate_reason: &'static str,
+    pub(crate) descriptor_intake_boundary_status: &'static str,
+    pub(crate) descriptor_intake_boundary_reason: &'static str,
+    pub(crate) artifact_byte_intake_boundary_status: &'static str,
+    pub(crate) artifact_byte_intake_boundary_reason: &'static str,
+    pub(crate) execution_authorization_boundary_status: &'static str,
+    pub(crate) execution_authorization_boundary_reason: &'static str,
+    pub(crate) service_registry_mutation_boundary_status: &'static str,
+    pub(crate) service_registry_mutation_boundary_reason: &'static str,
+    pub(crate) load_attempt_boundary_status: &'static str,
+    pub(crate) load_attempt_boundary_reason: &'static str,
+    pub(crate) artifact_load_boundary_status: &'static str,
+    pub(crate) artifact_load_boundary_reason: &'static str,
+    pub(crate) executable_mapping_boundary_status: &'static str,
+    pub(crate) executable_mapping_boundary_reason: &'static str,
+    pub(crate) entrypoint_transfer_boundary_status: &'static str,
+    pub(crate) entrypoint_transfer_boundary_reason: &'static str,
+    pub(crate) service_start_boundary_status: &'static str,
+    pub(crate) service_start_boundary_reason: &'static str,
+    pub(crate) service_health_binding_boundary_status: &'static str,
+    pub(crate) service_health_binding_boundary_reason: &'static str,
+    pub(crate) service_running_state_boundary_status: &'static str,
+    pub(crate) service_running_state_boundary_reason: &'static str,
+    pub(crate) service_start_audit_boundary_status: &'static str,
+    pub(crate) service_start_audit_boundary_reason: &'static str,
+    pub(crate) service_unload_cleanup_boundary_status: &'static str,
+    pub(crate) service_unload_cleanup_boundary_reason: &'static str,
+    pub(crate) live_load_commit_boundary_status: &'static str,
+    pub(crate) live_load_commit_boundary_reason: &'static str,
+    pub(crate) commit_audit_boundary_status: &'static str,
+    pub(crate) commit_audit_boundary_reason: &'static str,
+    pub(crate) commit_rollback_boundary_status: &'static str,
+    pub(crate) commit_rollback_boundary_reason: &'static str,
+    pub(crate) commit_result_boundary_status: &'static str,
+    pub(crate) commit_result_boundary_reason: &'static str,
+    pub(crate) descriptor_acceptance_authority_boundary_status: &'static str,
+    pub(crate) descriptor_acceptance_authority_boundary_reason: &'static str,
+    pub(crate) descriptor_parser_contract_boundary_status: &'static str,
+    pub(crate) descriptor_parser_contract_boundary_reason: &'static str,
+    pub(crate) descriptor_parser_result_boundary_status: &'static str,
+    pub(crate) descriptor_parser_result_boundary_reason: &'static str,
+    pub(crate) descriptor_schema_validation_boundary_status: &'static str,
+    pub(crate) descriptor_schema_validation_boundary_reason: &'static str,
+    pub(crate) descriptor_capability_validation_boundary_status: &'static str,
+    pub(crate) descriptor_capability_validation_boundary_reason: &'static str,
+    pub(crate) descriptor_load_plan_boundary_status: &'static str,
+    pub(crate) descriptor_load_plan_boundary_reason: &'static str,
+    pub(crate) executable_load_plan_authority_boundary_status: &'static str,
+    pub(crate) executable_load_plan_authority_boundary_reason: &'static str,
+    pub(crate) executable_load_plan_result_boundary_status: &'static str,
+    pub(crate) executable_load_plan_result_boundary_reason: &'static str,
+    pub(crate) executable_image_layout_boundary_status: &'static str,
+    pub(crate) executable_image_layout_boundary_reason: &'static str,
+    pub(crate) executable_page_mapping_plan_boundary_status: &'static str,
+    pub(crate) executable_page_mapping_plan_boundary_reason: &'static str,
     pub(crate) loads_artifact: bool,
     pub(crate) allocates_service_slot: bool,
     pub(crate) creates_service_inventory_records: bool,
@@ -1783,8 +2884,8 @@ pub(crate) const MODULE_LOCAL_APPROVAL_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
-pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 28;
-pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 37;
+pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 29;
+pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 65;
 pub(crate) const MODULE_LOADER_IDENTITY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_LOADER_ARTIFACT_HASH_BINDING_SELFTEST_CASES: usize = 14;
 pub(crate) const MODULE_AUDIT_ROLLBACK_AVAILABILITY_SELFTEST_CASES: usize = 8;

@@ -822,6 +822,321 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_event_id_option(binding.unload_cleanup_source_evidence_event_id);
             raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
         }
+        event_log::EventBindings::ModuleServiceSlotAllocatorAuthoritySourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"authority_schema\": ");
+            json_str(binding.authority_schema);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"authority_id\": ");
+            json_str(binding.authority_id);
+            raw(", \"authority_status\": ");
+            json_str(binding.authority_status);
+            raw(", \"authority_reason\": ");
+            json_str(binding.authority_reason);
+            raw(", \"authority_present\": ");
+            raw_bool(binding.authority_present);
+            raw(", \"source_chain_complete\": ");
+            raw_bool(binding.source_chain_complete);
+            raw(", \"allocator_runtime_source_evidence_event_id\": ");
+            json_event_id_option(binding.allocator_runtime_source_evidence_event_id);
+            raw(", \"registry_binding_source_evidence_event_id\": ");
+            json_event_id_option(binding.registry_binding_source_evidence_event_id);
+            raw(", \"health_state_source_evidence_event_id\": ");
+            json_event_id_option(binding.health_state_source_evidence_event_id);
+            raw(", \"unload_cleanup_source_evidence_event_id\": ");
+            json_event_id_option(binding.unload_cleanup_source_evidence_event_id);
+            raw(", \"durable_audit_source_evidence_event_id\": ");
+            json_event_id_option(binding.durable_audit_source_evidence_event_id);
+            raw(", \"rollback_install_source_evidence_event_id\": ");
+            json_event_id_option(binding.rollback_install_source_evidence_event_id);
+            raw(", \"module_loader_source_evidence_event_id\": ");
+            json_event_id_option(binding.module_loader_source_evidence_event_id);
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"future_authority_inputs_named\": true, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+        }
+        event_log::EventBindings::ModuleServiceSlotAllocationIntentSourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"intent_schema\": ");
+            json_str(binding.intent_schema);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
+            json_str(binding.requested_capability);
+            raw(", \"load_mode\": ");
+            json_str(binding.load_mode);
+            raw(", \"target\": ");
+            json_str(binding.target);
+            raw(", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"intent_id\": ");
+            json_str(binding.intent_id);
+            raw(", \"intent_status\": ");
+            json_str(binding.intent_status);
+            raw(", \"intent_reason\": ");
+            json_str(binding.intent_reason);
+            raw(", \"intent_present\": ");
+            raw_bool(binding.intent_present);
+            raw(", \"intent_scope\": ");
+            json_str(binding.intent_scope);
+            raw(", \"source_chain_complete\": ");
+            raw_bool(binding.source_chain_complete);
+            raw(", \"manifest_reference_event_id\": ");
+            json_event_id_option(binding.manifest_reference_event_id);
+            raw(", \"candidate_artifact_reference_event_id\": ");
+            json_event_id_option(binding.artifact_reference_event_id);
+            raw(", \"vm_test_report_reference_event_id\": ");
+            json_event_id_option(binding.vm_report_reference_event_id);
+            raw(", \"local_attestation_reference_event_id\": ");
+            json_event_id_option(binding.local_attestation_reference_event_id);
+            raw(", \"local_approval_reference_event_id\": ");
+            json_event_id_option(binding.local_approval_reference_event_id);
+            raw(", \"computed_grant_reference_event_id\": ");
+            json_event_id_option(binding.computed_grant_reference_event_id);
+            raw(", \"audit_rollback_reference_event_id\": ");
+            json_event_id_option(binding.audit_rollback_reference_event_id);
+            raw(", \"service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw(", \"allocator_authority_source_evidence_event_id\": ");
+            json_event_id_option(binding.allocator_authority_source_evidence_event_id);
+            raw(", \"ram_only_service_slot_id\": ");
+            if let Some(id) = binding.ram_only_service_slot_id {
+                json_str(id.as_str());
+            } else {
+                raw("null");
+            }
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+        }
+        event_log::EventBindings::ModuleServiceSlotAuthorityInputSourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"input_schema\": ");
+            json_str(binding.input_schema);
+            raw(", \"input_id\": ");
+            json_str(binding.input_id);
+            raw(", \"input_name\": ");
+            json_str(binding.input_name);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
+            json_str(binding.requested_capability);
+            raw(", \"load_mode\": ");
+            json_str(binding.load_mode);
+            raw(", \"target\": ");
+            json_str(binding.target);
+            raw(", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"input_status\": ");
+            json_str(binding.input_status);
+            raw(", \"input_reason\": ");
+            json_str(binding.input_reason);
+            raw(", \"input_present\": ");
+            raw_bool(binding.input_present);
+            raw(", \"input_scope\": ");
+            json_str(binding.input_scope);
+            raw(", \"dependency_schema\": ");
+            json_str(binding.dependency_schema);
+            raw(", \"dependency_source_evidence_event_id\": ");
+            json_event_id_option(binding.dependency_source_evidence_event_id);
+            raw(", \"dependency_present\": ");
+            raw_bool(binding.dependency_present);
+            raw(", \"retained_module_evidence_present\": ");
+            raw_bool(binding.retained_module_evidence_present);
+            raw(", \"retained_service_slot_reservation_present\": ");
+            raw_bool(binding.retained_service_slot_reservation_present);
+            raw(", \"allocator_authority_present\": ");
+            raw_bool(binding.allocator_authority_present);
+            raw(", \"allocation_intent_source_evidence_event_id\": ");
+            json_event_id_option(binding.allocation_intent_source_evidence_event_id);
+            raw(", \"source_chain_complete\": ");
+            raw_bool(binding.source_chain_complete);
+            raw(", \"service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw(", \"allocator_authority_source_evidence_event_id\": ");
+            json_event_id_option(binding.allocator_authority_source_evidence_event_id);
+            raw(", \"ram_only_service_slot_id\": ");
+            if let Some(id) = binding.ram_only_service_slot_id {
+                json_str(id.as_str());
+            } else {
+                raw("null");
+            }
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+        }
+        event_log::EventBindings::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence(
+            binding,
+        ) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"decision_schema\": ");
+            json_str(binding.decision_schema);
+            raw(", \"decision_id\": ");
+            json_str(binding.decision_id);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
+            json_str(binding.requested_capability);
+            raw(", \"load_mode\": ");
+            json_str(binding.load_mode);
+            raw(", \"target\": ");
+            json_str(binding.target);
+            raw(", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"decision_status\": ");
+            json_str(binding.decision_status);
+            raw(", \"decision_reason\": ");
+            json_str(binding.decision_reason);
+            raw(", \"decision_present\": ");
+            raw_bool(binding.decision_present);
+            raw(", \"decision_scope\": ");
+            json_str(binding.decision_scope);
+            raw(", \"allocator_authority_present\": ");
+            raw_bool(binding.allocator_authority_present);
+            raw(", \"allocation_intent_present\": ");
+            raw_bool(binding.allocation_intent_present);
+            raw(", \"authority_inputs_complete\": ");
+            raw_bool(binding.authority_inputs_complete);
+            raw(", \"source_chain_complete\": ");
+            raw_bool(binding.source_chain_complete);
+            raw(", \"allocator_authority_source_evidence_event_id\": ");
+            json_event_id_option(binding.allocator_authority_source_evidence_event_id);
+            raw(", \"allocation_intent_source_evidence_event_id\": ");
+            json_event_id_option(binding.allocation_intent_source_evidence_event_id);
+            raw(", \"authority_input_source_evidence_event_ids\": [");
+            let mut idx = 0usize;
+            while idx < binding.authority_input_source_evidence_event_ids.len() {
+                json_event_id_option(binding.authority_input_source_evidence_event_ids[idx]);
+                if idx + 1 != binding.authority_input_source_evidence_event_ids.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"authority_input_present\": [");
+            idx = 0;
+            while idx < binding.authority_input_present.len() {
+                raw_bool(binding.authority_input_present[idx]);
+                if idx + 1 != binding.authority_input_present.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"retained_module_evidence_present\": ");
+            raw_bool(binding.retained_module_evidence_present);
+            raw(", \"retained_service_slot_reservation_present\": ");
+            raw_bool(binding.retained_service_slot_reservation_present);
+            raw(", \"service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw(", \"ram_only_service_slot_id\": ");
+            if let Some(id) = binding.ram_only_service_slot_id {
+                json_str(id.as_str());
+            } else {
+                raw("null");
+            }
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+        }
+        event_log::EventBindings::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence(
+            binding,
+        ) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"gate_schema\": ");
+            json_str(binding.gate_schema);
+            raw(", \"gate_id\": ");
+            json_str(binding.gate_id);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
+            json_str(binding.requested_capability);
+            raw(", \"load_mode\": ");
+            json_str(binding.load_mode);
+            raw(", \"target\": ");
+            json_str(binding.target);
+            raw(", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"gate_status\": ");
+            json_str(binding.gate_status);
+            raw(", \"gate_reason\": ");
+            json_str(binding.gate_reason);
+            raw(", \"gate_present\": ");
+            raw_bool(binding.gate_present);
+            raw(", \"gate_scope\": ");
+            json_str(binding.gate_scope);
+            raw(", \"gate_schema_ok\": ");
+            raw_bool(binding.gate_schema_ok);
+            raw(", \"gate_provenance_ok\": ");
+            raw_bool(binding.gate_provenance_ok);
+            raw(", \"gate_classification\": ");
+            json_str(binding.gate_classification);
+            raw(", \"authority_decision_present\": ");
+            raw_bool(binding.authority_decision_present);
+            raw(", \"registry_write_authority_present\": ");
+            raw_bool(binding.registry_write_authority_present);
+            raw(", \"registry_binding_available\": ");
+            raw_bool(binding.registry_binding_available);
+            raw(", \"durable_audit_write_available\": ");
+            raw_bool(binding.durable_audit_write_available);
+            raw(", \"rollback_plan_install_available\": ");
+            raw_bool(binding.rollback_plan_install_available);
+            raw(", \"retained_service_slot_reservation_present\": ");
+            raw_bool(binding.retained_service_slot_reservation_present);
+            raw(", \"source_chain_complete\": ");
+            raw_bool(binding.source_chain_complete);
+            raw(", \"authority_decision_source_evidence_event_id\": ");
+            json_event_id_option(binding.authority_decision_source_evidence_event_id);
+            raw(", \"registry_write_authority_source_evidence_event_id\": ");
+            json_event_id_option(binding.registry_write_authority_source_evidence_event_id);
+            raw(", \"registry_binding_source_evidence_event_id\": ");
+            json_event_id_option(binding.registry_binding_source_evidence_event_id);
+            raw(", \"durable_audit_source_evidence_event_id\": ");
+            json_event_id_option(binding.durable_audit_source_evidence_event_id);
+            raw(", \"rollback_install_source_evidence_event_id\": ");
+            json_event_id_option(binding.rollback_install_source_evidence_event_id);
+            raw(", \"service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw(", \"ram_only_service_slot_id\": ");
+            if let Some(id) = binding.ram_only_service_slot_id {
+                json_str(id.as_str());
+            } else {
+                raw("null");
+            }
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"authorizes_registry_write\": ");
+            raw_bool(binding.authorizes_registry_write);
+            raw(", \"mutates_service_registry\": ");
+            raw_bool(binding.mutates_service_registry);
+            raw(", \"writes_durable_audit_state\": ");
+            raw_bool(binding.writes_durable_audit_state);
+            raw(", \"installs_rollback_state\": ");
+            raw_bool(binding.installs_rollback_state);
+            raw(", \"allocates_service_slot\": ");
+            raw_bool(binding.allocates_service_slot);
+            raw(", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"load_attempted\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"authorizes_load\": false}");
+        }
         event_log::EventBindings::ModuleLoaderIdentitySourceEvidence(binding) => {
             raw(", \"bindings\": {\"schema\": ");
             json_str(binding.schema);
@@ -954,6 +1269,659 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             raw(", \"binds_dependency\": ");
             raw_bool(binding.binds_dependency);
             raw("}");
+        }
+        event_log::EventBindings::ModuleLoaderRuntimeExecutionCommitGateSourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"gate_schema\": ");
+            json_str(binding.gate_schema);
+            raw(", \"gate_id\": ");
+            json_str(binding.gate_id);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
+            json_str(binding.requested_capability);
+            raw(", \"load_mode\": ");
+            json_str(binding.load_mode);
+            raw(", \"target\": ");
+            json_str(binding.target);
+            raw(", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"gate_status\": ");
+            json_str(binding.gate_status);
+            raw(", \"gate_reason\": ");
+            json_str(binding.gate_reason);
+            raw(", \"gate_present\": ");
+            raw_bool(binding.gate_present);
+            raw(", \"gate_scope\": ");
+            json_str(binding.gate_scope);
+            raw(", \"gate_schema_ok\": ");
+            raw_bool(binding.gate_schema_ok);
+            raw(", \"gate_provenance_ok\": ");
+            raw_bool(binding.gate_provenance_ok);
+            raw(", \"gate_classification\": ");
+            json_str(binding.gate_classification);
+            raw(", \"authority_decision_present\": ");
+            raw_bool(binding.authority_decision_present);
+            raw(", \"loader_runtime_contract_present\": ");
+            raw_bool(binding.loader_runtime_contract_present);
+            raw(", \"loader_runtime_source_evidence_complete\": ");
+            raw_bool(binding.loader_runtime_source_evidence_complete);
+            raw(", \"service_slot_binding_source_evidence_present\": ");
+            raw_bool(binding.service_slot_binding_source_evidence_present);
+            raw(", \"service_slot_binding_fact_present\": ");
+            raw_bool(binding.service_slot_binding_fact_present);
+            raw(", \"audit_rollback_write_boundary_source_evidence_present\": ");
+            raw_bool(binding.audit_rollback_write_boundary_source_evidence_present);
+            raw(", \"audit_rollback_write_boundary_fact_present\": ");
+            raw_bool(binding.audit_rollback_write_boundary_fact_present);
+            raw(", \"retained_service_slot_reservation_present\": ");
+            raw_bool(binding.retained_service_slot_reservation_present);
+            raw(", \"source_chain_complete\": ");
+            raw_bool(binding.source_chain_complete);
+            raw(", \"authority_decision_source_evidence_event_id\": ");
+            json_event_id_option(binding.authority_decision_source_evidence_event_id);
+            raw(", \"loader_runtime_contract_source_evidence_event_id\": ");
+            json_event_id_option(binding.loader_runtime_contract_source_evidence_event_id);
+            raw(", \"loader_runtime_source_evidence_event_ids\": [");
+            let mut idx = 0usize;
+            while idx < binding.loader_runtime_source_evidence_event_ids.len() {
+                json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]);
+                if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"loader_runtime_source_evidence_present\": [");
+            idx = 0;
+            while idx < binding.loader_runtime_source_evidence_present.len() {
+                raw_bool(binding.loader_runtime_source_evidence_present[idx]);
+                if idx + 1 != binding.loader_runtime_source_evidence_present.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"loader_runtime_fact_present\": [");
+            idx = 0;
+            while idx < binding.loader_runtime_fact_present.len() {
+                raw_bool(binding.loader_runtime_fact_present[idx]);
+                if idx + 1 != binding.loader_runtime_fact_present.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw(", \"ram_only_service_slot_id\": ");
+            if let Some(id) = binding.ram_only_service_slot_id {
+                json_str(id.as_str());
+            } else {
+                raw("null");
+            }
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
+            raw_bool(binding.accepts_loader_descriptor);
+            raw(", \"accepts_artifact_bytes\": ");
+            raw_bool(binding.accepts_artifact_bytes);
+            raw(", \"authorizes_execution\": ");
+            raw_bool(binding.authorizes_execution);
+            raw(", \"mutates_service_registry\": ");
+            raw_bool(binding.mutates_service_registry);
+            raw(", \"writes_durable_audit_state\": ");
+            raw_bool(binding.writes_durable_audit_state);
+            raw(", \"installs_rollback_state\": ");
+            raw_bool(binding.installs_rollback_state);
+            raw(", \"allocates_service_slot\": ");
+            raw_bool(binding.allocates_service_slot);
+            raw(", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"load_attempted\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"authorizes_load\": false}");
+        }
+        event_log::EventBindings::ModuleLoaderDescriptorIntakeBoundarySourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"boundary_schema\": ");
+            json_str(binding.boundary_schema);
+            raw(", \"boundary_id\": ");
+            json_str(binding.boundary_id);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
+            json_str(binding.requested_capability);
+            raw(", \"load_mode\": ");
+            json_str(binding.load_mode);
+            raw(", \"target\": ");
+            json_str(binding.target);
+            raw(", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"boundary_status\": ");
+            json_str(binding.boundary_status);
+            raw(", \"boundary_reason\": ");
+            json_str(binding.boundary_reason);
+            raw(", \"boundary_present\": ");
+            raw_bool(binding.boundary_present);
+            raw(", \"boundary_scope\": ");
+            json_str(binding.boundary_scope);
+            raw(", \"boundary_schema_ok\": ");
+            raw_bool(binding.boundary_schema_ok);
+            raw(", \"boundary_provenance_ok\": ");
+            raw_bool(binding.boundary_provenance_ok);
+            raw(", \"boundary_classification\": ");
+            json_str(binding.boundary_classification);
+            raw(", \"registry_write_commit_gate_present\": ");
+            raw_bool(binding.registry_write_commit_gate_present);
+            raw(", \"execution_commit_gate_present\": ");
+            raw_bool(binding.execution_commit_gate_present);
+            raw(", \"loader_runtime_source_evidence_complete\": ");
+            raw_bool(binding.loader_runtime_source_evidence_complete);
+            raw(", \"retained_module_evidence_present\": ");
+            raw_bool(binding.retained_module_evidence_present);
+            raw(", \"retained_service_slot_reservation_present\": ");
+            raw_bool(binding.retained_service_slot_reservation_present);
+            raw(", \"source_chain_complete\": ");
+            raw_bool(binding.source_chain_complete);
+            raw(", \"registry_write_commit_gate_source_evidence_event_id\": ");
+            json_event_id_option(binding.registry_write_commit_gate_source_evidence_event_id);
+            raw(", \"execution_commit_gate_source_evidence_event_id\": ");
+            json_event_id_option(binding.execution_commit_gate_source_evidence_event_id);
+            raw(", \"loader_runtime_source_evidence_event_ids\": [");
+            let mut idx = 0usize;
+            while idx < binding.loader_runtime_source_evidence_event_ids.len() {
+                json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]);
+                if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"loader_runtime_source_evidence_present\": [");
+            idx = 0;
+            while idx < binding.loader_runtime_source_evidence_present.len() {
+                raw_bool(binding.loader_runtime_source_evidence_present[idx]);
+                if idx + 1 != binding.loader_runtime_source_evidence_present.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"loader_runtime_fact_present\": [");
+            idx = 0;
+            while idx < binding.loader_runtime_fact_present.len() {
+                raw_bool(binding.loader_runtime_fact_present[idx]);
+                if idx + 1 != binding.loader_runtime_fact_present.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
+            json_event_id_option(binding.manifest_reference_event_id);
+            raw(", \"candidate_artifact_reference_event_id\": ");
+            json_event_id_option(binding.artifact_reference_event_id);
+            raw(", \"vm_test_report_reference_event_id\": ");
+            json_event_id_option(binding.vm_test_report_reference_event_id);
+            raw(", \"local_attestation_reference_event_id\": ");
+            json_event_id_option(binding.local_attestation_reference_event_id);
+            raw(", \"local_approval_reference_event_id\": ");
+            json_event_id_option(binding.local_approval_reference_event_id);
+            raw(", \"computed_grant_reference_event_id\": ");
+            json_event_id_option(binding.computed_grant_reference_event_id);
+            raw(", \"audit_rollback_reference_event_id\": ");
+            json_event_id_option(binding.audit_rollback_reference_event_id);
+            raw(", \"service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw("}, \"ram_only_service_slot_id\": ");
+            if let Some(id) = binding.ram_only_service_slot_id {
+                json_str(id.as_str());
+            } else {
+                raw("null");
+            }
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
+            raw_bool(binding.accepts_loader_descriptor);
+            raw(", \"accepts_descriptor_bytes\": ");
+            raw_bool(binding.accepts_descriptor_bytes);
+            raw(", \"accepts_artifact_bytes\": ");
+            raw_bool(binding.accepts_artifact_bytes);
+            raw(", \"authorizes_descriptor_intake\": ");
+            raw_bool(binding.authorizes_descriptor_intake);
+            raw(", \"authorizes_execution\": ");
+            raw_bool(binding.authorizes_execution);
+            raw(", \"mutates_service_registry\": ");
+            raw_bool(binding.mutates_service_registry);
+            raw(", \"writes_durable_audit_state\": ");
+            raw_bool(binding.writes_durable_audit_state);
+            raw(", \"installs_rollback_state\": ");
+            raw_bool(binding.installs_rollback_state);
+            raw(", \"allocates_service_slot\": ");
+            raw_bool(binding.allocates_service_slot);
+            raw(", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"load_attempted\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"authorizes_load\": false}");
+        }
+        event_log::EventBindings::ModuleLoaderArtifactByteIntakeBoundarySourceEvidence(binding) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"boundary_schema\": ");
+            json_str(binding.boundary_schema);
+            raw(", \"boundary_id\": ");
+            json_str(binding.boundary_id);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
+            json_str(binding.requested_capability);
+            raw(", \"load_mode\": ");
+            json_str(binding.load_mode);
+            raw(", \"target\": ");
+            json_str(binding.target);
+            raw(", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"boundary_status\": ");
+            json_str(binding.boundary_status);
+            raw(", \"boundary_reason\": ");
+            json_str(binding.boundary_reason);
+            raw(", \"boundary_present\": ");
+            raw_bool(binding.boundary_present);
+            raw(", \"boundary_scope\": ");
+            json_str(binding.boundary_scope);
+            raw(", \"boundary_schema_ok\": ");
+            raw_bool(binding.boundary_schema_ok);
+            raw(", \"boundary_provenance_ok\": ");
+            raw_bool(binding.boundary_provenance_ok);
+            raw(", \"boundary_classification\": ");
+            json_str(binding.boundary_classification);
+            raw(", \"descriptor_intake_boundary_present\": ");
+            raw_bool(binding.descriptor_intake_boundary_present);
+            raw(", \"descriptor_intake_boundary_source_chain_complete\": ");
+            raw_bool(binding.descriptor_intake_boundary_source_chain_complete);
+            raw(", \"execution_commit_gate_present\": ");
+            raw_bool(binding.execution_commit_gate_present);
+            raw(", \"artifact_hash_binding_present\": ");
+            raw_bool(binding.artifact_hash_binding_present);
+            raw(", \"retained_artifact_reference_present\": ");
+            raw_bool(binding.retained_artifact_reference_present);
+            raw(", \"retained_module_evidence_present\": ");
+            raw_bool(binding.retained_module_evidence_present);
+            raw(", \"retained_service_slot_reservation_present\": ");
+            raw_bool(binding.retained_service_slot_reservation_present);
+            raw(", \"source_chain_complete\": ");
+            raw_bool(binding.source_chain_complete);
+            raw(", \"descriptor_intake_boundary_source_evidence_event_id\": ");
+            json_event_id_option(binding.descriptor_intake_boundary_source_evidence_event_id);
+            raw(", \"execution_commit_gate_source_evidence_event_id\": ");
+            json_event_id_option(binding.execution_commit_gate_source_evidence_event_id);
+            raw(", \"artifact_hash_binding_source_evidence_event_id\": ");
+            json_event_id_option(binding.artifact_hash_binding_source_evidence_event_id);
+            raw(", \"loader_runtime_source_evidence_event_ids\": [");
+            let mut idx = 0usize;
+            while idx < binding.loader_runtime_source_evidence_event_ids.len() {
+                json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]);
+                if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"loader_runtime_source_evidence_present\": [");
+            idx = 0;
+            while idx < binding.loader_runtime_source_evidence_present.len() {
+                raw_bool(binding.loader_runtime_source_evidence_present[idx]);
+                if idx + 1 != binding.loader_runtime_source_evidence_present.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"loader_runtime_fact_present\": [");
+            idx = 0;
+            while idx < binding.loader_runtime_fact_present.len() {
+                raw_bool(binding.loader_runtime_fact_present[idx]);
+                if idx + 1 != binding.loader_runtime_fact_present.len() {
+                    raw(", ");
+                }
+                idx += 1;
+            }
+            raw("], \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
+            json_event_id_option(binding.manifest_reference_event_id);
+            raw(", \"candidate_artifact_reference_event_id\": ");
+            json_event_id_option(binding.artifact_reference_event_id);
+            raw(", \"vm_test_report_reference_event_id\": ");
+            json_event_id_option(binding.vm_test_report_reference_event_id);
+            raw(", \"local_attestation_reference_event_id\": ");
+            json_event_id_option(binding.local_attestation_reference_event_id);
+            raw(", \"local_approval_reference_event_id\": ");
+            json_event_id_option(binding.local_approval_reference_event_id);
+            raw(", \"computed_grant_reference_event_id\": ");
+            json_event_id_option(binding.computed_grant_reference_event_id);
+            raw(", \"audit_rollback_reference_event_id\": ");
+            json_event_id_option(binding.audit_rollback_reference_event_id);
+            raw(", \"service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw("}, \"ram_only_service_slot_id\": ");
+            if let Some(id) = binding.ram_only_service_slot_id {
+                json_str(id.as_str());
+            } else {
+                raw("null");
+            }
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
+            raw_bool(binding.accepts_loader_descriptor);
+            raw(", \"accepts_descriptor_bytes\": ");
+            raw_bool(binding.accepts_descriptor_bytes);
+            raw(", \"accepts_artifact_bytes\": ");
+            raw_bool(binding.accepts_artifact_bytes);
+            raw(", \"authorizes_descriptor_intake\": ");
+            raw_bool(binding.authorizes_descriptor_intake);
+            raw(", \"authorizes_artifact_byte_intake\": ");
+            raw_bool(binding.authorizes_artifact_byte_intake);
+            raw(", \"authorizes_execution\": ");
+            raw_bool(binding.authorizes_execution);
+            raw(", \"mutates_service_registry\": ");
+            raw_bool(binding.mutates_service_registry);
+            raw(", \"writes_durable_audit_state\": ");
+            raw_bool(binding.writes_durable_audit_state);
+            raw(", \"installs_rollback_state\": ");
+            raw_bool(binding.installs_rollback_state);
+            raw(", \"allocates_service_slot\": ");
+            raw_bool(binding.allocates_service_slot);
+            raw(", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"load_attempted\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"authorizes_load\": false}");
+        }
+        event_log::EventBindings::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence(
+            binding,
+        ) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"boundary_schema\": ");
+            json_str(binding.boundary_schema);
+            raw(", \"boundary_id\": ");
+            json_str(binding.boundary_id);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
+            json_str(binding.requested_capability);
+            raw(", \"load_mode\": ");
+            json_str(binding.load_mode);
+            raw(", \"target\": ");
+            json_str(binding.target);
+            raw(", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"boundary_status\": ");
+            json_str(binding.boundary_status);
+            raw(", \"boundary_reason\": ");
+            json_str(binding.boundary_reason);
+            raw(", \"boundary_present\": ");
+            raw_bool(binding.boundary_present);
+            raw(", \"boundary_scope\": ");
+            json_str(binding.boundary_scope);
+            raw(", \"boundary_schema_ok\": ");
+            raw_bool(binding.boundary_schema_ok);
+            raw(", \"boundary_provenance_ok\": ");
+            raw_bool(binding.boundary_provenance_ok);
+            raw(", \"boundary_classification\": ");
+            json_str(binding.boundary_classification);
+            raw(", \"source_chain_complete\": ");
+            raw_bool(binding.source_chain_complete);
+            raw(", \"artifact_byte_intake_boundary_present\": ");
+            raw_bool(binding.artifact_byte_intake_boundary_present);
+            raw(", \"descriptor_intake_boundary_present\": ");
+            raw_bool(binding.descriptor_intake_boundary_present);
+            raw(", \"execution_commit_gate_present\": ");
+            raw_bool(binding.execution_commit_gate_present);
+            raw(", \"entrypoint_abi_source_evidence_present\": ");
+            raw_bool(binding.entrypoint_abi_source_evidence_present);
+            raw(", \"address_space_source_evidence_present\": ");
+            raw_bool(binding.address_space_source_evidence_present);
+            raw(", \"memory_map_source_evidence_present\": ");
+            raw_bool(binding.memory_map_source_evidence_present);
+            raw(", \"audit_rollback_write_boundary_source_evidence_present\": ");
+            raw_bool(binding.audit_rollback_write_boundary_source_evidence_present);
+            raw(", \"retained_module_evidence_present\": ");
+            raw_bool(binding.retained_module_evidence_present);
+            raw(", \"retained_service_slot_reservation_present\": ");
+            raw_bool(binding.retained_service_slot_reservation_present);
+            raw(", \"artifact_byte_intake_boundary_source_evidence_event_id\": ");
+            json_event_id_option(binding.artifact_byte_intake_boundary_source_evidence_event_id);
+            raw(", \"descriptor_intake_boundary_source_evidence_event_id\": ");
+            json_event_id_option(binding.descriptor_intake_boundary_source_evidence_event_id);
+            raw(", \"execution_commit_gate_source_evidence_event_id\": ");
+            json_event_id_option(binding.execution_commit_gate_source_evidence_event_id);
+            raw(", \"entrypoint_abi_source_evidence_event_id\": ");
+            json_event_id_option(binding.entrypoint_abi_source_evidence_event_id);
+            raw(", \"address_space_source_evidence_event_id\": ");
+            json_event_id_option(binding.address_space_source_evidence_event_id);
+            raw(", \"memory_map_source_evidence_event_id\": ");
+            json_event_id_option(binding.memory_map_source_evidence_event_id);
+            raw(", \"audit_rollback_write_boundary_source_evidence_event_id\": ");
+            json_event_id_option(binding.audit_rollback_write_boundary_source_evidence_event_id);
+            raw(", \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
+            json_event_id_option(binding.manifest_reference_event_id);
+            raw(", \"candidate_artifact_reference_event_id\": ");
+            json_event_id_option(binding.artifact_reference_event_id);
+            raw(", \"vm_test_report_reference_event_id\": ");
+            json_event_id_option(binding.vm_test_report_reference_event_id);
+            raw(", \"local_attestation_reference_event_id\": ");
+            json_event_id_option(binding.local_attestation_reference_event_id);
+            raw(", \"local_approval_reference_event_id\": ");
+            json_event_id_option(binding.local_approval_reference_event_id);
+            raw(", \"computed_grant_reference_event_id\": ");
+            json_event_id_option(binding.computed_grant_reference_event_id);
+            raw(", \"audit_rollback_reference_event_id\": ");
+            json_event_id_option(binding.audit_rollback_reference_event_id);
+            raw(", \"service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw("}, \"ram_only_service_slot_id\": ");
+            if let Some(id) = binding.ram_only_service_slot_id {
+                json_str(id.as_str());
+            } else {
+                raw("null");
+            }
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
+            raw_bool(binding.accepts_loader_descriptor);
+            raw(", \"accepts_descriptor_bytes\": ");
+            raw_bool(binding.accepts_descriptor_bytes);
+            raw(", \"accepts_artifact_bytes\": ");
+            raw_bool(binding.accepts_artifact_bytes);
+            raw(", \"authorizes_descriptor_intake\": ");
+            raw_bool(binding.authorizes_descriptor_intake);
+            raw(", \"authorizes_artifact_byte_intake\": ");
+            raw_bool(binding.authorizes_artifact_byte_intake);
+            raw(", \"maps_executable_pages\": ");
+            raw_bool(binding.maps_executable_pages);
+            raw(", \"jumps_to_entrypoint\": ");
+            raw_bool(binding.jumps_to_entrypoint);
+            raw(", \"authorizes_execution\": ");
+            raw_bool(binding.authorizes_execution);
+            raw(", \"mutates_service_registry\": ");
+            raw_bool(binding.mutates_service_registry);
+            raw(", \"writes_durable_audit_state\": ");
+            raw_bool(binding.writes_durable_audit_state);
+            raw(", \"installs_rollback_state\": ");
+            raw_bool(binding.installs_rollback_state);
+            raw(", \"allocates_service_slot\": ");
+            raw_bool(binding.allocates_service_slot);
+            raw(", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"load_attempted\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"authorizes_load\": false}");
+        }
+        event_log::EventBindings::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence(
+            binding,
+        ) => {
+            raw(", \"bindings\": {\"schema\": ");
+            json_str(binding.schema);
+            raw(", \"boundary_schema\": ");
+            json_str(binding.boundary_schema);
+            raw(", \"boundary_id\": ");
+            json_str(binding.boundary_id);
+            raw(", \"status\": ");
+            json_str(binding.readiness_status);
+            raw(", \"reason\": ");
+            json_str(binding.readiness_reason);
+            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
+            json_str(binding.requested_capability);
+            raw(", \"load_mode\": ");
+            json_str(binding.load_mode);
+            raw(", \"target\": ");
+            json_str(binding.target);
+            raw(", \"source_method\": ");
+            json_str(binding.source_method);
+            raw(", \"source_fact_locator\": ");
+            json_str(binding.source_fact_locator);
+            raw(", \"boundary_status\": ");
+            json_str(binding.boundary_status);
+            raw(", \"boundary_reason\": ");
+            json_str(binding.boundary_reason);
+            raw(", \"boundary_present\": ");
+            raw_bool(binding.boundary_present);
+            raw(", \"boundary_scope\": ");
+            json_str(binding.boundary_scope);
+            raw(", \"boundary_schema_ok\": ");
+            raw_bool(binding.boundary_schema_ok);
+            raw(", \"boundary_provenance_ok\": ");
+            raw_bool(binding.boundary_provenance_ok);
+            raw(", \"boundary_classification\": ");
+            json_str(binding.boundary_classification);
+            raw(", \"source_chain_complete\": ");
+            raw_bool(binding.source_chain_complete);
+            raw(", \"execution_authorization_boundary_present\": ");
+            raw_bool(binding.execution_authorization_boundary_present);
+            raw(", \"execution_authorization_boundary_source_chain_complete\": ");
+            raw_bool(binding.execution_authorization_boundary_source_chain_complete);
+            raw(", \"registry_write_commit_gate_present\": ");
+            raw_bool(binding.registry_write_commit_gate_present);
+            raw(", \"service_slot_binding_source_evidence_present\": ");
+            raw_bool(binding.service_slot_binding_source_evidence_present);
+            raw(", \"retained_module_evidence_present\": ");
+            raw_bool(binding.retained_module_evidence_present);
+            raw(", \"retained_service_slot_reservation_present\": ");
+            raw_bool(binding.retained_service_slot_reservation_present);
+            raw(", \"execution_authorization_boundary_source_evidence_event_id\": ");
+            json_event_id_option(binding.execution_authorization_boundary_source_evidence_event_id);
+            raw(", \"registry_write_commit_gate_source_evidence_event_id\": ");
+            json_event_id_option(binding.registry_write_commit_gate_source_evidence_event_id);
+            raw(", \"service_slot_binding_source_evidence_event_id\": ");
+            json_event_id_option(binding.service_slot_binding_source_evidence_event_id);
+            raw(", \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
+            json_event_id_option(binding.manifest_reference_event_id);
+            raw(", \"candidate_artifact_reference_event_id\": ");
+            json_event_id_option(binding.artifact_reference_event_id);
+            raw(", \"vm_test_report_reference_event_id\": ");
+            json_event_id_option(binding.vm_test_report_reference_event_id);
+            raw(", \"local_attestation_reference_event_id\": ");
+            json_event_id_option(binding.local_attestation_reference_event_id);
+            raw(", \"local_approval_reference_event_id\": ");
+            json_event_id_option(binding.local_approval_reference_event_id);
+            raw(", \"computed_grant_reference_event_id\": ");
+            json_event_id_option(binding.computed_grant_reference_event_id);
+            raw(", \"audit_rollback_reference_event_id\": ");
+            json_event_id_option(binding.audit_rollback_reference_event_id);
+            raw(", \"service_slot_reservation_event_id\": ");
+            json_event_id_option(binding.service_slot_reservation_event_id);
+            raw("}, \"ram_only_service_slot_id\": ");
+            if let Some(id) = binding.ram_only_service_slot_id {
+                json_str(id.as_str());
+            } else {
+                raw("null");
+            }
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
+            raw_bool(binding.accepts_loader_descriptor);
+            raw(", \"accepts_descriptor_bytes\": ");
+            raw_bool(binding.accepts_descriptor_bytes);
+            raw(", \"accepts_artifact_bytes\": ");
+            raw_bool(binding.accepts_artifact_bytes);
+            raw(", \"authorizes_descriptor_intake\": ");
+            raw_bool(binding.authorizes_descriptor_intake);
+            raw(", \"authorizes_artifact_byte_intake\": ");
+            raw_bool(binding.authorizes_artifact_byte_intake);
+            raw(", \"maps_executable_pages\": ");
+            raw_bool(binding.maps_executable_pages);
+            raw(", \"jumps_to_entrypoint\": ");
+            raw_bool(binding.jumps_to_entrypoint);
+            raw(", \"authorizes_execution\": ");
+            raw_bool(binding.authorizes_execution);
+            raw(", \"mutates_service_registry\": ");
+            raw_bool(binding.mutates_service_registry);
+            raw(", \"writes_durable_audit_state\": ");
+            raw_bool(binding.writes_durable_audit_state);
+            raw(", \"installs_rollback_state\": ");
+            raw_bool(binding.installs_rollback_state);
+            raw(", \"allocates_service_slot\": ");
+            raw_bool(binding.allocates_service_slot);
+            raw(", \"creates_service_inventory_records\": ");
+            raw_bool(binding.creates_service_inventory_records);
+            raw(", \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"load_attempted\": ");
+            raw_bool(binding.loads_artifact);
+            raw(", \"authorizes_load\": false}");
+        }
+        event_log::EventBindings::ModuleLoaderLoadAttemptBoundarySourceEvidence(binding)
+        | event_log::EventBindings::ModuleLoaderArtifactLoadBoundarySourceEvidence(binding)
+        | event_log::EventBindings::ModuleLoaderExecutableMappingBoundarySourceEvidence(binding)
+        | event_log::EventBindings::ModuleLoaderEntrypointTransferBoundarySourceEvidence(binding)
+        | event_log::EventBindings::ModuleLoaderServiceStartBoundarySourceEvidence(binding)
+        | event_log::EventBindings::ModuleLoaderServiceHealthBindingBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderServiceRunningStateBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderServiceStartAuditBoundarySourceEvidence(binding)
+        | event_log::EventBindings::ModuleLoaderServiceUnloadCleanupBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderLiveLoadCommitBoundarySourceEvidence(binding)
+        | event_log::EventBindings::ModuleLoaderCommitAuditBoundarySourceEvidence(binding)
+        | event_log::EventBindings::ModuleLoaderCommitRollbackBoundarySourceEvidence(binding)
+        | event_log::EventBindings::ModuleLoaderCommitResultBoundarySourceEvidence(binding)
+        | event_log::EventBindings::ModuleLoaderDescriptorAcceptanceAuthorityBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderDescriptorParserContractBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderDescriptorParserResultBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderDescriptorSchemaValidationBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderDescriptorCapabilityValidationBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderDescriptorLoadPlanBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderExecutableLoadPlanAuthorityBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderExecutableLoadPlanResultBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderExecutableImageLayoutBoundarySourceEvidence(
+            binding,
+        )
+        | event_log::EventBindings::ModuleLoaderExecutablePageMappingPlanBoundarySourceEvidence(
+            binding,
+        ) => {
+            emit_module_loader_live_load_boundary_event_binding(binding);
         }
         event_log::EventBindings::ModuleLoadGate(binding) => {
             emit_module_load_gate_event_binding(binding);
@@ -1729,6 +2697,283 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             raw("}}");
         }
     }
+}
+
+fn emit_module_loader_live_load_boundary_event_binding(
+    binding: event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
+) {
+    raw(", \"bindings\": {\"schema\": ");
+    json_str(binding.schema);
+    raw(", \"boundary_schema\": ");
+    json_str(binding.boundary_schema);
+    raw(", \"boundary_id\": ");
+    json_str(binding.boundary_id);
+    raw(", \"status\": ");
+    json_str(binding.readiness_status);
+    raw(", \"reason\": ");
+    json_str(binding.readiness_reason);
+    raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
+    json_str(binding.requested_capability);
+    raw(", \"load_mode\": ");
+    json_str(binding.load_mode);
+    raw(", \"target\": ");
+    json_str(binding.target);
+    raw(", \"source_method\": ");
+    json_str(binding.source_method);
+    raw(", \"source_fact_locator\": ");
+    json_str(binding.source_fact_locator);
+    raw(", \"boundary_status\": ");
+    json_str(binding.boundary_status);
+    raw(", \"boundary_reason\": ");
+    json_str(binding.boundary_reason);
+    raw(", \"boundary_present\": ");
+    raw_bool(binding.boundary_present);
+    raw(", \"boundary_scope\": ");
+    json_str(binding.boundary_scope);
+    raw(", \"boundary_schema_ok\": ");
+    raw_bool(binding.boundary_schema_ok);
+    raw(", \"boundary_provenance_ok\": ");
+    raw_bool(binding.boundary_provenance_ok);
+    raw(", \"boundary_classification\": ");
+    json_str(binding.boundary_classification);
+    raw(", \"source_chain_complete\": ");
+    raw_bool(binding.source_chain_complete);
+    raw(", \"load_attempt_boundary_present\": ");
+    raw_bool(binding.load_attempt_boundary_present);
+    raw(", \"artifact_load_boundary_present\": ");
+    raw_bool(binding.artifact_load_boundary_present);
+    raw(", \"executable_mapping_boundary_present\": ");
+    raw_bool(binding.executable_mapping_boundary_present);
+    raw(", \"entrypoint_transfer_boundary_present\": ");
+    raw_bool(binding.entrypoint_transfer_boundary_present);
+    raw(", \"service_start_boundary_present\": ");
+    raw_bool(binding.service_start_boundary_present);
+    raw(", \"service_health_binding_boundary_present\": ");
+    raw_bool(binding.service_health_binding_boundary_present);
+    raw(", \"service_running_state_boundary_present\": ");
+    raw_bool(binding.service_running_state_boundary_present);
+    raw(", \"service_start_audit_boundary_present\": ");
+    raw_bool(binding.service_start_audit_boundary_present);
+    raw(", \"service_unload_cleanup_boundary_present\": ");
+    raw_bool(binding.service_unload_cleanup_boundary_present);
+    raw(", \"live_load_commit_boundary_present\": ");
+    raw_bool(binding.live_load_commit_boundary_present);
+    raw(", \"commit_audit_boundary_present\": ");
+    raw_bool(binding.commit_audit_boundary_present);
+    raw(", \"commit_rollback_boundary_present\": ");
+    raw_bool(binding.commit_rollback_boundary_present);
+    raw(", \"commit_result_boundary_present\": ");
+    raw_bool(binding.commit_result_boundary_present);
+    raw(", \"descriptor_acceptance_authority_boundary_present\": ");
+    raw_bool(binding.descriptor_acceptance_authority_boundary_present);
+    raw(", \"descriptor_parser_contract_boundary_present\": ");
+    raw_bool(binding.descriptor_parser_contract_boundary_present);
+    raw(", \"descriptor_parser_result_boundary_present\": ");
+    raw_bool(binding.descriptor_parser_result_boundary_present);
+    raw(", \"descriptor_schema_validation_boundary_present\": ");
+    raw_bool(binding.descriptor_schema_validation_boundary_present);
+    raw(", \"descriptor_schema_validation_boundary_source_chain_complete\": ");
+    raw_bool(binding.descriptor_schema_validation_boundary_source_chain_complete);
+    raw(", \"descriptor_capability_validation_boundary_present\": ");
+    raw_bool(binding.descriptor_capability_validation_boundary_present);
+    raw(", \"descriptor_capability_validation_boundary_source_chain_complete\": ");
+    raw_bool(binding.descriptor_capability_validation_boundary_source_chain_complete);
+    raw(", \"descriptor_load_plan_boundary_present\": ");
+    raw_bool(binding.descriptor_load_plan_boundary_present);
+    raw(", \"descriptor_load_plan_boundary_source_chain_complete\": ");
+    raw_bool(binding.descriptor_load_plan_boundary_source_chain_complete);
+    raw(", \"executable_load_plan_authority_boundary_present\": ");
+    raw_bool(binding.executable_load_plan_authority_boundary_present);
+    raw(", \"executable_load_plan_authority_boundary_source_chain_complete\": ");
+    raw_bool(binding.executable_load_plan_authority_boundary_source_chain_complete);
+    raw(", \"executable_load_plan_result_boundary_present\": ");
+    raw_bool(binding.executable_load_plan_result_boundary_present);
+    raw(", \"executable_load_plan_result_boundary_source_chain_complete\": ");
+    raw_bool(binding.executable_load_plan_result_boundary_source_chain_complete);
+    raw(", \"executable_image_layout_boundary_present\": ");
+    raw_bool(binding.executable_image_layout_boundary_present);
+    raw(", \"executable_image_layout_boundary_source_chain_complete\": ");
+    raw_bool(binding.executable_image_layout_boundary_source_chain_complete);
+    raw(", \"artifact_byte_intake_boundary_present\": ");
+    raw_bool(binding.artifact_byte_intake_boundary_present);
+    raw(", \"execution_authorization_boundary_present\": ");
+    raw_bool(binding.execution_authorization_boundary_present);
+    raw(", \"service_registry_mutation_boundary_present\": ");
+    raw_bool(binding.service_registry_mutation_boundary_present);
+    raw(", \"service_slot_binding_source_evidence_present\": ");
+    raw_bool(binding.service_slot_binding_source_evidence_present);
+    raw(", \"health_state_hooks_source_evidence_present\": ");
+    raw_bool(binding.health_state_hooks_source_evidence_present);
+    raw(", \"artifact_hash_binding_present\": ");
+    raw_bool(binding.artifact_hash_binding_present);
+    raw(", \"entrypoint_abi_source_evidence_present\": ");
+    raw_bool(binding.entrypoint_abi_source_evidence_present);
+    raw(", \"address_space_source_evidence_present\": ");
+    raw_bool(binding.address_space_source_evidence_present);
+    raw(", \"memory_map_source_evidence_present\": ");
+    raw_bool(binding.memory_map_source_evidence_present);
+    raw(", \"capability_import_table_source_evidence_present\": ");
+    raw_bool(binding.capability_import_table_source_evidence_present);
+    raw(", \"audit_rollback_write_boundary_source_evidence_present\": ");
+    raw_bool(binding.audit_rollback_write_boundary_source_evidence_present);
+    raw(", \"retained_module_evidence_present\": ");
+    raw_bool(binding.retained_module_evidence_present);
+    raw(", \"retained_artifact_reference_present\": ");
+    raw_bool(binding.retained_artifact_reference_present);
+    raw(", \"retained_service_slot_reservation_present\": ");
+    raw_bool(binding.retained_service_slot_reservation_present);
+    raw(", \"load_attempt_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.load_attempt_boundary_source_evidence_event_id);
+    raw(", \"artifact_load_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.artifact_load_boundary_source_evidence_event_id);
+    raw(", \"executable_mapping_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.executable_mapping_boundary_source_evidence_event_id);
+    raw(", \"entrypoint_transfer_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.entrypoint_transfer_boundary_source_evidence_event_id);
+    raw(", \"service_start_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.service_start_boundary_source_evidence_event_id);
+    raw(", \"service_health_binding_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.service_health_binding_boundary_source_evidence_event_id);
+    raw(", \"service_running_state_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.service_running_state_boundary_source_evidence_event_id);
+    raw(", \"service_start_audit_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.service_start_audit_boundary_source_evidence_event_id);
+    raw(", \"service_unload_cleanup_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.service_unload_cleanup_boundary_source_evidence_event_id);
+    raw(", \"live_load_commit_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.live_load_commit_boundary_source_evidence_event_id);
+    raw(", \"commit_audit_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.commit_audit_boundary_source_evidence_event_id);
+    raw(", \"commit_rollback_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.commit_rollback_boundary_source_evidence_event_id);
+    raw(", \"commit_result_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.commit_result_boundary_source_evidence_event_id);
+    raw(", \"descriptor_acceptance_authority_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.descriptor_acceptance_authority_boundary_source_evidence_event_id);
+    raw(", \"descriptor_parser_contract_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.descriptor_parser_contract_boundary_source_evidence_event_id);
+    raw(", \"descriptor_parser_result_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.descriptor_parser_result_boundary_source_evidence_event_id);
+    raw(", \"descriptor_schema_validation_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.descriptor_schema_validation_boundary_source_evidence_event_id);
+    raw(", \"descriptor_capability_validation_boundary_source_evidence_event_id\": ");
+    json_event_id_option(
+        binding.descriptor_capability_validation_boundary_source_evidence_event_id,
+    );
+    raw(", \"descriptor_load_plan_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.descriptor_load_plan_boundary_source_evidence_event_id);
+    raw(", \"executable_load_plan_authority_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.executable_load_plan_authority_boundary_source_evidence_event_id);
+    raw(", \"executable_load_plan_result_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.executable_load_plan_result_boundary_source_evidence_event_id);
+    raw(", \"executable_image_layout_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.executable_image_layout_boundary_source_evidence_event_id);
+    raw(", \"artifact_byte_intake_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.artifact_byte_intake_boundary_source_evidence_event_id);
+    raw(", \"execution_authorization_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.execution_authorization_boundary_source_evidence_event_id);
+    raw(", \"service_registry_mutation_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.service_registry_mutation_boundary_source_evidence_event_id);
+    raw(", \"service_slot_binding_source_evidence_event_id\": ");
+    json_event_id_option(binding.service_slot_binding_source_evidence_event_id);
+    raw(", \"health_state_hooks_source_evidence_event_id\": ");
+    json_event_id_option(binding.health_state_hooks_source_evidence_event_id);
+    raw(", \"artifact_hash_binding_source_evidence_event_id\": ");
+    json_event_id_option(binding.artifact_hash_binding_source_evidence_event_id);
+    raw(", \"entrypoint_abi_source_evidence_event_id\": ");
+    json_event_id_option(binding.entrypoint_abi_source_evidence_event_id);
+    raw(", \"address_space_source_evidence_event_id\": ");
+    json_event_id_option(binding.address_space_source_evidence_event_id);
+    raw(", \"memory_map_source_evidence_event_id\": ");
+    json_event_id_option(binding.memory_map_source_evidence_event_id);
+    raw(", \"capability_import_table_source_evidence_event_id\": ");
+    json_event_id_option(binding.capability_import_table_source_evidence_event_id);
+    raw(", \"audit_rollback_write_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.audit_rollback_write_boundary_source_evidence_event_id);
+    raw(", \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
+    json_event_id_option(binding.manifest_reference_event_id);
+    raw(", \"candidate_artifact_reference_event_id\": ");
+    json_event_id_option(binding.artifact_reference_event_id);
+    raw(", \"vm_test_report_reference_event_id\": ");
+    json_event_id_option(binding.vm_test_report_reference_event_id);
+    raw(", \"local_attestation_reference_event_id\": ");
+    json_event_id_option(binding.local_attestation_reference_event_id);
+    raw(", \"local_approval_reference_event_id\": ");
+    json_event_id_option(binding.local_approval_reference_event_id);
+    raw(", \"computed_grant_reference_event_id\": ");
+    json_event_id_option(binding.computed_grant_reference_event_id);
+    raw(", \"audit_rollback_reference_event_id\": ");
+    json_event_id_option(binding.audit_rollback_reference_event_id);
+    raw(", \"service_slot_reservation_event_id\": ");
+    json_event_id_option(binding.service_slot_reservation_event_id);
+    raw("}, \"ram_only_service_slot_id\": ");
+    if let Some(id) = binding.ram_only_service_slot_id {
+        json_str(id.as_str());
+    } else {
+        raw("null");
+    }
+    raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
+    raw_bool(binding.accepts_loader_descriptor);
+    raw(", \"accepts_descriptor_bytes\": ");
+    raw_bool(binding.accepts_descriptor_bytes);
+    raw(", \"produces_parsed_descriptor\": false");
+    raw(", \"validates_descriptor_schema\": false");
+    raw(", \"produces_validated_descriptor\": false");
+    raw(", \"validates_descriptor_capabilities\": false");
+    raw(", \"produces_capability_validated_descriptor\": false");
+    raw(", \"authorizes_executable_load_plan\": false");
+    raw(", \"produces_executable_load_plan\": false");
+    raw(", \"produces_executable_image_layout\": false");
+    raw(", \"produces_executable_page_mapping_plan\": false");
+    raw(", \"binds_capability_validated_descriptor_to_executable_pages\": false");
+    raw(", \"parses_descriptor_bytes\": false");
+    raw(", \"accepts_artifact_bytes\": ");
+    raw_bool(binding.accepts_artifact_bytes);
+    raw(", \"authorizes_descriptor_intake\": ");
+    raw_bool(binding.authorizes_descriptor_intake);
+    raw(", \"authorizes_artifact_byte_intake\": ");
+    raw_bool(binding.authorizes_artifact_byte_intake);
+    raw(", \"maps_executable_pages\": ");
+    raw_bool(binding.maps_executable_pages);
+    raw(", \"jumps_to_entrypoint\": ");
+    raw_bool(binding.jumps_to_entrypoint);
+    raw(", \"authorizes_execution\": ");
+    raw_bool(binding.authorizes_execution);
+    raw(", \"mutates_service_registry\": ");
+    raw_bool(binding.mutates_service_registry);
+    raw(", \"writes_durable_audit_state\": ");
+    raw_bool(binding.writes_durable_audit_state);
+    raw(", \"installs_rollback_state\": ");
+    raw_bool(binding.installs_rollback_state);
+    raw(", \"allocates_service_slot\": ");
+    raw_bool(binding.allocates_service_slot);
+    raw(", \"creates_service_inventory_records\": ");
+    raw_bool(binding.creates_service_inventory_records);
+    raw(", \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
+    raw_bool(binding.loads_artifact);
+    raw(", \"starts_service\": ");
+    raw_bool(binding.starts_service);
+    raw(", \"marks_service_running\": ");
+    raw_bool(binding.marks_service_running);
+    raw(", \"creates_service_health_records\": ");
+    raw_bool(binding.creates_service_health_records);
+    raw(", \"writes_service_start_audit_record\": ");
+    raw_bool(binding.writes_service_start_audit_record);
+    raw(", \"unloads_service\": ");
+    raw_bool(binding.unloads_service);
+    raw(", \"cleans_up_service_slot\": ");
+    raw_bool(binding.cleans_up_service_slot);
+    raw(", \"commits_live_load\": ");
+    raw_bool(binding.commits_live_load);
+    raw(", \"writes_load_commit_audit_record\": ");
+    raw_bool(binding.writes_load_commit_audit_record);
+    raw(", \"installs_commit_rollback_record\": ");
+    raw_bool(binding.installs_commit_rollback_record);
+    raw(", \"records_load_result\": ");
+    raw_bool(binding.records_load_result);
+    raw(", \"load_attempted\": ");
+    raw_bool(binding.load_attempted);
+    raw(", \"authorizes_load\": false}");
 }
 
 fn emit_memory_record(

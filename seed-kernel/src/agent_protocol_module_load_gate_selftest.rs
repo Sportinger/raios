@@ -729,9 +729,9 @@ pub(crate) fn module_load_gate_loader_runtime_selftest_cases(
             },
         ),
         module_load_gate_loader_runtime_selftest_case(
-            "all_retained_evidence_ready_allocator_authority_unimplemented",
-            "denied_allocator_authority_unimplemented",
-            "service_slot_allocator_authority_unimplemented",
+            "all_retained_evidence_ready_allocator_authority_boundary_denied",
+            MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DENIED_STATUS,
+            MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DENIED_REASON,
             "available",
             "defined_non_authorizing",
             "blocked_by_service_slot_allocator_authority",
@@ -817,17 +817,19 @@ fn module_load_gate_loader_runtime_selftest_case(
     candidate: ModuleLoadGateLoaderRuntimeCandidate,
 ) -> ModuleLoadGateLoaderRuntimeSelfTestCase {
     let actual = evaluate_module_load_gate_loader_runtime_candidate(candidate);
-    let expected_retained_module_evidence_reason =
-        if method_eq(expected_status, "denied_allocator_authority_unimplemented") {
-            "retained_module_evidence_available"
-        } else {
-            expected_reason
-        };
+    let expected_retained_module_evidence_reason = if method_eq(
+        expected_status,
+        MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DENIED_STATUS,
+    ) {
+        "retained_module_evidence_available"
+    } else {
+        expected_reason
+    };
     let expected_service_slot_allocator_status = if method_eq(
         expected_service_slot_allocator_state,
         "defined_non_authorizing",
     ) {
-        "denied_allocator_authority_unimplemented"
+        MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DENIED_STATUS
     } else {
         "blocked"
     };
@@ -835,7 +837,7 @@ fn module_load_gate_loader_runtime_selftest_case(
         expected_service_slot_allocator_state,
         "defined_non_authorizing",
     ) {
-        "service_slot_allocator_authority_unimplemented"
+        MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DENIED_REASON
     } else if method_eq(
         expected_service_slot_allocator_state,
         "blocked_by_rejected_service_slot_reservation",

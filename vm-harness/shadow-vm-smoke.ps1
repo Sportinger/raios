@@ -31,7 +31,9 @@ $Failures = New-Object System.Collections.Generic.List[string]
 $Predicates = New-Object System.Collections.Generic.List[object]
 $ExecutedCommands = New-Object System.Collections.Generic.List[object]
 $StartedAt = [DateTime]::UtcNow
+$script:SerialTcpClient = $null
 $script:SerialTcpDrainStream = $null
+$script:SerialTcpStream = $null
 $QemuArgList = @()
 $HardwareProfile = $null
 $ResolvedImage = $null
@@ -158,6 +160,8 @@ catch {
     throw
 }
 finally {
+    Close-SerialTcpConnection
+
     if ($QemuPid) {
         Stop-Process -Id $QemuPid -Force -ErrorAction SilentlyContinue
     }
