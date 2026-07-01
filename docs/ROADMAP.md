@@ -2,10 +2,10 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after adding a second host-produced,
-hash-bound descriptor-source candidate to the positive RAM-only service
-lifecycle. Keep this section compact. The authoritative, unabridged current
-state is
+Last updated: 2026-07-02 by Codex after replacing exact-text descriptor-source
+validation with a shared canonical key/value validator for the positive
+RAM-only service lifecycle. Keep this section compact. The authoritative,
+unabridged current state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
 cursor, not repeat the full implementation history.
 
@@ -29,6 +29,9 @@ Latest verified implementation slice:
 - `module.load_ephemeral host_bound:svc.demo.hello` loads/starts the same
   built-in RAM-only service through a host-produced descriptor-source candidate
   that binds the current-image source hash
+- descriptor-source validation now parses the built-in source text into checked
+  key/value fields for both current-image and host-bound sources instead of
+  depending on a complete source-text equality check
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
   `service.stop svc.demo.hello` marks it stopped; `service.drop svc.demo.hello`
   removes it from inventory; the inventory record cites
@@ -86,28 +89,29 @@ release\vm-reports\shadow-20260702-001225-25068.json
 Latest focused verification:
 
 ```text
-release\vm-reports\shadow-20260702-012836-17980.json
-158/158 quick predicates, 24 executed commands, duration_ms: 47700
+release\vm-reports\shadow-20260702-013416-14956.json
+158/158 quick predicates, 24 executed commands, duration_ms: 55324
 ```
 
 Exact next task:
 
 ```text
-Replace exact-text descriptor-source validation with the smallest shared
-canonical key/value validator needed by the current-image and host-bound hello
-sources. Keep descriptor bytes compile-time/current-boot only and keep signed
-artifact loading denied.
+Add the first explicit RAM-only health probe for svc.demo.hello on the existing
+built-in/current-boot lifecycle path. Keep descriptor/artifact intake closed,
+keep signed artifact loading denied, and keep persistence/durable audit/rollback
+denied.
 ```
 
 Next three tasks:
 
-1. Add a tiny canonical key/value validator for the two existing hello
-   descriptor-source texts.
-2. Keep both current-image and host-bound load/list/stop/drop quick smoke paths
-   green while checking selected source locator/kind/hash and bound-source hash.
-3. Only after that, consider a signed descriptor envelope; keep artifact loading
-   built-in/current-boot until artifact trust/execution/audit/rollback evidence
-   exists.
+1. Add a read-only `service.health svc.demo.hello` probe, or the nearest
+   existing local naming equivalent, over loaded/running, stopped, and missing
+   states.
+2. Bind health-read evidence to the active load descriptor and validated
+   descriptor-source hash when the service is loaded.
+3. Only after health observation is real, consider a signed descriptor envelope;
+   keep artifact loading built-in/current-boot until artifact
+   trust/execution/audit/rollback evidence exists.
 
 Documentation ownership:
 

@@ -409,17 +409,19 @@ with `capability_denied`. The positive command must return
 the descriptor source locator
 `current_image.descriptor_source.svc.demo.hello.v0`, source kind
 `current_image_descriptor_source`, `validated: true`, and a `sha256:` source
-hash. `services` must show `svc.demo.hello` only while loaded and cite the same
+hash, and the source text must carry the canonical key/value fields used by the
+validator, including `source_locator` and `source_kind`. `services` must show
+`svc.demo.hello` only while loaded and cite the same
 descriptor id/source/kind/validation/hash. `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` records whose evidence/bindings cite
 the same load descriptor and validated source hash.
 
 The host-bound positive command must cite
 `host_build.descriptor_source.svc.demo.hello.v0`, source kind
-`host_bound_descriptor_source`, and `binds_source_hash` equal to the
-current-image source hash. The path must keep external artifact bytes,
-persistence, durable audit writes, rollback installation, and broad mutation
-disabled.
+`host_bound_descriptor_source`, and `binds_source_locator`,
+`binds_source_kind`, and `binds_source_hash` equal to the current-image source
+locator/kind/hash. The path must keep external artifact bytes, persistence,
+durable audit writes, rollback installation, and broad mutation disabled.
 
 After a matching manifest, artifact, Shadow-VM report, and local attestation
 exist, compute the host-side grant diagnostic with:

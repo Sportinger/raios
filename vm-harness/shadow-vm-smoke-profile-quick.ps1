@@ -64,6 +64,9 @@
         if ($helloLoad.body.result.load_descriptor.source.text -notlike "*source_kind=current_image_descriptor_source*") {
             throw "Expected hello load descriptor source text to identify the current-image source kind"
         }
+        if ($helloLoad.body.result.load_descriptor.source.text -notlike "*source_locator=$helloDescriptorLocator*") {
+            throw "Expected hello load descriptor source text to carry the current-image source locator"
+        }
         if ($helloLoad.body.result.load_request.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello load request to cite the same descriptor source hash"
         }
@@ -160,6 +163,18 @@
         }
         if ($hostHelloLoad.body.result.load_descriptor.source.text -notlike "*binds_source_hash=$helloDescriptorHash*") {
             throw "Expected host-bound source text to carry the bound current-image source hash"
+        }
+        if ($hostHelloLoad.body.result.load_descriptor.source.text -notlike "*source_kind=$hostDescriptorKind*") {
+            throw "Expected host-bound source text to identify its source kind"
+        }
+        if ($hostHelloLoad.body.result.load_descriptor.source.text -notlike "*source_locator=$hostDescriptorLocator*") {
+            throw "Expected host-bound source text to carry its source locator"
+        }
+        if ($hostHelloLoad.body.result.load_descriptor.source.text -notlike "*binds_source_locator=$helloDescriptorLocator*") {
+            throw "Expected host-bound source text to bind the current-image source locator"
+        }
+        if ($hostHelloLoad.body.result.load_descriptor.source.text -notlike "*binds_source_kind=$helloDescriptorKind*") {
+            throw "Expected host-bound source text to bind the current-image source kind"
         }
         if ($hostHelloLoad.body.result.load_request.descriptor_source_hash -ne $hostDescriptorHash -or $hostHelloLoad.body.result.loader.descriptor_source_hash -ne $hostDescriptorHash) {
             throw "Expected host-bound load request and loader to cite the host-bound descriptor source hash"

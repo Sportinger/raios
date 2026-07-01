@@ -1,3 +1,4 @@
+use crate::agent_protocol_support::parse_sha256_ref;
 use sha2::{Digest, Sha256};
 
 include!(concat!(
@@ -105,21 +106,49 @@ pub(crate) fn validate_current_image_descriptor_source(source: DescriptorSourceR
     validate_common_descriptor_source(source)
         && source.locator == HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR
         && source.kind == HELLO_LOAD_DESCRIPTOR_SOURCE_KIND
+        && source_field_eq(
+            source,
+            "source_locator",
+            HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR,
+        )
+        && source_field_eq(source, "source_kind", HELLO_LOAD_DESCRIPTOR_SOURCE_KIND)
         && source.binds_source_locator.is_none()
         && source.binds_source_kind.is_none()
         && source.binds_source_hash.is_none()
-        && source.text == HELLO_LOAD_DESCRIPTOR_SOURCE
+        && source_field(source, "binds_source_locator").is_none()
+        && source_field(source, "binds_source_kind").is_none()
+        && source_field(source, "binds_source_hash").is_none()
 }
 
 pub(crate) fn validate_host_bound_descriptor_source(source: DescriptorSourceRecord) -> bool {
+    let current_image_hash = descriptor_source_hash(HELLO_LOAD_DESCRIPTOR_SOURCE_RECORD);
     validate_common_descriptor_source(source)
         && source.locator == HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR
         && source.kind == HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_KIND
+        && source_field_eq(
+            source,
+            "source_locator",
+            HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR,
+        )
+        && source_field_eq(
+            source,
+            "source_kind",
+            HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_KIND,
+        )
         && source.binds_source_locator == Some(HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR)
         && source.binds_source_kind == Some(HELLO_LOAD_DESCRIPTOR_SOURCE_KIND)
-        && source.binds_source_hash
-            == Some(descriptor_source_hash(HELLO_LOAD_DESCRIPTOR_SOURCE_RECORD))
-        && source.text == HELLO_HOST_BOUND_DESCRIPTOR_SOURCE
+        && source.binds_source_hash == Some(current_image_hash)
+        && source_field_eq(
+            source,
+            "binds_source_locator",
+            HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR,
+        )
+        && source_field_eq(
+            source,
+            "binds_source_kind",
+            HELLO_LOAD_DESCRIPTOR_SOURCE_KIND,
+        )
+        && source_sha256_field(source, "binds_source_hash") == Some(current_image_hash)
 }
 
 pub(crate) fn validate_descriptor_source(source: DescriptorSourceRecord) -> bool {
@@ -128,7 +157,8 @@ pub(crate) fn validate_descriptor_source(source: DescriptorSourceRecord) -> bool
 }
 
 fn validate_common_descriptor_source(source: DescriptorSourceRecord) -> bool {
-    source.schema == HELLO_LOAD_DESCRIPTOR_SCHEMA
+    source_text_is_canonical_key_value(source)
+        && source.schema == HELLO_LOAD_DESCRIPTOR_SCHEMA
         && source.id == HELLO_LOAD_DESCRIPTOR_ID
         && source.canonicalization == HELLO_LOAD_DESCRIPTOR_CANONICALIZATION
         && source.service_id == HELLO_SERVICE_ID
@@ -140,6 +170,68 @@ fn validate_common_descriptor_source(source: DescriptorSourceRecord) -> bool {
         && !source.accepts_external_artifact_bytes
         && !source.loads_external_artifact
         && !source.writes_persistent_state
+        && source_field_eq(source, "canonicalization", source.canonicalization)
+        && source_field_eq(source, "schema", source.schema)
+        && source_field_eq(source, "id", source.id)
+        && source_field_eq(source, "service_id", source.service_id)
+        && source_field_eq(source, "artifact_id", source.artifact_id)
+        && source_field_eq(source, "artifact_kind", source.artifact_kind)
+        && source_field_eq(source, "scope", source.scope)
+        && source_field_eq(source, "classification", source.classification)
+        && source_field_eq(source, "persistence", source.persistence)
+        && source_field_eq(source, "accepts_external_artifact_bytes", "false")
+        && source_field_eq(source, "loads_external_artifact", "false")
+        && source_field_eq(source, "writes_persistent_state", "false")
+}
+
+fn source_text_is_canonical_key_value(source: DescriptorSourceRecord) -> bool {
+    for line in source.text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some(eq) = line.find('=') else {
+            return false;
+        };
+        let key = line[..eq].trim();
+        let value = line[eq + 1..].trim();
+        if key.is_empty()
+            || value.is_empty()
+            || !key
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn source_field(source: DescriptorSourceRecord, key: &str) -> Option<&'static str> {
+    let mut found = None;
+    for line in source.text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let eq = line.find('=')?;
+        let candidate = line[..eq].trim();
+        if candidate == key {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(line[eq + 1..].trim());
+        }
+    }
+    found
+}
+
+fn source_field_eq(source: DescriptorSourceRecord, key: &str, expected: &str) -> bool {
+    source_field(source, key) == Some(expected)
+}
+
+fn source_sha256_field(source: DescriptorSourceRecord, key: &str) -> Option<[u8; 32]> {
+    source_field(source, key).and_then(parse_sha256_ref)
 }
 
 pub(crate) fn descriptor_source_hash(source: DescriptorSourceRecord) -> [u8; 32] {
