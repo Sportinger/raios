@@ -26,8 +26,9 @@ profiles, protocol probes, and failure modes.
 
 Last verified locally: 2026-07-01 on Windows with QEMU 11 after adding the
 typed, read-only
-`raios.module_loader_executable_entrypoint_transfer_boundary.v0`
-on top of the executable entrypoint transfer authorization boundary,
+`raios.module_loader_executable_entrypoint_handoff_boundary.v0`
+on top of the executable entrypoint transfer boundary,
+executable entrypoint transfer authorization boundary,
 executable entrypoint binding boundary,
 descriptor/executable-page binding boundary, executable page-mapping boundary,
 executable page-mapping plan boundary, executable image-layout boundary,
@@ -35,6 +36,7 @@ executable load-plan result, executable load-plan authority, descriptor
 load-plan, descriptor capability-validation, descriptor schema-validation,
 descriptor-parser result, descriptor-parser contract, descriptor-acceptance
 authority, live-load, and commit sequence. It consumes the retained
+`raios.module_loader_executable_entrypoint_transfer_boundary.v0`,
 `raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0`,
 `raios.module_loader_executable_entrypoint_binding_boundary.v0`, retained
 `raios.module_loader_descriptor_executable_page_binding_boundary.v0`, retained
@@ -45,10 +47,10 @@ evidence, RAM-only service-slot reservation/binding, loader-runtime source
 evidence, health hooks, rollback hooks, audit/rollback write-boundary evidence,
 entrypoint ABI/address-space/memory-map/capability-table evidence, and the full
 observed live-load lifecycle chain only as current-boot provenance. It reports
-`module_loader_executable_entrypoint_transfer_boundary_non_authorizing`
-while keeping executable entrypoint transfer, entrypoint transfer
-authorization, runnable entrypoint binding, executable page-mapping plan
-production, executable image-layout production, executable
+`module_loader_executable_entrypoint_handoff_boundary_non_authorizing`
+while keeping executable entrypoint handoff, executable entrypoint transfer,
+entrypoint transfer authorization, runnable entrypoint binding, executable
+page-mapping plan production, executable image-layout production, executable
 load-plan authority, executable load-plan production, capability-validated
 descriptor binding to executable pages, descriptor capability validation,
 capability-validated descriptor production, validated descriptor production,
@@ -64,13 +66,13 @@ false. `module.loader_runtime`, denied `module.load_ephemeral` /
 rendering, and selftests now cite the full chain through executable image
 layout, page-mapping plan, executable page mapping, descriptor/executable-page
 binding, executable entrypoint binding, and executable entrypoint transfer
-authorization and explicit executable entrypoint transfer. Full Shadow VM smoke
-passed in
-`release/vm-reports/shadow-20260701-144959-24564.json` with 6545/6545
-predicates, 243 executed commands, and `duration_ms: 548082`; that run used
-`-TimeoutSeconds 300`, `-SerialWriteChunkSize 32`,
-`-SerialWriteDelayMilliseconds 5`, and `-SerialTcpPort 4577` after earlier
-same-slice host TCP serial write closes on ports 4575 and 4576. This
+authorization, explicit executable entrypoint transfer, and executable
+entrypoint handoff. Full Shadow VM smoke passed in
+`release/vm-reports/shadow-20260701-150922-9752.json` with 6578/6578
+predicates, 243 executed commands, and `duration_ms: 562922`; that run used
+`-TimeoutSeconds 300`, `-SerialWriteChunkSize 16`,
+`-SerialWriteDelayMilliseconds 10`, and `-SerialTcpPort 4579` after an earlier
+same-slice host TCP serial write close on port 4578. This
 follows the
 four typed, read-only commit boundaries:
 `raios.module_loader_live_load_commit_boundary.v0`,
@@ -595,10 +597,10 @@ Latest current-cursor verification: 2026-07-01 on Windows with
 `cargo fmt --all -- --check`,
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`,
 `git diff --check`, `scripts\scan-secrets.ps1`, and
-`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 300 -SerialWriteChunkSize 32 -SerialWriteDelayMilliseconds 5 -SerialTcpPort 4577`.
+`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 300 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10 -SerialTcpPort 4579`.
 The passing full report is
-`release\vm-reports\shadow-20260701-144959-24564.json` with 6545/6545
-predicates, 243/243 executed commands, and `duration_ms: 548082`, covering the
+`release\vm-reports\shadow-20260701-150922-9752.json` with 6578/6578
+predicates, 243/243 executed commands, and `duration_ms: 562922`, covering the
 load-attempt, artifact-load, executable-mapping, entrypoint-transfer,
 service-start, service-health-binding, service-running-state,
 service-start-audit, service-unload-cleanup, live-load-commit, commit-audit,
@@ -608,12 +610,13 @@ schema-validation plus descriptor capability-validation, descriptor load-plan,
 executable load-plan authority, executable load-plan result, executable
 image-layout, executable page-mapping plan, executable page-mapping, and
 descriptor/executable-page binding plus executable entrypoint binding,
-executable entrypoint transfer authorization, and executable entrypoint transfer
+executable entrypoint transfer authorization, executable entrypoint transfer,
+and executable entrypoint handoff
 loader-runtime boundaries, denied load-gate/audit projections, event-log memory
 bindings, and the updated loader-runtime selftest matrix. An earlier same-slice
-run on ports 4575 and 4576 closed the host TCP serial write after 183/183
-predicates and 13 commands had passed; the passing run used a fresh port,
-300-second command window, smaller chunks, and delayed serial writes.
+run on port 4578 closed the host TCP serial write after 183/183 predicates and
+13 commands had passed; the passing run used a fresh port, 300-second command
+window, smaller chunks, and delayed serial writes.
 
 Latest host-tool verification: 2026-05-24 on Windows with
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
@@ -1023,11 +1026,11 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the next typed, read-only normal-module executable entrypoint handoff
-boundary: `raios.module_loader_executable_entrypoint_handoff_boundary.v0`. It
-should consume the retained executable entrypoint transfer boundary, retained
-executable entrypoint transfer authorization boundary, retained executable
-entrypoint binding boundary, retained
+Define the next typed, read-only normal-module executable entrypoint invocation
+boundary: `raios.module_loader_executable_entrypoint_invocation_boundary.v0`. It
+should consume the retained executable entrypoint handoff boundary, retained
+executable entrypoint transfer boundary, retained executable entrypoint
+transfer authorization boundary, retained executable entrypoint binding boundary, retained
 descriptor/executable-page binding boundary, retained executable page-mapping
 boundary, retained executable page-mapping plan boundary, retained executable
 image-layout boundary, retained executable load-plan result boundary, retained
@@ -1036,8 +1039,8 @@ boundary, and the full retained module evidence, service-slot
 reservation/binding, loader-runtime source evidence, audit/rollback
 write-boundary evidence, health hooks, rollback hooks, entrypoint ABI,
 memory-map constraints, capability import table, and live-load lifecycle chain.
-It should report an explicit non-authorizing entrypoint-handoff result without
-handing off to a runtime, jumping to a runnable entrypoint, starting a service,
+It should report an explicit non-authorizing entrypoint-invocation result
+without invoking or jumping to a runnable entrypoint, starting a service,
 committing a live load, mutating service inventory, allocating a slot, writing
 durable audit state, installing rollback state, or attempting a load.
 
@@ -1047,18 +1050,18 @@ memory rendering, and `module.loader_runtime_selftest` now cite the chain
 through executable image layout, executable page-mapping plan, executable page
 mapping, descriptor/executable-page binding, executable entrypoint binding,
 executable entrypoint transfer authorization, and explicit executable
-entrypoint transfer as observed, current-boot,
+entrypoint transfer plus executable entrypoint handoff as observed, current-boot,
 non-authorizing boundaries. These follow the descriptor/artifact intake,
 execution authorization, service-registry mutation, retained module evidence,
 RAM-only service-slot, normal loader-runtime source-evidence chain, health
 hooks, rollback hooks, and audit/rollback write-boundary evidence while keeping
 entrypoint transfer authorization, explicit executable entrypoint transfer,
-executable entrypoint binding, executable page binding, executable page
-mapping, descriptor parsing/validation, artifact loading, service start,
-live-load commit,
+executable entrypoint handoff, executable entrypoint binding, executable page
+binding, executable page mapping, descriptor parsing/validation, artifact
+loading, service start, live-load commit,
 service-inventory mutation, service-slot allocation, durable-audit state writes,
 rollback-state installation, and load attempts false. The next durable slice
-should add the explicit executable entrypoint handoff boundary before any
+should add the explicit executable entrypoint invocation boundary before any
 actual entrypoint jump or live service can occur.
 
 Historical recovery refactor notes retained below are no longer the active

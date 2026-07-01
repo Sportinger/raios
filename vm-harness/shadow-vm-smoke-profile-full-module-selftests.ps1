@@ -146,7 +146,7 @@
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_slots" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_no_inventory_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_inventory_none" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_count" -Needle '"case_count": 70' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_count" -Needle '"case_count": 71' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_source_count" -Needle '"source_fact_count": 10' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_source_map_complete" -Needle '"source_fact_map_complete": true' -TimeoutSeconds 1
@@ -303,6 +303,9 @@
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_entrypoint_transfer_boundary_case" -Needle '"case": "executable_entrypoint_transfer_boundary_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_entrypoint_transfer_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_executable_entrypoint_transfer_boundary"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_entrypoint_transfer_boundary_reason" -Needle '"actual_reason": "module_loader_executable_entrypoint_transfer_boundary_source_chain_incomplete"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_entrypoint_handoff_boundary_case" -Needle '"case": "executable_entrypoint_handoff_boundary_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_entrypoint_handoff_boundary_status" -Needle '"actual_status": "denied_missing_module_loader_executable_entrypoint_handoff_boundary"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_loader_runtime_selftest_executable_entrypoint_handoff_boundary_reason" -Needle '"actual_reason": "module_loader_executable_entrypoint_handoff_boundary_source_chain_incomplete"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_ready_case" -Needle '"case": "all_inputs_ready_defined_non_executable"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_ready_status" -Needle '"actual_status": "defined_non_executable"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_loader_runtime_selftest_can_load_false" -Needle '"can_load": false' -TimeoutSeconds 1

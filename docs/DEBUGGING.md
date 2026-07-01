@@ -146,11 +146,11 @@ If a full smoke fails with a host-side TCP write exception or a truncated long
 serial command after all predicates up to the previous command passed, rerun
 with smaller chunks plus write delay before treating it as a guest regression.
 The 2026-07-01 full module-loader report
-`release\vm-reports\shadow-20260701-144959-24564.json` used
-`-TimeoutSeconds 300 -SerialWriteChunkSize 32 -SerialWriteDelayMilliseconds 5 -SerialTcpPort 4577`;
-earlier same-slice runs on ports 4575 and 4576 closed the host TCP serial write
-after 183/183 predicates and 13 commands had passed, and rerunning on a fresh
-port with smaller delayed writes passed. Earlier runs with a 180-second command
+`release\vm-reports\shadow-20260701-150922-9752.json` used
+`-TimeoutSeconds 300 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10 -SerialTcpPort 4579`;
+an earlier same-slice run on port 4578 closed the host TCP serial write after
+183/183 predicates and 13 commands had passed, and rerunning on a fresh port
+with smaller delayed writes passed. Earlier runs with a 180-second command
 window timed out while waiting for final markers in long module-loader
 responses.
 
@@ -651,7 +651,8 @@ also records the live-load sequence as read-only current-boot source evidence:
 `raios.module_loader_descriptor_executable_page_binding_boundary.v0`, and
 `raios.module_loader_executable_entrypoint_binding_boundary.v0`, and
 `raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0`,
-and `raios.module_loader_executable_entrypoint_transfer_boundary.v0`.
+and `raios.module_loader_executable_entrypoint_transfer_boundary.v0`, and
+`raios.module_loader_executable_entrypoint_handoff_boundary.v0`.
 Those
 boundaries consume the retained intake, execution, registry, service-slot,
 health-hook, rollback-hook, audit/rollback, and loader-fact evidence chain only
@@ -668,7 +669,8 @@ production, executable load-plan authority, executable load-plan production,
 descriptor load-plan production,
 capability-validated descriptor executable binding, executable entrypoint
 binding, entrypoint transfer authorization, explicit executable entrypoint
-transfer, descriptor parsing, descriptor-byte intake, and load attempts false.
+transfer, executable entrypoint handoff, descriptor parsing, descriptor-byte
+intake, and load attempts false.
 
 The module loader identity diagnostic emits `raios.module_loader_identity.v0`
 and the selftest emits `raios.module_loader_identity_selftest.v0`. It makes the
@@ -1145,7 +1147,8 @@ live-load sequence through
 `raios.module_loader_descriptor_executable_page_binding_boundary.v0`, and
 `raios.module_loader_executable_entrypoint_binding_boundary.v0`, and
 `raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0`,
-and `raios.module_loader_executable_entrypoint_transfer_boundary.v0`, while still
+and `raios.module_loader_executable_entrypoint_transfer_boundary.v0`, and
+`raios.module_loader_executable_entrypoint_handoff_boundary.v0`, while still
 keeping `loads_artifact: false`, `creates_service_inventory_records: false`,
 `service_inventory_change: none`, `starts_service: false`,
 `creates_service_health_records: false`, `marks_service_running: false`,

@@ -279,8 +279,9 @@ Verified in the VM today:
   schema-validation, capability-validation, load-plan, executable load-plan
   authority/result, executable image-layout, executable page-mapping plan, and
   executable page-mapping, descriptor/executable-page binding, and executable
-  entrypoint binding, executable entrypoint transfer authorization, and
-  executable entrypoint transfer boundaries, all still non-authorizing
+  entrypoint binding, executable entrypoint transfer authorization, executable
+  entrypoint transfer, and executable entrypoint handoff boundaries, all still
+  non-authorizing
 - a Shadow VM smoke harness that verifies the real boot and serial protocol path
   and writes `raios.vm_test_report.v0` reports
 
