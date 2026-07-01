@@ -391,10 +391,14 @@ module.load_ephemeral svc.demo.nope
 module.load_ephemeral external:svc.demo.hello
 module.load_ephemeral svc.demo.hello
 services
+service.health svc.demo.hello
 service.stop svc.demo.hello
+service.health svc.demo.hello
 service.drop svc.demo.hello
+service.health svc.demo.hello
 module.load_ephemeral host_bound:svc.demo.hello
 services
+service.health svc.demo.hello
 service.stop svc.demo.hello
 service.drop svc.demo.hello
 agent audit.events 32
@@ -412,16 +416,22 @@ the descriptor source locator
 hash, and the source text must carry the canonical key/value fields used by the
 validator, including `source_locator` and `source_kind`. `services` must show
 `svc.demo.hello` only while loaded and cite the same
-descriptor id/source/kind/validation/hash. `audit.events` must show
-`raios.ram_only_hello_service.lifecycle` records whose evidence/bindings cite
-the same load descriptor and validated source hash.
+descriptor id/source/kind/validation/hash. `service.health svc.demo.hello`
+must return `raios.ram_only_hello_service.health.v0`, report healthy while
+loaded/running, stopped while loaded/not running, and missing after drop, and
+cite the active descriptor source hash while loaded. `audit.events` must show
+`raios.ram_only_hello_service.lifecycle` and
+`raios.ram_only_hello_service.health` records whose evidence/bindings cite the
+same load descriptor and validated source hash.
 
 The host-bound positive command must cite
 `host_build.descriptor_source.svc.demo.hello.v0`, source kind
 `host_bound_descriptor_source`, and `binds_source_locator`,
 `binds_source_kind`, and `binds_source_hash` equal to the current-image source
-locator/kind/hash. The path must keep external artifact bytes, persistence,
-durable audit writes, rollback installation, and broad mutation disabled.
+locator/kind/hash. The host-bound health response and health audit event must
+cite the host-bound source hash plus the bound current-image source hash. The
+path must keep external artifact bytes, persistence, durable audit writes,
+rollback installation, and broad mutation disabled.
 
 After a matching manifest, artifact, Shadow-VM report, and local attestation
 exist, compute the host-side grant diagnostic with:

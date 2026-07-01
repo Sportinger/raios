@@ -272,11 +272,11 @@ Verified in the VM today:
 - first positive RAM-only service lifecycle:
   `module.load_ephemeral svc.demo.hello` consumes a typed current-boot load
   descriptor from a validated current-image descriptor-source record, exposes
-  `svc.demo.hello` through `service.inventory`, supports stop/drop, and leaves
-  RAM-only lifecycle audit events bound to the same descriptor source hash; a
-  second `host_bound:svc.demo.hello` path uses a host-produced descriptor-source
-  candidate that binds the current-image source hash while still loading only
-  the built-in current-boot service
+  `svc.demo.hello` through `service.inventory`, supports health/stop/drop, and
+  leaves RAM-only lifecycle and health audit events bound to the same descriptor
+  source hash; a second `host_bound:svc.demo.hello` path uses a host-produced
+  descriptor-source candidate that binds the current-image source hash while
+  still loading only the built-in current-boot service
 - Phase-6 normal-module loader diagnostics through descriptor/artifact intake,
   execution authorization, service-registry mutation, live-load attempt,
   artifact-load, executable-mapping, entrypoint-transfer, service-start,

@@ -331,6 +331,10 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         emit_service_inventory(runtime);
         return DispatchOutcome::Response("service.inventory");
     }
+    if hello_service::is_health_method(method) {
+        let method = hello_service::emit_health(method);
+        return DispatchOutcome::Response(method);
+    }
     if method_eq(method, "memory.profile") || method_eq(method, "memprofile") {
         record_read("memory.profile");
         emit_memory_profile();

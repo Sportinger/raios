@@ -2,8 +2,9 @@ use spin::Mutex;
 
 use crate::event_log_evidence::{
     DENIED_EVIDENCE, DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE,
-    HELLO_SERVICE_LIFECYCLE_EVIDENCE, MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE,
-    MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE, MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
+    HELLO_SERVICE_HEALTH_EVIDENCE, HELLO_SERVICE_LIFECYCLE_EVIDENCE,
+    MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE, MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE,
+    MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
     MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE,
     MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SOURCE_EVIDENCE,
@@ -4129,6 +4130,29 @@ pub fn record_hello_service_lifecycle(
         resource: "svc.demo.hello",
         reason,
         evidence: HELLO_SERVICE_LIFECYCLE_EVIDENCE,
+        bindings: EventBindings::HelloServiceLifecycle(binding),
+    })
+}
+
+pub fn record_hello_service_health(
+    source_method: &'static str,
+    outcome: &'static str,
+    reason: &'static str,
+    binding: HelloServiceLifecycleBinding,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "raios.ram_only_hello_service.health",
+        source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome,
+        requested_capability: "cap.service.health.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "svc.demo.hello",
+        reason,
+        evidence: HELLO_SERVICE_HEALTH_EVIDENCE,
         bindings: EventBindings::HelloServiceLifecycle(binding),
     })
 }

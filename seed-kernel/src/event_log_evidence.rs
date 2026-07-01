@@ -13,6 +13,19 @@ pub(crate) const HELLO_SERVICE_LIFECYCLE_EVIDENCE: &[&str] = &[
     "ram_only_state_transition",
     "service_inventory_projection",
 ];
+pub(crate) const HELLO_SERVICE_HEALTH_EVIDENCE: &[&str] = &[
+    "raios.current_boot_load_descriptor.v0",
+    "load_descriptor.current_boot.svc.demo.hello.v0",
+    "load_descriptor_source_locator",
+    "current_image_descriptor_source",
+    "host_bound_descriptor_source",
+    "bound_descriptor_source_hash",
+    "descriptor_source_intake_validated",
+    "load_descriptor_source_hash",
+    "builtin_stage0_test_service",
+    "ram_only_health_read",
+    "service_inventory_projection",
+];
 pub(crate) const PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE: &[&str] = &[
     "provider_request_binding_denied",
     "projected_packet_hash",

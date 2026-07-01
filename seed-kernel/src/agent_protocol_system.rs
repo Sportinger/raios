@@ -53,6 +53,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         summary: "read static service inventory",
     },
     Capability {
+        id: "cap.service.health.read",
+        risk: "observe",
+        granted: true,
+        scope: "current_boot",
+        summary: "read current-boot service health",
+    },
+    Capability {
         id: "cap.device.graph.read",
         risk: "observe",
         granted: true,
@@ -209,6 +216,7 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "device.graph",
     "problem.list",
     "service.inventory",
+    "service.health",
     "memory.profile",
     "memory.context",
     "memory.query",

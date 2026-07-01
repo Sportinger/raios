@@ -169,6 +169,10 @@ pub(crate) fn is_drop_method(method: &str) -> bool {
     target_arg_matches(method, "service.drop")
 }
 
+pub(crate) fn is_health_method(method: &str) -> bool {
+    target_arg_matches(method, "service.health")
+}
+
 pub(crate) fn emit_load_start(method: &str) -> &'static str {
     let Some(request) = load_request(method) else {
         return "module.load_ephemeral";
@@ -193,6 +197,12 @@ pub(crate) fn emit_drop(_method: &str) -> &'static str {
     let snapshot = drop_service("service.drop");
     emit_response("service.drop", "drop", snapshot, snapshot.load_descriptor);
     "service.drop"
+}
+
+pub(crate) fn emit_health(_method: &str) -> &'static str {
+    let (snapshot, event_id) = health_probe("service.health");
+    emit_health_response("service.health", snapshot, event_id);
+    "service.health"
 }
 
 fn load_start(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot {
@@ -296,6 +306,26 @@ fn drop_service(source_method: &'static str) -> Snapshot {
     snapshot
 }
 
+fn health_probe(source_method: &'static str) -> (Snapshot, event_log::EventId) {
+    let state = STATE.lock();
+    let snapshot = state.snapshot();
+    let health = health_state(snapshot);
+    let reason = if snapshot.running {
+        "health_probe_healthy"
+    } else if snapshot.loaded {
+        "health_probe_stopped"
+    } else {
+        "health_probe_missing"
+    };
+    let event_id = event_log::record_hello_service_health(
+        source_method,
+        health,
+        reason,
+        lifecycle_binding(snapshot.load_descriptor, "none"),
+    );
+    (snapshot, event_id)
+}
+
 fn load_request(method: &str) -> Option<LoadRequest> {
     load_request_for_head(method, "module.load_ephemeral")
         .or_else(|| load_request_for_head(method, "service.load_ephemeral"))
@@ -394,6 +424,16 @@ fn descriptor_target_matches(target: &str, descriptor: LoadDescriptor) -> bool {
         || target.eq_ignore_ascii_case(descriptor.id)
 }
 
+fn health_state(snapshot: Snapshot) -> &'static str {
+    if snapshot.running {
+        "healthy"
+    } else if snapshot.loaded {
+        "stopped"
+    } else {
+        "missing"
+    }
+}
+
 fn lifecycle_binding(
     descriptor: LoadDescriptor,
     service_inventory_change: &'static str,
@@ -414,6 +454,86 @@ fn lifecycle_binding(
         loads_external_artifact: false,
         writes_persistent_state: false,
     }
+}
+
+fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: event_log::EventId) {
+    let descriptor = snapshot.load_descriptor;
+    begin_response(method);
+    raw_line("      \"schema\": \"raios.ram_only_hello_service.health.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"persistence\": \"none\",");
+    raw_line("      \"action\": \"health_probe\",");
+    raw("      \"event_id\": ");
+    json_event_id_option(Some(event_id));
+    raw_line(",");
+    raw("      \"audit_event_id\": ");
+    json_event_id_option(Some(event_id));
+    raw_line(",");
+    raw_line("      \"service\": {");
+    raw("        \"id\": ");
+    json_str(SERVICE_ID);
+    raw_line(",");
+    raw_line("        \"kind\": \"service\",");
+    raw("        \"loaded\": ");
+    raw_bool(snapshot.loaded);
+    raw_line(",");
+    raw("        \"running\": ");
+    raw_bool(snapshot.running);
+    raw_line(",");
+    raw("        \"health\": ");
+    json_str(health_state(snapshot));
+    raw_line(",");
+    raw("        \"generation\": ");
+    raw_fmt(format_args!("{}", snapshot.generation));
+    raw_line(",");
+    raw("        \"last_action\": ");
+    json_str(snapshot.last_action);
+    raw_line(",");
+    raw("        \"last_reason\": ");
+    json_str(snapshot.last_reason);
+    raw_line(",");
+    raw("        \"capabilities\": [");
+    emit_inline_string_array(CAPABILITIES);
+    raw_line("]");
+    raw_line("      },");
+    raw_line("      \"load_descriptor\": {");
+    raw("        \"schema\": ");
+    json_str(descriptor.schema);
+    raw_line(",");
+    raw("        \"id\": ");
+    json_str(descriptor.id);
+    raw_line(",");
+    raw_line("        \"source\": {");
+    raw("          \"locator\": ");
+    json_str(descriptor.source_locator);
+    raw_line(",");
+    raw("          \"kind\": ");
+    json_str(descriptor.source_kind);
+    raw_line(",");
+    raw_line("          \"validated\": true,");
+    raw("          \"sha256\": ");
+    json_sha256(descriptor_source_hash(descriptor));
+    raw_line(",");
+    raw("          \"binds_source_locator\": ");
+    json_opt_str(descriptor.binds_source_locator);
+    raw_line(",");
+    raw("          \"binds_source_kind\": ");
+    json_opt_str(descriptor.binds_source_kind);
+    raw_line(",");
+    raw("          \"binds_source_hash\": ");
+    json_sha256_option(descriptor.binds_source_hash);
+    raw_line("");
+    raw_line("        }");
+    raw_line("      },");
+    raw_line("      \"denied_surfaces\": {");
+    raw_line("        \"external_artifact_load\": \"denied\",");
+    raw_line("        \"persistent_install\": \"denied\",");
+    raw_line("        \"durable_audit\": \"denied\",");
+    raw_line("        \"rollback_install\": \"denied\",");
+    raw_line("        \"broad_mutation\": \"denied\"");
+    raw_line("      }");
+    end_response(method);
 }
 
 fn emit_response(

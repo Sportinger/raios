@@ -444,7 +444,7 @@ fn emit_event(event: &event_log::Event, comma: bool) {
     raw(", \"evidence\": [");
     emit_inline_string_array(event.evidence);
     raw("], \"created_at\": {\"clock\": \"sequence_only\", \"millis\": null}");
-    emit_event_bindings(event.bindings);
+    emit_event_bindings(event.kind, event.bindings);
     raw(", \"persistence\": \"none\"}");
     if comma {
         raw(",");
@@ -452,11 +452,15 @@ fn emit_event(event: &event_log::Event, comma: bool) {
     crlf();
 }
 
-fn emit_event_bindings(bindings: event_log::EventBindings) {
+fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
     match bindings {
         event_log::EventBindings::None => {}
         event_log::EventBindings::HelloServiceLifecycle(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.lifecycle_binding.v0\", \"status\": \"current_boot_state_transition\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
+            if kind == "raios.ram_only_hello_service.health" {
+                raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.health_binding.v0\", \"status\": \"current_boot_health_read\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
+            } else {
+                raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.lifecycle_binding.v0\", \"status\": \"current_boot_state_transition\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
+            }
             json_str(binding.descriptor_schema);
             raw(", \"load_descriptor_id\": ");
             json_str(binding.descriptor_id);

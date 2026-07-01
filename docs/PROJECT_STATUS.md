@@ -28,8 +28,9 @@ Active execution memory: as of 2026-07-02, Phase 6 has its first positive
 RAM-only service vertical slice: `raios.ram_only_hello_service.v0`. The kernel
 can load/start the built-in `svc.demo.hello` test service through a typed
 current-boot load request/descriptor, expose it through `service.inventory`,
-stop it, drop it, and retain RAM-only lifecycle audit events that cite the
-descriptor plus a validated current-image descriptor-source locator/kind/hash.
+report health, stop it, drop it, and retain RAM-only lifecycle/health audit
+events that cite the descriptor plus a validated current-image
+descriptor-source locator/kind/hash.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -40,12 +41,11 @@ boundary by default. Persistence, arbitrary external artifact intake, durable
 audit writes, rollback installation, provider-triggered auto-load, and broad
 module/service/config mutation remain denied.
 
-Last verified locally: 2026-07-02 on Windows with QEMU 11 after replacing
-exact-text descriptor-source validation with the smallest shared canonical
-key/value validator for the current-image and host-bound Hello sources. Quick
-Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-013416-14956.json` with 158/158 predicates,
-24 executed commands, and `duration_ms: 55324`: bare
+Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
+first explicit RAM-only `service.health svc.demo.hello` probe to the positive
+Hello service path. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-014101-2844.json` with 167/167 predicates,
+28 executed commands, and `duration_ms: 52693`: bare
 `module.load_ephemeral`, `module.load_ephemeral svc.demo.nope`, and
 `module.load_ephemeral external:svc.demo.hello` still return the
 non-authorizing module-load gate, then
@@ -62,20 +62,30 @@ the three false mutation/artifact/persistence booleans instead of accepting only
 one exact source-text byte sequence. It inserts a healthy/running current-boot
 `svc.demo.hello` service into `service.inventory` with
 `load_descriptor.current_boot.svc.demo.hello.v0` and the same descriptor
-source locator/kind/validation/hash,
+source locator/kind/validation/hash. `service.health svc.demo.hello` now returns
+`raios.ram_only_hello_service.health.v0`, reports healthy/running while loaded,
+cites the same active descriptor source hash, and records a local-only
+`raios.ram_only_hello_service.health` RAM event with
+`raios.ram_only_hello_service.health_binding.v0`.
 `service.stop svc.demo.hello` marks it stopped,
+`service.health svc.demo.hello` reports stopped while the service remains
+loaded,
 `service.drop svc.demo.hello` removes it from `service.inventory`.
+After drop, `service.health svc.demo.hello` reports missing without accepting
+external artifact bytes or writing persistent state.
 Then `module.load_ephemeral host_bound:svc.demo.hello` loads the same built-in
 RAM-only service through `host_build.descriptor_source.svc.demo.hello.v0` with
 source kind `host_bound_descriptor_source`; the host-bound source text and
 runtime fields bind the current-image descriptor source locator, source kind,
-and source hash, and `service.inventory`, `service.stop`, `service.drop`, and
-`agent audit.events 32` keep citing the host-bound source and its bound
-current-image source hash.
+and source hash, and `service.inventory`, `service.health`, `service.stop`,
+`service.drop`, and `agent audit.events 32` keep citing the host-bound source
+and its bound current-image source hash.
 The final audit read includes six
 `raios.ram_only_hello_service.lifecycle` events for `svc.demo.hello` whose
 evidence/bindings cite the load descriptor and the selected validated
-descriptor-source hash.
+descriptor-source hash plus at least four
+`raios.ram_only_hello_service.health` events covering healthy, stopped, missing,
+and host-bound healthy states.
 The slice uses only a built-in Stage-0 test artifact, accepts no external
 artifact bytes, writes no persistent state, writes no durable audit log,
 installs no rollback plan, and grants no broad mutation.
@@ -1082,13 +1092,13 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that two descriptor-source records are validated through shared canonical
-key/value field checks, add the first explicit RAM-only service health probe for
-`svc.demo.hello`. Keep it on the existing built-in/current-boot service path;
-do not widen descriptor intake, accept external artifact bytes, load signed
-artifacts, write persistent state, write durable audit logs, install rollback
-plans, trigger provider auto-load, or grant broad module/service/config
-mutation.
+Now that `svc.demo.hello` has load/start/list/health/stop/drop behavior with
+RAM-only lifecycle and health evidence, add the smallest signed descriptor
+envelope candidate for the existing Hello descriptor-source path. Keep it bound
+to the built-in/current-boot service; do not accept arbitrary descriptor bytes,
+load external artifacts, write persistent state, write durable audit logs,
+install rollback plans, trigger provider auto-load, or grant broad
+module/service/config mutation.
 
 The next slice should:
 
@@ -1097,12 +1107,14 @@ The next slice should:
   passing in quick VM smoke
 - keep `raios.current_boot_load_request.v0` and
   `raios.current_boot_load_descriptor.v0` in the positive path
-- add one read-only `service.health svc.demo.hello` style probe or the existing
-  local naming equivalent, using the same loaded/stopped/missing state as
-  `service.inventory`
-- record current-boot RAM-only health-read evidence that cites the active load
-  descriptor and validated descriptor-source hash when the service is loaded
-- prove loaded, stopped, and dropped/missing health states in quick VM smoke
+- keep `service.health svc.demo.hello` proving healthy, stopped, missing, and
+  host-bound source-bound states in quick VM smoke
+- add one signed envelope over an existing built-in Hello descriptor-source text
+  or its host-bound candidate, using repo-local signing/verification primitives
+  if they already fit
+- verify the envelope before selecting that descriptor source, and expose the
+  envelope id/hash/signature verification state in the load response,
+  `service.inventory`, `service.health`, and RAM audit bindings
 - keep the selected descriptor source locator/kind/validation/hash plus any
   bound source hash visible in load response, service.inventory, health output,
   and lifecycle/health audit event
@@ -1110,9 +1122,8 @@ The next slice should:
   rollback installation, provider-triggered auto-load, and broad
   module/service/config mutation denied
 
-Do not add a signed artifact loader yet. Grow the positive service lifecycle
-through health observation first, because Phase 6 needs service health before
-hot-swap, rollback, or persistent promotion can mean anything.
+Do not add a signed artifact loader yet. The next step is descriptor-source
+trust on the already-working built-in service path, not arbitrary module bytes.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:

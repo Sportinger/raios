@@ -96,6 +96,8 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         "cap.problem.list.read"
     } else if method_eq(method, "service.inventory") {
         "cap.service.inventory.read"
+    } else if method_eq(method, "service.health") {
+        "cap.service.health.read"
     } else if method_eq(method, "memory.profile") {
         "cap.memory.profile.read"
     } else if method_eq(method, "memory.context") {

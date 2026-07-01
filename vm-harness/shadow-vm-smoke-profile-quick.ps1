@@ -117,6 +117,19 @@
             throw "Expected svc.demo.hello inventory record to cite the load descriptor source hash"
         }
 
+        Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
+        $helloHealthRunning = Get-LastAgentResponseJson -Method "service.health"
+        Assert-CurrentBootEventId -Name "quick:hello_health_running_event_id" -Value $helloHealthRunning.body.result.event_id
+        if ($helloHealthRunning.body.result.schema -ne "raios.ram_only_hello_service.health.v0") {
+            throw "Expected typed hello health response"
+        }
+        if ($helloHealthRunning.body.result.service.health -ne "healthy" -or -not $helloHealthRunning.body.result.service.loaded -or -not $helloHealthRunning.body.result.service.running) {
+            throw "Expected hello health probe to report healthy/running after load"
+        }
+        if ($helloHealthRunning.body.result.load_descriptor.source.sha256 -ne $helloDescriptorHash -or $helloHealthRunning.body.result.load_descriptor.source.kind -ne $helloDescriptorKind) {
+            throw "Expected hello health probe to cite the current-image descriptor source"
+        }
+
         Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
         $helloStop = Get-LastAgentResponseJson -Method "service.stop"
         Assert-CurrentBootEventId -Name "quick:hello_stop_event_id" -Value $helloStop.body.result.event_id
@@ -124,11 +137,28 @@
             throw "Expected stopped hello service after service.stop"
         }
 
+        Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
+        $helloHealthStopped = Get-LastAgentResponseJson -Method "service.health"
+        Assert-CurrentBootEventId -Name "quick:hello_health_stopped_event_id" -Value $helloHealthStopped.body.result.event_id
+        if ($helloHealthStopped.body.result.service.health -ne "stopped" -or -not $helloHealthStopped.body.result.service.loaded -or $helloHealthStopped.body.result.service.running) {
+            throw "Expected hello health probe to report stopped while loaded"
+        }
+        if ($helloHealthStopped.body.result.load_descriptor.source.sha256 -ne $helloDescriptorHash) {
+            throw "Expected stopped hello health probe to retain descriptor source evidence"
+        }
+
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $helloDrop = Get-LastAgentResponseJson -Method "service.drop"
         Assert-CurrentBootEventId -Name "quick:hello_drop_event_id" -Value $helloDrop.body.result.event_id
         if ($helloDrop.body.result.service.loaded -or $helloDrop.body.result.service.running) {
             throw "Expected dropped hello service after service.drop"
+        }
+
+        Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
+        $helloHealthMissing = Get-LastAgentResponseJson -Method "service.health"
+        Assert-CurrentBootEventId -Name "quick:hello_health_missing_event_id" -Value $helloHealthMissing.body.result.event_id
+        if ($helloHealthMissing.body.result.service.health -ne "missing" -or $helloHealthMissing.body.result.service.loaded -or $helloHealthMissing.body.result.service.running) {
+            throw "Expected hello health probe to report missing after drop"
         }
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
@@ -196,6 +226,16 @@
             throw "Expected host-bound inventory record to bind the current-image descriptor source hash"
         }
 
+        Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
+        $hostHealthRunning = Get-LastAgentResponseJson -Method "service.health"
+        Assert-CurrentBootEventId -Name "quick:hello_health_host_running_event_id" -Value $hostHealthRunning.body.result.event_id
+        if ($hostHealthRunning.body.result.service.health -ne "healthy" -or -not $hostHealthRunning.body.result.service.running) {
+            throw "Expected host-bound hello health probe to report healthy/running"
+        }
+        if ($hostHealthRunning.body.result.load_descriptor.source.sha256 -ne $hostDescriptorHash -or $hostHealthRunning.body.result.load_descriptor.source.binds_source_hash -ne $helloDescriptorHash) {
+            throw "Expected host-bound hello health probe to cite the host-bound source and bound current-image hash"
+        }
+
         Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
         $hostStop = Get-LastAgentResponseJson -Method "service.stop"
         if ($hostStop.body.result.loader.descriptor_source_locator -ne $hostDescriptorLocator) {
@@ -234,12 +274,25 @@
         if ($hostDescriptorSourceEvents.Count -lt 3) {
             throw "Expected host-bound hello lifecycle events to cite the bound current-image descriptor source hash"
         }
+        $helloHealthEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.health" -and $_.resource -eq "svc.demo.hello" })
+        if ($helloHealthEvents.Count -lt 4) {
+            throw "Expected hello health probe events in RAM audit log"
+        }
+        $helloHealthStateEvents = @($helloHealthEvents | Where-Object { @("healthy", "stopped", "missing") -contains $_.outcome })
+        if ($helloHealthStateEvents.Count -lt 3) {
+            throw "Expected hello health events to cover healthy, stopped, and missing states"
+        }
+        $hostHealthEvents = @($helloHealthEvents | Where-Object { $_.bindings.load_descriptor_source_hash -eq $hostDescriptorHash -and $_.bindings.binds_source_hash -eq $helloDescriptorHash })
+        if ($hostHealthEvents.Count -lt 1) {
+            throw "Expected host-bound health event to cite the host-bound source and bound current-image hash"
+        }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 32' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_module_load_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_recovery_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_kind" -Needle '"kind": "raios.ram_only_hello_service.lifecycle"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_health_kind" -Needle '"kind": "raios.ram_only_hello_service.health"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_resource" -Needle '"resource": "svc.demo.hello"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor" -Needle "load_descriptor.current_boot.svc.demo.hello.v0" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_hash" -Needle '"load_descriptor_source_hash": "sha256:' -TimeoutSeconds 1
