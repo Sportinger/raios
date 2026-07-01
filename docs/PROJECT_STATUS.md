@@ -24,10 +24,22 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Last verified locally: 2026-07-01 on Windows with QEMU 11 after adding the
+Active execution memory: as of 2026-07-02, stop advancing Phase 6 through
+another non-authorizing loader boundary by default. Keep the evidence chain and
+fail-closed denials, but pivot the active cursor to the first positive
+RAM-only service vertical slice: `raios.ram_only_hello_service.v0`. The next
+work should load/start a tiny labeled built-in test service through the real
+Stage-0 loader, make it visible in `service.inventory`, stop/drop it, and emit
+RAM-only audit/event evidence, while continuing to deny persistence, arbitrary
+external artifact intake, durable audit writes, rollback installation, and broad
+module/service/config mutation. Add new schema-only boundaries only when they
+are the smallest blocker for that load/start/list/stop/drop path.
+
+Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
 typed, read-only
-`raios.module_loader_executable_entrypoint_handoff_boundary.v0`
-on top of the executable entrypoint transfer boundary,
+`raios.module_loader_executable_entrypoint_invocation_boundary.v0`
+on top of the executable entrypoint handoff boundary,
+executable entrypoint transfer boundary,
 executable entrypoint transfer authorization boundary,
 executable entrypoint binding boundary,
 descriptor/executable-page binding boundary, executable page-mapping boundary,
@@ -36,6 +48,7 @@ executable load-plan result, executable load-plan authority, descriptor
 load-plan, descriptor capability-validation, descriptor schema-validation,
 descriptor-parser result, descriptor-parser contract, descriptor-acceptance
 authority, live-load, and commit sequence. It consumes the retained
+`raios.module_loader_executable_entrypoint_handoff_boundary.v0`,
 `raios.module_loader_executable_entrypoint_transfer_boundary.v0`,
 `raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0`,
 `raios.module_loader_executable_entrypoint_binding_boundary.v0`, retained
@@ -47,9 +60,9 @@ evidence, RAM-only service-slot reservation/binding, loader-runtime source
 evidence, health hooks, rollback hooks, audit/rollback write-boundary evidence,
 entrypoint ABI/address-space/memory-map/capability-table evidence, and the full
 observed live-load lifecycle chain only as current-boot provenance. It reports
-`module_loader_executable_entrypoint_handoff_boundary_non_authorizing`
-while keeping executable entrypoint handoff, executable entrypoint transfer,
-entrypoint transfer authorization, runnable entrypoint binding, executable
+`module_loader_executable_entrypoint_invocation_boundary_non_authorizing`
+while keeping executable entrypoint invocation, executable entrypoint handoff,
+executable entrypoint transfer, entrypoint transfer authorization, runnable entrypoint binding, executable
 page-mapping plan production, executable image-layout production, executable
 load-plan authority, executable load-plan production, capability-validated
 descriptor binding to executable pages, descriptor capability validation,
@@ -66,13 +79,12 @@ false. `module.loader_runtime`, denied `module.load_ephemeral` /
 rendering, and selftests now cite the full chain through executable image
 layout, page-mapping plan, executable page mapping, descriptor/executable-page
 binding, executable entrypoint binding, and executable entrypoint transfer
-authorization, explicit executable entrypoint transfer, and executable
-entrypoint handoff. Full Shadow VM smoke passed in
-`release/vm-reports/shadow-20260701-150922-9752.json` with 6578/6578
-predicates, 243 executed commands, and `duration_ms: 562922`; that run used
+authorization, explicit executable entrypoint transfer, executable entrypoint
+handoff, and executable entrypoint invocation. Full Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-001225-25068.json` with 6611/6611
+predicates, 243 executed commands, and `duration_ms: 541342`; that run used
 `-TimeoutSeconds 300`, `-SerialWriteChunkSize 16`,
-`-SerialWriteDelayMilliseconds 10`, and `-SerialTcpPort 4579` after an earlier
-same-slice host TCP serial write close on port 4578. This
+`-SerialWriteDelayMilliseconds 10`, and `-SerialTcpPort 4581`. This
 follows the
 four typed, read-only commit boundaries:
 `raios.module_loader_live_load_commit_boundary.v0`,
@@ -592,15 +604,15 @@ local-only retained local-approval reference gate selftests.
 Direct OpenAI pin-mismatch plus SPKI pinned-trust smokes using a fake local API
 key remain previously verified from the prior handoff.
 
-Latest current-cursor verification: 2026-07-01 on Windows with
+Latest current-cursor verification: 2026-07-02 on Windows with
 `scripts\build-seed-kernel.ps1 -Profile release`,
 `cargo fmt --all -- --check`,
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`,
 `git diff --check`, `scripts\scan-secrets.ps1`, and
-`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 300 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10 -SerialTcpPort 4579`.
+`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 300 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10 -SerialTcpPort 4581`.
 The passing full report is
-`release\vm-reports\shadow-20260701-150922-9752.json` with 6578/6578
-predicates, 243/243 executed commands, and `duration_ms: 562922`, covering the
+`release\vm-reports\shadow-20260702-001225-25068.json` with 6611/6611
+predicates, 243/243 executed commands, and `duration_ms: 541342`, covering the
 load-attempt, artifact-load, executable-mapping, entrypoint-transfer,
 service-start, service-health-binding, service-running-state,
 service-start-audit, service-unload-cleanup, live-load-commit, commit-audit,
@@ -611,12 +623,11 @@ executable load-plan authority, executable load-plan result, executable
 image-layout, executable page-mapping plan, executable page-mapping, and
 descriptor/executable-page binding plus executable entrypoint binding,
 executable entrypoint transfer authorization, executable entrypoint transfer,
-and executable entrypoint handoff
+executable entrypoint handoff, and executable entrypoint invocation
 loader-runtime boundaries, denied load-gate/audit projections, event-log memory
-bindings, and the updated loader-runtime selftest matrix. An earlier same-slice
-run on port 4578 closed the host TCP serial write after 183/183 predicates and
-13 commands had passed; the passing run used a fresh port, 300-second command
-window, smaller chunks, and delayed serial writes.
+bindings, and the updated loader-runtime selftest matrix. The passing run used
+a fresh port, 300-second command window, smaller chunks, and delayed serial
+writes.
 
 Latest host-tool verification: 2026-05-24 on Windows with
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
@@ -1026,43 +1037,27 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the next typed, read-only normal-module executable entrypoint invocation
-boundary: `raios.module_loader_executable_entrypoint_invocation_boundary.v0`. It
-should consume the retained executable entrypoint handoff boundary, retained
-executable entrypoint transfer boundary, retained executable entrypoint
-transfer authorization boundary, retained executable entrypoint binding boundary, retained
-descriptor/executable-page binding boundary, retained executable page-mapping
-boundary, retained executable page-mapping plan boundary, retained executable
-image-layout boundary, retained executable load-plan result boundary, retained
-executable load-plan authority boundary, retained descriptor load-plan
-boundary, and the full retained module evidence, service-slot
-reservation/binding, loader-runtime source evidence, audit/rollback
-write-boundary evidence, health hooks, rollback hooks, entrypoint ABI,
-memory-map constraints, capability import table, and live-load lifecycle chain.
-It should report an explicit non-authorizing entrypoint-invocation result
-without invoking or jumping to a runnable entrypoint, starting a service,
-committing a live load, mutating service inventory, allocating a slot, writing
-durable audit state, installing rollback state, or attempting a load.
+Build `raios.ram_only_hello_service.v0` as the first positive normal-service
+vertical slice. The current non-authorizing loader evidence chain is retained
+as verified source context, but the next durable slice should stop expanding it
+by default and instead prove one real current-boot service lifecycle.
 
-The current Phase-6 loader-runtime aggregate, denied `module.load_ephemeral`
-loader-runtime readiness projection, compact audit/event binding, event-log
-memory rendering, and `module.loader_runtime_selftest` now cite the chain
-through executable image layout, executable page-mapping plan, executable page
-mapping, descriptor/executable-page binding, executable entrypoint binding,
-executable entrypoint transfer authorization, and explicit executable
-entrypoint transfer plus executable entrypoint handoff as observed, current-boot,
-non-authorizing boundaries. These follow the descriptor/artifact intake,
-execution authorization, service-registry mutation, retained module evidence,
-RAM-only service-slot, normal loader-runtime source-evidence chain, health
-hooks, rollback hooks, and audit/rollback write-boundary evidence while keeping
-entrypoint transfer authorization, explicit executable entrypoint transfer,
-executable entrypoint handoff, executable entrypoint binding, executable page
-binding, executable page mapping, descriptor parsing/validation, artifact
-loading, service start, live-load commit,
-service-inventory mutation, service-slot allocation, durable-audit state writes,
-rollback-state installation, and load attempts false. The next durable slice
-should add the explicit executable entrypoint invocation boundary before any
-actual entrypoint jump or live service can occur.
+The hello slice should:
+
+- load/start a tiny labeled built-in `svc.demo.hello` test artifact through the
+  real Stage-0 loader path
+- allocate only RAM-only current-boot service state
+- mutate `service.inventory` only for that service and expose a running/healthy
+  state
+- emit RAM-only audit/event evidence for load/start/list/stop/drop
+- support stop/drop with a rollback-surrogate cleanup path
+- keep persistence, arbitrary external artifact intake, durable audit writes,
+  rollback installation, provider-triggered auto-load, and broad
+  module/service/config mutation denied
+
+Add a new schema-only boundary only when it is the smallest blocker for this
+load/start/list/stop/drop path. Otherwise record the missing deeper mechanism as
+an explicit known gap and keep moving toward the positive slice.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:

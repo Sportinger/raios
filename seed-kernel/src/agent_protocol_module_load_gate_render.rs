@@ -492,6 +492,8 @@ struct ModuleLoadGateLoaderLiveLoadBoundaryProjection {
     executable_entrypoint_transfer_authorization_boundary_source_chain_complete: bool,
     executable_entrypoint_transfer_boundary_present: bool,
     executable_entrypoint_transfer_boundary_source_chain_complete: bool,
+    executable_entrypoint_handoff_boundary_present: bool,
+    executable_entrypoint_handoff_boundary_source_chain_complete: bool,
     artifact_byte_intake_boundary_present: bool,
     artifact_byte_intake_boundary_source_chain_complete: bool,
     execution_authorization_boundary_present: bool,
@@ -970,6 +972,15 @@ fn module_load_gate_loader_executable_entrypoint_handoff_boundary_projection(
     )
 }
 
+fn module_load_gate_loader_executable_entrypoint_invocation_boundary_projection(
+) -> ModuleLoadGateLoaderLiveLoadBoundaryProjection {
+    module_load_gate_loader_live_load_boundary_projection(
+        event_log::latest_module_loader_executable_entrypoint_invocation_boundary_source_evidence(),
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_MISSING_STATUS,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON,
+    )
+}
+
 fn module_load_gate_loader_live_load_boundary_projection(
     latest: Option<(
         event_log::EventId,
@@ -1085,6 +1096,10 @@ fn module_load_gate_loader_live_load_boundary_projection(
                 .executable_entrypoint_transfer_boundary_present,
             executable_entrypoint_transfer_boundary_source_chain_complete: evidence
                 .executable_entrypoint_transfer_boundary_source_chain_complete,
+            executable_entrypoint_handoff_boundary_present: evidence
+                .executable_entrypoint_handoff_boundary_present,
+            executable_entrypoint_handoff_boundary_source_chain_complete: evidence
+                .executable_entrypoint_handoff_boundary_source_chain_complete,
             artifact_byte_intake_boundary_present: evidence.artifact_byte_intake_boundary_present,
             artifact_byte_intake_boundary_source_chain_complete: evidence
                 .artifact_byte_intake_boundary_source_chain_complete,
@@ -1176,6 +1191,8 @@ fn module_load_gate_loader_live_load_boundary_projection(
         executable_entrypoint_transfer_authorization_boundary_source_chain_complete: false,
         executable_entrypoint_transfer_boundary_present: false,
         executable_entrypoint_transfer_boundary_source_chain_complete: false,
+        executable_entrypoint_handoff_boundary_present: false,
+        executable_entrypoint_handoff_boundary_source_chain_complete: false,
         artifact_byte_intake_boundary_present: false,
         artifact_byte_intake_boundary_source_chain_complete: false,
         execution_authorization_boundary_present: false,
@@ -3122,6 +3139,14 @@ fn emit_module_load_gate_loader_runtime_readiness(binding: event_log::ModuleLoad
         module_load_gate_loader_executable_entrypoint_handoff_boundary_projection(),
     );
     raw_line(",");
+    emit_module_load_gate_loader_live_load_boundary(
+        "      ",
+        "executable_entrypoint_invocation_boundary",
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_SCHEMA,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_ID,
+        module_load_gate_loader_executable_entrypoint_invocation_boundary_projection(),
+    );
+    raw_line(",");
     raw_line("      \"accepts_loader_descriptor\": false,");
     raw_line("      \"accepts_descriptor_bytes\": false,");
     raw_line("      \"produces_parsed_descriptor\": false,");
@@ -4136,6 +4161,14 @@ fn emit_module_load_gate_loader_live_load_boundary(
     raw_bool(projection.executable_entrypoint_transfer_boundary_source_chain_complete);
     raw_line(",");
     raw(indent);
+    raw("  \"executable_entrypoint_handoff_boundary_present\": ");
+    raw_bool(projection.executable_entrypoint_handoff_boundary_present);
+    raw_line(",");
+    raw(indent);
+    raw("  \"executable_entrypoint_handoff_boundary_source_chain_complete\": ");
+    raw_bool(projection.executable_entrypoint_handoff_boundary_source_chain_complete);
+    raw_line(",");
+    raw(indent);
     raw("  \"artifact_byte_intake_boundary_present\": ");
     raw_bool(projection.artifact_byte_intake_boundary_present);
     raw_line(",");
@@ -4864,6 +4897,7 @@ pub(crate) fn emit_module_load_ephemeral_denied(
     );
     raw_line("      \"raios.module_loader_executable_entrypoint_transfer_boundary.v0\",");
     raw_line("      \"raios.module_loader_executable_entrypoint_handoff_boundary.v0\",");
+    raw_line("      \"raios.module_loader_executable_entrypoint_invocation_boundary.v0\",");
     raw_line("      \"raios.module_loader_runtime_readiness.v0\"");
     raw_line("    ],");
     raw_line("    \"evidence\": {");
@@ -4970,7 +5004,7 @@ pub(crate) fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoad
     json_str(module_load_gate_loader_runtime_state(binding));
     raw(", \"reason\": ");
     json_str(module_load_gate_loader_runtime_reason(binding));
-    raw("}, {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}], \"required\": [\"raios.module_manifest.v0\", \"candidate_artifact_sha256\", \"raios.vm_test_report.v0\", \"raios.local_attestation.v0\", \"raios.computed_capability_grant.v0\", \"local_approval\", \"raios.audit_record.v0\", \"rollback_plan\", \"ram_only_service_slot\", \"raios.module_service_slot_allocator_readiness.v0\", \"raios.module_service_slot_allocator_authority.v0\", \"raios.service_slot_allocation_intent.v0\", \"raios.service_slot_allocator_policy_decision.v0\", \"raios.service_slot_registry_write_authority.v0\", \"raios.module_loader_runtime_contract.v0\", \"raios.service_health_monitor_binding.v0\", \"raios.service_unload_cleanup_authority.v0\", \"raios.module_service_slot_allocator_authority_decision.v0\", \"raios.service_slot_registry_write_commit_gate.v0\", \"raios.module_loader_runtime_execution_commit_gate.v0\", \"raios.module_loader_descriptor_intake_boundary.v0\", \"raios.module_loader_artifact_byte_intake_boundary.v0\", \"raios.module_loader_execution_authorization_boundary.v0\", \"raios.module_loader_service_registry_mutation_boundary.v0\", \"raios.module_loader_load_attempt_boundary.v0\", \"raios.module_loader_artifact_load_boundary.v0\", \"raios.module_loader_executable_mapping_boundary.v0\", \"raios.module_loader_entrypoint_transfer_boundary.v0\", \"raios.module_loader_service_start_boundary.v0\", \"raios.module_loader_service_health_binding_boundary.v0\", \"raios.module_loader_service_running_state_boundary.v0\", \"raios.module_loader_service_start_audit_boundary.v0\", \"raios.module_loader_service_unload_cleanup_boundary.v0\", \"raios.module_loader_live_load_commit_boundary.v0\", \"raios.module_loader_commit_audit_boundary.v0\", \"raios.module_loader_commit_rollback_boundary.v0\", \"raios.module_loader_commit_result_boundary.v0\", \"raios.module_loader_descriptor_acceptance_authority_boundary.v0\", \"raios.module_loader_descriptor_parser_contract_boundary.v0\", \"raios.module_loader_descriptor_parser_result_boundary.v0\", \"raios.module_loader_descriptor_schema_validation_boundary.v0\", \"raios.module_loader_descriptor_capability_validation_boundary.v0\", \"raios.module_loader_descriptor_load_plan_boundary.v0\", \"raios.module_loader_executable_load_plan_authority_boundary.v0\", \"raios.module_loader_executable_load_plan_result_boundary.v0\", \"raios.module_loader_executable_image_layout_boundary.v0\", \"raios.module_loader_executable_page_mapping_plan_boundary.v0\", \"raios.module_loader_executable_page_mapping_boundary.v0\", \"raios.module_loader_descriptor_executable_page_binding_boundary.v0\", \"raios.module_loader_executable_entrypoint_binding_boundary.v0\", \"raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0\", \"raios.module_loader_executable_entrypoint_transfer_boundary.v0\", \"raios.module_loader_executable_entrypoint_handoff_boundary.v0\", \"raios.module_loader_runtime_readiness.v0\"], \"evidence\": {\"event_scope\": \"current_boot\", ");
+    raw("}, {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}], \"required\": [\"raios.module_manifest.v0\", \"candidate_artifact_sha256\", \"raios.vm_test_report.v0\", \"raios.local_attestation.v0\", \"raios.computed_capability_grant.v0\", \"local_approval\", \"raios.audit_record.v0\", \"rollback_plan\", \"ram_only_service_slot\", \"raios.module_service_slot_allocator_readiness.v0\", \"raios.module_service_slot_allocator_authority.v0\", \"raios.service_slot_allocation_intent.v0\", \"raios.service_slot_allocator_policy_decision.v0\", \"raios.service_slot_registry_write_authority.v0\", \"raios.module_loader_runtime_contract.v0\", \"raios.service_health_monitor_binding.v0\", \"raios.service_unload_cleanup_authority.v0\", \"raios.module_service_slot_allocator_authority_decision.v0\", \"raios.service_slot_registry_write_commit_gate.v0\", \"raios.module_loader_runtime_execution_commit_gate.v0\", \"raios.module_loader_descriptor_intake_boundary.v0\", \"raios.module_loader_artifact_byte_intake_boundary.v0\", \"raios.module_loader_execution_authorization_boundary.v0\", \"raios.module_loader_service_registry_mutation_boundary.v0\", \"raios.module_loader_load_attempt_boundary.v0\", \"raios.module_loader_artifact_load_boundary.v0\", \"raios.module_loader_executable_mapping_boundary.v0\", \"raios.module_loader_entrypoint_transfer_boundary.v0\", \"raios.module_loader_service_start_boundary.v0\", \"raios.module_loader_service_health_binding_boundary.v0\", \"raios.module_loader_service_running_state_boundary.v0\", \"raios.module_loader_service_start_audit_boundary.v0\", \"raios.module_loader_service_unload_cleanup_boundary.v0\", \"raios.module_loader_live_load_commit_boundary.v0\", \"raios.module_loader_commit_audit_boundary.v0\", \"raios.module_loader_commit_rollback_boundary.v0\", \"raios.module_loader_commit_result_boundary.v0\", \"raios.module_loader_descriptor_acceptance_authority_boundary.v0\", \"raios.module_loader_descriptor_parser_contract_boundary.v0\", \"raios.module_loader_descriptor_parser_result_boundary.v0\", \"raios.module_loader_descriptor_schema_validation_boundary.v0\", \"raios.module_loader_descriptor_capability_validation_boundary.v0\", \"raios.module_loader_descriptor_load_plan_boundary.v0\", \"raios.module_loader_executable_load_plan_authority_boundary.v0\", \"raios.module_loader_executable_load_plan_result_boundary.v0\", \"raios.module_loader_executable_image_layout_boundary.v0\", \"raios.module_loader_executable_page_mapping_plan_boundary.v0\", \"raios.module_loader_executable_page_mapping_boundary.v0\", \"raios.module_loader_descriptor_executable_page_binding_boundary.v0\", \"raios.module_loader_executable_entrypoint_binding_boundary.v0\", \"raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0\", \"raios.module_loader_executable_entrypoint_transfer_boundary.v0\", \"raios.module_loader_executable_entrypoint_handoff_boundary.v0\", \"raios.module_loader_executable_entrypoint_invocation_boundary.v0\", \"raios.module_loader_runtime_readiness.v0\"], \"evidence\": {\"event_scope\": \"current_boot\", ");
     emit_module_load_gate_evidence_hashes_compact(binding);
     raw(", \"service_inventory_change\": \"none\", \"load_attempted\": false}}");
 }
@@ -5566,6 +5600,12 @@ fn emit_module_load_gate_loader_runtime_readiness_compact(
         MODULE_LOADER_EXECUTABLE_ENTRYPOINT_HANDOFF_BOUNDARY_ID,
         module_load_gate_loader_executable_entrypoint_handoff_boundary_projection(),
     );
+    raw(", \"executable_entrypoint_invocation_boundary\": ");
+    emit_module_load_gate_loader_live_load_boundary_compact(
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_SCHEMA,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_ID,
+        module_load_gate_loader_executable_entrypoint_invocation_boundary_projection(),
+    );
     raw(", \"accepts_descriptor_bytes\": false, \"produces_parsed_descriptor\": false, \"validates_descriptor_schema\": false, \"produces_validated_descriptor\": false, \"validates_descriptor_capabilities\": false, \"produces_capability_validated_descriptor\": false, \"authorizes_executable_load_plan\": false, \"produces_executable_load_plan\": false, \"produces_executable_image_layout\": false, \"produces_executable_page_mapping_plan\": false, \"binds_capability_validated_descriptor_to_executable_pages\": false, \"parses_descriptor_bytes\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"starts_service\": false, \"marks_service_running\": false, \"creates_service_health_records\": false, \"writes_service_start_audit_record\": false, \"unloads_service\": false, \"cleans_up_service_slot\": false, \"commits_live_load\": false, \"writes_load_commit_audit_record\": false, \"installs_commit_rollback_record\": false, \"records_load_result\": false, \"can_load_now\": false, \"load_attempted\": false, \"missing_facts\": [\"raios.module_loader_identity.v0\", \"raios.module_loader_artifact_hash_binding.v0\", \"raios.module_loader_entrypoint_abi.v0\", \"raios.module_loader_address_space_boundary.v0\", \"raios.module_loader_memory_map_constraints.v0\", \"raios.module_loader_capability_import_table.v0\", \"raios.module_loader_service_slot_binding.v0\", \"raios.module_loader_health_state_hooks.v0\", \"raios.module_loader_rollback_hooks.v0\", \"raios.module_loader_audit_rollback_write_boundary_binding.v0\"]");
     raw(", \"source_fact_count\": ");
     raw_fmt(format_args!("{}", MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT));
@@ -5939,6 +5979,10 @@ fn emit_module_load_gate_loader_live_load_boundary_compact(
     raw_bool(projection.executable_entrypoint_transfer_boundary_present);
     raw(", \"executable_entrypoint_transfer_boundary_source_chain_complete\": ");
     raw_bool(projection.executable_entrypoint_transfer_boundary_source_chain_complete);
+    raw(", \"executable_entrypoint_handoff_boundary_present\": ");
+    raw_bool(projection.executable_entrypoint_handoff_boundary_present);
+    raw(", \"executable_entrypoint_handoff_boundary_source_chain_complete\": ");
+    raw_bool(projection.executable_entrypoint_handoff_boundary_source_chain_complete);
     raw(", \"service_slot_binding_source_evidence_present\": ");
     raw_bool(projection.service_slot_binding_source_evidence_present);
     raw(", \"health_state_hooks_source_evidence_present\": ");

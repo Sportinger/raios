@@ -1100,6 +1100,9 @@
         @{ Suffix = "executable_entrypoint_handoff_boundary_no_image_layout"; Needle = '"produces_executable_image_layout": false' },
         @{ Suffix = "executable_entrypoint_handoff_boundary_no_load_plan"; Needle = '"produces_executable_load_plan": false' },
         @{ Suffix = "executable_entrypoint_handoff_boundary_no_artifact_bytes"; Needle = '"accepts_artifact_bytes": false' },
+        @{ Suffix = "executable_entrypoint_invocation_boundary"; Needle = '"executable_entrypoint_invocation_boundary": {' },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_schema"; Needle = '"schema": "raios.module_loader_executable_entrypoint_invocation_boundary.v0"' },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_reason"; Needle = '"reason": "module_loader_executable_entrypoint_invocation_boundary_non_authorizing"' },
         @{ Suffix = "loader_fact_schema"; Needle = '"schema": "raios.module_loader_identity.v0"' },
         @{ Suffix = "loader_fact_missing"; Needle = '"reason": "module_loader_identity_missing"' },
         @{ Suffix = "loader_identity_source"; Needle = '"source_method": "module.loader_identity"' },
@@ -1174,3 +1177,21 @@
         @{ Suffix = "write_boundary_source_evidence_reason"; Needle = '"source_evidence_reason": "module_loader_audit_rollback_write_boundary_binding_missing"' },
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
+    $moduleLoaderRuntimeResponse = Get-LastAgentResponseJson -Method "module.loader_runtime"
+    $moduleLoaderInvocationBoundary = $moduleLoaderRuntimeResponse.body.result.executable_entrypoint_invocation_boundary
+    $moduleLoaderInvocationBoundaryChecks = @(
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_entrypoint_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.jumps_to_entrypoint },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_binding_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.binds_capability_validated_descriptor_to_executable_pages },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_maps_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.maps_executable_pages },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_page_mapping_plan_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.produces_executable_page_mapping_plan },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_image_layout_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.produces_executable_image_layout },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_load_plan_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.produces_executable_load_plan },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_artifact_bytes_scoped"; Expected = $false; Actual = [bool]$moduleLoaderInvocationBoundary.accepts_artifact_bytes }
+    )
+    foreach ($check in $moduleLoaderInvocationBoundaryChecks) {
+        $passed = ($null -ne $moduleLoaderInvocationBoundary) -and $check.Actual -eq $check.Expected
+        Add-Predicate -Name ("protocol:module_loader_runtime_" + $check.Suffix) -Expected ([string]$check.Expected) -Passed $passed -Actual ([string]$check.Actual)
+        if (-not $passed) {
+            throw ("Expected module.loader_runtime " + $check.Suffix + " to be " + [string]$check.Expected + ", got " + [string]$check.Actual)
+        }
+    }

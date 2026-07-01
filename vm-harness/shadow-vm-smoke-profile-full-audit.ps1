@@ -363,6 +363,27 @@
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_entrypoint_handoff_boundary_no_image_layout" -Needle '"produces_executable_image_layout": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_entrypoint_handoff_boundary_no_load_plan" -Needle '"produces_executable_load_plan": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_entrypoint_handoff_boundary_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_entrypoint_invocation_boundary" -Needle '"executable_entrypoint_invocation_boundary": {"schema": "raios.module_loader_executable_entrypoint_invocation_boundary.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_entrypoint_invocation_boundary_reason" -Needle '"reason": "module_loader_executable_entrypoint_invocation_boundary_non_authorizing"' -TimeoutSeconds 1
+    $moduleAuditEventsResponse = Get-LastAgentResponseJson -Method "memory.recent_events"
+    $moduleAuditInvocationEvents = @($moduleAuditEventsResponse.body.result.events | Where-Object { $_.bindings.schema -eq "raios.module_loader_executable_entrypoint_invocation_boundary_source_evidence.v0" })
+    $moduleAuditInvocationBoundary = if ($moduleAuditInvocationEvents.Count -gt 0) { $moduleAuditInvocationEvents[0].bindings } else { $null }
+    $moduleAuditInvocationBoundaryChecks = @(
+        @{ Suffix = "no_entrypoint_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.jumps_to_entrypoint } else { $null }) },
+        @{ Suffix = "no_binding_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.binds_capability_validated_descriptor_to_executable_pages } else { $null }) },
+        @{ Suffix = "no_maps_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.maps_executable_pages } else { $null }) },
+        @{ Suffix = "no_page_mapping_plan_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.produces_executable_page_mapping_plan } else { $null }) },
+        @{ Suffix = "no_image_layout_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.produces_executable_image_layout } else { $null }) },
+        @{ Suffix = "no_load_plan_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.produces_executable_load_plan } else { $null }) },
+        @{ Suffix = "no_artifact_bytes_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.accepts_artifact_bytes } else { $null }) }
+    )
+    foreach ($check in $moduleAuditInvocationBoundaryChecks) {
+        $passed = ($null -ne $moduleAuditInvocationBoundary) -and $check.Actual -eq $check.Expected
+        Add-Predicate -Name ("protocol:module_load_audit_loader_runtime_executable_entrypoint_invocation_boundary_" + $check.Suffix) -Expected ([string]$check.Expected) -Passed $passed -Actual ([string]$check.Actual)
+        if (-not $passed) {
+            throw ("Expected audit event invocation boundary " + $check.Suffix + " to be " + [string]$check.Expected + ", got " + [string]$check.Actual)
+        }
+    }
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_no_load" -Needle '"loader_runtime_readiness": {"schema": "raios.module_loader_runtime_readiness.v0", "scope": "current_boot", "classification": "local_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_count" -Needle '"source_fact_count": 10, "source_fact_map_complete": true, "source_fact_map": ' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_map_identity" -Needle '"fact": "loader_identity"' -TimeoutSeconds 1

@@ -405,6 +405,26 @@
     Assert-LogContains -Name "policy:module_loader_runtime_executable_entrypoint_handoff_boundary_no_image_layout" -Needle '"produces_executable_image_layout": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_executable_entrypoint_handoff_boundary_no_load_plan" -Needle '"produces_executable_load_plan": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_executable_entrypoint_handoff_boundary_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_executable_entrypoint_invocation_boundary" -Needle '"executable_entrypoint_invocation_boundary": {' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_executable_entrypoint_invocation_boundary_schema" -Needle '"schema": "raios.module_loader_executable_entrypoint_invocation_boundary.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_executable_entrypoint_invocation_boundary_reason" -Needle '"reason": "module_loader_executable_entrypoint_invocation_boundary_non_authorizing"' -TimeoutSeconds 1
+    $moduleLoadGateInvocationBoundary = $moduleFinalLoadResponse.body.loader_runtime_readiness.executable_entrypoint_invocation_boundary
+    $moduleLoadGateInvocationBoundaryChecks = @(
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_entrypoint_scoped"; Expected = $false; Actual = [bool]$moduleLoadGateInvocationBoundary.jumps_to_entrypoint },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_binding_scoped"; Expected = $false; Actual = [bool]$moduleLoadGateInvocationBoundary.binds_capability_validated_descriptor_to_executable_pages },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_maps_scoped"; Expected = $false; Actual = [bool]$moduleLoadGateInvocationBoundary.maps_executable_pages },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_page_mapping_plan_scoped"; Expected = $false; Actual = [bool]$moduleLoadGateInvocationBoundary.produces_executable_page_mapping_plan },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_image_layout_scoped"; Expected = $false; Actual = [bool]$moduleLoadGateInvocationBoundary.produces_executable_image_layout },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_load_plan_scoped"; Expected = $false; Actual = [bool]$moduleLoadGateInvocationBoundary.produces_executable_load_plan },
+        @{ Suffix = "executable_entrypoint_invocation_boundary_no_artifact_bytes_scoped"; Expected = $false; Actual = [bool]$moduleLoadGateInvocationBoundary.accepts_artifact_bytes }
+    )
+    foreach ($check in $moduleLoadGateInvocationBoundaryChecks) {
+        $passed = ($null -ne $moduleLoadGateInvocationBoundary) -and $check.Actual -eq $check.Expected
+        Add-Predicate -Name ("policy:module_loader_runtime_" + $check.Suffix) -Expected ([string]$check.Expected) -Passed $passed -Actual ([string]$check.Actual)
+        if (-not $passed) {
+            throw ("Expected module.load_ephemeral " + $check.Suffix + " to be " + [string]$check.Expected + ", got " + [string]$check.Actual)
+        }
+    }
     Assert-LogContains -Name "policy:module_loader_runtime_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_no_parsed_descriptor" -Needle '"produces_parsed_descriptor": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_no_schema_validation" -Needle '"validates_descriptor_schema": false' -TimeoutSeconds 1
@@ -506,6 +526,7 @@
     Assert-LogContains -Name "policy:module_loader_executable_entrypoint_transfer_authorization_boundary_required" -Needle "raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_executable_entrypoint_transfer_boundary_required" -Needle "raios.module_loader_executable_entrypoint_transfer_boundary.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_executable_entrypoint_handoff_boundary_required" -Needle "raios.module_loader_executable_entrypoint_handoff_boundary.v0" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_executable_entrypoint_invocation_boundary_required" -Needle "raios.module_loader_executable_entrypoint_invocation_boundary.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_required" -Needle "raios.module_loader_runtime_readiness.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_rollback_requirements_schema" -Needle '"schema": "raios.module_load_gate_audit_rollback_requirements.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_rollback_requirements_status" -Needle '"status": "required_missing"' -TimeoutSeconds 1

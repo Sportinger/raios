@@ -60,6 +60,31 @@ time optimizing intermediate product shapes, demo-only flows, compatibility
 shims, or "good enough for now" branches unless they are explicitly part of the
 final architecture or test the real path.
 
+## Vertical Slice And Multi-Agent Rule
+
+Keep the full raiOS vision, but move it through observable vertical slices.
+The default next step should be the smallest real capability on the final
+architecture path, not another schema-only boundary.
+
+- A non-authorizing schema or diagnostic slice is allowed only when it directly
+  unblocks the next positive behavior, closes a concrete trust gap, or repairs
+  verification. Do not chain schema-only loader boundaries while a runtime slice
+  can be built instead.
+- For Phase 6 until this file or `docs/ROADMAP.md` says otherwise, the priority
+  is a RAM-only hello service path: load/start a tiny fixed test service through
+  the real loader/registry/audit surfaces, show it in `service.inventory`, then
+  stop/drop it. Persistence, external unsigned artifact intake, durable audit,
+  and rollback installation must remain denied.
+- A built-in hello artifact is acceptable only as labeled test infrastructure
+  for the real path. It must not fake success, bypass the service registry, or
+  imply that arbitrary external modules are supported.
+- Multi-agent work should split by ownership boundary: loader/runtime,
+  service registry, audit/capability gate, VM harness, and docs. Each agent
+  should return one integrated slice with verification, not expand scaffolding
+  for later.
+- VM reports should prefer proving positive behavior plus the necessary
+  fail-closed denials over growing denial-only predicate counts.
+
 ## System Memory Architecture Rule
 
 Future agents must build toward the ADR 0004 model: raiOS itself is the memory.

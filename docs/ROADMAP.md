@@ -2,14 +2,22 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-01 by Codex after verifying the executable entrypoint
-handoff boundary and moving the cursor to executable entrypoint invocation. Keep
-this section compact. The authoritative,
+Last updated: 2026-07-02 by Codex after pivoting the active cursor from another
+non-authorizing entrypoint-result boundary to the first positive RAM-only
+service vertical slice. Keep this section compact. The authoritative,
 unabridged current state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
 cursor, not repeat the full implementation history.
 
 Current phase: Phase 6, Ephemeral Live Services.
+
+Active execution rule:
+
+- keep the existing evidence gates and fail-closed posture
+- stop adding loader-runtime schema-only boundaries unless they directly unblock
+  the RAM-only service path
+- prove the next slice with one real observable service lifecycle:
+  load/start/list/stop/drop, all current-boot and non-persistent
 
 Latest verified implementation slice:
 
@@ -29,8 +37,8 @@ Latest verified implementation slice:
   executable load-plan result, executable image-layout, executable
   page-mapping plan, executable page-mapping, descriptor/executable-page
   binding, executable entrypoint binding, executable entrypoint transfer
-  authorization, executable entrypoint transfer, and executable entrypoint
-  handoff boundaries
+  authorization, executable entrypoint transfer, executable entrypoint handoff,
+  and executable entrypoint invocation boundaries
 - all lifecycle boundaries report explicit non-authorizing reasons and keep
   descriptor intake, descriptor bytes, parsed descriptor production,
   validated descriptor production, descriptor schema validation, descriptor
@@ -39,9 +47,10 @@ Latest verified implementation slice:
   image-layout production, executable page-mapping plan production, executable
   page mapping, capability-validated descriptor binding to executable pages,
   executable entrypoint binding, entrypoint transfer authorization, explicit
-  entrypoint transfer, executable entrypoint handoff, descriptor parsing,
-  artifact bytes, artifact load, executable mapping, service start, health
-  record creation, running-state marking, start-audit record writing,
+  entrypoint transfer, executable entrypoint handoff, executable entrypoint
+  invocation, descriptor parsing, artifact bytes, artifact load, executable
+  mapping, service start, health record creation, running-state marking,
+  start-audit record writing,
   unload/cleanup, live-load commit, load-commit audit writing, commit rollback
   install, result recording, service inventory mutation, service-slot
   allocation, durable audit writes, rollback install, and load attempts false
@@ -49,33 +58,35 @@ Latest verified implementation slice:
 Latest full verification:
 
 ```text
-release\vm-reports\shadow-20260701-150922-9752.json
-6578/6578 predicates, 243 executed commands, duration_ms: 562922
+release\vm-reports\shadow-20260702-001225-25068.json
+6611/6611 predicates, 243 executed commands, duration_ms: 541342
 ```
 
 Exact next task:
 
 ```text
-Define raios.module_loader_executable_entrypoint_invocation_boundary.v0 as the
-next typed, read-only normal-module boundary. It should consume the retained
-executable entrypoint handoff boundary plus entrypoint transfer, transfer
-authorization, entrypoint binding, descriptor/page binding, entrypoint ABI,
-address-space, memory-map, capability-table, full retained module,
-service-slot, loader-runtime, audit/rollback, rollback-hook, health-hook, and
-live-load lifecycle evidence chain. It must still invoke no entrypoint, jump to
-no entrypoint, start no service, commit no live load, mutate no inventory, write
-no durable audit state, install no rollback state, and attempt no load.
+Build raios.ram_only_hello_service.v0 as the first positive normal-service
+vertical slice. It should load/start a tiny fixed test service through the real
+Stage-0 loader, service-slot, service-registry, health, audit/event, and
+drop/rollback-surrogate path. The service must appear in service.inventory,
+report a running/healthy current-boot state, be stoppable/droppable, and leave a
+RAM-only audit/event trail. It must not persist, accept arbitrary external
+artifact bytes, install durable rollback state, write durable audit state, or
+grant broad module/service/config mutation.
 ```
 
 Next three tasks:
 
-1. Add `raios.module_loader_executable_entrypoint_invocation_boundary.v0`
-   as a current-boot, local-only, non-authorizing source-evidence boundary.
-2. Project it through `module.loader_runtime`, denied `module.load_ephemeral`,
-   compact audit/event bindings, event-log memory rendering, and selftests.
-3. Run release build, full Shadow VM smoke, workspace Cargo tests, format check,
-   diff check, and secret scan, then update `docs/PROJECT_STATUS.md` with the
-   exact report.
+1. Add the smallest real RAM-only loader path for a labeled built-in
+   `svc.demo.hello` test artifact, preserving explicit denials for persistence
+   and arbitrary external artifacts.
+2. Mutate the current-boot service registry only for that path, expose the
+   service through `service.inventory`, and add stop/drop plus RAM-only
+   audit/event records.
+3. Add a focused positive VM smoke profile for load/list/stop/drop, keep the
+   denial checks that protect the boundary, then run build, format, workspace
+   tests, diff check, secret scan, and the focused VM smoke before updating
+   `docs/PROJECT_STATUS.md`.
 
 Documentation ownership:
 
@@ -91,6 +102,8 @@ Current blockers and non-goals:
 - Do not add fake persistent memory. V0 memory is `current_boot` and read-only.
 - Do not send raw `system.snapshot` or boot logs to a provider.
 - Do not grant module/service/config mutation before the evidence chain exists.
+- Do not add another non-authorizing loader boundary before the hello-service
+  slice unless it is the smallest blocker for load/start/list/stop/drop.
 - Do not treat the direct OpenAI provider path as the recovery lifeline.
 - Do not overwrite `release/raios-stage0.img` unless the replacement has booted
   in QEMU.

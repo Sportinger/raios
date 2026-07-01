@@ -21,6 +21,7 @@ use crate::event_log_evidence::{
     MODULE_LOADER_ENTRYPOINT_TRANSFER_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_EXECUTABLE_ENTRYPOINT_HANDOFF_BOUNDARY_SOURCE_EVIDENCE,
+    MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_AUTHORIZATION_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_EXECUTABLE_ENTRYPOINT_TRANSFER_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_EXECUTABLE_IMAGE_LAYOUT_BOUNDARY_SOURCE_EVIDENCE,
@@ -2804,6 +2805,34 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::ModuleLoaderExecutableEntrypointHandoffBoundarySourceEvidence(
+                    binding,
+                ) = event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_module_loader_executable_entrypoint_invocation_boundary_source_evidence(
+        &self,
+    ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModuleLoaderExecutableEntrypointInvocationBoundarySourceEvidence(
                     binding,
                 ) = event.bindings
                 {
@@ -5716,6 +5745,28 @@ pub fn record_module_loader_executable_entrypoint_handoff_boundary_source_eviden
     })
 }
 
+pub fn record_module_loader_executable_entrypoint_invocation_boundary_source_evidence(
+    binding: ModuleLoaderLiveLoadBoundarySourceEvidence,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.loader_runtime.executable_entrypoint_invocation_boundary_source_evidence.retained",
+        source_method: binding.source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: binding.readiness_status,
+        requested_capability: binding.requested_capability,
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: binding.boundary_id,
+        reason: binding.readiness_reason,
+        evidence: MODULE_LOADER_EXECUTABLE_ENTRYPOINT_INVOCATION_BOUNDARY_SOURCE_EVIDENCE,
+        bindings: EventBindings::ModuleLoaderExecutableEntrypointInvocationBoundarySourceEvidence(
+            binding,
+        ),
+    })
+}
+
 pub fn record_provider_request_binding_denied(hashes: ProviderContextHashes) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -6299,6 +6350,12 @@ pub fn latest_module_loader_executable_entrypoint_handoff_boundary_source_eviden
 ) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
     LOG.lock()
         .latest_module_loader_executable_entrypoint_handoff_boundary_source_evidence()
+}
+
+pub fn latest_module_loader_executable_entrypoint_invocation_boundary_source_evidence(
+) -> Option<(EventId, ModuleLoaderLiveLoadBoundarySourceEvidence)> {
+    LOG.lock()
+        .latest_module_loader_executable_entrypoint_invocation_boundary_source_evidence()
 }
 
 fn normalize_limit(limit: usize) -> usize {
