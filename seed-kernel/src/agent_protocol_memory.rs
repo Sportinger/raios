@@ -1929,6 +1929,9 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
         )
         | event_log::EventBindings::ModuleLoaderExecutableEntrypointBindingBoundarySourceEvidence(
             binding,
+        )
+        | event_log::EventBindings::ModuleLoaderExecutableEntrypointTransferAuthorizationBoundarySourceEvidence(
+            binding,
         ) => {
             emit_module_loader_live_load_boundary_event_binding(binding);
         }
@@ -2815,6 +2818,10 @@ fn emit_module_loader_live_load_boundary_event_binding(
     raw_bool(binding.descriptor_executable_page_binding_boundary_present);
     raw(", \"descriptor_executable_page_binding_boundary_source_chain_complete\": ");
     raw_bool(binding.descriptor_executable_page_binding_boundary_source_chain_complete);
+    raw(", \"executable_entrypoint_binding_boundary_present\": ");
+    raw_bool(binding.executable_entrypoint_binding_boundary_present);
+    raw(", \"executable_entrypoint_binding_boundary_source_chain_complete\": ");
+    raw_bool(binding.executable_entrypoint_binding_boundary_source_chain_complete);
     raw(", \"artifact_byte_intake_boundary_present\": ");
     raw_bool(binding.artifact_byte_intake_boundary_present);
     raw(", \"execution_authorization_boundary_present\": ");
@@ -2897,6 +2904,8 @@ fn emit_module_loader_live_load_boundary_event_binding(
     json_event_id_option(
         binding.descriptor_executable_page_binding_boundary_source_evidence_event_id,
     );
+    raw(", \"executable_entrypoint_binding_boundary_source_evidence_event_id\": ");
+    json_event_id_option(binding.executable_entrypoint_binding_boundary_source_evidence_event_id);
     raw(", \"artifact_byte_intake_boundary_source_evidence_event_id\": ");
     json_event_id_option(binding.artifact_byte_intake_boundary_source_evidence_event_id);
     raw(", \"execution_authorization_boundary_source_evidence_event_id\": ");
