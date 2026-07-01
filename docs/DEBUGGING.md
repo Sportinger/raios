@@ -145,9 +145,9 @@ race as a guest protocol failure.
 If a full smoke fails with a host-side TCP write exception or a truncated long
 serial command after all predicates up to the previous command passed, rerun
 with smaller chunks plus write delay before treating it as a guest regression.
-The 2026-06-30 full module-loader report
-`release\vm-reports\shadow-20260630-231712-2448.json` used
-`-TimeoutSeconds 300 -SerialWriteChunkSize 64 -SerialWriteDelayMilliseconds 2 -SerialTcpPort 4570`;
+The 2026-07-01 full module-loader report
+`release\vm-reports\shadow-20260701-091747-9784.json` used
+`-TimeoutSeconds 300 -SerialWriteChunkSize 64 -SerialWriteDelayMilliseconds 2 -SerialTcpPort 4571`;
 earlier same-slice runs with a 180-second command window timed out while waiting
 for final markers in long module-loader responses.
 
@@ -644,7 +644,8 @@ also records the live-load sequence as read-only current-boot source evidence:
 `raios.module_loader_executable_load_plan_result_boundary.v0`, and
 `raios.module_loader_executable_image_layout_boundary.v0`, and
 `raios.module_loader_executable_page_mapping_plan_boundary.v0`, and
-`raios.module_loader_executable_page_mapping_boundary.v0`. Those
+`raios.module_loader_executable_page_mapping_boundary.v0`, and
+`raios.module_loader_descriptor_executable_page_binding_boundary.v0`. Those
 boundaries consume the retained intake, execution, registry, service-slot,
 health-hook, rollback-hook, audit/rollback, and loader-fact evidence chain only
 as provenance, remain non-authorizing, and keep artifact loading, executable

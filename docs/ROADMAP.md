@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-06-30 by Codex after verifying the executable page-mapping
-boundary and moving the cursor to descriptor/executable-page binding. Keep this
+Last updated: 2026-07-01 by Codex after verifying the descriptor/executable-page
+binding boundary and moving the cursor to executable entrypoint binding. Keep this
 section compact. The authoritative,
 unabridged current state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -27,7 +27,8 @@ Latest verified implementation slice:
   descriptor-parser result, descriptor schema-validation, descriptor
   capability-validation, descriptor load-plan, executable load-plan authority,
   executable load-plan result, executable image-layout, executable
-  page-mapping plan, and executable page-mapping boundaries
+  page-mapping plan, executable page-mapping, and descriptor/executable-page
+  binding boundaries
 - all lifecycle boundaries report explicit non-authorizing reasons and keep
   descriptor intake, descriptor bytes, parsed descriptor production,
   validated descriptor production, descriptor schema validation, descriptor
@@ -45,28 +46,27 @@ Latest verified implementation slice:
 Latest full verification:
 
 ```text
-release\vm-reports\shadow-20260630-231712-2448.json
-6389/6389 predicates, 243 executed commands, duration_ms: 497027
+release\vm-reports\shadow-20260701-091747-9784.json
+6446/6446 predicates, 243 executed commands, duration_ms: 490492
 ```
 
 Exact next task:
 
 ```text
-Define raios.module_loader_descriptor_executable_page_binding_boundary.v0 as
-the next typed, read-only normal-module boundary. It should consume the retained
-executable page-mapping boundary plus executable page-mapping plan,
-executable image-layout, executable load-plan result/authority, descriptor
-load-plan, full retained module, service-slot, loader-runtime, audit/rollback,
-rollback-hook, health-hook, entrypoint, memory-map, capability-table, and
-live-load lifecycle evidence chain. It must still bind no
-capability-validated descriptor to executable pages, map no new executable
-pages, commit no live load, mutate no inventory, write no durable audit state,
-install no rollback state, and attempt no load.
+Define raios.module_loader_executable_entrypoint_binding_boundary.v0 as the
+next typed, read-only normal-module boundary. It should consume the retained
+descriptor/executable-page binding boundary plus executable page-mapping,
+entrypoint ABI, address-space, memory-map, capability-table, full retained
+module, service-slot, loader-runtime, audit/rollback, rollback-hook,
+health-hook, and live-load lifecycle evidence chain. It must still jump to no
+entrypoint, bind no runnable entrypoint, commit no live load, mutate no
+inventory, write no durable audit state, install no rollback state, and attempt
+no load.
 ```
 
 Next three tasks:
 
-1. Add `raios.module_loader_descriptor_executable_page_binding_boundary.v0` as a
+1. Add `raios.module_loader_executable_entrypoint_binding_boundary.v0` as a
    current-boot, local-only, non-authorizing source-evidence boundary.
 2. Project it through `module.loader_runtime`, denied `module.load_ephemeral`,
    compact audit/event bindings, event-log memory rendering, and selftests.

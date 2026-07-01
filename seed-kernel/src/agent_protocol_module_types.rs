@@ -1284,6 +1284,27 @@ pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_BOUNDARY_SOURCE_EVIDENCE_
 pub(crate) const MODULE_LOADER_EXECUTABLE_PAGE_MAPPING_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
     &str = "module_loader_executable_page_mapping_boundary_source_chain_incomplete";
 
+pub(crate) const MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SCHEMA: &str =
+    "raios.module_loader_descriptor_executable_page_binding_boundary.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_ID: &str =
+    "module.loader_runtime.descriptor_executable_page_binding_boundary.current_boot";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_EVIDENCE_SCHEMA:
+    &str = "raios.module_loader_descriptor_executable_page_binding_boundary_source_evidence.v0";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_METHOD: &str =
+    "module.loader_runtime";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_FACT_LOCATOR:
+    &str = "module.loader_runtime.descriptor_executable_page_binding_boundary";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_STATUS: &str =
+    "defined_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_REASON: &str =
+    "module_loader_descriptor_executable_page_binding_boundary_non_authorizing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_MISSING_STATUS: &str =
+    "missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_EVIDENCE_MISSING_REASON:
+    &str = "module_loader_descriptor_executable_page_binding_boundary_source_evidence_missing";
+pub(crate) const MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON:
+    &str = "module_loader_descriptor_executable_page_binding_boundary_source_chain_incomplete";
+
 #[derive(Clone, Copy)]
 pub(crate) struct ModuleServiceSlotAllocatorAuthority {
     pub(crate) present: bool,
@@ -1804,6 +1825,8 @@ pub(crate) struct ModuleLoaderLiveLoadBoundary {
     pub(crate) executable_image_layout_boundary_source_chain_complete: bool,
     pub(crate) executable_page_mapping_plan_boundary_present: bool,
     pub(crate) executable_page_mapping_plan_boundary_source_chain_complete: bool,
+    pub(crate) executable_page_mapping_boundary_present: bool,
+    pub(crate) executable_page_mapping_boundary_source_chain_complete: bool,
     pub(crate) artifact_byte_intake_boundary_present: bool,
     pub(crate) artifact_byte_intake_boundary_source_chain_complete: bool,
     pub(crate) execution_authorization_boundary_present: bool,
@@ -1881,6 +1904,7 @@ pub(crate) struct ModuleLoaderRuntimeCandidate {
     pub(crate) executable_image_layout_boundary: ModuleLoaderLiveLoadBoundary,
     pub(crate) executable_page_mapping_plan_boundary: ModuleLoaderLiveLoadBoundary,
     pub(crate) executable_page_mapping_boundary: ModuleLoaderLiveLoadBoundary,
+    pub(crate) descriptor_executable_page_binding_boundary: ModuleLoaderLiveLoadBoundary,
 }
 
 #[derive(Clone, Copy)]
@@ -1985,6 +2009,8 @@ pub(crate) struct ModuleLoaderRuntimeEvaluation {
     pub(crate) executable_page_mapping_plan_boundary_reason: &'static str,
     pub(crate) executable_page_mapping_boundary_status: &'static str,
     pub(crate) executable_page_mapping_boundary_reason: &'static str,
+    pub(crate) descriptor_executable_page_binding_boundary_status: &'static str,
+    pub(crate) descriptor_executable_page_binding_boundary_reason: &'static str,
     pub(crate) loads_artifact: bool,
     pub(crate) allocates_service_slot: bool,
     pub(crate) creates_service_inventory_records: bool,
@@ -2910,7 +2936,7 @@ pub(crate) const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_SERVICE_SLOT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_SERVICE_SLOT_ALLOCATOR_SELFTEST_CASES: usize = 29;
-pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 66;
+pub(crate) const MODULE_LOADER_RUNTIME_SELFTEST_CASES: usize = 67;
 pub(crate) const MODULE_LOADER_IDENTITY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_LOADER_ARTIFACT_HASH_BINDING_SELFTEST_CASES: usize = 14;
 pub(crate) const MODULE_AUDIT_ROLLBACK_AVAILABILITY_SELFTEST_CASES: usize = 8;

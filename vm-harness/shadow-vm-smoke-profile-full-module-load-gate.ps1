@@ -347,6 +347,24 @@
     Assert-LogContains -Name "policy:module_loader_runtime_executable_page_mapping_boundary_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_executable_page_mapping_boundary_no_descriptor_bytes" -Needle '"accepts_descriptor_bytes": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_executable_page_mapping_boundary_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary" -Needle '"descriptor_executable_page_binding_boundary": {' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_schema" -Needle '"schema": "raios.module_loader_descriptor_executable_page_binding_boundary.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_reason" -Needle '"reason": "module_loader_descriptor_executable_page_binding_boundary_non_authorizing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_binding" -Needle '"binds_capability_validated_descriptor_to_executable_pages": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_maps" -Needle '"maps_executable_pages": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_page_mapping_plan" -Needle '"produces_executable_page_mapping_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_image_layout" -Needle '"produces_executable_image_layout": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_authority" -Needle '"authorizes_executable_load_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_load_plan" -Needle '"produces_executable_load_plan": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_capability_validation" -Needle '"validates_descriptor_capabilities": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_capability_validated_descriptor" -Needle '"produces_capability_validated_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_schema_validation" -Needle '"validates_descriptor_schema": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_validated_descriptor" -Needle '"produces_validated_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_result" -Needle '"produces_parsed_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_parse" -Needle '"parses_descriptor_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_descriptor_bytes" -Needle '"accepts_descriptor_bytes": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_runtime_descriptor_executable_page_binding_boundary_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_no_descriptor" -Needle '"accepts_loader_descriptor": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_no_parsed_descriptor" -Needle '"produces_parsed_descriptor": false' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_no_schema_validation" -Needle '"validates_descriptor_schema": false' -TimeoutSeconds 1
@@ -443,6 +461,7 @@
     Assert-LogContains -Name "policy:module_loader_executable_image_layout_boundary_required" -Needle "raios.module_loader_executable_image_layout_boundary.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_executable_page_mapping_plan_boundary_required" -Needle "raios.module_loader_executable_page_mapping_plan_boundary.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_executable_page_mapping_boundary_required" -Needle "raios.module_loader_executable_page_mapping_boundary.v0" -TimeoutSeconds 1
+    Assert-LogContains -Name "policy:module_loader_descriptor_executable_page_binding_boundary_required" -Needle "raios.module_loader_descriptor_executable_page_binding_boundary.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_loader_runtime_required" -Needle "raios.module_loader_runtime_readiness.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_rollback_requirements_schema" -Needle '"schema": "raios.module_load_gate_audit_rollback_requirements.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "policy:module_audit_rollback_requirements_status" -Needle '"status": "required_missing"' -TimeoutSeconds 1

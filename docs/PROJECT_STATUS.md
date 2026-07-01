@@ -24,12 +24,12 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Last verified locally: 2026-06-30 on Windows with QEMU 11 after adding the
+Last verified locally: 2026-07-01 on Windows with QEMU 11 after adding the
 typed, read-only
-`raios.module_loader_executable_page_mapping_boundary.v0` on top of the
-normal-module executable page-mapping plan boundary, executable image-layout
-boundary, executable load-plan result, executable load-plan authority,
-descriptor load-plan, descriptor
+`raios.module_loader_descriptor_executable_page_binding_boundary.v0` on top of
+the normal-module executable page-mapping boundary, executable page-mapping plan
+boundary, executable image-layout boundary, executable load-plan result,
+executable load-plan authority, descriptor load-plan, descriptor
 capability-validation, descriptor schema-validation, descriptor-parser result,
 descriptor-parser contract, descriptor-acceptance authority, live-load, and
 commit sequence. It consumes the retained
@@ -41,7 +41,8 @@ module evidence, RAM-only service-slot reservation/binding, loader-runtime
 source evidence, health hooks, rollback hooks, audit/rollback write-boundary
 evidence, and the full observed live-load lifecycle chain only as current-boot
 provenance. It reports
-`module_loader_executable_page_mapping_boundary_non_authorizing` while
+`module_loader_descriptor_executable_page_binding_boundary_non_authorizing`
+while
 keeping executable page-mapping plan production, executable image-layout
 production, executable load-plan authority, executable load-plan production,
 capability-validated descriptor binding to executable pages, descriptor
@@ -57,11 +58,12 @@ rollback-state installation, and load attempts false. `module.loader_runtime`,
 denied `module.load_ephemeral` /
 `service.load_ephemeral`, compact audit/event bindings, event-log memory
 rendering, and selftests now cite the full chain through executable image
-layout, page-mapping plan, and executable page mapping. Full Shadow VM smoke
-passed in `release/vm-reports/shadow-20260630-231712-2448.json` with
-6389/6389 predicates, 243 executed commands, and `duration_ms: 497027`; that run used
+layout, page-mapping plan, executable page mapping, and descriptor/executable
+page binding. Full Shadow VM smoke passed in
+`release/vm-reports/shadow-20260701-091747-9784.json` with 6446/6446
+predicates, 243 executed commands, and `duration_ms: 490492`; that run used
 `-TimeoutSeconds 300`, `-SerialWriteChunkSize 64`,
-`-SerialWriteDelayMilliseconds 2`, and `-SerialTcpPort 4570` after earlier
+`-SerialWriteDelayMilliseconds 2`, and `-SerialTcpPort 4571` after earlier
 180-second command-window timeouts in long module-loader responses. This
 follows the
 four typed, read-only commit boundaries:
@@ -582,15 +584,15 @@ local-only retained local-approval reference gate selftests.
 Direct OpenAI pin-mismatch plus SPKI pinned-trust smokes using a fake local API
 key remain previously verified from the prior handoff.
 
-Latest current-cursor verification: 2026-06-30 on Windows with
+Latest current-cursor verification: 2026-07-01 on Windows with
 `scripts\build-seed-kernel.ps1 -Profile release`,
 `cargo fmt --all -- --check`,
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`,
 `git diff --check`, `scripts\scan-secrets.ps1`, and
-`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 300 -SerialWriteChunkSize 64 -SerialWriteDelayMilliseconds 2 -SerialTcpPort 4570`.
+`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 300 -SerialWriteChunkSize 64 -SerialWriteDelayMilliseconds 2 -SerialTcpPort 4571`.
 The passing full report is
-`release\vm-reports\shadow-20260630-231712-2448.json` with 6389/6389
-predicates, 243/243 executed commands, and `duration_ms: 497027`, covering the
+`release\vm-reports\shadow-20260701-091747-9784.json` with 6446/6446
+predicates, 243/243 executed commands, and `duration_ms: 490492`, covering the
 load-attempt, artifact-load, executable-mapping, entrypoint-transfer,
 service-start, service-health-binding, service-running-state,
 service-start-audit, service-unload-cleanup, live-load-commit, commit-audit,
@@ -598,8 +600,8 @@ commit-rollback, commit-result, descriptor-acceptance authority, and
 descriptor-parser contract plus descriptor-parser result and descriptor
 schema-validation plus descriptor capability-validation, descriptor load-plan,
 executable load-plan authority, executable load-plan result, executable
-image-layout, executable page-mapping plan, and executable page-mapping
-loader-runtime boundaries, denied
+image-layout, executable page-mapping plan, executable page-mapping, and
+descriptor/executable-page binding loader-runtime boundaries, denied
 load-gate/audit projections, event-log memory bindings, and the updated
 loader-runtime selftest matrix. Earlier same-slice runs with a 180-second
 per-command window timed out in long module-loader responses; the passing run
@@ -1013,23 +1015,25 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Define the next typed, read-only normal-module descriptor-to-page binding
+Define the next typed, read-only normal-module executable entrypoint binding
 boundary:
-`raios.module_loader_descriptor_executable_page_binding_boundary.v0`. It should
-consume the retained executable page-mapping boundary, retained executable
-page-mapping plan boundary, retained executable image-layout boundary, retained
-executable load-plan result boundary, retained executable load-plan authority
-boundary, retained descriptor load-plan boundary, and the full retained module
-evidence, service-slot reservation/binding, loader-runtime source evidence,
+`raios.module_loader_executable_entrypoint_binding_boundary.v0`. It should
+consume the retained descriptor/executable-page binding boundary, retained
+executable page-mapping boundary, retained executable page-mapping plan
+boundary, retained executable image-layout boundary, retained executable
+load-plan result boundary, retained executable load-plan authority boundary,
+retained descriptor load-plan boundary, and the full retained module evidence,
+service-slot reservation/binding, loader-runtime source evidence,
 audit/rollback write-boundary evidence, health hooks, rollback hooks,
 entrypoint ABI, memory-map constraints, capability import table, and live-load
-lifecycle chain. It should report an explicit no-binding result without binding
-a capability-validated descriptor to executable pages, mapping new executable
+lifecycle chain. It should report an explicit no-entrypoint-binding result
+without binding a runnable entrypoint, jumping to an entrypoint, binding a
+capability-validated descriptor to executable pages, mapping new executable
 pages, producing an executable page mapping plan, producing an executable image
 layout, producing an executable load plan, accepting loader descriptors,
-accepting artifact bytes, jumping to an entrypoint, committing a live load,
-mutating service inventory, allocating a slot, writing durable audit state,
-installing rollback state, or attempting a load.
+accepting artifact bytes, committing a live load, mutating service inventory,
+allocating a slot, writing durable audit state, installing rollback state, or
+attempting a load.
 
 The current Phase-6 loader-runtime aggregate, denied `module.load_ephemeral`
 loader-runtime readiness projection, compact audit/event binding, event-log
@@ -1058,7 +1062,8 @@ sequence through
 `raios.module_loader_executable_load_plan_result_boundary.v0`, and
 `raios.module_loader_executable_image_layout_boundary.v0`, and
 `raios.module_loader_executable_page_mapping_plan_boundary.v0`, and
-`raios.module_loader_executable_page_mapping_boundary.v0`, as observed,
+`raios.module_loader_executable_page_mapping_boundary.v0`, and
+`raios.module_loader_descriptor_executable_page_binding_boundary.v0`, as observed,
 current-boot, non-authorizing boundaries. These follow the descriptor/artifact
 intake, execution authorization, service-registry mutation, retained module
 evidence, RAM-only service-slot, normal loader-runtime source-evidence chain,
@@ -1076,7 +1081,7 @@ audit writing, commit rollback install, load-result recording, execution
 authorization, service registry mutation, service-inventory record creation,
 service-slot allocation, durable-audit state writes, rollback-state
 installation, and load attempts false. The next durable slice should add an
-explicit descriptor/executable-page binding boundary before any executable pages
+explicit executable entrypoint binding boundary before any entrypoint transfer
 or live service can be loaded.
 
 Historical recovery refactor notes retained below are no longer the active
@@ -2131,8 +2136,8 @@ Historical verified recovery foundation retained for reference:
   local-only missing redaction/classification and handler-input linkage facts,
   and the still-non-executing dispatch boundary after body evidence is retained.
   Latest full report:
-  `release\vm-reports\shadow-20260630-231712-2448.json` with 6389/6389
-  predicates, 243 executed commands, and `duration_ms: 497027`.
+  `release\vm-reports\shadow-20260701-091747-9784.json` with 6446/6446
+  predicates, 243 executed commands, and `duration_ms: 490492`.
   Latest focused reports:
   `release\vm-reports\shadow-20260630-225419-7620.json` with 136/136 quick
   predicates, 13 executed commands, and `duration_ms: 32290`, and
