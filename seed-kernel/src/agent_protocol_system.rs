@@ -614,6 +614,9 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
     json_str(hello_service::LOAD_DESCRIPTOR_ID);
     raw(", \"load_descriptor_source_locator\": ");
     json_str(hello_service::LOAD_DESCRIPTOR_SOURCE_LOCATOR);
+    raw(", \"load_descriptor_source_kind\": ");
+    json_str(hello_service::LOAD_DESCRIPTOR_SOURCE_KIND);
+    raw(", \"load_descriptor_source_validated\": true");
     raw(", \"load_descriptor_source_hash\": ");
     json_sha256(hello_service::load_descriptor_source_hash());
     raw(", \"running\": ");

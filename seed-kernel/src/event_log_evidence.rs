@@ -4,6 +4,8 @@ pub(crate) const HELLO_SERVICE_LIFECYCLE_EVIDENCE: &[&str] = &[
     "raios.current_boot_load_descriptor.v0",
     "load_descriptor.current_boot.svc.demo.hello.v0",
     "load_descriptor_source_locator",
+    "current_image_descriptor_source",
+    "descriptor_source_intake_validated",
     "load_descriptor_source_hash",
     "builtin_stage0_test_service",
     "ram_only_state_transition",

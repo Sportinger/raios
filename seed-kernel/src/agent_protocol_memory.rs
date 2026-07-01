@@ -462,8 +462,12 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_str(binding.descriptor_id);
             raw(", \"load_descriptor_source_locator\": ");
             json_str(binding.descriptor_source_locator);
+            raw(", \"load_descriptor_source_kind\": ");
+            json_str(binding.descriptor_source_kind);
             raw(", \"load_descriptor_source_hash\": ");
             json_sha256(binding.descriptor_source_hash);
+            raw(", \"load_descriptor_source_validated\": ");
+            raw_bool(binding.descriptor_source_validated);
             raw(", \"service_inventory_change\": ");
             json_str(binding.service_inventory_change);
             raw(", \"persistence\": ");

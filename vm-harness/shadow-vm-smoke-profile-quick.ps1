@@ -41,11 +41,19 @@
             throw "Expected typed current-boot hello load descriptor"
         }
         $helloDescriptorHash = $helloLoad.body.result.load_descriptor.source.sha256
+        $helloDescriptorLocator = "current_image.descriptor_source.svc.demo.hello.v0"
+        $helloDescriptorKind = "current_image_descriptor_source"
         if (-not $helloDescriptorHash -or -not $helloDescriptorHash.StartsWith("sha256:")) {
             throw "Expected hello load descriptor to expose a SHA-256 source hash"
         }
-        if ($helloLoad.body.result.load_descriptor.source.locator -ne "seed-kernel/src/hello_service.rs#LOAD_DESCRIPTOR_SOURCE") {
-            throw "Expected hello load descriptor to cite its kernel source locator"
+        if ($helloLoad.body.result.load_descriptor.source.locator -ne $helloDescriptorLocator) {
+            throw "Expected hello load descriptor to cite its current-image source locator"
+        }
+        if ($helloLoad.body.result.load_descriptor.source.kind -ne $helloDescriptorKind) {
+            throw "Expected hello load descriptor to cite its current-image source kind"
+        }
+        if (-not $helloLoad.body.result.load_descriptor.source.validated) {
+            throw "Expected hello load descriptor source to be validated"
         }
         if ($helloLoad.body.result.load_descriptor.source.canonicalization -ne "raios.current_boot_load_descriptor.canonical.v0") {
             throw "Expected hello load descriptor to cite its canonicalization"
@@ -53,14 +61,26 @@
         if ($helloLoad.body.result.load_descriptor.source.text -notlike "*schema=raios.current_boot_load_descriptor.v0*") {
             throw "Expected hello load descriptor to expose its canonical source text"
         }
+        if ($helloLoad.body.result.load_descriptor.source.text -notlike "*source_kind=current_image_descriptor_source*") {
+            throw "Expected hello load descriptor source text to identify the current-image source kind"
+        }
         if ($helloLoad.body.result.load_request.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello load request to cite the same descriptor source hash"
+        }
+        if ($helloLoad.body.result.load_request.descriptor_source_kind -ne $helloDescriptorKind -or -not $helloLoad.body.result.load_request.descriptor_source_validated) {
+            throw "Expected hello load request to cite the validated current-image descriptor source"
         }
         if ($helloLoad.body.result.service.load_descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello service response to cite the same descriptor source hash"
         }
+        if ($helloLoad.body.result.service.load_descriptor_source_kind -ne $helloDescriptorKind -or -not $helloLoad.body.result.service.load_descriptor_source_validated) {
+            throw "Expected hello service response to cite the validated current-image descriptor source"
+        }
         if ($helloLoad.body.result.loader.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello loader response to cite the same descriptor source hash"
+        }
+        if ($helloLoad.body.result.loader.descriptor_source_kind -ne $helloDescriptorKind -or -not $helloLoad.body.result.loader.descriptor_source_validated) {
+            throw "Expected hello loader response to cite the validated current-image descriptor source"
         }
         if (-not $helloLoad.body.result.service.loaded -or -not $helloLoad.body.result.service.running) {
             throw "Expected loaded/running hello service after load_start"
@@ -84,8 +104,11 @@
         if ($helloInventory[0].load_descriptor_id -ne "load_descriptor.current_boot.svc.demo.hello.v0") {
             throw "Expected svc.demo.hello inventory record to cite the load descriptor"
         }
-        if ($helloInventory[0].load_descriptor_source_locator -ne "seed-kernel/src/hello_service.rs#LOAD_DESCRIPTOR_SOURCE") {
+        if ($helloInventory[0].load_descriptor_source_locator -ne $helloDescriptorLocator) {
             throw "Expected svc.demo.hello inventory record to cite the load descriptor source locator"
+        }
+        if ($helloInventory[0].load_descriptor_source_kind -ne $helloDescriptorKind -or -not $helloInventory[0].load_descriptor_source_validated) {
+            throw "Expected svc.demo.hello inventory record to cite the validated current-image descriptor source"
         }
         if ($helloInventory[0].load_descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected svc.demo.hello inventory record to cite the load descriptor source hash"
@@ -126,9 +149,9 @@
         if ($helloDescriptorHashEvents.Count -lt 3) {
             throw "Expected hello lifecycle events to cite the descriptor source hash"
         }
-        $helloDescriptorSourceEvents = @($helloEvents | Where-Object { $_.bindings.load_descriptor_source_locator -eq "seed-kernel/src/hello_service.rs#LOAD_DESCRIPTOR_SOURCE" })
+        $helloDescriptorSourceEvents = @($helloEvents | Where-Object { $_.bindings.load_descriptor_source_locator -eq $helloDescriptorLocator -and $_.bindings.load_descriptor_source_kind -eq $helloDescriptorKind -and $_.bindings.load_descriptor_source_validated })
         if ($helloDescriptorSourceEvents.Count -lt 3) {
-            throw "Expected hello lifecycle events to cite the descriptor source locator"
+            throw "Expected hello lifecycle events to cite the validated current-image descriptor source"
         }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 32' -TimeoutSeconds 1
@@ -139,4 +162,6 @@
         Assert-LogContains -Name "quick:audit_events_hello_resource" -Needle '"resource": "svc.demo.hello"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor" -Needle "load_descriptor.current_boot.svc.demo.hello.v0" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_hash" -Needle '"load_descriptor_source_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_validated" -Needle '"load_descriptor_source_validated": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_ram_only" -Needle '"persistence": "none"' -TimeoutSeconds 1

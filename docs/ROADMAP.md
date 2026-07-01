@@ -2,9 +2,9 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after binding the first positive RAM-only
-service lifecycle to a deterministic typed descriptor source/hash. Keep this
-section compact. The authoritative, unabridged current state is
+Last updated: 2026-07-02 by Codex after moving the first positive RAM-only
+service lifecycle onto a validated current-image descriptor-source intake. Keep
+this section compact. The authoritative, unabridged current state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
 cursor, not repeat the full implementation history.
 
@@ -23,14 +23,16 @@ Latest verified implementation slice:
 - `module.load_ephemeral svc.demo.hello` now loads/starts the built-in
   `svc.demo.hello` current-boot test service through a narrow RAM-only path
   that consumes `raios.current_boot_load_request.v0` and
-  `raios.current_boot_load_descriptor.v0`
+  `raios.current_boot_load_descriptor.v0` from a validated current-image
+  descriptor-source record
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
   `service.stop svc.demo.hello` marks it stopped; `service.drop svc.demo.hello`
   removes it from inventory; the inventory record cites
   `load_descriptor.current_boot.svc.demo.hello.v0` plus the descriptor source
-  locator/hash
+  locator/kind/validation/hash
 - lifecycle actions retain `raios.ram_only_hello_service.lifecycle` audit events
-  in the current-boot RAM event log with descriptor and source-hash evidence
+  in the current-boot RAM event log with descriptor and validated source-hash
+  evidence
 - the hello path accepts no arbitrary external artifact bytes, writes no
   persistent state, writes no durable audit log, installs no rollback plan, and
   grants no broad mutation
@@ -80,26 +82,26 @@ release\vm-reports\shadow-20260702-001225-25068.json
 Latest focused verification:
 
 ```text
-release\vm-reports\shadow-20260702-011049-1064.json
-150/150 quick predicates, 20 executed commands, duration_ms: 45571
+release\vm-reports\shadow-20260702-011913-25676.json
+152/152 quick predicates, 20 executed commands, duration_ms: 51871
 ```
 
 Exact next task:
 
 ```text
-Replace the built-in hello descriptor source constant with the smallest
-verified current-image or signed descriptor-source intake, while keeping the
-same load response, service.inventory record, and RAM audit event bound to one
-descriptor locator/hash and keeping external artifacts, persistence, durable
-audit, rollback install, and broad mutation denied.
+Add the smallest second descriptor-source candidate for the hello path
+(prefer signed or host-produced hash-bound), keep the current-image descriptor
+source passing, and do not add a generic parser or signed artifact loader until
+two real descriptor sources force shared validation code.
 ```
 
 Next three tasks:
 
-1. Move the `svc.demo.hello` descriptor source from the in-kernel constant into
-   one verified current-image or signed descriptor-source record.
+1. Add one second descriptor-source candidate for `svc.demo.hello` while keeping
+   artifact loading built-in/current-boot only.
 2. Keep the positive load/list/stop/drop quick smoke green while checking that
-   load response, inventory, and audit events cite the same descriptor hash.
+   load response, inventory, and audit events cite the same descriptor
+   locator/kind/validation/hash.
 3. Only after a second descriptor source exists, introduce the smallest shared
    descriptor parser/validator needed by both sources.
 

@@ -1,4 +1,3 @@
-use sha2::{Digest, Sha256};
 use spin::Mutex;
 
 use crate::{
@@ -6,31 +5,20 @@ use crate::{
         begin_response, emit_inline_string_array, end_response, json_event_id_option, json_sha256,
         json_str, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
     },
-    event_log,
+    descriptor_sources, event_log,
 };
 
-pub(crate) const SERVICE_ID: &str = "svc.demo.hello";
-pub(crate) const ARTIFACT_ID: &str = "builtin:svc.demo.hello";
+pub(crate) const SERVICE_ID: &str = descriptor_sources::HELLO_SERVICE_ID;
+pub(crate) const ARTIFACT_ID: &str = descriptor_sources::HELLO_ARTIFACT_ID;
 pub(crate) const CAPABILITIES: &[&str] = &["cap.service.hello_demo.current_boot"];
-pub(crate) const LOAD_DESCRIPTOR_SCHEMA: &str = "raios.current_boot_load_descriptor.v0";
-pub(crate) const LOAD_DESCRIPTOR_ID: &str = "load_descriptor.current_boot.svc.demo.hello.v0";
+pub(crate) const LOAD_DESCRIPTOR_SCHEMA: &str = descriptor_sources::HELLO_LOAD_DESCRIPTOR_SCHEMA;
+pub(crate) const LOAD_DESCRIPTOR_ID: &str = descriptor_sources::HELLO_LOAD_DESCRIPTOR_ID;
 pub(crate) const LOAD_DESCRIPTOR_CANONICALIZATION: &str =
-    "raios.current_boot_load_descriptor.canonical.v0";
+    descriptor_sources::HELLO_LOAD_DESCRIPTOR_CANONICALIZATION;
 pub(crate) const LOAD_DESCRIPTOR_SOURCE_LOCATOR: &str =
-    "seed-kernel/src/hello_service.rs#LOAD_DESCRIPTOR_SOURCE";
-pub(crate) const LOAD_DESCRIPTOR_SOURCE: &str =
-    "canonicalization=raios.current_boot_load_descriptor.canonical.v0\n\
-schema=raios.current_boot_load_descriptor.v0\n\
-id=load_descriptor.current_boot.svc.demo.hello.v0\n\
-service_id=svc.demo.hello\n\
-artifact_id=builtin:svc.demo.hello\n\
-artifact_kind=builtin_stage0_test_service\n\
-scope=current_boot\n\
-classification=local_only\n\
-persistence=none\n\
-accepts_external_artifact_bytes=false\n\
-loads_external_artifact=false\n\
-writes_persistent_state=false";
+    descriptor_sources::HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR;
+pub(crate) const LOAD_DESCRIPTOR_SOURCE_KIND: &str =
+    descriptor_sources::HELLO_LOAD_DESCRIPTOR_SOURCE_KIND;
 
 #[derive(Clone, Copy)]
 pub(crate) struct LoadDescriptor {
@@ -38,6 +26,8 @@ pub(crate) struct LoadDescriptor {
     pub id: &'static str,
     pub canonicalization: &'static str,
     pub source_locator: &'static str,
+    pub source_kind: &'static str,
+    pub source_text: &'static str,
     pub service_id: &'static str,
     pub artifact_id: &'static str,
     pub artifact_kind: &'static str,
@@ -57,6 +47,8 @@ pub(crate) const LOAD_DESCRIPTOR: LoadDescriptor = LoadDescriptor {
     id: LOAD_DESCRIPTOR_ID,
     canonicalization: LOAD_DESCRIPTOR_CANONICALIZATION,
     source_locator: LOAD_DESCRIPTOR_SOURCE_LOCATOR,
+    source_kind: LOAD_DESCRIPTOR_SOURCE_KIND,
+    source_text: descriptor_sources::HELLO_LOAD_DESCRIPTOR_SOURCE,
     service_id: SERVICE_ID,
     artifact_id: ARTIFACT_ID,
     artifact_kind: "builtin_stage0_test_service",
@@ -66,10 +58,7 @@ pub(crate) const LOAD_DESCRIPTOR: LoadDescriptor = LoadDescriptor {
 };
 
 pub(crate) fn load_descriptor_source_hash() -> [u8; 32] {
-    let digest = Sha256::digest(LOAD_DESCRIPTOR_SOURCE.as_bytes());
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
-    out
+    descriptor_sources::hello_load_descriptor_source_hash()
 }
 
 #[derive(Clone, Copy)]
@@ -292,14 +281,36 @@ fn load_request_for_head(method: &str, head: &'static str) -> Option<LoadRequest
         return None;
     }
     let target = method[head.len()..].trim();
-    if descriptor_target_matches(target, LOAD_DESCRIPTOR) {
+    let descriptor = verified_load_descriptor()?;
+    if descriptor_target_matches(target, descriptor) {
         Some(LoadRequest {
             source_method: head,
-            descriptor: LOAD_DESCRIPTOR,
+            descriptor,
         })
     } else {
         None
     }
+}
+
+fn verified_load_descriptor() -> Option<LoadDescriptor> {
+    let source = descriptor_sources::lookup_current_image_descriptor_source(LOAD_DESCRIPTOR_ID)?;
+    if !descriptor_sources::validate_current_image_descriptor_source(source) {
+        return None;
+    }
+    Some(LoadDescriptor {
+        schema: source.schema,
+        id: source.id,
+        canonicalization: source.canonicalization,
+        source_locator: source.locator,
+        source_kind: source.kind,
+        source_text: source.text,
+        service_id: source.service_id,
+        artifact_id: source.artifact_id,
+        artifact_kind: source.artifact_kind,
+        scope: source.scope,
+        classification: source.classification,
+        persistence: source.persistence,
+    })
 }
 
 fn target_arg_matches(method: &str, head: &str) -> bool {
@@ -326,7 +337,9 @@ fn lifecycle_binding(
         descriptor_schema: descriptor.schema,
         descriptor_id: descriptor.id,
         descriptor_source_locator: descriptor.source_locator,
+        descriptor_source_kind: descriptor.source_kind,
         descriptor_source_hash: load_descriptor_source_hash(),
+        descriptor_source_validated: true,
         service_inventory_change,
         persistence: descriptor.persistence,
         accepts_external_artifact_bytes: false,
@@ -369,6 +382,10 @@ fn emit_response(
     raw("        \"load_descriptor_id\": ");
     json_str(descriptor.id);
     raw_line(",");
+    raw("        \"load_descriptor_source_kind\": ");
+    json_str(descriptor.source_kind);
+    raw_line(",");
+    raw_line("        \"load_descriptor_source_validated\": true,");
     raw("        \"load_descriptor_source_hash\": ");
     json_sha256(load_descriptor_source_hash());
     raw_line(",");
@@ -428,6 +445,10 @@ fn emit_response(
     raw("        \"descriptor_source_locator\": ");
     json_str(descriptor.source_locator);
     raw_line(",");
+    raw("        \"descriptor_source_kind\": ");
+    json_str(descriptor.source_kind);
+    raw_line(",");
+    raw_line("        \"descriptor_source_validated\": true,");
     raw("        \"descriptor_source_hash\": ");
     json_sha256(load_descriptor_source_hash());
     raw_line(",");
@@ -463,6 +484,10 @@ fn emit_load_request(descriptor: LoadDescriptor) {
     raw("        \"descriptor_source_locator\": ");
     json_str(descriptor.source_locator);
     raw_line(",");
+    raw("        \"descriptor_source_kind\": ");
+    json_str(descriptor.source_kind);
+    raw_line(",");
+    raw_line("        \"descriptor_source_validated\": true,");
     raw("        \"descriptor_source_hash\": ");
     json_sha256(load_descriptor_source_hash());
     raw_line(",");
@@ -488,11 +513,15 @@ fn emit_load_descriptor(descriptor: LoadDescriptor) {
     raw("          \"locator\": ");
     json_str(descriptor.source_locator);
     raw_line(",");
+    raw("          \"kind\": ");
+    json_str(descriptor.source_kind);
+    raw_line(",");
+    raw_line("          \"validated\": true,");
     raw("          \"sha256\": ");
     json_sha256(load_descriptor_source_hash());
     raw_line(",");
     raw("          \"text\": ");
-    json_str(LOAD_DESCRIPTOR_SOURCE);
+    json_str(descriptor.source_text);
     raw_line("");
     raw_line("        },");
     raw("        \"service_id\": ");

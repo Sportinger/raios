@@ -29,18 +29,18 @@ RAM-only service vertical slice: `raios.ram_only_hello_service.v0`. The kernel
 can load/start the built-in `svc.demo.hello` test service through a typed
 current-boot load request/descriptor, expose it through `service.inventory`,
 stop it, drop it, and retain RAM-only lifecycle audit events that cite the
-descriptor plus its deterministic source locator/hash. Keep the evidence chain
-and fail-closed denials, but continue the pivot through positive service
-lifecycles instead of adding another non-authorizing loader boundary by
-default. Persistence, arbitrary external artifact intake, durable audit writes,
-rollback installation, provider-triggered auto-load, and broad
+descriptor plus a validated current-image descriptor-source locator/kind/hash.
+Keep the evidence chain and fail-closed denials, but continue the pivot through
+positive service lifecycles instead of adding another non-authorizing loader
+boundary by default. Persistence, arbitrary external artifact intake, durable
+audit writes, rollback installation, provider-triggered auto-load, and broad
 module/service/config mutation remain denied.
 
-Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
-deterministic current-boot descriptor source/hash for the positive RAM-only
-`svc.demo.hello` lifecycle. Quick Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-011049-1064.json` with 150/150 predicates,
-20 executed commands, and `duration_ms: 45571`: bare
+Last verified locally: 2026-07-02 on Windows with QEMU 11 after replacing the
+Hello service-local descriptor source authority with a validated current-image
+descriptor-source intake record. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-011913-25676.json` with 152/152 predicates,
+20 executed commands, and `duration_ms: 51871`: bare
 `module.load_ephemeral`, `module.load_ephemeral svc.demo.nope`, and
 `module.load_ephemeral external:svc.demo.hello` still return the
 non-authorizing module-load gate, then
@@ -48,16 +48,18 @@ non-authorizing module-load gate, then
 `raios.ram_only_hello_service.v0` with
 `raios.current_boot_load_request.v0` and
 `raios.current_boot_load_descriptor.v0`, a canonical descriptor source locator
-`seed-kernel/src/hello_service.rs#LOAD_DESCRIPTOR_SOURCE`, and a computed
-`sha256:` descriptor source hash. It inserts a healthy/running current-boot
+`current_image.descriptor_source.svc.demo.hello.v0`, source kind
+`current_image_descriptor_source`, `validated: true`, and a computed `sha256:`
+descriptor source hash. It inserts a healthy/running current-boot
 `svc.demo.hello` service into `service.inventory` with
 `load_descriptor.current_boot.svc.demo.hello.v0` and the same descriptor
-source/hash,
+source locator/kind/validation/hash,
 `service.stop svc.demo.hello` marks it stopped,
 `service.drop svc.demo.hello` removes it from `service.inventory`, and
 `agent audit.events 32` includes three
 `raios.ram_only_hello_service.lifecycle` events for `svc.demo.hello` whose
-evidence/bindings cite the load descriptor and the same descriptor source/hash.
+evidence/bindings cite the load descriptor and the same validated descriptor
+source/hash.
 The slice uses only a built-in Stage-0 test artifact, accepts no external
 artifact bytes, writes no persistent state, writes no durable audit log,
 installs no rollback plan, and grants no broad mutation.
@@ -1064,13 +1066,12 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Promote `raios.ram_only_hello_service.v0` from a built-in descriptor source
-constant to the smallest verified descriptor-source intake while preserving the
-current positive lifecycle and denials. The next durable slice should keep the
-passing load/start/list/stop/drop behavior and replace the hard-coded
-`LOAD_DESCRIPTOR_SOURCE` authority with a tiny current-image or signed
-descriptor-source record that the same load response, `service.inventory`, and
-RAM audit event cite by locator/hash.
+Add the smallest second descriptor-source candidate for the same
+`raios.ram_only_hello_service.v0` path before introducing any generic parser or
+loader. Prefer a signed or host-produced hash-bound descriptor-source envelope
+that reuses the current-image source fields and validation contract, but keep
+the loaded artifact itself built-in/current-boot only until artifact trust,
+execution, durable audit, and rollback evidence exist.
 
 The next slice should:
 
@@ -1078,18 +1079,17 @@ The next slice should:
 - keep `svc.demo.hello` load/start/list/stop/drop passing in quick VM smoke
 - keep `raios.current_boot_load_request.v0` and
   `raios.current_boot_load_descriptor.v0` in the positive path
-- keep the existing descriptor source/hash visible in load response,
-  service.inventory, and lifecycle audit event
-- add one verified descriptor-source intake for the same hello descriptor
-  without accepting arbitrary descriptor bytes or artifact bytes
+- keep the current-image descriptor source locator/kind/validation/hash visible
+  in load response, service.inventory, and lifecycle audit event
+- add one second descriptor-source candidate for the same hello descriptor
+  without accepting arbitrary descriptor bytes or artifact bytes as load input
 - keep persistence, arbitrary external artifact intake, durable audit writes,
   rollback installation, provider-triggered auto-load, and broad
   module/service/config mutation denied
 
-Do not add a generic descriptor parser or signed artifact loader yet. Add the
-smallest source-intake record that can replace the built-in constant for this
-one descriptor, then grow a general parser only when a second descriptor source
-needs it.
+Do not add a generic descriptor parser or signed artifact loader yet. Grow the
+shared parser/validator only from the exact duplication forced by the second
+descriptor-source candidate.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:

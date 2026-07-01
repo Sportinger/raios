@@ -99,6 +99,7 @@ mod agent_protocol_recovery_target_binding_emit;
 mod agent_protocol_support;
 mod agent_protocol_system;
 mod console;
+mod descriptor_sources;
 mod e1000;
 mod entropy;
 mod event_log;

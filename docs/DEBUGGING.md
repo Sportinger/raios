@@ -403,13 +403,14 @@ with `capability_denied`. The positive command must return
 `raios.current_boot_load_descriptor.v0`, and
 `load_descriptor.current_boot.svc.demo.hello.v0`. The load response must expose
 the descriptor source locator
-`seed-kernel/src/hello_service.rs#LOAD_DESCRIPTOR_SOURCE` and a `sha256:`
-source hash. `services` must show `svc.demo.hello` only while loaded and cite
-the same descriptor id/source/hash. `audit.events` must show
+`current_image.descriptor_source.svc.demo.hello.v0`, source kind
+`current_image_descriptor_source`, `validated: true`, and a `sha256:` source
+hash. `services` must show `svc.demo.hello` only while loaded and cite the same
+descriptor id/source/kind/validation/hash. `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` records whose evidence/bindings cite
-the same load descriptor and source hash. The path must keep external artifact
-bytes, persistence, durable audit writes, rollback installation, and broad
-mutation disabled.
+the same load descriptor and validated source hash. The path must keep external
+artifact bytes, persistence, durable audit writes, rollback installation, and
+broad mutation disabled.
 
 After a matching manifest, artifact, Shadow-VM report, and local attestation
 exist, compute the host-side grant diagnostic with:
