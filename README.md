@@ -274,7 +274,8 @@ Verified in the VM today:
   descriptor from a validated current-image descriptor-source record, exposes
   `svc.demo.hello` through `service.inventory`, supports health/stop/drop, and
   leaves RAM-only lifecycle and health audit events bound to the same descriptor
-  source hash; a second `host_bound:svc.demo.hello` path uses a host-produced
+  source hash and a verified P-256/SHA-256 descriptor-source signature envelope;
+  a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service
 - Phase-6 normal-module loader diagnostics through descriptor/artifact intake,

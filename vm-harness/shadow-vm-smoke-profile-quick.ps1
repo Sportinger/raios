@@ -67,11 +67,48 @@
         if ($helloLoad.body.result.load_descriptor.source.text -notlike "*source_locator=$helloDescriptorLocator*") {
             throw "Expected hello load descriptor source text to carry the current-image source locator"
         }
+        $helloDescriptorEnvelope = $helloLoad.body.result.load_descriptor.source.signature_envelope
+        if (-not $helloDescriptorEnvelope) {
+            throw "Expected current-image hello descriptor source to expose a signature envelope"
+        }
+        if ($helloDescriptorEnvelope.schema -ne "raios.descriptor_source_signature_envelope.v0") {
+            throw "Expected current-image hello descriptor source signature envelope schema"
+        }
+        if ($helloDescriptorEnvelope.id -ne "descriptor_source_signature.current_image.svc.demo.hello.v0") {
+            throw "Expected current-image hello descriptor source signature envelope id"
+        }
+        if ($helloDescriptorEnvelope.algorithm -ne "ecdsa_p256_sha256_asn1_der") {
+            throw "Expected current-image hello descriptor source to use the P-256 signature envelope"
+        }
+        if ($helloDescriptorEnvelope.verification_phase -ne "runtime_before_descriptor_selection") {
+            throw "Expected descriptor source envelope to be verified before descriptor source selection"
+        }
+        if ($helloDescriptorEnvelope.payload_sha256 -ne $helloDescriptorHash) {
+            throw "Expected descriptor source envelope payload hash to bind the current-image source hash"
+        }
+        if (-not $helloDescriptorEnvelope.envelope_hash -or -not $helloDescriptorEnvelope.envelope_hash.StartsWith("sha256:")) {
+            throw "Expected descriptor source envelope hash"
+        }
+        if (-not $helloDescriptorEnvelope.public_key_sha256 -or -not $helloDescriptorEnvelope.public_key_sha256.StartsWith("sha256:")) {
+            throw "Expected descriptor source envelope public key hash"
+        }
+        if (-not $helloDescriptorEnvelope.signature_sha256 -or -not $helloDescriptorEnvelope.signature_sha256.StartsWith("sha256:")) {
+            throw "Expected descriptor source envelope signature hash"
+        }
+        if (-not $helloDescriptorEnvelope.signature_verified) {
+            throw "Expected descriptor source envelope signature to verify"
+        }
+        if ($helloDescriptorEnvelope.authorizes_external_artifact_load -or $helloDescriptorEnvelope.authorizes_persistent_install) {
+            throw "Descriptor source signature envelope must not authorize artifact loading or persistence"
+        }
         if ($helloLoad.body.result.load_request.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello load request to cite the same descriptor source hash"
         }
         if ($helloLoad.body.result.load_request.descriptor_source_kind -ne $helloDescriptorKind -or -not $helloLoad.body.result.load_request.descriptor_source_validated) {
             throw "Expected hello load request to cite the validated current-image descriptor source"
+        }
+        if ($helloLoad.body.result.load_request.descriptor_source_signature_envelope.envelope_hash -ne $helloDescriptorEnvelope.envelope_hash -or -not $helloLoad.body.result.load_request.descriptor_source_signature_envelope.signature_verified) {
+            throw "Expected hello load request to cite the verified descriptor source envelope"
         }
         if ($helloLoad.body.result.service.load_descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello service response to cite the same descriptor source hash"
@@ -79,11 +116,17 @@
         if ($helloLoad.body.result.service.load_descriptor_source_kind -ne $helloDescriptorKind -or -not $helloLoad.body.result.service.load_descriptor_source_validated) {
             throw "Expected hello service response to cite the validated current-image descriptor source"
         }
+        if ($helloLoad.body.result.service.load_descriptor_source_signature_envelope.envelope_hash -ne $helloDescriptorEnvelope.envelope_hash -or -not $helloLoad.body.result.service.load_descriptor_source_signature_envelope.signature_verified) {
+            throw "Expected hello service response to cite the verified descriptor source envelope"
+        }
         if ($helloLoad.body.result.loader.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello loader response to cite the same descriptor source hash"
         }
         if ($helloLoad.body.result.loader.descriptor_source_kind -ne $helloDescriptorKind -or -not $helloLoad.body.result.loader.descriptor_source_validated) {
             throw "Expected hello loader response to cite the validated current-image descriptor source"
+        }
+        if ($helloLoad.body.result.loader.descriptor_source_signature_envelope.envelope_hash -ne $helloDescriptorEnvelope.envelope_hash -or -not $helloLoad.body.result.loader.descriptor_source_signature_envelope.signature_verified) {
+            throw "Expected hello loader response to cite the verified descriptor source envelope"
         }
         if (-not $helloLoad.body.result.service.loaded -or -not $helloLoad.body.result.service.running) {
             throw "Expected loaded/running hello service after load_start"
@@ -116,6 +159,9 @@
         if ($helloInventory[0].load_descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected svc.demo.hello inventory record to cite the load descriptor source hash"
         }
+        if ($helloInventory[0].load_descriptor_source_signature_envelope.envelope_hash -ne $helloDescriptorEnvelope.envelope_hash -or -not $helloInventory[0].load_descriptor_source_signature_envelope.signature_verified) {
+            throw "Expected svc.demo.hello inventory record to cite the verified descriptor source envelope"
+        }
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthRunning = Get-LastAgentResponseJson -Method "service.health"
@@ -128,6 +174,9 @@
         }
         if ($helloHealthRunning.body.result.load_descriptor.source.sha256 -ne $helloDescriptorHash -or $helloHealthRunning.body.result.load_descriptor.source.kind -ne $helloDescriptorKind) {
             throw "Expected hello health probe to cite the current-image descriptor source"
+        }
+        if ($helloHealthRunning.body.result.load_descriptor.source.signature_envelope.envelope_hash -ne $helloDescriptorEnvelope.envelope_hash -or -not $helloHealthRunning.body.result.load_descriptor.source.signature_envelope.signature_verified) {
+            throw "Expected hello health probe to cite the verified descriptor source envelope"
         }
 
         Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
@@ -206,6 +255,9 @@
         if ($hostHelloLoad.body.result.load_descriptor.source.text -notlike "*binds_source_kind=$helloDescriptorKind*") {
             throw "Expected host-bound source text to bind the current-image source kind"
         }
+        if ($null -ne $hostHelloLoad.body.result.load_descriptor.source.signature_envelope) {
+            throw "Host-bound descriptor source must remain hash-bound, not a signed artifact-loader path"
+        }
         if ($hostHelloLoad.body.result.load_request.descriptor_source_hash -ne $hostDescriptorHash -or $hostHelloLoad.body.result.loader.descriptor_source_hash -ne $hostDescriptorHash) {
             throw "Expected host-bound load request and loader to cite the host-bound descriptor source hash"
         }
@@ -266,6 +318,10 @@
         if ($helloDescriptorSourceEvents.Count -lt 3) {
             throw "Expected hello lifecycle events to cite the validated current-image descriptor source"
         }
+        $helloDescriptorEnvelopeEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "descriptor_source_signature_verified" -and $_.bindings.load_descriptor_source_envelope_hash -eq $helloDescriptorEnvelope.envelope_hash -and $_.bindings.load_descriptor_source_signature_verified })
+        if ($helloDescriptorEnvelopeEvents.Count -lt 3) {
+            throw "Expected hello lifecycle events to cite the verified descriptor source envelope"
+        }
         $hostDescriptorHashEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor_source_hash" -and $_.bindings.load_descriptor_source_hash -eq $hostDescriptorHash })
         if ($hostDescriptorHashEvents.Count -lt 3) {
             throw "Expected host-bound hello lifecycle events to cite the host-bound descriptor source hash"
@@ -282,6 +338,10 @@
         if ($helloHealthStateEvents.Count -lt 3) {
             throw "Expected hello health events to cover healthy, stopped, and missing states"
         }
+        $helloHealthEnvelopeEvents = @($helloHealthEvents | Where-Object { @($_.evidence) -contains "descriptor_source_signature_verified" -and $_.bindings.load_descriptor_source_envelope_hash -eq $helloDescriptorEnvelope.envelope_hash -and $_.bindings.load_descriptor_source_signature_verified })
+        if ($helloHealthEnvelopeEvents.Count -lt 3) {
+            throw "Expected hello health events to cite the verified descriptor source envelope"
+        }
         $hostHealthEvents = @($helloHealthEvents | Where-Object { $_.bindings.load_descriptor_source_hash -eq $hostDescriptorHash -and $_.bindings.binds_source_hash -eq $helloDescriptorHash })
         if ($hostHealthEvents.Count -lt 1) {
             throw "Expected host-bound health event to cite the host-bound source and bound current-image hash"
@@ -296,6 +356,8 @@
         Assert-LogContains -Name "quick:audit_events_hello_resource" -Needle '"resource": "svc.demo.hello"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor" -Needle "load_descriptor.current_boot.svc.demo.hello.v0" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_hash" -Needle '"load_descriptor_source_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_envelope_hash" -Needle '"load_descriptor_source_envelope_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_signature_verified" -Needle '"load_descriptor_source_signature_verified": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1

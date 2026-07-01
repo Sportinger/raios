@@ -628,6 +628,8 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
     raw(", \"load_descriptor_source_validated\": true");
     raw(", \"load_descriptor_source_hash\": ");
     json_sha256(hello_service::descriptor_source_hash(hello.load_descriptor));
+    raw(", \"load_descriptor_source_signature_envelope\": ");
+    hello_service::emit_descriptor_source_signature_envelope(hello.load_descriptor);
     raw(", \"binds_source_locator\": ");
     json_opt_str(hello.load_descriptor.binds_source_locator);
     raw(", \"binds_source_kind\": ");

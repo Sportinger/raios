@@ -22,4 +22,5 @@ uart_16550 = "0.2"
 x86_64 = { version = "0.14", default-features = false, features = ["instructions"] }
 
 [build-dependencies]
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
 sha2 = "0.10.9"

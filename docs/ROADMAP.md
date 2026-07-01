@@ -2,9 +2,9 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after adding an explicit RAM-only
-`service.health svc.demo.hello` probe to the positive RAM-only service
-lifecycle. Keep this section compact. The authoritative, unabridged current
+Last updated: 2026-07-02 by Codex after adding a signed current-image
+descriptor-source envelope to the positive RAM-only Hello service lifecycle.
+Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
 cursor, not repeat the full implementation history.
@@ -32,6 +32,13 @@ Latest verified implementation slice:
 - descriptor-source validation now parses the built-in source text into checked
   key/value fields for both current-image and host-bound sources instead of
   depending on a complete source-text equality check
+- the current-image descriptor-source path now carries a repo-local
+  P-256/SHA-256 signature envelope; the build script checks the checked-in
+  public key/signature metadata, the kernel verifies the envelope before
+  selecting the descriptor source, and load/inventory/health/RAM-audit evidence
+  exposes the envelope id/hash and signature verification state
+- the host-bound descriptor-source path remains hash-bound to the current-image
+  source and does not accept arbitrary descriptor or artifact bytes
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
   `service.health svc.demo.hello` reports healthy, stopped, or missing from the
   same current-boot state; `service.stop svc.demo.hello` marks it stopped;
@@ -92,29 +99,29 @@ release\vm-reports\shadow-20260702-001225-25068.json
 Latest focused verification:
 
 ```text
-release\vm-reports\shadow-20260702-014101-2844.json
-167/167 quick predicates, 28 executed commands, duration_ms: 52693
+release\vm-reports\shadow-20260702-015300-7236.json
+169/169 quick predicates, 28 executed commands, duration_ms: 53150
 ```
 
 Exact next task:
 
 ```text
-Add the smallest signed descriptor envelope candidate for the existing Hello
-descriptor-source path. Keep the service built-in/current-boot, keep arbitrary
-descriptor/artifact bytes denied, and keep persistence/durable audit/rollback
-denied.
+Add the smallest read-only descriptor-source trust diagnostic/selftest over the
+signed Hello descriptor-source boundary. Keep the service built-in/current-boot,
+keep arbitrary descriptor/artifact bytes denied, and keep persistence/durable
+audit/rollback denied.
 ```
 
 Next three tasks:
 
-1. Reuse existing repo-local signing/verification primitives if they fit; do not
-   invent a general module-signing stack yet.
-2. Verify one signed envelope over an existing Hello descriptor-source text or
-   host-bound candidate before selecting it, and expose envelope id/hash/signing
-   status in load, inventory, health, and RAM audit evidence.
-3. Only after descriptor-source trust is real, consider signed artifact loading;
-   keep artifact execution built-in/current-boot until artifact
-   trust/execution/audit/rollback evidence exists.
+1. Add positive and negative trust selftests for the accepted descriptor-source
+   envelope, including tampered payload, locator/kind, public-key hash, and
+   signature cases.
+2. Expose stable diagnostic IDs/hashes and current-boot evidence for the
+   descriptor-source trust boundary.
+3. Only after descriptor-source trust is proven by selftests, consider signed
+   artifact loading; keep artifact execution built-in/current-boot until
+   artifact trust/execution/audit/rollback evidence exists.
 
 Documentation ownership:
 

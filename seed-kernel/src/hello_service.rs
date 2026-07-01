@@ -32,6 +32,7 @@ pub(crate) struct LoadDescriptor {
     pub binds_source_kind: Option<&'static str>,
     pub binds_source_hash: Option<[u8; 32]>,
     pub source_text: &'static str,
+    pub source_envelope: Option<descriptor_sources::DescriptorSourceEnvelope>,
     pub service_id: &'static str,
     pub artifact_id: &'static str,
     pub artifact_kind: &'static str,
@@ -56,6 +57,7 @@ pub(crate) const LOAD_DESCRIPTOR: LoadDescriptor = LoadDescriptor {
     binds_source_kind: None,
     binds_source_hash: None,
     source_text: descriptor_sources::HELLO_LOAD_DESCRIPTOR_SOURCE,
+    source_envelope: Some(descriptor_sources::HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE),
     service_id: SERVICE_ID,
     artifact_id: ARTIFACT_ID,
     artifact_kind: "builtin_stage0_test_service",
@@ -76,6 +78,15 @@ pub(crate) fn descriptor_source_hash(descriptor: LoadDescriptor) -> [u8; 32] {
     } else {
         load_descriptor_source_hash()
     }
+}
+
+pub(crate) fn descriptor_source_signature_verified(descriptor: LoadDescriptor) -> bool {
+    descriptor_sources::verify_descriptor_source_envelope_parts(
+        descriptor.source_envelope,
+        descriptor.source_locator,
+        descriptor.source_kind,
+        descriptor.source_text,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -386,6 +397,7 @@ fn load_descriptor_from_source(
         binds_source_kind: source.binds_source_kind,
         binds_source_hash: source.binds_source_hash,
         source_text: source.text,
+        source_envelope: source.signed_envelope,
         service_id: source.service_id,
         artifact_id: source.artifact_id,
         artifact_kind: source.artifact_kind,
@@ -444,6 +456,26 @@ fn lifecycle_binding(
         descriptor_source_locator: descriptor.source_locator,
         descriptor_source_kind: descriptor.source_kind,
         descriptor_source_hash: descriptor_source_hash(descriptor),
+        descriptor_source_envelope_id: descriptor.source_envelope.map(|envelope| envelope.id),
+        descriptor_source_envelope_hash: descriptor
+            .source_envelope
+            .map(|envelope| envelope.envelope_hash),
+        descriptor_source_envelope_payload_hash: descriptor
+            .source_envelope
+            .map(|envelope| envelope.payload_hash),
+        descriptor_source_envelope_trust_scope: descriptor
+            .source_envelope
+            .map(|envelope| envelope.trust_scope),
+        descriptor_source_signature_algorithm: descriptor
+            .source_envelope
+            .map(|envelope| envelope.algorithm),
+        descriptor_source_signature_public_key_hash: descriptor
+            .source_envelope
+            .map(|envelope| envelope.public_key_hash),
+        descriptor_source_signature_hash: descriptor
+            .source_envelope
+            .map(|envelope| envelope.signature_hash),
+        descriptor_source_signature_verified: descriptor_source_signature_verified(descriptor),
         binds_source_locator: descriptor.binds_source_locator,
         binds_source_kind: descriptor.binds_source_kind,
         binds_source_hash: descriptor.binds_source_hash,
@@ -523,6 +555,9 @@ fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: even
     raw_line(",");
     raw("          \"binds_source_hash\": ");
     json_sha256_option(descriptor.binds_source_hash);
+    raw_line(",");
+    raw("          \"signature_envelope\": ");
+    emit_descriptor_source_signature_envelope(descriptor);
     raw_line("");
     raw_line("        }");
     raw_line("      },");
@@ -576,6 +611,9 @@ fn emit_response(
     raw_line("        \"load_descriptor_source_validated\": true,");
     raw("        \"load_descriptor_source_hash\": ");
     json_sha256(descriptor_source_hash(descriptor));
+    raw_line(",");
+    raw("        \"load_descriptor_source_signature_envelope\": ");
+    emit_descriptor_source_signature_envelope(descriptor);
     raw_line(",");
     raw_line("        \"kind\": \"service\",");
     raw("        \"loaded\": ");
@@ -640,6 +678,9 @@ fn emit_response(
     raw("        \"descriptor_source_hash\": ");
     json_sha256(descriptor_source_hash(descriptor));
     raw_line(",");
+    raw("        \"descriptor_source_signature_envelope\": ");
+    emit_descriptor_source_signature_envelope(descriptor);
+    raw_line(",");
     raw("        \"binds_source_locator\": ");
     json_opt_str(descriptor.binds_source_locator);
     raw_line(",");
@@ -688,6 +729,9 @@ fn emit_load_request(descriptor: LoadDescriptor) {
     raw("        \"descriptor_source_hash\": ");
     json_sha256(descriptor_source_hash(descriptor));
     raw_line(",");
+    raw("        \"descriptor_source_signature_envelope\": ");
+    emit_descriptor_source_signature_envelope(descriptor);
+    raw_line(",");
     raw("        \"binds_source_locator\": ");
     json_opt_str(descriptor.binds_source_locator);
     raw_line(",");
@@ -735,6 +779,9 @@ fn emit_load_descriptor(descriptor: LoadDescriptor) {
     raw("          \"binds_source_hash\": ");
     json_sha256_option(descriptor.binds_source_hash);
     raw_line(",");
+    raw("          \"signature_envelope\": ");
+    emit_descriptor_source_signature_envelope(descriptor);
+    raw_line(",");
     raw("          \"text\": ");
     json_str(descriptor.source_text);
     raw_line("");
@@ -761,4 +808,37 @@ fn emit_load_descriptor(descriptor: LoadDescriptor) {
     raw_line("        \"loads_external_artifact\": false,");
     raw_line("        \"writes_persistent_state\": false");
     raw("      }");
+}
+
+pub(crate) fn emit_descriptor_source_signature_envelope(descriptor: LoadDescriptor) {
+    let Some(envelope) = descriptor.source_envelope else {
+        raw("null");
+        return;
+    };
+    raw("{");
+    raw("\"schema\": ");
+    json_str(envelope.schema);
+    raw(", \"id\": ");
+    json_str(envelope.id);
+    raw(", \"algorithm\": ");
+    json_str(envelope.algorithm);
+    raw(", \"verification_phase\": ");
+    json_str(envelope.verification_phase);
+    raw(", \"trust_scope\": ");
+    json_str(envelope.trust_scope);
+    raw(", \"envelope_hash\": ");
+    json_sha256(envelope.envelope_hash);
+    raw(", \"payload_sha256\": ");
+    json_sha256(envelope.payload_hash);
+    raw(", \"public_key_sha256\": ");
+    json_sha256(envelope.public_key_hash);
+    raw(", \"signature_sha256\": ");
+    json_sha256(envelope.signature_hash);
+    raw(", \"signature_verified\": ");
+    raw_bool(descriptor_source_signature_verified(descriptor));
+    raw(", \"authorizes_external_artifact_load\": ");
+    raw_bool(envelope.authorizes_external_artifact_load);
+    raw(", \"authorizes_persistent_install\": ");
+    raw_bool(envelope.authorizes_persistent_install);
+    raw("}");
 }

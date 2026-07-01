@@ -1,4 +1,5 @@
 use crate::agent_protocol_support::parse_sha256_ref;
+use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 
 include!(concat!(
@@ -19,6 +20,46 @@ pub(crate) const HELLO_LOAD_DESCRIPTOR_SOURCE: &str =
     include_str!("../descriptors/svc.demo.hello.current_image.desc");
 
 #[derive(Clone, Copy)]
+pub(crate) struct DescriptorSourceEnvelope {
+    pub schema: &'static str,
+    pub id: &'static str,
+    pub algorithm: &'static str,
+    pub verification_phase: &'static str,
+    pub trust_scope: &'static str,
+    pub payload_source_locator: &'static str,
+    pub payload_source_kind: &'static str,
+    pub payload_hash: [u8; 32],
+    pub envelope_hash: [u8; 32],
+    pub public_key_hash: [u8; 32],
+    pub signature_hash: [u8; 32],
+    pub public_key_sec1: &'static [u8],
+    pub signature_der: &'static [u8],
+    pub authorizes_external_artifact_load: bool,
+    pub authorizes_persistent_install: bool,
+    pub text: &'static str,
+}
+
+pub(crate) const HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE: DescriptorSourceEnvelope =
+    DescriptorSourceEnvelope {
+        schema: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE_SCHEMA,
+        id: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE_ID,
+        algorithm: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_SIGNATURE_ALGORITHM,
+        verification_phase: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE_VERIFICATION_PHASE,
+        trust_scope: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE_TRUST_SCOPE,
+        payload_source_locator: HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR,
+        payload_source_kind: HELLO_LOAD_DESCRIPTOR_SOURCE_KIND,
+        payload_hash: HELLO_HOST_BOUND_CURRENT_IMAGE_SOURCE_HASH,
+        envelope_hash: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE_HASH,
+        public_key_hash: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_PUBLIC_KEY_HASH,
+        signature_hash: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_SIGNATURE_HASH,
+        public_key_sec1: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_PUBLIC_KEY_SEC1,
+        signature_der: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_SIGNATURE_DER,
+        authorizes_external_artifact_load: false,
+        authorizes_persistent_install: false,
+        text: HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE_TEXT,
+    };
+
+#[derive(Clone, Copy)]
 pub(crate) struct DescriptorSourceRecord {
     pub schema: &'static str,
     pub id: &'static str,
@@ -37,6 +78,7 @@ pub(crate) struct DescriptorSourceRecord {
     pub accepts_external_artifact_bytes: bool,
     pub loads_external_artifact: bool,
     pub writes_persistent_state: bool,
+    pub signed_envelope: Option<DescriptorSourceEnvelope>,
     pub text: &'static str,
 }
 
@@ -58,6 +100,7 @@ const HELLO_LOAD_DESCRIPTOR_SOURCE_RECORD: DescriptorSourceRecord = DescriptorSo
     accepts_external_artifact_bytes: false,
     loads_external_artifact: false,
     writes_persistent_state: false,
+    signed_envelope: Some(HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE),
     text: HELLO_LOAD_DESCRIPTOR_SOURCE,
 };
 
@@ -79,6 +122,7 @@ const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_RECORD: DescriptorSourceRecord = Descri
     accepts_external_artifact_bytes: false,
     loads_external_artifact: false,
     writes_persistent_state: false,
+    signed_envelope: None,
     text: HELLO_HOST_BOUND_DESCRIPTOR_SOURCE,
 };
 
@@ -118,6 +162,7 @@ pub(crate) fn validate_current_image_descriptor_source(source: DescriptorSourceR
         && source_field(source, "binds_source_locator").is_none()
         && source_field(source, "binds_source_kind").is_none()
         && source_field(source, "binds_source_hash").is_none()
+        && validate_descriptor_source_envelope(source)
 }
 
 pub(crate) fn validate_host_bound_descriptor_source(source: DescriptorSourceRecord) -> bool {
@@ -154,6 +199,18 @@ pub(crate) fn validate_host_bound_descriptor_source(source: DescriptorSourceReco
 pub(crate) fn validate_descriptor_source(source: DescriptorSourceRecord) -> bool {
     validate_current_image_descriptor_source(source)
         || validate_host_bound_descriptor_source(source)
+}
+
+pub(crate) fn verify_descriptor_source_envelope_parts(
+    envelope: Option<DescriptorSourceEnvelope>,
+    locator: &str,
+    kind: &str,
+    text: &str,
+) -> bool {
+    let Some(envelope) = envelope else {
+        return false;
+    };
+    validate_descriptor_source_envelope_parts(envelope, locator, kind, text)
 }
 
 fn validate_common_descriptor_source(source: DescriptorSourceRecord) -> bool {
@@ -234,8 +291,57 @@ fn source_sha256_field(source: DescriptorSourceRecord, key: &str) -> Option<[u8;
     source_field(source, key).and_then(parse_sha256_ref)
 }
 
+fn validate_descriptor_source_envelope(source: DescriptorSourceRecord) -> bool {
+    verify_descriptor_source_envelope_parts(
+        source.signed_envelope,
+        source.locator,
+        source.kind,
+        source.text,
+    )
+}
+
+fn validate_descriptor_source_envelope_parts(
+    envelope: DescriptorSourceEnvelope,
+    locator: &str,
+    kind: &str,
+    text: &str,
+) -> bool {
+    envelope.schema == "raios.descriptor_source_signature_envelope.v0"
+        && envelope.id == "descriptor_source_signature.current_image.svc.demo.hello.v0"
+        && envelope.algorithm == "ecdsa_p256_sha256_asn1_der"
+        && envelope.verification_phase == "runtime_before_descriptor_selection"
+        && envelope.trust_scope == "current_boot_repo_descriptor_source_candidate"
+        && envelope.payload_source_locator == locator
+        && envelope.payload_source_kind == kind
+        && envelope.payload_hash == sha256_bytes(text.as_bytes())
+        && envelope.envelope_hash == sha256_bytes(envelope.text.as_bytes())
+        && envelope.public_key_hash == sha256_bytes(envelope.public_key_sec1)
+        && envelope.signature_hash == sha256_bytes(envelope.signature_der)
+        && !envelope.authorizes_external_artifact_load
+        && !envelope.authorizes_persistent_install
+        && verify_p256_signature(
+            envelope.public_key_sec1,
+            envelope.signature_der,
+            text.as_bytes(),
+        )
+}
+
+fn verify_p256_signature(public_key_sec1: &[u8], signature_der: &[u8], payload: &[u8]) -> bool {
+    let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(public_key_sec1) else {
+        return false;
+    };
+    let Ok(signature) = Signature::from_der(signature_der) else {
+        return false;
+    };
+    verifying_key.verify(payload, &signature).is_ok()
+}
+
 pub(crate) fn descriptor_source_hash(source: DescriptorSourceRecord) -> [u8; 32] {
-    let digest = Sha256::digest(source.text.as_bytes());
+    sha256_bytes(source.text.as_bytes())
+}
+
+fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
+    let digest = Sha256::digest(bytes);
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);
     out

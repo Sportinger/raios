@@ -414,15 +414,23 @@ the descriptor source locator
 `current_image.descriptor_source.svc.demo.hello.v0`, source kind
 `current_image_descriptor_source`, `validated: true`, and a `sha256:` source
 hash, and the source text must carry the canonical key/value fields used by the
-validator, including `source_locator` and `source_kind`. `services` must show
+validator, including `source_locator` and `source_kind`. The current-image
+source must also expose a `raios.descriptor_source_signature_envelope.v0`
+object with `algorithm: ecdsa_p256_sha256_asn1_der`,
+`verification_phase: runtime_before_descriptor_selection`, matching payload
+hash, SHA-256 hashes for the envelope/public key/signature, and
+`signature_verified: true`; the envelope must not authorize external artifact
+loading or persistent install. `services` must show
 `svc.demo.hello` only while loaded and cite the same
-descriptor id/source/kind/validation/hash. `service.health svc.demo.hello`
-must return `raios.ram_only_hello_service.health.v0`, report healthy while
-loaded/running, stopped while loaded/not running, and missing after drop, and
-cite the active descriptor source hash while loaded. `audit.events` must show
+descriptor id/source/kind/validation/hash/signature envelope. `service.health
+svc.demo.hello` must return `raios.ram_only_hello_service.health.v0`, report
+healthy while loaded/running, stopped while loaded/not running, and missing
+after drop, and cite the active descriptor source hash and signature envelope
+while loaded. `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
-same load descriptor and validated source hash.
+same load descriptor, validated source hash, signature envelope hash, and
+signature verification state.
 
 The host-bound positive command must cite
 `host_build.descriptor_source.svc.demo.hello.v0`, source kind
@@ -430,8 +438,9 @@ The host-bound positive command must cite
 `binds_source_kind`, and `binds_source_hash` equal to the current-image source
 locator/kind/hash. The host-bound health response and health audit event must
 cite the host-bound source hash plus the bound current-image source hash. The
-path must keep external artifact bytes, persistence, durable audit writes,
-rollback installation, and broad mutation disabled.
+path must keep `signature_envelope: null`, external artifact bytes,
+persistence, durable audit writes, rollback installation, and broad mutation
+disabled.
 
 After a matching manifest, artifact, Shadow-VM report, and local attestation
 exist, compute the host-side grant diagnostic with:
