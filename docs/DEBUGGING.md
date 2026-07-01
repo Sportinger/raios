@@ -146,12 +146,13 @@ If a full smoke fails with a host-side TCP write exception or a truncated long
 serial command after all predicates up to the previous command passed, rerun
 with smaller chunks plus write delay before treating it as a guest regression.
 The 2026-07-01 full module-loader report
-`release\vm-reports\shadow-20260701-135307-24368.json` used
-`-TimeoutSeconds 300 -SerialWriteChunkSize 64 -SerialWriteDelayMilliseconds 2 -SerialTcpPort 4574`;
-an earlier same-slice run on port 4573 closed the host TCP serial write after
-183/183 predicates and 13 commands had passed, and rerunning on a fresh port
-passed. Earlier runs with a 180-second command window timed out while waiting
-for final markers in long module-loader responses.
+`release\vm-reports\shadow-20260701-144959-24564.json` used
+`-TimeoutSeconds 300 -SerialWriteChunkSize 32 -SerialWriteDelayMilliseconds 5 -SerialTcpPort 4577`;
+earlier same-slice runs on ports 4575 and 4576 closed the host TCP serial write
+after 183/183 predicates and 13 commands had passed, and rerunning on a fresh
+port with smaller delayed writes passed. Earlier runs with a 180-second command
+window timed out while waiting for final markers in long module-loader
+responses.
 
 Stage-0 serial command-mode input echoes bytes to the serial log without
 forcing framebuffer redraws during long pasted commands; this keeps long
@@ -649,7 +650,8 @@ also records the live-load sequence as read-only current-boot source evidence:
 `raios.module_loader_executable_page_mapping_boundary.v0`, and
 `raios.module_loader_descriptor_executable_page_binding_boundary.v0`, and
 `raios.module_loader_executable_entrypoint_binding_boundary.v0`, and
-`raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0`.
+`raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0`,
+and `raios.module_loader_executable_entrypoint_transfer_boundary.v0`.
 Those
 boundaries consume the retained intake, execution, registry, service-slot,
 health-hook, rollback-hook, audit/rollback, and loader-fact evidence chain only
@@ -665,8 +667,8 @@ page-mapping plan production, executable page mapping, executable image-layout
 production, executable load-plan authority, executable load-plan production,
 descriptor load-plan production,
 capability-validated descriptor executable binding, executable entrypoint
-binding, entrypoint transfer authorization, descriptor parsing, descriptor-byte
-intake, and load attempts false.
+binding, entrypoint transfer authorization, explicit executable entrypoint
+transfer, descriptor parsing, descriptor-byte intake, and load attempts false.
 
 The module loader identity diagnostic emits `raios.module_loader_identity.v0`
 and the selftest emits `raios.module_loader_identity_selftest.v0`. It makes the
@@ -1137,7 +1139,13 @@ live-load sequence through
 `raios.module_loader_descriptor_load_plan_boundary.v0`, and
 `raios.module_loader_executable_load_plan_authority_boundary.v0`, and
 `raios.module_loader_executable_load_plan_result_boundary.v0`, and
-`raios.module_loader_executable_image_layout_boundary.v0`, while still
+`raios.module_loader_executable_image_layout_boundary.v0`, and
+`raios.module_loader_executable_page_mapping_plan_boundary.v0`, and
+`raios.module_loader_executable_page_mapping_boundary.v0`, and
+`raios.module_loader_descriptor_executable_page_binding_boundary.v0`, and
+`raios.module_loader_executable_entrypoint_binding_boundary.v0`, and
+`raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0`,
+and `raios.module_loader_executable_entrypoint_transfer_boundary.v0`, while still
 keeping `loads_artifact: false`, `creates_service_inventory_records: false`,
 `service_inventory_change: none`, `starts_service: false`,
 `creates_service_health_records: false`, `marks_service_running: false`,
@@ -1153,8 +1161,11 @@ keeping `loads_artifact: false`, `creates_service_inventory_records: false`,
 `authorizes_executable_load_plan: false`,
 `produces_executable_load_plan: false`,
 `produces_executable_image_layout: false`,
+`produces_executable_page_mapping_plan: false`,
+`maps_executable_pages: false`,
 `binds_capability_validated_descriptor_to_executable_pages: false`,
-`parses_descriptor_bytes: false`, and `load_attempted: false`.
+`jumps_to_entrypoint: false`, `parses_descriptor_bytes: false`, and
+`load_attempted: false`.
 
 The live denied load gate revalidates a retained audit/rollback reference
 before reporting those retained states. If the retained record points at a

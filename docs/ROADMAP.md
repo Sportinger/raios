@@ -3,8 +3,8 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-07-01 by Codex after verifying the executable entrypoint
-transfer authorization boundary and moving the cursor to executable entrypoint
-transfer. Keep this section compact. The authoritative,
+transfer boundary and moving the cursor to executable entrypoint handoff. Keep
+this section compact. The authoritative,
 unabridged current state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
 cursor, not repeat the full implementation history.
@@ -28,8 +28,8 @@ Latest verified implementation slice:
   capability-validation, descriptor load-plan, executable load-plan authority,
   executable load-plan result, executable image-layout, executable
   page-mapping plan, executable page-mapping, descriptor/executable-page
-  binding, executable entrypoint binding, and executable entrypoint transfer
-  authorization boundaries
+  binding, executable entrypoint binding, executable entrypoint transfer
+  authorization, and executable entrypoint transfer boundaries
 - all lifecycle boundaries report explicit non-authorizing reasons and keep
   descriptor intake, descriptor bytes, parsed descriptor production,
   validated descriptor production, descriptor schema validation, descriptor
@@ -37,38 +37,38 @@ Latest verified implementation slice:
   executable load-plan authority, executable load-plan production, executable
   image-layout production, executable page-mapping plan production, executable
   page mapping, capability-validated descriptor binding to executable pages,
-  executable entrypoint binding, entrypoint transfer authorization,
-  descriptor parsing, artifact bytes, artifact load, executable mapping,
-  entrypoint transfer, service start, health record creation, running-state
+  executable entrypoint binding, entrypoint transfer authorization, explicit
+  entrypoint transfer, descriptor parsing, artifact bytes, artifact load,
+  executable mapping, service start, health record creation, running-state
   marking, start-audit record writing, unload/cleanup, live-load commit,
-  load-commit audit writing, commit rollback install, result recording, service
-  inventory mutation, service-slot allocation, durable audit writes, rollback
-  install, and load attempts false
+  load-commit audit writing, commit rollback install, result recording,
+  service inventory mutation, service-slot allocation, durable audit writes,
+  rollback install, and load attempts false
 
 Latest full verification:
 
 ```text
-release\vm-reports\shadow-20260701-135307-24368.json
-6512/6512 predicates, 243 executed commands, duration_ms: 528716
+release\vm-reports\shadow-20260701-144959-24564.json
+6545/6545 predicates, 243 executed commands, duration_ms: 548082
 ```
 
 Exact next task:
 
 ```text
-Define raios.module_loader_executable_entrypoint_transfer_boundary.v0 as the
+Define raios.module_loader_executable_entrypoint_handoff_boundary.v0 as the
 next typed, read-only normal-module boundary. It should consume the retained
-executable entrypoint transfer authorization boundary plus executable entrypoint
-binding, descriptor/page binding, entrypoint ABI, address-space, memory-map,
-capability-table, full retained module, service-slot, loader-runtime,
-audit/rollback, rollback-hook, health-hook, and live-load lifecycle evidence
-chain. It must still jump to no entrypoint, start no service, commit no live
-load, mutate no inventory, write no durable audit state, install no rollback
-state, and attempt no load.
+executable entrypoint transfer boundary plus transfer authorization,
+entrypoint binding, descriptor/page binding, entrypoint ABI, address-space,
+memory-map, capability-table, full retained module, service-slot,
+loader-runtime, audit/rollback, rollback-hook, health-hook, and live-load
+lifecycle evidence chain. It must still hand off to no runtime, jump to no
+entrypoint, start no service, commit no live load, mutate no inventory, write
+no durable audit state, install no rollback state, and attempt no load.
 ```
 
 Next three tasks:
 
-1. Add `raios.module_loader_executable_entrypoint_transfer_boundary.v0`
+1. Add `raios.module_loader_executable_entrypoint_handoff_boundary.v0`
    as a current-boot, local-only, non-authorizing source-evidence boundary.
 2. Project it through `module.loader_runtime`, denied `module.load_ephemeral`,
    compact audit/event bindings, event-log memory rendering, and selftests.
