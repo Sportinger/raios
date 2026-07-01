@@ -535,6 +535,15 @@ pub(crate) fn emit_module_loader_runtime() {
         event_log::record_module_loader_descriptor_executable_page_binding_boundary_source_evidence(
             descriptor_executable_page_binding_boundary_source_evidence,
         );
+    let executable_entrypoint_binding_boundary_source_evidence =
+        module_loader_executable_entrypoint_binding_boundary_source_evidence((
+            descriptor_executable_page_binding_boundary_source_evidence_event_id,
+            descriptor_executable_page_binding_boundary_source_evidence,
+        ));
+    let executable_entrypoint_binding_boundary_source_evidence_event_id =
+        event_log::record_module_loader_executable_entrypoint_binding_boundary_source_evidence(
+            executable_entrypoint_binding_boundary_source_evidence,
+        );
     let candidate = module_loader_runtime_snapshot(
         manifest.is_some(),
         artifact.is_some(),
@@ -674,6 +683,10 @@ pub(crate) fn emit_module_loader_runtime() {
         Some((
             descriptor_executable_page_binding_boundary_source_evidence_event_id,
             descriptor_executable_page_binding_boundary_source_evidence,
+        )),
+        Some((
+            executable_entrypoint_binding_boundary_source_evidence_event_id,
+            executable_entrypoint_binding_boundary_source_evidence,
         )),
     );
     let evaluation = evaluate_module_loader_runtime_candidate(candidate);
@@ -967,6 +980,15 @@ pub(crate) fn emit_module_loader_runtime() {
         evaluation.descriptor_executable_page_binding_boundary_reason,
     );
     raw_line(",");
+    emit_module_loader_live_load_boundary(
+        "executable_entrypoint_binding_boundary",
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SCHEMA,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_ID,
+        candidate.executable_entrypoint_binding_boundary,
+        evaluation.executable_entrypoint_binding_boundary_status,
+        evaluation.executable_entrypoint_binding_boundary_reason,
+    );
+    raw_line(",");
     emit_module_loader_runtime_facts(candidate, evaluation);
     raw_line(",");
     raw_line("      \"policy_result\": {");
@@ -1167,6 +1189,12 @@ pub(crate) fn emit_module_loader_runtime() {
     raw_line(",");
     raw("        \"descriptor_executable_page_binding_boundary_reason\": ");
     json_str(evaluation.descriptor_executable_page_binding_boundary_reason);
+    raw_line(",");
+    raw("        \"executable_entrypoint_binding_boundary_status\": ");
+    json_str(evaluation.executable_entrypoint_binding_boundary_status);
+    raw_line(",");
+    raw("        \"executable_entrypoint_binding_boundary_reason\": ");
+    json_str(evaluation.executable_entrypoint_binding_boundary_reason);
     raw_line(",");
     raw_line("        \"loads_artifact\": false,");
     raw_line("        \"allocates_service_slot\": false,");
@@ -1487,6 +1515,12 @@ pub(crate) fn emit_module_loader_runtime() {
         "descriptor_executable_page_binding_boundary",
         evaluation.descriptor_executable_page_binding_boundary_status,
         evaluation.descriptor_executable_page_binding_boundary_reason,
+    );
+    emit_module_loader_runtime_gate(
+        &mut wrote,
+        "executable_entrypoint_binding_boundary",
+        evaluation.executable_entrypoint_binding_boundary_status,
+        evaluation.executable_entrypoint_binding_boundary_reason,
     );
     crlf();
     raw_line("      ]");
@@ -2647,6 +2681,12 @@ fn emit_module_loader_live_load_boundary(
     raw_line(",");
     raw("        \"executable_page_mapping_boundary_source_chain_complete\": ");
     raw_bool(boundary.executable_page_mapping_boundary_source_chain_complete);
+    raw_line(",");
+    raw("        \"descriptor_executable_page_binding_boundary_present\": ");
+    raw_bool(boundary.descriptor_executable_page_binding_boundary_present);
+    raw_line(",");
+    raw("        \"descriptor_executable_page_binding_boundary_source_chain_complete\": ");
+    raw_bool(boundary.descriptor_executable_page_binding_boundary_source_chain_complete);
     raw_line(",");
     raw("        \"artifact_byte_intake_boundary_present\": ");
     raw_bool(boundary.artifact_byte_intake_boundary_present);
@@ -5599,6 +5639,43 @@ fn module_loader_descriptor_executable_page_binding_boundary_source_evidence(
     evidence
 }
 
+fn module_loader_executable_entrypoint_binding_boundary_source_evidence(
+    descriptor_executable_page_binding_boundary_source_evidence: (
+        event_log::EventId,
+        event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
+    ),
+) -> event_log::ModuleLoaderLiveLoadBoundarySourceEvidence {
+    let mut evidence = module_loader_follow_on_live_load_boundary_source_evidence(
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_EVIDENCE_SCHEMA,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SCHEMA,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_ID,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_METHOD,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_FACT_LOCATOR,
+        "module_loader_executable_entrypoint_binding_boundary_source_evidence_recorded",
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_STATUS,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_REASON,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_MISSING_STATUS,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON,
+        descriptor_executable_page_binding_boundary_source_evidence,
+        false,
+        false,
+        false,
+        false,
+        None,
+        None,
+        None,
+        None,
+    );
+    let prior = descriptor_executable_page_binding_boundary_source_evidence.1;
+    evidence.descriptor_executable_page_binding_boundary_present =
+        prior.boundary_present && prior.source_chain_complete;
+    evidence.descriptor_executable_page_binding_boundary_source_chain_complete =
+        prior.source_chain_complete;
+    evidence.descriptor_executable_page_binding_boundary_source_evidence_event_id =
+        Some(descriptor_executable_page_binding_boundary_source_evidence.0);
+    evidence
+}
+
 #[allow(clippy::too_many_arguments)]
 fn module_loader_follow_on_live_load_boundary_source_evidence(
     schema: &'static str,
@@ -5804,6 +5881,10 @@ fn module_loader_follow_on_live_load_boundary_source_evidence(
         prior.executable_page_mapping_boundary_present;
     evidence.executable_page_mapping_boundary_source_chain_complete =
         prior.executable_page_mapping_boundary_source_chain_complete;
+    evidence.descriptor_executable_page_binding_boundary_present =
+        prior.descriptor_executable_page_binding_boundary_present;
+    evidence.descriptor_executable_page_binding_boundary_source_chain_complete =
+        prior.descriptor_executable_page_binding_boundary_source_chain_complete;
     evidence.service_start_boundary_source_evidence_event_id =
         prior.service_start_boundary_source_evidence_event_id;
     evidence.service_health_binding_boundary_source_evidence_event_id =
@@ -5844,6 +5925,8 @@ fn module_loader_follow_on_live_load_boundary_source_evidence(
         prior.executable_page_mapping_plan_boundary_source_evidence_event_id;
     evidence.executable_page_mapping_boundary_source_evidence_event_id =
         prior.executable_page_mapping_boundary_source_evidence_event_id;
+    evidence.descriptor_executable_page_binding_boundary_source_evidence_event_id =
+        prior.descriptor_executable_page_binding_boundary_source_evidence_event_id;
     evidence
 }
 
@@ -6008,6 +6091,8 @@ fn module_loader_live_load_boundary_source_evidence_record(
         executable_page_mapping_plan_boundary_source_chain_complete: false,
         executable_page_mapping_boundary_present: false,
         executable_page_mapping_boundary_source_chain_complete: false,
+        descriptor_executable_page_binding_boundary_present: false,
+        descriptor_executable_page_binding_boundary_source_chain_complete: false,
         artifact_byte_intake_boundary_present,
         artifact_byte_intake_boundary_source_chain_complete,
         execution_authorization_boundary_present,
@@ -6050,6 +6135,7 @@ fn module_loader_live_load_boundary_source_evidence_record(
         executable_image_layout_boundary_source_evidence_event_id: None,
         executable_page_mapping_plan_boundary_source_evidence_event_id: None,
         executable_page_mapping_boundary_source_evidence_event_id: None,
+        descriptor_executable_page_binding_boundary_source_evidence_event_id: None,
         artifact_byte_intake_boundary_source_evidence_event_id,
         execution_authorization_boundary_source_evidence_event_id,
         service_registry_mutation_boundary_source_evidence_event_id,
@@ -6268,6 +6354,10 @@ fn module_loader_runtime_snapshot(
         event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
     )>,
     descriptor_executable_page_binding_boundary_source_evidence: Option<(
+        event_log::EventId,
+        event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
+    )>,
+    executable_entrypoint_binding_boundary_source_evidence: Option<(
         event_log::EventId,
         event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
     )>,
@@ -6500,6 +6590,13 @@ fn module_loader_runtime_snapshot(
                 MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_METHOD,
                 MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_FACT_LOCATOR,
             ),
+        executable_entrypoint_binding_boundary:
+            module_loader_live_load_boundary_from_source_evidence(
+                executable_entrypoint_binding_boundary_source_evidence,
+                MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_EVIDENCE_SCHEMA,
+                MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_METHOD,
+                MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_FACT_LOCATOR,
+            ),
     }
 }
 
@@ -6728,6 +6825,13 @@ fn module_loader_runtime_ready_snapshot() -> ModuleLoaderRuntimeCandidate {
             MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_REASON,
             MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_METHOD,
             MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_FACT_LOCATOR,
+        ),
+        executable_entrypoint_binding_boundary: module_loader_live_load_boundary_available(
+            MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_EVIDENCE_SCHEMA,
+            MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_STATUS,
+            MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_REASON,
+            MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_METHOD,
+            MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_FACT_LOCATOR,
         ),
     }
 }
@@ -7495,6 +7599,10 @@ fn module_loader_live_load_boundary_from_source_evidence(
                 .executable_page_mapping_boundary_present,
             executable_page_mapping_boundary_source_chain_complete: evidence
                 .executable_page_mapping_boundary_source_chain_complete,
+            descriptor_executable_page_binding_boundary_present: evidence
+                .descriptor_executable_page_binding_boundary_present,
+            descriptor_executable_page_binding_boundary_source_chain_complete: evidence
+                .descriptor_executable_page_binding_boundary_source_chain_complete,
             artifact_byte_intake_boundary_present: evidence.artifact_byte_intake_boundary_present,
             artifact_byte_intake_boundary_source_chain_complete: evidence
                 .artifact_byte_intake_boundary_source_chain_complete,
@@ -7594,6 +7702,8 @@ fn module_loader_live_load_boundary_missing(
         executable_page_mapping_plan_boundary_source_chain_complete: false,
         executable_page_mapping_boundary_present: false,
         executable_page_mapping_boundary_source_chain_complete: false,
+        descriptor_executable_page_binding_boundary_present: false,
+        descriptor_executable_page_binding_boundary_source_chain_complete: false,
         artifact_byte_intake_boundary_present: false,
         artifact_byte_intake_boundary_source_chain_complete: false,
         execution_authorization_boundary_present: false,
@@ -7682,6 +7792,8 @@ fn module_loader_live_load_boundary_available(
         executable_page_mapping_plan_boundary_source_chain_complete: true,
         executable_page_mapping_boundary_present: true,
         executable_page_mapping_boundary_source_chain_complete: true,
+        descriptor_executable_page_binding_boundary_present: true,
+        descriptor_executable_page_binding_boundary_source_chain_complete: true,
         artifact_byte_intake_boundary_present: true,
         artifact_byte_intake_boundary_source_chain_complete: true,
         execution_authorization_boundary_present: true,
@@ -8196,6 +8308,16 @@ fn evaluate_module_loader_runtime_candidate(
         MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_MISSING_STATUS,
         MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON,
     );
+    let (
+        executable_entrypoint_binding_boundary_status,
+        executable_entrypoint_binding_boundary_reason,
+    ) = evaluate_module_loader_live_load_boundary(
+        candidate.executable_entrypoint_binding_boundary,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_STATUS,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_REASON,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_MISSING_STATUS,
+        MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_CHAIN_INCOMPLETE_REASON,
+    );
 
     let (status, reason) = if !candidate.manifest_reference_present {
         (
@@ -8556,6 +8678,15 @@ fn evaluate_module_loader_runtime_candidate(
             "denied_missing_module_loader_descriptor_executable_page_binding_boundary",
             descriptor_executable_page_binding_boundary_reason,
         )
+    } else if !candidate.executable_entrypoint_binding_boundary.present
+        || !candidate
+            .executable_entrypoint_binding_boundary
+            .source_chain_complete
+    {
+        (
+            "denied_missing_module_loader_executable_entrypoint_binding_boundary",
+            executable_entrypoint_binding_boundary_reason,
+        )
     } else {
         (
             "defined_non_executable",
@@ -8666,6 +8797,8 @@ fn evaluate_module_loader_runtime_candidate(
         executable_page_mapping_boundary_reason,
         descriptor_executable_page_binding_boundary_status,
         descriptor_executable_page_binding_boundary_reason,
+        executable_entrypoint_binding_boundary_status,
+        executable_entrypoint_binding_boundary_reason,
         loads_artifact: false,
         allocates_service_slot: false,
         creates_service_inventory_records: false,
@@ -9527,6 +9660,19 @@ fn module_loader_runtime_selftest_cases(
                         MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_METHOD,
                         MODULE_LOADER_DESCRIPTOR_EXECUTABLE_PAGE_BINDING_BOUNDARY_SOURCE_FACT_LOCATOR,
                     ),
+                ..ready
+            },
+        ),
+        module_loader_runtime_selftest_case(
+            "executable_entrypoint_binding_boundary_missing",
+            "denied_missing_module_loader_executable_entrypoint_binding_boundary",
+            "module_loader_executable_entrypoint_binding_boundary_source_chain_incomplete",
+            ModuleLoaderRuntimeCandidate {
+                executable_entrypoint_binding_boundary: module_loader_live_load_boundary_missing(
+                    MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_EVIDENCE_SCHEMA,
+                    MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_METHOD,
+                    MODULE_LOADER_EXECUTABLE_ENTRYPOINT_BINDING_BOUNDARY_SOURCE_FACT_LOCATOR,
+                ),
                 ..ready
             },
         ),

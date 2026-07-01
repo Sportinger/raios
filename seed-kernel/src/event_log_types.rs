@@ -908,6 +908,8 @@ pub struct ModuleLoaderLiveLoadBoundarySourceEvidence {
     pub executable_page_mapping_plan_boundary_source_chain_complete: bool,
     pub executable_page_mapping_boundary_present: bool,
     pub executable_page_mapping_boundary_source_chain_complete: bool,
+    pub descriptor_executable_page_binding_boundary_present: bool,
+    pub descriptor_executable_page_binding_boundary_source_chain_complete: bool,
     pub artifact_byte_intake_boundary_present: bool,
     pub artifact_byte_intake_boundary_source_chain_complete: bool,
     pub execution_authorization_boundary_present: bool,
@@ -950,6 +952,7 @@ pub struct ModuleLoaderLiveLoadBoundarySourceEvidence {
     pub executable_image_layout_boundary_source_evidence_event_id: Option<EventId>,
     pub executable_page_mapping_plan_boundary_source_evidence_event_id: Option<EventId>,
     pub executable_page_mapping_boundary_source_evidence_event_id: Option<EventId>,
+    pub descriptor_executable_page_binding_boundary_source_evidence_event_id: Option<EventId>,
     pub artifact_byte_intake_boundary_source_evidence_event_id: Option<EventId>,
     pub execution_authorization_boundary_source_evidence_event_id: Option<EventId>,
     pub service_registry_mutation_boundary_source_evidence_event_id: Option<EventId>,
@@ -1701,6 +1704,9 @@ pub enum EventBindings {
         ModuleLoaderLiveLoadBoundarySourceEvidence,
     ),
     ModuleLoaderDescriptorExecutablePageBindingBoundarySourceEvidence(
+        ModuleLoaderLiveLoadBoundarySourceEvidence,
+    ),
+    ModuleLoaderExecutableEntrypointBindingBoundarySourceEvidence(
         ModuleLoaderLiveLoadBoundarySourceEvidence,
     ),
     ModuleLoadGate(ModuleLoadGateBinding),

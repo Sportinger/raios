@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-01 by Codex after verifying the descriptor/executable-page
-binding boundary and moving the cursor to executable entrypoint binding. Keep this
+Last updated: 2026-07-01 by Codex after verifying the executable entrypoint
+binding boundary and moving the cursor to entrypoint-transfer authorization. Keep this
 section compact. The authoritative,
 unabridged current state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -27,8 +27,8 @@ Latest verified implementation slice:
   descriptor-parser result, descriptor schema-validation, descriptor
   capability-validation, descriptor load-plan, executable load-plan authority,
   executable load-plan result, executable image-layout, executable
-  page-mapping plan, executable page-mapping, and descriptor/executable-page
-  binding boundaries
+  page-mapping plan, executable page-mapping, descriptor/executable-page
+  binding, and executable entrypoint binding boundaries
 - all lifecycle boundaries report explicit non-authorizing reasons and keep
   descriptor intake, descriptor bytes, parsed descriptor production,
   validated descriptor production, descriptor schema validation, descriptor
@@ -36,7 +36,7 @@ Latest verified implementation slice:
   executable load-plan authority, executable load-plan production, executable
   image-layout production, executable page-mapping plan production, executable
   page mapping, capability-validated descriptor binding to executable pages,
-  descriptor parsing, artifact bytes, artifact load, executable mapping,
+  executable entrypoint binding, descriptor parsing, artifact bytes, artifact load, executable mapping,
   entrypoint transfer, service start, health record creation, running-state
   marking, start-audit record writing, unload/cleanup, live-load commit,
   load-commit audit writing, commit rollback install, result recording, service
@@ -46,28 +46,27 @@ Latest verified implementation slice:
 Latest full verification:
 
 ```text
-release\vm-reports\shadow-20260701-091747-9784.json
-6446/6446 predicates, 243 executed commands, duration_ms: 490492
+release\vm-reports\shadow-20260701-093920-10120.json
+6479/6479 predicates, 243 executed commands, duration_ms: 494518
 ```
 
 Exact next task:
 
 ```text
-Define raios.module_loader_executable_entrypoint_binding_boundary.v0 as the
-next typed, read-only normal-module boundary. It should consume the retained
-descriptor/executable-page binding boundary plus executable page-mapping,
+Define raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0
+as the next typed, read-only normal-module boundary. It should consume the
+retained executable entrypoint binding boundary plus descriptor/page binding,
 entrypoint ABI, address-space, memory-map, capability-table, full retained
 module, service-slot, loader-runtime, audit/rollback, rollback-hook,
 health-hook, and live-load lifecycle evidence chain. It must still jump to no
-entrypoint, bind no runnable entrypoint, commit no live load, mutate no
-inventory, write no durable audit state, install no rollback state, and attempt
-no load.
+entrypoint, start no service, commit no live load, mutate no inventory, write no
+durable audit state, install no rollback state, and attempt no load.
 ```
 
 Next three tasks:
 
-1. Add `raios.module_loader_executable_entrypoint_binding_boundary.v0` as a
-   current-boot, local-only, non-authorizing source-evidence boundary.
+1. Add `raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0`
+   as a current-boot, local-only, non-authorizing source-evidence boundary.
 2. Project it through `module.loader_runtime`, denied `module.load_ephemeral`,
    compact audit/event bindings, event-log memory rendering, and selftests.
 3. Run release build, full Shadow VM smoke, workspace Cargo tests, format check,
