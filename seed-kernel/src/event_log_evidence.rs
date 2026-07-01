@@ -1,5 +1,14 @@
 pub(crate) const READ_EVIDENCE: &[&str] = &["computed_capability_grant"];
 pub(crate) const DENIED_EVIDENCE: &[&str] = &["missing_required_evidence", "capability_denied"];
+pub(crate) const HELLO_SERVICE_LIFECYCLE_EVIDENCE: &[&str] = &[
+    "raios.current_boot_load_descriptor.v0",
+    "load_descriptor.current_boot.svc.demo.hello.v0",
+    "load_descriptor_source_locator",
+    "load_descriptor_source_hash",
+    "builtin_stage0_test_service",
+    "ram_only_state_transition",
+    "service_inventory_projection",
+];
 pub(crate) const PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE: &[&str] = &[
     "provider_request_binding_denied",
     "projected_packet_hash",

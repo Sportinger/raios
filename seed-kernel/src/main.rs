@@ -107,6 +107,7 @@ mod event_log_module_checks;
 mod event_log_provider_selftest;
 mod event_log_types;
 mod framebuffer;
+mod hello_service;
 mod input;
 mod memory;
 mod module_evidence;

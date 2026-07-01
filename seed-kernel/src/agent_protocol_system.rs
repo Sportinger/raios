@@ -1,9 +1,9 @@
 use crate::{
     agent_protocol_support::{
         begin_response, crlf, emit_inline_string_array, emit_static_string_array, end_response,
-        indent, json_opt_str, json_str, raw, raw_bool, raw_fmt, raw_line,
+        indent, json_opt_str, json_sha256, json_str, raw, raw_bool, raw_fmt, raw_line,
     },
-    provider, serial, service_inventory, system_status,
+    hello_service, provider, serial, service_inventory, system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
@@ -162,6 +162,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         granted: false,
         scope: "denied_until_vm_test_report_and_attestation",
         summary: "load current-boot-only artifact",
+    },
+    Capability {
+        id: "cap.service.hello_demo.current_boot",
+        risk: "modify_ram",
+        granted: true,
+        scope: "current_boot_builtin_demo_service_only",
+        summary: "load, stop, and drop the built-in hello demo service in RAM",
     },
     Capability {
         id: "cap.recovery.load_artifact",
@@ -376,6 +383,7 @@ pub(crate) const DENIED_METHODS: &[&str] = &[
     "service.restart",
     "service.start",
     "service.stop",
+    "service.drop",
     "config.apply",
     "apply_config",
     "provider.configure",
@@ -544,6 +552,7 @@ pub(crate) fn emit_problem_list(runtime: ui::RuntimeStatus) {
 pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
     let status = SystemSnapshot::collect(None, runtime);
     let provider = provider::snapshot();
+    let hello = hello_service::loaded_snapshot();
     begin_response("service.inventory");
     raw_line("      \"schema\": \"service.inventory.v0\",");
     raw_line("      \"services\": [");
@@ -571,14 +580,52 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
         raw(", \"capabilities\": [");
         emit_inline_string_array(service.capabilities);
         raw("]}");
-        if idx + 1 != service_inventory::SERVICES.len() {
+        if idx + 1 != service_inventory::SERVICES.len() || hello.is_some() {
             raw(",");
         }
         crlf();
         idx += 1;
     }
+    if let Some(hello) = hello {
+        emit_hello_service_inventory(hello);
+    }
     raw_line("      ]");
     end_response("service.inventory");
+}
+
+fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
+    indent(8);
+    raw("{");
+    raw("\"id\": ");
+    json_str(hello_service::SERVICE_ID);
+    raw(", \"kind\": \"service\"");
+    raw(", \"health\": ");
+    json_str(if hello.running { "healthy" } else { "stopped" });
+    raw(", \"replaceable\": true");
+    raw(", \"core_owned\": false");
+    raw(", \"last_error\": null");
+    raw(", \"scope\": \"current_boot\"");
+    raw(", \"persistence\": \"none\"");
+    raw(", \"artifact_id\": ");
+    json_str(hello_service::ARTIFACT_ID);
+    raw(", \"load_descriptor_schema\": ");
+    json_str(hello_service::LOAD_DESCRIPTOR_SCHEMA);
+    raw(", \"load_descriptor_id\": ");
+    json_str(hello_service::LOAD_DESCRIPTOR_ID);
+    raw(", \"load_descriptor_source_locator\": ");
+    json_str(hello_service::LOAD_DESCRIPTOR_SOURCE_LOCATOR);
+    raw(", \"load_descriptor_source_hash\": ");
+    json_sha256(hello_service::load_descriptor_source_hash());
+    raw(", \"running\": ");
+    raw_bool(hello.running);
+    raw(", \"generation\": ");
+    raw_fmt(format_args!("{}", hello.generation));
+    raw(", \"last_action\": ");
+    json_str(hello.last_action);
+    raw(", \"capabilities\": [");
+    emit_inline_string_array(hello_service::CAPABILITIES);
+    raw("]}");
+    crlf();
 }
 
 pub(crate) fn emit_provider_object(provider: &provider::Snapshot, comma: bool) {
@@ -827,15 +874,21 @@ fn emit_problem(
 }
 
 pub(crate) fn emit_service_ids(spaces: usize) {
+    let hello = hello_service::loaded_snapshot();
     let mut idx = 0usize;
     while idx < service_inventory::SERVICES.len() {
         indent(spaces);
         json_str(service_inventory::SERVICES[idx].id);
-        if idx + 1 != service_inventory::SERVICES.len() {
+        if idx + 1 != service_inventory::SERVICES.len() || hello.is_some() {
             raw(",");
         }
         crlf();
         idx += 1;
+    }
+    if hello.is_some() {
+        indent(spaces);
+        json_str(hello_service::SERVICE_ID);
+        crlf();
     }
 }
 

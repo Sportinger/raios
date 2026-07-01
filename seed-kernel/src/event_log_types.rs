@@ -94,6 +94,19 @@ pub struct ProviderContextInjectionAuthorization {
     pub context_attached_to_provider_body: bool,
 }
 
+#[derive(Clone, Copy)]
+pub struct HelloServiceLifecycleBinding {
+    pub descriptor_schema: &'static str,
+    pub descriptor_id: &'static str,
+    pub descriptor_source_locator: &'static str,
+    pub descriptor_source_hash: [u8; 32],
+    pub service_inventory_change: &'static str,
+    pub persistence: &'static str,
+    pub accepts_external_artifact_bytes: bool,
+    pub loads_external_artifact: bool,
+    pub writes_persistent_state: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ModuleManifestReference {
     pub manifest_reference_hash: [u8; 32],
@@ -1612,6 +1625,7 @@ pub struct ProviderContextInjectionGateSelfTestCase {
 #[derive(Clone, Copy)]
 pub enum EventBindings {
     None,
+    HelloServiceLifecycle(HelloServiceLifecycleBinding),
     ProviderRequestEnvelope(ProviderRequestEnvelopeBinding),
     ProviderRequestBound(ProviderRequestBinding),
     ProviderExportAuditBound(ProviderExportAuditBinding),

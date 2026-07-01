@@ -2,10 +2,9 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after pivoting the active cursor from another
-non-authorizing entrypoint-result boundary to the first positive RAM-only
-service vertical slice. Keep this section compact. The authoritative,
-unabridged current state is
+Last updated: 2026-07-02 by Codex after binding the first positive RAM-only
+service lifecycle to a deterministic typed descriptor source/hash. Keep this
+section compact. The authoritative, unabridged current state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
 cursor, not repeat the full implementation history.
 
@@ -21,6 +20,22 @@ Active execution rule:
 
 Latest verified implementation slice:
 
+- `module.load_ephemeral svc.demo.hello` now loads/starts the built-in
+  `svc.demo.hello` current-boot test service through a narrow RAM-only path
+  that consumes `raios.current_boot_load_request.v0` and
+  `raios.current_boot_load_descriptor.v0`
+- `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
+  `service.stop svc.demo.hello` marks it stopped; `service.drop svc.demo.hello`
+  removes it from inventory; the inventory record cites
+  `load_descriptor.current_boot.svc.demo.hello.v0` plus the descriptor source
+  locator/hash
+- lifecycle actions retain `raios.ram_only_hello_service.lifecycle` audit events
+  in the current-boot RAM event log with descriptor and source-hash evidence
+- the hello path accepts no arbitrary external artifact bytes, writes no
+  persistent state, writes no durable audit log, installs no rollback plan, and
+  grants no broad mutation
+- wrong hello targets and external-looking hello targets remain on the denied
+  module-load gate
 - denied `module.load_ephemeral` / `service.load_ephemeral` remains the live
   policy surface for normal modules
 - retained manifest, artifact, VM-test-report, local-attestation,
@@ -62,31 +77,31 @@ release\vm-reports\shadow-20260702-001225-25068.json
 6611/6611 predicates, 243 executed commands, duration_ms: 541342
 ```
 
+Latest focused verification:
+
+```text
+release\vm-reports\shadow-20260702-011049-1064.json
+150/150 quick predicates, 20 executed commands, duration_ms: 45571
+```
+
 Exact next task:
 
 ```text
-Build raios.ram_only_hello_service.v0 as the first positive normal-service
-vertical slice. It should load/start a tiny fixed test service through the real
-Stage-0 loader, service-slot, service-registry, health, audit/event, and
-drop/rollback-surrogate path. The service must appear in service.inventory,
-report a running/healthy current-boot state, be stoppable/droppable, and leave a
-RAM-only audit/event trail. It must not persist, accept arbitrary external
-artifact bytes, install durable rollback state, write durable audit state, or
-grant broad module/service/config mutation.
+Replace the built-in hello descriptor source constant with the smallest
+verified current-image or signed descriptor-source intake, while keeping the
+same load response, service.inventory record, and RAM audit event bound to one
+descriptor locator/hash and keeping external artifacts, persistence, durable
+audit, rollback install, and broad mutation denied.
 ```
 
 Next three tasks:
 
-1. Add the smallest real RAM-only loader path for a labeled built-in
-   `svc.demo.hello` test artifact, preserving explicit denials for persistence
-   and arbitrary external artifacts.
-2. Mutate the current-boot service registry only for that path, expose the
-   service through `service.inventory`, and add stop/drop plus RAM-only
-   audit/event records.
-3. Add a focused positive VM smoke profile for load/list/stop/drop, keep the
-   denial checks that protect the boundary, then run build, format, workspace
-   tests, diff check, secret scan, and the focused VM smoke before updating
-   `docs/PROJECT_STATUS.md`.
+1. Move the `svc.demo.hello` descriptor source from the in-kernel constant into
+   one verified current-image or signed descriptor-source record.
+2. Keep the positive load/list/stop/drop quick smoke green while checking that
+   load response, inventory, and audit events cite the same descriptor hash.
+3. Only after a second descriptor source exists, introduce the smallest shared
+   descriptor parser/validator needed by both sources.
 
 Documentation ownership:
 

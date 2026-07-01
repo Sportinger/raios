@@ -383,6 +383,34 @@ service slot as missing or unavailable, with `can_load: false`,
 `audit.events` read must show a matching `raios.module_load_gate.v0` event
 binding.
 
+The first positive RAM-only service slice is deliberately narrower than general
+module loading:
+
+```text
+module.load_ephemeral svc.demo.nope
+module.load_ephemeral external:svc.demo.hello
+module.load_ephemeral svc.demo.hello
+services
+service.stop svc.demo.hello
+service.drop svc.demo.hello
+agent audit.events 32
+```
+
+The two wrong-target commands must still return `raios.module_load_gate.v0`
+with `capability_denied`. The positive command must return
+`raios.ram_only_hello_service.v0` with
+`raios.current_boot_load_request.v0`,
+`raios.current_boot_load_descriptor.v0`, and
+`load_descriptor.current_boot.svc.demo.hello.v0`. The load response must expose
+the descriptor source locator
+`seed-kernel/src/hello_service.rs#LOAD_DESCRIPTOR_SOURCE` and a `sha256:`
+source hash. `services` must show `svc.demo.hello` only while loaded and cite
+the same descriptor id/source/hash. `audit.events` must show
+`raios.ram_only_hello_service.lifecycle` records whose evidence/bindings cite
+the same load descriptor and source hash. The path must keep external artifact
+bytes, persistence, durable audit writes, rollback installation, and broad
+mutation disabled.
+
 After a matching manifest, artifact, Shadow-VM report, and local attestation
 exist, compute the host-side grant diagnostic with:
 

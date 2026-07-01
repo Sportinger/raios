@@ -2,7 +2,7 @@ use crate::{
     agent_protocol_memory::memory_mutation_method,
     agent_protocol_provider::provider_context_export_method,
     agent_protocol_recovery_methods::recovery_artifact_load_method,
-    agent_protocol_support::{json_event_id, json_str, method_eq, raw, raw_line},
+    agent_protocol_support::{json_event_id, json_str, method_eq, method_head_eq, raw, raw_line},
     agent_protocol_system::DENIED_METHODS,
     event_log, serial,
 };
@@ -54,7 +54,7 @@ pub(crate) fn emit_capability_denied(method: &'static str, event_id: event_log::
 pub(crate) fn denied_method(method: &str) -> bool {
     let mut idx = 0usize;
     while idx < DENIED_METHODS.len() {
-        if method_eq(method, DENIED_METHODS[idx]) {
+        if method_head_eq(method, DENIED_METHODS[idx]) {
             return true;
         }
         idx += 1;
@@ -65,7 +65,7 @@ pub(crate) fn denied_method(method: &str) -> bool {
 pub(crate) fn canonical_denied_method(method: &str) -> &'static str {
     let mut idx = 0usize;
     while idx < DENIED_METHODS.len() {
-        if method_eq(method, DENIED_METHODS[idx]) {
+        if method_head_eq(method, DENIED_METHODS[idx]) {
             return DENIED_METHODS[idx];
         }
         idx += 1;
@@ -74,7 +74,7 @@ pub(crate) fn canonical_denied_method(method: &str) -> &'static str {
 }
 
 pub(crate) fn canonical_module_load_ephemeral_method(method: &str) -> &'static str {
-    if method_eq(method, "service.load_ephemeral") {
+    if method_head_eq(method, "service.load_ephemeral") {
         "service.load_ephemeral"
     } else {
         "module.load_ephemeral"
@@ -242,8 +242,8 @@ fn requested_capability_for_denial(method: &str) -> &'static str {
         || method_eq(method, "module.test_result")
     {
         "cap.module.propose"
-    } else if method_eq(method, "module.load_ephemeral")
-        || method_eq(method, "service.load_ephemeral")
+    } else if method_head_eq(method, "module.load_ephemeral")
+        || method_head_eq(method, "service.load_ephemeral")
     {
         "cap.module.load_ephemeral"
     } else if recovery_artifact_load_method(method) {
@@ -283,5 +283,6 @@ fn risk_for_denial(method: &str) -> &'static str {
 }
 
 pub(crate) fn module_load_ephemeral_method(method: &str) -> bool {
-    method_eq(method, "module.load_ephemeral") || method_eq(method, "service.load_ephemeral")
+    method_head_eq(method, "module.load_ephemeral")
+        || method_head_eq(method, "service.load_ephemeral")
 }

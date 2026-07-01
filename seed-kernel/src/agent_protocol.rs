@@ -273,7 +273,7 @@ use crate::{
         emit_boot_log, emit_capabilities, emit_describe, emit_device_graph, emit_problem_list,
         emit_service_inventory, emit_snapshot,
     },
-    event_log, ui,
+    event_log, hello_service, ui,
 };
 
 pub(crate) use crate::agent_protocol_provider::provider_minimal_context_evidence_for_runtime;
@@ -1097,6 +1097,21 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         let event_id = record_denial("provider.context_export");
         emit_provider_context_export_denied(runtime, method, event_id);
         return DispatchOutcome::Denied("provider.context_export");
+    }
+
+    if hello_service::is_load_start_method(method) {
+        let method = hello_service::emit_load_start(method);
+        return DispatchOutcome::Response(method);
+    }
+
+    if hello_service::is_stop_method(method) {
+        let method = hello_service::emit_stop(method);
+        return DispatchOutcome::Response(method);
+    }
+
+    if hello_service::is_drop_method(method) {
+        let method = hello_service::emit_drop(method);
+        return DispatchOutcome::Response(method);
     }
 
     if module_load_ephemeral_method(method) {

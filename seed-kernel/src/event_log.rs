@@ -2,8 +2,8 @@ use spin::Mutex;
 
 use crate::event_log_evidence::{
     DENIED_EVIDENCE, DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE,
-    MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE, MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE,
-    MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
+    HELLO_SERVICE_LIFECYCLE_EVIDENCE, MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE,
+    MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE, MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
     MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE,
     MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SOURCE_EVIDENCE,
@@ -90,8 +90,9 @@ use crate::event_log_types::{
 };
 pub use crate::event_log_types::{
     DurableAuditRollbackWriteAuthorityReference, Event, EventBindings, EventId, EventSnapshot,
-    ModuleAuditRollbackReference, ModuleCandidateArtifactReference, ModuleComputedGrantReference,
-    ModuleLoadGateBinding, ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
+    HelloServiceLifecycleBinding, ModuleAuditRollbackReference, ModuleCandidateArtifactReference,
+    ModuleComputedGrantReference, ModuleLoadGateBinding,
+    ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
     ModuleLoaderArtifactHashBindingSourceEvidence,
     ModuleLoaderDescriptorIntakeBoundarySourceEvidence,
     ModuleLoaderExecutionAuthorizationBoundarySourceEvidence, ModuleLoaderFactSourceEvidence,
@@ -4106,6 +4107,29 @@ pub fn record_capability_denied(
         reason: "missing_evidence",
         evidence: DENIED_EVIDENCE,
         bindings: EventBindings::None,
+    })
+}
+
+pub fn record_hello_service_lifecycle(
+    source_method: &'static str,
+    outcome: &'static str,
+    reason: &'static str,
+    binding: HelloServiceLifecycleBinding,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "raios.ram_only_hello_service.lifecycle",
+        source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome,
+        requested_capability: "cap.service.hello_demo.current_boot",
+        risk: "modify_ram",
+        subject: "agent.session.serial",
+        resource: "svc.demo.hello",
+        reason,
+        evidence: HELLO_SERVICE_LIFECYCLE_EVIDENCE,
+        bindings: EventBindings::HelloServiceLifecycle(binding),
     })
 }
 

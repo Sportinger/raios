@@ -1158,8 +1158,9 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
         | "service.restart"
         | "service.start"
         | "service.stop"
+        | "service.drop"
         | "config.apply"
-        | "apply_config" => command_agent_protocol(command.as_str(), runtime),
+        | "apply_config" => command_agent_protocol(command_line.trimmed_str(), runtime),
         "provider" => command_provider_status(),
         "openai" => command_openai_status(),
         "wifi" => command_wifi_status(),

@@ -1,0 +1,520 @@
+use sha2::{Digest, Sha256};
+use spin::Mutex;
+
+use crate::{
+    agent_protocol_support::{
+        begin_response, emit_inline_string_array, end_response, json_event_id_option, json_sha256,
+        json_str, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
+    },
+    event_log,
+};
+
+pub(crate) const SERVICE_ID: &str = "svc.demo.hello";
+pub(crate) const ARTIFACT_ID: &str = "builtin:svc.demo.hello";
+pub(crate) const CAPABILITIES: &[&str] = &["cap.service.hello_demo.current_boot"];
+pub(crate) const LOAD_DESCRIPTOR_SCHEMA: &str = "raios.current_boot_load_descriptor.v0";
+pub(crate) const LOAD_DESCRIPTOR_ID: &str = "load_descriptor.current_boot.svc.demo.hello.v0";
+pub(crate) const LOAD_DESCRIPTOR_CANONICALIZATION: &str =
+    "raios.current_boot_load_descriptor.canonical.v0";
+pub(crate) const LOAD_DESCRIPTOR_SOURCE_LOCATOR: &str =
+    "seed-kernel/src/hello_service.rs#LOAD_DESCRIPTOR_SOURCE";
+pub(crate) const LOAD_DESCRIPTOR_SOURCE: &str =
+    "canonicalization=raios.current_boot_load_descriptor.canonical.v0\n\
+schema=raios.current_boot_load_descriptor.v0\n\
+id=load_descriptor.current_boot.svc.demo.hello.v0\n\
+service_id=svc.demo.hello\n\
+artifact_id=builtin:svc.demo.hello\n\
+artifact_kind=builtin_stage0_test_service\n\
+scope=current_boot\n\
+classification=local_only\n\
+persistence=none\n\
+accepts_external_artifact_bytes=false\n\
+loads_external_artifact=false\n\
+writes_persistent_state=false";
+
+#[derive(Clone, Copy)]
+pub(crate) struct LoadDescriptor {
+    pub schema: &'static str,
+    pub id: &'static str,
+    pub canonicalization: &'static str,
+    pub source_locator: &'static str,
+    pub service_id: &'static str,
+    pub artifact_id: &'static str,
+    pub artifact_kind: &'static str,
+    pub scope: &'static str,
+    pub classification: &'static str,
+    pub persistence: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct LoadRequest {
+    source_method: &'static str,
+    descriptor: LoadDescriptor,
+}
+
+pub(crate) const LOAD_DESCRIPTOR: LoadDescriptor = LoadDescriptor {
+    schema: LOAD_DESCRIPTOR_SCHEMA,
+    id: LOAD_DESCRIPTOR_ID,
+    canonicalization: LOAD_DESCRIPTOR_CANONICALIZATION,
+    source_locator: LOAD_DESCRIPTOR_SOURCE_LOCATOR,
+    service_id: SERVICE_ID,
+    artifact_id: ARTIFACT_ID,
+    artifact_kind: "builtin_stage0_test_service",
+    scope: "current_boot",
+    classification: "local_only",
+    persistence: "none",
+};
+
+pub(crate) fn load_descriptor_source_hash() -> [u8; 32] {
+    let digest = Sha256::digest(LOAD_DESCRIPTOR_SOURCE.as_bytes());
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Snapshot {
+    pub loaded: bool,
+    pub running: bool,
+    pub generation: u64,
+    pub last_action: &'static str,
+    pub last_reason: &'static str,
+    pub last_inventory_change: &'static str,
+    pub last_event_id: Option<event_log::EventId>,
+    pub load_event_id: Option<event_log::EventId>,
+    pub start_event_id: Option<event_log::EventId>,
+    pub stop_event_id: Option<event_log::EventId>,
+    pub drop_event_id: Option<event_log::EventId>,
+}
+
+#[derive(Clone, Copy)]
+struct State {
+    loaded: bool,
+    running: bool,
+    generation: u64,
+    last_action: &'static str,
+    last_reason: &'static str,
+    last_inventory_change: &'static str,
+    last_event_id: Option<event_log::EventId>,
+    load_event_id: Option<event_log::EventId>,
+    start_event_id: Option<event_log::EventId>,
+    stop_event_id: Option<event_log::EventId>,
+    drop_event_id: Option<event_log::EventId>,
+}
+
+impl State {
+    const fn new() -> Self {
+        Self {
+            loaded: false,
+            running: false,
+            generation: 0,
+            last_action: "none",
+            last_reason: "not_loaded",
+            last_inventory_change: "none",
+            last_event_id: None,
+            load_event_id: None,
+            start_event_id: None,
+            stop_event_id: None,
+            drop_event_id: None,
+        }
+    }
+
+    fn snapshot(self) -> Snapshot {
+        Snapshot {
+            loaded: self.loaded,
+            running: self.running,
+            generation: self.generation,
+            last_action: self.last_action,
+            last_reason: self.last_reason,
+            last_inventory_change: self.last_inventory_change,
+            last_event_id: self.last_event_id,
+            load_event_id: self.load_event_id,
+            start_event_id: self.start_event_id,
+            stop_event_id: self.stop_event_id,
+            drop_event_id: self.drop_event_id,
+        }
+    }
+}
+
+static STATE: Mutex<State> = Mutex::new(State::new());
+
+pub(crate) fn loaded_snapshot() -> Option<Snapshot> {
+    let state = STATE.lock();
+    if state.loaded {
+        Some(state.snapshot())
+    } else {
+        None
+    }
+}
+
+pub(crate) fn is_load_start_method(method: &str) -> bool {
+    load_request(method).is_some()
+}
+
+pub(crate) fn is_stop_method(method: &str) -> bool {
+    target_arg_matches(method, "service.stop")
+}
+
+pub(crate) fn is_drop_method(method: &str) -> bool {
+    target_arg_matches(method, "service.drop")
+}
+
+pub(crate) fn emit_load_start(method: &str) -> &'static str {
+    let Some(request) = load_request(method) else {
+        return "module.load_ephemeral";
+    };
+    let snapshot = load_start(request.source_method);
+    emit_response(
+        request.source_method,
+        "load_start",
+        snapshot,
+        request.descriptor,
+    );
+    request.source_method
+}
+
+pub(crate) fn emit_stop(_method: &str) -> &'static str {
+    let snapshot = stop("service.stop");
+    emit_response("service.stop", "stop", snapshot, LOAD_DESCRIPTOR);
+    "service.stop"
+}
+
+pub(crate) fn emit_drop(_method: &str) -> &'static str {
+    let snapshot = drop_service("service.drop");
+    emit_response("service.drop", "drop", snapshot, LOAD_DESCRIPTOR);
+    "service.drop"
+}
+
+fn load_start(source_method: &'static str) -> Snapshot {
+    let mut state = STATE.lock();
+    let reason = if state.loaded && state.running {
+        "already_running"
+    } else if state.loaded {
+        "started_loaded_service"
+    } else {
+        "loaded_and_started_builtin_service"
+    };
+    let inventory_change = if state.loaded {
+        "updated_current_boot_service"
+    } else {
+        "upserted_current_boot_service"
+    };
+    let event_id = event_log::record_hello_service_lifecycle(
+        source_method,
+        "response",
+        reason,
+        lifecycle_binding(LOAD_DESCRIPTOR, inventory_change),
+    );
+
+    if !state.loaded {
+        state.generation = state.generation.saturating_add(1);
+        state.load_event_id = Some(event_id);
+    }
+    state.loaded = true;
+    state.running = true;
+    state.start_event_id = Some(event_id);
+    state.last_action = "load_start";
+    state.last_reason = reason;
+    state.last_inventory_change = inventory_change;
+    state.last_event_id = Some(event_id);
+    state.snapshot()
+}
+
+fn stop(source_method: &'static str) -> Snapshot {
+    let mut state = STATE.lock();
+    let reason = if state.loaded && state.running {
+        "stopped"
+    } else if state.loaded {
+        "already_stopped"
+    } else {
+        "not_loaded"
+    };
+    let inventory_change = if state.loaded {
+        "updated_current_boot_service"
+    } else {
+        "none"
+    };
+    let event_id = event_log::record_hello_service_lifecycle(
+        source_method,
+        "response",
+        reason,
+        lifecycle_binding(LOAD_DESCRIPTOR, inventory_change),
+    );
+
+    if state.loaded {
+        state.running = false;
+        state.stop_event_id = Some(event_id);
+    }
+    state.last_action = "stop";
+    state.last_reason = reason;
+    state.last_inventory_change = inventory_change;
+    state.last_event_id = Some(event_id);
+    state.snapshot()
+}
+
+fn drop_service(source_method: &'static str) -> Snapshot {
+    let mut state = STATE.lock();
+    let reason = if state.loaded {
+        "dropped"
+    } else {
+        "not_loaded"
+    };
+    let inventory_change = if state.loaded {
+        "removed_current_boot_service"
+    } else {
+        "none"
+    };
+    let event_id = event_log::record_hello_service_lifecycle(
+        source_method,
+        "response",
+        reason,
+        lifecycle_binding(LOAD_DESCRIPTOR, inventory_change),
+    );
+
+    state.loaded = false;
+    state.running = false;
+    state.drop_event_id = Some(event_id);
+    state.last_action = "drop";
+    state.last_reason = reason;
+    state.last_inventory_change = inventory_change;
+    state.last_event_id = Some(event_id);
+    state.snapshot()
+}
+
+fn load_request(method: &str) -> Option<LoadRequest> {
+    load_request_for_head(method, "module.load_ephemeral")
+        .or_else(|| load_request_for_head(method, "service.load_ephemeral"))
+}
+
+fn load_request_for_head(method: &str, head: &'static str) -> Option<LoadRequest> {
+    let method = method.trim();
+    if !method_head_eq(method, head) {
+        return None;
+    }
+    let target = method[head.len()..].trim();
+    if descriptor_target_matches(target, LOAD_DESCRIPTOR) {
+        Some(LoadRequest {
+            source_method: head,
+            descriptor: LOAD_DESCRIPTOR,
+        })
+    } else {
+        None
+    }
+}
+
+fn target_arg_matches(method: &str, head: &str) -> bool {
+    let method = method.trim();
+    if !method_head_eq(method, head) {
+        return false;
+    }
+    let target = method[head.len()..].trim();
+    descriptor_target_matches(target, LOAD_DESCRIPTOR)
+}
+
+fn descriptor_target_matches(target: &str, descriptor: LoadDescriptor) -> bool {
+    target.eq_ignore_ascii_case(descriptor.service_id)
+        || target.eq_ignore_ascii_case("hello")
+        || target.eq_ignore_ascii_case(descriptor.artifact_id)
+        || target.eq_ignore_ascii_case(descriptor.id)
+}
+
+fn lifecycle_binding(
+    descriptor: LoadDescriptor,
+    service_inventory_change: &'static str,
+) -> event_log::HelloServiceLifecycleBinding {
+    event_log::HelloServiceLifecycleBinding {
+        descriptor_schema: descriptor.schema,
+        descriptor_id: descriptor.id,
+        descriptor_source_locator: descriptor.source_locator,
+        descriptor_source_hash: load_descriptor_source_hash(),
+        service_inventory_change,
+        persistence: descriptor.persistence,
+        accepts_external_artifact_bytes: false,
+        loads_external_artifact: false,
+        writes_persistent_state: false,
+    }
+}
+
+fn emit_response(
+    method: &'static str,
+    action: &'static str,
+    snapshot: Snapshot,
+    descriptor: LoadDescriptor,
+) {
+    begin_response(method);
+    raw_line("      \"schema\": \"raios.ram_only_hello_service.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"persistence\": \"none\",");
+    raw("      \"action\": ");
+    json_str(action);
+    raw_line(",");
+    raw("      \"event_id\": ");
+    json_event_id_option(snapshot.last_event_id);
+    raw_line(",");
+    raw("      \"audit_event_id\": ");
+    json_event_id_option(snapshot.last_event_id);
+    raw_line(",");
+    emit_load_request(descriptor);
+    raw_line(",");
+    emit_load_descriptor(descriptor);
+    raw_line(",");
+    raw_line("      \"service\": {");
+    raw("        \"id\": ");
+    json_str(descriptor.service_id);
+    raw_line(",");
+    raw("        \"artifact_id\": ");
+    json_str(descriptor.artifact_id);
+    raw_line(",");
+    raw("        \"load_descriptor_id\": ");
+    json_str(descriptor.id);
+    raw_line(",");
+    raw("        \"load_descriptor_source_hash\": ");
+    json_sha256(load_descriptor_source_hash());
+    raw_line(",");
+    raw_line("        \"kind\": \"service\",");
+    raw("        \"loaded\": ");
+    raw_bool(snapshot.loaded);
+    raw_line(",");
+    raw("        \"running\": ");
+    raw_bool(snapshot.running);
+    raw_line(",");
+    raw("        \"generation\": ");
+    raw_fmt(format_args!("{}", snapshot.generation));
+    raw_line(",");
+    raw("        \"health\": ");
+    json_str(if snapshot.running {
+        "healthy"
+    } else if snapshot.loaded {
+        "stopped"
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw("        \"capabilities\": [");
+    emit_inline_string_array(CAPABILITIES);
+    raw_line("]");
+    raw_line("      },");
+    raw_line("      \"lifecycle\": {");
+    raw("        \"last_action\": ");
+    json_str(snapshot.last_action);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(snapshot.last_reason);
+    raw_line(",");
+    raw("        \"service_inventory_change\": ");
+    json_str(snapshot.last_inventory_change);
+    raw_line(",");
+    raw("        \"load_event_id\": ");
+    json_event_id_option(snapshot.load_event_id);
+    raw_line(",");
+    raw("        \"start_event_id\": ");
+    json_event_id_option(snapshot.start_event_id);
+    raw_line(",");
+    raw("        \"stop_event_id\": ");
+    json_event_id_option(snapshot.stop_event_id);
+    raw_line(",");
+    raw("        \"drop_event_id\": ");
+    json_event_id_option(snapshot.drop_event_id);
+    raw_line("");
+    raw_line("      },");
+    raw_line("      \"loader\": {");
+    raw("        \"kind\": ");
+    json_str(descriptor.artifact_kind);
+    raw_line(",");
+    raw("        \"descriptor_id\": ");
+    json_str(descriptor.id);
+    raw_line(",");
+    raw("        \"descriptor_source_locator\": ");
+    json_str(descriptor.source_locator);
+    raw_line(",");
+    raw("        \"descriptor_source_hash\": ");
+    json_sha256(load_descriptor_source_hash());
+    raw_line(",");
+    raw_line("        \"accepts_external_artifact_bytes\": false,");
+    raw_line("        \"loads_external_artifact\": false,");
+    raw_line("        \"writes_persistent_state\": false,");
+    raw_line("        \"writes_durable_audit_log\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"grants_broad_mutation\": false");
+    raw_line("      },");
+    raw_line("      \"denied_surfaces\": {");
+    raw_line("        \"general_module_load\": \"unchanged_denied\",");
+    raw_line("        \"external_artifact_load\": \"denied\",");
+    raw_line("        \"persistent_install\": \"denied\",");
+    raw_line("        \"durable_audit\": \"denied\",");
+    raw_line("        \"rollback_install\": \"denied\",");
+    raw_line("        \"broad_mutation\": \"denied\"");
+    raw_line("      }");
+    end_response(method);
+}
+
+fn emit_load_request(descriptor: LoadDescriptor) {
+    raw_line("      \"load_request\": {");
+    raw_line("        \"schema\": \"raios.current_boot_load_request.v0\",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw("        \"descriptor_schema\": ");
+    json_str(descriptor.schema);
+    raw_line(",");
+    raw("        \"descriptor_id\": ");
+    json_str(descriptor.id);
+    raw_line(",");
+    raw("        \"descriptor_source_locator\": ");
+    json_str(descriptor.source_locator);
+    raw_line(",");
+    raw("        \"descriptor_source_hash\": ");
+    json_sha256(load_descriptor_source_hash());
+    raw_line(",");
+    raw("        \"service_id\": ");
+    json_str(descriptor.service_id);
+    raw_line(",");
+    raw_line("        \"accepted\": true");
+    raw("      }");
+}
+
+fn emit_load_descriptor(descriptor: LoadDescriptor) {
+    raw_line("      \"load_descriptor\": {");
+    raw("        \"schema\": ");
+    json_str(descriptor.schema);
+    raw_line(",");
+    raw("        \"id\": ");
+    json_str(descriptor.id);
+    raw_line(",");
+    raw_line("        \"source\": {");
+    raw("          \"canonicalization\": ");
+    json_str(descriptor.canonicalization);
+    raw_line(",");
+    raw("          \"locator\": ");
+    json_str(descriptor.source_locator);
+    raw_line(",");
+    raw("          \"sha256\": ");
+    json_sha256(load_descriptor_source_hash());
+    raw_line(",");
+    raw("          \"text\": ");
+    json_str(LOAD_DESCRIPTOR_SOURCE);
+    raw_line("");
+    raw_line("        },");
+    raw("        \"service_id\": ");
+    json_str(descriptor.service_id);
+    raw_line(",");
+    raw("        \"artifact_id\": ");
+    json_str(descriptor.artifact_id);
+    raw_line(",");
+    raw("        \"artifact_kind\": ");
+    json_str(descriptor.artifact_kind);
+    raw_line(",");
+    raw("        \"scope\": ");
+    json_str(descriptor.scope);
+    raw_line(",");
+    raw("        \"classification\": ");
+    json_str(descriptor.classification);
+    raw_line(",");
+    raw("        \"persistence\": ");
+    json_str(descriptor.persistence);
+    raw_line(",");
+    raw_line("        \"accepts_external_artifact_bytes\": false,");
+    raw_line("        \"loads_external_artifact\": false,");
+    raw_line("        \"writes_persistent_state\": false");
+    raw("      }");
+}

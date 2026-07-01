@@ -24,18 +24,45 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
-Active execution memory: as of 2026-07-02, stop advancing Phase 6 through
-another non-authorizing loader boundary by default. Keep the evidence chain and
-fail-closed denials, but pivot the active cursor to the first positive
-RAM-only service vertical slice: `raios.ram_only_hello_service.v0`. The next
-work should load/start a tiny labeled built-in test service through the real
-Stage-0 loader, make it visible in `service.inventory`, stop/drop it, and emit
-RAM-only audit/event evidence, while continuing to deny persistence, arbitrary
-external artifact intake, durable audit writes, rollback installation, and broad
-module/service/config mutation. Add new schema-only boundaries only when they
-are the smallest blocker for that load/start/list/stop/drop path.
+Active execution memory: as of 2026-07-02, Phase 6 has its first positive
+RAM-only service vertical slice: `raios.ram_only_hello_service.v0`. The kernel
+can load/start the built-in `svc.demo.hello` test service through a typed
+current-boot load request/descriptor, expose it through `service.inventory`,
+stop it, drop it, and retain RAM-only lifecycle audit events that cite the
+descriptor plus its deterministic source locator/hash. Keep the evidence chain
+and fail-closed denials, but continue the pivot through positive service
+lifecycles instead of adding another non-authorizing loader boundary by
+default. Persistence, arbitrary external artifact intake, durable audit writes,
+rollback installation, provider-triggered auto-load, and broad
+module/service/config mutation remain denied.
 
 Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
+deterministic current-boot descriptor source/hash for the positive RAM-only
+`svc.demo.hello` lifecycle. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-011049-1064.json` with 150/150 predicates,
+20 executed commands, and `duration_ms: 45571`: bare
+`module.load_ephemeral`, `module.load_ephemeral svc.demo.nope`, and
+`module.load_ephemeral external:svc.demo.hello` still return the
+non-authorizing module-load gate, then
+`module.load_ephemeral svc.demo.hello` returns
+`raios.ram_only_hello_service.v0` with
+`raios.current_boot_load_request.v0` and
+`raios.current_boot_load_descriptor.v0`, a canonical descriptor source locator
+`seed-kernel/src/hello_service.rs#LOAD_DESCRIPTOR_SOURCE`, and a computed
+`sha256:` descriptor source hash. It inserts a healthy/running current-boot
+`svc.demo.hello` service into `service.inventory` with
+`load_descriptor.current_boot.svc.demo.hello.v0` and the same descriptor
+source/hash,
+`service.stop svc.demo.hello` marks it stopped,
+`service.drop svc.demo.hello` removes it from `service.inventory`, and
+`agent audit.events 32` includes three
+`raios.ram_only_hello_service.lifecycle` events for `svc.demo.hello` whose
+evidence/bindings cite the load descriptor and the same descriptor source/hash.
+The slice uses only a built-in Stage-0 test artifact, accepts no external
+artifact bytes, writes no persistent state, writes no durable audit log,
+installs no rollback plan, and grants no broad mutation.
+
+Previous full verification: 2026-07-02 on Windows with QEMU 11 after adding the
 typed, read-only
 `raios.module_loader_executable_entrypoint_invocation_boundary.v0`
 on top of the executable entrypoint handoff boundary,
@@ -1037,27 +1064,32 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Build `raios.ram_only_hello_service.v0` as the first positive normal-service
-vertical slice. The current non-authorizing loader evidence chain is retained
-as verified source context, but the next durable slice should stop expanding it
-by default and instead prove one real current-boot service lifecycle.
+Promote `raios.ram_only_hello_service.v0` from a built-in descriptor source
+constant to the smallest verified descriptor-source intake while preserving the
+current positive lifecycle and denials. The next durable slice should keep the
+passing load/start/list/stop/drop behavior and replace the hard-coded
+`LOAD_DESCRIPTOR_SOURCE` authority with a tiny current-image or signed
+descriptor-source record that the same load response, `service.inventory`, and
+RAM audit event cite by locator/hash.
 
-The hello slice should:
+The next slice should:
 
-- load/start a tiny labeled built-in `svc.demo.hello` test artifact through the
-  real Stage-0 loader path
-- allocate only RAM-only current-boot service state
-- mutate `service.inventory` only for that service and expose a running/healthy
-  state
-- emit RAM-only audit/event evidence for load/start/list/stop/drop
-- support stop/drop with a rollback-surrogate cleanup path
+- keep bare `module.load_ephemeral` and arbitrary external artifacts denied
+- keep `svc.demo.hello` load/start/list/stop/drop passing in quick VM smoke
+- keep `raios.current_boot_load_request.v0` and
+  `raios.current_boot_load_descriptor.v0` in the positive path
+- keep the existing descriptor source/hash visible in load response,
+  service.inventory, and lifecycle audit event
+- add one verified descriptor-source intake for the same hello descriptor
+  without accepting arbitrary descriptor bytes or artifact bytes
 - keep persistence, arbitrary external artifact intake, durable audit writes,
   rollback installation, provider-triggered auto-load, and broad
   module/service/config mutation denied
 
-Add a new schema-only boundary only when it is the smallest blocker for this
-load/start/list/stop/drop path. Otherwise record the missing deeper mechanism as
-an explicit known gap and keep moving toward the positive slice.
+Do not add a generic descriptor parser or signed artifact loader yet. Add the
+smallest source-intake record that can replace the built-in constant for this
+one descriptor, then grow a general parser only when a second descriptor source
+needs it.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:

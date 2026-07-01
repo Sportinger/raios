@@ -455,6 +455,27 @@ fn emit_event(event: &event_log::Event, comma: bool) {
 fn emit_event_bindings(bindings: event_log::EventBindings) {
     match bindings {
         event_log::EventBindings::None => {}
+        event_log::EventBindings::HelloServiceLifecycle(binding) => {
+            raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.lifecycle_binding.v0\", \"status\": \"current_boot_state_transition\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
+            json_str(binding.descriptor_schema);
+            raw(", \"load_descriptor_id\": ");
+            json_str(binding.descriptor_id);
+            raw(", \"load_descriptor_source_locator\": ");
+            json_str(binding.descriptor_source_locator);
+            raw(", \"load_descriptor_source_hash\": ");
+            json_sha256(binding.descriptor_source_hash);
+            raw(", \"service_inventory_change\": ");
+            json_str(binding.service_inventory_change);
+            raw(", \"persistence\": ");
+            json_str(binding.persistence);
+            raw(", \"accepts_external_artifact_bytes\": ");
+            raw_bool(binding.accepts_external_artifact_bytes);
+            raw(", \"loads_external_artifact\": ");
+            raw_bool(binding.loads_external_artifact);
+            raw(", \"writes_persistent_state\": ");
+            raw_bool(binding.writes_persistent_state);
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\"}");
+        }
         event_log::EventBindings::ProviderRequestEnvelope(binding) => {
             raw(", \"bindings\": {\"schema\": \"raios.provider_request_envelope.v0\", \"status\": \"local_prewrite_envelope\", \"satisfies_current_boot_export_gate\": false, \"provider_write\": \"not_attempted\", \"context_attached_to_provider_body\": false, \"request_id\": ");
             raw_fmt(format_args!("{}", binding.request_id));
