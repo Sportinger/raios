@@ -2,8 +2,9 @@ use spin::Mutex;
 
 use crate::{
     agent_protocol_support::{
-        begin_response, emit_inline_string_array, end_response, json_event_id_option, json_sha256,
-        json_str, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
+        begin_response, emit_inline_string_array, end_response, json_event_id_option, json_opt_str,
+        json_sha256, json_sha256_option, json_str, method_head_eq, raw, raw_bool, raw_fmt,
+        raw_line,
     },
     descriptor_sources, event_log,
 };
@@ -27,6 +28,9 @@ pub(crate) struct LoadDescriptor {
     pub canonicalization: &'static str,
     pub source_locator: &'static str,
     pub source_kind: &'static str,
+    pub binds_source_locator: Option<&'static str>,
+    pub binds_source_kind: Option<&'static str>,
+    pub binds_source_hash: Option<[u8; 32]>,
     pub source_text: &'static str,
     pub service_id: &'static str,
     pub artifact_id: &'static str,
@@ -48,6 +52,9 @@ pub(crate) const LOAD_DESCRIPTOR: LoadDescriptor = LoadDescriptor {
     canonicalization: LOAD_DESCRIPTOR_CANONICALIZATION,
     source_locator: LOAD_DESCRIPTOR_SOURCE_LOCATOR,
     source_kind: LOAD_DESCRIPTOR_SOURCE_KIND,
+    binds_source_locator: None,
+    binds_source_kind: None,
+    binds_source_hash: None,
     source_text: descriptor_sources::HELLO_LOAD_DESCRIPTOR_SOURCE,
     service_id: SERVICE_ID,
     artifact_id: ARTIFACT_ID,
@@ -61,11 +68,22 @@ pub(crate) fn load_descriptor_source_hash() -> [u8; 32] {
     descriptor_sources::hello_load_descriptor_source_hash()
 }
 
+pub(crate) fn descriptor_source_hash(descriptor: LoadDescriptor) -> [u8; 32] {
+    if let Some(hash) =
+        descriptor_sources::descriptor_source_hash_for_locator(descriptor.source_locator)
+    {
+        hash
+    } else {
+        load_descriptor_source_hash()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct Snapshot {
     pub loaded: bool,
     pub running: bool,
     pub generation: u64,
+    pub load_descriptor: LoadDescriptor,
     pub last_action: &'static str,
     pub last_reason: &'static str,
     pub last_inventory_change: &'static str,
@@ -81,6 +99,7 @@ struct State {
     loaded: bool,
     running: bool,
     generation: u64,
+    load_descriptor: LoadDescriptor,
     last_action: &'static str,
     last_reason: &'static str,
     last_inventory_change: &'static str,
@@ -97,6 +116,7 @@ impl State {
             loaded: false,
             running: false,
             generation: 0,
+            load_descriptor: LOAD_DESCRIPTOR,
             last_action: "none",
             last_reason: "not_loaded",
             last_inventory_change: "none",
@@ -113,6 +133,7 @@ impl State {
             loaded: self.loaded,
             running: self.running,
             generation: self.generation,
+            load_descriptor: self.load_descriptor,
             last_action: self.last_action,
             last_reason: self.last_reason,
             last_inventory_change: self.last_inventory_change,
@@ -152,7 +173,7 @@ pub(crate) fn emit_load_start(method: &str) -> &'static str {
     let Some(request) = load_request(method) else {
         return "module.load_ephemeral";
     };
-    let snapshot = load_start(request.source_method);
+    let snapshot = load_start(request.source_method, request.descriptor);
     emit_response(
         request.source_method,
         "load_start",
@@ -164,17 +185,17 @@ pub(crate) fn emit_load_start(method: &str) -> &'static str {
 
 pub(crate) fn emit_stop(_method: &str) -> &'static str {
     let snapshot = stop("service.stop");
-    emit_response("service.stop", "stop", snapshot, LOAD_DESCRIPTOR);
+    emit_response("service.stop", "stop", snapshot, snapshot.load_descriptor);
     "service.stop"
 }
 
 pub(crate) fn emit_drop(_method: &str) -> &'static str {
     let snapshot = drop_service("service.drop");
-    emit_response("service.drop", "drop", snapshot, LOAD_DESCRIPTOR);
+    emit_response("service.drop", "drop", snapshot, snapshot.load_descriptor);
     "service.drop"
 }
 
-fn load_start(source_method: &'static str) -> Snapshot {
+fn load_start(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot {
     let mut state = STATE.lock();
     let reason = if state.loaded && state.running {
         "already_running"
@@ -192,7 +213,7 @@ fn load_start(source_method: &'static str) -> Snapshot {
         source_method,
         "response",
         reason,
-        lifecycle_binding(LOAD_DESCRIPTOR, inventory_change),
+        lifecycle_binding(descriptor, inventory_change),
     );
 
     if !state.loaded {
@@ -201,6 +222,7 @@ fn load_start(source_method: &'static str) -> Snapshot {
     }
     state.loaded = true;
     state.running = true;
+    state.load_descriptor = descriptor;
     state.start_event_id = Some(event_id);
     state.last_action = "load_start";
     state.last_reason = reason;
@@ -211,6 +233,7 @@ fn load_start(source_method: &'static str) -> Snapshot {
 
 fn stop(source_method: &'static str) -> Snapshot {
     let mut state = STATE.lock();
+    let descriptor = state.load_descriptor;
     let reason = if state.loaded && state.running {
         "stopped"
     } else if state.loaded {
@@ -227,7 +250,7 @@ fn stop(source_method: &'static str) -> Snapshot {
         source_method,
         "response",
         reason,
-        lifecycle_binding(LOAD_DESCRIPTOR, inventory_change),
+        lifecycle_binding(descriptor, inventory_change),
     );
 
     if state.loaded {
@@ -243,6 +266,7 @@ fn stop(source_method: &'static str) -> Snapshot {
 
 fn drop_service(source_method: &'static str) -> Snapshot {
     let mut state = STATE.lock();
+    let descriptor = state.load_descriptor;
     let reason = if state.loaded {
         "dropped"
     } else {
@@ -257,7 +281,7 @@ fn drop_service(source_method: &'static str) -> Snapshot {
         source_method,
         "response",
         reason,
-        lifecycle_binding(LOAD_DESCRIPTOR, inventory_change),
+        lifecycle_binding(descriptor, inventory_change),
     );
 
     state.loaded = false;
@@ -267,7 +291,9 @@ fn drop_service(source_method: &'static str) -> Snapshot {
     state.last_reason = reason;
     state.last_inventory_change = inventory_change;
     state.last_event_id = Some(event_id);
-    state.snapshot()
+    let snapshot = state.snapshot();
+    state.load_descriptor = LOAD_DESCRIPTOR;
+    snapshot
 }
 
 fn load_request(method: &str) -> Option<LoadRequest> {
@@ -281,28 +307,54 @@ fn load_request_for_head(method: &str, head: &'static str) -> Option<LoadRequest
         return None;
     }
     let target = method[head.len()..].trim();
-    let descriptor = verified_load_descriptor()?;
-    if descriptor_target_matches(target, descriptor) {
-        Some(LoadRequest {
-            source_method: head,
-            descriptor,
-        })
+    let descriptor = verified_load_descriptor_for_target(target)?;
+    Some(LoadRequest {
+        source_method: head,
+        descriptor,
+    })
+}
+
+fn verified_load_descriptor_for_target(target: &str) -> Option<LoadDescriptor> {
+    let source = descriptor_source_for_target(target)?;
+    if !descriptor_sources::validate_descriptor_source(source) {
+        return None;
+    }
+    let descriptor = load_descriptor_from_source(source);
+    if descriptor_target_matches(target, descriptor)
+        || descriptor_source_target_matches(target, source)
+    {
+        Some(descriptor)
     } else {
         None
     }
 }
 
-fn verified_load_descriptor() -> Option<LoadDescriptor> {
-    let source = descriptor_sources::lookup_current_image_descriptor_source(LOAD_DESCRIPTOR_ID)?;
-    if !descriptor_sources::validate_current_image_descriptor_source(source) {
-        return None;
+fn descriptor_source_for_target(
+    target: &str,
+) -> Option<descriptor_sources::DescriptorSourceRecord> {
+    if descriptor_source_target_matches_locator(
+        target,
+        descriptor_sources::HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR,
+    ) || target.eq_ignore_ascii_case("host_bound:svc.demo.hello")
+    {
+        descriptor_sources::lookup_host_bound_descriptor_source(LOAD_DESCRIPTOR_ID)
+    } else {
+        descriptor_sources::lookup_current_image_descriptor_source(LOAD_DESCRIPTOR_ID)
     }
-    Some(LoadDescriptor {
+}
+
+fn load_descriptor_from_source(
+    source: descriptor_sources::DescriptorSourceRecord,
+) -> LoadDescriptor {
+    LoadDescriptor {
         schema: source.schema,
         id: source.id,
         canonicalization: source.canonicalization,
         source_locator: source.locator,
         source_kind: source.kind,
+        binds_source_locator: source.binds_source_locator,
+        binds_source_kind: source.binds_source_kind,
+        binds_source_hash: source.binds_source_hash,
         source_text: source.text,
         service_id: source.service_id,
         artifact_id: source.artifact_id,
@@ -310,7 +362,20 @@ fn verified_load_descriptor() -> Option<LoadDescriptor> {
         scope: source.scope,
         classification: source.classification,
         persistence: source.persistence,
-    })
+    }
+}
+
+fn descriptor_source_target_matches(
+    target: &str,
+    source: descriptor_sources::DescriptorSourceRecord,
+) -> bool {
+    descriptor_source_target_matches_locator(target, source.locator)
+        || (source.locator == descriptor_sources::HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR
+            && target.eq_ignore_ascii_case("host_bound:svc.demo.hello"))
+}
+
+fn descriptor_source_target_matches_locator(target: &str, locator: &str) -> bool {
+    target.eq_ignore_ascii_case(locator)
 }
 
 fn target_arg_matches(method: &str, head: &str) -> bool {
@@ -338,7 +403,10 @@ fn lifecycle_binding(
         descriptor_id: descriptor.id,
         descriptor_source_locator: descriptor.source_locator,
         descriptor_source_kind: descriptor.source_kind,
-        descriptor_source_hash: load_descriptor_source_hash(),
+        descriptor_source_hash: descriptor_source_hash(descriptor),
+        binds_source_locator: descriptor.binds_source_locator,
+        binds_source_kind: descriptor.binds_source_kind,
+        binds_source_hash: descriptor.binds_source_hash,
         descriptor_source_validated: true,
         service_inventory_change,
         persistence: descriptor.persistence,
@@ -387,7 +455,7 @@ fn emit_response(
     raw_line(",");
     raw_line("        \"load_descriptor_source_validated\": true,");
     raw("        \"load_descriptor_source_hash\": ");
-    json_sha256(load_descriptor_source_hash());
+    json_sha256(descriptor_source_hash(descriptor));
     raw_line(",");
     raw_line("        \"kind\": \"service\",");
     raw("        \"loaded\": ");
@@ -450,7 +518,16 @@ fn emit_response(
     raw_line(",");
     raw_line("        \"descriptor_source_validated\": true,");
     raw("        \"descriptor_source_hash\": ");
-    json_sha256(load_descriptor_source_hash());
+    json_sha256(descriptor_source_hash(descriptor));
+    raw_line(",");
+    raw("        \"binds_source_locator\": ");
+    json_opt_str(descriptor.binds_source_locator);
+    raw_line(",");
+    raw("        \"binds_source_kind\": ");
+    json_opt_str(descriptor.binds_source_kind);
+    raw_line(",");
+    raw("        \"binds_source_hash\": ");
+    json_sha256_option(descriptor.binds_source_hash);
     raw_line(",");
     raw_line("        \"accepts_external_artifact_bytes\": false,");
     raw_line("        \"loads_external_artifact\": false,");
@@ -489,7 +566,16 @@ fn emit_load_request(descriptor: LoadDescriptor) {
     raw_line(",");
     raw_line("        \"descriptor_source_validated\": true,");
     raw("        \"descriptor_source_hash\": ");
-    json_sha256(load_descriptor_source_hash());
+    json_sha256(descriptor_source_hash(descriptor));
+    raw_line(",");
+    raw("        \"binds_source_locator\": ");
+    json_opt_str(descriptor.binds_source_locator);
+    raw_line(",");
+    raw("        \"binds_source_kind\": ");
+    json_opt_str(descriptor.binds_source_kind);
+    raw_line(",");
+    raw("        \"binds_source_hash\": ");
+    json_sha256_option(descriptor.binds_source_hash);
     raw_line(",");
     raw("        \"service_id\": ");
     json_str(descriptor.service_id);
@@ -518,7 +604,16 @@ fn emit_load_descriptor(descriptor: LoadDescriptor) {
     raw_line(",");
     raw_line("          \"validated\": true,");
     raw("          \"sha256\": ");
-    json_sha256(load_descriptor_source_hash());
+    json_sha256(descriptor_source_hash(descriptor));
+    raw_line(",");
+    raw("          \"binds_source_locator\": ");
+    json_opt_str(descriptor.binds_source_locator);
+    raw_line(",");
+    raw("          \"binds_source_kind\": ");
+    json_opt_str(descriptor.binds_source_kind);
+    raw_line(",");
+    raw("          \"binds_source_hash\": ");
+    json_sha256_option(descriptor.binds_source_hash);
     raw_line(",");
     raw("          \"text\": ");
     json_str(descriptor.source_text);

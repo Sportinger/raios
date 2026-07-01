@@ -5,6 +5,8 @@ pub(crate) const HELLO_SERVICE_LIFECYCLE_EVIDENCE: &[&str] = &[
     "load_descriptor.current_boot.svc.demo.hello.v0",
     "load_descriptor_source_locator",
     "current_image_descriptor_source",
+    "host_bound_descriptor_source",
+    "bound_descriptor_source_hash",
     "descriptor_source_intake_validated",
     "load_descriptor_source_hash",
     "builtin_stage0_test_service",

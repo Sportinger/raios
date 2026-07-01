@@ -7,8 +7,8 @@ use crate::{
     agent_protocol_recovery::emit_recovery_artifact_load_denial_event_binding,
     agent_protocol_support::{
         begin_response, crlf, emit_inline_string_array, end_response, indent, json_event_id,
-        json_event_id_option, json_event_sequence, json_sha256, json_sha256_option, json_str,
-        method_eq, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
+        json_event_id_option, json_event_sequence, json_opt_str, json_sha256, json_sha256_option,
+        json_str, method_eq, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
     },
     agent_protocol_system::{emit_problem_objects, emit_service_ids, emit_status_state},
     event_log, provider, serial,
@@ -466,6 +466,12 @@ fn emit_event_bindings(bindings: event_log::EventBindings) {
             json_str(binding.descriptor_source_kind);
             raw(", \"load_descriptor_source_hash\": ");
             json_sha256(binding.descriptor_source_hash);
+            raw(", \"binds_source_locator\": ");
+            json_opt_str(binding.binds_source_locator);
+            raw(", \"binds_source_kind\": ");
+            json_opt_str(binding.binds_source_kind);
+            raw(", \"binds_source_hash\": ");
+            json_sha256_option(binding.binds_source_hash);
             raw(", \"load_descriptor_source_validated\": ");
             raw_bool(binding.descriptor_source_validated);
             raw(", \"service_inventory_change\": ");

@@ -135,14 +135,72 @@
             throw "Expected svc.demo.hello to be removed from service.inventory after drop"
         }
 
+        Send-AgentCommand -Command "module.load_ephemeral host_bound:svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
+        $hostHelloLoad = Get-LastAgentResponseJson -Method "module.load_ephemeral"
+        $hostDescriptorHash = $hostHelloLoad.body.result.load_descriptor.source.sha256
+        $hostDescriptorLocator = "host_build.descriptor_source.svc.demo.hello.v0"
+        $hostDescriptorKind = "host_bound_descriptor_source"
+        if ($hostHelloLoad.body.result.schema -ne "raios.ram_only_hello_service.v0") {
+            throw "Expected host-bound RAM-only hello service schema, got $($hostHelloLoad.body.result.schema)"
+        }
+        if ($hostHelloLoad.body.result.load_descriptor.source.locator -ne $hostDescriptorLocator) {
+            throw "Expected host-bound hello load descriptor to cite its host-produced source locator"
+        }
+        if ($hostHelloLoad.body.result.load_descriptor.source.kind -ne $hostDescriptorKind) {
+            throw "Expected host-bound hello load descriptor to cite its source kind"
+        }
+        if ($hostHelloLoad.body.result.load_descriptor.source.binds_source_locator -ne $helloDescriptorLocator) {
+            throw "Expected host-bound descriptor to bind the current-image source locator"
+        }
+        if ($hostHelloLoad.body.result.load_descriptor.source.binds_source_kind -ne $helloDescriptorKind) {
+            throw "Expected host-bound descriptor to bind the current-image source kind"
+        }
+        if ($hostHelloLoad.body.result.load_descriptor.source.binds_source_hash -ne $helloDescriptorHash) {
+            throw "Expected host-bound descriptor to bind the current-image source hash"
+        }
+        if ($hostHelloLoad.body.result.load_descriptor.source.text -notlike "*binds_source_hash=$helloDescriptorHash*") {
+            throw "Expected host-bound source text to carry the bound current-image source hash"
+        }
+        if ($hostHelloLoad.body.result.load_request.descriptor_source_hash -ne $hostDescriptorHash -or $hostHelloLoad.body.result.loader.descriptor_source_hash -ne $hostDescriptorHash) {
+            throw "Expected host-bound load request and loader to cite the host-bound descriptor source hash"
+        }
+
+        Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
+        $servicesAfterHostLoad = Get-LastAgentResponseJson -Method "service.inventory"
+        $hostInventory = @($servicesAfterHostLoad.body.result.services | Where-Object { $_.id -eq "svc.demo.hello" })
+        if ($hostInventory.Count -ne 1) {
+            throw "Expected host-bound svc.demo.hello in service.inventory after load"
+        }
+        if ($hostInventory[0].load_descriptor_source_locator -ne $hostDescriptorLocator -or $hostInventory[0].load_descriptor_source_kind -ne $hostDescriptorKind) {
+            throw "Expected host-bound inventory record to cite the host-produced descriptor source"
+        }
+        if ($hostInventory[0].load_descriptor_source_hash -ne $hostDescriptorHash) {
+            throw "Expected host-bound inventory record to cite the host-bound descriptor source hash"
+        }
+        if ($hostInventory[0].binds_source_hash -ne $helloDescriptorHash) {
+            throw "Expected host-bound inventory record to bind the current-image descriptor source hash"
+        }
+
+        Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
+        $hostStop = Get-LastAgentResponseJson -Method "service.stop"
+        if ($hostStop.body.result.loader.descriptor_source_locator -ne $hostDescriptorLocator) {
+            throw "Expected host-bound stop event response to cite the active descriptor source"
+        }
+
+        Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
+        $hostDrop = Get-LastAgentResponseJson -Method "service.drop"
+        if ($hostDrop.body.result.loader.descriptor_source_locator -ne $hostDescriptorLocator) {
+            throw "Expected host-bound drop event response to cite the active descriptor source"
+        }
+
         Send-AgentCommand -Command "agent audit.events 32" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
         $helloEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.lifecycle" -and $_.resource -eq "svc.demo.hello" })
-        if ($helloEvents.Count -lt 3) {
+        if ($helloEvents.Count -lt 6) {
             throw "Expected hello load/stop/drop lifecycle events in RAM audit log"
         }
         $helloDescriptorEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor.current_boot.svc.demo.hello.v0" })
-        if ($helloDescriptorEvents.Count -lt 3) {
+        if ($helloDescriptorEvents.Count -lt 6) {
             throw "Expected hello lifecycle events to cite the load descriptor"
         }
         $helloDescriptorHashEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor_source_hash" -and $_.bindings.load_descriptor_source_hash -eq $helloDescriptorHash })
@@ -152,6 +210,14 @@
         $helloDescriptorSourceEvents = @($helloEvents | Where-Object { $_.bindings.load_descriptor_source_locator -eq $helloDescriptorLocator -and $_.bindings.load_descriptor_source_kind -eq $helloDescriptorKind -and $_.bindings.load_descriptor_source_validated })
         if ($helloDescriptorSourceEvents.Count -lt 3) {
             throw "Expected hello lifecycle events to cite the validated current-image descriptor source"
+        }
+        $hostDescriptorHashEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor_source_hash" -and $_.bindings.load_descriptor_source_hash -eq $hostDescriptorHash })
+        if ($hostDescriptorHashEvents.Count -lt 3) {
+            throw "Expected host-bound hello lifecycle events to cite the host-bound descriptor source hash"
+        }
+        $hostDescriptorSourceEvents = @($helloEvents | Where-Object { $_.bindings.load_descriptor_source_locator -eq $hostDescriptorLocator -and $_.bindings.load_descriptor_source_kind -eq $hostDescriptorKind -and $_.bindings.load_descriptor_source_validated -and $_.bindings.binds_source_hash -eq $helloDescriptorHash })
+        if ($hostDescriptorSourceEvents.Count -lt 3) {
+            throw "Expected host-bound hello lifecycle events to cite the bound current-image descriptor source hash"
         }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 32' -TimeoutSeconds 1
@@ -163,5 +229,7 @@
         Assert-LogContains -Name "quick:audit_events_hello_descriptor" -Needle "load_descriptor.current_boot.svc.demo.hello.v0" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_hash" -Needle '"load_descriptor_source_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_validated" -Needle '"load_descriptor_source_validated": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_ram_only" -Needle '"persistence": "none"' -TimeoutSeconds 1

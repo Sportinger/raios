@@ -393,6 +393,10 @@ module.load_ephemeral svc.demo.hello
 services
 service.stop svc.demo.hello
 service.drop svc.demo.hello
+module.load_ephemeral host_bound:svc.demo.hello
+services
+service.stop svc.demo.hello
+service.drop svc.demo.hello
 agent audit.events 32
 ```
 
@@ -408,9 +412,14 @@ the descriptor source locator
 hash. `services` must show `svc.demo.hello` only while loaded and cite the same
 descriptor id/source/kind/validation/hash. `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` records whose evidence/bindings cite
-the same load descriptor and validated source hash. The path must keep external
-artifact bytes, persistence, durable audit writes, rollback installation, and
-broad mutation disabled.
+the same load descriptor and validated source hash.
+
+The host-bound positive command must cite
+`host_build.descriptor_source.svc.demo.hello.v0`, source kind
+`host_bound_descriptor_source`, and `binds_source_hash` equal to the
+current-image source hash. The path must keep external artifact bytes,
+persistence, durable audit writes, rollback installation, and broad mutation
+disabled.
 
 After a matching manifest, artifact, Shadow-VM report, and local attestation
 exist, compute the host-side grant diagnostic with:

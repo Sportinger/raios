@@ -2,9 +2,10 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after moving the first positive RAM-only
-service lifecycle onto a validated current-image descriptor-source intake. Keep
-this section compact. The authoritative, unabridged current state is
+Last updated: 2026-07-02 by Codex after adding a second host-produced,
+hash-bound descriptor-source candidate to the positive RAM-only service
+lifecycle. Keep this section compact. The authoritative, unabridged current
+state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
 cursor, not repeat the full implementation history.
 
@@ -25,11 +26,14 @@ Latest verified implementation slice:
   that consumes `raios.current_boot_load_request.v0` and
   `raios.current_boot_load_descriptor.v0` from a validated current-image
   descriptor-source record
+- `module.load_ephemeral host_bound:svc.demo.hello` loads/starts the same
+  built-in RAM-only service through a host-produced descriptor-source candidate
+  that binds the current-image source hash
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
   `service.stop svc.demo.hello` marks it stopped; `service.drop svc.demo.hello`
   removes it from inventory; the inventory record cites
   `load_descriptor.current_boot.svc.demo.hello.v0` plus the descriptor source
-  locator/kind/validation/hash
+  locator/kind/validation/hash and bound source hash when present
 - lifecycle actions retain `raios.ram_only_hello_service.lifecycle` audit events
   in the current-boot RAM event log with descriptor and validated source-hash
   evidence
@@ -82,28 +86,28 @@ release\vm-reports\shadow-20260702-001225-25068.json
 Latest focused verification:
 
 ```text
-release\vm-reports\shadow-20260702-011913-25676.json
-152/152 quick predicates, 20 executed commands, duration_ms: 51871
+release\vm-reports\shadow-20260702-012836-17980.json
+158/158 quick predicates, 24 executed commands, duration_ms: 47700
 ```
 
 Exact next task:
 
 ```text
-Add the smallest second descriptor-source candidate for the hello path
-(prefer signed or host-produced hash-bound), keep the current-image descriptor
-source passing, and do not add a generic parser or signed artifact loader until
-two real descriptor sources force shared validation code.
+Replace exact-text descriptor-source validation with the smallest shared
+canonical key/value validator needed by the current-image and host-bound hello
+sources. Keep descriptor bytes compile-time/current-boot only and keep signed
+artifact loading denied.
 ```
 
 Next three tasks:
 
-1. Add one second descriptor-source candidate for `svc.demo.hello` while keeping
-   artifact loading built-in/current-boot only.
-2. Keep the positive load/list/stop/drop quick smoke green while checking that
-   load response, inventory, and audit events cite the same descriptor
-   locator/kind/validation/hash.
-3. Only after a second descriptor source exists, introduce the smallest shared
-   descriptor parser/validator needed by both sources.
+1. Add a tiny canonical key/value validator for the two existing hello
+   descriptor-source texts.
+2. Keep both current-image and host-bound load/list/stop/drop quick smoke paths
+   green while checking selected source locator/kind/hash and bound-source hash.
+3. Only after that, consider a signed descriptor envelope; keep artifact loading
+   built-in/current-boot until artifact trust/execution/audit/rollback evidence
+   exists.
 
 Documentation ownership:
 

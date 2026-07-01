@@ -1,7 +1,8 @@
 use crate::{
     agent_protocol_support::{
         begin_response, crlf, emit_inline_string_array, emit_static_string_array, end_response,
-        indent, json_opt_str, json_sha256, json_str, raw, raw_bool, raw_fmt, raw_line,
+        indent, json_opt_str, json_sha256, json_sha256_option, json_str, raw, raw_bool, raw_fmt,
+        raw_line,
     },
     hello_service, provider, serial, service_inventory, system_status,
     system_status::{RowState, SystemSnapshot},
@@ -609,16 +610,22 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
     raw(", \"artifact_id\": ");
     json_str(hello_service::ARTIFACT_ID);
     raw(", \"load_descriptor_schema\": ");
-    json_str(hello_service::LOAD_DESCRIPTOR_SCHEMA);
+    json_str(hello.load_descriptor.schema);
     raw(", \"load_descriptor_id\": ");
-    json_str(hello_service::LOAD_DESCRIPTOR_ID);
+    json_str(hello.load_descriptor.id);
     raw(", \"load_descriptor_source_locator\": ");
-    json_str(hello_service::LOAD_DESCRIPTOR_SOURCE_LOCATOR);
+    json_str(hello.load_descriptor.source_locator);
     raw(", \"load_descriptor_source_kind\": ");
-    json_str(hello_service::LOAD_DESCRIPTOR_SOURCE_KIND);
+    json_str(hello.load_descriptor.source_kind);
     raw(", \"load_descriptor_source_validated\": true");
     raw(", \"load_descriptor_source_hash\": ");
-    json_sha256(hello_service::load_descriptor_source_hash());
+    json_sha256(hello_service::descriptor_source_hash(hello.load_descriptor));
+    raw(", \"binds_source_locator\": ");
+    json_opt_str(hello.load_descriptor.binds_source_locator);
+    raw(", \"binds_source_kind\": ");
+    json_opt_str(hello.load_descriptor.binds_source_kind);
+    raw(", \"binds_source_hash\": ");
+    json_sha256_option(hello.load_descriptor.binds_source_hash);
     raw(", \"running\": ");
     raw_bool(hello.running);
     raw(", \"generation\": ");
