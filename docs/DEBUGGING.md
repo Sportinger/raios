@@ -410,21 +410,23 @@ service slot as missing or unavailable, with `can_load: false`,
 `audit.events` read must show a matching `raios.module_load_gate.v0` event
 binding.
 
-The native agent command envelope slice is intentionally one-method-only:
+The native agent command envelope slice is intentionally limited to a small
+read-only target allowlist:
 
 ```text
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe requested_capability=cap.system.describe.read classification=local_only
+agent command_envelope schema=raios.agent_command_envelope.v0 target_method=service.inventory requested_capability=cap.service.inventory.read classification=local_only
 agent command_envelope schema=bad target_method=system.describe requested_capability=cap.system.describe.read classification=local_only
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=module.load_ephemeral requested_capability=cap.module.load_ephemeral classification=local_only
-agent audit.events 5
+agent audit.events 7
 ```
 
-The valid envelope must return `raios.agent_command_envelope.v0` with
+The valid envelopes must return `raios.agent_command_envelope.v0` with
 `accepted: true`, current-boot `event_id`/`audit_event_id`,
 `dispatches_existing_agent_method: true`, and then emit the normal
-`system.describe` response. Bad-schema and over-capable envelopes must return
-the same envelope schema with `accepted: false` and must not dispatch
-`module.load_ephemeral`; `audit.events` must show three local-only
+`system.describe` or `service.inventory` response. Bad-schema and over-capable
+envelopes must return the same envelope schema with `accepted: false` and must
+not dispatch `module.load_ephemeral`; `audit.events` must show four local-only
 `raios.agent_command_envelope.decision` events with
 `raios.agent_command_envelope.audit_binding.v0`. The envelope response and
 audit binding must keep provider writes, candidate-byte loading, persistence,

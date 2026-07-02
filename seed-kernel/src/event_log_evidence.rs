@@ -2,7 +2,7 @@ pub(crate) const READ_EVIDENCE: &[&str] = &["computed_capability_grant"];
 pub(crate) const DENIED_EVIDENCE: &[&str] = &["missing_required_evidence", "capability_denied"];
 pub(crate) const AGENT_COMMAND_ENVELOPE_DECISION_EVIDENCE: &[&str] = &[
     "raios.agent_command_envelope.v0",
-    "single_method_allowlist",
+    "read_only_target_allowlist",
     "target_method_checked",
     "requested_capability_checked",
     "classification_checked",

@@ -2,7 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying current-boot audit
+Last updated: 2026-07-02 by Codex after quick-VM-verifying the
+`service.inventory` read-only command-envelope target and current-boot audit
 evidence for accepted and denied `raios.agent_command_envelope.v0` decisions.
 Keep this section compact. The authoritative, unabridged current
 state is
@@ -152,19 +153,20 @@ Latest verified implementation slice:
   install, result recording, service inventory mutation, service-slot
   allocation, durable audit writes, rollback install, and load attempts false
 - `agent command_envelope` now accepts schema
-  `raios.agent_command_envelope.v0`, target method `system.describe`,
-  requested capability `cap.system.describe.read`, and classification
-  `local_only`; it emits a local-only `raios.agent_command_envelope.v0`
-  response and routes to the existing `system.describe` dispatcher path.
-  Bad-schema and over-capable envelope attempts are denied before dispatch, and
-  the boundary does not create a parallel dispatcher, provider write,
-  candidate-byte load, persistence, durable audit write, rollback install, or
-  broad mutation
+  `raios.agent_command_envelope.v0`, classification `local_only`, and the
+  read-only target/capability pairs `system.describe` with
+  `cap.system.describe.read` and `service.inventory` with
+  `cap.service.inventory.read`; it emits a local-only
+  `raios.agent_command_envelope.v0` response and routes to the existing
+  dispatcher path. Bad-schema and over-capable envelope attempts are denied
+  before dispatch, and the boundary does not create a parallel dispatcher,
+  provider write, candidate-byte load, persistence, durable audit write,
+  rollback install, or broad mutation
 - accepted, bad-schema, and over-capable command-envelope decisions now retain
   current-boot/local-only `raios.agent_command_envelope.decision` events with
   `raios.agent_command_envelope.audit_binding.v0`; the envelope response
   carries matching `event_id`/`audit_event_id`, and `audit.events` proves the
-  three decision shapes
+  four currently verified decision shapes
 
 Previous full verification before the verifier-decision slice:
 
@@ -180,14 +182,21 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the agent-command envelope audit slice:
+Latest focused verification after the `service.inventory` command-envelope slice:
+
+```text
+release\vm-reports\shadow-20260702-062447-11572.json
+214/214 quick predicates, 38 executed commands, duration_ms: 92411
+```
+
+Previous focused verification after the agent-command envelope audit slice:
 
 ```text
 release\vm-reports\shadow-20260702-061909-10304.json
 212/212 quick predicates, 37 executed commands, duration_ms: 65117
 ```
 
-Previous focused verification after the first agent-command envelope slice:
+Older focused verification after the first agent-command envelope slice:
 
 ```text
 release\vm-reports\shadow-20260702-061129-8152.json
@@ -267,17 +276,18 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Widen `raios.agent_command_envelope.v0` by one accepted read-only
-service-graph target: `service.inventory` with
-`cap.service.inventory.read`. Keep `system.describe` working, keep malformed
-and over-capable mutation targets denied before dispatch, and prove accepted
-and denied envelope decisions through `audit.events`.
+Add the missing target/capability mismatch denial proof for
+`raios.agent_command_envelope.v0`: an allowed read-only target paired with the
+wrong allowed read capability must be denied as `requested_capability_denied`
+before dispatch and must be visible through `audit.events`. Keep
+`system.describe` and `service.inventory` accepted with their matching
+capabilities, and keep malformed or over-capable mutation targets denied.
 ```
 
 AI-parallel next wave:
 
-1. Agent protocol track: widen the typed command envelope only from proven
-   read-only command use cases, starting with `service.inventory`.
+1. Agent protocol track: prove target/capability mismatch denial, then widen
+   the typed command envelope only from proven read-only command use cases.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted

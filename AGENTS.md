@@ -188,14 +188,16 @@ Still shape every durable slice so it can become raiOS memory later:
   mapping, persistence, durable audit, rollback, provider auto-load, and broad
   mutation remain denied.
 - `agent command_envelope` validates the first native serial command envelope
-  for schema `raios.agent_command_envelope.v0`, target method
-  `system.describe`, requested capability `cap.system.describe.read`, and
-  classification `local_only`, then routes it through the existing dispatcher
-  path. Bad-schema and over-capable envelope targets are denied before dispatch
-  without provider writes, candidate-byte loading, persistence, or broad
-  mutation. Accepted, bad-schema, and over-capable envelope decisions are
-  retained as current-boot/local-only `raios.agent_command_envelope.decision`
-  audit events with `raios.agent_command_envelope.audit_binding.v0`.
+  for schema `raios.agent_command_envelope.v0`, classification `local_only`,
+  and the read-only target/capability pairs `system.describe` with
+  `cap.system.describe.read` and `service.inventory` with
+  `cap.service.inventory.read`, then routes accepted envelopes through the
+  existing dispatcher path. Bad-schema and over-capable envelope targets are
+  denied before dispatch without provider writes, candidate-byte loading,
+  persistence, or broad mutation. Accepted, bad-schema, and over-capable
+  envelope decisions are retained as current-boot/local-only
+  `raios.agent_command_envelope.decision` audit events with
+  `raios.agent_command_envelope.audit_binding.v0`.
 - `ask <text>` uses the in-guest OpenAI direct transport. The old host-side
   serial relay is no longer part of the runtime path; DNS, TCP 443, TLS 1.3,
   HTTPS, and first `output_text` parsing work in the bare-metal VM profile.
@@ -281,9 +283,9 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Widen the native agent command envelope to one more read-only service-graph
-   target, starting with `service.inventory`, while keeping mutation targets
-   denied and audit-visible.
+1. Add a focused target/capability mismatch denial check for the native command
+   envelope, proving allowed targets still fail closed when paired with the
+   wrong read capability, then widen only to the next proven read-only target.
 2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
    validation once trusted roots, intermediate-chain handling, and trusted time
    exist.

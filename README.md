@@ -265,12 +265,13 @@ Verified in the VM today:
 - native serial `raios.agent.v0` read-only methods for snapshot, capabilities,
   service inventory, problem state, memory context, event log, and provider gates
 - first typed serial command envelope:
-  `raios.agent_command_envelope.v0` accepts a local-only `system.describe`
-  request only when its requested capability matches, routes through the
-  existing dispatcher, and denies bad-schema or over-capable targets before
-  dispatch without provider writes, candidate-byte loading, persistence, or broad
-  mutation; accepted and denied envelope decisions now retain current-boot
-  local-only audit evidence visible through `audit.events`
+  `raios.agent_command_envelope.v0` accepts local-only read-only
+  `system.describe` and `service.inventory` requests only when the requested
+  capability matches the target, routes through the existing dispatcher, and
+  denies bad-schema or over-capable targets before dispatch without provider
+  writes, candidate-byte loading, persistence, or broad mutation; accepted and
+  denied envelope decisions retain current-boot local-only audit evidence
+  visible through `audit.events`
 - RAM-only current-boot event evidence and provider-minimal context projection,
   with provider export and automatic context injection still denied
 - denied-by-default module and recovery load boundaries with retained hash
