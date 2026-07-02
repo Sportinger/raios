@@ -168,6 +168,8 @@
         if ($agentEnvelope.body.result.schema -ne "raios.agent_command_envelope.v0") {
             throw "Expected agent command envelope schema"
         }
+        Assert-CurrentBootEventId -Name "quick:agent_command_envelope_event_id" -Value $agentEnvelope.body.result.event_id
+        Assert-CurrentBootEventId -Name "quick:agent_command_envelope_audit_event_id" -Value $agentEnvelope.body.result.audit_event_id
         if (-not $agentEnvelope.body.result.accepted -or $agentEnvelope.body.result.reason -ne "accepted" -or -not $agentEnvelope.body.result.dispatches_existing_agent_method) {
             throw "Expected valid agent command envelope to dispatch the existing system.describe method"
         }
@@ -192,14 +194,50 @@
 
         Send-AgentCommand -Command "agent command_envelope schema=bad target_method=system.describe requested_capability=cap.system.describe.read classification=local_only" -ExpectedMarker "RAIOS_AGENT_END agent.command_envelope"
         $badEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
+        Assert-CurrentBootEventId -Name "quick:agent_command_envelope_bad_schema_event_id" -Value $badEnvelope.body.result.event_id
         if ($badEnvelope.body.result.accepted -or $badEnvelope.body.result.code -ne "invalid_envelope" -or $badEnvelope.body.result.reason -ne "schema_mismatch" -or $badEnvelope.body.result.dispatches_existing_agent_method) {
             throw "Expected bad-schema agent command envelope to be denied before dispatch"
         }
 
         Send-AgentCommand -Command "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=module.load_ephemeral requested_capability=cap.module.load_ephemeral classification=local_only" -ExpectedMarker "RAIOS_AGENT_END agent.command_envelope"
         $overCapEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
+        Assert-CurrentBootEventId -Name "quick:agent_command_envelope_over_cap_event_id" -Value $overCapEnvelope.body.result.event_id
         if ($overCapEnvelope.body.result.accepted -or $overCapEnvelope.body.result.code -ne "capability_denied" -or $overCapEnvelope.body.result.reason -ne "target_method_not_allowed" -or $overCapEnvelope.body.result.dispatches_existing_agent_method) {
             throw "Expected over-capable agent command envelope to be denied before dispatch"
+        }
+        Send-AgentCommand -Command "agent audit.events 5" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+        $envelopeAudit = Get-LastAgentResponseJson -Method "memory.recent_events"
+        $envelopeAuditEvents = @($envelopeAudit.body.result.events | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
+        if ($envelopeAuditEvents.Count -ne 3) {
+            throw "Expected three agent command envelope audit events"
+        }
+        foreach ($event in $envelopeAuditEvents) {
+            if ($event.classification -ne "local_only" -or $event.bindings.schema -ne "raios.agent_command_envelope.audit_binding.v0" -or $event.bindings.command_schema -ne "raios.agent_command_envelope.v0") {
+                throw "Expected local-only agent command envelope audit binding"
+            }
+            if (
+                $event.bindings.creates_parallel_dispatcher -or
+                ($event.bindings.provider_write -ne "not_attempted") -or
+                $event.bindings.loads_candidate_bytes -or
+                $event.bindings.writes_persistent_state -or
+                $event.bindings.writes_durable_audit_log -or
+                $event.bindings.installs_rollback_plan -or
+                $event.bindings.grants_broad_mutation
+            ) {
+                throw "Expected agent command envelope audit event to keep unsafe side effects disabled"
+            }
+        }
+        $acceptedEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $agentEnvelope.body.result.audit_event_id } | Select-Object -First 1
+        if (-not $acceptedEnvelopeEvent -or $acceptedEnvelopeEvent.outcome -ne "accepted" -or -not $acceptedEnvelopeEvent.bindings.accepted -or -not $acceptedEnvelopeEvent.bindings.dispatches_existing_agent_method -or $acceptedEnvelopeEvent.bindings.target_method -ne "system.describe") {
+            throw "Expected accepted agent command envelope audit event to bind system.describe"
+        }
+        $badEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $badEnvelope.body.result.event_id } | Select-Object -First 1
+        if (-not $badEnvelopeEvent -or $badEnvelopeEvent.outcome -ne "invalid_envelope" -or $badEnvelopeEvent.bindings.schema_ok -or $badEnvelopeEvent.bindings.reason -ne "schema_mismatch" -or $badEnvelopeEvent.bindings.dispatches_existing_agent_method) {
+            throw "Expected bad-schema agent command envelope audit event"
+        }
+        $overCapEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $overCapEnvelope.body.result.event_id } | Select-Object -First 1
+        if (-not $overCapEnvelopeEvent -or $overCapEnvelopeEvent.outcome -ne "capability_denied" -or $overCapEnvelopeEvent.bindings.reason -ne "target_method_not_allowed" -or $overCapEnvelopeEvent.bindings.target_method -ne "module.load_ephemeral" -or $overCapEnvelopeEvent.bindings.dispatches_existing_agent_method) {
+            throw "Expected over-capable agent command envelope audit event to be denied before dispatch"
         }
         Assert-LogDoesNotContain -Name "quick:agent_command_envelope_denied_no_module_dispatch" -Needle "RAIOS_AGENT_END module.load_ephemeral"
 

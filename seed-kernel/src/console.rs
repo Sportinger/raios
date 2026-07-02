@@ -6,10 +6,10 @@ use spin::Mutex;
 use crate::{
     agent_protocol,
     agent_protocol_support::{
-        begin_response, end_response, json_opt_str, json_str, method_eq, method_head_eq, raw,
-        raw_bool, raw_line,
+        begin_response, end_response, json_event_id, json_opt_str, json_str, method_eq,
+        method_head_eq, raw, raw_bool, raw_line,
     },
-    input, provider, provider_config, serial, system_status, ui, wifi,
+    event_log, input, provider, provider_config, serial, system_status, ui, wifi,
 };
 
 const COMMAND_WIDTH: usize = 4096;
@@ -1311,13 +1311,84 @@ fn command_agent_command_envelope(arguments: &str, runtime: ui::RuntimeStatus) {
     let envelope = parse_agent_command_envelope(arguments);
     let reason = agent_command_envelope_reason(envelope);
     let accepted = reason == "accepted";
-    emit_agent_command_envelope(envelope, reason, accepted);
+    let binding = agent_command_envelope_event_binding(envelope, reason, accepted);
+    let event_id = event_log::record_agent_command_envelope_decision(binding);
+    emit_agent_command_envelope(envelope, reason, accepted, event_id);
     if accepted {
         record_event(format_args!("AGENT COMMAND ENVELOPE ACCEPTED"));
         command_agent_protocol(AGENT_COMMAND_ENVELOPE_TARGET, runtime);
     } else {
         record_event(format_args!("AGENT COMMAND ENVELOPE DENIED"));
         serial::write_line("AGENT COMMAND ENVELOPE DENIED");
+    }
+}
+
+fn agent_command_envelope_event_binding(
+    envelope: AgentCommandEnvelope<'_>,
+    reason: &'static str,
+    accepted: bool,
+) -> event_log::AgentCommandEnvelopeBinding {
+    let target_method = agent_command_envelope_event_target(envelope.target_method);
+    let requested_capability =
+        agent_command_envelope_event_capability(envelope.requested_capability);
+    let submitted_classification =
+        agent_command_envelope_event_classification(envelope.classification);
+    event_log::AgentCommandEnvelopeBinding {
+        schema_ok: method_eq(envelope.schema.unwrap_or(""), AGENT_COMMAND_ENVELOPE_SCHEMA),
+        target_method,
+        target_method_allowed: method_eq(
+            envelope.target_method.unwrap_or(""),
+            AGENT_COMMAND_ENVELOPE_TARGET,
+        ),
+        requested_capability,
+        requested_capability_allowed: method_eq(
+            envelope.requested_capability.unwrap_or(""),
+            AGENT_COMMAND_ENVELOPE_CAPABILITY,
+        ),
+        submitted_classification,
+        classification_allowed: method_eq(envelope.classification.unwrap_or(""), "local_only"),
+        accepted,
+        code: agent_command_envelope_code(reason),
+        reason,
+        dispatches_existing_agent_method: accepted,
+        creates_parallel_dispatcher: false,
+        provider_write: "not_attempted",
+        loads_candidate_bytes: false,
+        writes_persistent_state: false,
+        writes_durable_audit_log: false,
+        installs_rollback_plan: false,
+        grants_broad_mutation: false,
+    }
+}
+
+fn agent_command_envelope_event_target(value: Option<&str>) -> Option<&'static str> {
+    let value = value.unwrap_or("");
+    if method_eq(value, AGENT_COMMAND_ENVELOPE_TARGET) {
+        Some(AGENT_COMMAND_ENVELOPE_TARGET)
+    } else if method_eq(value, "module.load_ephemeral") {
+        Some("module.load_ephemeral")
+    } else {
+        None
+    }
+}
+
+fn agent_command_envelope_event_capability(value: Option<&str>) -> Option<&'static str> {
+    let value = value.unwrap_or("");
+    if method_eq(value, AGENT_COMMAND_ENVELOPE_CAPABILITY) {
+        Some(AGENT_COMMAND_ENVELOPE_CAPABILITY)
+    } else if method_eq(value, "cap.module.load_ephemeral") {
+        Some("cap.module.load_ephemeral")
+    } else {
+        None
+    }
+}
+
+fn agent_command_envelope_event_classification(value: Option<&str>) -> Option<&'static str> {
+    let value = value.unwrap_or("");
+    if method_eq(value, "local_only") {
+        Some("local_only")
+    } else {
+        None
     }
 }
 
@@ -1400,12 +1471,19 @@ fn emit_agent_command_envelope(
     envelope: AgentCommandEnvelope<'_>,
     reason: &'static str,
     accepted: bool,
+    event_id: event_log::EventId,
 ) {
     begin_response(AGENT_COMMAND_ENVELOPE_METHOD);
     raw("      \"schema\": ");
     json_str(AGENT_COMMAND_ENVELOPE_SCHEMA);
     raw_line(",");
     raw_line("      \"id\": \"agent_command_envelope.current_boot.serial.system_describe.v0\",");
+    raw("      \"event_id\": ");
+    json_event_id(event_id);
+    raw_line(",");
+    raw("      \"audit_event_id\": ");
+    json_event_id(event_id);
+    raw_line(",");
     raw_line("      \"scope\": \"current_boot\",");
     raw_line("      \"classification\": \"local_only\",");
     raw_line("      \"transport\": \"serial-console\",");

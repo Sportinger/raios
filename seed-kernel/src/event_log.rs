@@ -1,10 +1,10 @@
 use spin::Mutex;
 
 use crate::event_log_evidence::{
-    DENIED_EVIDENCE, DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE,
-    HELLO_SERVICE_HEALTH_EVIDENCE, HELLO_SERVICE_LIFECYCLE_EVIDENCE,
-    MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE, MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE,
-    MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
+    AGENT_COMMAND_ENVELOPE_DECISION_EVIDENCE, DENIED_EVIDENCE,
+    DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE, HELLO_SERVICE_HEALTH_EVIDENCE,
+    HELLO_SERVICE_LIFECYCLE_EVIDENCE, MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE,
+    MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE, MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
     MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE,
     MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE,
     MODULE_LOADER_ARTIFACT_LOAD_BOUNDARY_SOURCE_EVIDENCE,
@@ -83,16 +83,10 @@ use crate::event_log_module_checks::{
     module_manifest_reference_matches, module_service_slot_reservation_hash_mismatch,
     module_vm_test_report_reference_hashes_consistent, module_vm_test_report_reference_matches,
 };
-use crate::event_log_types::{
-    ConsumedProviderBinding, ModuleAuditRollbackReferenceGateCheck,
-    ModuleCandidateArtifactReferenceGateCheck, ModuleLocalApprovalReferenceGateCheck,
-    ModuleLocalAttestationReferenceGateCheck, ModuleManifestReferenceGateCheck,
-    ModuleServiceSlotReservationGateCheck, ModuleVmTestReportReferenceGateCheck,
-};
 pub use crate::event_log_types::{
-    DurableAuditRollbackWriteAuthorityReference, Event, EventBindings, EventId, EventSnapshot,
-    HelloServiceLifecycleBinding, ModuleAuditRollbackReference, ModuleCandidateArtifactReference,
-    ModuleComputedGrantReference, ModuleLoadGateBinding,
+    AgentCommandEnvelopeBinding, DurableAuditRollbackWriteAuthorityReference, Event, EventBindings,
+    EventId, EventSnapshot, HelloServiceLifecycleBinding, ModuleAuditRollbackReference,
+    ModuleCandidateArtifactReference, ModuleComputedGrantReference, ModuleLoadGateBinding,
     ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
     ModuleLoaderArtifactHashBindingSourceEvidence,
     ModuleLoaderDescriptorIntakeBoundarySourceEvidence,
@@ -128,6 +122,12 @@ pub use crate::event_log_types::{
     RecoveryRollbackPreviewAuthorizationReference,
     RecoveryServiceInventorySideEffectBoundaryReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
     PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
+};
+use crate::event_log_types::{
+    ConsumedProviderBinding, ModuleAuditRollbackReferenceGateCheck,
+    ModuleCandidateArtifactReferenceGateCheck, ModuleLocalApprovalReferenceGateCheck,
+    ModuleLocalAttestationReferenceGateCheck, ModuleManifestReferenceGateCheck,
+    ModuleServiceSlotReservationGateCheck, ModuleVmTestReportReferenceGateCheck,
 };
 use crate::module_evidence;
 
@@ -4214,6 +4214,36 @@ pub fn record_agent_read(
         reason: "granted_read",
         evidence: READ_EVIDENCE,
         bindings: EventBindings::None,
+    })
+}
+
+pub fn record_agent_command_envelope_decision(binding: AgentCommandEnvelopeBinding) -> EventId {
+    let requested_capability = binding
+        .requested_capability
+        .unwrap_or("cap.agent.command_envelope.evaluate");
+    let risk = if requested_capability == "cap.module.load_ephemeral" {
+        "modify_ram"
+    } else {
+        "observe"
+    };
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "raios.agent_command_envelope.decision",
+        source_method: "agent.command_envelope",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: if binding.accepted {
+            "accepted"
+        } else {
+            binding.code
+        },
+        requested_capability,
+        risk,
+        subject: "agent.session.serial",
+        resource: binding.target_method.unwrap_or("agent.command_envelope"),
+        reason: binding.reason,
+        evidence: AGENT_COMMAND_ENVELOPE_DECISION_EVIDENCE,
+        bindings: EventBindings::AgentCommandEnvelopeDecision(binding),
     })
 }
 

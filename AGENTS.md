@@ -193,7 +193,9 @@ Still shape every durable slice so it can become raiOS memory later:
   classification `local_only`, then routes it through the existing dispatcher
   path. Bad-schema and over-capable envelope targets are denied before dispatch
   without provider writes, candidate-byte loading, persistence, or broad
-  mutation.
+  mutation. Accepted, bad-schema, and over-capable envelope decisions are
+  retained as current-boot/local-only `raios.agent_command_envelope.decision`
+  audit events with `raios.agent_command_envelope.audit_binding.v0`.
 - `ask <text>` uses the in-guest OpenAI direct transport. The old host-side
   serial relay is no longer part of the runtime path; DNS, TCP 443, TLS 1.3,
   HTTPS, and first `output_text` parsing work in the bare-metal VM profile.
@@ -279,8 +281,9 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Record accepted and denied native agent command-envelope decisions in the
-   RAM-only current-boot event log and prove them through `audit.events`.
+1. Widen the native agent command envelope to one more read-only service-graph
+   target, starting with `service.inventory`, while keeping mutation targets
+   denied and audit-visible.
 2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
    validation once trusted roots, intermediate-chain handling, and trusted time
    exist.

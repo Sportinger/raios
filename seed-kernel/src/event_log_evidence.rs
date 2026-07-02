@@ -1,5 +1,19 @@
 pub(crate) const READ_EVIDENCE: &[&str] = &["computed_capability_grant"];
 pub(crate) const DENIED_EVIDENCE: &[&str] = &["missing_required_evidence", "capability_denied"];
+pub(crate) const AGENT_COMMAND_ENVELOPE_DECISION_EVIDENCE: &[&str] = &[
+    "raios.agent_command_envelope.v0",
+    "single_method_allowlist",
+    "target_method_checked",
+    "requested_capability_checked",
+    "classification_checked",
+    "existing_dispatcher_binding",
+    "provider_write_not_attempted",
+    "candidate_bytes_not_loaded",
+    "persistent_state_not_written",
+    "durable_audit_not_written",
+    "rollback_plan_not_installed",
+    "broad_mutation_not_granted",
+];
 pub(crate) const HELLO_SERVICE_LIFECYCLE_EVIDENCE: &[&str] = &[
     "raios.current_boot_load_descriptor.v0",
     "load_descriptor.current_boot.svc.demo.hello.v0",

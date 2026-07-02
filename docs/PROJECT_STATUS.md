@@ -117,11 +117,26 @@ envelope emits a typed local response, rejects bad schema and over-capable
 targets before dispatch, and on success routes to the existing
 `system.describe` dispatcher path without creating a parallel dispatcher,
 provider write, candidate-byte load, persistence, durable audit write, rollback
-install, or broad mutation.
+install, or broad mutation. Accepted, bad-schema, and over-capable envelope
+decisions now record current-boot/local-only
+`raios.agent_command_envelope.decision` events with
+`raios.agent_command_envelope.audit_binding.v0`, and the envelope response
+returns the matching `event_id`/`audit_event_id`.
 
 Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
-first `raios.agent_command_envelope.v0` serial boundary over `system.describe`.
-Quick Shadow VM smoke passed in
+current-boot audit evidence for accepted and denied
+`raios.agent_command_envelope.v0` decisions. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-061909-10304.json` with 212/212
+predicates, 37 executed commands, and `duration_ms: 65117`. The quick smoke
+proves valid envelopes dispatch through the existing `system.describe` method,
+bad-schema envelopes are rejected, an over-capable `module.load_ephemeral`
+target is denied before module dispatch, and `audit.events` exposes all three
+decisions as local-only current-boot audit evidence while unsafe side effects
+remain disabled.
+
+Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding
+the first `raios.agent_command_envelope.v0` serial boundary over
+`system.describe`. Quick Shadow VM smoke passed in
 `release/vm-reports/shadow-20260702-061129-8152.json` with 207/207
 predicates, 36 executed commands, and `duration_ms: 64609`. The quick smoke
 proves valid envelopes dispatch through the existing `system.describe` method,
@@ -1292,22 +1307,25 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that the first native `raios.agent_command_envelope.v0` can validate one
-existing serial agent command and route it through the existing dispatcher,
-continue the agent-protocol track by making envelope decisions visible in the
-RAM-only event log. Record accepted and denied envelope decisions as
-current-boot/local-only evidence, expose them through `audit.events`, and keep
-the same one-method allowlist until the audit shape is proven. Keep provider
-trust/context hardening as a parallel Track B, but do not claim WebPKI chain or
-time validation until trusted roots, intermediate chain handling, and a trusted
-time source are actually present.
+Now that accepted and denied `raios.agent_command_envelope.v0` decisions are
+visible as RAM-only current-boot audit evidence, widen the native command
+envelope by one read-only service-graph target. Add `service.inventory` to the
+explicit envelope allowlist with requested capability
+`cap.service.inventory.read`, keep `system.describe` working, keep malformed and
+over-capable mutation targets denied before dispatch, and prove the accepted and
+denied decisions through `audit.events`. Keep provider trust/context hardening
+as a parallel Track B, but do not claim WebPKI chain or time validation until
+trusted roots, intermediate chain handling, and a trusted time source are
+actually present.
 
 The next slice should:
 
 - keep bare `module.load_ephemeral` and arbitrary external artifacts denied
 - keep `agent command_envelope ... target_method=system.describe ...` routing
-  through the existing dispatcher and keep malformed or over-capable envelopes
-  denied before dispatch
+  through the existing dispatcher
+- add `agent command_envelope ... target_method=service.inventory ...` as the
+  next accepted read-only dispatcher route with current-boot audit evidence
+- keep malformed or over-capable envelopes denied before dispatch
 - keep current-image and host-bound `svc.demo.hello` load/list/stop/start/
   restart/drop passing in quick VM smoke, with explicit `service.start
   svc.demo.hello` starting a stopped loaded current-boot service and
@@ -1350,9 +1368,9 @@ The next slice should:
 
 Do not add a signed artifact loader yet. The runtime-artifact track now has a
 real current-boot lifecycle for the already-working Hello slot, and the agent
-track has a first typed command envelope; the next highest-value OS core slice
-is event-log evidence for those envelope decisions while arbitrary module
-execution remains denied.
+track has a first typed command envelope with audit-visible decisions; the next
+highest-value OS core slice is widening that envelope to one more read-only
+service-graph command while arbitrary module execution remains denied.
 
 For multi-agent execution, treat the agent-command boundary as Track A and
 provider trust/context as Track B. UI/input polish, harness speed/evidence, and

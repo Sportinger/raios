@@ -582,6 +582,45 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             raw_bool(binding.writes_persistent_state);
             raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\"}");
         }
+        event_log::EventBindings::AgentCommandEnvelopeDecision(binding) => {
+            raw(", \"bindings\": {\"schema\": \"raios.agent_command_envelope.audit_binding.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"command_schema\": \"raios.agent_command_envelope.v0\", \"schema_ok\": ");
+            raw_bool(binding.schema_ok);
+            raw(", \"target_method\": ");
+            json_opt_str(binding.target_method);
+            raw(", \"target_method_allowed\": ");
+            raw_bool(binding.target_method_allowed);
+            raw(", \"requested_capability\": ");
+            json_opt_str(binding.requested_capability);
+            raw(", \"requested_capability_allowed\": ");
+            raw_bool(binding.requested_capability_allowed);
+            raw(", \"submitted_classification\": ");
+            json_opt_str(binding.submitted_classification);
+            raw(", \"classification_allowed\": ");
+            raw_bool(binding.classification_allowed);
+            raw(", \"accepted\": ");
+            raw_bool(binding.accepted);
+            raw(", \"code\": ");
+            json_str(binding.code);
+            raw(", \"reason\": ");
+            json_str(binding.reason);
+            raw(", \"dispatches_existing_agent_method\": ");
+            raw_bool(binding.dispatches_existing_agent_method);
+            raw(", \"creates_parallel_dispatcher\": ");
+            raw_bool(binding.creates_parallel_dispatcher);
+            raw(", \"provider_write\": ");
+            json_str(binding.provider_write);
+            raw(", \"loads_candidate_bytes\": ");
+            raw_bool(binding.loads_candidate_bytes);
+            raw(", \"writes_persistent_state\": ");
+            raw_bool(binding.writes_persistent_state);
+            raw(", \"writes_durable_audit_log\": ");
+            raw_bool(binding.writes_durable_audit_log);
+            raw(", \"installs_rollback_plan\": ");
+            raw_bool(binding.installs_rollback_plan);
+            raw(", \"grants_broad_mutation\": ");
+            raw_bool(binding.grants_broad_mutation);
+            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\"}");
+        }
         event_log::EventBindings::ProviderRequestEnvelope(binding) => {
             raw(", \"bindings\": {\"schema\": \"raios.provider_request_envelope.v0\", \"status\": \"local_prewrite_envelope\", \"satisfies_current_boot_export_gate\": false, \"provider_write\": \"not_attempted\", \"context_attached_to_provider_body\": false, \"request_id\": ");
             raw_fmt(format_args!("{}", binding.request_id));

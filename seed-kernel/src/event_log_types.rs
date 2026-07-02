@@ -36,6 +36,28 @@ pub struct ProviderContextHashes {
 }
 
 #[derive(Clone, Copy)]
+pub struct AgentCommandEnvelopeBinding {
+    pub schema_ok: bool,
+    pub target_method: Option<&'static str>,
+    pub target_method_allowed: bool,
+    pub requested_capability: Option<&'static str>,
+    pub requested_capability_allowed: bool,
+    pub submitted_classification: Option<&'static str>,
+    pub classification_allowed: bool,
+    pub accepted: bool,
+    pub code: &'static str,
+    pub reason: &'static str,
+    pub dispatches_existing_agent_method: bool,
+    pub creates_parallel_dispatcher: bool,
+    pub provider_write: &'static str,
+    pub loads_candidate_bytes: bool,
+    pub writes_persistent_state: bool,
+    pub writes_durable_audit_log: bool,
+    pub installs_rollback_plan: bool,
+    pub grants_broad_mutation: bool,
+}
+
+#[derive(Clone, Copy)]
 pub struct ProviderRequestEnvelopeBinding {
     pub request_id: u32,
     pub request_body_hash: [u8; 32],
@@ -1700,6 +1722,7 @@ pub struct ProviderContextInjectionGateSelfTestCase {
 pub enum EventBindings {
     None,
     HelloServiceLifecycle(HelloServiceLifecycleBinding),
+    AgentCommandEnvelopeDecision(AgentCommandEnvelopeBinding),
     ProviderRequestEnvelope(ProviderRequestEnvelopeBinding),
     ProviderRequestBound(ProviderRequestBinding),
     ProviderExportAuditBound(ProviderExportAuditBinding),

@@ -269,7 +269,8 @@ Verified in the VM today:
   request only when its requested capability matches, routes through the
   existing dispatcher, and denies bad-schema or over-capable targets before
   dispatch without provider writes, candidate-byte loading, persistence, or broad
-  mutation
+  mutation; accepted and denied envelope decisions now retain current-boot
+  local-only audit evidence visible through `audit.events`
 - RAM-only current-boot event evidence and provider-minimal context projection,
   with provider export and automatic context injection still denied
 - denied-by-default module and recovery load boundaries with retained hash

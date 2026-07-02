@@ -416,15 +416,20 @@ The native agent command envelope slice is intentionally one-method-only:
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe requested_capability=cap.system.describe.read classification=local_only
 agent command_envelope schema=bad target_method=system.describe requested_capability=cap.system.describe.read classification=local_only
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=module.load_ephemeral requested_capability=cap.module.load_ephemeral classification=local_only
+agent audit.events 5
 ```
 
 The valid envelope must return `raios.agent_command_envelope.v0` with
-`accepted: true`, `dispatches_existing_agent_method: true`, and then emit the
-normal `system.describe` response. Bad-schema and over-capable envelopes must
-return the same envelope schema with `accepted: false` and must not dispatch
-`module.load_ephemeral`; the envelope response must keep provider writes,
-candidate-byte loading, persistence, durable audit writes, rollback install,
-parallel dispatch, and broad mutation disabled.
+`accepted: true`, current-boot `event_id`/`audit_event_id`,
+`dispatches_existing_agent_method: true`, and then emit the normal
+`system.describe` response. Bad-schema and over-capable envelopes must return
+the same envelope schema with `accepted: false` and must not dispatch
+`module.load_ephemeral`; `audit.events` must show three local-only
+`raios.agent_command_envelope.decision` events with
+`raios.agent_command_envelope.audit_binding.v0`. The envelope response and
+audit binding must keep provider writes, candidate-byte loading, persistence,
+durable audit writes, rollback install, parallel dispatch, and broad mutation
+disabled.
 
 The first positive RAM-only service slice is deliberately narrower than general
 module loading:

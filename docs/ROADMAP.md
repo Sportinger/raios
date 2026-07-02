@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying the first
-`raios.agent_command_envelope.v0` boundary over `system.describe`.
+Last updated: 2026-07-02 by Codex after quick-VM-verifying current-boot audit
+evidence for accepted and denied `raios.agent_command_envelope.v0` decisions.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -160,6 +160,11 @@ Latest verified implementation slice:
   the boundary does not create a parallel dispatcher, provider write,
   candidate-byte load, persistence, durable audit write, rollback install, or
   broad mutation
+- accepted, bad-schema, and over-capable command-envelope decisions now retain
+  current-boot/local-only `raios.agent_command_envelope.decision` events with
+  `raios.agent_command_envelope.audit_binding.v0`; the envelope response
+  carries matching `event_id`/`audit_event_id`, and `audit.events` proves the
+  three decision shapes
 
 Previous full verification before the verifier-decision slice:
 
@@ -175,7 +180,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the first agent-command envelope slice:
+Latest focused verification after the agent-command envelope audit slice:
+
+```text
+release\vm-reports\shadow-20260702-061909-10304.json
+212/212 quick predicates, 37 executed commands, duration_ms: 65117
+```
+
+Previous focused verification after the first agent-command envelope slice:
 
 ```text
 release\vm-reports\shadow-20260702-061129-8152.json
@@ -255,16 +267,17 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Record accepted and denied `raios.agent_command_envelope.v0` decisions as
-RAM-only current-boot audit events and expose them through `audit.events`.
-Keep the one-method `system.describe` allowlist until accepted, malformed, and
-over-capable envelope decisions have event evidence in quick VM smoke.
+Widen `raios.agent_command_envelope.v0` by one accepted read-only
+service-graph target: `service.inventory` with
+`cap.service.inventory.read`. Keep `system.describe` working, keep malformed
+and over-capable mutation targets denied before dispatch, and prove accepted
+and denied envelope decisions through `audit.events`.
 ```
 
 AI-parallel next wave:
 
-1. Agent protocol track: make the first typed command-envelope decisions
-   audit-visible, then widen the envelope only from proven command use cases.
+1. Agent protocol track: widen the typed command envelope only from proven
+   read-only command use cases, starting with `service.inventory`.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted
