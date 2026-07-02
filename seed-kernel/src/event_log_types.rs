@@ -28,6 +28,9 @@ pub struct ProviderContextHashes {
     pub projected_packet_hash: [u8; 32],
     pub exported_field_list_hash: [u8; 32],
     pub omitted_field_list_hash: [u8; 32],
+    pub redaction_policy_hash: [u8; 32],
+    pub field_classification_hash: [u8; 32],
+    pub token_budget_hash: [u8; 32],
 }
 
 #[derive(Clone, Copy)]
@@ -1650,7 +1653,7 @@ pub struct ProviderContextInjectionGateCheck {
     pub satisfies_current_boot_export_gate: bool,
 }
 
-pub const PROVIDER_BINDING_GATE_SELFTEST_CASES: usize = 16;
+pub const PROVIDER_BINDING_GATE_SELFTEST_CASES: usize = 19;
 pub const PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES: usize = 7;
 
 #[derive(Clone, Copy)]

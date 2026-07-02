@@ -725,6 +725,17 @@ fn provider_request_binding_hash(
         "omitted_field_list_hash",
         context.omitted_field_list_hash,
     );
+    hash_hash_field(
+        &mut hash,
+        "redaction_policy_hash",
+        context.redaction_policy_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "field_classification_hash",
+        context.field_classification_hash,
+    );
+    hash_hash_field(&mut hash, "token_budget_hash", context.token_budget_hash);
     hash_field(
         &mut hash,
         "provider_trust_state_at_binding",
@@ -797,6 +808,21 @@ fn provider_export_audit_binding_hash(
         &mut hash,
         "omitted_field_list_hash",
         request_binding.context.omitted_field_list_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "redaction_policy_hash",
+        request_binding.context.redaction_policy_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "field_classification_hash",
+        request_binding.context.field_classification_hash,
+    );
+    hash_hash_field(
+        &mut hash,
+        "token_budget_hash",
+        request_binding.context.token_budget_hash,
     );
     hash_field(
         &mut hash,
@@ -885,6 +911,12 @@ fn write_raw_context_hashes(context: event_log::ProviderContextHashes) {
     write_raw_sha256(context.exported_field_list_hash);
     serial::write_raw_str(",\"omitted_field_list_hash\":");
     write_raw_sha256(context.omitted_field_list_hash);
+    serial::write_raw_str(",\"redaction_policy_hash\":");
+    write_raw_sha256(context.redaction_policy_hash);
+    serial::write_raw_str(",\"field_classification_hash\":");
+    write_raw_sha256(context.field_classification_hash);
+    serial::write_raw_str(",\"token_budget_hash\":");
+    write_raw_sha256(context.token_budget_hash);
     serial::write_raw_str("}");
 }
 

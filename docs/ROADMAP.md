@@ -2,8 +2,9 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after adding the Hello RAM-only service-slot
-activation record.
+Last updated: 2026-07-02 by Codex after binding provider-minimal redaction,
+field-classification, and token-budget evidence through the provider context
+gate path.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -24,6 +25,11 @@ Active execution rule:
 
 Latest verified implementation slice:
 
+- the provider-minimal context projection, provider request/export binding
+  hashes, provider context injection gate, retained provider evidence lists, and
+  quick Shadow VM predicates now include `redaction_policy_hash`,
+  `field_classification_hash`, and `token_budget_hash`; no-pin/no-trust export
+  remains denied and automatic context injection stays disabled
 - `module.load_ephemeral svc.demo.hello` now loads/starts the built-in
   `svc.demo.hello` current-boot test service through a narrow RAM-only path
   that consumes `raios.current_boot_load_request.v0` and
@@ -131,8 +137,8 @@ release\vm-reports\shadow-20260702-001225-25068.json
 Latest focused verification:
 
 ```text
-release\vm-reports\shadow-20260702-020435-6212.json
-170/170 quick predicates, 29 executed commands, duration_ms: 79153
+release\vm-reports\shadow-20260702-034303-24400.json
+191/191 quick predicates, 31 executed commands, duration_ms: 60437
 ```
 
 Latest focused verification after the artifact identity slice:
@@ -184,13 +190,21 @@ release\vm-reports\shadow-20260702-033352-9800.json
 185/185 quick predicates, 31 executed commands, duration_ms: 60174
 ```
 
+Latest focused verification after the provider context hash-binding slice:
+
+```text
+release\vm-reports\shadow-20260702-034303-24400.json
+191/191 quick predicates, 31 executed commands, duration_ms: 60437
+```
+
 Exact next task:
 
 ```text
-Switch the next OS-wide slice to provider trust/context hardening. Require
-positive TLS provider trust plus typed request/export authorization, redaction,
-classification, and budget evidence before provider context export/injection.
-Keep no-pin/no-trust paths fail-closed and keep candidate bytes non-executing.
+Continue provider trust/context hardening. Prove positive SPKI/WebPKI TLS
+provider trust plus typed request/export authorization before any provider
+context export/injection can advance. Keep redaction, classification, and budget
+hash evidence bound through the path; keep no-pin/no-trust and development
+bypass paths fail-closed; keep candidate bytes non-executing.
 ```
 
 AI-parallel next wave:

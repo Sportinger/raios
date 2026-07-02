@@ -26,6 +26,9 @@ pub(crate) struct ProviderContextEvidence {
     pub projected_packet_hash: [u8; 32],
     pub exported_field_list_hash: [u8; 32],
     pub omitted_field_list_hash: [u8; 32],
+    pub redaction_policy_hash: [u8; 32],
+    pub field_classification_hash: [u8; 32],
+    pub token_budget_hash: [u8; 32],
 }
 
 impl ProviderContextEvidence {
@@ -34,6 +37,9 @@ impl ProviderContextEvidence {
             projected_packet_hash: self.projected_packet_hash,
             exported_field_list_hash: self.exported_field_list_hash,
             omitted_field_list_hash: self.omitted_field_list_hash,
+            redaction_policy_hash: self.redaction_policy_hash,
+            field_classification_hash: self.field_classification_hash,
+            token_budget_hash: self.token_budget_hash,
         }
     }
 }
@@ -359,6 +365,15 @@ pub(crate) fn emit_provider_minimal_projection(
     raw_line(",");
     raw("          \"omitted_field_list_hash\": ");
     json_sha256(evidence.omitted_field_list_hash);
+    raw_line(",");
+    raw("          \"redaction_policy_hash\": ");
+    json_sha256(evidence.redaction_policy_hash);
+    raw_line(",");
+    raw("          \"field_classification_hash\": ");
+    json_sha256(evidence.field_classification_hash);
+    raw_line(",");
+    raw("          \"token_budget_hash\": ");
+    json_sha256(evidence.token_budget_hash);
     raw_line("");
     raw_line("        },");
     raw("        \"local_projection_event_id\": ");
@@ -614,6 +629,15 @@ pub(crate) fn emit_provider_context_gate(runtime: ui::RuntimeStatus, request: &s
     raw("        \"omitted_field_list_hash\": ");
     json_sha256(evidence.omitted_field_list_hash);
     raw_line(",");
+    raw("        \"redaction_policy_hash\": ");
+    json_sha256(evidence.redaction_policy_hash);
+    raw_line(",");
+    raw("        \"field_classification_hash\": ");
+    json_sha256(evidence.field_classification_hash);
+    raw_line(",");
+    raw("        \"token_budget_hash\": ");
+    json_sha256(evidence.token_budget_hash);
+    raw_line(",");
     raw_line("        \"provider_write_path\": \"disabled\"");
     raw_line("      },");
     raw_line("      \"blocked_by\": [");
@@ -707,6 +731,9 @@ pub(crate) fn emit_provider_context_gate_selftest(runtime: ui::RuntimeStatus, re
     raw_line("        \"provider_minimal_packet_hash_mismatch\",");
     raw_line("        \"exported_field_list_hash_mismatch\",");
     raw_line("        \"omitted_field_list_hash_mismatch\",");
+    raw_line("        \"redaction_policy_hash_mismatch\",");
+    raw_line("        \"field_classification_hash_mismatch\",");
+    raw_line("        \"token_budget_hash_mismatch\",");
     raw_line("        \"trust_bypass_record\"");
     raw_line("      ],");
     raw_line("      \"cases\": [");
@@ -854,6 +881,15 @@ pub(crate) fn emit_provider_context_injection_gate(runtime: ui::RuntimeStatus, r
     raw("        \"omitted_field_list_hash\": ");
     json_sha256(evidence.omitted_field_list_hash);
     raw_line(",");
+    raw("        \"redaction_policy_hash\": ");
+    json_sha256(evidence.redaction_policy_hash);
+    raw_line(",");
+    raw("        \"field_classification_hash\": ");
+    json_sha256(evidence.field_classification_hash);
+    raw_line(",");
+    raw("        \"token_budget_hash\": ");
+    json_sha256(evidence.token_budget_hash);
+    raw_line(",");
     raw_line("        \"provider_request_body_attachment\": \"blocked_until_final_authorization\"");
     raw_line("      },");
     raw_line("      \"blocked_by\": [");
@@ -911,6 +947,9 @@ pub(crate) fn emit_provider_context_injection_gate(runtime: ui::RuntimeStatus, r
     raw_line("        \"raios.provider_context_projection.v0\",");
     raw_line("        \"raios.provider_request_binding.v0\",");
     raw_line("        \"raios.provider_context_export_audit_binding.v0\",");
+    raw_line("        \"redaction_policy_hash\",");
+    raw_line("        \"field_classification_hash\",");
+    raw_line("        \"token_budget_hash\",");
     raw_line("        \"raios.provider_context_binding_consumption.v0\",");
     raw_line("        \"raios.provider_context_injection_authorization.v0\",");
     raw_line("        \"final_prewrite_body_hash_check\"");
@@ -1054,7 +1093,7 @@ pub(crate) fn emit_provider_context_export_denied(
     raw_line("    \"code\": \"capability_denied\",");
     raw_line("    \"schema\": \"raios.provider_context_export.v0\",");
     raw("    \"message\": ");
-    json_str("provider context export is denied until positive provider trust, a provider_minimal projection, packet evidence, provider request binding, and a provider export audit binding exist");
+    json_str("provider context export is denied until positive provider trust, a provider_minimal projection, packet/redaction/classification/budget evidence, provider request binding, and a provider export audit binding exist");
     raw_line(",");
     raw_line("    \"request\": {");
     raw("      \"provider\": ");
@@ -1172,6 +1211,15 @@ pub(crate) fn emit_provider_context_export_denied(
         raw("      \"omitted_field_list_hash\": ");
         json_sha256(evidence.omitted_field_list_hash);
         raw_line(",");
+        raw("      \"redaction_policy_hash\": ");
+        json_sha256(evidence.redaction_policy_hash);
+        raw_line(",");
+        raw("      \"field_classification_hash\": ");
+        json_sha256(evidence.field_classification_hash);
+        raw_line(",");
+        raw("      \"token_budget_hash\": ");
+        json_sha256(evidence.token_budget_hash);
+        raw_line(",");
         raw_line("      \"provider_write\": \"not_attempted\"");
         raw_line("    },");
     } else {
@@ -1284,6 +1332,9 @@ pub(crate) fn emit_provider_context_export_denied(
     raw_line("      \"projected_packet_hash\",");
     raw_line("      \"exported_field_list_hash\",");
     raw_line("      \"omitted_field_list_hash\",");
+    raw_line("      \"redaction_policy_hash\",");
+    raw_line("      \"field_classification_hash\",");
+    raw_line("      \"token_budget_hash\",");
     raw_line("      \"provider_request_binding\",");
     raw_line("      \"provider_context_export_audit_binding\",");
     raw_line("      \"checked_current_boot_binding_consumption\",");
@@ -1301,6 +1352,15 @@ pub(crate) fn emit_provider_context_export_denied(
     raw_line(",");
     raw("      \"omitted_field_list_hash\": ");
     json_sha256(evidence.omitted_field_list_hash);
+    raw_line(",");
+    raw("      \"redaction_policy_hash\": ");
+    json_sha256(evidence.redaction_policy_hash);
+    raw_line(",");
+    raw("      \"field_classification_hash\": ");
+    json_sha256(evidence.field_classification_hash);
+    raw_line(",");
+    raw("      \"token_budget_hash\": ");
+    json_sha256(evidence.token_budget_hash);
     raw_line(",");
     raw("      \"provider_request_binding_status\": ");
     json_str(provider_binding_gate_state(&binding_check, "request"));
@@ -1367,6 +1427,12 @@ pub(crate) fn emit_provider_context_hashes(hashes: event_log::ProviderContextHas
     json_sha256(hashes.exported_field_list_hash);
     raw(", \"omitted_field_list_hash\": ");
     json_sha256(hashes.omitted_field_list_hash);
+    raw(", \"redaction_policy_hash\": ");
+    json_sha256(hashes.redaction_policy_hash);
+    raw(", \"field_classification_hash\": ");
+    json_sha256(hashes.field_classification_hash);
+    raw(", \"token_budget_hash\": ");
+    json_sha256(hashes.token_budget_hash);
     raw("}");
 }
 
@@ -1545,6 +1611,47 @@ fn provider_context_evidence(
             "raios.provider_minimal.omitted_fields.canonical.v0",
             PROVIDER_MINIMAL_OMITTED_FIELDS,
         ),
+        redaction_policy_hash: provider_redaction_policy_hash(),
+        field_classification_hash: provider_field_classification_hash(),
+        token_budget_hash: provider_token_budget_hash(),
+    }
+}
+
+fn provider_redaction_policy_hash() -> [u8; 32] {
+    let mut hash = EvidenceHash::new("raios.provider_minimal.redaction_policy.canonical.v0");
+    hash.field("profile", "provider_minimal");
+    hash.field("redaction_projection", "present");
+    hash.field("unclassified_field_policy", "omit");
+    hash.field("secret_field_policy", "omit");
+    hash.field("local_only_field_policy", "omit");
+    hash.field("provider_write", "not_attempted");
+    hash.finish()
+}
+
+fn provider_field_classification_hash() -> [u8; 32] {
+    let mut hash = EvidenceHash::new("raios.provider_minimal.field_classification.canonical.v0");
+    hash_projection_classifications(&mut hash, PROVIDER_MINIMAL_INCLUDED_FIELDS);
+    hash_projection_classifications(&mut hash, PROVIDER_MINIMAL_OMITTED_FIELDS);
+    hash.finish()
+}
+
+fn provider_token_budget_hash() -> [u8; 32] {
+    let mut hash = EvidenceHash::new("raios.provider_minimal.token_budget.canonical.v0");
+    hash.field("profile", "provider_minimal");
+    hash.field("budget.target_tokens", "2000");
+    hash.field("budget.estimated_tokens", "900");
+    hash.field("budget.enforcement", "bounded_projection");
+    hash.finish()
+}
+
+fn hash_projection_classifications(hash: &mut EvidenceHash, fields: &[ProjectionFieldSpec]) {
+    let mut idx = 0usize;
+    while idx < fields.len() {
+        hash.field("field", fields[idx].field);
+        hash.field("classification", fields[idx].classification);
+        hash.field("action", fields[idx].action);
+        hash.separator();
+        idx += 1;
     }
 }
 

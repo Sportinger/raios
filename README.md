@@ -120,7 +120,7 @@ The token strategy follows from that rule:
   `provider_minimal`, `diagnostic`, or `planning`, includes only relevant
   records, and reports what it omitted.
 - **Provider export is gated.** Memory may leave the machine only after provider
-  trust, field classification, redaction, and audit rules pass.
+  trust, field classification, redaction, budget, and audit rules pass.
 - **No fake persistence.** Until the persistence and rollback layers exist,
   memory can be real but must be labeled `current_boot` or test-only.
 

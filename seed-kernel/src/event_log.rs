@@ -368,6 +368,40 @@ impl EventLog {
                 export_binding,
             );
         }
+        if request_binding.context.redaction_policy_hash
+            != export_binding.context.redaction_policy_hash
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_redaction_policy_hash_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if request_binding.context.field_classification_hash
+            != export_binding.context.field_classification_hash
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_field_classification_hash_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
+        if request_binding.context.token_budget_hash != export_binding.context.token_budget_hash {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_token_budget_hash_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
         if request_binding.development_tls_bypass {
             return ProviderBindingGateCheck::with_pair(
                 "rejected",
@@ -572,6 +606,33 @@ impl EventLog {
                 authorization,
             );
         }
+        if authorization.context.redaction_policy_hash != consumption.context.redaction_policy_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.field_classification_hash
+            != consumption.context.field_classification_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.token_budget_hash != consumption.context.token_budget_hash {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
 
         let Some(request_event) = self.event_by_sequence(authorization.request_binding_event_id)
         else {
@@ -657,6 +718,40 @@ impl EventLog {
             != request_binding.context.omitted_field_list_hash
             || authorization.context.omitted_field_list_hash
                 != export_binding.context.omitted_field_list_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.redaction_policy_hash
+            != request_binding.context.redaction_policy_hash
+            || authorization.context.redaction_policy_hash
+                != export_binding.context.redaction_policy_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.field_classification_hash
+            != request_binding.context.field_classification_hash
+            || authorization.context.field_classification_hash
+                != export_binding.context.field_classification_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.context.token_budget_hash != request_binding.context.token_budget_hash
+            || authorization.context.token_budget_hash != export_binding.context.token_budget_hash
         {
             return ProviderContextInjectionGateCheck::with_authorization(
                 "rejected",

@@ -325,7 +325,9 @@ TLS override. The export-audit marker is positive audit evidence, and the
 injection-gate marker is a blocked prewrite diagnostic; both keep
 `automatic_context_injection` `disabled`,
 `satisfies_current_boot_export_gate` remains `false`, and the request body still
-does not include provider-minimal context.
+does not include provider-minimal context. Provider-minimal context hashes must
+include the packet hash, exported/omitted field-list hashes,
+`redaction_policy_hash`, `field_classification_hash`, and `token_budget_hash`.
 
 Pinned-trust direct smokes also exercise the checked local gate:
 
@@ -354,8 +356,8 @@ The export-gate selftest emits
 `raios.provider_context_gate_negative_selftest.v0`, does not mutate the global
 event log, does not create request envelopes or positive binding records, and
 checks stale/dropped ids, previous-boot-or-unretained ids, substituted
-denial/positive records, request/body/binding/context hash mismatches, and
-trust-bypass records.
+denial/positive records, request/body/binding/context hash mismatches,
+redaction/classification/budget hash mismatches, and trust-bypass records.
 
 `provider.context_injection_gate` emits
 `raios.provider_context_injection_gate.v0`; it names the final authorization

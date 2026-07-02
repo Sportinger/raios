@@ -29,6 +29,9 @@ pub(crate) fn provider_context_binding_gate_selftest(
         selftest_provider_minimal_packet_hash_mismatch(context),
         selftest_exported_field_list_hash_mismatch(context),
         selftest_omitted_field_list_hash_mismatch(context),
+        selftest_redaction_policy_hash_mismatch(context),
+        selftest_field_classification_hash_mismatch(context),
+        selftest_token_budget_hash_mismatch(context),
         selftest_trust_bypass_record(context),
     ]
 }
@@ -371,6 +374,69 @@ fn selftest_omitted_field_list_hash_mismatch(
         "omitted_field_list_hash_mismatch",
         "rejected",
         "binding_omitted_field_list_hash_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_redaction_policy_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.context.redaction_policy_hash = tagged_hash(49);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "redaction_policy_hash_mismatch",
+        "rejected",
+        "binding_redaction_policy_hash_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_field_classification_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.context.field_classification_hash = tagged_hash(50);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "field_classification_hash_mismatch",
+        "rejected",
+        "binding_field_classification_hash_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
+fn selftest_token_budget_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.context.token_budget_hash = tagged_hash(51);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "token_budget_hash_mismatch",
+        "rejected",
+        "binding_token_budget_hash_mismatch",
         log.check_provider_context_binding_gate(context),
     )
 }

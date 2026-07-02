@@ -102,25 +102,25 @@ merged result must still be a real verified vertical slice on the final
 architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
-Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
-Hello RAM-only service-slot activation record. Quick Shadow VM smoke passed in
+Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding
+provider-context redaction, field-classification, and token-budget hashes to
+the provider-minimal projection, request/export binding evidence, injection
+gate checks, retained evidence lists, and quick Shadow VM predicates. Quick
+Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-034303-24400.json` with 191/191
+predicates, 31 executed commands, and `duration_ms: 60437`. The focused smoke
+proves the provider-minimal memory context and denied provider-context export
+now expose `redaction_policy_hash`, `field_classification_hash`, and
+`token_budget_hash`; no-pin/no-trust provider context export remains
+`capability_denied`; and the current-image and host-bound Hello
+load/start/list/health/stop/drop paths still work while arbitrary external
+artifacts, candidate-byte execution, executable page mapping, persistence,
+durable audit, rollback, provider auto-load, and broad mutation remain denied.
+
+Previous focused verification after the service-slot activation slice:
+2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
 `release/vm-reports/shadow-20260702-033352-9800.json` with 185/185
-predicates, 31 executed commands, and `duration_ms: 60174`. The focused smoke
-proves the current-image and host-bound Hello load/start/list/health/stop/drop
-paths still work, arbitrary external artifacts and wrong targets remain denied,
-`service.descriptor_source_trust_selftest` stays green, and
-`service.artifact_reference_trust_selftest` proves valid reference evidence
-passes while tampered byte/content/reference/trust evidence fails closed.
-`service.artifact_load_plan_preflight_selftest` proves valid preflight evidence
-passes while tampered descriptor/artifact/slot/denial evidence fails closed. The
-load response, `service.inventory`, `service.health`, and RAM audit events cite
-the verified artifact identity hash/signature envelope plus the artifact
-content binding hash/trust state plus artifact reference hash, artifact byte
-hash, trust signature state, artifact load-plan preflight hash/status/slot
-evidence, and service-slot activation id/hash/status/active state while keeping
-external artifact bytes, candidate-byte execution, executable page mapping,
-persistence, durable audit, rollback, provider auto-load, and broad mutation
-denied.
+predicates, 31 executed commands, and `duration_ms: 60174`.
 
 Previous focused verification after the artifact load-plan preflight selftest:
 2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
@@ -1213,14 +1213,15 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that the built-in `svc.demo.hello` service has accepted load-plan preflight
-evidence plus a RAM-only service-slot activation/cleanup record, switch the
-next OS-wide slice to the provider trust/context track. Harden the direct
-OpenAI/provider path so provider context export and injection require positive
-TLS provider trust evidence, explicit typed request/export authorization, field
-classification, redaction, and budget evidence. Keep the no-pin/no-trust path
-fail-closed and keep `satisfies_current_boot_export_gate: false` until those
-evidence gates are present. Do not use fake trust, fake persistence, automatic
+Now that the provider-minimal context path binds redaction,
+field-classification, and token-budget hashes through projection, request/export
+binding evidence, and injection-gate checks, continue the provider
+trust/context track by hardening the positive TLS trust path itself. The next
+slice should prove positive SPKI/WebPKI provider trust plus explicit typed
+request/export authorization before any provider context export or injection can
+advance; no-pin/no-trust and development-bypass paths must stay fail-closed,
+and `satisfies_current_boot_export_gate` must remain `false` until the full
+evidence gate is present. Do not use fake trust, fake persistence, automatic
 context stuffing, candidate-byte execution, durable audit writes, rollback
 installation, provider-triggered auto-load, or broad module/service/config
 mutation as a shortcut.
