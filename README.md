@@ -276,7 +276,10 @@ Verified in the VM today:
   leaves RAM-only lifecycle and health audit events bound to the same descriptor
   source hash and a verified P-256/SHA-256 descriptor-source signature envelope;
   `service.descriptor_source_trust_selftest` proves valid and tampered envelope
-  cases fail closed without accepting descriptor or artifact bytes;
+  cases fail closed without accepting descriptor or artifact bytes; the built-in
+  artifact id also carries a signed `raios.builtin_artifact_identity.v0`
+  identity/trust envelope whose id/hash and signature verification state are
+  visible in load, inventory, health, and RAM-audit evidence;
   a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service

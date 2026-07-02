@@ -39,6 +39,15 @@ bindings expose the envelope id/hash, payload/public-key/signature hashes, and
 `service.descriptor_source_trust_selftest` method proves the accepted envelope
 verifies and tampered payload, locator/kind, public-key hash, and signature
 cases fail closed.
+The Hello path now also carries a signed
+`raios.builtin_artifact_identity.v0` candidate for the existing
+`builtin:svc.demo.hello` artifact. The build script checks the checked-in
+P-256/SHA-256 identity signature, the kernel validates it before load, and load
+responses, `service.inventory`, `service.health`, and RAM audit bindings expose
+the artifact identity id/hash, trust-envelope id/hash, payload, public-key, and
+signature hashes, and `artifact_identity_signature_verified` while still
+denying arbitrary artifact bytes, executable page mapping, persistence, durable
+audit, rollback, provider-triggered auto-load, and broad mutation.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -60,6 +69,18 @@ architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
 Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
+signed built-in Hello artifact identity/trust envelope. Quick Shadow VM smoke
+passed in `release/vm-reports/shadow-20260702-021750-7868.json` with 172/172
+predicates, 29 executed commands, and `duration_ms: 51268`. The focused smoke
+proves the current-image and host-bound Hello load/start/list/health/stop/drop
+paths still work, arbitrary external artifacts and wrong targets remain denied,
+`service.descriptor_source_trust_selftest` stays green, and the load response,
+`service.inventory`, `service.health`, and RAM audit events cite the verified
+artifact identity hash and signature envelope while keeping external artifact
+bytes, executable page mapping, persistence, durable audit, rollback, provider
+auto-load, and broad mutation denied.
+
+Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
 read-only descriptor-source trust selftest over the signed current-image Hello
 descriptor-source envelope. Quick Shadow VM smoke passed in
 `release/vm-reports/shadow-20260702-020435-6212.json` with 170/170 predicates,
@@ -1120,13 +1141,13 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that the current-image `svc.demo.hello` descriptor-source trust boundary has
-a positive/negative selftest, add the smallest signed built-in artifact identity
-candidate for the same Hello service. Keep execution bound to the existing
-built-in/current-boot service; do not accept arbitrary artifact bytes, map
-executable pages, write persistent state, write durable audit logs, install
-rollback plans, trigger provider auto-load, or grant broad module/service/config
-mutation.
+Now that the built-in `svc.demo.hello` service has a signed descriptor-source
+trust envelope and a signed built-in artifact identity envelope, add the
+smallest signed built-in artifact content/hash binding for the same Hello path.
+Keep execution bound to the existing built-in/current-boot service; do not
+accept arbitrary external artifact bytes, map executable pages, write
+persistent state, write durable audit logs, install rollback plans, trigger
+provider auto-load, or grant broad module/service/config mutation.
 
 The next slice should:
 
@@ -1139,10 +1160,12 @@ The next slice should:
   host-bound source-bound states in quick VM smoke
 - keep `service.descriptor_source_trust_selftest` green for valid and tampered
   descriptor-source envelope cases
-- add a signed identity/trust envelope for the existing built-in Hello artifact
-  id or artifact descriptor, using already-installed signing/verification
-  primitives if they fit
-- expose stable artifact identity/trust ids and hashes in load response,
+- keep the signed built-in artifact identity/trust envelope visible in load
+  response, `service.inventory`, `service.health`, and RAM audit bindings
+- add a signed content/hash binding for the existing built-in Hello artifact
+  candidate, reusing already-installed signing/verification primitives if they
+  fit
+- expose stable artifact content/trust ids and hashes in load response,
   `service.inventory`, `service.health`, and RAM audit bindings
 - keep the selected descriptor source locator/kind/validation/hash plus any
   bound source hash visible in load response, service.inventory, health output,
@@ -1151,13 +1174,13 @@ The next slice should:
   rollback installation, provider-triggered auto-load, and broad
   module/service/config mutation denied
 
-Do not add a signed artifact loader yet. The next step is artifact identity for
-the already-working built-in service path, not arbitrary module bytes.
+Do not add a signed artifact loader yet. The next step is a content/hash binding
+for the already-working built-in service path, not arbitrary module execution.
 
-For multi-agent execution, this is Track A. Other agents may work in parallel on
-provider trust/context hardening, UI/input polish, harness speed/evidence, and
-recovery/persistence design as long as they preserve the same evidence gates and
-do not weaken the current runtime denials.
+For multi-agent execution, this remains Track A. Other agents may work in
+parallel on provider trust/context hardening, UI/input polish, harness
+speed/evidence, and recovery/persistence design as long as they preserve the
+same evidence gates and do not weaken the current runtime denials.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:

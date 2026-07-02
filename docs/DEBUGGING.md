@@ -421,17 +421,25 @@ object with `algorithm: ecdsa_p256_sha256_asn1_der`,
 `verification_phase: runtime_before_descriptor_selection`, matching payload
 hash, SHA-256 hashes for the envelope/public key/signature, and
 `signature_verified: true`; the envelope must not authorize external artifact
-loading or persistent install. `services` must show
+loading or persistent install. The same response must expose a
+`raios.builtin_artifact_identity.v0` object for `builtin:svc.demo.hello` with a
+`sha256:` identity hash and a
+`raios.builtin_artifact_identity_signature_envelope.v0` whose payload hash
+matches the identity hash and whose signature verifies; the identity/envelope
+must not authorize external artifact load, executable page mapping,
+persistence, or rollback. `services` must show
 `svc.demo.hello` only while loaded and cite the same
-descriptor id/source/kind/validation/hash/signature envelope. `service.health
+descriptor id/source/kind/validation/hash/signature envelope plus the same
+artifact identity hash/signature envelope. `service.health
 svc.demo.hello` must return `raios.ram_only_hello_service.health.v0`, report
 healthy while loaded/running, stopped while loaded/not running, and missing
-after drop, and cite the active descriptor source hash and signature envelope
-while loaded. `audit.events` must show
+after drop, and cite the active descriptor source hash, signature envelope, and
+artifact identity while loaded. `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
 same load descriptor, validated source hash, signature envelope hash, and
-signature verification state.
+signature verification state plus the verified artifact identity hash and
+signature envelope.
 
 `service.descriptor_source_trust_selftest` must return
 `raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and

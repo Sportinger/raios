@@ -10,6 +10,13 @@ fn main() {
     println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.current_image.desc");
     println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.current_image.p256.pub.hex");
     println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.current_image.p256.sig.der.hex");
+    println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.builtin_artifact_identity.desc");
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.demo.hello.builtin_artifact_identity.p256.pub.hex"
+    );
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.demo.hello.builtin_artifact_identity.p256.sig.der.hex"
+    );
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let descriptor_path = manifest_dir.join("descriptors/svc.demo.hello.current_image.desc");
@@ -17,10 +24,24 @@ fn main() {
         manifest_dir.join("descriptors/svc.demo.hello.current_image.p256.pub.hex");
     let signature_path =
         manifest_dir.join("descriptors/svc.demo.hello.current_image.p256.sig.der.hex");
+    let artifact_identity_path =
+        manifest_dir.join("descriptors/svc.demo.hello.builtin_artifact_identity.desc");
+    let artifact_identity_public_key_path =
+        manifest_dir.join("descriptors/svc.demo.hello.builtin_artifact_identity.p256.pub.hex");
+    let artifact_identity_signature_path =
+        manifest_dir.join("descriptors/svc.demo.hello.builtin_artifact_identity.p256.sig.der.hex");
     let current_source = fs::read_to_string(descriptor_path).unwrap();
+    let artifact_identity_source = fs::read_to_string(artifact_identity_path).unwrap();
     let public_key = read_hex_file(public_key_path);
     let signature_der = read_hex_file(signature_path);
-    verify_descriptor_source_signature(&public_key, &signature_der, current_source.as_bytes());
+    let artifact_identity_public_key = read_hex_file(artifact_identity_public_key_path);
+    let artifact_identity_signature_der = read_hex_file(artifact_identity_signature_path);
+    verify_p256_signature(&public_key, &signature_der, current_source.as_bytes());
+    verify_p256_signature(
+        &artifact_identity_public_key,
+        &artifact_identity_signature_der,
+        artifact_identity_source.as_bytes(),
+    );
 
     let current_hash = Sha256::digest(current_source.as_bytes());
     let current_hash_hex = sha256_hex(&current_hash);
@@ -28,6 +49,12 @@ fn main() {
     let public_key_hash_hex = sha256_hex(&public_key_hash);
     let signature_hash = Sha256::digest(&signature_der);
     let signature_hash_hex = sha256_hex(&signature_hash);
+    let artifact_identity_hash = Sha256::digest(artifact_identity_source.as_bytes());
+    let artifact_identity_hash_hex = sha256_hex(&artifact_identity_hash);
+    let artifact_identity_public_key_hash = Sha256::digest(&artifact_identity_public_key);
+    let artifact_identity_public_key_hash_hex = sha256_hex(&artifact_identity_public_key_hash);
+    let artifact_identity_signature_hash = Sha256::digest(&artifact_identity_signature_der);
+    let artifact_identity_signature_hash_hex = sha256_hex(&artifact_identity_signature_hash);
     let envelope_text = format!(
         "schema=raios.descriptor_source_signature_envelope.v0\n\
 id=descriptor_source_signature.current_image.svc.demo.hello.v0\n\
@@ -45,6 +72,27 @@ authorizes_persistent_install=false",
         current_hash_hex, public_key_hash_hex, signature_hash_hex
     );
     let envelope_hash = Sha256::digest(envelope_text.as_bytes());
+    let artifact_identity_envelope_text = format!(
+        "schema=raios.builtin_artifact_identity_signature_envelope.v0\n\
+id=artifact_identity_signature.builtin.svc.demo.hello.v0\n\
+algorithm=ecdsa_p256_sha256_asn1_der\n\
+payload_identity_id=builtin_artifact_identity.svc.demo.hello.v0\n\
+payload_artifact_id=builtin:svc.demo.hello\n\
+payload_sha256=sha256:{}\n\
+public_key_sha256=sha256:{}\n\
+signature_sha256=sha256:{}\n\
+verification_phase=runtime_before_builtin_artifact_selection\n\
+trust_scope=current_boot_builtin_artifact_identity_candidate\n\
+classification=local_only\n\
+authorizes_external_artifact_load=false\n\
+authorizes_persistent_install=false\n\
+authorizes_rollback_install=false",
+        artifact_identity_hash_hex,
+        artifact_identity_public_key_hash_hex,
+        artifact_identity_signature_hash_hex
+    );
+    let artifact_identity_envelope_hash =
+        Sha256::digest(artifact_identity_envelope_text.as_bytes());
     let host_source = format!(
         "canonicalization=raios.current_boot_load_descriptor.canonical.v0\n\
 schema=raios.current_boot_load_descriptor.v0\n\
@@ -84,6 +132,18 @@ pub(crate) const HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_SIGNATURE_DER: &[u8] = &{
 pub(crate) const HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_PUBLIC_KEY_HASH: [u8; 32] = {};\n\
 pub(crate) const HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_SIGNATURE_HASH: [u8; 32] = {};\n\
 pub(crate) const HELLO_HOST_BOUND_CURRENT_IMAGE_SOURCE_HASH: [u8; 32] = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_HASH: [u8; 32] = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_SCHEMA: &str = \"raios.builtin_artifact_identity_signature_envelope.v0\";\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_ID: &str = \"artifact_identity_signature.builtin.svc.demo.hello.v0\";\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_SIGNATURE_ALGORITHM: &str = \"ecdsa_p256_sha256_asn1_der\";\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_VERIFICATION_PHASE: &str = \"runtime_before_builtin_artifact_selection\";\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_TRUST_SCOPE: &str = \"current_boot_builtin_artifact_identity_candidate\";\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_TEXT: &str = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_HASH: [u8; 32] = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_PUBLIC_KEY_SEC1: &[u8] = &{};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_SIGNATURE_DER: &[u8] = &{};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_PUBLIC_KEY_HASH: [u8; 32] = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_SIGNATURE_HASH: [u8; 32] = {};\n\
 pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
             rust_string(&envelope_text),
             rust_byte_array(&envelope_hash),
@@ -92,6 +152,13 @@ pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
             rust_byte_array(&public_key_hash),
             rust_byte_array(&signature_hash),
             rust_byte_array(&current_hash),
+            rust_byte_array(&artifact_identity_hash),
+            rust_string(&artifact_identity_envelope_text),
+            rust_byte_array(&artifact_identity_envelope_hash),
+            rust_byte_array(&artifact_identity_public_key),
+            rust_byte_array(&artifact_identity_signature_der),
+            rust_byte_array(&artifact_identity_public_key_hash),
+            rust_byte_array(&artifact_identity_signature_hash),
             rust_string(&host_source)
         ),
     )
@@ -102,7 +169,7 @@ fn read_hex_file(path: PathBuf) -> Vec<u8> {
     parse_hex(fs::read_to_string(path).unwrap().trim()).unwrap()
 }
 
-fn verify_descriptor_source_signature(public_key: &[u8], signature_der: &[u8], payload: &[u8]) {
+fn verify_p256_signature(public_key: &[u8], signature_der: &[u8], payload: &[u8]) {
     let verifying_key = VerifyingKey::from_sec1_bytes(public_key).unwrap();
     let signature = Signature::from_der(signature_der).unwrap();
     verifying_key.verify(payload, &signature).unwrap();

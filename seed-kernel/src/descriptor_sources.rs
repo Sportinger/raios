@@ -18,6 +18,14 @@ pub(crate) const HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR: &str =
 pub(crate) const HELLO_LOAD_DESCRIPTOR_SOURCE_KIND: &str = "current_image_descriptor_source";
 pub(crate) const HELLO_LOAD_DESCRIPTOR_SOURCE: &str =
     include_str!("../descriptors/svc.demo.hello.current_image.desc");
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_SCHEMA: &str =
+    "raios.builtin_artifact_identity.v0";
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_ID: &str =
+    "builtin_artifact_identity.svc.demo.hello.v0";
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_CANONICALIZATION: &str =
+    "raios.builtin_artifact_identity.canonical.v0";
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_SOURCE: &str =
+    include_str!("../descriptors/svc.demo.hello.builtin_artifact_identity.desc");
 pub(crate) const HELLO_DESCRIPTOR_SOURCE_TRUST_SELFTEST_ID: &str =
     "descriptor_source_trust_selftest.current_image.svc.demo.hello.v0";
 pub(crate) const HELLO_DESCRIPTOR_SOURCE_TRUST_SELFTEST_CASES: usize = 5;
@@ -63,6 +71,48 @@ pub(crate) const HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE: DescriptorSourc
     };
 
 #[derive(Clone, Copy)]
+pub(crate) struct ArtifactIdentityEnvelope {
+    pub schema: &'static str,
+    pub id: &'static str,
+    pub algorithm: &'static str,
+    pub verification_phase: &'static str,
+    pub trust_scope: &'static str,
+    pub payload_identity_id: &'static str,
+    pub payload_artifact_id: &'static str,
+    pub payload_hash: [u8; 32],
+    pub envelope_hash: [u8; 32],
+    pub public_key_hash: [u8; 32],
+    pub signature_hash: [u8; 32],
+    pub public_key_sec1: &'static [u8],
+    pub signature_der: &'static [u8],
+    pub authorizes_external_artifact_load: bool,
+    pub authorizes_persistent_install: bool,
+    pub authorizes_rollback_install: bool,
+    pub text: &'static str,
+}
+
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE: ArtifactIdentityEnvelope =
+    ArtifactIdentityEnvelope {
+        schema: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_SCHEMA,
+        id: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_ID,
+        algorithm: HELLO_BUILTIN_ARTIFACT_IDENTITY_SIGNATURE_ALGORITHM,
+        verification_phase: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_VERIFICATION_PHASE,
+        trust_scope: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_TRUST_SCOPE,
+        payload_identity_id: HELLO_BUILTIN_ARTIFACT_IDENTITY_ID,
+        payload_artifact_id: HELLO_ARTIFACT_ID,
+        payload_hash: HELLO_BUILTIN_ARTIFACT_IDENTITY_HASH,
+        envelope_hash: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_HASH,
+        public_key_hash: HELLO_BUILTIN_ARTIFACT_IDENTITY_PUBLIC_KEY_HASH,
+        signature_hash: HELLO_BUILTIN_ARTIFACT_IDENTITY_SIGNATURE_HASH,
+        public_key_sec1: HELLO_BUILTIN_ARTIFACT_IDENTITY_PUBLIC_KEY_SEC1,
+        signature_der: HELLO_BUILTIN_ARTIFACT_IDENTITY_SIGNATURE_DER,
+        authorizes_external_artifact_load: false,
+        authorizes_persistent_install: false,
+        authorizes_rollback_install: false,
+        text: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_TEXT,
+    };
+
+#[derive(Clone, Copy)]
 pub(crate) struct DescriptorSourceRecord {
     pub schema: &'static str,
     pub id: &'static str,
@@ -82,6 +132,29 @@ pub(crate) struct DescriptorSourceRecord {
     pub loads_external_artifact: bool,
     pub writes_persistent_state: bool,
     pub signed_envelope: Option<DescriptorSourceEnvelope>,
+    pub text: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ArtifactIdentityRecord {
+    pub schema: &'static str,
+    pub id: &'static str,
+    pub canonicalization: &'static str,
+    pub service_id: &'static str,
+    pub artifact_id: &'static str,
+    pub artifact_kind: &'static str,
+    pub load_descriptor_id: &'static str,
+    pub scope: &'static str,
+    pub classification: &'static str,
+    pub persistence: &'static str,
+    pub accepts_external_artifact_bytes: bool,
+    pub loads_external_artifact: bool,
+    pub maps_executable_pages: bool,
+    pub writes_persistent_state: bool,
+    pub authorizes_external_artifact_load: bool,
+    pub authorizes_persistent_install: bool,
+    pub authorizes_rollback_install: bool,
+    pub signed_envelope: ArtifactIdentityEnvelope,
     pub text: &'static str,
 }
 
@@ -138,6 +211,28 @@ const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_RECORD: DescriptorSourceRecord = Descri
     text: HELLO_HOST_BOUND_DESCRIPTOR_SOURCE,
 };
 
+const HELLO_BUILTIN_ARTIFACT_IDENTITY_RECORD: ArtifactIdentityRecord = ArtifactIdentityRecord {
+    schema: HELLO_BUILTIN_ARTIFACT_IDENTITY_SCHEMA,
+    id: HELLO_BUILTIN_ARTIFACT_IDENTITY_ID,
+    canonicalization: HELLO_BUILTIN_ARTIFACT_IDENTITY_CANONICALIZATION,
+    service_id: HELLO_SERVICE_ID,
+    artifact_id: HELLO_ARTIFACT_ID,
+    artifact_kind: "builtin_stage0_test_service",
+    load_descriptor_id: HELLO_LOAD_DESCRIPTOR_ID,
+    scope: "current_boot",
+    classification: "local_only",
+    persistence: "none",
+    accepts_external_artifact_bytes: false,
+    loads_external_artifact: false,
+    maps_executable_pages: false,
+    writes_persistent_state: false,
+    authorizes_external_artifact_load: false,
+    authorizes_persistent_install: false,
+    authorizes_rollback_install: false,
+    signed_envelope: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE,
+    text: HELLO_BUILTIN_ARTIFACT_IDENTITY_SOURCE,
+};
+
 pub(crate) fn lookup_current_image_descriptor_source(
     descriptor_id: &str,
 ) -> Option<DescriptorSourceRecord> {
@@ -156,6 +251,53 @@ pub(crate) fn lookup_host_bound_descriptor_source(
     } else {
         None
     }
+}
+
+pub(crate) const fn hello_builtin_artifact_identity() -> ArtifactIdentityRecord {
+    HELLO_BUILTIN_ARTIFACT_IDENTITY_RECORD
+}
+
+pub(crate) fn validate_builtin_hello_artifact_identity(identity: ArtifactIdentityRecord) -> bool {
+    key_value_text_is_canonical(identity.text)
+        && identity.schema == HELLO_BUILTIN_ARTIFACT_IDENTITY_SCHEMA
+        && identity.id == HELLO_BUILTIN_ARTIFACT_IDENTITY_ID
+        && identity.canonicalization == HELLO_BUILTIN_ARTIFACT_IDENTITY_CANONICALIZATION
+        && identity.service_id == HELLO_SERVICE_ID
+        && identity.artifact_id == HELLO_ARTIFACT_ID
+        && identity.artifact_kind == "builtin_stage0_test_service"
+        && identity.load_descriptor_id == HELLO_LOAD_DESCRIPTOR_ID
+        && identity.scope == "current_boot"
+        && identity.classification == "local_only"
+        && identity.persistence == "none"
+        && !identity.accepts_external_artifact_bytes
+        && !identity.loads_external_artifact
+        && !identity.maps_executable_pages
+        && !identity.writes_persistent_state
+        && !identity.authorizes_external_artifact_load
+        && !identity.authorizes_persistent_install
+        && !identity.authorizes_rollback_install
+        && text_field_eq(identity.text, "canonicalization", identity.canonicalization)
+        && text_field_eq(identity.text, "schema", identity.schema)
+        && text_field_eq(identity.text, "id", identity.id)
+        && text_field_eq(identity.text, "service_id", identity.service_id)
+        && text_field_eq(identity.text, "artifact_id", identity.artifact_id)
+        && text_field_eq(identity.text, "artifact_kind", identity.artifact_kind)
+        && text_field_eq(
+            identity.text,
+            "load_descriptor_id",
+            identity.load_descriptor_id,
+        )
+        && text_field_eq(identity.text, "scope", identity.scope)
+        && text_field_eq(identity.text, "classification", identity.classification)
+        && text_field_eq(identity.text, "persistence", identity.persistence)
+        && text_field_eq(identity.text, "accepts_external_artifact_bytes", "false")
+        && text_field_eq(identity.text, "loads_external_artifact", "false")
+        && text_field_eq(identity.text, "maps_executable_pages", "false")
+        && text_field_eq(identity.text, "writes_persistent_state", "false")
+        && text_field_eq(identity.text, "authorizes_external_artifact_load", "false")
+        && text_field_eq(identity.text, "authorizes_persistent_install", "false")
+        && text_field_eq(identity.text, "authorizes_rollback_install", "false")
+        && validate_artifact_identity_envelope(identity)
 }
 
 pub(crate) fn validate_current_image_descriptor_source(source: DescriptorSourceRecord) -> bool {
@@ -223,6 +365,15 @@ pub(crate) fn verify_descriptor_source_envelope_parts(
         return false;
     };
     validate_descriptor_source_envelope_parts(envelope, locator, kind, text)
+}
+
+pub(crate) fn verify_artifact_identity_envelope_parts(
+    envelope: ArtifactIdentityEnvelope,
+    identity_id: &str,
+    artifact_id: &str,
+    text: &str,
+) -> bool {
+    validate_artifact_identity_envelope_parts(envelope, identity_id, artifact_id, text)
 }
 
 pub(crate) fn hello_descriptor_source_trust_selftest_hash() -> [u8; 32] {
@@ -327,7 +478,11 @@ fn validate_common_descriptor_source(source: DescriptorSourceRecord) -> bool {
 }
 
 fn source_text_is_canonical_key_value(source: DescriptorSourceRecord) -> bool {
-    for line in source.text.lines() {
+    key_value_text_is_canonical(source.text)
+}
+
+fn key_value_text_is_canonical(text: &str) -> bool {
+    for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -350,8 +505,12 @@ fn source_text_is_canonical_key_value(source: DescriptorSourceRecord) -> bool {
 }
 
 fn source_field(source: DescriptorSourceRecord, key: &str) -> Option<&'static str> {
+    text_field(source.text, key)
+}
+
+fn text_field(text: &'static str, key: &str) -> Option<&'static str> {
     let mut found = None;
-    for line in source.text.lines() {
+    for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -370,6 +529,10 @@ fn source_field(source: DescriptorSourceRecord, key: &str) -> Option<&'static st
 
 fn source_field_eq(source: DescriptorSourceRecord, key: &str, expected: &str) -> bool {
     source_field(source, key) == Some(expected)
+}
+
+fn text_field_eq(text: &'static str, key: &str, expected: &str) -> bool {
+    text_field(text, key) == Some(expected)
 }
 
 fn source_sha256_field(source: DescriptorSourceRecord, key: &str) -> Option<[u8; 32]> {
@@ -400,6 +563,15 @@ fn validate_descriptor_source_envelope(source: DescriptorSourceRecord) -> bool {
     )
 }
 
+fn validate_artifact_identity_envelope(identity: ArtifactIdentityRecord) -> bool {
+    verify_artifact_identity_envelope_parts(
+        identity.signed_envelope,
+        identity.id,
+        identity.artifact_id,
+        identity.text,
+    )
+}
+
 fn validate_descriptor_source_envelope_parts(
     envelope: DescriptorSourceEnvelope,
     locator: &str,
@@ -426,6 +598,33 @@ fn validate_descriptor_source_envelope_parts(
         )
 }
 
+fn validate_artifact_identity_envelope_parts(
+    envelope: ArtifactIdentityEnvelope,
+    identity_id: &str,
+    artifact_id: &str,
+    text: &str,
+) -> bool {
+    envelope.schema == "raios.builtin_artifact_identity_signature_envelope.v0"
+        && envelope.id == "artifact_identity_signature.builtin.svc.demo.hello.v0"
+        && envelope.algorithm == "ecdsa_p256_sha256_asn1_der"
+        && envelope.verification_phase == "runtime_before_builtin_artifact_selection"
+        && envelope.trust_scope == "current_boot_builtin_artifact_identity_candidate"
+        && envelope.payload_identity_id == identity_id
+        && envelope.payload_artifact_id == artifact_id
+        && envelope.payload_hash == sha256_bytes(text.as_bytes())
+        && envelope.envelope_hash == sha256_bytes(envelope.text.as_bytes())
+        && envelope.public_key_hash == sha256_bytes(envelope.public_key_sec1)
+        && envelope.signature_hash == sha256_bytes(envelope.signature_der)
+        && !envelope.authorizes_external_artifact_load
+        && !envelope.authorizes_persistent_install
+        && !envelope.authorizes_rollback_install
+        && verify_p256_signature(
+            envelope.public_key_sec1,
+            envelope.signature_der,
+            text.as_bytes(),
+        )
+}
+
 fn verify_p256_signature(public_key_sec1: &[u8], signature_der: &[u8], payload: &[u8]) -> bool {
     let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(public_key_sec1) else {
         return false;
@@ -438,6 +637,10 @@ fn verify_p256_signature(public_key_sec1: &[u8], signature_der: &[u8], payload: 
 
 pub(crate) fn descriptor_source_hash(source: DescriptorSourceRecord) -> [u8; 32] {
     sha256_bytes(source.text.as_bytes())
+}
+
+pub(crate) fn artifact_identity_hash(identity: ArtifactIdentityRecord) -> [u8; 32] {
+    sha256_bytes(identity.text.as_bytes())
 }
 
 fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {

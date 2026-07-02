@@ -1,0 +1,17 @@
+canonicalization=raios.builtin_artifact_identity.canonical.v0
+schema=raios.builtin_artifact_identity.v0
+id=builtin_artifact_identity.svc.demo.hello.v0
+service_id=svc.demo.hello
+artifact_id=builtin:svc.demo.hello
+artifact_kind=builtin_stage0_test_service
+load_descriptor_id=load_descriptor.current_boot.svc.demo.hello.v0
+scope=current_boot
+classification=local_only
+persistence=none
+accepts_external_artifact_bytes=false
+loads_external_artifact=false
+maps_executable_pages=false
+writes_persistent_state=false
+authorizes_external_artifact_load=false
+authorizes_persistent_install=false
+authorizes_rollback_install=false

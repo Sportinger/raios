@@ -625,6 +625,12 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
     raw(", \"persistence\": \"none\"");
     raw(", \"artifact_id\": ");
     json_str(hello_service::ARTIFACT_ID);
+    raw(", \"artifact_identity_id\": ");
+    json_str(hello.load_descriptor.artifact_identity.id);
+    raw(", \"artifact_identity_hash\": ");
+    json_sha256(hello_service::artifact_identity_hash(hello.load_descriptor));
+    raw(", \"artifact_identity_signature_envelope\": ");
+    hello_service::emit_artifact_identity_signature_envelope(hello.load_descriptor);
     raw(", \"load_descriptor_schema\": ");
     json_str(hello.load_descriptor.schema);
     raw(", \"load_descriptor_id\": ");
