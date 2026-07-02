@@ -8,7 +8,7 @@
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_no_write" -Needle '"provider_write": "not_attempted"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_injection_disabled" -Needle '"automatic_context_injection": "disabled"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_no_body_attachment" -Needle '"context_attached_to_provider_body": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_selftest_count" -Needle '"case_count": 16' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_gate_selftest_count" -Needle '"case_count": 19' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_stale_request" -Needle '"case": "stale_dropped_request_binding_event_id"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_stale_envelope" -Needle '"case": "stale_dropped_envelope_event_id"' -TimeoutSeconds 1
@@ -21,9 +21,15 @@
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_packet_hash" -Needle '"case": "provider_minimal_packet_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_exported_hash" -Needle '"case": "exported_field_list_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_omitted_hash" -Needle '"case": "omitted_field_list_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_gate_selftest_redaction_hash" -Needle '"case": "redaction_policy_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_gate_selftest_classification_hash" -Needle '"case": "field_classification_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_gate_selftest_budget_hash" -Needle '"case": "token_budget_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_stale_reason" -Needle '"actual_reason": "binding_stale_or_dropped_event_id"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_denial_reason" -Needle '"actual_reason": "binding_denied_schema_or_wrong_variant"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_context_hash_reason" -Needle '"actual_reason": "binding_provider_minimal_packet_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_gate_selftest_redaction_reason" -Needle '"actual_reason": "binding_redaction_policy_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_gate_selftest_classification_reason" -Needle '"actual_reason": "binding_field_classification_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_gate_selftest_budget_reason" -Needle '"actual_reason": "binding_token_budget_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_gate_false" -Needle '"satisfies_current_boot_export_gate": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_can_export_false" -Needle '"can_export": false' -TimeoutSeconds 1
 
@@ -41,6 +47,9 @@
     Assert-LogContains -Name "protocol:provider_context_injection_gate_blocked_final" -Needle '"reason": "final_injection_authorization_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_gate_blocked_disabled" -Needle '"reason": "automatic_context_injection_disabled"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_gate_required_authorization" -Needle '"raios.provider_context_injection_authorization.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_injection_gate_redaction_hash" -Needle '"redaction_policy_hash": "sha256:' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_injection_gate_classification_hash" -Needle '"field_classification_hash": "sha256:' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_injection_gate_budget_hash" -Needle '"token_budget_hash": "sha256:' -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent provider.context_injection_gate_selftest provider_minimal" -ExpectedMarker "RAIOS_AGENT_END provider.context_injection_gate_selftest"
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_schema" -Needle '"schema": "raios.provider_context_injection_gate_negative_selftest.v0"' -TimeoutSeconds 1
@@ -106,6 +115,9 @@
     Assert-LogContains -Name "protocol:memory_recent_events_binding_packet_hash" -Needle '"hashes": {"packet_canonicalization": "raios.provider_minimal.packet.canonical.v0", "projected_packet_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_recent_events_binding_exported_fields_hash" -Needle '"exported_field_list_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_recent_events_binding_omitted_fields_hash" -Needle '"omitted_field_list_hash": "sha256:' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_recent_events_binding_redaction_policy_hash" -Needle '"redaction_policy_hash": "sha256:' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_recent_events_binding_field_classification_hash" -Needle '"field_classification_hash": "sha256:' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_recent_events_binding_token_budget_hash" -Needle '"token_budget_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogDoesNotContain -Name "protocol:no_positive_request_binding_schema" -Needle '"schema": "raios.provider_request_binding.v0"'
     Assert-LogDoesNotContain -Name "protocol:no_positive_export_audit_binding_schema" -Needle '"schema": "raios.provider_context_export_audit_binding.v0"'
     Assert-LogDoesNotContain -Name "protocol:no_positive_current_boot_export_gate" -Needle '"satisfies_current_boot_export_gate": true'

@@ -54,7 +54,10 @@ request with `pin_config_missing` before any HTTPS write. With
 `-ExpectSpkiPinnedTrust`, it expects an image built with
 `-EmbedOpenAiSpkiPinFromEnv` and verifies the normal OpenAI SPKI pin path through
 TLS 1.3, positive `pinned_spki` trust, HTTPS write, and provider HTTP
-response/error. With `-ExpectPinnedTrust`, it expects an image built with
+response/error. Positive pinned-trust modes also compare provider-minimal packet,
+field-list, redaction, classification, and budget hashes across the request
+binding, export-audit binding, and blocked injection-gate markers. With
+`-ExpectPinnedTrust`, it expects an image built with
 `-EmbedOpenAiCertPinFromEnv` and verifies the legacy leaf-certificate pin path
 through TLS 1.3, positive `pinned_cert` trust, HTTPS write, and provider HTTP
 response/error. With `-ExpectPinMismatch`, it expects an intentionally wrong

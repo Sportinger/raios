@@ -102,20 +102,25 @@ merged result must still be a real verified vertical slice on the final
 architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
-Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding
-provider-context redaction, field-classification, and token-budget hashes to
-the provider-minimal projection, request/export binding evidence, injection
-gate checks, retained evidence lists, and quick Shadow VM predicates. Quick
-Shadow VM smoke passed in
+Last verified locally: 2026-07-02 on Windows with QEMU 11 after tightening the
+provider-context harness around redaction, field-classification, and
+token-budget hash evidence. Full Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-034736-23492.json` with 6629/6629
+predicates, 243 executed commands, and `duration_ms: 613395`. The full smoke
+proves the provider context gate selftest now expects all 19 cases, including
+redaction/classification/budget hash mismatches, and that retained provider
+denial/event bindings and injection-gate diagnostics expose
+`redaction_policy_hash`, `field_classification_hash`, and `token_budget_hash`.
+No-pin/no-trust provider context export remains `capability_denied`; the
+current-image and host-bound Hello load/start/list/health/stop/drop paths still
+work; and arbitrary external artifacts, candidate-byte execution, executable
+page mapping, persistence, durable audit, rollback, provider auto-load, and
+broad mutation remain denied.
+
+Previous focused verification after the provider context hash-binding slice:
+2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
 `release/vm-reports/shadow-20260702-034303-24400.json` with 191/191
-predicates, 31 executed commands, and `duration_ms: 60437`. The focused smoke
-proves the provider-minimal memory context and denied provider-context export
-now expose `redaction_policy_hash`, `field_classification_hash`, and
-`token_budget_hash`; no-pin/no-trust provider context export remains
-`capability_denied`; and the current-image and host-bound Hello
-load/start/list/health/stop/drop paths still work while arbitrary external
-artifacts, candidate-byte execution, executable page mapping, persistence,
-durable audit, rollback, provider auto-load, and broad mutation remain denied.
+predicates, 31 executed commands, and `duration_ms: 60437`.
 
 Previous focused verification after the service-slot activation slice:
 2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in

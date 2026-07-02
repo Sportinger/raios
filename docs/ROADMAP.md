@@ -2,9 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after binding provider-minimal redaction,
-field-classification, and token-budget evidence through the provider context
-gate path.
+Last updated: 2026-07-02 by Codex after tightening the provider-context smoke
+harness around redaction, field-classification, and token-budget evidence.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -30,6 +29,11 @@ Latest verified implementation slice:
   quick Shadow VM predicates now include `redaction_policy_hash`,
   `field_classification_hash`, and `token_budget_hash`; no-pin/no-trust export
   remains denied and automatic context injection stays disabled
+- the full Shadow VM provider-memory slice now expects all 19 provider context
+  binding-gate selftest cases, including redaction/classification/budget hash
+  mismatches, and the direct OpenAI smoke harness compares those hashes across
+  positive request binding, export-audit binding, and blocked injection-gate
+  markers when a local pinned-trust image is supplied
 - `module.load_ephemeral svc.demo.hello` now loads/starts the built-in
   `svc.demo.hello` current-boot test service through a narrow RAM-only path
   that consumes `raios.current_boot_load_request.v0` and
@@ -130,8 +134,8 @@ Latest verified implementation slice:
 Latest full verification:
 
 ```text
-release\vm-reports\shadow-20260702-001225-25068.json
-6611/6611 predicates, 243 executed commands, duration_ms: 541342
+release\vm-reports\shadow-20260702-034736-23492.json
+6629/6629 predicates, 243 executed commands, duration_ms: 613395
 ```
 
 Latest focused verification:
