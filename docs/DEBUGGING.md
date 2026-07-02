@@ -560,12 +560,18 @@ denied, and a follow-up health probe must prove the active v2 generation and
 state are unchanged. `service.rollback_apply svc.demo.hello` must return
 structured `capability_denied`, bind the rollback-preview hash, probation hash,
 current state hash/counter, rollback target, current candidate, and migration
-hash, keep actual rollback apply, descriptor mutation, generation mutation,
-running-state mutation, RAM-only state mutation, persistent install, durable
-audit write, external bytes, candidate execution, executable mapping, provider
-auto-load, and broad mutation denied or not attempted, and a follow-up health
-probe must prove the active v2 descriptor, generation, running state, and state
-hash are unchanged; drop cites the same activation hash with
+hash, expose
+`raios.ram_only_hello_service_rollback_transaction_preflight.v0` with a
+`sha256:` preflight hash over the apply-denial hash, preview/probation/state
+evidence, target/current candidate facts, requested rollback-apply capability,
+and missing rollback-transaction, durable-audit-write, and persistent-install
+authorities, keep actual rollback apply, descriptor mutation, generation
+mutation, running-state mutation, RAM-only state mutation, persistent install,
+durable audit write, rollback-store write, external bytes, candidate execution,
+executable mapping, provider auto-load, and broad mutation denied or not
+attempted, and a follow-up health probe must prove the active v2 descriptor,
+generation, running state, and state hash are unchanged; drop cites the same
+activation hash with
 `cleared_current_boot` before cleanup and clears the state counter.
 `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
@@ -582,7 +588,8 @@ and previous/new descriptor, artifact identity, generation, state, and
 migration facts, plus the rollback-preview event binding with the same
 probation hash and explicit no-apply/no-install evidence, plus the
 rollback-apply denial event binding with the same preview/probation/state hashes
-and explicit no-apply/no-mutation evidence.
+and rollback transaction preflight hash plus explicit missing write-authority,
+no-apply, no-durable-write, no-rollback-store-write, and no-mutation evidence.
 
 `service.descriptor_source_trust_selftest` must return
 `raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and

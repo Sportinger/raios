@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying the fail-closed
-Hello rollback-apply gate over retained preview/probation evidence.
+Last updated: 2026-07-02 by Codex after quick-VM-verifying the Hello rollback
+transaction/durable-audit preflight over the denied rollback-apply request.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -203,11 +203,16 @@ Latest verified implementation slice:
 - `service.rollback_apply svc.demo.hello` now returns structured
   `capability_denied`, binds the current rollback-preview hash, probation hash,
   Hello state hash/counter, rollback target, current candidate, and migration
-  hash, records a RAM-only rollback-apply denial audit event, and proves the
-  active v2 descriptor, generation, running state, and RAM-only state stay
+  hash, and now exposes
+  `raios.ram_only_hello_service_rollback_transaction_preflight.v0` binding the
+  apply-denial hash, requested capability, missing rollback-transaction,
+  durable-audit-write, and persistent-install authorities, target/current
+  descriptor and artifact identity facts, and no-side-effect flags; the RAM-only
+  rollback-apply denial audit event retains the same preflight hash and proves
+  the active v2 descriptor, generation, running state, and RAM-only state stay
   unchanged while real rollback application, persistence, durable audit writes,
-  external bytes, candidate execution, executable mapping, provider auto-load,
-  and broad mutation stay denied
+  rollback-store writes, external bytes, candidate execution, executable
+  mapping, provider auto-load, and broad mutation stay denied
 
 Previous full verification before the verifier-decision slice:
 
@@ -223,7 +228,15 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the fail-closed Hello rollback-apply gate:
+Latest focused verification after the Hello rollback transaction/durable-audit
+preflight:
+
+```text
+release\vm-reports\shadow-20260702-084240-14784.json
+257/257 quick predicates, 54 executed commands, duration_ms: 73613
+```
+
+Previous focused verification after the fail-closed Hello rollback-apply gate:
 
 ```text
 release\vm-reports\shadow-20260702-082918-20728.json
@@ -408,20 +421,24 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Continue the runtime artifact track with the smallest rollback transaction and
-durable-audit preflight over the denied Hello rollback-apply request. It should
-bind the retained preview hash, probation hash, current state hash, rollback
-target, current candidate, requested capability, and missing write authorities
-into current-boot/local-only evidence while actual rollback application,
-persistent install, durable audit writes, external bytes, candidate execution,
-executable mapping, provider auto-load, and broad mutation remain denied.
+Continue the runtime artifact track with the smallest runtime rollback
+write-authority gate over the verified Hello rollback transaction/durable-audit
+preflight. It should bind the retained preflight hash, apply-denial hash,
+preview hash, probation hash, current state hash, rollback target, current
+candidate, requested capability, required `raios.audit_record.v0` /
+`raios.rollback_transaction.v0` schemas, and unavailable durable audit /
+rollback-store authority into current-boot/local-only evidence while actual
+rollback application, persistent install, durable audit writes, rollback-store
+writes, external bytes, candidate execution, executable mapping, provider
+auto-load, and broad mutation remain denied.
 ```
 
 AI-parallel next wave:
 
-1. Runtime artifact track: add the rollback transaction/durable-audit preflight
-   over the denied Hello rollback-apply request without applying rollback or
-   claiming persistence authority.
+1. Runtime artifact track: add the runtime rollback write-authority gate over
+   the verified Hello rollback transaction/durable-audit preflight without
+   applying rollback, writing durable records, or claiming persistence
+   authority.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted

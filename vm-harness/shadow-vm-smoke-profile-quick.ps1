@@ -24,6 +24,9 @@
         $HelloRollbackApplySchema = "raios.ram_only_hello_service_rollback_apply.v0"
         $HelloRollbackApplyId = "hello_rollback_apply.current_boot.svc.demo.hello.v0"
         $HelloRollbackApplyStatus = "denied_missing_rollback_apply_authority"
+        $HelloRollbackTransactionPreflightSchema = "raios.ram_only_hello_service_rollback_transaction_preflight.v0"
+        $HelloRollbackTransactionPreflightId = "hello_rollback_transaction_preflight.current_boot.svc.demo.hello.v0"
+        $HelloRollbackTransactionPreflightStatus = "denied_missing_write_authorities"
         $HelloLoadPlanPreflightSelftestSchema = "raios.current_boot_artifact_load_plan_preflight_selftest.v0"
         $HelloLoadPlanPreflightSelftestId = "artifact_load_plan_preflight_selftest.current_boot.svc.demo.hello.v0"
 
@@ -395,6 +398,25 @@
             if (-not $Apply.rollback_apply_hash -or -not $Apply.rollback_apply_hash.StartsWith("sha256:")) {
                 throw "Expected Hello rollback apply denial hash"
             }
+            $Preflight = $Apply.rollback_transaction_preflight
+            if (-not $Preflight) {
+                throw "Expected Hello rollback apply denial to expose rollback transaction preflight"
+            }
+            if ($Preflight.schema -ne $HelloRollbackTransactionPreflightSchema -or $Preflight.id -ne $HelloRollbackTransactionPreflightId) {
+                throw "Expected Hello rollback transaction preflight schema/id"
+            }
+            if ($Preflight.scope -ne "current_boot" -or $Preflight.classification -ne "local_only" -or $Preflight.persistence -ne "none" -or $Preflight.status -ne $HelloRollbackTransactionPreflightStatus) {
+                throw "Expected Hello rollback transaction preflight to be current_boot/local_only/non-persistent"
+            }
+            if ($Preflight.requested_capability -ne "cap.service.rollback_apply.current_boot") {
+                throw "Expected Hello rollback transaction preflight to bind requested rollback apply capability"
+            }
+            if (-not $Preflight.preflight_hash -or -not $Preflight.preflight_hash.StartsWith("sha256:")) {
+                throw "Expected Hello rollback transaction preflight hash"
+            }
+            if ($Preflight.rollback_apply_hash -ne $Apply.rollback_apply_hash -or $Preflight.rollback_preview_hash -ne $ExpectedPreviewHash -or $Preflight.source_probation_hash -ne $ExpectedProbationHash) {
+                throw "Expected Hello rollback transaction preflight to bind apply, preview, and probation hashes"
+            }
             if ($Apply.service_id -ne "svc.demo.hello" -or $Apply.source_probation.probation_hash -ne $ExpectedProbationHash) {
                 throw "Expected Hello rollback apply denial to bind retained probation evidence"
             }
@@ -418,6 +440,30 @@
             }
             if ($Apply.state_migration.migration_hash -ne $ExpectedStateMigrationHash) {
                 throw "Expected Hello rollback apply denial to bind state migration hash"
+            }
+            if ($Preflight.rollback_target_artifact_identity_hash -ne $ExpectedTargetArtifactIdentityHash -or $Preflight.current_candidate_artifact_identity_hash -ne $ExpectedCurrentArtifactIdentityHash) {
+                throw "Expected Hello rollback transaction preflight to bind target/current artifact identities"
+            }
+            if ($Preflight.rollback_target_generation -ne $ExpectedTargetGeneration -or $Preflight.current_candidate_generation -ne $ExpectedCurrentGeneration) {
+                throw "Expected Hello rollback transaction preflight to bind target/current generations"
+            }
+            if ($Preflight.current_state_hash -ne $ExpectedStateHash -or $Preflight.rollback_target_state_hash -ne $ExpectedStateHash -or $Preflight.current_candidate_state_hash -ne $ExpectedStateHash) {
+                throw "Expected Hello rollback transaction preflight to bind state hashes"
+            }
+            if ($Preflight.current_state_counter -ne 3 -or $Preflight.rollback_target_state_counter -ne 3 -or $Preflight.current_candidate_state_counter -ne 3) {
+                throw "Expected Hello rollback transaction preflight to bind state counter 3"
+            }
+            if ($Preflight.state_migration_hash -ne $ExpectedStateMigrationHash) {
+                throw "Expected Hello rollback transaction preflight to bind state migration hash"
+            }
+            if (-not $Preflight.missing_authorities.rollback_apply_authority -or -not $Preflight.missing_authorities.rollback_transaction_authority -or -not $Preflight.missing_authorities.durable_audit_write_authority -or -not $Preflight.missing_authorities.persistent_install_authority) {
+                throw "Expected Hello rollback transaction preflight to expose missing write authorities"
+            }
+            if ($Preflight.side_effects.mutates_service_state -or $Preflight.side_effects.applies_rollback -or $Preflight.side_effects.writes_persistent_state -or $Preflight.side_effects.writes_durable_audit_log -or $Preflight.side_effects.writes_rollback_store -or $Preflight.side_effects.installs_rollback_plan) {
+                throw "Expected Hello rollback transaction preflight to keep rollback/storage side effects disabled"
+            }
+            if ($Preflight.side_effects.accepts_external_artifact_bytes -or $Preflight.side_effects.loads_candidate_bytes -or $Preflight.side_effects.maps_executable_pages -or $Preflight.side_effects.provider_auto_load -or $Preflight.side_effects.grants_broad_mutation) {
+                throw "Expected Hello rollback transaction preflight to keep external/load/mutation side effects disabled"
             }
             if ($Apply.denied_surfaces.mutates_service_state -or $Apply.denied_surfaces.applies_rollback) {
                 throw "Expected Hello rollback apply denial to avoid service mutation and rollback apply"
@@ -1417,6 +1463,7 @@
             -ExpectedCurrentArtifactIdentityHash $helloHotSwapV2.body.result.service.artifact_identity_hash `
             -ExpectedStateHash $helloHotSwapStateHash `
             -ExpectedStateMigrationHash $helloHotSwapV2MigrationHash
+        $helloRollbackTransactionPreflightHash = $helloRollbackApply.body.rollback_transaction_preflight.preflight_hash
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthAfterRollbackApply = Get-LastAgentResponseJson -Method "service.health"
@@ -1786,7 +1833,7 @@
         if ($helloRollbackPreviewEvents.Count -lt 1) {
             throw "Expected rollback preview audit event to bind retained hot-swap probation without rollback apply"
         }
-        $helloRollbackApplyEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.rollback_apply" -and $_.id -eq $helloRollbackApply.body.audit_event_id -and $_.outcome -eq "capability_denied" -and $_.requested_capability -eq "cap.service.rollback_apply.current_boot" -and $_.bindings.schema -eq "raios.ram_only_hello_service.rollback_apply_denial_binding.v0" -and $_.bindings.rollback_preview_hash -eq $helloRollbackPreview.body.result.preview_hash -and $_.bindings.rollback_apply_hash -eq $helloRollbackApplyHash -and $_.bindings.rollback_apply_status -eq $HelloRollbackApplyStatus -and -not $_.bindings.rollback_apply_authorized -and -not $_.bindings.rollback_apply_mutates_service_state -and $_.bindings.hot_swap_probation_hash -eq $helloHotSwapV2ProbationHash -and $_.bindings.hot_swap_probation_previous_artifact_identity_hash -eq $helloArtifactIdentityHash -and $_.bindings.hot_swap_probation_new_artifact_identity_hash -eq $helloHotSwapV2.body.result.service.artifact_identity_hash -and $_.bindings.hot_swap_probation_previous_generation -eq $helloHotSwap.body.result.service.generation -and $_.bindings.hot_swap_probation_new_generation -eq $helloHotSwapV2.body.result.service.generation -and $_.bindings.hello_state_hash -eq $helloHotSwapV2StateHash -and $_.bindings.hello_state_counter -eq 3 -and -not $_.bindings.hot_swap_probation_applies_rollback -and -not $_.bindings.hot_swap_probation_installs_rollback_plan })
+        $helloRollbackApplyEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.rollback_apply" -and $_.id -eq $helloRollbackApply.body.audit_event_id -and $_.outcome -eq "capability_denied" -and $_.requested_capability -eq "cap.service.rollback_apply.current_boot" -and $_.bindings.schema -eq "raios.ram_only_hello_service.rollback_apply_denial_binding.v0" -and $_.bindings.rollback_preview_hash -eq $helloRollbackPreview.body.result.preview_hash -and $_.bindings.rollback_apply_hash -eq $helloRollbackApplyHash -and $_.bindings.rollback_apply_status -eq $HelloRollbackApplyStatus -and -not $_.bindings.rollback_apply_authorized -and -not $_.bindings.rollback_apply_mutates_service_state -and $_.bindings.rollback_transaction_preflight_schema -eq $HelloRollbackTransactionPreflightSchema -and $_.bindings.rollback_transaction_preflight_id -eq $HelloRollbackTransactionPreflightId -and $_.bindings.rollback_transaction_preflight_hash -eq $helloRollbackTransactionPreflightHash -and $_.bindings.rollback_transaction_preflight_status -eq $HelloRollbackTransactionPreflightStatus -and $_.bindings.rollback_transaction_authority_missing -and $_.bindings.rollback_durable_audit_write_authority_missing -and $_.bindings.rollback_persistent_install_authority_missing -and -not $_.bindings.rollback_transaction_writes_durable_audit_log -and -not $_.bindings.rollback_transaction_writes_rollback_store -and -not $_.bindings.rollback_transaction_installs_rollback_plan -and -not $_.bindings.rollback_transaction_applies_rollback -and $_.bindings.hot_swap_probation_hash -eq $helloHotSwapV2ProbationHash -and $_.bindings.hot_swap_probation_previous_artifact_identity_hash -eq $helloArtifactIdentityHash -and $_.bindings.hot_swap_probation_new_artifact_identity_hash -eq $helloHotSwapV2.body.result.service.artifact_identity_hash -and $_.bindings.hot_swap_probation_previous_generation -eq $helloHotSwap.body.result.service.generation -and $_.bindings.hot_swap_probation_new_generation -eq $helloHotSwapV2.body.result.service.generation -and $_.bindings.hello_state_hash -eq $helloHotSwapV2StateHash -and $_.bindings.hello_state_counter -eq 3 -and -not $_.bindings.hot_swap_probation_applies_rollback -and -not $_.bindings.hot_swap_probation_installs_rollback_plan })
         if ($helloRollbackApplyEvents.Count -lt 1) {
             throw "Expected rollback apply audit event to bind preview/probation/state evidence without mutating service state"
         }
@@ -1939,6 +1986,9 @@
         Assert-LogContains -Name "quick:audit_events_hello_rollback_preview_hash" -Needle '"rollback_preview_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_hash" -Needle '"rollback_apply_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_denied" -Needle '"rollback_apply_authorized": false' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_preflight_hash" -Needle '"rollback_transaction_preflight_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_preflight_missing_authority" -Needle '"rollback_transaction_authority_missing": true' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_preflight_no_durable_write" -Needle '"rollback_transaction_writes_durable_audit_log": false' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1

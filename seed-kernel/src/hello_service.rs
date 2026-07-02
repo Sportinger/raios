@@ -55,6 +55,12 @@ const HELLO_ROLLBACK_PREVIEW_STATUS: &str = "preview_only_current_boot";
 const HELLO_ROLLBACK_APPLY_SCHEMA: &str = "raios.ram_only_hello_service_rollback_apply.v0";
 const HELLO_ROLLBACK_APPLY_ID: &str = "hello_rollback_apply.current_boot.svc.demo.hello.v0";
 const HELLO_ROLLBACK_APPLY_STATUS: &str = "denied_missing_rollback_apply_authority";
+const HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_SCHEMA: &str =
+    "raios.ram_only_hello_service_rollback_transaction_preflight.v0";
+const HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_ID: &str =
+    "hello_rollback_transaction_preflight.current_boot.svc.demo.hello.v0";
+const HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_STATUS: &str = "denied_missing_write_authorities";
+const HELLO_ROLLBACK_APPLY_CAPABILITY: &str = "cap.service.rollback_apply.current_boot";
 const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_SCHEMA: &str =
     "raios.current_boot_artifact_load_plan_preflight_selftest.v0";
 const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_ID: &str =
@@ -673,6 +679,146 @@ fn hello_rollback_apply_denial_hash(
     hash_line_bool(&mut hash, b"applies_rollback", false);
     hash_line_bool(&mut hash, b"writes_persistent_state", false);
     hash_line_bool(&mut hash, b"writes_durable_audit_log", false);
+    finalize_sha256(hash)
+}
+
+fn hello_rollback_transaction_preflight_hash(
+    snapshot: Snapshot,
+    probation: HelloHotSwapProbationRecord,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_line_str(
+        &mut hash,
+        b"schema",
+        HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_SCHEMA,
+    );
+    hash_line_str(&mut hash, b"id", HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_ID);
+    hash_line_str(&mut hash, b"scope", "current_boot");
+    hash_line_str(&mut hash, b"classification", "local_only");
+    hash_line_str(&mut hash, b"persistence", "none");
+    hash_line_str(
+        &mut hash,
+        b"status",
+        HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_STATUS,
+    );
+    hash_line_str(&mut hash, b"service_id", SERVICE_ID);
+    hash_line_str(
+        &mut hash,
+        b"requested_capability",
+        HELLO_ROLLBACK_APPLY_CAPABILITY,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"rollback_apply_sha256",
+        hello_rollback_apply_denial_hash(snapshot, probation),
+    );
+    hash_line_hash(
+        &mut hash,
+        b"rollback_preview_sha256",
+        hello_rollback_preview_hash(snapshot, probation),
+    );
+    hash_line_hash(
+        &mut hash,
+        b"source_probation_sha256",
+        probation.probation_hash,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"current_state_sha256",
+        hello_state_hash(snapshot.state_counter),
+    );
+    hash_line_u64(&mut hash, b"current_state_counter", snapshot.state_counter);
+    hash_line_u64(&mut hash, b"current_generation", snapshot.generation);
+    hash_line_str(
+        &mut hash,
+        b"rollback_target_descriptor_id",
+        probation.previous_descriptor_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"rollback_target_descriptor_source_sha256",
+        probation.previous_descriptor_source_hash,
+    );
+    hash_line_str(
+        &mut hash,
+        b"rollback_target_artifact_identity_id",
+        probation.previous_artifact_identity_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"rollback_target_artifact_identity_sha256",
+        probation.previous_artifact_identity_hash,
+    );
+    hash_line_u64(
+        &mut hash,
+        b"rollback_target_generation",
+        probation.previous_generation,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"rollback_target_state_sha256",
+        probation.previous_state_hash,
+    );
+    hash_line_u64(
+        &mut hash,
+        b"rollback_target_state_counter",
+        probation.previous_state_counter,
+    );
+    hash_line_str(
+        &mut hash,
+        b"current_candidate_descriptor_id",
+        probation.new_descriptor_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"current_candidate_descriptor_source_sha256",
+        probation.new_descriptor_source_hash,
+    );
+    hash_line_str(
+        &mut hash,
+        b"current_candidate_artifact_identity_id",
+        probation.new_artifact_identity_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"current_candidate_artifact_identity_sha256",
+        probation.new_artifact_identity_hash,
+    );
+    hash_line_u64(
+        &mut hash,
+        b"current_candidate_generation",
+        probation.new_generation,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"current_candidate_state_sha256",
+        probation.new_state_hash,
+    );
+    hash_line_u64(
+        &mut hash,
+        b"current_candidate_state_counter",
+        probation.new_state_counter,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"state_migration_sha256",
+        probation.state_migration_hash,
+    );
+    hash_line_bool(&mut hash, b"rollback_apply_authority_missing", true);
+    hash_line_bool(&mut hash, b"rollback_transaction_authority_missing", true);
+    hash_line_bool(&mut hash, b"durable_audit_write_authority_missing", true);
+    hash_line_bool(&mut hash, b"persistent_install_authority_missing", true);
+    hash_line_bool(&mut hash, b"mutates_service_state", false);
+    hash_line_bool(&mut hash, b"applies_rollback", false);
+    hash_line_bool(&mut hash, b"writes_persistent_state", false);
+    hash_line_bool(&mut hash, b"writes_durable_audit_log", false);
+    hash_line_bool(&mut hash, b"writes_rollback_store", false);
+    hash_line_bool(&mut hash, b"installs_rollback_plan", false);
+    hash_line_bool(&mut hash, b"accepts_external_artifact_bytes", false);
+    hash_line_bool(&mut hash, b"loads_candidate_bytes", false);
+    hash_line_bool(&mut hash, b"maps_executable_pages", false);
+    hash_line_bool(&mut hash, b"provider_auto_load", false);
+    hash_line_bool(&mut hash, b"grants_broad_mutation", false);
     finalize_sha256(hash)
 }
 
@@ -2028,6 +2174,7 @@ fn rollback_apply(source_method: &'static str) -> (Snapshot, event_log::EventId)
     );
     bind_rollback_preview(&mut binding, snapshot);
     bind_rollback_apply_denial(&mut binding, snapshot);
+    bind_rollback_transaction_preflight(&mut binding, snapshot);
     let event_id = event_log::record_hello_service_rollback_apply(source_method, reason, binding);
     (snapshot, event_id)
 }
@@ -2053,6 +2200,25 @@ fn bind_rollback_apply_denial(
     binding.rollback_apply_status = Some(HELLO_ROLLBACK_APPLY_STATUS);
     if let Some(probation) = snapshot.hot_swap_probation {
         binding.rollback_apply_hash = Some(hello_rollback_apply_denial_hash(snapshot, probation));
+    }
+}
+
+fn bind_rollback_transaction_preflight(
+    binding: &mut event_log::HelloServiceLifecycleBinding,
+    snapshot: Snapshot,
+) {
+    if let Some(probation) = snapshot.hot_swap_probation {
+        binding.rollback_transaction_preflight_schema =
+            Some(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_SCHEMA);
+        binding.rollback_transaction_preflight_id = Some(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_ID);
+        binding.rollback_transaction_preflight_hash = Some(
+            hello_rollback_transaction_preflight_hash(snapshot, probation),
+        );
+        binding.rollback_transaction_preflight_status =
+            Some(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_STATUS);
+        binding.rollback_transaction_authority_missing = true;
+        binding.rollback_durable_audit_write_authority_missing = true;
+        binding.rollback_persistent_install_authority_missing = true;
     }
 }
 
@@ -2369,6 +2535,17 @@ fn lifecycle_binding(
         rollback_apply_status: None,
         rollback_apply_authorized: false,
         rollback_apply_mutates_service_state: false,
+        rollback_transaction_preflight_schema: None,
+        rollback_transaction_preflight_id: None,
+        rollback_transaction_preflight_hash: None,
+        rollback_transaction_preflight_status: None,
+        rollback_transaction_authority_missing: false,
+        rollback_durable_audit_write_authority_missing: false,
+        rollback_persistent_install_authority_missing: false,
+        rollback_transaction_writes_durable_audit_log: false,
+        rollback_transaction_writes_rollback_store: false,
+        rollback_transaction_installs_rollback_plan: false,
+        rollback_transaction_applies_rollback: false,
         binds_source_locator: descriptor.binds_source_locator,
         binds_source_kind: descriptor.binds_source_kind,
         binds_source_hash: descriptor.binds_source_hash,
@@ -2573,6 +2750,73 @@ fn emit_hot_swap_state_migration_denied(
     raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
 }
 
+fn emit_rollback_transaction_preflight(
+    snapshot: Snapshot,
+    probation: Option<HelloHotSwapProbationRecord>,
+) {
+    if let Some(probation) = probation {
+        raw("{\"schema\": ");
+        json_str(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_SCHEMA);
+        raw(", \"id\": ");
+        json_str(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_ID);
+        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
+        json_str(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_STATUS);
+        raw(", \"service_id\": ");
+        json_str(SERVICE_ID);
+        raw(", \"requested_capability\": ");
+        json_str(HELLO_ROLLBACK_APPLY_CAPABILITY);
+        raw(", \"preflight_hash\": ");
+        json_sha256(hello_rollback_transaction_preflight_hash(
+            snapshot, probation,
+        ));
+        raw(", \"rollback_apply_hash\": ");
+        json_sha256(hello_rollback_apply_denial_hash(snapshot, probation));
+        raw(", \"rollback_preview_hash\": ");
+        json_sha256(hello_rollback_preview_hash(snapshot, probation));
+        raw(", \"source_probation_hash\": ");
+        json_sha256(probation.probation_hash);
+        raw(", \"current_state_hash\": ");
+        json_sha256(hello_state_hash(snapshot.state_counter));
+        raw(", \"current_state_counter\": ");
+        raw_fmt(format_args!("{}", snapshot.state_counter));
+        raw(", \"rollback_target_descriptor_id\": ");
+        json_str(probation.previous_descriptor_id);
+        raw(", \"rollback_target_descriptor_source_hash\": ");
+        json_sha256(probation.previous_descriptor_source_hash);
+        raw(", \"rollback_target_artifact_identity_id\": ");
+        json_str(probation.previous_artifact_identity_id);
+        raw(", \"rollback_target_artifact_identity_hash\": ");
+        json_sha256(probation.previous_artifact_identity_hash);
+        raw(", \"rollback_target_generation\": ");
+        raw_fmt(format_args!("{}", probation.previous_generation));
+        raw(", \"rollback_target_state_hash\": ");
+        json_sha256(probation.previous_state_hash);
+        raw(", \"rollback_target_state_counter\": ");
+        raw_fmt(format_args!("{}", probation.previous_state_counter));
+        raw(", \"current_candidate_descriptor_id\": ");
+        json_str(probation.new_descriptor_id);
+        raw(", \"current_candidate_descriptor_source_hash\": ");
+        json_sha256(probation.new_descriptor_source_hash);
+        raw(", \"current_candidate_artifact_identity_id\": ");
+        json_str(probation.new_artifact_identity_id);
+        raw(", \"current_candidate_artifact_identity_hash\": ");
+        json_sha256(probation.new_artifact_identity_hash);
+        raw(", \"current_candidate_generation\": ");
+        raw_fmt(format_args!("{}", probation.new_generation));
+        raw(", \"current_candidate_state_hash\": ");
+        json_sha256(probation.new_state_hash);
+        raw(", \"current_candidate_state_counter\": ");
+        raw_fmt(format_args!("{}", probation.new_state_counter));
+        raw(", \"state_migration_hash\": ");
+        json_sha256(probation.state_migration_hash);
+        raw(", \"missing_authorities\": {\"rollback_apply_authority\": true, \"rollback_transaction_authority\": true, \"durable_audit_write_authority\": true, \"persistent_install_authority\": true}");
+        raw(", \"side_effects\": {\"mutates_service_state\": false, \"applies_rollback\": false, \"writes_persistent_state\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"installs_rollback_plan\": false, \"accepts_external_artifact_bytes\": false, \"loads_candidate_bytes\": false, \"maps_executable_pages\": false, \"provider_auto_load\": false, \"grants_broad_mutation\": false}");
+        raw("}");
+    } else {
+        raw("null");
+    }
+}
+
 fn emit_rollback_apply_denied(
     method: &'static str,
     snapshot: Snapshot,
@@ -2656,6 +2900,9 @@ fn emit_rollback_apply_denied(
         raw("null");
     }
     raw_line(",");
+    raw("    \"rollback_transaction_preflight\": ");
+    emit_rollback_transaction_preflight(snapshot, probation);
+    raw_line(",");
     raw("    \"rollback_target\": ");
     if let Some(probation) = probation {
         raw("{\"version\": ");
@@ -2707,6 +2954,9 @@ fn emit_rollback_apply_denied(
     raw_line(",");
     raw_line("    \"required\": [");
     raw_line("      \"rollback_apply_authority\",");
+    raw_line("      \"rollback_transaction_authority\",");
+    raw_line("      \"durable_audit_write_authority\",");
+    raw_line("      \"persistent_install_authority\",");
     raw_line("      \"raios.audit_record.v0\",");
     raw_line("      \"raios.rollback_transaction.v0\",");
     raw_line("      \"durable_audit_rollback_store\"");
