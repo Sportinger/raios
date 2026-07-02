@@ -294,9 +294,10 @@ Verified in the VM today:
   evidence fail closed without mutating the event log; a
   `raios.ram_only_service_slot_activation.v0` record derived from the accepted
   preflight now exposes activation id/hash/status/active state in load/start,
-  inventory, health, stop/drop, and RAM-audit bindings, with `service.start`
-  restarting the same loaded generation and drop clearing the current-boot slot
-  while citing the same activation hash;
+  inventory, health, stop/start/restart/drop, and RAM-audit bindings, with
+  `service.start` starting the same loaded generation, `service.restart`
+  recording a restart while preserving that generation, and drop clearing the
+  current-boot slot while citing the same activation hash;
   a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service

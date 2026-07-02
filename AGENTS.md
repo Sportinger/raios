@@ -76,8 +76,8 @@ not conflict, but every merged result must be a real, tested slice.
 - For Phase 6 until this file or `docs/ROADMAP.md` says otherwise, the priority
   is a RAM-only hello service path: load/start a tiny fixed test service through
   the real loader/registry/audit surfaces, show it in `service.inventory`, then
-  stop/drop it. Persistence, external unsigned artifact intake, durable audit,
-  and rollback installation must remain denied.
+  stop/start/restart/drop it. Persistence, external unsigned artifact intake,
+  durable audit, and rollback installation must remain denied.
 - A built-in hello artifact is acceptable only as labeled test infrastructure
   for the real path. It must not fake success, bypass the service registry, or
   imply that arbitrary external modules are supported.
@@ -181,14 +181,20 @@ Still shape every durable slice so it can become raiOS memory later:
   and tampered byte/content/reference/trust cases fail closed.
   `service.artifact_load_plan_preflight_selftest` proves valid preflight
   evidence and tampered descriptor/artifact/slot/denial cases fail closed;
+  the same service can be stopped, started again, explicitly restarted without
+  changing its loaded generation, and dropped while retaining RAM-only
+  lifecycle evidence;
   arbitrary external artifacts, candidate-byte execution, executable page
   mapping, persistence, durable audit, rollback, provider auto-load, and broad
   mutation remain denied.
 - `ask <text>` uses the in-guest OpenAI direct transport. The old host-side
   serial relay is no longer part of the runtime path; DNS, TCP 443, TLS 1.3,
   HTTPS, and first `output_text` parsing work in the bare-metal VM profile.
-- The current TLS path is MVP-only: certificate verification is bypassed and
-  must be hardened with verification or provider pinning before serious use.
+- The current TLS path is MVP-only but no longer a silent host relay: the
+  in-guest direct OpenAI path has a pinned certificate/SPKI verifier with
+  optional standby SPKI rotation. It still lacks WebPKI chain validation and
+  trusted time validation; do not claim either until trusted roots,
+  intermediate-chain handling, and trusted time exist.
 - Detailed current status is in `docs/PROJECT_STATUS.md`.
 
 ## Important Technical Notes
@@ -266,11 +272,13 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Harden the direct OpenAI TLS path with certificate verification or provider
-   pinning.
-2. Improve response wrapping, scrolling, and clickable settings controls in the
+1. Define the first native agent protocol message envelope outside the kernel
+   dispatcher boundary and prove it on one already-working command.
+2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
+   validation once trusted roots, intermediate-chain handling, and trusted time
+   exist.
+3. Improve response wrapping, scrolling, and clickable settings controls in the
    framebuffer UI.
-3. Define the first native agent protocol messages outside the kernel boundary.
 4. Continue bare-metal input/network bring-up while preserving the VM test path.
 
 The current exact next task is maintained in `docs/PROJECT_STATUS.md`.

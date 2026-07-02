@@ -723,6 +723,9 @@
         if ($helloStart.body.result.lifecycle.start_event_id -ne $helloStart.body.result.event_id) {
             throw "Expected service.start to record a distinct start event id"
         }
+        if ($helloStart.body.result.lifecycle.last_action -ne "start" -or $helloStart.body.result.lifecycle.reason -ne "started_loaded_service") {
+            throw "Expected service.start lifecycle to mark the stopped loaded service as started"
+        }
         $helloStartActivationHash = & $AssertHelloServiceSlotActivation `
             -Name "hello start response" `
             -Activation $helloStart.body.result.service_slot_activation `
@@ -735,6 +738,34 @@
         }
         & $AssertHelloServiceSlotActivationReference -Name "hello start service response" -Record $helloStart.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
         & $AssertHelloServiceSlotActivationReference -Name "hello start loader response" -Record $helloStart.body.result.loader -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
+
+        Send-AgentCommand -Command "service.restart svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.restart"
+        $helloRestart = Get-LastAgentResponseJson -Method "service.restart"
+        Assert-CurrentBootEventId -Name "quick:hello_restart_event_id" -Value $helloRestart.body.result.event_id
+        if (-not $helloRestart.body.result.service.loaded -or -not $helloRestart.body.result.service.running) {
+            throw "Expected service.restart to leave the loaded hello service running"
+        }
+        if ($helloRestart.body.result.lifecycle.last_action -ne "restart" -or $helloRestart.body.result.lifecycle.reason -ne "restarted_loaded_service") {
+            throw "Expected service.restart lifecycle to record a real restart action"
+        }
+        if ($helloRestart.body.result.lifecycle.start_event_id -ne $helloRestart.body.result.event_id) {
+            throw "Expected service.restart to record its own lifecycle event as the latest start event"
+        }
+        if ($helloRestart.body.result.service.generation -ne $helloStart.body.result.service.generation) {
+            throw "Expected service.restart to preserve the loaded hello generation"
+        }
+        $helloRestartActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "hello restart response" `
+            -Activation $helloRestart.body.result.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationActiveStatus `
+            -ExpectedActive $true
+        if ($helloRestartActivationHash -ne $helloServiceSlotActivationHash) {
+            throw "Expected hello restart response to cite the same service-slot activation hash"
+        }
+        & $AssertHelloServiceSlotActivationReference -Name "hello restart service response" -Record $helloRestart.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
+        & $AssertHelloServiceSlotActivationReference -Name "hello restart loader response" -Record $helloRestart.body.result.loader -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
 
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $helloDrop = Get-LastAgentResponseJson -Method "service.drop"
@@ -964,11 +995,15 @@
             -ExpectedActive $false | Out-Null
         & $AssertHelloServiceSlotActivationReference -Name "host-bound drop loader response" -Record $hostDrop.body.result.loader -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationClearedStatus -ExpectedActive $false
 
-        Send-AgentCommand -Command "agent audit.events 32" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+        Send-AgentCommand -Command "agent audit.events 40" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
         $helloEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.lifecycle" -and $_.resource -eq "svc.demo.hello" })
         if ($helloEvents.Count -lt 6) {
             throw "Expected hello load/stop/drop lifecycle events in RAM audit log"
+        }
+        $helloRestartEvents = @($helloEvents | Where-Object { $_.source_method -eq "service.restart" -and $_.reason -eq "restarted_loaded_service" })
+        if ($helloRestartEvents.Count -lt 1) {
+            throw "Expected hello lifecycle events to include service.restart"
         }
         $helloDescriptorEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor.current_boot.svc.demo.hello.v0" })
         if ($helloDescriptorEvents.Count -lt 6) {
@@ -1085,7 +1120,7 @@
             throw "Expected host-bound health event to cite the host-bound service-slot activation"
         }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 32' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 40' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_module_load_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_recovery_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1

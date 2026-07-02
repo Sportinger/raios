@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after full-VM-verifying the explicit
-`service.start svc.demo.hello` RAM-only lifecycle transition.
+Last updated: 2026-07-02 by Codex after quick-VM-verifying the explicit
+`service.restart svc.demo.hello` RAM-only lifecycle transition.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -17,7 +17,7 @@ Active execution rule:
 - stop adding loader-runtime schema-only boundaries unless they directly unblock
   the RAM-only service path
 - prove the next slice with one real observable service lifecycle:
-  load/start/list/stop/drop, all current-boot and non-persistent
+  load/start/list/stop/start/restart/drop, all current-boot and non-persistent
 - treat the plan as an AI-parallel OS build, not a traditional serial
   big-team roadmap: split independent agents by ownership boundary, then merge
   only real verified slices
@@ -103,9 +103,10 @@ Latest verified implementation slice:
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
   `service.health svc.demo.hello` reports healthy, stopped, or missing from the
   same current-boot state; `service.stop svc.demo.hello` marks it stopped;
-  `service.start svc.demo.hello` restarts the same loaded generation and keeps
-  the same activation hash; `service.drop svc.demo.hello` removes it from
-  inventory; the inventory and health records cite
+  `service.start svc.demo.hello` starts the stopped loaded generation,
+  `service.restart svc.demo.hello` records its own restart lifecycle event while
+  preserving that generation and activation hash, and `service.drop
+  svc.demo.hello` removes it from inventory; the inventory and health records cite
   `load_descriptor.current_boot.svc.demo.hello.v0` plus the descriptor source
   locator/kind/validation/hash and bound source hash when present
 - lifecycle and health actions retain
@@ -165,7 +166,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the explicit hello `service.start` slice:
+Latest focused verification after the explicit hello `service.restart` slice:
+
+```text
+release\vm-reports\shadow-20260702-055608-6288.json
+203/203 quick predicates, 33 executed commands, duration_ms: 62948
+```
+
+Previous focused verification after the explicit hello `service.start` slice:
 
 ```text
 release\vm-reports\shadow-20260702-053445-10792.json
@@ -231,28 +239,30 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Continue provider trust/context hardening by replacing the visible
-`pin_only_no_webpki_chain_validation` / `not_validated_stage0` gap with real
-chain/time validation. Keep verifier metadata, verifier decisions, explicit
-pin-rotation policy, provider-trust evidence hash, redaction/classification/
-budget hashes, no-pin/no-trust denial, development-bypass denial, disabled
-context injection, and non-executing candidate bytes intact; do not mark WebPKI
-or time validation as present until they are actually implemented.
+Add the first narrow `raios.agent_command_envelope.v0` boundary around one
+already-working serial `agent <method>` command and route it to the existing
+dispatcher. Prove the envelope path in quick VM smoke without adding fake
+persistence, broad mutation, provider auto-load, candidate-byte execution, or a
+parallel ad-hoc command protocol.
 ```
 
 AI-parallel next wave:
 
-1. Provider trust/context track: harden the direct provider path toward
+1. Agent protocol track: wrap one existing positive command in a typed native
+   command envelope, preserve the existing dispatcher behavior, and deny
+   malformed or over-capable envelopes explicitly.
+2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
-   authorization evidence.
-2. Runtime artifact track: keep the Hello activation record green; only add
+   authorization evidence; do not claim WebPKI/time validation before trusted
+   roots, intermediate-chain handling, and trusted time exist.
+3. Runtime artifact track: keep the Hello activation record green; only add
    narrow follow-ups that prove cleanup or trust evidence without executing
    candidate bytes.
-3. UI/input track: improve response wrapping, scrolling, and settings controls
+4. UI/input track: improve response wrapping, scrolling, and settings controls
    while keeping UI state derived from typed system facts.
-4. VM harness/evidence track: keep focused smokes fast and add predicates only
+5. VM harness/evidence track: keep focused smokes fast and add predicates only
    when they prove positive behavior or necessary fail-closed denials.
-5. Recovery/persistence track: keep lifeline, durable audit, rollback, and
+6. Recovery/persistence track: keep lifeline, durable audit, rollback, and
    persistence designed from the final trust model; do not implement fake
    persistence or rollback before the evidence chain exists.
 

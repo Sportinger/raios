@@ -28,9 +28,10 @@ Active execution memory: as of 2026-07-02, Phase 6 has its first positive
 RAM-only service vertical slice: `raios.ram_only_hello_service.v0`. The kernel
 can load/start the built-in `svc.demo.hello` test service through a typed
 current-boot load request/descriptor, expose it through `service.inventory`,
-report health, stop it, start it again through `service.start`, drop it, and
-retain RAM-only lifecycle/health audit events that cite the descriptor plus a
-validated current-image
+report health, stop it, start it again through `service.start`, explicitly
+restart it through `service.restart`, drop it, and retain RAM-only
+lifecycle/health audit events that cite the descriptor plus a validated
+current-image
 descriptor-source locator/kind/hash. The current-image descriptor-source path
 now also carries a repo-local P-256/SHA-256 signature envelope that is checked
 by the build script and verified again in the kernel before descriptor-source
@@ -82,8 +83,10 @@ responses, and lifecycle/health RAM audit bindings expose the activation
 id/hash/status plus active state. The activation hash stays stable across
 running, stopped, restarted, and cleared statuses for the same selected
 descriptor source and preflight; `service.start` restarts a stopped loaded
-current-boot service without creating a new load generation, and `service.drop`
-clears the current-boot slot while citing the same activation before cleanup.
+current-boot service without creating a new load generation, `service.restart`
+records its own restart event while preserving the same loaded generation, and
+`service.drop` clears the current-boot slot while citing the same activation
+before cleanup.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -104,7 +107,16 @@ merged result must still be a real verified vertical slice on the final
 architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
-Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
+Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
+explicit `service.restart svc.demo.hello` current-boot lifecycle transition on
+top of the RAM-only Hello service activation slice. Quick Shadow VM smoke
+passed in `release/vm-reports/shadow-20260702-055608-6288.json` with 203/203
+predicates, 33 executed commands, and `duration_ms: 62948`. The quick smoke
+proves `service.restart` records a real lifecycle event, keeps the same loaded
+generation and activation hash, and preserves current-boot/local-only
+non-persistence.
+
+Latest full verification remains 2026-07-02 on Windows with QEMU 11 after the
 explicit `service.start svc.demo.hello` current-boot lifecycle transition on
 top of provider trust verifier decisions and optional standby SPKI rotation
 state. Full Shadow VM smoke passed in
@@ -1259,27 +1271,25 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that the provider-minimal context path binds redaction,
-field-classification, token-budget, provider-trust evidence hashes, explicit
-Stage-0 verifier metadata, and typed verifier decisions through projection,
-request/export binding evidence, consumption, and injection-gate checks,
-continue the provider trust/context track by replacing the visible
-`pin_only_no_webpki_chain_validation` / `not_validated_stage0` gap with real
-chain/time validation. No-pin/no-trust, malformed rotation config, and
-development-bypass paths must stay fail-closed, verifier decisions must
-continue to expose stage, outcome, and reason, and
-`satisfies_current_boot_export_gate` must remain `false` until the full evidence
-gate is present. Do not use fake trust, fake persistence, automatic context
-stuffing, candidate-byte execution, durable audit writes, rollback installation,
-provider-triggered auto-load, or broad module/service/config mutation as a
-shortcut.
+Now that the RAM-only Hello service has real load/start/list/health/stop/start/
+restart/drop behavior with signed descriptor/artifact evidence, accepted
+preflight, activation records, and current-boot RAM audit events, continue the
+OS pivot by adding the first narrow native agent-command boundary around the
+existing serial `agent <method>` path. The next slice should define and verify a
+small `raios.agent_command_envelope.v0` for one already-working command, then
+route it to the existing dispatcher without adding fake persistence, broad
+mutation, provider auto-load, candidate-byte execution, or a second ad-hoc
+protocol. Keep provider trust/context hardening as a parallel Track B, but do
+not claim WebPKI chain or time validation until trusted roots, intermediate
+chain handling, and a trusted time source are actually present.
 
 The next slice should:
 
 - keep bare `module.load_ephemeral` and arbitrary external artifacts denied
-- keep current-image and host-bound `svc.demo.hello` load/list/stop/drop
-  passing in quick VM smoke, with explicit `service.start svc.demo.hello`
-  restarting a stopped loaded current-boot service
+- keep current-image and host-bound `svc.demo.hello` load/list/stop/start/
+  restart/drop passing in quick VM smoke, with explicit `service.start
+  svc.demo.hello` starting a stopped loaded current-boot service and
+  `service.restart svc.demo.hello` preserving the same loaded generation
 - keep `raios.current_boot_load_request.v0` and
   `raios.current_boot_load_descriptor.v0` in the positive path
 - keep `service.health svc.demo.hello` proving healthy, stopped, missing, and
@@ -1305,8 +1315,8 @@ The next slice should:
   preflight, with stable id/hash/status/active state and explicit current-boot
   scope visible in load/start, `service.inventory`, `service.health`, stop/drop
   responses, and lifecycle/health RAM audit evidence
-- harden provider trust/context gating with typed positive evidence rather than
-  prompt stuffing or a development TLS bypass
+- harden provider trust/context gating in its own track with typed positive
+  evidence rather than prompt stuffing or a development TLS bypass
 - keep stable artifact byte/reference trust ids and hashes in load response,
   `service.inventory`, `service.health`, and RAM audit bindings
 - keep the selected descriptor source locator/kind/validation/hash plus any
@@ -1317,13 +1327,12 @@ The next slice should:
   module/service/config mutation denied
 
 Do not add a signed artifact loader yet. The runtime-artifact track now has a
-real current-boot activation record for the already-working Hello slot; the
-next highest-value OS slice is provider trust/context hardening while arbitrary
-module execution remains denied.
+real current-boot lifecycle for the already-working Hello slot; the next
+highest-value OS core slice is a typed agent-command boundary over existing
+positive commands while arbitrary module execution remains denied.
 
-For multi-agent execution, treat provider trust/context as Track B and keep
-Track A available only for narrow runtime-artifact follow-ups that preserve the
-same evidence gates. UI/input polish, harness speed/evidence, and
+For multi-agent execution, treat the agent-command boundary as Track A and
+provider trust/context as Track B. UI/input polish, harness speed/evidence, and
 recovery/persistence design may proceed in parallel as long as they do not
 weaken current runtime denials.
 

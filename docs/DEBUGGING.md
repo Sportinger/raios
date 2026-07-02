@@ -425,6 +425,7 @@ service.health svc.demo.hello
 service.stop svc.demo.hello
 service.health svc.demo.hello
 service.start svc.demo.hello
+service.restart svc.demo.hello
 service.drop svc.demo.hello
 service.health svc.demo.hello
 module.load_ephemeral host_bound:svc.demo.hello
@@ -432,7 +433,7 @@ services
 service.health svc.demo.hello
 service.stop svc.demo.hello
 service.drop svc.demo.hello
-agent audit.events 32
+agent audit.events 40
 ```
 
 The two wrong-target commands must still return `raios.module_load_gate.v0`
@@ -480,12 +481,14 @@ reference hash plus artifact load-plan preflight id/hash/status and
 service-slot activation id/hash/status/active state. `service.health
 svc.demo.hello` must return `raios.ram_only_hello_service.health.v0`, report
 healthy while loaded/running, stopped while loaded/not running, running again
-after `service.start`, and missing after drop, and cite the active descriptor
+after `service.start`, still running after `service.restart` with the same
+loaded generation, and missing after drop, and cite the active descriptor
 source hash, signature envelope,
 artifact identity/content/reference/preflight evidence, and service-slot
 activation evidence while loaded. Stop keeps the same activation hash with
-`stopped_current_boot`; start keeps the same activation hash with
-`active_current_boot`; drop cites the same activation hash with
+`stopped_current_boot`; start and restart keep the same activation hash with
+`active_current_boot`; restart records `last_action: "restart"` and reason
+`restarted_loaded_service`; drop cites the same activation hash with
 `cleared_current_boot` before cleanup. `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
