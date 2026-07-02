@@ -198,6 +198,15 @@ pub(crate) fn artifact_reference_bytes_hash(descriptor: LoadDescriptor) -> [u8; 
     descriptor_sources::artifact_reference_bytes_hash(descriptor.artifact_identity)
 }
 
+pub(crate) fn service_version(descriptor: LoadDescriptor) -> &'static str {
+    if descriptor.artifact_identity.id == descriptor_sources::HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID
+    {
+        "v2"
+    } else {
+        "v1"
+    }
+}
+
 pub(crate) fn artifact_load_plan_preflight_hash(descriptor: LoadDescriptor) -> [u8; 32] {
     artifact_load_plan_preflight_record(descriptor).preflight_hash
 }
@@ -1371,24 +1380,34 @@ fn load_request_for_head(method: &str, head: &'static str) -> Option<LoadRequest
         return None;
     }
     let target = method[head.len()..].trim();
-    let descriptor = verified_load_descriptor_for_target(target)?;
+    let descriptor = verified_load_descriptor_for_target(target, head == "service.hot_swap")?;
     Some(LoadRequest {
         source_method: head,
         descriptor,
     })
 }
 
-fn verified_load_descriptor_for_target(target: &str) -> Option<LoadDescriptor> {
+fn verified_load_descriptor_for_target(
+    target: &str,
+    allow_replacement: bool,
+) -> Option<LoadDescriptor> {
     let source = descriptor_source_for_target(target)?;
     if !descriptor_sources::validate_descriptor_source(source) {
         return None;
     }
-    let descriptor = load_descriptor_from_source(source);
+    let replacement_target = replacement_target_matches(target);
+    let artifact_identity = if allow_replacement && replacement_target {
+        descriptor_sources::hello_builtin_artifact_identity_v2()
+    } else {
+        descriptor_sources::hello_builtin_artifact_identity()
+    };
+    let descriptor = load_descriptor_from_source(source, artifact_identity);
     if !descriptor_sources::validate_builtin_hello_artifact_identity(descriptor.artifact_identity) {
         return None;
     }
     if descriptor_target_matches(target, descriptor)
         || descriptor_source_target_matches(target, source)
+        || (allow_replacement && replacement_target)
     {
         Some(descriptor)
     } else {
@@ -1412,6 +1431,7 @@ fn descriptor_source_for_target(
 
 fn load_descriptor_from_source(
     source: descriptor_sources::DescriptorSourceRecord,
+    artifact_identity: descriptor_sources::ArtifactIdentityRecord,
 ) -> LoadDescriptor {
     LoadDescriptor {
         schema: source.schema,
@@ -1424,7 +1444,7 @@ fn load_descriptor_from_source(
         binds_source_hash: source.binds_source_hash,
         source_text: source.text,
         source_envelope: source.signed_envelope,
-        artifact_identity: descriptor_sources::hello_builtin_artifact_identity(),
+        artifact_identity,
         service_id: source.service_id,
         artifact_id: source.artifact_id,
         artifact_kind: source.artifact_kind,
@@ -1445,6 +1465,12 @@ fn descriptor_source_target_matches(
 
 fn descriptor_source_target_matches_locator(target: &str, locator: &str) -> bool {
     target.eq_ignore_ascii_case(locator)
+}
+
+fn replacement_target_matches(target: &str) -> bool {
+    target.eq_ignore_ascii_case("svc.demo.hello.v2")
+        || target.eq_ignore_ascii_case("hello.v2")
+        || target.eq_ignore_ascii_case(descriptor_sources::HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID)
 }
 
 fn target_arg_matches(method: &str, head: &str) -> bool {
@@ -1605,6 +1631,9 @@ fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: even
     json_str(SERVICE_ID);
     raw_line(",");
     raw_line("        \"kind\": \"service\",");
+    raw("        \"version\": ");
+    json_str(service_version(descriptor));
+    raw_line(",");
     raw("        \"loaded\": ");
     raw_bool(snapshot.loaded);
     raw_line(",");
@@ -1728,6 +1757,9 @@ fn emit_response(
     raw_line(",");
     raw("        \"artifact_id\": ");
     json_str(descriptor.artifact_id);
+    raw_line(",");
+    raw("        \"version\": ");
+    json_str(service_version(descriptor));
     raw_line(",");
     raw("        \"artifact_identity_id\": ");
     json_str(descriptor.artifact_identity.id);

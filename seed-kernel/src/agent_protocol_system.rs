@@ -642,6 +642,8 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
     raw(", \"persistence\": \"none\"");
     raw(", \"artifact_id\": ");
     json_str(hello_service::ARTIFACT_ID);
+    raw(", \"version\": ");
+    json_str(hello_service::service_version(hello.load_descriptor));
     raw(", \"artifact_identity_id\": ");
     json_str(hello.load_descriptor.artifact_identity.id);
     raw(", \"artifact_identity_hash\": ");

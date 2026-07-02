@@ -22,6 +22,8 @@ pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_SCHEMA: &str =
     "raios.builtin_artifact_identity.v0";
 pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_ID: &str =
     "builtin_artifact_identity.svc.demo.hello.v0";
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID: &str =
+    "builtin_artifact_identity.svc.demo.hello.v2";
 pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_CANONICALIZATION: &str =
     "raios.builtin_artifact_identity.canonical.v0";
 pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_SOURCE: &str =
@@ -113,6 +115,27 @@ pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE: ArtifactIdentityEnvel
         authorizes_persistent_install: false,
         authorizes_rollback_install: false,
         text: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_TEXT,
+    };
+
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ENVELOPE: ArtifactIdentityEnvelope =
+    ArtifactIdentityEnvelope {
+        schema: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_SCHEMA,
+        id: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ENVELOPE_ID,
+        algorithm: HELLO_BUILTIN_ARTIFACT_IDENTITY_SIGNATURE_ALGORITHM,
+        verification_phase: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_VERIFICATION_PHASE,
+        trust_scope: HELLO_BUILTIN_ARTIFACT_IDENTITY_ENVELOPE_TRUST_SCOPE,
+        payload_identity_id: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID,
+        payload_artifact_id: HELLO_ARTIFACT_ID,
+        payload_hash: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_HASH,
+        envelope_hash: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ENVELOPE_HASH,
+        public_key_hash: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_PUBLIC_KEY_HASH,
+        signature_hash: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_SIGNATURE_HASH,
+        public_key_sec1: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_PUBLIC_KEY_SEC1,
+        signature_der: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_SIGNATURE_DER,
+        authorizes_external_artifact_load: false,
+        authorizes_persistent_install: false,
+        authorizes_rollback_install: false,
+        text: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ENVELOPE_TEXT,
     };
 
 #[derive(Clone, Copy)]
@@ -278,6 +301,49 @@ const HELLO_BUILTIN_ARTIFACT_IDENTITY_RECORD: ArtifactIdentityRecord = ArtifactI
     text: HELLO_BUILTIN_ARTIFACT_IDENTITY_SOURCE,
 };
 
+const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_RECORD: ArtifactIdentityRecord = ArtifactIdentityRecord {
+    schema: HELLO_BUILTIN_ARTIFACT_IDENTITY_SCHEMA,
+    id: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID,
+    canonicalization: HELLO_BUILTIN_ARTIFACT_IDENTITY_CANONICALIZATION,
+    service_id: HELLO_SERVICE_ID,
+    artifact_id: HELLO_ARTIFACT_ID,
+    artifact_kind: "builtin_stage0_test_service",
+    load_descriptor_id: HELLO_LOAD_DESCRIPTOR_ID,
+    artifact_content_binding_schema: HELLO_BUILTIN_ARTIFACT_CONTENT_BINDING_SCHEMA,
+    artifact_content_binding_id: HELLO_BUILTIN_ARTIFACT_CONTENT_BINDING_ID,
+    artifact_content_kind: HELLO_BUILTIN_ARTIFACT_CONTENT_KIND,
+    artifact_content_source_locator: HELLO_BUILTIN_ARTIFACT_CONTENT_SOURCE_LOCATOR,
+    artifact_content_source_hash: HELLO_BUILTIN_ARTIFACT_CONTENT_SOURCE_HASH,
+    artifact_content_binding_hash: HELLO_BUILTIN_ARTIFACT_CONTENT_BINDING_HASH,
+    artifact_content_accepts_external_artifact_bytes: false,
+    artifact_content_loads_external_artifact: false,
+    artifact_content_maps_executable_pages: false,
+    artifact_content_writes_persistent_state: false,
+    artifact_reference_schema: HELLO_BUILTIN_ARTIFACT_REFERENCE_SCHEMA,
+    artifact_reference_id: HELLO_BUILTIN_ARTIFACT_REFERENCE_ID,
+    artifact_reference_kind: HELLO_BUILTIN_ARTIFACT_REFERENCE_KIND,
+    artifact_reference_locator: HELLO_BUILTIN_ARTIFACT_REFERENCE_LOCATOR,
+    artifact_reference_hash: HELLO_BUILTIN_ARTIFACT_REFERENCE_HASH,
+    artifact_reference_bytes_hash: HELLO_BUILTIN_ARTIFACT_BYTES_HASH,
+    artifact_reference_content_binding_hash: HELLO_BUILTIN_ARTIFACT_CONTENT_BINDING_HASH,
+    artifact_reference_accepts_external_artifact_bytes: false,
+    artifact_reference_loads_artifact_as_code: false,
+    artifact_reference_maps_executable_pages: false,
+    artifact_reference_writes_persistent_state: false,
+    scope: "current_boot",
+    classification: "local_only",
+    persistence: "none",
+    accepts_external_artifact_bytes: false,
+    loads_external_artifact: false,
+    maps_executable_pages: false,
+    writes_persistent_state: false,
+    authorizes_external_artifact_load: false,
+    authorizes_persistent_install: false,
+    authorizes_rollback_install: false,
+    signed_envelope: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ENVELOPE,
+    text: HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_SOURCE,
+};
+
 pub(crate) fn lookup_current_image_descriptor_source(
     descriptor_id: &str,
 ) -> Option<DescriptorSourceRecord> {
@@ -302,10 +368,15 @@ pub(crate) const fn hello_builtin_artifact_identity() -> ArtifactIdentityRecord 
     HELLO_BUILTIN_ARTIFACT_IDENTITY_RECORD
 }
 
+pub(crate) const fn hello_builtin_artifact_identity_v2() -> ArtifactIdentityRecord {
+    HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_RECORD
+}
+
 pub(crate) fn validate_builtin_hello_artifact_identity(identity: ArtifactIdentityRecord) -> bool {
     key_value_text_is_canonical(identity.text)
         && identity.schema == HELLO_BUILTIN_ARTIFACT_IDENTITY_SCHEMA
-        && identity.id == HELLO_BUILTIN_ARTIFACT_IDENTITY_ID
+        && (identity.id == HELLO_BUILTIN_ARTIFACT_IDENTITY_ID
+            || identity.id == HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID)
         && identity.canonicalization == HELLO_BUILTIN_ARTIFACT_IDENTITY_CANONICALIZATION
         && identity.service_id == HELLO_SERVICE_ID
         && identity.artifact_id == HELLO_ARTIFACT_ID
@@ -824,7 +895,10 @@ fn validate_artifact_identity_envelope_parts(
     text: &str,
 ) -> bool {
     envelope.schema == "raios.builtin_artifact_identity_signature_envelope.v0"
-        && envelope.id == "artifact_identity_signature.builtin.svc.demo.hello.v0"
+        && ((identity_id == HELLO_BUILTIN_ARTIFACT_IDENTITY_ID
+            && envelope.id == "artifact_identity_signature.builtin.svc.demo.hello.v0")
+            || (identity_id == HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID
+                && envelope.id == "artifact_identity_signature.builtin.svc.demo.hello.v2"))
         && envelope.algorithm == "ecdsa_p256_sha256_asn1_der"
         && envelope.verification_phase == "runtime_before_builtin_artifact_selection"
         && envelope.trust_scope == "current_boot_builtin_artifact_identity_candidate"

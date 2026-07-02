@@ -1,6 +1,8 @@
         $HelloLoadPlanPreflightSchema = "raios.current_boot_artifact_load_plan_preflight.v0"
         $HelloLoadPlanPreflightId = "artifact_load_plan_preflight.current_boot.svc.demo.hello.v0"
         $HelloLoadPlanPreflightStatus = "accepted_builtin_current_boot_only"
+        $HelloArtifactIdentityId = "builtin_artifact_identity.svc.demo.hello.v0"
+        $HelloArtifactIdentityV2Id = "builtin_artifact_identity.svc.demo.hello.v2"
         $HelloServiceSlotIntentId = "service_slot_intent.current_boot.svc.demo.hello.v0"
         $HelloRamOnlyServiceSlotId = "ram_only:svc.demo.hello"
         $HelloServiceSlotActivationSchema = "raios.ram_only_service_slot_activation.v0"
@@ -21,7 +23,8 @@
                 [string]$ArtifactIdentityHash,
                 [string]$ArtifactContentHash,
                 [string]$ArtifactReferenceHash,
-                [string]$ArtifactBytesHash
+                [string]$ArtifactBytesHash,
+                [string]$ExpectedArtifactIdentityId = $HelloArtifactIdentityId
             )
 
             if (-not $Preflight) {
@@ -45,7 +48,7 @@
             if ($Preflight.descriptor_source_locator -ne $DescriptorSourceLocator -or $Preflight.descriptor_source_hash -ne $DescriptorSourceHash) {
                 throw "Expected $Name artifact load-plan preflight to bind the selected descriptor source"
             }
-            if ($Preflight.artifact_identity_id -ne "builtin_artifact_identity.svc.demo.hello.v0" -or $Preflight.artifact_identity_hash -ne $ArtifactIdentityHash) {
+            if ($Preflight.artifact_identity_id -ne $ExpectedArtifactIdentityId -or $Preflight.artifact_identity_hash -ne $ArtifactIdentityHash) {
                 throw "Expected $Name artifact load-plan preflight to bind the artifact identity"
             }
             if ($Preflight.artifact_content_binding_hash -ne $ArtifactContentHash) {
@@ -967,6 +970,48 @@
         & $AssertHelloServiceSlotActivationReference -Name "hello hot-swap service response" -Record $helloHotSwap.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
         & $AssertHelloServiceSlotActivationReference -Name "hello hot-swap loader response" -Record $helloHotSwap.body.result.loader -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
 
+        Send-AgentCommand -Command "service.hot_swap svc.demo.hello.v2" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
+        $helloHotSwapV2 = Get-LastAgentResponseJson -Method "service.hot_swap"
+        Assert-CurrentBootEventId -Name "quick:hello_hot_swap_v2_event_id" -Value $helloHotSwapV2.body.result.event_id
+        if ($helloHotSwapV2.body.result.service.version -ne "v2" -or $helloHotSwapV2.body.result.service.artifact_identity_id -ne $HelloArtifactIdentityV2Id) {
+            throw "Expected service.hot_swap svc.demo.hello.v2 to select the signed v2 built-in candidate"
+        }
+        if ($helloHotSwapV2.body.result.service.artifact_identity_hash -eq $helloArtifactIdentityHash) {
+            throw "Expected signed v2 candidate to have a distinct artifact identity hash"
+        }
+        if ($helloHotSwapV2.body.result.service.generation -ne ($helloHotSwap.body.result.service.generation + 1)) {
+            throw "Expected accepted v2 service.hot_swap to advance the loaded hello generation"
+        }
+        $helloHotSwapV2PreflightHash = & $AssertHelloLoadPlanPreflight `
+            -Name "hello v2 hot-swap response" `
+            -Preflight $helloHotSwapV2.body.result.artifact_load_plan_preflight `
+            -DescriptorSourceLocator $helloDescriptorLocator `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -ArtifactIdentityHash $helloHotSwapV2.body.result.service.artifact_identity_hash `
+            -ArtifactContentHash $helloArtifactContentHash `
+            -ArtifactReferenceHash $helloArtifactReferenceHash `
+            -ArtifactBytesHash $helloArtifactBytesHash `
+            -ExpectedArtifactIdentityId $HelloArtifactIdentityV2Id
+        $helloHotSwapV2ActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "hello v2 hot-swap response" `
+            -Activation $helloHotSwapV2.body.result.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloHotSwapV2PreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationActiveStatus `
+            -ExpectedActive $true
+        & $AssertHelloServiceSlotActivationReference -Name "hello v2 hot-swap service response" -Record $helloHotSwapV2.body.result.service -ExpectedHash $helloHotSwapV2ActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
+        & $AssertHelloServiceSlotActivationReference -Name "hello v2 hot-swap loader response" -Record $helloHotSwapV2.body.result.loader -ExpectedHash $helloHotSwapV2ActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
+
+        Send-AgentCommand -Command "service.hot_swap svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
+        $helloHotSwapBack = Get-LastAgentResponseJson -Method "service.hot_swap"
+        Assert-CurrentBootEventId -Name "quick:hello_hot_swap_back_event_id" -Value $helloHotSwapBack.body.result.event_id
+        if ($helloHotSwapBack.body.result.service.version -ne "v1" -or $helloHotSwapBack.body.result.service.artifact_identity_hash -ne $helloArtifactIdentityHash) {
+            throw "Expected service.hot_swap svc.demo.hello to return to the signed v1 built-in candidate"
+        }
+        if ($helloHotSwapBack.body.result.service.generation -ne ($helloHotSwapV2.body.result.service.generation + 1)) {
+            throw "Expected accepted v1 service.hot_swap to advance the loaded hello generation after v2"
+        }
+
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $helloDrop = Get-LastAgentResponseJson -Method "service.drop"
         Assert-CurrentBootEventId -Name "quick:hello_drop_event_id" -Value $helloDrop.body.result.event_id
@@ -1195,7 +1240,7 @@
             -ExpectedActive $false | Out-Null
         & $AssertHelloServiceSlotActivationReference -Name "host-bound drop loader response" -Record $hostDrop.body.result.loader -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationClearedStatus -ExpectedActive $false
 
-        Send-AgentCommand -Command "agent audit.events 46" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+        Send-AgentCommand -Command "agent audit.events 50" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
         $envelopeAuditEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
         if ($envelopeAuditEvents.Count -ne 10) {
@@ -1268,6 +1313,10 @@
         $helloHotSwapEvents = @($helloEvents | Where-Object { $_.source_method -eq "service.hot_swap" -and $_.reason -eq "hot_swapped_builtin_service" })
         if ($helloHotSwapEvents.Count -lt 1) {
             throw "Expected hello lifecycle events to include service.hot_swap"
+        }
+        $helloHotSwapV2Events = @($helloHotSwapEvents | Where-Object { $_.bindings.artifact_identity_id -eq $HelloArtifactIdentityV2Id })
+        if ($helloHotSwapV2Events.Count -lt 1) {
+            throw "Expected hello lifecycle events to include the signed v2 hot-swap candidate"
         }
         $helloDescriptorEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor.current_boot.svc.demo.hello.v0" })
         if ($helloDescriptorEvents.Count -lt 6) {
@@ -1384,7 +1433,7 @@
             throw "Expected host-bound health event to cite the host-bound service-slot activation"
         }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 46' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 50' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_module_load_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_recovery_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1

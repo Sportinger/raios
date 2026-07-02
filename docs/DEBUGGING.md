@@ -462,6 +462,8 @@ service.restart svc.demo.hello
 service.hot_swap external:svc.demo.hello
 service.health svc.demo.hello
 service.hot_swap svc.demo.hello
+service.hot_swap svc.demo.hello.v2
+service.hot_swap svc.demo.hello
 service.drop svc.demo.hello
 service.health svc.demo.hello
 module.load_ephemeral host_bound:svc.demo.hello
@@ -469,7 +471,7 @@ services
 service.health svc.demo.hello
 service.stop svc.demo.hello
 service.drop svc.demo.hello
-agent audit.events 46
+agent audit.events 50
 ```
 
 The two wrong-target commands must still return `raios.module_load_gate.v0`
@@ -520,8 +522,10 @@ healthy while loaded/running, stopped while loaded/not running, running again
 after `service.start`, still running after `service.restart` with the same
 loaded generation, still unchanged after denied `service.hot_swap
 external:svc.demo.hello`, advanced by one generation after accepted
-`service.hot_swap svc.demo.hello`, and missing after drop, and cite the active
-descriptor source hash, signature envelope,
+`service.hot_swap svc.demo.hello`, advanced again with visible `version: "v2"`
+after `service.hot_swap svc.demo.hello.v2`, back to `version: "v1"` after the
+final `service.hot_swap svc.demo.hello`, and missing after drop, and cite the
+active descriptor source hash, signature envelope,
 artifact identity/content/reference/preflight evidence, and service-slot
 activation evidence while loaded. Stop keeps the same activation hash with
 `stopped_current_boot`; start and restart keep the same activation hash with

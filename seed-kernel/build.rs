@@ -18,6 +18,13 @@ fn main() {
     println!(
         "cargo:rerun-if-changed=descriptors/svc.demo.hello.builtin_artifact_identity.p256.sig.der.hex"
     );
+    println!("cargo:rerun-if-changed=descriptors/svc.demo.hello.builtin_artifact_identity.v2.desc");
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.demo.hello.builtin_artifact_identity.v2.p256.pub.hex"
+    );
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.demo.hello.builtin_artifact_identity.v2.p256.sig.der.hex"
+    );
     println!("cargo:rerun-if-changed=src/hello_service.rs");
     println!("cargo:rerun-if-changed=artifacts/svc.demo.hello.builtin.artifact");
 
@@ -35,19 +42,33 @@ fn main() {
         manifest_dir.join("descriptors/svc.demo.hello.builtin_artifact_identity.p256.pub.hex");
     let artifact_identity_signature_path =
         manifest_dir.join("descriptors/svc.demo.hello.builtin_artifact_identity.p256.sig.der.hex");
+    let artifact_identity_v2_path =
+        manifest_dir.join("descriptors/svc.demo.hello.builtin_artifact_identity.v2.desc");
+    let artifact_identity_v2_public_key_path =
+        manifest_dir.join("descriptors/svc.demo.hello.builtin_artifact_identity.v2.p256.pub.hex");
+    let artifact_identity_v2_signature_path = manifest_dir
+        .join("descriptors/svc.demo.hello.builtin_artifact_identity.v2.p256.sig.der.hex");
     let current_source = fs::read_to_string(descriptor_path).unwrap();
     let hello_service_source = fs::read(hello_service_path).unwrap();
     let artifact_bytes = fs::read(artifact_bytes_path).unwrap();
     let artifact_identity_source = fs::read_to_string(artifact_identity_path).unwrap();
+    let artifact_identity_v2_source = fs::read_to_string(artifact_identity_v2_path).unwrap();
     let public_key = read_hex_file(public_key_path);
     let signature_der = read_hex_file(signature_path);
     let artifact_identity_public_key = read_hex_file(artifact_identity_public_key_path);
     let artifact_identity_signature_der = read_hex_file(artifact_identity_signature_path);
+    let artifact_identity_v2_public_key = read_hex_file(artifact_identity_v2_public_key_path);
+    let artifact_identity_v2_signature_der = read_hex_file(artifact_identity_v2_signature_path);
     verify_p256_signature(&public_key, &signature_der, current_source.as_bytes());
     verify_p256_signature(
         &artifact_identity_public_key,
         &artifact_identity_signature_der,
         artifact_identity_source.as_bytes(),
+    );
+    verify_p256_signature(
+        &artifact_identity_v2_public_key,
+        &artifact_identity_v2_signature_der,
+        artifact_identity_v2_source.as_bytes(),
     );
 
     let current_hash = Sha256::digest(current_source.as_bytes());
@@ -58,6 +79,8 @@ fn main() {
     let signature_hash_hex = sha256_hex(&signature_hash);
     let artifact_identity_hash = Sha256::digest(artifact_identity_source.as_bytes());
     let artifact_identity_hash_hex = sha256_hex(&artifact_identity_hash);
+    let artifact_identity_v2_hash = Sha256::digest(artifact_identity_v2_source.as_bytes());
+    let artifact_identity_v2_hash_hex = sha256_hex(&artifact_identity_v2_hash);
     let artifact_content_source_hash = Sha256::digest(&hello_service_source);
     let artifact_content_source_hash_hex = sha256_hex(&artifact_content_source_hash);
     let artifact_content_binding_text = format!(
@@ -123,10 +146,51 @@ writes_persistent_state=false",
         ),
         Some(expected_artifact_content_binding_hash.as_str())
     );
+    assert_eq!(
+        text_field(&artifact_identity_v2_source, "id"),
+        Some("builtin_artifact_identity.svc.demo.hello.v2")
+    );
+    assert_eq!(
+        text_field(
+            &artifact_identity_v2_source,
+            "artifact_content_source_sha256"
+        ),
+        Some(expected_artifact_content_source_hash.as_str())
+    );
+    assert_eq!(
+        text_field(
+            &artifact_identity_v2_source,
+            "artifact_content_binding_sha256"
+        ),
+        Some(expected_artifact_content_binding_hash.as_str())
+    );
+    assert_eq!(
+        text_field(&artifact_identity_v2_source, "artifact_reference_sha256"),
+        Some(expected_artifact_reference_hash.as_str())
+    );
+    assert_eq!(
+        text_field(
+            &artifact_identity_v2_source,
+            "artifact_reference_bytes_sha256"
+        ),
+        Some(expected_artifact_bytes_hash.as_str())
+    );
+    assert_eq!(
+        text_field(
+            &artifact_identity_v2_source,
+            "artifact_reference_content_binding_sha256"
+        ),
+        Some(expected_artifact_content_binding_hash.as_str())
+    );
     let artifact_identity_public_key_hash = Sha256::digest(&artifact_identity_public_key);
     let artifact_identity_public_key_hash_hex = sha256_hex(&artifact_identity_public_key_hash);
     let artifact_identity_signature_hash = Sha256::digest(&artifact_identity_signature_der);
     let artifact_identity_signature_hash_hex = sha256_hex(&artifact_identity_signature_hash);
+    let artifact_identity_v2_public_key_hash = Sha256::digest(&artifact_identity_v2_public_key);
+    let artifact_identity_v2_public_key_hash_hex =
+        sha256_hex(&artifact_identity_v2_public_key_hash);
+    let artifact_identity_v2_signature_hash = Sha256::digest(&artifact_identity_v2_signature_der);
+    let artifact_identity_v2_signature_hash_hex = sha256_hex(&artifact_identity_v2_signature_hash);
     let envelope_text = format!(
         "schema=raios.descriptor_source_signature_envelope.v0\n\
 id=descriptor_source_signature.current_image.svc.demo.hello.v0\n\
@@ -165,6 +229,27 @@ authorizes_rollback_install=false",
     );
     let artifact_identity_envelope_hash =
         Sha256::digest(artifact_identity_envelope_text.as_bytes());
+    let artifact_identity_v2_envelope_text = format!(
+        "schema=raios.builtin_artifact_identity_signature_envelope.v0\n\
+id=artifact_identity_signature.builtin.svc.demo.hello.v2\n\
+algorithm=ecdsa_p256_sha256_asn1_der\n\
+payload_identity_id=builtin_artifact_identity.svc.demo.hello.v2\n\
+payload_artifact_id=builtin:svc.demo.hello\n\
+payload_sha256=sha256:{}\n\
+public_key_sha256=sha256:{}\n\
+signature_sha256=sha256:{}\n\
+verification_phase=runtime_before_builtin_artifact_selection\n\
+trust_scope=current_boot_builtin_artifact_identity_candidate\n\
+classification=local_only\n\
+authorizes_external_artifact_load=false\n\
+authorizes_persistent_install=false\n\
+authorizes_rollback_install=false",
+        artifact_identity_v2_hash_hex,
+        artifact_identity_v2_public_key_hash_hex,
+        artifact_identity_v2_signature_hash_hex
+    );
+    let artifact_identity_v2_envelope_hash =
+        Sha256::digest(artifact_identity_v2_envelope_text.as_bytes());
     let host_source = format!(
         "canonicalization=raios.current_boot_load_descriptor.canonical.v0\n\
 schema=raios.current_boot_load_descriptor.v0\n\
@@ -216,6 +301,15 @@ pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_PUBLIC_KEY_SEC1: &[u8] = &{};\n
 pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_SIGNATURE_DER: &[u8] = &{};\n\
 pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_PUBLIC_KEY_HASH: [u8; 32] = {};\n\
 pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_SIGNATURE_HASH: [u8; 32] = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_SOURCE: &str = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_HASH: [u8; 32] = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ENVELOPE_ID: &str = \"artifact_identity_signature.builtin.svc.demo.hello.v2\";\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ENVELOPE_TEXT: &str = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ENVELOPE_HASH: [u8; 32] = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_PUBLIC_KEY_SEC1: &[u8] = &{};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_SIGNATURE_DER: &[u8] = &{};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_PUBLIC_KEY_HASH: [u8; 32] = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_SIGNATURE_HASH: [u8; 32] = {};\n\
 pub(crate) const HELLO_BUILTIN_ARTIFACT_CONTENT_BINDING_SCHEMA: &str = \"raios.builtin_artifact_content_binding.v0\";\n\
 pub(crate) const HELLO_BUILTIN_ARTIFACT_CONTENT_BINDING_ID: &str = \"builtin_artifact_content.svc.demo.hello.v0\";\n\
 pub(crate) const HELLO_BUILTIN_ARTIFACT_CONTENT_KIND: &str = \"repo_source_snapshot\";\n\
@@ -245,6 +339,14 @@ pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
             rust_byte_array(&artifact_identity_signature_der),
             rust_byte_array(&artifact_identity_public_key_hash),
             rust_byte_array(&artifact_identity_signature_hash),
+            rust_string(&artifact_identity_v2_source),
+            rust_byte_array(&artifact_identity_v2_hash),
+            rust_string(&artifact_identity_v2_envelope_text),
+            rust_byte_array(&artifact_identity_v2_envelope_hash),
+            rust_byte_array(&artifact_identity_v2_public_key),
+            rust_byte_array(&artifact_identity_v2_signature_der),
+            rust_byte_array(&artifact_identity_v2_public_key_hash),
+            rust_byte_array(&artifact_identity_v2_signature_hash),
             rust_byte_array(&artifact_content_source_hash),
             rust_string(&artifact_content_binding_text),
             rust_byte_array(&artifact_content_binding_hash),

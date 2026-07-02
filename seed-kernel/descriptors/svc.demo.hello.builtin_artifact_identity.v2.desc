@@ -1,6 +1,7 @@
 canonicalization=raios.builtin_artifact_identity.canonical.v0
 schema=raios.builtin_artifact_identity.v0
-id=builtin_artifact_identity.svc.demo.hello.v0
+id=builtin_artifact_identity.svc.demo.hello.v2
+candidate_version=v2
 service_id=svc.demo.hello
 artifact_id=builtin:svc.demo.hello
 artifact_kind=builtin_stage0_test_service
