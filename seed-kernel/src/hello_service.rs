@@ -44,6 +44,11 @@ pub(crate) const HELLO_STATE_MIGRATION_SCHEMA: &str =
     "raios.ram_only_hello_service_state_migration.v0";
 pub(crate) const HELLO_STATE_MIGRATION_ID: &str =
     "hello_state_migration.current_boot.svc.demo.hello.v0";
+pub(crate) const HELLO_HOT_SWAP_PROBATION_SCHEMA: &str =
+    "raios.ram_only_hello_service_hot_swap_probation.v0";
+pub(crate) const HELLO_HOT_SWAP_PROBATION_ID: &str =
+    "hello_hot_swap_probation.current_boot.svc.demo.hello.v0";
+pub(crate) const HELLO_HOT_SWAP_PROBATION_STATUS: &str = "active_current_boot_probation";
 const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_SCHEMA: &str =
     "raios.current_boot_artifact_load_plan_preflight_selftest.v0";
 const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_ID: &str =
@@ -151,6 +156,43 @@ pub(crate) struct HelloStateMigrationRecord {
     writes_persistent_state: bool,
     writes_durable_audit_log: bool,
     installs_rollback_plan: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct HelloHotSwapProbationRecord {
+    schema: &'static str,
+    id: &'static str,
+    scope: &'static str,
+    classification: &'static str,
+    persistence: &'static str,
+    status: &'static str,
+    probation_hash: [u8; 32],
+    service_id: &'static str,
+    ram_only_service_slot_id: &'static str,
+    previous_version: &'static str,
+    new_version: &'static str,
+    previous_descriptor_id: &'static str,
+    new_descriptor_id: &'static str,
+    previous_descriptor_source_hash: [u8; 32],
+    new_descriptor_source_hash: [u8; 32],
+    previous_artifact_identity_id: &'static str,
+    new_artifact_identity_id: &'static str,
+    previous_artifact_identity_hash: [u8; 32],
+    new_artifact_identity_hash: [u8; 32],
+    previous_generation: u64,
+    new_generation: u64,
+    previous_state_hash: [u8; 32],
+    new_state_hash: [u8; 32],
+    previous_state_counter: u64,
+    new_state_counter: u64,
+    state_migration_hash: [u8; 32],
+    accepted: bool,
+    loads_candidate_bytes: bool,
+    maps_executable_pages: bool,
+    writes_persistent_state: bool,
+    writes_durable_audit_log: bool,
+    installs_rollback_plan: bool,
+    applies_rollback: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -334,6 +376,159 @@ fn hello_state_migration_record_hash(record: HelloStateMigrationRecord) -> [u8; 
         b"installs_rollback_plan",
         record.installs_rollback_plan,
     );
+    finalize_sha256(hash)
+}
+
+fn hello_hot_swap_probation_record(
+    previous_descriptor: LoadDescriptor,
+    new_descriptor: LoadDescriptor,
+    previous_generation: u64,
+    new_generation: u64,
+    state_counter: u64,
+    migration: HelloStateMigrationRecord,
+) -> HelloHotSwapProbationRecord {
+    let state_hash = hello_state_hash(state_counter);
+    let mut record = HelloHotSwapProbationRecord {
+        schema: HELLO_HOT_SWAP_PROBATION_SCHEMA,
+        id: HELLO_HOT_SWAP_PROBATION_ID,
+        scope: "current_boot",
+        classification: "local_only",
+        persistence: "none",
+        status: HELLO_HOT_SWAP_PROBATION_STATUS,
+        probation_hash: [0; 32],
+        service_id: SERVICE_ID,
+        ram_only_service_slot_id: RAM_ONLY_SERVICE_SLOT_ID,
+        previous_version: service_version(previous_descriptor),
+        new_version: service_version(new_descriptor),
+        previous_descriptor_id: previous_descriptor.id,
+        new_descriptor_id: new_descriptor.id,
+        previous_descriptor_source_hash: descriptor_source_hash(previous_descriptor),
+        new_descriptor_source_hash: descriptor_source_hash(new_descriptor),
+        previous_artifact_identity_id: previous_descriptor.artifact_identity.id,
+        new_artifact_identity_id: new_descriptor.artifact_identity.id,
+        previous_artifact_identity_hash: artifact_identity_hash(previous_descriptor),
+        new_artifact_identity_hash: artifact_identity_hash(new_descriptor),
+        previous_generation,
+        new_generation,
+        previous_state_hash: state_hash,
+        new_state_hash: state_hash,
+        previous_state_counter: state_counter,
+        new_state_counter: state_counter,
+        state_migration_hash: migration.migration_hash,
+        accepted: true,
+        loads_candidate_bytes: false,
+        maps_executable_pages: false,
+        writes_persistent_state: false,
+        writes_durable_audit_log: false,
+        installs_rollback_plan: false,
+        applies_rollback: false,
+    };
+    record.probation_hash = hello_hot_swap_probation_record_hash(record);
+    record
+}
+
+fn hello_hot_swap_probation_record_hash(record: HelloHotSwapProbationRecord) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_line_str(&mut hash, b"schema", record.schema);
+    hash_line_str(&mut hash, b"id", record.id);
+    hash_line_str(&mut hash, b"scope", record.scope);
+    hash_line_str(&mut hash, b"classification", record.classification);
+    hash_line_str(&mut hash, b"persistence", record.persistence);
+    hash_line_str(&mut hash, b"status", record.status);
+    hash_line_str(&mut hash, b"service_id", record.service_id);
+    hash_line_str(
+        &mut hash,
+        b"ram_only_service_slot_id",
+        record.ram_only_service_slot_id,
+    );
+    hash_line_str(&mut hash, b"previous_version", record.previous_version);
+    hash_line_str(&mut hash, b"new_version", record.new_version);
+    hash_line_str(
+        &mut hash,
+        b"previous_descriptor_id",
+        record.previous_descriptor_id,
+    );
+    hash_line_str(&mut hash, b"new_descriptor_id", record.new_descriptor_id);
+    hash_line_hash(
+        &mut hash,
+        b"previous_descriptor_source_sha256",
+        record.previous_descriptor_source_hash,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"new_descriptor_source_sha256",
+        record.new_descriptor_source_hash,
+    );
+    hash_line_str(
+        &mut hash,
+        b"previous_artifact_identity_id",
+        record.previous_artifact_identity_id,
+    );
+    hash_line_str(
+        &mut hash,
+        b"new_artifact_identity_id",
+        record.new_artifact_identity_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"previous_artifact_identity_sha256",
+        record.previous_artifact_identity_hash,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"new_artifact_identity_sha256",
+        record.new_artifact_identity_hash,
+    );
+    hash_line_u64(
+        &mut hash,
+        b"previous_generation",
+        record.previous_generation,
+    );
+    hash_line_u64(&mut hash, b"new_generation", record.new_generation);
+    hash_line_hash(
+        &mut hash,
+        b"previous_state_sha256",
+        record.previous_state_hash,
+    );
+    hash_line_hash(&mut hash, b"new_state_sha256", record.new_state_hash);
+    hash_line_u64(
+        &mut hash,
+        b"previous_state_counter",
+        record.previous_state_counter,
+    );
+    hash_line_u64(&mut hash, b"new_state_counter", record.new_state_counter);
+    hash_line_hash(
+        &mut hash,
+        b"state_migration_sha256",
+        record.state_migration_hash,
+    );
+    hash_line_bool(&mut hash, b"accepted", record.accepted);
+    hash_line_bool(
+        &mut hash,
+        b"loads_candidate_bytes",
+        record.loads_candidate_bytes,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"maps_executable_pages",
+        record.maps_executable_pages,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"writes_persistent_state",
+        record.writes_persistent_state,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"writes_durable_audit_log",
+        record.writes_durable_audit_log,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"installs_rollback_plan",
+        record.installs_rollback_plan,
+    );
+    hash_line_bool(&mut hash, b"applies_rollback", record.applies_rollback);
     finalize_sha256(hash)
 }
 
@@ -796,6 +991,7 @@ pub(crate) struct Snapshot {
     pub generation: u64,
     pub state_counter: u64,
     pub state_migration: Option<HelloStateMigrationRecord>,
+    pub hot_swap_probation: Option<HelloHotSwapProbationRecord>,
     pub load_descriptor: LoadDescriptor,
     pub last_action: &'static str,
     pub last_reason: &'static str,
@@ -815,6 +1011,7 @@ struct State {
     generation: u64,
     state_counter: u64,
     state_migration: Option<HelloStateMigrationRecord>,
+    hot_swap_probation: Option<HelloHotSwapProbationRecord>,
     load_descriptor: LoadDescriptor,
     last_action: &'static str,
     last_reason: &'static str,
@@ -835,6 +1032,7 @@ impl State {
             generation: 0,
             state_counter: 0,
             state_migration: None,
+            hot_swap_probation: None,
             load_descriptor: LOAD_DESCRIPTOR,
             last_action: "none",
             last_reason: "not_loaded",
@@ -855,6 +1053,7 @@ impl State {
             generation: self.generation,
             state_counter: self.state_counter,
             state_migration: self.state_migration,
+            hot_swap_probation: self.hot_swap_probation,
             load_descriptor: self.load_descriptor,
             last_action: self.last_action,
             last_reason: self.last_reason,
@@ -1258,6 +1457,7 @@ fn load_start(source_method: &'static str, descriptor: LoadDescriptor) -> Snapsh
             true,
             state_counter,
             None,
+            None,
         ),
     );
 
@@ -1270,6 +1470,7 @@ fn load_start(source_method: &'static str, descriptor: LoadDescriptor) -> Snapsh
     state.running = true;
     state.load_descriptor = descriptor;
     state.state_migration = None;
+    state.hot_swap_probation = None;
     state.start_event_id = Some(event_id);
     state.last_action = "load_start";
     state.last_reason = reason;
@@ -1314,6 +1515,7 @@ fn start(source_method: &'static str) -> Snapshot {
             state.loaded,
             state_counter,
             None,
+            None,
         ),
     );
 
@@ -1321,6 +1523,7 @@ fn start(source_method: &'static str) -> Snapshot {
         state.running = true;
         state.state_counter = state_counter;
         state.state_migration = None;
+        state.hot_swap_probation = None;
         state.start_event_id = Some(event_id);
     }
     state.last_action = "start";
@@ -1364,6 +1567,7 @@ fn restart(source_method: &'static str) -> Snapshot {
             state.loaded,
             state_counter,
             None,
+            None,
         ),
     );
 
@@ -1371,6 +1575,7 @@ fn restart(source_method: &'static str) -> Snapshot {
         state.running = true;
         state.state_counter = state_counter;
         state.state_migration = None;
+        state.hot_swap_probation = None;
         state.start_event_id = Some(event_id);
     }
     state.last_action = "restart";
@@ -1398,16 +1603,28 @@ fn hot_swap(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot
         SERVICE_SLOT_ACTIVATION_MISSING_STATUS
     };
     let state_counter = state.state_counter;
-    let migration = if state.loaded {
-        Some(hello_state_migration_record(
-            state.load_descriptor,
+    let previous_descriptor = state.load_descriptor;
+    let previous_generation = state.generation;
+    let new_generation = previous_generation.saturating_add(1);
+    let (migration, probation) = if state.loaded {
+        let migration = hello_state_migration_record(
+            previous_descriptor,
             descriptor,
             state_counter,
             state_counter,
             true,
-        ))
+        );
+        let probation = hello_hot_swap_probation_record(
+            previous_descriptor,
+            descriptor,
+            previous_generation,
+            new_generation,
+            state_counter,
+            migration,
+        );
+        (Some(migration), Some(probation))
     } else {
-        None
+        (None, None)
     };
     let event_id = event_log::record_hello_service_lifecycle(
         source_method,
@@ -1420,17 +1637,19 @@ fn hot_swap(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot
             state.loaded,
             state_counter,
             migration,
+            probation,
         ),
     );
 
     if state.loaded {
-        state.generation = state.generation.saturating_add(1);
+        state.generation = new_generation;
         state.running = true;
         state.load_descriptor = descriptor;
         state.load_event_id = Some(event_id);
         state.start_event_id = Some(event_id);
         state.hot_swap_event_id = Some(event_id);
         state.state_migration = migration;
+        state.hot_swap_probation = probation;
     }
     state.last_action = "hot_swap";
     state.last_reason = reason;
@@ -1459,6 +1678,7 @@ fn denied_reset_state_hot_swap() -> (Snapshot, event_log::EventId, HelloStateMig
             service_slot_activation_active(snapshot),
             snapshot.state_counter,
             Some(migration),
+            None,
         ),
     );
     (snapshot, event_id, migration)
@@ -1496,12 +1716,14 @@ fn stop(source_method: &'static str) -> Snapshot {
             state.loaded,
             state_counter,
             None,
+            None,
         ),
     );
 
     if state.loaded {
         state.running = false;
         state.state_migration = None;
+        state.hot_swap_probation = None;
         state.stop_event_id = Some(event_id);
     }
     state.last_action = "stop";
@@ -1541,6 +1763,7 @@ fn drop_service(source_method: &'static str) -> Snapshot {
             false,
             state_counter,
             None,
+            None,
         ),
     );
 
@@ -1548,6 +1771,7 @@ fn drop_service(source_method: &'static str) -> Snapshot {
     state.running = false;
     state.state_counter = 0;
     state.state_migration = None;
+    state.hot_swap_probation = None;
     state.drop_event_id = Some(event_id);
     state.last_action = "drop";
     state.last_reason = reason;
@@ -1580,6 +1804,7 @@ fn health_probe(source_method: &'static str) -> (Snapshot, event_log::EventId) {
             service_slot_activation_active(snapshot),
             snapshot.state_counter,
             snapshot.state_migration,
+            snapshot.hot_swap_probation,
         ),
     );
     (snapshot, event_id)
@@ -1752,6 +1977,7 @@ fn lifecycle_binding(
     service_slot_activation_active: bool,
     state_counter: u64,
     state_migration: Option<HelloStateMigrationRecord>,
+    hot_swap_probation: Option<HelloHotSwapProbationRecord>,
 ) -> event_log::HelloServiceLifecycleBinding {
     let identity = descriptor.artifact_identity;
     let identity_envelope = identity.signed_envelope;
@@ -1845,6 +2071,48 @@ fn lifecycle_binding(
         state_migration_accepted: state_migration
             .map(|record| record.accepted)
             .unwrap_or(false),
+        hot_swap_probation_schema: hot_swap_probation.map(|record| record.schema),
+        hot_swap_probation_id: hot_swap_probation.map(|record| record.id),
+        hot_swap_probation_hash: hot_swap_probation.map(|record| record.probation_hash),
+        hot_swap_probation_status: hot_swap_probation.map(|record| record.status),
+        hot_swap_probation_previous_version: hot_swap_probation
+            .map(|record| record.previous_version),
+        hot_swap_probation_new_version: hot_swap_probation.map(|record| record.new_version),
+        hot_swap_probation_previous_descriptor_source_hash: hot_swap_probation
+            .map(|record| record.previous_descriptor_source_hash),
+        hot_swap_probation_new_descriptor_source_hash: hot_swap_probation
+            .map(|record| record.new_descriptor_source_hash),
+        hot_swap_probation_previous_artifact_identity_hash: hot_swap_probation
+            .map(|record| record.previous_artifact_identity_hash),
+        hot_swap_probation_new_artifact_identity_hash: hot_swap_probation
+            .map(|record| record.new_artifact_identity_hash),
+        hot_swap_probation_previous_generation: hot_swap_probation
+            .map(|record| record.previous_generation),
+        hot_swap_probation_new_generation: hot_swap_probation.map(|record| record.new_generation),
+        hot_swap_probation_previous_state_hash: hot_swap_probation
+            .map(|record| record.previous_state_hash),
+        hot_swap_probation_new_state_hash: hot_swap_probation.map(|record| record.new_state_hash),
+        hot_swap_probation_previous_state_counter: hot_swap_probation
+            .map(|record| record.previous_state_counter),
+        hot_swap_probation_new_state_counter: hot_swap_probation
+            .map(|record| record.new_state_counter),
+        hot_swap_probation_state_migration_hash: hot_swap_probation
+            .map(|record| record.state_migration_hash),
+        hot_swap_probation_accepted: hot_swap_probation
+            .map(|record| record.accepted)
+            .unwrap_or(false),
+        hot_swap_probation_writes_persistent_state: hot_swap_probation
+            .map(|record| record.writes_persistent_state)
+            .unwrap_or(false),
+        hot_swap_probation_writes_durable_audit_log: hot_swap_probation
+            .map(|record| record.writes_durable_audit_log)
+            .unwrap_or(false),
+        hot_swap_probation_installs_rollback_plan: hot_swap_probation
+            .map(|record| record.installs_rollback_plan)
+            .unwrap_or(false),
+        hot_swap_probation_applies_rollback: hot_swap_probation
+            .map(|record| record.applies_rollback)
+            .unwrap_or(false),
         binds_source_locator: descriptor.binds_source_locator,
         binds_source_kind: descriptor.binds_source_kind,
         binds_source_hash: descriptor.binds_source_hash,
@@ -1882,6 +2150,9 @@ fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: even
     raw_line(",");
     raw("      \"state_migration\": ");
     emit_hello_state_migration_option(snapshot.state_migration);
+    raw_line(",");
+    raw("      \"hot_swap_probation\": ");
+    emit_hello_hot_swap_probation_option(snapshot.hot_swap_probation);
     raw_line(",");
     raw_line("      \"service\": {");
     raw("        \"id\": ");
@@ -2083,6 +2354,9 @@ fn emit_response(
     raw_line(",");
     raw("      \"state_migration\": ");
     emit_hello_state_migration_option(snapshot.state_migration);
+    raw_line(",");
+    raw("      \"hot_swap_probation\": ");
+    emit_hello_hot_swap_probation_option(snapshot.hot_swap_probation);
     raw_line(",");
     raw_line("      \"service\": {");
     raw("        \"id\": ");
@@ -2707,6 +2981,81 @@ fn emit_hello_state_migration_option(record: Option<HelloStateMigrationRecord>) 
     raw_bool(record.writes_durable_audit_log);
     raw(", \"installs_rollback_plan\": ");
     raw_bool(record.installs_rollback_plan);
+    raw("}");
+}
+
+pub(crate) fn emit_hello_hot_swap_probation_option(record: Option<HelloHotSwapProbationRecord>) {
+    let Some(record) = record else {
+        raw("null");
+        return;
+    };
+    raw("{");
+    raw("\"schema\": ");
+    json_str(record.schema);
+    raw(", \"id\": ");
+    json_str(record.id);
+    raw(", \"scope\": ");
+    json_str(record.scope);
+    raw(", \"classification\": ");
+    json_str(record.classification);
+    raw(", \"persistence\": ");
+    json_str(record.persistence);
+    raw(", \"status\": ");
+    json_str(record.status);
+    raw(", \"probation_hash\": ");
+    json_sha256(record.probation_hash);
+    raw(", \"service_id\": ");
+    json_str(record.service_id);
+    raw(", \"ram_only_service_slot_id\": ");
+    json_str(record.ram_only_service_slot_id);
+    raw(", \"previous_version\": ");
+    json_str(record.previous_version);
+    raw(", \"new_version\": ");
+    json_str(record.new_version);
+    raw(", \"previous_descriptor_id\": ");
+    json_str(record.previous_descriptor_id);
+    raw(", \"new_descriptor_id\": ");
+    json_str(record.new_descriptor_id);
+    raw(", \"previous_descriptor_source_hash\": ");
+    json_sha256(record.previous_descriptor_source_hash);
+    raw(", \"new_descriptor_source_hash\": ");
+    json_sha256(record.new_descriptor_source_hash);
+    raw(", \"previous_artifact_identity_id\": ");
+    json_str(record.previous_artifact_identity_id);
+    raw(", \"new_artifact_identity_id\": ");
+    json_str(record.new_artifact_identity_id);
+    raw(", \"previous_artifact_identity_hash\": ");
+    json_sha256(record.previous_artifact_identity_hash);
+    raw(", \"new_artifact_identity_hash\": ");
+    json_sha256(record.new_artifact_identity_hash);
+    raw(", \"previous_generation\": ");
+    raw_fmt(format_args!("{}", record.previous_generation));
+    raw(", \"new_generation\": ");
+    raw_fmt(format_args!("{}", record.new_generation));
+    raw(", \"previous_state_hash\": ");
+    json_sha256(record.previous_state_hash);
+    raw(", \"new_state_hash\": ");
+    json_sha256(record.new_state_hash);
+    raw(", \"previous_state_counter\": ");
+    raw_fmt(format_args!("{}", record.previous_state_counter));
+    raw(", \"new_state_counter\": ");
+    raw_fmt(format_args!("{}", record.new_state_counter));
+    raw(", \"state_migration_hash\": ");
+    json_sha256(record.state_migration_hash);
+    raw(", \"accepted\": ");
+    raw_bool(record.accepted);
+    raw(", \"loads_candidate_bytes\": ");
+    raw_bool(record.loads_candidate_bytes);
+    raw(", \"maps_executable_pages\": ");
+    raw_bool(record.maps_executable_pages);
+    raw(", \"writes_persistent_state\": ");
+    raw_bool(record.writes_persistent_state);
+    raw(", \"writes_durable_audit_log\": ");
+    raw_bool(record.writes_durable_audit_log);
+    raw(", \"installs_rollback_plan\": ");
+    raw_bool(record.installs_rollback_plan);
+    raw(", \"applies_rollback\": ");
+    raw_bool(record.applies_rollback);
     raw("}");
 }
 

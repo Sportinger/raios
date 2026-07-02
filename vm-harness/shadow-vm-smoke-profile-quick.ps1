@@ -15,6 +15,9 @@
         $HelloStateId = "hello_state.current_boot.svc.demo.hello.v0"
         $HelloStateMigrationSchema = "raios.ram_only_hello_service_state_migration.v0"
         $HelloStateMigrationId = "hello_state_migration.current_boot.svc.demo.hello.v0"
+        $HelloHotSwapProbationSchema = "raios.ram_only_hello_service_hot_swap_probation.v0"
+        $HelloHotSwapProbationId = "hello_hot_swap_probation.current_boot.svc.demo.hello.v0"
+        $HelloHotSwapProbationStatus = "active_current_boot_probation"
         $HelloLoadPlanPreflightSelftestSchema = "raios.current_boot_artifact_load_plan_preflight_selftest.v0"
         $HelloLoadPlanPreflightSelftestId = "artifact_load_plan_preflight_selftest.current_boot.svc.demo.hello.v0"
 
@@ -244,6 +247,64 @@
             }
 
             return $Migration.migration_hash
+        }
+
+        $AssertHelloHotSwapProbation = {
+            param(
+                [string]$Name,
+                [object]$Probation,
+                [string]$ExpectedPreviousVersion,
+                [string]$ExpectedNewVersion,
+                [int]$ExpectedPreviousGeneration,
+                [int]$ExpectedNewGeneration,
+                [string]$ExpectedPreviousStateHash,
+                [string]$ExpectedNewStateHash,
+                [string]$ExpectedPreviousArtifactIdentityHash,
+                [string]$ExpectedNewArtifactIdentityHash,
+                [string]$ExpectedStateMigrationHash
+            )
+
+            if (-not $Probation) {
+                throw "Expected $Name to expose Hello hot-swap probation evidence"
+            }
+            if ($Probation.schema -ne $HelloHotSwapProbationSchema -or $Probation.id -ne $HelloHotSwapProbationId) {
+                throw "Expected $Name Hello hot-swap probation schema/id"
+            }
+            if ($Probation.scope -ne "current_boot" -or $Probation.classification -ne "local_only" -or $Probation.persistence -ne "none") {
+                throw "Expected $Name Hello hot-swap probation current_boot/local_only/none"
+            }
+            if ($Probation.status -ne $HelloHotSwapProbationStatus) {
+                throw "Expected $Name Hello hot-swap probation status"
+            }
+            if (-not $Probation.probation_hash -or -not $Probation.probation_hash.StartsWith("sha256:")) {
+                throw "Expected $Name Hello hot-swap probation hash"
+            }
+            if ($Probation.service_id -ne "svc.demo.hello" -or $Probation.ram_only_service_slot_id -ne $HelloRamOnlyServiceSlotId) {
+                throw "Expected $Name Hello hot-swap probation to bind the RAM-only service slot"
+            }
+            if ($Probation.previous_version -ne $ExpectedPreviousVersion -or $Probation.new_version -ne $ExpectedNewVersion) {
+                throw "Expected $Name Hello hot-swap probation previous/new versions"
+            }
+            if ($Probation.previous_generation -ne $ExpectedPreviousGeneration -or $Probation.new_generation -ne $ExpectedNewGeneration) {
+                throw "Expected $Name Hello hot-swap probation previous/new generations"
+            }
+            if ($Probation.previous_state_hash -ne $ExpectedPreviousStateHash -or $Probation.new_state_hash -ne $ExpectedNewStateHash) {
+                throw "Expected $Name Hello hot-swap probation previous/new state hashes"
+            }
+            if ($Probation.previous_state_counter -ne 3 -or $Probation.new_state_counter -ne 3) {
+                throw "Expected $Name Hello hot-swap probation to preserve state counter 3"
+            }
+            if ($Probation.previous_artifact_identity_hash -ne $ExpectedPreviousArtifactIdentityHash -or $Probation.new_artifact_identity_hash -ne $ExpectedNewArtifactIdentityHash) {
+                throw "Expected $Name Hello hot-swap probation previous/new artifact identity hashes"
+            }
+            if ($Probation.state_migration_hash -ne $ExpectedStateMigrationHash) {
+                throw "Expected $Name Hello hot-swap probation to bind the state migration hash"
+            }
+            if (-not $Probation.accepted -or $Probation.loads_candidate_bytes -or $Probation.maps_executable_pages -or $Probation.writes_persistent_state -or $Probation.writes_durable_audit_log -or $Probation.installs_rollback_plan -or $Probation.applies_rollback) {
+                throw "Expected $Name Hello hot-swap probation accepted but no candidate execution, persistence, durable audit, rollback install, or rollback apply"
+            }
+
+            return $Probation.probation_hash
         }
 
         $agentEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe requested_capability=cap.system.describe.read classification=local_only"
@@ -1117,6 +1178,18 @@
             throw "Expected accepted v1 service.hot_swap to preserve Hello RAM-only state"
         }
         $helloHotSwapMigrationHash = & $AssertHelloStateMigration -Name "hello v1 hot-swap response" -Migration $helloHotSwap.body.result.state_migration -ExpectedFromVersion "v1" -ExpectedToVersion "v1" -ExpectedCounter 3 -ExpectedStateHash $helloRestartStateHash
+        $helloHotSwapProbationHash = & $AssertHelloHotSwapProbation `
+            -Name "hello v1 hot-swap response" `
+            -Probation $helloHotSwap.body.result.hot_swap_probation `
+            -ExpectedPreviousVersion "v1" `
+            -ExpectedNewVersion "v1" `
+            -ExpectedPreviousGeneration $helloRestart.body.result.service.generation `
+            -ExpectedNewGeneration $helloHotSwap.body.result.service.generation `
+            -ExpectedPreviousStateHash $helloRestartStateHash `
+            -ExpectedNewStateHash $helloHotSwapStateHash `
+            -ExpectedPreviousArtifactIdentityHash $helloArtifactIdentityHash `
+            -ExpectedNewArtifactIdentityHash $helloArtifactIdentityHash `
+            -ExpectedStateMigrationHash $helloHotSwapMigrationHash
         $helloHotSwapActivationHash = & $AssertHelloServiceSlotActivation `
             -Name "hello hot-swap response" `
             -Activation $helloHotSwap.body.result.service_slot_activation `
@@ -1147,6 +1220,18 @@
             throw "Expected v2 service.hot_swap to preserve Hello RAM-only state"
         }
         $helloHotSwapV2MigrationHash = & $AssertHelloStateMigration -Name "hello v2 hot-swap response" -Migration $helloHotSwapV2.body.result.state_migration -ExpectedFromVersion "v1" -ExpectedToVersion "v2" -ExpectedCounter 3 -ExpectedStateHash $helloHotSwapStateHash
+        $helloHotSwapV2ProbationHash = & $AssertHelloHotSwapProbation `
+            -Name "hello v2 hot-swap response" `
+            -Probation $helloHotSwapV2.body.result.hot_swap_probation `
+            -ExpectedPreviousVersion "v1" `
+            -ExpectedNewVersion "v2" `
+            -ExpectedPreviousGeneration $helloHotSwap.body.result.service.generation `
+            -ExpectedNewGeneration $helloHotSwapV2.body.result.service.generation `
+            -ExpectedPreviousStateHash $helloHotSwapStateHash `
+            -ExpectedNewStateHash $helloHotSwapV2StateHash `
+            -ExpectedPreviousArtifactIdentityHash $helloArtifactIdentityHash `
+            -ExpectedNewArtifactIdentityHash $helloHotSwapV2.body.result.service.artifact_identity_hash `
+            -ExpectedStateMigrationHash $helloHotSwapV2MigrationHash
         $helloHotSwapV2PreflightHash = & $AssertHelloLoadPlanPreflight `
             -Name "hello v2 hot-swap response" `
             -Preflight $helloHotSwapV2.body.result.artifact_load_plan_preflight `
@@ -1181,6 +1266,18 @@
             throw "Expected v1 service.hot_swap back to preserve Hello RAM-only state"
         }
         $helloHotSwapBackMigrationHash = & $AssertHelloStateMigration -Name "hello v1 hot-swap back response" -Migration $helloHotSwapBack.body.result.state_migration -ExpectedFromVersion "v2" -ExpectedToVersion "v1" -ExpectedCounter 3 -ExpectedStateHash $helloHotSwapV2StateHash
+        $helloHotSwapBackProbationHash = & $AssertHelloHotSwapProbation `
+            -Name "hello v1 hot-swap back response" `
+            -Probation $helloHotSwapBack.body.result.hot_swap_probation `
+            -ExpectedPreviousVersion "v2" `
+            -ExpectedNewVersion "v1" `
+            -ExpectedPreviousGeneration $helloHotSwapV2.body.result.service.generation `
+            -ExpectedNewGeneration $helloHotSwapBack.body.result.service.generation `
+            -ExpectedPreviousStateHash $helloHotSwapV2StateHash `
+            -ExpectedNewStateHash $helloHotSwapBackStateHash `
+            -ExpectedPreviousArtifactIdentityHash $helloHotSwapV2.body.result.service.artifact_identity_hash `
+            -ExpectedNewArtifactIdentityHash $helloArtifactIdentityHash `
+            -ExpectedStateMigrationHash $helloHotSwapBackMigrationHash
 
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $helloDrop = Get-LastAgentResponseJson -Method "service.drop"
@@ -1505,6 +1602,10 @@
         if ($helloHotSwapV2MigrationEvents.Count -lt 1) {
             throw "Expected v2 hot-swap lifecycle audit event to bind preserved RAM-only state migration"
         }
+        $helloHotSwapV2ProbationEvents = @($helloHotSwapV2Events | Where-Object { $_.bindings.hot_swap_probation_schema -eq $HelloHotSwapProbationSchema -and $_.bindings.hot_swap_probation_id -eq $HelloHotSwapProbationId -and $_.bindings.hot_swap_probation_hash -eq $helloHotSwapV2ProbationHash -and $_.bindings.hot_swap_probation_status -eq $HelloHotSwapProbationStatus -and $_.bindings.hot_swap_probation_previous_version -eq "v1" -and $_.bindings.hot_swap_probation_new_version -eq "v2" -and $_.bindings.hot_swap_probation_previous_artifact_identity_hash -eq $helloArtifactIdentityHash -and $_.bindings.hot_swap_probation_new_artifact_identity_hash -eq $helloHotSwapV2.body.result.service.artifact_identity_hash -and $_.bindings.hot_swap_probation_previous_generation -eq $helloHotSwap.body.result.service.generation -and $_.bindings.hot_swap_probation_new_generation -eq $helloHotSwapV2.body.result.service.generation -and $_.bindings.hot_swap_probation_previous_state_hash -eq $helloHotSwapStateHash -and $_.bindings.hot_swap_probation_new_state_hash -eq $helloHotSwapStateHash -and $_.bindings.hot_swap_probation_state_migration_hash -eq $helloHotSwapV2MigrationHash -and $_.bindings.hot_swap_probation_accepted -and -not $_.bindings.hot_swap_probation_writes_persistent_state -and -not $_.bindings.hot_swap_probation_writes_durable_audit_log -and -not $_.bindings.hot_swap_probation_installs_rollback_plan -and -not $_.bindings.hot_swap_probation_applies_rollback })
+        if ($helloHotSwapV2ProbationEvents.Count -lt 1) {
+            throw "Expected v2 hot-swap lifecycle audit event to bind RAM-only probation evidence"
+        }
         $helloDescriptorEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor.current_boot.svc.demo.hello.v0" })
         if ($helloDescriptorEvents.Count -lt 6) {
             throw "Expected hello lifecycle events to cite the load descriptor"
@@ -1647,6 +1748,8 @@
         Assert-LogContains -Name "quick:audit_events_hello_state_hash" -Needle '"hello_state_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_state_migration_hash" -Needle '"state_migration_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_state_migration_accepted" -Needle '"state_migration_accepted": false' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_hot_swap_probation_hash" -Needle '"hot_swap_probation_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_hot_swap_probation_status" -Needle '"hot_swap_probation_status": "active_current_boot_probation"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1

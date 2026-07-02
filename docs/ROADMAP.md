@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying the fail-closed
-Hello reset-state hot-swap migration gate.
+Last updated: 2026-07-02 by Codex after quick-VM-verifying accepted Hello
+hot-swap probation evidence.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -186,6 +186,13 @@ Latest verified implementation slice:
   `raios.agent_command_envelope.audit_binding.v0`; the envelope response
   carries matching `event_id`/`audit_event_id`, and `audit.events` proves the
   ten currently verified decision shapes
+- accepted Hello hot-swaps now emit RAM-only
+  `raios.ram_only_hello_service_hot_swap_probation.v0` evidence with
+  `active_current_boot_probation` status, previous/new descriptor and artifact
+  identity hashes, previous/new generation, preserved state hash/counter, and
+  the accepted state-migration hash; the v1->v2 audit event retains the
+  matching probation hash while candidate bytes, executable mapping,
+  persistence, durable audit, rollback install, and rollback apply stay denied
 
 Previous full verification before the verifier-decision slice:
 
@@ -201,7 +208,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the fail-closed Hello reset-state migration gate:
+Latest focused verification after accepted Hello hot-swap probation evidence:
+
+```text
+release\vm-reports\shadow-20260702-075957-15956.json
+243/243 quick predicates, 50 executed commands, duration_ms: 77226
+```
+
+Previous focused verification after the fail-closed Hello reset-state migration gate:
 
 ```text
 release\vm-reports\shadow-20260702-074900-3852.json
@@ -365,19 +379,20 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Continue the runtime artifact track with the smallest RAM-only hot-swap
-probation record: accepted Hello hot-swaps should bind previous/new descriptor,
-generation, state hash/counter, and migration hash plus an explicit
-current-boot probation status, while rollback application, persistence,
-durable audit writes, external bytes, candidate execution, executable mapping,
-provider auto-load, and broad mutation remain denied.
+Continue the runtime artifact track with the smallest read-only rollback
+preview over retained Hello hot-swap probation evidence. The preview should
+identify previous/new descriptor and artifact identity, previous/new
+generation, state hash/counter, and migration facts without mutating service
+state, applying rollback, installing persistence, writing durable audit,
+loading external bytes, executing candidates, mapping executable pages,
+provider auto-load, or broad mutation.
 ```
 
 AI-parallel next wave:
 
-1. Runtime artifact track: add accepted Hello hot-swap probation evidence that
-   binds previous/new descriptor, generation, state, and migration facts
-   without claiming rollback or persistence authority.
+1. Runtime artifact track: add the read-only rollback preview over retained
+   Hello hot-swap probation evidence without applying rollback or claiming
+   persistence authority.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted

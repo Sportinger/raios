@@ -755,6 +755,8 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
     raw_fmt(format_args!("{}", hello.generation));
     raw(", \"state\": ");
     hello_service::emit_hello_state(hello);
+    raw(", \"hot_swap_probation\": ");
+    hello_service::emit_hello_hot_swap_probation_option(hello.hot_swap_probation);
     raw(", \"last_action\": ");
     json_str(hello.last_action);
     raw(", \"capabilities\": [");

@@ -42,6 +42,8 @@ pub(crate) const HELLO_SERVICE_LIFECYCLE_EVIDENCE: &[&str] = &[
     "hello_state_migration_hash",
     "hello_state_preserved",
     "hello_state_migration_accepted",
+    "hello_hot_swap_probation_hash",
+    "hello_hot_swap_probation_status",
     "builtin_stage0_test_service",
     "ram_only_state_transition",
     "service_inventory_projection",

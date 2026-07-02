@@ -314,6 +314,10 @@ Verified in the VM today:
   hot-swaps preserving a tiny RAM-only
   `raios.ram_only_hello_service_state.v0` counter through explicit
   `raios.ram_only_hello_service_state_migration.v0` evidence,
+  accepted hot-swaps emitting
+  `raios.ram_only_hello_service_hot_swap_probation.v0` evidence that binds
+  previous/new descriptor, artifact identity, generation, state, and migration
+  facts without claiming rollback or persistence authority,
   `service.hot_swap svc.demo.hello.reset_state` denying a would-reset migration
   before descriptor/generation/state mutation with RAM-only audit evidence,
   and drop clearing the current-boot slot while citing the same activation hash;

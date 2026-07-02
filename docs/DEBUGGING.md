@@ -541,9 +541,15 @@ hot-swap and accepted v1/v2 hot-swaps, expose a denied
 `raios.ram_only_hello_service_state_migration.v0` with pre-counter 3,
 post-counter 0, `state_preserved: false`, and `accepted: false` for
 `svc.demo.hello.reset_state`, and expose an accepted migration record with
-matching pre/post state hash and counter for the v1->v2 transition; drop cites
-the same activation hash with `cleared_current_boot` before cleanup and clears
-the state counter.
+matching pre/post state hash and counter for the v1->v2 transition. Accepted
+hot-swaps must also expose
+`raios.ram_only_hello_service_hot_swap_probation.v0` with
+`active_current_boot_probation` status, previous/new descriptor and artifact
+identity hashes, previous/new generation, previous/new state hash/counter, and
+the matching state-migration hash while candidate bytes, executable mapping,
+persistent state, durable audit, rollback install, and rollback apply stay
+denied; drop cites the same activation hash with `cleared_current_boot` before
+cleanup and clears the state counter.
 `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
@@ -554,7 +560,9 @@ state plus artifact reference hash, byte hash, trust signature state, artifact
 load-plan preflight hash, accepted status, RAM-only service-slot id, and
 service-slot activation hash/status plus Hello state hash/counter, denied
 reset-state migration evidence, and accepted v2 state-migration
-hash/preserved-state evidence.
+hash/preserved-state evidence plus the accepted hot-swap probation hash/status
+and previous/new descriptor, artifact identity, generation, state, and
+migration facts.
 
 `service.descriptor_source_trust_selftest` must return
 `raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and
