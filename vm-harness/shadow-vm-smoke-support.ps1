@@ -445,6 +445,7 @@ function Send-AgentCommand {
         if ($null -ne $stream) {
             Drain-SerialTcpOutput -Stream $stream
         }
+        Close-SerialTcpConnection
     }
 }
 

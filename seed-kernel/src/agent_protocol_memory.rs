@@ -616,6 +616,8 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_opt_str(binding.provider_trust_pin_id);
             raw(", \"provider_trust_verifier\": ");
             emit_provider_trust_verifier_metadata(binding.provider_trust_verifier);
+            raw(", \"provider_trust_verifier_decision\": ");
+            emit_provider_trust_verifier_decision(binding.provider_trust_verifier_decision);
             raw(", \"provider_trust_evidence_hash\": ");
             json_sha256(binding.provider_trust_evidence_hash);
             raw(", \"development_tls_bypass\": ");
@@ -649,6 +651,8 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_opt_str(binding.provider_trust_pin_id);
             raw(", \"provider_trust_verifier\": ");
             emit_provider_trust_verifier_metadata(binding.provider_trust_verifier);
+            raw(", \"provider_trust_verifier_decision\": ");
+            emit_provider_trust_verifier_decision(binding.provider_trust_verifier_decision);
             raw(", \"provider_trust_evidence_hash\": ");
             json_sha256(binding.provider_trust_evidence_hash);
             raw(", \"development_tls_bypass\": false}, \"hashes\": ");
@@ -2888,6 +2892,20 @@ fn emit_provider_trust_verifier_metadata(metadata: provider_trust::ProviderTrust
     json_str(metadata.time_policy);
     raw(", \"certificate_verify_policy\": ");
     json_str(metadata.certificate_verify_policy);
+    raw("}");
+}
+
+fn emit_provider_trust_verifier_decision(decision: provider_trust::ProviderTrustVerifierDecision) {
+    raw("{\"schema\": ");
+    json_str(decision.schema);
+    raw(", \"verifier_id\": ");
+    json_str(decision.verifier_id);
+    raw(", \"stage\": ");
+    json_str(decision.stage);
+    raw(", \"outcome\": ");
+    json_str(decision.outcome);
+    raw(", \"reason\": ");
+    json_str(decision.reason);
     raw("}");
 }
 

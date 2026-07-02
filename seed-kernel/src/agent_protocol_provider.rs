@@ -174,6 +174,12 @@ const PROVIDER_MINIMAL_INCLUDED_FIELDS: &[ProjectionFieldSpec] = &[
         reason: "must be visible because it blocks trusted export",
     },
     ProjectionFieldSpec {
+        field: "current.provider.verifier_decision.*",
+        classification: "public",
+        action: "include",
+        reason: "typed trust verifier outcome without certificate bytes or secrets",
+    },
+    ProjectionFieldSpec {
         field: "current.services[]",
         classification: "public",
         action: "include",
@@ -469,6 +475,24 @@ fn emit_provider_minimal_packet(status: &SystemSnapshot, provider: &provider::Sn
     raw_line(",");
     raw("              \"development_bypass\": ");
     raw_bool(provider.trust_development_bypass);
+    raw_line(",");
+    raw_line("              \"verifier_decision\": {");
+    raw("                \"schema\": ");
+    json_str(provider.trust_verifier_decision.schema);
+    raw_line(",");
+    raw("                \"verifier_id\": ");
+    json_str(provider.trust_verifier_decision.verifier_id);
+    raw_line(",");
+    raw("                \"stage\": ");
+    json_str(provider.trust_verifier_decision.stage);
+    raw_line(",");
+    raw("                \"outcome\": ");
+    json_str(provider.trust_verifier_decision.outcome);
+    raw_line(",");
+    raw("                \"reason\": ");
+    json_str(provider.trust_verifier_decision.reason);
+    crlf();
+    raw("              }");
     crlf();
     raw_line("            },");
     raw_line("            \"services\": [");
@@ -1805,6 +1829,26 @@ fn hash_provider(hash: &mut EvidenceHash, provider: &provider::Snapshot) {
     hash.bool_field(
         "current.provider.development_bypass",
         provider.trust_development_bypass,
+    );
+    hash.field(
+        "current.provider.verifier_decision.schema",
+        provider.trust_verifier_decision.schema,
+    );
+    hash.field(
+        "current.provider.verifier_decision.verifier_id",
+        provider.trust_verifier_decision.verifier_id,
+    );
+    hash.field(
+        "current.provider.verifier_decision.stage",
+        provider.trust_verifier_decision.stage,
+    );
+    hash.field(
+        "current.provider.verifier_decision.outcome",
+        provider.trust_verifier_decision.outcome,
+    );
+    hash.field(
+        "current.provider.verifier_decision.reason",
+        provider.trust_verifier_decision.reason,
     );
 }
 

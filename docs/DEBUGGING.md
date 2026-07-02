@@ -137,14 +137,15 @@ outer tool timeout as a guest or protocol failure by itself; inspect the
 generated `release\vm-reports\shadow-*.json` and the temp `serial.log`.
 The entry script dispatches into focused `shadow-vm-smoke-profile-*.ps1`
 profile slices, so profile-specific failures should be debugged in the matching
-slice rather than in one monolithic harness file. The harness keeps one serial
-TCP connection open for the full run and drains buffered bytes while waiting for
-markers; this avoids treating a host-side close-after-long-response reconnect
-race as a guest protocol failure.
+slice rather than in one monolithic harness file. The harness opens a fresh
+serial TCP connection for each agent command, drains buffered bytes after the
+expected marker, and then closes the connection; this avoids treating a stale
+host-side TCP stream as a guest protocol failure during long full-profile runs.
 
 If a full smoke fails with a host-side TCP write exception or a truncated long
-serial command after all predicates up to the previous command passed, rerun
-with smaller chunks plus write delay before treating it as a guest regression.
+serial command after all predicates up to the previous command passed, first
+check for stale QEMU processes or concurrent serial clients, then rerun with
+smaller chunks plus write delay before treating it as a guest regression.
 The 2026-07-01 full module-loader report
 `release\vm-reports\shadow-20260701-150922-9752.json` used
 `-TimeoutSeconds 300 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10 -SerialTcpPort 4579`;
@@ -330,7 +331,12 @@ include the packet hash, exported/omitted field-list hashes,
 `redaction_policy_hash`, `field_classification_hash`, and `token_budget_hash`.
 Pinned-trust markers must also expose
 `raios.provider_trust_verifier_metadata.v0` with the verifier id, exact-host
-policy, pin policy, and the explicit Stage-0 chain/time policy.
+policy, pin policy, and the explicit Stage-0 chain/time policy. Positive
+pinned-trust markers must also carry
+`raios.provider_trust_verifier_decision.v0` with `stage: certificate_verify`,
+`outcome: verified`, and a leaf/SPKI verified reason; the no-pin/no-trust
+snapshot and provider-minimal context should show `stage: pin_config`,
+`outcome: rejected`, and `reason: pin_config_missing`.
 
 Pinned-trust direct smokes also exercise the checked local gate:
 

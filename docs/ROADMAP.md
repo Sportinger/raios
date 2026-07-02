@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after binding provider trust verifier
-metadata through the provider context request/export gate.
+Last updated: 2026-07-02 by Codex after recording provider trust verifier
+decisions through snapshots, provider context, and positive binding evidence.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -36,11 +36,18 @@ Latest verified implementation slice:
   policy, TLS 1.3 P-256 CertificateVerify policy, and explicit
   `pin_only_no_webpki_chain_validation` / `not_validated_stage0` chain/time
   policies
+- provider snapshots and provider-minimal context now expose
+  `raios.provider_trust_verifier_decision.v0` with verifier id, stage, outcome,
+  and reason; no-pin/no-trust reports `pin_config` / `rejected` /
+  `pin_config_missing`, and positive direct OpenAI pinned-trust markers bind the
+  verified `certificate_verify` decision into request, export-audit, injection
+  gate, and trust-evidence hashes
 - the full Shadow VM provider-memory slice now expects all 20 provider context
   binding-gate selftest cases, including redaction/classification/budget/trust
   evidence hash mismatches, and the direct OpenAI smoke harness compares the
-  trust evidence hash across positive request binding, export-audit binding,
-  and blocked injection-gate markers when a local pinned-trust image is supplied
+  trust evidence hash and verifier decision across positive request binding,
+  export-audit binding, and blocked injection-gate markers when a local
+  pinned-trust image is supplied
 - `module.load_ephemeral svc.demo.hello` now loads/starts the built-in
   `svc.demo.hello` current-boot test service through a narrow RAM-only path
   that consumes `raios.current_boot_load_request.v0` and
@@ -138,18 +145,25 @@ Latest verified implementation slice:
   install, result recording, service inventory mutation, service-slot
   allocation, durable audit writes, rollback install, and load attempts false
 
-Latest full verification:
+Previous full verification before the verifier-decision slice:
 
 ```text
 release\vm-reports\shadow-20260702-042431-24536.json
 6632/6632 predicates, 243 executed commands, duration_ms: 609828
 ```
 
+Latest full verification after the verifier-decision slice:
+
+```text
+release\vm-reports\shadow-20260702-045326-21116.json
+6638/6638 predicates, 243 executed commands, duration_ms: 613239
+```
+
 Latest focused verification:
 
 ```text
-release\vm-reports\shadow-20260702-042325-25648.json
-191/191 quick predicates, 31 executed commands, duration_ms: 61603
+release\vm-reports\shadow-20260702-045221-22244.json
+197/197 quick predicates, 31 executed commands, duration_ms: 60805
 ```
 
 Latest focused verification after the artifact identity slice:
@@ -211,10 +225,11 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Continue provider trust/context hardening at the TLS verifier boundary: prove
-the pinned verifier's real fail-closed decision points with typed diagnostics
-or implement a real WebPKI chain/time verifier. Keep the verifier metadata,
-provider-trust evidence hash, redaction/classification/budget hashes,
+Continue provider trust/context hardening by replacing the visible
+`pin_only_no_webpki_chain_validation` / `not_validated_stage0` gap with real
+chain/time validation, or by defining a narrower explicit pin-rotation policy
+that stays honest about not being WebPKI. Keep verifier metadata, verifier
+decisions, provider-trust evidence hash, redaction/classification/budget hashes,
 no-pin/no-trust denial, development-bypass denial, disabled context injection,
 and non-executing candidate bytes intact; do not mark WebPKI or time validation
 as present until they are actually implemented.

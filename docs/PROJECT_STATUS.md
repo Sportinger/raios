@@ -102,29 +102,40 @@ merged result must still be a real verified vertical slice on the final
 architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
-Last verified locally: 2026-07-02 on Windows with QEMU 11 after binding
-provider trust verifier metadata through the provider-context request/export
-gate. Full Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-042431-24536.json` with 6632/6632
-predicates, 243 executed commands, and `duration_ms: 609828`. The full smoke
-proves the provider context gate selftest still expects all 20 cases, including
-redaction/classification/budget/trust evidence hash mismatches, and that the
-provider context injection gate now names `provider_trust_verifier_metadata` as
-required evidence. Positive request/export bindings carry a canonical
+Last verified locally: 2026-07-02 on Windows with QEMU 11 after recording
+provider trust verifier decisions through snapshots, provider-minimal context,
+positive request/export bindings, and direct-provider injection-gate markers.
+Full Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-045326-21116.json` with 6638/6638
+predicates, 243 executed commands, and `duration_ms: 613239`. Quick Shadow VM
+smoke passed in `release/vm-reports/shadow-20260702-045221-22244.json` with
+197/197 predicates, 31 executed commands, and `duration_ms: 60805`. The full
+smoke proves the provider context gate selftest still expects all 20 cases,
+including redaction/classification/budget/trust evidence hash mismatches, and
+that the provider context injection gate names `provider_trust_verifier_metadata`
+as required evidence. Provider snapshots and provider-minimal context now expose
+`raios.provider_trust_verifier_decision.v0` with verifier id, stage, outcome,
+and reason; the normal no-pin/no-trust state reports `pin_config` / `rejected`
+/ `pin_config_missing`. Positive request/export bindings carry a canonical
 `provider_trust_evidence_hash` over provider host, trust state, pin kind/id,
-TLS-bypass state, and `raios.provider_trust_verifier_metadata.v0`; the verifier
-metadata names the real Stage-0 OpenAI pinned TLS verifier, exact-host policy,
-configured leaf/SPKI pin policy, TLS 1.3 P-256 CertificateVerify policy, and
-explicit `pin_only_no_webpki_chain_validation` / `not_validated_stage0`
-chain/time policies. The hash is folded into request/export binding hashes,
-retained through binding consumption and final injection authorization checks,
-and exposed in provider gate diagnostics and RAM-only event bindings alongside
-`redaction_policy_hash`, `field_classification_hash`, and `token_budget_hash`.
-No-pin/no-trust provider context export remains `capability_denied`; the
-current-image and host-bound Hello load/start/list/health/stop/drop paths still
-work; and arbitrary external artifacts, candidate-byte execution, executable
-page mapping, persistence, durable audit, rollback, provider auto-load, and
-broad mutation remain denied.
+TLS-bypass state, `raios.provider_trust_verifier_metadata.v0`, and the verifier
+decision; the verifier metadata names the real Stage-0 OpenAI pinned TLS
+verifier, exact-host policy, configured leaf/SPKI pin policy, TLS 1.3 P-256
+CertificateVerify policy, and explicit `pin_only_no_webpki_chain_validation` /
+`not_validated_stage0` chain/time policies. The hash is folded into
+request/export binding hashes, retained through binding consumption and final
+injection authorization checks, and exposed in provider gate diagnostics and
+RAM-only event bindings alongside `redaction_policy_hash`,
+`field_classification_hash`, and `token_budget_hash`. No-pin/no-trust provider
+context export remains `capability_denied`; the current-image and host-bound
+Hello load/start/list/health/stop/drop paths still work; and arbitrary external
+artifacts, candidate-byte execution, executable page mapping, persistence,
+durable audit, rollback, provider auto-load, and broad mutation remain denied.
+
+Previous full verification after the provider trust verifier metadata slice:
+2026-07-02 on Windows with QEMU 11. Full Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-042431-24536.json` with 6632/6632
+predicates, 243 executed commands, and `duration_ms: 609828`.
 
 Previous focused verification after the provider trust verifier metadata slice:
 2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
@@ -1238,20 +1249,19 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 ## Exact Next Task
 
 Now that the provider-minimal context path binds redaction,
-field-classification, token-budget, and provider-trust evidence hashes through
-projection, request/export binding evidence, consumption, and injection-gate
-checks, including explicit Stage-0 verifier metadata, continue the provider
-trust/context track at the TLS verifier boundary. The next slice should prove
-the pinned verifier's real fail-closed decision points with typed diagnostics
-or implement real WebPKI chain/time verification before any provider context
-export or injection can advance; no-pin/no-trust and development-bypass paths
-must stay fail-closed, `pin_only_no_webpki_chain_validation` and
-`not_validated_stage0` must remain visible until replaced by real validation,
-and `satisfies_current_boot_export_gate` must remain `false` until the full
-evidence gate is present. Do not use fake trust, fake persistence, automatic
-context stuffing, candidate-byte execution, durable audit writes, rollback
-installation, provider-triggered auto-load, or broad module/service/config
-mutation as a shortcut.
+field-classification, token-budget, provider-trust evidence hashes, explicit
+Stage-0 verifier metadata, and typed verifier decisions through projection,
+request/export binding evidence, consumption, and injection-gate checks,
+continue the provider trust/context track by replacing the visible
+`pin_only_no_webpki_chain_validation` / `not_validated_stage0` gap with real
+chain/time validation, or by defining a narrower explicit pin-rotation policy
+that stays honest about not being WebPKI. No-pin/no-trust and development-bypass
+paths must stay fail-closed, verifier decisions must continue to expose stage,
+outcome, and reason, and `satisfies_current_boot_export_gate` must remain
+`false` until the full evidence gate is present. Do not use fake trust, fake
+persistence, automatic context stuffing, candidate-byte execution, durable
+audit writes, rollback installation, provider-triggered auto-load, or broad
+module/service/config mutation as a shortcut.
 
 The next slice should:
 

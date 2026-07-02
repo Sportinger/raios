@@ -99,6 +99,25 @@ function Assert-Equal {
     }
 }
 
+function Assert-PositiveTrustDecision {
+    param(
+        [string]$Name,
+        $Decision
+    )
+
+    Assert-Equal -Name "$Name schema" -Actual $Decision.schema -Expected "raios.provider_trust_verifier_decision.v0"
+    Assert-Equal -Name "$Name verifier id" -Actual $Decision.verifier_id -Expected "openai.pinned_tls13_p256_sha256.v0"
+    Assert-Equal -Name "$Name stage" -Actual $Decision.stage -Expected "certificate_verify"
+    Assert-Equal -Name "$Name outcome" -Actual $Decision.outcome -Expected "verified"
+    $validReasons = @(
+        "leaf_cert_pin_and_certificate_verify_valid",
+        "spki_pin_and_certificate_verify_valid"
+    )
+    if ($validReasons -notcontains $Decision.reason) {
+        throw "$Name reason mismatch. Expected a verified pin reason but saw '$($Decision.reason)'."
+    }
+}
+
 function Assert-TextOrder {
     param(
         [string]$Name,
@@ -150,6 +169,11 @@ function Assert-PositiveBindingMarkers {
     Assert-Equal -Name "trust verifier chain policy" -Actual $requestBinding.trust_snapshot.provider_trust_verifier.chain_policy -Expected "pin_only_no_webpki_chain_validation"
     Assert-Equal -Name "trust verifier time policy" -Actual $requestBinding.trust_snapshot.provider_trust_verifier.time_policy -Expected "not_validated_stage0"
     Assert-Equal -Name "export trust verifier id" -Actual $exportBinding.trust_snapshot.provider_trust_verifier.id -Expected $requestBinding.trust_snapshot.provider_trust_verifier.id
+    Assert-PositiveTrustDecision -Name "request trust verifier decision" -Decision $requestBinding.trust_snapshot.provider_trust_verifier_decision
+    Assert-Equal -Name "export trust verifier decision schema" -Actual $exportBinding.trust_snapshot.provider_trust_verifier_decision.schema -Expected $requestBinding.trust_snapshot.provider_trust_verifier_decision.schema
+    Assert-Equal -Name "export trust verifier decision stage" -Actual $exportBinding.trust_snapshot.provider_trust_verifier_decision.stage -Expected $requestBinding.trust_snapshot.provider_trust_verifier_decision.stage
+    Assert-Equal -Name "export trust verifier decision outcome" -Actual $exportBinding.trust_snapshot.provider_trust_verifier_decision.outcome -Expected $requestBinding.trust_snapshot.provider_trust_verifier_decision.outcome
+    Assert-Equal -Name "export trust verifier decision reason" -Actual $exportBinding.trust_snapshot.provider_trust_verifier_decision.reason -Expected $requestBinding.trust_snapshot.provider_trust_verifier_decision.reason
     Assert-Equal -Name "request binding current boot export gate" -Actual $requestBinding.satisfies_current_boot_export_gate -Expected $false
     Assert-Equal -Name "export binding current boot export gate" -Actual $exportBinding.satisfies_current_boot_export_gate -Expected $false
     Assert-Equal -Name "automatic context injection" -Actual $exportBinding.automatic_context_injection -Expected "disabled"
@@ -165,6 +189,10 @@ function Assert-PositiveBindingMarkers {
     Assert-Equal -Name "injection gate token budget hash" -Actual $injectionGate.hashes.token_budget_hash -Expected $requestBinding.hashes.token_budget_hash
     Assert-Equal -Name "injection gate trust evidence hash" -Actual $injectionGate.provider_trust_evidence_hash -Expected $requestBinding.trust_snapshot.provider_trust_evidence_hash
     Assert-Equal -Name "injection gate trust verifier id" -Actual $injectionGate.provider_trust_verifier.id -Expected $requestBinding.trust_snapshot.provider_trust_verifier.id
+    Assert-Equal -Name "injection gate trust verifier decision schema" -Actual $injectionGate.provider_trust_verifier_decision.schema -Expected $requestBinding.trust_snapshot.provider_trust_verifier_decision.schema
+    Assert-Equal -Name "injection gate trust verifier decision stage" -Actual $injectionGate.provider_trust_verifier_decision.stage -Expected $requestBinding.trust_snapshot.provider_trust_verifier_decision.stage
+    Assert-Equal -Name "injection gate trust verifier decision outcome" -Actual $injectionGate.provider_trust_verifier_decision.outcome -Expected $requestBinding.trust_snapshot.provider_trust_verifier_decision.outcome
+    Assert-Equal -Name "injection gate trust verifier decision reason" -Actual $injectionGate.provider_trust_verifier_decision.reason -Expected $requestBinding.trust_snapshot.provider_trust_verifier_decision.reason
     Assert-Equal -Name "injection gate status" -Actual $injectionGate.status -Expected "blocked"
     Assert-Equal -Name "injection gate reason" -Actual $injectionGate.reason -Expected "automatic_context_injection_disabled"
     Assert-Equal -Name "injection gate final schema" -Actual $injectionGate.final_authorization_schema -Expected "raios.provider_context_injection_authorization.v0"

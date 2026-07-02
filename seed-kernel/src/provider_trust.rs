@@ -8,12 +8,14 @@ static STATE: Mutex<RuntimeTrust> = Mutex::new(RuntimeTrust::new());
 
 struct RuntimeTrust {
     state: TrustState,
+    decision: ProviderTrustVerifierDecision,
 }
 
 impl RuntimeTrust {
     const fn new() -> Self {
         Self {
             state: TrustState::Unknown,
+            decision: ProviderTrustVerifierDecision::not_attempted(),
         }
     }
 }
@@ -95,11 +97,53 @@ pub const OPENAI_PINNED_TLS_VERIFIER_METADATA: ProviderTrustVerifierMetadata =
     };
 
 #[derive(Clone, Copy)]
+pub struct ProviderTrustVerifierDecision {
+    pub schema: &'static str,
+    pub verifier_id: &'static str,
+    pub stage: &'static str,
+    pub outcome: &'static str,
+    pub reason: &'static str,
+}
+
+impl ProviderTrustVerifierDecision {
+    pub const fn not_attempted() -> Self {
+        Self {
+            schema: "raios.provider_trust_verifier_decision.v0",
+            verifier_id: OPENAI_PINNED_TLS_VERIFIER_METADATA.id,
+            stage: "not_attempted",
+            outcome: "not_attempted",
+            reason: "tls_verifier_not_entered",
+        }
+    }
+
+    pub const fn rejected(stage: &'static str, reason: &'static str) -> Self {
+        Self {
+            schema: "raios.provider_trust_verifier_decision.v0",
+            verifier_id: OPENAI_PINNED_TLS_VERIFIER_METADATA.id,
+            stage,
+            outcome: "rejected",
+            reason,
+        }
+    }
+
+    pub const fn verified(stage: &'static str, reason: &'static str) -> Self {
+        Self {
+            schema: "raios.provider_trust_verifier_decision.v0",
+            verifier_id: OPENAI_PINNED_TLS_VERIFIER_METADATA.id,
+            stage,
+            outcome: "verified",
+            reason,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct Snapshot {
     pub state: TrustState,
     pub pin_kind: Option<&'static str>,
     pub pin_id: Option<&'static str>,
     pub verifier: ProviderTrustVerifierMetadata,
+    pub verifier_decision: ProviderTrustVerifierDecision,
     pub development_bypass: bool,
 }
 
@@ -144,14 +188,27 @@ pub fn snapshot() -> Snapshot {
             pin_kind: pin_kind(pin),
             pin_id: pin_id(pin),
             verifier: OPENAI_PINNED_TLS_VERIFIER_METADATA,
+            verifier_decision: ProviderTrustVerifierDecision::rejected(
+                "development_bypass",
+                "unverified_tls_development_bypass",
+            ),
             development_bypass: true,
         };
     }
 
-    let state = match pin {
-        None => TrustState::PinConfigMissing,
-        Some(value) if !is_sha256_hex(value.value) => TrustState::PinConfigInvalid,
-        Some(_) => STATE.lock().state,
+    let (state, verifier_decision) = match pin {
+        None => (
+            TrustState::PinConfigMissing,
+            ProviderTrustVerifierDecision::rejected("pin_config", "pin_config_missing"),
+        ),
+        Some(value) if !is_sha256_hex(value.value) => (
+            TrustState::PinConfigInvalid,
+            ProviderTrustVerifierDecision::rejected("pin_config", "pin_config_invalid"),
+        ),
+        Some(_) => {
+            let runtime = STATE.lock();
+            (runtime.state, runtime.decision)
+        }
     };
 
     Snapshot {
@@ -159,6 +216,7 @@ pub fn snapshot() -> Snapshot {
         pin_kind: pin_kind(pin),
         pin_id: pin_id(pin),
         verifier: OPENAI_PINNED_TLS_VERIFIER_METADATA,
+        verifier_decision,
         development_bypass: false,
     }
 }
@@ -178,20 +236,28 @@ pub fn openai_pin() -> Result<OpenAiPin, TrustState> {
     })
 }
 
-pub fn mark_pin_mismatch() {
-    STATE.lock().state = TrustState::PinMismatch;
+pub fn mark_pin_mismatch_at(stage: &'static str, reason: &'static str) {
+    let mut state = STATE.lock();
+    state.state = TrustState::PinMismatch;
+    state.decision = ProviderTrustVerifierDecision::rejected(stage, reason);
 }
 
-pub fn mark_pin_verifier_unavailable() {
-    STATE.lock().state = TrustState::PinVerifierUnavailable;
+pub fn mark_pin_verifier_unavailable_at(stage: &'static str, reason: &'static str) {
+    let mut state = STATE.lock();
+    state.state = TrustState::PinVerifierUnavailable;
+    state.decision = ProviderTrustVerifierDecision::rejected(stage, reason);
 }
 
-pub fn mark_pinned_cert_verified() {
-    STATE.lock().state = TrustState::PinnedCertVerified;
+pub fn mark_pinned_cert_verified_at(stage: &'static str, reason: &'static str) {
+    let mut state = STATE.lock();
+    state.state = TrustState::PinnedCertVerified;
+    state.decision = ProviderTrustVerifierDecision::verified(stage, reason);
 }
 
-pub fn mark_pinned_spki_verified() {
-    STATE.lock().state = TrustState::PinnedSpkiVerified;
+pub fn mark_pinned_spki_verified_at(stage: &'static str, reason: &'static str) {
+    let mut state = STATE.lock();
+    state.state = TrustState::PinnedSpkiVerified;
+    state.decision = ProviderTrustVerifierDecision::verified(stage, reason);
 }
 
 #[derive(Clone, Copy)]

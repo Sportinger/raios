@@ -637,6 +637,7 @@ fn record_positive_provider_context_bindings(
         provider_trust_pin_kind: trust.pin_kind,
         provider_trust_pin_id: trust.pin_id,
         provider_trust_verifier: trust.verifier,
+        provider_trust_verifier_decision: trust.verifier_decision,
         provider_trust_evidence_hash: trust_evidence_hash,
         development_tls_bypass: trust.development_bypass,
     };
@@ -663,6 +664,7 @@ fn record_positive_provider_context_bindings(
         provider_trust_pin_kind: trust.pin_kind,
         provider_trust_pin_id: trust.pin_id,
         provider_trust_verifier: trust.verifier,
+        provider_trust_verifier_decision: trust.verifier_decision,
         provider_trust_evidence_hash: trust_evidence_hash,
         context_attached_to_provider_body: false,
     };
@@ -693,6 +695,8 @@ fn emit_provider_context_injection_gate_blocked(
     write_raw_sha256(provider_trust_evidence_hash(trust));
     serial::write_raw_str(",\"provider_trust_verifier\":");
     write_raw_provider_trust_verifier(trust.verifier);
+    serial::write_raw_str(",\"provider_trust_verifier_decision\":");
+    write_raw_provider_trust_verifier_decision(trust.verifier_decision);
     serial::write_raw_str(",\"final_authorization_schema\":\"raios.provider_context_injection_authorization.v0\",\"final_authorization\":\"missing\",\"satisfies_current_boot_export_gate\":false,\"automatic_context_injection\":\"disabled\",\"context_attached_to_provider_body\":false,\"provider_write\":\"not_attempted\",\"can_attach_context\":false,\"hashes\":");
     write_raw_context_hashes(context.event_hashes());
     serial::write_raw_str("}\r\n");
@@ -752,6 +756,31 @@ fn provider_trust_evidence_hash(trust: provider_trust::Snapshot) -> [u8; 32] {
         &mut hash,
         "verifier.certificate_verify_policy",
         trust.verifier.certificate_verify_policy,
+    );
+    hash_field(
+        &mut hash,
+        "verifier_decision.schema",
+        trust.verifier_decision.schema,
+    );
+    hash_field(
+        &mut hash,
+        "verifier_decision.verifier_id",
+        trust.verifier_decision.verifier_id,
+    );
+    hash_field(
+        &mut hash,
+        "verifier_decision.stage",
+        trust.verifier_decision.stage,
+    );
+    hash_field(
+        &mut hash,
+        "verifier_decision.outcome",
+        trust.verifier_decision.outcome,
+    );
+    hash_field(
+        &mut hash,
+        "verifier_decision.reason",
+        trust.verifier_decision.reason,
     );
     hash_field(
         &mut hash,
@@ -954,6 +983,8 @@ fn emit_provider_request_binding(
     write_raw_opt_str(binding.provider_trust_pin_id);
     serial::write_raw_str(",\"provider_trust_verifier\":");
     write_raw_provider_trust_verifier(binding.provider_trust_verifier);
+    serial::write_raw_str(",\"provider_trust_verifier_decision\":");
+    write_raw_provider_trust_verifier_decision(binding.provider_trust_verifier_decision);
     serial::write_raw_str(",\"provider_trust_evidence_hash\":");
     write_raw_sha256(binding.provider_trust_evidence_hash);
     serial::write_raw_str(",\"development_tls_bypass\":");
@@ -1001,6 +1032,8 @@ fn emit_provider_export_audit_binding(
     write_raw_opt_str(binding.provider_trust_pin_id);
     serial::write_raw_str(",\"provider_trust_verifier\":");
     write_raw_provider_trust_verifier(binding.provider_trust_verifier);
+    serial::write_raw_str(",\"provider_trust_verifier_decision\":");
+    write_raw_provider_trust_verifier_decision(binding.provider_trust_verifier_decision);
     serial::write_raw_str(",\"provider_trust_evidence_hash\":");
     write_raw_sha256(binding.provider_trust_evidence_hash);
     serial::write_raw_str(",\"development_tls_bypass\":false},\"hashes\":");
@@ -1040,6 +1073,22 @@ fn write_raw_provider_trust_verifier(metadata: provider_trust::ProviderTrustVeri
     serial::write_raw_str(metadata.time_policy);
     serial::write_raw_str("\",\"certificate_verify_policy\":\"");
     serial::write_raw_str(metadata.certificate_verify_policy);
+    serial::write_raw_str("\"}");
+}
+
+fn write_raw_provider_trust_verifier_decision(
+    decision: provider_trust::ProviderTrustVerifierDecision,
+) {
+    serial::write_raw_str("{\"schema\":\"");
+    serial::write_raw_str(decision.schema);
+    serial::write_raw_str("\",\"verifier_id\":\"");
+    serial::write_raw_str(decision.verifier_id);
+    serial::write_raw_str("\",\"stage\":\"");
+    serial::write_raw_str(decision.stage);
+    serial::write_raw_str("\",\"outcome\":\"");
+    serial::write_raw_str(decision.outcome);
+    serial::write_raw_str("\",\"reason\":\"");
+    serial::write_raw_str(decision.reason);
     serial::write_raw_str("\"}");
 }
 

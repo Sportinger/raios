@@ -793,7 +793,24 @@ pub(crate) fn emit_provider_object(provider: &provider::Snapshot, comma: bool) {
     raw_line(",");
     raw("        \"development_bypass\": ");
     raw_bool(provider.trust_development_bypass);
+    raw_line(",");
+    raw_line("        \"verifier_decision\": {");
+    raw("          \"schema\": ");
+    json_str(provider.trust_verifier_decision.schema);
+    raw_line(",");
+    raw("          \"verifier_id\": ");
+    json_str(provider.trust_verifier_decision.verifier_id);
+    raw_line(",");
+    raw("          \"stage\": ");
+    json_str(provider.trust_verifier_decision.stage);
+    raw_line(",");
+    raw("          \"outcome\": ");
+    json_str(provider.trust_verifier_decision.outcome);
+    raw_line(",");
+    raw("          \"reason\": ");
+    json_str(provider.trust_verifier_decision.reason);
     crlf();
+    raw_line("        }");
     raw("      }");
     if comma {
         raw(",");

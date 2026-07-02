@@ -21,12 +21,17 @@ pub struct OpenAiPinnedCertVerifier {
 }
 
 impl OpenAiPinnedCertVerifier {
-    fn reject(state: provider_trust::TrustState, error: TlsError) -> Result<(), TlsError> {
+    fn reject(
+        state: provider_trust::TrustState,
+        error: TlsError,
+        stage: &'static str,
+        reason: &'static str,
+    ) -> Result<(), TlsError> {
         match state {
             provider_trust::TrustState::PinVerifierUnavailable => {
-                provider_trust::mark_pin_verifier_unavailable()
+                provider_trust::mark_pin_verifier_unavailable_at(stage, reason)
             }
-            _ => provider_trust::mark_pin_mismatch(),
+            _ => provider_trust::mark_pin_mismatch_at(stage, reason),
         }
         Err(error)
     }
@@ -54,17 +59,36 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             return Self::reject(
                 provider_trust::TrustState::PinMismatch,
                 TlsError::InvalidCertificate,
+                "hostname",
+                "host_mismatch",
             );
         }
 
         let configured_pin = match provider_trust::openai_pin() {
             Ok(pin) => pin,
-            Err(state) => return Self::reject(state, TlsError::InvalidCertificate),
+            Err(state) => {
+                return Self::reject(
+                    state,
+                    TlsError::InvalidCertificate,
+                    "pin_config",
+                    state.as_protocol(),
+                )
+            }
         };
-        let leaf = cert.leaf_x509_der().ok_or(TlsError::InvalidCertificate)?;
+        let Some(leaf) = cert.leaf_x509_der() else {
+            return Self::reject(
+                provider_trust::TrustState::PinVerifierUnavailable,
+                TlsError::InvalidCertificate,
+                "certificate_leaf",
+                "leaf_certificate_missing",
+            );
+        };
 
         let spki = extract_p256_spki(leaf).ok_or_else(|| {
-            provider_trust::mark_pin_verifier_unavailable();
+            provider_trust::mark_pin_verifier_unavailable_at(
+                "subject_public_key_info",
+                "p256_spki_unavailable",
+            );
             TlsError::InvalidCertificate
         })?;
         let actual_pin = match configured_pin.kind {
@@ -75,6 +99,8 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             return Self::reject(
                 provider_trust::TrustState::PinMismatch,
                 TlsError::InvalidCertificate,
+                "pin_match",
+                "configured_pin_mismatch",
             );
         }
 
@@ -91,12 +117,16 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             return Self::reject(
                 provider_trust::TrustState::PinMismatch,
                 TlsError::InvalidSignature,
+                "pin_match",
+                "signature_without_matched_pin",
             );
         }
         if verify.signature_scheme() != SignatureScheme::EcdsaSecp256r1Sha256 {
             return Self::reject(
                 provider_trust::TrustState::PinVerifierUnavailable,
                 TlsError::InvalidSignatureScheme,
+                "certificate_verify",
+                "unsupported_signature_scheme",
             );
         }
 
@@ -104,6 +134,8 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             return Self::reject(
                 provider_trust::TrustState::PinMismatch,
                 TlsError::InvalidHandshake,
+                "certificate_verify",
+                "transcript_missing",
             );
         };
         let transcript_hash = transcript.finalize();
@@ -115,27 +147,45 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
 
         let verifying_key = VerifyingKey::from_sec1_bytes(&self.public_key[..self.public_key_len])
             .map_err(|_| {
-                provider_trust::mark_pin_verifier_unavailable();
+                provider_trust::mark_pin_verifier_unavailable_at(
+                    "certificate_verify",
+                    "public_key_decode_failed",
+                );
                 TlsError::DecodeError
             })?;
         let signature = Signature::from_der(verify.signature()).map_err(|_| {
-            provider_trust::mark_pin_verifier_unavailable();
+            provider_trust::mark_pin_verifier_unavailable_at(
+                "certificate_verify",
+                "signature_decode_failed",
+            );
             TlsError::DecodeError
         })?;
         if verifying_key.verify(&message, &signature).is_err() {
-            provider_trust::mark_pin_mismatch();
+            provider_trust::mark_pin_mismatch_at(
+                "certificate_verify",
+                "certificate_verify_signature_invalid",
+            );
             return Err(TlsError::InvalidSignature);
         }
 
         match self.pin_kind {
             Some(provider_trust::PinKind::LeafCertSha256) => {
-                provider_trust::mark_pinned_cert_verified()
+                provider_trust::mark_pinned_cert_verified_at(
+                    "certificate_verify",
+                    "leaf_cert_pin_and_certificate_verify_valid",
+                )
             }
             Some(provider_trust::PinKind::SpkiSha256) => {
-                provider_trust::mark_pinned_spki_verified()
+                provider_trust::mark_pinned_spki_verified_at(
+                    "certificate_verify",
+                    "spki_pin_and_certificate_verify_valid",
+                )
             }
             None => {
-                provider_trust::mark_pin_mismatch();
+                provider_trust::mark_pin_mismatch_at(
+                    "certificate_verify",
+                    "matched_pin_kind_missing",
+                );
                 return Err(TlsError::InvalidHandshake);
             }
         }

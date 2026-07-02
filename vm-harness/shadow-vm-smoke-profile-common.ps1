@@ -3,6 +3,10 @@
 
     Send-AgentCommand -Command "snapshot" -ExpectedMarker "RAIOS_AGENT_END system.snapshot"
     Assert-LogContains -Name "protocol:snapshot_schema" -Needle '"schema": "system.snapshot.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:snapshot_provider_verifier_decision_schema" -Needle '"schema": "raios.provider_trust_verifier_decision.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:snapshot_provider_verifier_decision_stage" -Needle '"stage": "pin_config"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:snapshot_provider_verifier_decision_outcome" -Needle '"outcome": "rejected"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:snapshot_provider_verifier_decision_reason" -Needle '"reason": "pin_config_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_trust_problem" -Needle "provider.tls_pin_config_missing" -TimeoutSeconds 1
 
     Send-AgentCommand -Command "caps" -ExpectedMarker "RAIOS_AGENT_END system.capabilities"
@@ -44,6 +48,7 @@
     Assert-LogContains -Name "protocol:memory_context_provider_profile" -Needle '"profile": "provider_minimal"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_export_disabled" -Needle '"provider_export": "disabled"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_projection_schema" -Needle '"schema": "raios.provider_context_projection.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_provider_verifier_decision" -Needle '"verifier_decision": {' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_projection_mode" -Needle '"mode": "local_read_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_projection_present" -Needle '"redaction_projection": "present"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_classification_default" -Needle '"classification_default": "local_only"' -TimeoutSeconds 1
@@ -61,6 +66,7 @@
     Assert-LogContains -Name "protocol:memory_context_provider_token_budget_hash" -Needle '"token_budget_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_included_status" -Needle '"field": "current.status.*"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_included_key_state" -Needle '"field": "current.provider.api_key_state"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_provider_included_verifier_decision" -Needle '"field": "current.provider.verifier_decision.*"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_omits_raw_snapshot" -Needle '"field": "system.snapshot.raw"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_omits_secret_prompt" -Needle '"field": "provider.direct_last_prompt"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_packet_purpose" -Needle '"purpose": "current_boot_provider_context"' -TimeoutSeconds 1
