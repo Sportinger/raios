@@ -28,6 +28,40 @@
         Assert-LogContains -Name "quick:recovery_no_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:recovery_load_not_attempted" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
+        Send-AgentCommand -Command "service.descriptor_source_trust_selftest" -ExpectedMarker "RAIOS_AGENT_END service.descriptor_source_trust_selftest"
+        $descriptorTrustSelftest = Get-LastAgentResponseJson -Method "service.descriptor_source_trust_selftest"
+        if ($descriptorTrustSelftest.body.result.schema -ne "raios.descriptor_source_trust_selftest.v0") {
+            throw "Expected descriptor-source trust selftest schema"
+        }
+        if ($descriptorTrustSelftest.body.result.id -ne "descriptor_source_trust_selftest.current_image.svc.demo.hello.v0") {
+            throw "Expected stable descriptor-source trust selftest id"
+        }
+        if (-not $descriptorTrustSelftest.body.result.read_only -or $descriptorTrustSelftest.body.result.persistence -ne "none") {
+            throw "Descriptor-source trust selftest must be read-only and non-persistent"
+        }
+        if (-not $descriptorTrustSelftest.body.result.diagnostic_hash -or -not $descriptorTrustSelftest.body.result.diagnostic_hash.StartsWith("sha256:")) {
+            throw "Expected descriptor-source trust selftest diagnostic hash"
+        }
+        if ($descriptorTrustSelftest.body.result.case_count -ne 5 -or $descriptorTrustSelftest.body.result.passed_count -ne 5 -or -not $descriptorTrustSelftest.body.result.all_passed) {
+            throw "Expected all descriptor-source trust selftest cases to pass"
+        }
+        if (-not $descriptorTrustSelftest.body.result.signature_envelope.signature_verified) {
+            throw "Expected descriptor-source trust selftest to cite the verified signature envelope"
+        }
+        $descriptorTrustCaseNames = @($descriptorTrustSelftest.body.result.cases | ForEach-Object { $_.name })
+        foreach ($caseName in @("valid_current_image_envelope", "tampered_payload_denied", "tampered_locator_kind_denied", "tampered_public_key_hash_denied", "tampered_signature_denied")) {
+            if ($descriptorTrustCaseNames -notcontains $caseName) {
+                throw "Missing descriptor-source trust selftest case $caseName"
+            }
+        }
+        $descriptorTrustFailedCases = @($descriptorTrustSelftest.body.result.cases | Where-Object { -not $_.passed })
+        if ($descriptorTrustFailedCases.Count -ne 0) {
+            throw "Expected no descriptor-source trust selftest failures"
+        }
+        if ($descriptorTrustSelftest.body.result.denied_surfaces.descriptor_bytes_intake -ne "denied" -or $descriptorTrustSelftest.body.result.denied_surfaces.external_artifact_load -ne "denied" -or $descriptorTrustSelftest.body.result.denied_surfaces.persistent_install -ne "denied") {
+            throw "Descriptor-source trust selftest must keep descriptor bytes, artifact load, and persistence denied"
+        }
+
         Send-AgentCommand -Command "module.load_ephemeral svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
         $helloLoad = Get-LastAgentResponseJson -Method "module.load_ephemeral"
         if ($helloLoad.body.result.schema -ne "raios.ram_only_hello_service.v0") {

@@ -389,6 +389,7 @@ module loading:
 ```text
 module.load_ephemeral svc.demo.nope
 module.load_ephemeral external:svc.demo.hello
+service.descriptor_source_trust_selftest
 module.load_ephemeral svc.demo.hello
 services
 service.health svc.demo.hello
@@ -431,6 +432,13 @@ while loaded. `audit.events` must show
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
 same load descriptor, validated source hash, signature envelope hash, and
 signature verification state.
+
+`service.descriptor_source_trust_selftest` must return
+`raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and
+hash, pass five read-only cases for the valid envelope plus tampered payload,
+locator/kind, public-key hash, and signature, and keep descriptor byte intake,
+external artifact load, persistence, durable audit, rollback, and broad mutation
+denied.
 
 The host-bound positive command must cite
 `host_build.descriptor_source.svc.demo.hello.v0`, source kind

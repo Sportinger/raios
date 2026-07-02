@@ -18,6 +18,9 @@ pub(crate) const HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR: &str =
 pub(crate) const HELLO_LOAD_DESCRIPTOR_SOURCE_KIND: &str = "current_image_descriptor_source";
 pub(crate) const HELLO_LOAD_DESCRIPTOR_SOURCE: &str =
     include_str!("../descriptors/svc.demo.hello.current_image.desc");
+pub(crate) const HELLO_DESCRIPTOR_SOURCE_TRUST_SELFTEST_ID: &str =
+    "descriptor_source_trust_selftest.current_image.svc.demo.hello.v0";
+pub(crate) const HELLO_DESCRIPTOR_SOURCE_TRUST_SELFTEST_CASES: usize = 5;
 
 #[derive(Clone, Copy)]
 pub(crate) struct DescriptorSourceEnvelope {
@@ -80,6 +83,15 @@ pub(crate) struct DescriptorSourceRecord {
     pub writes_persistent_state: bool,
     pub signed_envelope: Option<DescriptorSourceEnvelope>,
     pub text: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct DescriptorSourceTrustSelftestCase {
+    pub name: &'static str,
+    pub expected_accept: bool,
+    pub actual_accept: bool,
+    pub passed: bool,
+    pub reason: &'static str,
 }
 
 const HELLO_LOAD_DESCRIPTOR_SOURCE_RECORD: DescriptorSourceRecord = DescriptorSourceRecord {
@@ -213,6 +225,79 @@ pub(crate) fn verify_descriptor_source_envelope_parts(
     validate_descriptor_source_envelope_parts(envelope, locator, kind, text)
 }
 
+pub(crate) fn hello_descriptor_source_trust_selftest_hash() -> [u8; 32] {
+    sha256_bytes(
+        b"schema=raios.descriptor_source_trust_selftest.v0\n\
+id=descriptor_source_trust_selftest.current_image.svc.demo.hello.v0\n\
+cases=valid_current_image,tampered_payload,tampered_locator_kind,tampered_public_key_hash,tampered_signature",
+    )
+}
+
+pub(crate) fn hello_descriptor_source_trust_selftest_cases(
+) -> [DescriptorSourceTrustSelftestCase; HELLO_DESCRIPTOR_SOURCE_TRUST_SELFTEST_CASES] {
+    let source = HELLO_LOAD_DESCRIPTOR_SOURCE_RECORD;
+    let envelope = HELLO_CURRENT_IMAGE_DESCRIPTOR_SOURCE_ENVELOPE;
+    let mut bad_key_hash = envelope;
+    bad_key_hash.public_key_hash = [0u8; 32];
+    let bad_signature = b"not-a-valid-der-signature";
+    let mut bad_signature_envelope = envelope;
+    bad_signature_envelope.signature_der = bad_signature;
+    bad_signature_envelope.signature_hash = sha256_bytes(bad_signature);
+
+    [
+        trust_case(
+            "valid_current_image_envelope",
+            true,
+            validate_current_image_descriptor_source(source),
+            "accepted_verified_current_image_descriptor_source",
+        ),
+        trust_case(
+            "tampered_payload_denied",
+            false,
+            verify_descriptor_source_envelope_parts(
+                Some(envelope),
+                HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR,
+                HELLO_LOAD_DESCRIPTOR_SOURCE_KIND,
+                "tampered_descriptor_source_payload",
+            ),
+            "payload_hash_or_signature_must_match_source_text",
+        ),
+        trust_case(
+            "tampered_locator_kind_denied",
+            false,
+            verify_descriptor_source_envelope_parts(
+                Some(envelope),
+                "tampered.descriptor_source.svc.demo.hello.v0",
+                "tampered_descriptor_source",
+                HELLO_LOAD_DESCRIPTOR_SOURCE,
+            ),
+            "envelope_must_bind_source_locator_and_kind",
+        ),
+        trust_case(
+            "tampered_public_key_hash_denied",
+            false,
+            verify_descriptor_source_envelope_parts(
+                Some(bad_key_hash),
+                HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR,
+                HELLO_LOAD_DESCRIPTOR_SOURCE_KIND,
+                HELLO_LOAD_DESCRIPTOR_SOURCE,
+            ),
+            "public_key_hash_must_match_envelope_key",
+        ),
+        trust_case(
+            "tampered_signature_denied",
+            false,
+            verify_descriptor_source_envelope_parts(
+                Some(bad_signature_envelope),
+                HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR,
+                HELLO_LOAD_DESCRIPTOR_SOURCE_KIND,
+                HELLO_LOAD_DESCRIPTOR_SOURCE,
+            ),
+            "signature_must_verify_payload",
+        ),
+    ]
+}
+
 fn validate_common_descriptor_source(source: DescriptorSourceRecord) -> bool {
     source_text_is_canonical_key_value(source)
         && source.schema == HELLO_LOAD_DESCRIPTOR_SCHEMA
@@ -289,6 +374,21 @@ fn source_field_eq(source: DescriptorSourceRecord, key: &str, expected: &str) ->
 
 fn source_sha256_field(source: DescriptorSourceRecord, key: &str) -> Option<[u8; 32]> {
     source_field(source, key).and_then(parse_sha256_ref)
+}
+
+fn trust_case(
+    name: &'static str,
+    expected_accept: bool,
+    actual_accept: bool,
+    reason: &'static str,
+) -> DescriptorSourceTrustSelftestCase {
+    DescriptorSourceTrustSelftestCase {
+        name,
+        expected_accept,
+        actual_accept,
+        passed: expected_accept == actual_accept,
+        reason,
+    }
 }
 
 fn validate_descriptor_source_envelope(source: DescriptorSourceRecord) -> bool {

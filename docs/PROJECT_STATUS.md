@@ -35,7 +35,10 @@ now also carries a repo-local P-256/SHA-256 signature envelope that is checked
 by the build script and verified again in the kernel before descriptor-source
 selection; load responses, `service.inventory`, `service.health`, and RAM audit
 bindings expose the envelope id/hash, payload/public-key/signature hashes, and
-`signature_verified`.
+`signature_verified`. A read-only
+`service.descriptor_source_trust_selftest` method proves the accepted envelope
+verifies and tampered payload, locator/kind, public-key hash, and signature
+cases fail closed.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -48,13 +51,19 @@ audit writes, rollback installation, provider-triggered auto-load, and broad
 module/service/config mutation remain denied.
 
 Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
-signed current-image descriptor-source envelope to the positive Hello service
-path. Quick Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-015300-7236.json` with 169/169 predicates,
-28 executed commands, and `duration_ms: 53150`: bare
+read-only descriptor-source trust selftest over the signed current-image Hello
+descriptor-source envelope. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-020435-6212.json` with 170/170 predicates,
+29 executed commands, and `duration_ms: 79153`: bare
 `module.load_ephemeral`, `module.load_ephemeral svc.demo.nope`, and
 `module.load_ephemeral external:svc.demo.hello` still return the
-non-authorizing module-load gate, then
+non-authorizing module-load gate, `recovery.load_artifact` remains denied, and
+`service.descriptor_source_trust_selftest` returns
+`raios.descriptor_source_trust_selftest.v0` with a stable diagnostic id/hash,
+five passing read-only cases for the valid envelope plus tampered payload,
+locator/kind, public-key hash, and signature, and denied descriptor byte intake,
+external artifact load, persistence, durable audit, rollback, and broad
+mutation. Then
 `module.load_ephemeral svc.demo.hello` returns
 `raios.ram_only_hello_service.v0` with
 `raios.current_boot_load_request.v0` and
@@ -1102,13 +1111,13 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that the current-image `svc.demo.hello` descriptor-source path has a
-repo-local P-256/SHA-256 signature envelope verified before descriptor-source
-selection, add the smallest read-only descriptor-source trust diagnostic/selftest
-over that same boundary. Keep it bound to the built-in/current-boot service; do
-not accept arbitrary descriptor bytes, load external artifacts, write persistent
-state, write durable audit logs, install rollback plans, trigger provider
-auto-load, or grant broad module/service/config mutation.
+Now that the current-image `svc.demo.hello` descriptor-source trust boundary has
+a positive/negative selftest, add the smallest signed built-in artifact identity
+candidate for the same Hello service. Keep execution bound to the existing
+built-in/current-boot service; do not accept arbitrary artifact bytes, map
+executable pages, write persistent state, write durable audit logs, install
+rollback plans, trigger provider auto-load, or grant broad module/service/config
+mutation.
 
 The next slice should:
 
@@ -1119,14 +1128,13 @@ The next slice should:
   `raios.current_boot_load_descriptor.v0` in the positive path
 - keep `service.health svc.demo.hello` proving healthy, stopped, missing, and
   host-bound source-bound states in quick VM smoke
-- keep the existing signed current-image descriptor-source envelope visible in
-  the load response, `service.inventory`, `service.health`, and RAM audit
-  bindings
-- add a read-only trust diagnostic or selftest that proves the accepted envelope
-  verifies and that tampered payload, locator/kind, public-key hash, or signature
-  cases fail closed
-- expose stable trust diagnostic IDs/hashes and current-boot evidence, not prose
-  only
+- keep `service.descriptor_source_trust_selftest` green for valid and tampered
+  descriptor-source envelope cases
+- add a signed identity/trust envelope for the existing built-in Hello artifact
+  id or artifact descriptor, using already-installed signing/verification
+  primitives if they fit
+- expose stable artifact identity/trust ids and hashes in load response,
+  `service.inventory`, `service.health`, and RAM audit bindings
 - keep the selected descriptor source locator/kind/validation/hash plus any
   bound source hash visible in load response, service.inventory, health output,
   and lifecycle/health audit event
@@ -1134,9 +1142,8 @@ The next slice should:
   rollback installation, provider-triggered auto-load, and broad
   module/service/config mutation denied
 
-Do not add a signed artifact loader yet. The next step is proving the
-descriptor-source trust boundary itself with positive and negative evidence, not
-accepting arbitrary module bytes.
+Do not add a signed artifact loader yet. The next step is artifact identity for
+the already-working built-in service path, not arbitrary module bytes.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:

@@ -3,8 +3,8 @@ use spin::Mutex;
 use crate::{
     agent_protocol_support::{
         begin_response, emit_inline_string_array, end_response, json_event_id_option, json_opt_str,
-        json_sha256, json_sha256_option, json_str, method_head_eq, raw, raw_bool, raw_fmt,
-        raw_line,
+        json_sha256, json_sha256_option, json_str, method_eq, method_head_eq, raw, raw_bool,
+        raw_fmt, raw_line,
     },
     descriptor_sources, event_log,
 };
@@ -184,6 +184,10 @@ pub(crate) fn is_health_method(method: &str) -> bool {
     target_arg_matches(method, "service.health")
 }
 
+pub(crate) fn is_descriptor_source_trust_selftest_method(method: &str) -> bool {
+    method_eq(method, "service.descriptor_source_trust_selftest")
+}
+
 pub(crate) fn emit_load_start(method: &str) -> &'static str {
     let Some(request) = load_request(method) else {
         return "module.load_ephemeral";
@@ -214,6 +218,84 @@ pub(crate) fn emit_health(_method: &str) -> &'static str {
     let (snapshot, event_id) = health_probe("service.health");
     emit_health_response("service.health", snapshot, event_id);
     "service.health"
+}
+
+pub(crate) fn emit_descriptor_source_trust_selftest() -> &'static str {
+    let method = "service.descriptor_source_trust_selftest";
+    let cases = descriptor_sources::hello_descriptor_source_trust_selftest_cases();
+    let mut passed_count = 0usize;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        if cases[idx].passed {
+            passed_count += 1;
+        }
+        idx += 1;
+    }
+    begin_response(method);
+    raw_line("      \"schema\": \"raios.descriptor_source_trust_selftest.v0\",");
+    raw("      \"id\": ");
+    json_str(descriptor_sources::HELLO_DESCRIPTOR_SOURCE_TRUST_SELFTEST_ID);
+    raw_line(",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"persistence\": \"none\",");
+    raw_line("      \"read_only\": true,");
+    raw("      \"diagnostic_hash\": ");
+    json_sha256(descriptor_sources::hello_descriptor_source_trust_selftest_hash());
+    raw_line(",");
+    raw("      \"service_id\": ");
+    json_str(SERVICE_ID);
+    raw_line(",");
+    raw("      \"descriptor_source_locator\": ");
+    json_str(LOAD_DESCRIPTOR_SOURCE_LOCATOR);
+    raw_line(",");
+    raw("      \"descriptor_source_kind\": ");
+    json_str(LOAD_DESCRIPTOR_SOURCE_KIND);
+    raw_line(",");
+    raw("      \"signature_envelope\": ");
+    emit_descriptor_source_signature_envelope(LOAD_DESCRIPTOR);
+    raw_line(",");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed_count\": ");
+    raw_fmt(format_args!("{}", passed_count));
+    raw_line(",");
+    raw("      \"all_passed\": ");
+    raw_bool(passed_count == cases.len());
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        let case = cases[idx];
+        raw("        {\"name\": ");
+        json_str(case.name);
+        raw(", \"expected_accept\": ");
+        raw_bool(case.expected_accept);
+        raw(", \"actual_accept\": ");
+        raw_bool(case.actual_accept);
+        raw(", \"passed\": ");
+        raw_bool(case.passed);
+        raw(", \"reason\": ");
+        json_str(case.reason);
+        raw("}");
+        if idx + 1 != cases.len() {
+            raw(",");
+        }
+        raw_line("");
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"denied_surfaces\": {");
+    raw_line("        \"descriptor_bytes_intake\": \"denied\",");
+    raw_line("        \"external_artifact_load\": \"denied\",");
+    raw_line("        \"persistent_install\": \"denied\",");
+    raw_line("        \"durable_audit\": \"denied\",");
+    raw_line("        \"rollback_install\": \"denied\",");
+    raw_line("        \"broad_mutation\": \"denied\"");
+    raw_line("      }");
+    end_response(method);
+    method
 }
 
 fn load_start(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot {

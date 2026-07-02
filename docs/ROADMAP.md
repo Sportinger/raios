@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after adding a signed current-image
-descriptor-source envelope to the positive RAM-only Hello service lifecycle.
+Last updated: 2026-07-02 by Codex after adding a read-only descriptor-source
+trust selftest over the signed Hello descriptor-source envelope.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -37,6 +37,9 @@ Latest verified implementation slice:
   public key/signature metadata, the kernel verifies the envelope before
   selecting the descriptor source, and load/inventory/health/RAM-audit evidence
   exposes the envelope id/hash and signature verification state
+- `service.descriptor_source_trust_selftest` proves that the accepted envelope
+  verifies and tampered payload, locator/kind, public-key hash, and signature
+  cases fail closed without accepting descriptor or artifact bytes
 - the host-bound descriptor-source path remains hash-bound to the current-image
   source and does not accept arbitrary descriptor or artifact bytes
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
@@ -99,29 +102,27 @@ release\vm-reports\shadow-20260702-001225-25068.json
 Latest focused verification:
 
 ```text
-release\vm-reports\shadow-20260702-015300-7236.json
-169/169 quick predicates, 28 executed commands, duration_ms: 53150
+release\vm-reports\shadow-20260702-020435-6212.json
+170/170 quick predicates, 29 executed commands, duration_ms: 79153
 ```
 
 Exact next task:
 
 ```text
-Add the smallest read-only descriptor-source trust diagnostic/selftest over the
-signed Hello descriptor-source boundary. Keep the service built-in/current-boot,
-keep arbitrary descriptor/artifact bytes denied, and keep persistence/durable
-audit/rollback denied.
+Add the smallest signed built-in artifact identity candidate for the Hello
+service path. Keep execution built-in/current-boot, keep arbitrary artifact
+bytes denied, and keep persistence/durable audit/rollback denied.
 ```
 
 Next three tasks:
 
-1. Add positive and negative trust selftests for the accepted descriptor-source
-   envelope, including tampered payload, locator/kind, public-key hash, and
-   signature cases.
-2. Expose stable diagnostic IDs/hashes and current-boot evidence for the
-   descriptor-source trust boundary.
-3. Only after descriptor-source trust is proven by selftests, consider signed
-   artifact loading; keep artifact execution built-in/current-boot until
-   artifact trust/execution/audit/rollback evidence exists.
+1. Add a signed identity/trust envelope for the existing built-in Hello artifact
+   id or artifact descriptor, reusing the current P-256 verifier if it fits.
+2. Expose artifact identity/trust ids and hashes in load, inventory, health, and
+   RAM audit evidence while keeping artifact bytes denied.
+3. Only after built-in artifact identity is real, consider accepting signed
+   artifact bytes; keep execution built-in/current-boot until execution,
+   audit, rollback, and recovery evidence exists.
 
 Documentation ownership:
 
