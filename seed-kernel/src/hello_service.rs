@@ -664,6 +664,7 @@ pub(crate) struct Snapshot {
     pub last_event_id: Option<event_log::EventId>,
     pub load_event_id: Option<event_log::EventId>,
     pub start_event_id: Option<event_log::EventId>,
+    pub hot_swap_event_id: Option<event_log::EventId>,
     pub stop_event_id: Option<event_log::EventId>,
     pub drop_event_id: Option<event_log::EventId>,
 }
@@ -680,6 +681,7 @@ struct State {
     last_event_id: Option<event_log::EventId>,
     load_event_id: Option<event_log::EventId>,
     start_event_id: Option<event_log::EventId>,
+    hot_swap_event_id: Option<event_log::EventId>,
     stop_event_id: Option<event_log::EventId>,
     drop_event_id: Option<event_log::EventId>,
 }
@@ -697,6 +699,7 @@ impl State {
             last_event_id: None,
             load_event_id: None,
             start_event_id: None,
+            hot_swap_event_id: None,
             stop_event_id: None,
             drop_event_id: None,
         }
@@ -714,6 +717,7 @@ impl State {
             last_event_id: self.last_event_id,
             load_event_id: self.load_event_id,
             start_event_id: self.start_event_id,
+            hot_swap_event_id: self.hot_swap_event_id,
             stop_event_id: self.stop_event_id,
             drop_event_id: self.drop_event_id,
         }
@@ -745,6 +749,10 @@ pub(crate) fn is_start_method(method: &str) -> bool {
 
 pub(crate) fn is_restart_method(method: &str) -> bool {
     target_arg_matches(method, "service.restart")
+}
+
+pub(crate) fn is_hot_swap_method(method: &str) -> bool {
+    hot_swap_request(method).is_some()
 }
 
 pub(crate) fn is_drop_method(method: &str) -> bool {
@@ -802,6 +810,20 @@ pub(crate) fn emit_restart(_method: &str) -> &'static str {
         snapshot.load_descriptor,
     );
     "service.restart"
+}
+
+pub(crate) fn emit_hot_swap(method: &str) -> &'static str {
+    let Some(request) = hot_swap_request(method) else {
+        return "service.hot_swap";
+    };
+    let snapshot = hot_swap(request.source_method, request.descriptor);
+    emit_response(
+        request.source_method,
+        "hot_swap",
+        snapshot,
+        request.descriptor,
+    );
+    request.source_method
 }
 
 pub(crate) fn emit_drop(_method: &str) -> &'static str {
@@ -1185,6 +1207,50 @@ fn restart(source_method: &'static str) -> Snapshot {
     state.snapshot()
 }
 
+fn hot_swap(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot {
+    let mut state = STATE.lock();
+    let reason = if state.loaded {
+        "hot_swapped_builtin_service"
+    } else {
+        "not_loaded"
+    };
+    let inventory_change = if state.loaded {
+        "updated_current_boot_service"
+    } else {
+        "none"
+    };
+    let activation_status = if state.loaded {
+        SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS
+    } else {
+        SERVICE_SLOT_ACTIVATION_MISSING_STATUS
+    };
+    let event_id = event_log::record_hello_service_lifecycle(
+        source_method,
+        "response",
+        reason,
+        lifecycle_binding(
+            descriptor,
+            inventory_change,
+            activation_status,
+            state.loaded,
+        ),
+    );
+
+    if state.loaded {
+        state.generation = state.generation.saturating_add(1);
+        state.running = true;
+        state.load_descriptor = descriptor;
+        state.load_event_id = Some(event_id);
+        state.start_event_id = Some(event_id);
+        state.hot_swap_event_id = Some(event_id);
+    }
+    state.last_action = "hot_swap";
+    state.last_reason = reason;
+    state.last_inventory_change = inventory_change;
+    state.last_event_id = Some(event_id);
+    state.snapshot()
+}
+
 fn stop(source_method: &'static str) -> Snapshot {
     let mut state = STATE.lock();
     let descriptor = state.load_descriptor;
@@ -1293,6 +1359,10 @@ fn health_probe(source_method: &'static str) -> (Snapshot, event_log::EventId) {
 fn load_request(method: &str) -> Option<LoadRequest> {
     load_request_for_head(method, "module.load_ephemeral")
         .or_else(|| load_request_for_head(method, "service.load_ephemeral"))
+}
+
+fn hot_swap_request(method: &str) -> Option<LoadRequest> {
+    load_request_for_head(method, "service.hot_swap")
 }
 
 fn load_request_for_head(method: &str, head: &'static str) -> Option<LoadRequest> {
@@ -1780,6 +1850,9 @@ fn emit_response(
     raw_line(",");
     raw("        \"start_event_id\": ");
     json_event_id_option(snapshot.start_event_id);
+    raw_line(",");
+    raw("        \"hot_swap_event_id\": ");
+    json_event_id_option(snapshot.hot_swap_event_id);
     raw_line(",");
     raw("        \"stop_event_id\": ");
     json_event_id_option(snapshot.stop_event_id);

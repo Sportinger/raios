@@ -920,6 +920,53 @@
         & $AssertHelloServiceSlotActivationReference -Name "hello restart service response" -Record $helloRestart.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
         & $AssertHelloServiceSlotActivationReference -Name "hello restart loader response" -Record $helloRestart.body.result.loader -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
 
+        Send-AgentCommand -Command "service.hot_swap external:svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
+        $badHelloHotSwap = Get-LastAgentResponseJson -Method "service.hot_swap"
+        Assert-CurrentBootEventId -Name "quick:hello_hot_swap_external_denied_event_id" -Value $badHelloHotSwap.body.event_id
+        if ($badHelloHotSwap.t -ne "error" -or $badHelloHotSwap.body.code -ne "capability_denied") {
+            throw "Expected external service.hot_swap target to be denied before service mutation"
+        }
+
+        Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
+        $helloHealthAfterBadHotSwap = Get-LastAgentResponseJson -Method "service.health"
+        if ($helloHealthAfterBadHotSwap.body.result.service.generation -ne $helloRestart.body.result.service.generation -or -not $helloHealthAfterBadHotSwap.body.result.service.running) {
+            throw "Expected denied service.hot_swap to preserve the running hello generation"
+        }
+        if ($helloHealthAfterBadHotSwap.body.result.load_descriptor.source.sha256 -ne $helloDescriptorHash) {
+            throw "Expected denied service.hot_swap to preserve the current-image descriptor"
+        }
+
+        Send-AgentCommand -Command "service.hot_swap svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
+        $helloHotSwap = Get-LastAgentResponseJson -Method "service.hot_swap"
+        Assert-CurrentBootEventId -Name "quick:hello_hot_swap_event_id" -Value $helloHotSwap.body.result.event_id
+        if (-not $helloHotSwap.body.result.service.loaded -or -not $helloHotSwap.body.result.service.running) {
+            throw "Expected service.hot_swap to leave the hello service loaded and running"
+        }
+        if ($helloHotSwap.body.result.lifecycle.last_action -ne "hot_swap" -or $helloHotSwap.body.result.lifecycle.reason -ne "hot_swapped_builtin_service") {
+            throw "Expected service.hot_swap lifecycle to record a real hot-swap action"
+        }
+        if ($helloHotSwap.body.result.lifecycle.hot_swap_event_id -ne $helloHotSwap.body.result.event_id -or $helloHotSwap.body.result.lifecycle.load_event_id -ne $helloHotSwap.body.result.event_id -or $helloHotSwap.body.result.lifecycle.start_event_id -ne $helloHotSwap.body.result.event_id) {
+            throw "Expected service.hot_swap to bind its event id as hot-swap/load/start evidence"
+        }
+        if ($helloHotSwap.body.result.service.generation -ne ($helloRestart.body.result.service.generation + 1)) {
+            throw "Expected accepted service.hot_swap to advance the loaded hello generation"
+        }
+        if ($helloHotSwap.body.result.load_descriptor.source.sha256 -ne $helloDescriptorHash -or $helloHotSwap.body.result.load_descriptor.artifact_identity.sha256 -ne $helloArtifactIdentityHash) {
+            throw "Expected service.hot_swap to cite the accepted built-in descriptor and artifact identity"
+        }
+        $helloHotSwapActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "hello hot-swap response" `
+            -Activation $helloHotSwap.body.result.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationActiveStatus `
+            -ExpectedActive $true
+        if ($helloHotSwapActivationHash -ne $helloServiceSlotActivationHash) {
+            throw "Expected hello hot-swap response to cite the same service-slot activation hash"
+        }
+        & $AssertHelloServiceSlotActivationReference -Name "hello hot-swap service response" -Record $helloHotSwap.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
+        & $AssertHelloServiceSlotActivationReference -Name "hello hot-swap loader response" -Record $helloHotSwap.body.result.loader -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
+
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $helloDrop = Get-LastAgentResponseJson -Method "service.drop"
         Assert-CurrentBootEventId -Name "quick:hello_drop_event_id" -Value $helloDrop.body.result.event_id
@@ -1148,7 +1195,7 @@
             -ExpectedActive $false | Out-Null
         & $AssertHelloServiceSlotActivationReference -Name "host-bound drop loader response" -Record $hostDrop.body.result.loader -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationClearedStatus -ExpectedActive $false
 
-        Send-AgentCommand -Command "agent audit.events 42" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+        Send-AgentCommand -Command "agent audit.events 46" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
         $envelopeAuditEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
         if ($envelopeAuditEvents.Count -ne 10) {
@@ -1217,6 +1264,10 @@
         $helloRestartEvents = @($helloEvents | Where-Object { $_.source_method -eq "service.restart" -and $_.reason -eq "restarted_loaded_service" })
         if ($helloRestartEvents.Count -lt 1) {
             throw "Expected hello lifecycle events to include service.restart"
+        }
+        $helloHotSwapEvents = @($helloEvents | Where-Object { $_.source_method -eq "service.hot_swap" -and $_.reason -eq "hot_swapped_builtin_service" })
+        if ($helloHotSwapEvents.Count -lt 1) {
+            throw "Expected hello lifecycle events to include service.hot_swap"
         }
         $helloDescriptorEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor.current_boot.svc.demo.hello.v0" })
         if ($helloDescriptorEvents.Count -lt 6) {
@@ -1333,7 +1384,7 @@
             throw "Expected host-bound health event to cite the host-bound service-slot activation"
         }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 42' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 46' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_module_load_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_recovery_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1

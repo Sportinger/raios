@@ -2,9 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying the
-`system.boot_log` read-only command-envelope target plus current-boot audit
-evidence.
+Last updated: 2026-07-02 by Codex after quick-VM-verifying the RAM-only
+`service.hot_swap svc.demo.hello` current-boot service evolution slice.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -106,8 +105,11 @@ Latest verified implementation slice:
   same current-boot state; `service.stop svc.demo.hello` marks it stopped;
   `service.start svc.demo.hello` starts the stopped loaded generation,
   `service.restart svc.demo.hello` records its own restart lifecycle event while
-  preserving that generation and activation hash, and `service.drop
-  svc.demo.hello` removes it from inventory; the inventory and health records cite
+  preserving that generation and activation hash, `service.hot_swap
+  svc.demo.hello` validates the signed built-in evidence chain before mutation,
+  records its own lifecycle event, advances the loaded generation, and binds the
+  event as hot-swap/load/start evidence, and `service.drop svc.demo.hello`
+  removes it from inventory; the inventory and health records cite
   `load_descriptor.current_boot.svc.demo.hello.v0` plus the descriptor source
   locator/kind/validation/hash and bound source hash when present
 - lifecycle and health actions retain
@@ -189,7 +191,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the `system.boot_log` command-envelope slice:
+Latest focused verification after the Hello hot-swap slice:
+
+```text
+release\vm-reports\shadow-20260702-071540-15484.json
+231/231 quick predicates, 46 executed commands, duration_ms: 72031
+```
+
+Previous focused verification after the `system.boot_log` command-envelope slice:
 
 ```text
 release\vm-reports\shadow-20260702-070530-20712.json
@@ -325,9 +334,10 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Return to the runtime artifact track with a real current-boot service
-evolution slice: add the smallest built-in signed `svc.demo.hello`
-replacement/hot-swap candidate that preserves the old service until accepted.
+Continue the runtime artifact track with the smallest distinct built-in signed
+`svc.demo.hello` replacement candidate, such as a visible v2 service identity or
+health/version field, and route it through the existing `service.hot_swap`
+state transition. Preserve the old service until the replacement is accepted.
 Keep external bytes, candidate execution, executable mapping, persistence,
 durable audit writes, rollback install, provider auto-load, and broad mutation
 denied.
@@ -335,9 +345,8 @@ denied.
 
 AI-parallel next wave:
 
-1. Runtime artifact track: evolve the working Hello slice into the first
-   built-in current-boot replacement/hot-swap path without accepting external
-   bytes.
+1. Runtime artifact track: evolve the working Hello hot-swap path into a
+   distinct built-in replacement candidate without accepting external bytes.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted

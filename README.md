@@ -307,8 +307,10 @@ Verified in the VM today:
   preflight now exposes activation id/hash/status/active state in load/start,
   inventory, health, stop/start/restart/drop, and RAM-audit bindings, with
   `service.start` starting the same loaded generation, `service.restart`
-  recording a restart while preserving that generation, and drop clearing the
-  current-boot slot while citing the same activation hash;
+  recording a restart while preserving that generation, `service.hot_swap`
+  validating the signed built-in evidence chain before advancing the loaded
+  generation, and drop clearing the current-boot slot while citing the same
+  activation hash;
   a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service

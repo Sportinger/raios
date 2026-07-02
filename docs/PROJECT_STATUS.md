@@ -85,8 +85,13 @@ running, stopped, restarted, and cleared statuses for the same selected
 descriptor source and preflight; `service.start` restarts a stopped loaded
 current-boot service without creating a new load generation, `service.restart`
 records its own restart event while preserving the same loaded generation, and
-`service.drop` clears the current-boot slot while citing the same activation
-before cleanup.
+`service.hot_swap svc.demo.hello` validates the same signed built-in
+descriptor/artifact/preflight chain before mutating service state, records its
+own hot-swap lifecycle event, advances the loaded generation, and binds the
+event as hot-swap/load/start evidence. `service.hot_swap
+external:svc.demo.hello` remains denied before the service is touched, and a
+follow-up health probe proves the running generation is preserved. `service.drop`
+clears the current-boot slot while citing the same activation before cleanup.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -128,8 +133,24 @@ current-boot/local-only
 `raios.agent_command_envelope.audit_binding.v0`, and the envelope response
 returns the matching `event_id`/`audit_event_id`.
 
-Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
-local-only read-only `system.boot_log` envelope target to
+Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding
+`service.hot_swap svc.demo.hello` on the RAM-only Hello service path. Quick
+Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-071540-15484.json` with 231/231
+predicates, 46 executed commands, and `duration_ms: 72031`. The quick smoke
+proves an external-looking hot-swap target is denied before service mutation,
+the running generation remains unchanged after that denial, the accepted
+current-image built-in hot-swap records `last_action: "hot_swap"` /
+`reason: "hot_swapped_builtin_service"`, advances the loaded generation by one,
+and binds the same event id as hot-swap/load/start evidence while artifact byte
+intake, executable mapping, persistence, durable audit, rollback install,
+provider auto-load, and broad mutation remain denied. The final quick audit read
+now uses `agent audit.events 46` so the provider export, module load, recovery
+load, Hello lifecycle, Hello health, and all ten command-envelope decision
+events remain inside the bounded local audit window.
+
+Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding
+the local-only read-only `system.boot_log` envelope target to
 `raios.agent_command_envelope.v0`. Quick Shadow VM smoke passed in
 `release/vm-reports/shadow-20260702-070530-20712.json` with 226/226
 predicates, 43 executed commands, and `duration_ms: 69882`. The quick smoke
@@ -1362,15 +1383,13 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that `raios.agent_command_envelope.v0` covers the first no-argument
-read-only agent methods (`system.describe`, `system.snapshot`,
-`system.boot_log`, `system.capabilities`, `device.graph`,
-`service.inventory`, and `problem.list`) with current-boot audit evidence,
-return to the runtime artifact track. Implement the first real
-current-boot service evolution slice for `svc.demo.hello`: a built-in signed
-replacement/hot-swap candidate that can be validated from the existing
-descriptor/artifact/preflight/activation evidence chain while preserving the
-old service until the replacement is accepted. Keep external artifact bytes,
+Now that `service.hot_swap svc.demo.hello` proves the first RAM-only
+current-boot service evolution transition, continue the runtime artifact track
+with the next smallest durable slice: add a distinct built-in signed
+`svc.demo.hello` replacement candidate, for example a `v2` identity/source
+record with visibly different version/health metadata, that reuses the existing
+descriptor/artifact/preflight/activation evidence chain and preserves the old
+service until the replacement is accepted. Keep external artifact bytes,
 candidate-byte execution, executable mapping, persistence, durable audit,
 rollback install, provider-triggered auto-load, and broad mutation denied.
 Provider trust/context hardening remains a parallel Track B, but do not claim
@@ -1397,13 +1416,16 @@ The next slice should:
 - keep `agent command_envelope ... target_method=problem.list ...` routing
   through the existing dispatcher
 - keep malformed or over-capable envelopes denied before dispatch
-- add the smallest built-in signed replacement/hot-swap candidate for
-  `svc.demo.hello` that exercises real current-boot service evolution without
+- add a distinct built-in signed replacement candidate for `svc.demo.hello`
+  that exercises the existing `service.hot_swap` state transition without
   accepting external bytes
 - keep current-image and host-bound `svc.demo.hello` load/list/stop/start/
   restart/drop passing in quick VM smoke, with explicit `service.start
   svc.demo.hello` starting a stopped loaded current-boot service and
   `service.restart svc.demo.hello` preserving the same loaded generation
+- keep `service.hot_swap external:svc.demo.hello` denied before service
+  mutation and `service.hot_swap svc.demo.hello` advancing only an accepted
+  current-boot generation
 - keep `raios.current_boot_load_request.v0` and
   `raios.current_boot_load_descriptor.v0` in the positive path
 - keep `service.health svc.demo.hello` proving healthy, stopped, missing, and

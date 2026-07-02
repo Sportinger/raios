@@ -1185,6 +1185,7 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
         | "recovery.load_artifact"
         | "service.load_ephemeral"
         | "service.restart"
+        | "service.hot_swap"
         | "service.start"
         | "service.stop"
         | "service.drop"

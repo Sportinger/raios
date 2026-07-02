@@ -182,8 +182,11 @@ Still shape every durable slice so it can become raiOS memory later:
   `service.artifact_load_plan_preflight_selftest` proves valid preflight
   evidence and tampered descriptor/artifact/slot/denial cases fail closed;
   the same service can be stopped, started again, explicitly restarted without
-  changing its loaded generation, and dropped while retaining RAM-only
-  lifecycle evidence;
+  changing its loaded generation, hot-swapped through the same signed built-in
+  evidence chain with a new loaded generation, and dropped while retaining
+  RAM-only lifecycle evidence;
+  `service.hot_swap external:svc.demo.hello` remains denied before service
+  mutation;
   arbitrary external artifacts, candidate-byte execution, executable page
   mapping, persistence, durable audit, rollback, provider auto-load, and broad
   mutation remain denied.
@@ -289,11 +292,11 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Return to the runtime artifact track with a real current-boot service
-   evolution slice: a built-in signed `svc.demo.hello` replacement/hot-swap
-   candidate that preserves the old service until accepted, while external
-   bytes, persistence, durable audit, rollback install, and broad mutation stay
-   denied.
+1. Continue the runtime artifact track with a distinct built-in signed
+   `svc.demo.hello` replacement candidate routed through the existing
+   `service.hot_swap` path, preserving the old service until accepted while
+   external bytes, persistence, durable audit, rollback install, and broad
+   mutation stay denied.
 2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
    validation once trusted roots, intermediate-chain handling, and trusted time
    exist.

@@ -414,6 +414,7 @@ pub(crate) const DENIED_METHODS: &[&str] = &[
     "module.rollback",
     "service.load_ephemeral",
     "service.restart",
+    "service.hot_swap",
     "service.start",
     "service.stop",
     "service.drop",
