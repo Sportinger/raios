@@ -323,9 +323,10 @@ Verified in the VM today:
   active service state unchanged,
   `service.rollback_apply svc.demo.hello` binding the preview/probation/state
   hashes plus rollback transaction/durable-audit preflight and write-authority
-  gate evidence into structured `capability_denied` while proving descriptor,
-  generation, running state, RAM-only state, durable audit, rollback-store,
-  transaction append, and persistence remain unchanged,
+  gate plus append-intent availability evidence into structured
+  `capability_denied` while proving descriptor, generation, running state,
+  RAM-only state, durable audit, rollback-store, transaction append, and
+  persistence remain unchanged,
   `service.hot_swap svc.demo.hello.reset_state` denying a would-reset migration
   before descriptor/generation/state mutation with RAM-only audit evidence,
   and drop clearing the current-boot slot while citing the same activation hash;

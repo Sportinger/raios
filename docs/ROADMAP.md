@@ -211,13 +211,18 @@ Latest verified implementation slice:
   `raios.ram_only_hello_service_rollback_write_authority_gate.v0` binding the
   preflight hash, required audit/rollback-transaction schemas, unavailable
   durable-audit-write, rollback-store-write, and transaction-append authority,
-  and disabled write/apply side effects; the RAM-only rollback-apply denial
-  audit event retains the same preflight and gate hashes and proves the active
-  v2 descriptor, generation, running state, and RAM-only state stay unchanged
-  while real rollback application, persistence, durable audit writes,
-  rollback-store writes, transaction append, external bytes, candidate
-  execution, executable mapping, provider auto-load, and broad mutation stay
-  denied
+  and disabled write/apply side effects, plus
+  `raios.ram_only_hello_service_rollback_append_intent_gate.v0` binding the
+  write-authority gate hash, preflight hash, apply-denial hash,
+  preview/probation/state evidence, target/current candidate facts, required
+  schemas, unavailable append/durable-store authority, and disabled
+  append/write/apply side effects; the RAM-only rollback-apply denial audit
+  event retains the same preflight, write-authority gate, and append-intent gate
+  hashes and proves the active v2 descriptor, generation, running state, and
+  RAM-only state stay unchanged while real rollback application, persistence,
+  durable audit writes, rollback-store writes, transaction append, external
+  bytes, candidate execution, executable mapping, provider auto-load, and broad
+  mutation stay denied
 
 Previous full verification before the verifier-decision slice:
 
@@ -233,7 +238,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the Hello rollback write-authority gate:
+Latest focused verification after the Hello rollback append-intent gate:
+
+```text
+release\vm-reports\shadow-20260702-090105-12232.json
+263/263 quick predicates, 54 executed commands, duration_ms: 84226
+```
+
+Previous focused verification after the Hello rollback write-authority gate:
 
 ```text
 release\vm-reports\shadow-20260702-085049-8956.json
@@ -434,23 +446,24 @@ Exact next task:
 
 ```text
 Continue the runtime artifact track with the smallest rollback transaction
-append-intent/availability gate over the verified Hello rollback write-authority
-gate. It should bind the retained gate hash, preflight hash, apply-denial hash,
-preview hash, probation hash, current state hash, rollback target, current
-candidate, requested capability, required `raios.audit_record.v0` /
-`raios.rollback_transaction.v0` schemas, and unavailable append/durable-store
-authority into current-boot/local-only evidence while actual rollback
-application, persistent install, durable audit writes, rollback-store writes,
-transaction append, external bytes, candidate execution, executable mapping,
-provider auto-load, and broad mutation remain denied.
+payload/hash-envelope gate over the verified Hello rollback append-intent gate.
+It should bind the retained append-intent gate hash, write-authority gate hash,
+preflight hash, apply-denial hash, preview hash, probation hash, current state
+hash, rollback target, current candidate, requested capability, required
+`raios.audit_record.v0` / `raios.rollback_transaction.v0` schemas, proposed
+transaction payload schema/id, payload hash, provenance hash, and unavailable
+writer/durable-store authority into current-boot/local-only evidence while
+actual rollback application, persistent install, durable audit writes,
+rollback-store writes, transaction append, external bytes, candidate execution,
+executable mapping, provider auto-load, and broad mutation remain denied.
 ```
 
 AI-parallel next wave:
 
-1. Runtime artifact track: add the rollback transaction append-intent/
-   availability gate over the verified Hello rollback write-authority gate
-   without applying rollback, appending a transaction, writing durable records,
-   or claiming persistence authority.
+1. Runtime artifact track: add the rollback transaction payload/hash-envelope
+   gate over the verified Hello rollback append-intent gate without applying
+   rollback, appending a transaction, writing durable records, or claiming
+   persistence authority.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted

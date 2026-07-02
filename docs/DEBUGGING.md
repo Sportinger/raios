@@ -570,12 +570,18 @@ authorities, expose
 `sha256:` gate hash over the preflight hash, required `raios.audit_record.v0`
 and `raios.rollback_transaction.v0` schemas, unavailable durable-audit-write,
 rollback-store-write, and transaction-append authority, and disabled write/apply
-side effects, keep actual rollback apply, descriptor mutation, generation
-mutation, running-state mutation, RAM-only state mutation, persistent install,
-durable audit write, rollback-store write, transaction append, external bytes,
-candidate execution, executable mapping, provider auto-load, and broad mutation
-denied or not attempted, and a follow-up health probe must prove the active v2
-descriptor, generation, running state, and state hash are unchanged; drop cites
+side effects, expose
+`raios.ram_only_hello_service_rollback_append_intent_gate.v0` with a `sha256:`
+gate hash over the write-authority gate hash, preflight hash,
+apply-denial/preview/probation/state evidence, target/current candidate facts,
+required durable schemas, unavailable append/durable-store authority, and
+disabled append/write/apply side effects, keep actual rollback apply,
+descriptor mutation, generation mutation, running-state mutation, RAM-only state
+mutation, persistent install, durable audit write, rollback-store write,
+transaction append, external bytes, candidate execution, executable mapping,
+provider auto-load, and broad mutation denied or not attempted, and a follow-up
+health probe must prove the active v2 descriptor, generation, running state, and
+state hash are unchanged; drop cites
 the same activation hash with
 `cleared_current_boot` before cleanup and clears the state counter.
 `audit.events` must show

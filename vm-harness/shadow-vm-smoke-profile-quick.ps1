@@ -30,6 +30,9 @@
         $HelloRollbackWriteAuthorityGateSchema = "raios.ram_only_hello_service_rollback_write_authority_gate.v0"
         $HelloRollbackWriteAuthorityGateId = "hello_rollback_write_authority_gate.current_boot.svc.demo.hello.v0"
         $HelloRollbackWriteAuthorityGateStatus = "denied_missing_durable_write_authority"
+        $HelloRollbackAppendIntentGateSchema = "raios.ram_only_hello_service_rollback_append_intent_gate.v0"
+        $HelloRollbackAppendIntentGateId = "hello_rollback_append_intent_gate.current_boot.svc.demo.hello.v0"
+        $HelloRollbackAppendIntentGateStatus = "denied_missing_rollback_transaction_append_authority"
         $HelloLoadPlanPreflightSelftestSchema = "raios.current_boot_artifact_load_plan_preflight_selftest.v0"
         $HelloLoadPlanPreflightSelftestId = "artifact_load_plan_preflight_selftest.current_boot.svc.demo.hello.v0"
 
@@ -498,6 +501,37 @@
             }
             if ($WriteGate.current_state_hash -ne $ExpectedStateHash -or $WriteGate.current_state_counter -ne 3 -or $WriteGate.rollback_target_artifact_identity_hash -ne $ExpectedTargetArtifactIdentityHash -or $WriteGate.current_candidate_artifact_identity_hash -ne $ExpectedCurrentArtifactIdentityHash -or $WriteGate.state_migration_hash -ne $ExpectedStateMigrationHash) {
                 throw "Expected Hello rollback write-authority gate to bind state, target/current artifact identities, and migration hash"
+            }
+            $AppendGate = $Apply.rollback_append_intent_gate
+            if (-not $AppendGate) {
+                throw "Expected Hello rollback apply denial to expose rollback append-intent gate"
+            }
+            if ($AppendGate.schema -ne $HelloRollbackAppendIntentGateSchema -or $AppendGate.id -ne $HelloRollbackAppendIntentGateId) {
+                throw "Expected Hello rollback append-intent gate schema/id"
+            }
+            if ($AppendGate.scope -ne "current_boot" -or $AppendGate.classification -ne "local_only" -or $AppendGate.persistence -ne "none" -or $AppendGate.status -ne $HelloRollbackAppendIntentGateStatus) {
+                throw "Expected Hello rollback append-intent gate to be current_boot/local_only/non-persistent"
+            }
+            if ($AppendGate.requested_capability -ne "cap.service.rollback_apply.current_boot") {
+                throw "Expected Hello rollback append-intent gate to bind requested rollback apply capability"
+            }
+            if (-not $AppendGate.gate_hash -or -not $AppendGate.gate_hash.StartsWith("sha256:")) {
+                throw "Expected Hello rollback append-intent gate hash"
+            }
+            if ($AppendGate.rollback_write_authority_gate_hash -ne $WriteGate.gate_hash -or $AppendGate.rollback_transaction_preflight_hash -ne $Preflight.preflight_hash -or $AppendGate.rollback_apply_hash -ne $Apply.rollback_apply_hash -or $AppendGate.rollback_preview_hash -ne $ExpectedPreviewHash -or $AppendGate.source_probation_hash -ne $ExpectedProbationHash) {
+                throw "Expected Hello rollback append-intent gate to bind write gate, preflight, apply, preview, and probation hashes"
+            }
+            if ($AppendGate.required_schemas.audit_record -ne "raios.audit_record.v0" -or $AppendGate.required_schemas.rollback_transaction -ne "raios.rollback_transaction.v0") {
+                throw "Expected Hello rollback append-intent gate to cite required durable schemas"
+            }
+            if (-not $AppendGate.unavailable_authorities.append_intent -or -not $AppendGate.unavailable_authorities.rollback_transaction_append -or -not $AppendGate.unavailable_authorities.durable_audit_store -or -not $AppendGate.unavailable_authorities.rollback_store) {
+                throw "Expected Hello rollback append-intent gate to expose unavailable append/store authorities"
+            }
+            if ($AppendGate.side_effects.writes_durable_audit_log -or $AppendGate.side_effects.writes_rollback_store -or $AppendGate.side_effects.appends_rollback_transaction -or $AppendGate.side_effects.installs_rollback_plan -or $AppendGate.side_effects.applies_rollback) {
+                throw "Expected Hello rollback append-intent gate to keep append/write/apply side effects disabled"
+            }
+            if ($AppendGate.current_state_hash -ne $ExpectedStateHash -or $AppendGate.current_state_counter -ne 3 -or $AppendGate.rollback_target_descriptor_source_hash -ne $Preflight.rollback_target_descriptor_source_hash -or $AppendGate.current_candidate_descriptor_source_hash -ne $Preflight.current_candidate_descriptor_source_hash -or $AppendGate.rollback_target_artifact_identity_hash -ne $ExpectedTargetArtifactIdentityHash -or $AppendGate.current_candidate_artifact_identity_hash -ne $ExpectedCurrentArtifactIdentityHash -or $AppendGate.state_migration_hash -ne $ExpectedStateMigrationHash) {
+                throw "Expected Hello rollback append-intent gate to bind state, descriptor sources, target/current artifact identities, and migration hash"
             }
             if ($Apply.denied_surfaces.mutates_service_state -or $Apply.denied_surfaces.applies_rollback) {
                 throw "Expected Hello rollback apply denial to avoid service mutation and rollback apply"
@@ -1499,6 +1533,7 @@
             -ExpectedStateMigrationHash $helloHotSwapV2MigrationHash
         $helloRollbackTransactionPreflightHash = $helloRollbackApply.body.rollback_transaction_preflight.preflight_hash
         $helloRollbackWriteAuthorityGateHash = $helloRollbackApply.body.rollback_write_authority_gate.gate_hash
+        $helloRollbackAppendIntentGateHash = $helloRollbackApply.body.rollback_append_intent_gate.gate_hash
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthAfterRollbackApply = Get-LastAgentResponseJson -Method "service.health"
@@ -1872,6 +1907,10 @@
         if ($helloRollbackApplyEvents.Count -lt 1) {
             throw "Expected rollback apply audit event to bind preview/probation/state evidence without mutating service state"
         }
+        $helloRollbackApplyAppendEvents = @($helloRollbackApplyEvents | Where-Object { $_.bindings.rollback_append_intent_gate_schema -eq $HelloRollbackAppendIntentGateSchema -and $_.bindings.rollback_append_intent_gate_id -eq $HelloRollbackAppendIntentGateId -and $_.bindings.rollback_append_intent_gate_hash -eq $helloRollbackAppendIntentGateHash -and $_.bindings.rollback_append_intent_gate_status -eq $HelloRollbackAppendIntentGateStatus -and $_.bindings.rollback_append_intent_required_audit_schema -eq "raios.audit_record.v0" -and $_.bindings.rollback_append_intent_required_rollback_schema -eq "raios.rollback_transaction.v0" -and -not $_.bindings.rollback_append_intent_available -and -not $_.bindings.rollback_append_durable_audit_store_available -and -not $_.bindings.rollback_append_store_available -and -not $_.bindings.rollback_append_transaction_append_available })
+        if ($helloRollbackApplyAppendEvents.Count -lt 1) {
+            throw "Expected rollback apply audit event to bind append-intent gate evidence without appending a transaction"
+        }
         $helloDescriptorEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor.current_boot.svc.demo.hello.v0" })
         if ($helloDescriptorEvents.Count -lt 6) {
             throw "Expected hello lifecycle events to cite the load descriptor"
@@ -2027,6 +2066,9 @@
         Assert-LogContains -Name "quick:audit_events_hello_rollback_write_gate_hash" -Needle '"rollback_write_authority_gate_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_write_gate_status" -Needle '"rollback_write_authority_gate_status": "denied_missing_durable_write_authority"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_write_gate_unavailable" -Needle '"rollback_store_write_authority_available": false' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_append_gate_hash" -Needle '"rollback_append_intent_gate_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_append_gate_status" -Needle '"rollback_append_intent_gate_status": "denied_missing_rollback_transaction_append_authority"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_append_gate_unavailable" -Needle '"rollback_append_intent_available": false' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1

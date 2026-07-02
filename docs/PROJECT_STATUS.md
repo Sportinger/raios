@@ -122,7 +122,9 @@ into a structured `capability_denied` response plus
 `raios.ram_only_hello_service_rollback_transaction_preflight.v0` current-boot
 evidence and
 `raios.ram_only_hello_service_rollback_write_authority_gate.v0` current-boot
-write-authority evidence retained on the
+write-authority evidence plus a
+`raios.ram_only_hello_service_rollback_append_intent_gate.v0` append-intent
+availability gate retained on the
 `raios.ram_only_hello_service.rollback_apply` RAM audit event. The preflight
 hash binds the apply denial hash, preview hash, probation hash, state
 hash/counter, target/current descriptor and artifact identity facts, migration
@@ -131,11 +133,16 @@ persistent-install authorities. The write-authority gate hash binds the
 preflight hash, required `raios.audit_record.v0` and
 `raios.rollback_transaction.v0` schemas, unavailable durable-audit-write,
 rollback-store-write, and rollback-transaction-append authority, and disabled
-write/apply side effects while proving descriptor, generation, running state,
-and RAM-only state remain unchanged and rollback application, persistent
-install, durable audit writes, rollback-store writes, external artifact bytes,
-candidate execution, executable mapping, provider auto-load, and broad mutation
-stay denied. `service.hot_swap svc.demo.hello` can return to
+write/apply side effects. The append-intent gate hash binds the write-authority
+gate hash, preflight hash, apply denial hash, preview hash, probation hash,
+current state, rollback target/current candidate descriptor and artifact facts,
+required durable schemas, unavailable append/durable-store authorities, and
+disabled append/write/apply side effects while proving descriptor, generation,
+running state, and RAM-only state remain unchanged and rollback application,
+persistent install, durable audit writes, rollback-store writes, rollback
+transaction append, external artifact bytes, candidate execution, executable
+mapping, provider auto-load, and broad mutation stay denied. `service.hot_swap
+svc.demo.hello` can return to
 the signed v1 identity. `service.hot_swap external:svc.demo.hello` remains
 denied before the service is touched, and a follow-up health probe proves the
 running generation and state are preserved. `service.drop` clears the
@@ -182,26 +189,35 @@ current-boot/local-only
 returns the matching `event_id`/`audit_event_id`.
 
 Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
-Hello rollback write-authority gate over the verified rollback transaction /
-durable-audit preflight.
+Hello rollback append-intent availability gate over the verified rollback
+write-authority gate.
 Quick Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-085049-8956.json` with 260/260
-predicates, 54 executed commands, and `duration_ms: 72086`. The quick smoke
+`release/vm-reports/shadow-20260702-090105-12232.json` with 263/263
+predicates, 54 executed commands, and `duration_ms: 84226`. The quick smoke
 proves `service.rollback_apply svc.demo.hello` returns structured
 `capability_denied`, exposes
 `raios.ram_only_hello_service_rollback_transaction_preflight.v0` plus
-`raios.ram_only_hello_service_rollback_write_authority_gate.v0`, binds the
-current rollback-preview hash, preflight hash, apply-denial hash, probation
-hash, state hash/counter, rollback target, current candidate, requested
-capability, required durable schemas, unavailable write/append authorities, and
-state-migration hash, records
+`raios.ram_only_hello_service_rollback_write_authority_gate.v0` plus
+`raios.ram_only_hello_service_rollback_append_intent_gate.v0`, binds the current
+rollback-preview hash, preflight hash, write-authority gate hash, apply-denial
+hash, probation hash, state hash/counter, rollback target, current candidate,
+requested capability, required durable schemas, unavailable
+append/durable-store authorities, and state-migration hash, records
 `raios.ram_only_hello_service.rollback_apply` with
-`cap.service.rollback_apply.current_boot` plus the same preflight and
-write-authority gate hashes, keeps rollback application, persistent install,
-durable audit writes, rollback-store writes, rollback transaction append,
-external bytes, candidate execution, executable mapping, provider auto-load, and
-broad mutation denied, and leaves the active v2 descriptor, generation, running
-state, and RAM-only state unchanged in follow-up health.
+`cap.service.rollback_apply.current_boot` plus the same preflight,
+write-authority gate, and append-intent gate hashes, keeps rollback application,
+persistent install, durable audit writes, rollback-store writes, rollback
+transaction append, external bytes, candidate execution, executable mapping,
+provider auto-load, and broad mutation denied, and leaves the active v2
+descriptor, generation, running state, and RAM-only state unchanged in follow-up
+health.
+
+Previous focused verification after the Hello rollback write-authority gate:
+
+```text
+release\vm-reports\shadow-20260702-085049-8956.json
+260/260 quick predicates, 54 executed commands, duration_ms: 72086
+```
 
 Previous focused verification after the Hello rollback transaction/durable-audit
 preflight:
@@ -1522,19 +1538,20 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 ## Exact Next Task
 
 Now that `service.rollback_apply svc.demo.hello` exposes a verified
-current-boot rollback write-authority gate over the transaction/durable-audit
-preflight, continue the runtime artifact track with the smallest rollback
-transaction append-intent/availability gate over that write-authority evidence:
-bind the retained write-authority gate hash, preflight hash, apply-denial hash,
-rollback-preview hash, probation hash, current state hash, rollback
-target/current candidate, requested capability, required
-`raios.audit_record.v0` / `raios.rollback_transaction.v0` schemas, and
-unavailable append/durable-store authority into current-boot/local-only
-evidence, but keep actual rollback application, persistent install, durable
-audit writes, rollback-store writes, rollback transaction append, external
-artifact bytes, candidate-byte execution, executable mapping,
-provider-triggered auto-load, and broad mutation denied until real
-write/transaction authority exists.
+current-boot rollback append-intent availability gate over the write-authority
+gate and transaction/durable-audit preflight, continue the runtime artifact
+track with the smallest rollback transaction payload/hash-envelope gate over
+that append-intent evidence: bind the retained append-intent gate hash,
+write-authority gate hash, preflight hash, apply-denial hash, rollback-preview
+hash, probation hash, current state hash, rollback target/current candidate,
+requested capability, required `raios.audit_record.v0` /
+`raios.rollback_transaction.v0` schemas, proposed transaction payload schema/id,
+payload hash, provenance hash, and unavailable transaction writer/durable-store
+authority into current-boot/local-only evidence, but keep actual rollback
+application, persistent install, durable audit writes, rollback-store writes,
+rollback transaction append, external artifact bytes, candidate-byte execution,
+executable mapping, provider-triggered auto-load, and broad mutation denied
+until real write/transaction authority exists.
 Provider trust/context hardening remains a parallel Track B, but do not claim
 WebPKI chain or time validation until trusted roots, intermediate chain
 handling, and a trusted time source are actually present.
@@ -1559,11 +1576,12 @@ The next slice should:
 - keep `agent command_envelope ... target_method=problem.list ...` routing
   through the existing dispatcher
 - keep malformed or over-capable envelopes denied before dispatch
-- add the smallest rollback transaction append-intent/availability gate over the
-  verified write-authority gate and prove it binds the gate, preflight,
-  preview/probation/state, target/current candidate, requested capability,
-  durable schemas, and missing append/storage authority without applying
-  rollback, appending a transaction, or writing durable records
+- add the smallest rollback transaction payload/hash-envelope gate over the
+  verified append-intent gate and prove it binds the append gate, write gate,
+  preflight, preview/probation/state, target/current candidate, requested
+  capability, durable schemas, payload/provenance hashes, and missing
+  writer/storage authority without applying rollback, appending a transaction,
+  or writing durable records
 - keep the fail-closed rollback-apply gate over retained rollback-preview/
   probation evidence proving it cannot mutate descriptor, generation, running
   state, or RAM-only Hello state
