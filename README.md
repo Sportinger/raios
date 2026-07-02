@@ -267,8 +267,8 @@ Verified in the VM today:
 - first typed serial command envelope:
   `raios.agent_command_envelope.v0` accepts local-only read-only
   `system.describe`, `system.snapshot`, `system.capabilities`,
-  `service.inventory`, and `problem.list` requests only when the requested
-  capability matches the target, routes through the existing
+  `device.graph`, `service.inventory`, and `problem.list` requests only when
+  the requested capability matches the target, routes through the existing
   dispatcher, and denies target/capability mismatches, bad-schema envelopes, or
   over-capable targets before dispatch without provider writes, candidate-byte
   loading, persistence, or broad mutation; accepted and denied envelope

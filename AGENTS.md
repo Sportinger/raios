@@ -192,7 +192,8 @@ Still shape every durable slice so it can become raiOS memory later:
   and the read-only target/capability pairs `system.describe` with
   `cap.system.describe.read`, `system.snapshot` with
   `cap.system.snapshot.read`, `system.capabilities` with
-  `cap.system.capabilities.read`, `service.inventory` with
+  `cap.system.capabilities.read`, `device.graph` with
+  `cap.device.graph.read`, `service.inventory` with
   `cap.service.inventory.read`, and `problem.list` with
   `cap.problem.list.read`, then routes accepted envelopes through the existing
   dispatcher path. Mismatched target/capability pairs, bad-schema envelopes,
@@ -288,8 +289,9 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 ## Next Engineering Steps
 
 1. Widen the native command envelope only to the next proven read-only target,
-   starting with `device.graph` and `cap.device.graph.read`, while
-   preserving target/capability mismatch denials.
+   starting with local-only `system.boot_log` and
+   `cap.system.boot_log.read`, while preserving target/capability mismatch
+   denials and keeping raw boot-log export local-only.
 2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
    validation once trusted roots, intermediate-chain handling, and trusted time
    exist.

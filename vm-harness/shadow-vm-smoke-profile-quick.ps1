@@ -222,6 +222,21 @@
             throw "Expected accepted agent command envelope to route through system.capabilities"
         }
 
+        $deviceGraphEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=device.graph requested_capability=cap.device.graph.read classification=local_only"
+        Send-AgentCommand -Command $deviceGraphEnvelopeCommand -ExpectedMarker "RAIOS_AGENT_END device.graph"
+        $deviceGraphEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
+        Assert-CurrentBootEventId -Name "quick:agent_command_envelope_device_graph_event_id" -Value $deviceGraphEnvelope.body.result.event_id
+        if (-not $deviceGraphEnvelope.body.result.accepted -or $deviceGraphEnvelope.body.result.reason -ne "accepted" -or -not $deviceGraphEnvelope.body.result.dispatches_existing_agent_method) {
+            throw "Expected device.graph agent command envelope to dispatch"
+        }
+        if ($deviceGraphEnvelope.body.result.target_method -ne "device.graph" -or $deviceGraphEnvelope.body.result.requested_capability -ne "cap.device.graph.read") {
+            throw "Expected agent command envelope to bind device.graph and its read capability"
+        }
+        $envelopedDeviceGraph = Get-LastAgentResponseJson -Method "device.graph"
+        if ($envelopedDeviceGraph.body.result.schema -ne "device.graph.v0") {
+            throw "Expected accepted agent command envelope to route through device.graph"
+        }
+
         $serviceInventoryEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=service.inventory requested_capability=cap.service.inventory.read classification=local_only"
         Send-AgentCommand -Command $serviceInventoryEnvelopeCommand -ExpectedMarker "RAIOS_AGENT_END service.inventory"
         $serviceInventoryEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
@@ -1121,8 +1136,8 @@
         Send-AgentCommand -Command "agent audit.events 40" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
         $envelopeAuditEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
-        if ($envelopeAuditEvents.Count -ne 8) {
-            throw "Expected eight agent command envelope audit events"
+        if ($envelopeAuditEvents.Count -ne 9) {
+            throw "Expected nine agent command envelope audit events"
         }
         foreach ($event in $envelopeAuditEvents) {
             if ($event.classification -ne "local_only" -or $event.bindings.schema -ne "raios.agent_command_envelope.audit_binding.v0" -or $event.bindings.command_schema -ne "raios.agent_command_envelope.v0") {
@@ -1151,6 +1166,10 @@
         $systemCapabilitiesEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $systemCapabilitiesEnvelope.body.result.event_id } | Select-Object -First 1
         if (-not $systemCapabilitiesEnvelopeEvent -or $systemCapabilitiesEnvelopeEvent.outcome -ne "accepted" -or -not $systemCapabilitiesEnvelopeEvent.bindings.accepted -or -not $systemCapabilitiesEnvelopeEvent.bindings.dispatches_existing_agent_method -or $systemCapabilitiesEnvelopeEvent.bindings.target_method -ne "system.capabilities" -or $systemCapabilitiesEnvelopeEvent.bindings.requested_capability -ne "cap.system.capabilities.read") {
             throw "Expected accepted agent command envelope audit event to bind system.capabilities"
+        }
+        $deviceGraphEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $deviceGraphEnvelope.body.result.event_id } | Select-Object -First 1
+        if (-not $deviceGraphEnvelopeEvent -or $deviceGraphEnvelopeEvent.outcome -ne "accepted" -or -not $deviceGraphEnvelopeEvent.bindings.accepted -or -not $deviceGraphEnvelopeEvent.bindings.dispatches_existing_agent_method -or $deviceGraphEnvelopeEvent.bindings.target_method -ne "device.graph" -or $deviceGraphEnvelopeEvent.bindings.requested_capability -ne "cap.device.graph.read") {
+            throw "Expected accepted agent command envelope audit event to bind device.graph"
         }
         $serviceInventoryEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $serviceInventoryEnvelope.body.result.event_id } | Select-Object -First 1
         if (-not $serviceInventoryEnvelopeEvent -or $serviceInventoryEnvelopeEvent.outcome -ne "accepted" -or -not $serviceInventoryEnvelopeEvent.bindings.accepted -or -not $serviceInventoryEnvelopeEvent.bindings.dispatches_existing_agent_method -or $serviceInventoryEnvelopeEvent.bindings.target_method -ne "service.inventory" -or $serviceInventoryEnvelopeEvent.bindings.requested_capability -ne "cap.service.inventory.read") {

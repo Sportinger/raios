@@ -3,7 +3,7 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-07-02 by Codex after quick-VM-verifying the
-`system.capabilities` read-only command-envelope target plus current-boot audit
+`device.graph` read-only command-envelope target plus current-boot audit
 evidence.
 Keep this section compact. The authoritative, unabridged current
 state is
@@ -157,7 +157,8 @@ Latest verified implementation slice:
   read-only target/capability pairs `system.describe` with
   `cap.system.describe.read`, `system.snapshot` with
   `cap.system.snapshot.read`, `system.capabilities` with
-  `cap.system.capabilities.read`, `service.inventory` with
+  `cap.system.capabilities.read`, `device.graph` with
+  `cap.device.graph.read`, `service.inventory` with
   `cap.service.inventory.read`, and `problem.list` with
   `cap.problem.list.read`; it emits a local-only
   `raios.agent_command_envelope.v0` response and routes to the existing
@@ -171,7 +172,7 @@ Latest verified implementation slice:
   current-boot/local-only `raios.agent_command_envelope.decision` events with
   `raios.agent_command_envelope.audit_binding.v0`; the envelope response
   carries matching `event_id`/`audit_event_id`, and `audit.events` proves the
-  eight currently verified decision shapes
+  nine currently verified decision shapes
 
 Previous full verification before the verifier-decision slice:
 
@@ -187,7 +188,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the `system.capabilities` command-envelope slice:
+Latest focused verification after the `device.graph` command-envelope slice:
+
+```text
+release\vm-reports\shadow-20260702-065801-25136.json
+224/224 quick predicates, 42 executed commands, duration_ms: 95235
+```
+
+Previous focused verification after the `system.capabilities` command-envelope slice:
 
 ```text
 release\vm-reports\shadow-20260702-065202-7476.json
@@ -310,17 +318,18 @@ Exact next task:
 
 ```text
 Widen `raios.agent_command_envelope.v0` by one more proven read-only target:
-add `device.graph` with `cap.device.graph.read`. Keep `system.describe`,
-`system.snapshot`, `system.capabilities`, `service.inventory`, and
-`problem.list` accepted with their matching
-capabilities, keep the target/capability mismatch denial audit-visible, and
-keep malformed or over-capable mutation targets denied before dispatch.
+add local-only `system.boot_log` with `cap.system.boot_log.read`. Keep
+`system.describe`, `system.snapshot`, `system.capabilities`, `device.graph`,
+`service.inventory`, and `problem.list` accepted with their matching
+capabilities, keep the target/capability mismatch denial audit-visible, keep
+malformed or over-capable mutation targets denied before dispatch, and keep raw
+boot-log export local-only.
 ```
 
 AI-parallel next wave:
 
 1. Agent protocol track: widen the typed command envelope only from proven
-   read-only command use cases, next `device.graph`.
+   read-only command use cases, next local-only `system.boot_log`.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted

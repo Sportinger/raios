@@ -113,7 +113,8 @@ Agent protocol track memory: Stage-0 now has its first narrow native
 local-only read-only targets: `system.describe` with
 `cap.system.describe.read`, `system.snapshot` with
 `cap.system.snapshot.read`, `system.capabilities` with
-`cap.system.capabilities.read`, `service.inventory` with
+`cap.system.capabilities.read`, `device.graph` with
+`cap.device.graph.read`, `service.inventory` with
 `cap.service.inventory.read`, and `problem.list` with
 `cap.problem.list.read`. The envelope emits a typed local response, rejects
 target/capability mismatches, bad schema, and over-capable targets before
@@ -127,19 +128,32 @@ current-boot/local-only
 returns the matching `event_id`/`audit_event_id`.
 
 Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
-read-only `system.capabilities` envelope target to
+read-only `device.graph` envelope target to
+`raios.agent_command_envelope.v0`. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-065801-25136.json` with 224/224
+predicates, 42 executed commands, and `duration_ms: 95235`. The quick smoke
+proves valid envelopes dispatch through the existing `system.describe`,
+`system.snapshot`, `system.capabilities`, `device.graph`,
+`service.inventory`, and `problem.list` methods, a `service.inventory`
+envelope paired with `cap.system.describe.read` is denied as
+`requested_capability_denied` before dispatch, bad-schema envelopes are
+rejected, an over-capable `module.load_ephemeral` target is denied before
+module dispatch, and `audit.events` exposes all nine decisions as local-only
+current-boot audit evidence while unsafe side effects remain disabled.
+
+Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding
+the read-only `system.capabilities` envelope target to
 `raios.agent_command_envelope.v0`. Quick Shadow VM smoke passed in
 `release/vm-reports/shadow-20260702-065202-7476.json` with 222/222
 predicates, 41 executed commands, and `duration_ms: 95768`. The quick smoke
-proves valid envelopes dispatch through the existing `system.describe`,
+proved valid envelopes dispatched through the existing `system.describe`,
 `system.snapshot`, `system.capabilities`, `service.inventory`, and
 `problem.list` methods, a `service.inventory` envelope paired with
-`cap.system.describe.read` is denied as
-`requested_capability_denied` before dispatch, bad-schema envelopes are
-rejected, an over-capable
-`module.load_ephemeral` target is denied before module dispatch, and
-`audit.events` exposes all eight decisions as local-only current-boot audit
-evidence while unsafe side effects remain disabled.
+`cap.system.describe.read` was denied as `requested_capability_denied` before
+dispatch, bad-schema envelopes were rejected, an over-capable
+`module.load_ephemeral` target was denied before module dispatch, and
+`audit.events` exposed all eight decisions as local-only current-boot audit
+evidence while unsafe side effects remained disabled.
 
 Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding
 the read-only `system.snapshot` envelope target to
@@ -1331,16 +1345,16 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 ## Exact Next Task
 
 Now that `raios.agent_command_envelope.v0` proves accepted read-only
-`system.describe`, `system.snapshot`, `system.capabilities`,
-`service.inventory`, and `problem.list` targets plus
-target/capability mismatches, malformed envelopes, and over-capable mutation
-targets, widen the native command envelope by one more proven read-only target:
-add `device.graph` with requested capability `cap.device.graph.read`. Keep the
-existing accepted targets working, keep the mismatch denial case audit-visible,
-and keep mutation targets denied before dispatch. Keep
-provider trust/context hardening as a parallel Track B, but do not claim WebPKI
-chain or time validation until trusted roots, intermediate chain handling, and a
-trusted time source are actually present.
+`system.describe`, `system.snapshot`, `system.capabilities`, `device.graph`,
+`service.inventory`, and `problem.list` targets plus target/capability
+mismatches, malformed envelopes, and over-capable mutation targets, widen the
+native command envelope by one more proven read-only target: add local-only
+`system.boot_log` with requested capability `cap.system.boot_log.read`. Keep
+the existing accepted targets working, keep the mismatch denial case
+audit-visible, and keep mutation targets denied before dispatch. Keep raw boot
+log export local-only; provider trust/context hardening remains a parallel
+Track B, but do not claim WebPKI chain or time validation until trusted roots,
+intermediate chain handling, and a trusted time source are actually present.
 
 The next slice should:
 
@@ -1351,15 +1365,17 @@ The next slice should:
   through the existing dispatcher
 - keep `agent command_envelope ... target_method=system.capabilities ...`
   routing through the existing dispatcher
+- keep `agent command_envelope ... target_method=device.graph ...` routing
+  through the existing dispatcher
 - keep `agent command_envelope ... target_method=service.inventory ...` routing
   through the existing dispatcher
 - keep the mismatched allowed target/read-capability envelope denied with
   current-boot audit evidence and no dispatcher side effect
 - keep `agent command_envelope ... target_method=problem.list ...` routing
   through the existing dispatcher
-- add `agent command_envelope ... target_method=device.graph
-  requested_capability=cap.device.graph.read ...` as the next accepted
-  read-only dispatcher route with current-boot audit evidence
+- add `agent command_envelope ... target_method=system.boot_log
+  requested_capability=cap.system.boot_log.read ...` as the next accepted
+  local-only read-only dispatcher route with current-boot audit evidence
 - keep malformed or over-capable envelopes denied before dispatch
 - keep current-image and host-bound `svc.demo.hello` load/list/stop/start/
   restart/drop passing in quick VM smoke, with explicit `service.start
