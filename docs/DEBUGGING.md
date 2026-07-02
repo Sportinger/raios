@@ -416,6 +416,7 @@ read-only target allowlist:
 ```text
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe requested_capability=cap.system.describe.read classification=local_only
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.snapshot requested_capability=cap.system.snapshot.read classification=local_only
+agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.boot_log requested_capability=cap.system.boot_log.read classification=local_only
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.capabilities requested_capability=cap.system.capabilities.read classification=local_only
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=device.graph requested_capability=cap.device.graph.read classification=local_only
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=service.inventory requested_capability=cap.service.inventory.read classification=local_only
@@ -423,18 +424,19 @@ agent command_envelope schema=raios.agent_command_envelope.v0 target_method=prob
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=service.inventory requested_capability=cap.system.describe.read classification=local_only
 agent command_envelope schema=bad target_method=system.describe requested_capability=cap.system.describe.read classification=local_only
 agent command_envelope schema=raios.agent_command_envelope.v0 target_method=module.load_ephemeral requested_capability=cap.module.load_ephemeral classification=local_only
-agent audit.events 16
+agent audit.events 18
 ```
 
 The valid envelopes must return `raios.agent_command_envelope.v0` with
 `accepted: true`, current-boot `event_id`/`audit_event_id`,
 `dispatches_existing_agent_method: true`, and then emit the normal
-`system.describe`, `system.snapshot`, `system.capabilities`,
-`device.graph`, `service.inventory`, or `problem.list` response. A
+`system.describe`, `system.snapshot`, `system.boot_log`,
+`system.capabilities`, `device.graph`, `service.inventory`, or `problem.list`
+response. A
 target/capability mismatch must return `reason: requested_capability_denied`
 without dispatching `service.inventory`. Bad-schema and over-capable envelopes
 must return the same envelope schema with `accepted: false` and must not
-dispatch `module.load_ephemeral`; `audit.events` must show nine local-only
+dispatch `module.load_ephemeral`; `audit.events` must show ten local-only
 `raios.agent_command_envelope.decision` events with
 `raios.agent_command_envelope.audit_binding.v0`. The envelope response and
 audit binding must keep provider writes, candidate-byte loading, persistence,
@@ -464,7 +466,7 @@ services
 service.health svc.demo.hello
 service.stop svc.demo.hello
 service.drop svc.demo.hello
-agent audit.events 40
+agent audit.events 42
 ```
 
 The two wrong-target commands must still return `raios.module_load_gate.v0`

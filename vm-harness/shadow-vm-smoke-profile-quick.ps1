@@ -207,6 +207,21 @@
             throw "Expected accepted agent command envelope to route through system.snapshot"
         }
 
+        $bootLogEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.boot_log requested_capability=cap.system.boot_log.read classification=local_only"
+        Send-AgentCommand -Command $bootLogEnvelopeCommand -ExpectedMarker "RAIOS_AGENT_END system.boot_log"
+        $bootLogEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
+        Assert-CurrentBootEventId -Name "quick:agent_command_envelope_boot_log_event_id" -Value $bootLogEnvelope.body.result.event_id
+        if (-not $bootLogEnvelope.body.result.accepted -or $bootLogEnvelope.body.result.reason -ne "accepted" -or -not $bootLogEnvelope.body.result.dispatches_existing_agent_method) {
+            throw "Expected system.boot_log agent command envelope to dispatch"
+        }
+        if ($bootLogEnvelope.body.result.target_method -ne "system.boot_log" -or $bootLogEnvelope.body.result.requested_capability -ne "cap.system.boot_log.read") {
+            throw "Expected agent command envelope to bind system.boot_log and its read capability"
+        }
+        $envelopedBootLog = Get-LastAgentResponseJson -Method "system.boot_log"
+        if ($envelopedBootLog.body.result.schema -ne "system.boot_log.v0") {
+            throw "Expected accepted agent command envelope to route through system.boot_log"
+        }
+
         $systemCapabilitiesEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.capabilities requested_capability=cap.system.capabilities.read classification=local_only"
         Send-AgentCommand -Command $systemCapabilitiesEnvelopeCommand -ExpectedMarker "RAIOS_AGENT_END system.capabilities"
         $systemCapabilitiesEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
@@ -1133,11 +1148,11 @@
             -ExpectedActive $false | Out-Null
         & $AssertHelloServiceSlotActivationReference -Name "host-bound drop loader response" -Record $hostDrop.body.result.loader -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationClearedStatus -ExpectedActive $false
 
-        Send-AgentCommand -Command "agent audit.events 40" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+        Send-AgentCommand -Command "agent audit.events 42" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
         $envelopeAuditEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
-        if ($envelopeAuditEvents.Count -ne 9) {
-            throw "Expected nine agent command envelope audit events"
+        if ($envelopeAuditEvents.Count -ne 10) {
+            throw "Expected ten agent command envelope audit events"
         }
         foreach ($event in $envelopeAuditEvents) {
             if ($event.classification -ne "local_only" -or $event.bindings.schema -ne "raios.agent_command_envelope.audit_binding.v0" -or $event.bindings.command_schema -ne "raios.agent_command_envelope.v0") {
@@ -1162,6 +1177,10 @@
         $systemSnapshotEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $systemSnapshotEnvelope.body.result.event_id } | Select-Object -First 1
         if (-not $systemSnapshotEnvelopeEvent -or $systemSnapshotEnvelopeEvent.outcome -ne "accepted" -or -not $systemSnapshotEnvelopeEvent.bindings.accepted -or -not $systemSnapshotEnvelopeEvent.bindings.dispatches_existing_agent_method -or $systemSnapshotEnvelopeEvent.bindings.target_method -ne "system.snapshot" -or $systemSnapshotEnvelopeEvent.bindings.requested_capability -ne "cap.system.snapshot.read") {
             throw "Expected accepted agent command envelope audit event to bind system.snapshot"
+        }
+        $bootLogEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $bootLogEnvelope.body.result.event_id } | Select-Object -First 1
+        if (-not $bootLogEnvelopeEvent -or $bootLogEnvelopeEvent.outcome -ne "accepted" -or -not $bootLogEnvelopeEvent.bindings.accepted -or -not $bootLogEnvelopeEvent.bindings.dispatches_existing_agent_method -or $bootLogEnvelopeEvent.bindings.target_method -ne "system.boot_log" -or $bootLogEnvelopeEvent.bindings.requested_capability -ne "cap.system.boot_log.read") {
+            throw "Expected accepted agent command envelope audit event to bind system.boot_log"
         }
         $systemCapabilitiesEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $systemCapabilitiesEnvelope.body.result.event_id } | Select-Object -First 1
         if (-not $systemCapabilitiesEnvelopeEvent -or $systemCapabilitiesEnvelopeEvent.outcome -ne "accepted" -or -not $systemCapabilitiesEnvelopeEvent.bindings.accepted -or -not $systemCapabilitiesEnvelopeEvent.bindings.dispatches_existing_agent_method -or $systemCapabilitiesEnvelopeEvent.bindings.target_method -ne "system.capabilities" -or $systemCapabilitiesEnvelopeEvent.bindings.requested_capability -ne "cap.system.capabilities.read") {
@@ -1314,7 +1333,7 @@
             throw "Expected host-bound health event to cite the host-bound service-slot activation"
         }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 40' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 42' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_module_load_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_recovery_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1

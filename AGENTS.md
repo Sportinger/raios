@@ -191,7 +191,8 @@ Still shape every durable slice so it can become raiOS memory later:
   for schema `raios.agent_command_envelope.v0`, classification `local_only`,
   and the read-only target/capability pairs `system.describe` with
   `cap.system.describe.read`, `system.snapshot` with
-  `cap.system.snapshot.read`, `system.capabilities` with
+  `cap.system.snapshot.read`, `system.boot_log` with
+  `cap.system.boot_log.read`, `system.capabilities` with
   `cap.system.capabilities.read`, `device.graph` with
   `cap.device.graph.read`, `service.inventory` with
   `cap.service.inventory.read`, and `problem.list` with
@@ -288,10 +289,11 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Widen the native command envelope only to the next proven read-only target,
-   starting with local-only `system.boot_log` and
-   `cap.system.boot_log.read`, while preserving target/capability mismatch
-   denials and keeping raw boot-log export local-only.
+1. Return to the runtime artifact track with a real current-boot service
+   evolution slice: a built-in signed `svc.demo.hello` replacement/hot-swap
+   candidate that preserves the old service until accepted, while external
+   bytes, persistence, durable audit, rollback install, and broad mutation stay
+   denied.
 2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
    validation once trusted roots, intermediate-chain handling, and trusted time
    exist.

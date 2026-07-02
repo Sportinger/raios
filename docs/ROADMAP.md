@@ -3,7 +3,7 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-07-02 by Codex after quick-VM-verifying the
-`device.graph` read-only command-envelope target plus current-boot audit
+`system.boot_log` read-only command-envelope target plus current-boot audit
 evidence.
 Keep this section compact. The authoritative, unabridged current
 state is
@@ -156,7 +156,8 @@ Latest verified implementation slice:
   `raios.agent_command_envelope.v0`, classification `local_only`, and the
   read-only target/capability pairs `system.describe` with
   `cap.system.describe.read`, `system.snapshot` with
-  `cap.system.snapshot.read`, `system.capabilities` with
+  `cap.system.snapshot.read`, `system.boot_log` with
+  `cap.system.boot_log.read`, `system.capabilities` with
   `cap.system.capabilities.read`, `device.graph` with
   `cap.device.graph.read`, `service.inventory` with
   `cap.service.inventory.read`, and `problem.list` with
@@ -172,7 +173,7 @@ Latest verified implementation slice:
   current-boot/local-only `raios.agent_command_envelope.decision` events with
   `raios.agent_command_envelope.audit_binding.v0`; the envelope response
   carries matching `event_id`/`audit_event_id`, and `audit.events` proves the
-  nine currently verified decision shapes
+  ten currently verified decision shapes
 
 Previous full verification before the verifier-decision slice:
 
@@ -188,7 +189,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the `device.graph` command-envelope slice:
+Latest focused verification after the `system.boot_log` command-envelope slice:
+
+```text
+release\vm-reports\shadow-20260702-070530-20712.json
+226/226 quick predicates, 43 executed commands, duration_ms: 69882
+```
+
+Previous focused verification after the `device.graph` command-envelope slice:
 
 ```text
 release\vm-reports\shadow-20260702-065801-25136.json
@@ -317,19 +325,19 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Widen `raios.agent_command_envelope.v0` by one more proven read-only target:
-add local-only `system.boot_log` with `cap.system.boot_log.read`. Keep
-`system.describe`, `system.snapshot`, `system.capabilities`, `device.graph`,
-`service.inventory`, and `problem.list` accepted with their matching
-capabilities, keep the target/capability mismatch denial audit-visible, keep
-malformed or over-capable mutation targets denied before dispatch, and keep raw
-boot-log export local-only.
+Return to the runtime artifact track with a real current-boot service
+evolution slice: add the smallest built-in signed `svc.demo.hello`
+replacement/hot-swap candidate that preserves the old service until accepted.
+Keep external bytes, candidate execution, executable mapping, persistence,
+durable audit writes, rollback install, provider auto-load, and broad mutation
+denied.
 ```
 
 AI-parallel next wave:
 
-1. Agent protocol track: widen the typed command envelope only from proven
-   read-only command use cases, next local-only `system.boot_log`.
+1. Runtime artifact track: evolve the working Hello slice into the first
+   built-in current-boot replacement/hot-swap path without accepting external
+   bytes.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted
