@@ -77,6 +77,24 @@ pub(crate) const HELLO_SERVICE_HEALTH_EVIDENCE: &[&str] = &[
     "ram_only_health_read",
     "service_inventory_projection",
 ];
+pub(crate) const HELLO_SERVICE_ROLLBACK_PREVIEW_EVIDENCE: &[&str] = &[
+    "raios.ram_only_hello_service_hot_swap_probation.v0",
+    "hello_hot_swap_probation_hash",
+    "hello_hot_swap_probation_status",
+    "previous_descriptor_source_hash",
+    "new_descriptor_source_hash",
+    "previous_artifact_identity_hash",
+    "new_artifact_identity_hash",
+    "previous_generation",
+    "new_generation",
+    "previous_state_hash",
+    "new_state_hash",
+    "hello_state_migration_hash",
+    "rollback_preview_read_only",
+    "rollback_apply_not_attempted",
+    "durable_audit_not_written",
+    "persistent_state_not_written",
+];
 pub(crate) const PROVIDER_REQUEST_BINDING_DENIAL_EVIDENCE: &[&str] = &[
     "provider_request_binding_denied",
     "projected_packet_hash",

@@ -465,6 +465,8 @@ service.hot_swap external:svc.demo.hello
 service.health svc.demo.hello
 service.hot_swap svc.demo.hello
 service.hot_swap svc.demo.hello.v2
+service.rollback_preview svc.demo.hello
+service.health svc.demo.hello
 service.hot_swap svc.demo.hello
 service.drop svc.demo.hello
 service.health svc.demo.hello
@@ -473,7 +475,7 @@ services
 service.health svc.demo.hello
 service.stop svc.demo.hello
 service.drop svc.demo.hello
-agent audit.events 52
+agent audit.events 56
 ```
 
 The two wrong-target commands must still return `raios.module_load_gate.v0`
@@ -548,8 +550,13 @@ hot-swaps must also expose
 identity hashes, previous/new generation, previous/new state hash/counter, and
 the matching state-migration hash while candidate bytes, executable mapping,
 persistent state, durable audit, rollback install, and rollback apply stay
-denied; drop cites the same activation hash with `cleared_current_boot` before
-cleanup and clears the state counter.
+denied. `service.rollback_preview svc.demo.hello` must return
+`raios.ram_only_hello_service_rollback_preview.v0`, bind the v1->v2 probation
+hash, expose rollback-target and current-candidate descriptor/artifact
+identity/generation/state/migration facts, keep apply/install/write surfaces
+denied, and a follow-up health probe must prove the active v2 generation and
+state are unchanged; drop cites the same activation hash with
+`cleared_current_boot` before cleanup and clears the state counter.
 `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
@@ -562,7 +569,8 @@ service-slot activation hash/status plus Hello state hash/counter, denied
 reset-state migration evidence, and accepted v2 state-migration
 hash/preserved-state evidence plus the accepted hot-swap probation hash/status
 and previous/new descriptor, artifact identity, generation, state, and
-migration facts.
+migration facts, plus the rollback-preview event binding with the same
+probation hash and explicit no-apply/no-install evidence.
 
 `service.descriptor_source_trust_selftest` must return
 `raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and

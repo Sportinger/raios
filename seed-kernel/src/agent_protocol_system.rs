@@ -60,6 +60,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         summary: "read current-boot service health",
     },
     Capability {
+        id: "cap.service.rollback_preview.read",
+        risk: "observe",
+        granted: true,
+        scope: "current_boot",
+        summary: "read current-boot rollback preview evidence",
+    },
+    Capability {
         id: "cap.service.descriptor_source_trust.read",
         risk: "observe",
         granted: true,
@@ -238,6 +245,7 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "problem.list",
     "service.inventory",
     "service.health",
+    "service.rollback_preview",
     "service.descriptor_source_trust_selftest",
     "service.artifact_reference_trust_selftest",
     "service.artifact_load_plan_preflight_selftest",

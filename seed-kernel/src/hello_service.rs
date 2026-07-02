@@ -49,6 +49,9 @@ pub(crate) const HELLO_HOT_SWAP_PROBATION_SCHEMA: &str =
 pub(crate) const HELLO_HOT_SWAP_PROBATION_ID: &str =
     "hello_hot_swap_probation.current_boot.svc.demo.hello.v0";
 pub(crate) const HELLO_HOT_SWAP_PROBATION_STATUS: &str = "active_current_boot_probation";
+const HELLO_ROLLBACK_PREVIEW_SCHEMA: &str = "raios.ram_only_hello_service_rollback_preview.v0";
+const HELLO_ROLLBACK_PREVIEW_ID: &str = "hello_rollback_preview.current_boot.svc.demo.hello.v0";
+const HELLO_ROLLBACK_PREVIEW_STATUS: &str = "preview_only_current_boot";
 const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_SCHEMA: &str =
     "raios.current_boot_artifact_load_plan_preflight_selftest.v0";
 const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_ID: &str =
@@ -529,6 +532,97 @@ fn hello_hot_swap_probation_record_hash(record: HelloHotSwapProbationRecord) -> 
         record.installs_rollback_plan,
     );
     hash_line_bool(&mut hash, b"applies_rollback", record.applies_rollback);
+    finalize_sha256(hash)
+}
+
+fn hello_rollback_preview_hash(
+    snapshot: Snapshot,
+    probation: HelloHotSwapProbationRecord,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_line_str(&mut hash, b"schema", HELLO_ROLLBACK_PREVIEW_SCHEMA);
+    hash_line_str(&mut hash, b"id", HELLO_ROLLBACK_PREVIEW_ID);
+    hash_line_str(&mut hash, b"scope", "current_boot");
+    hash_line_str(&mut hash, b"classification", "local_only");
+    hash_line_str(&mut hash, b"persistence", "none");
+    hash_line_str(&mut hash, b"status", HELLO_ROLLBACK_PREVIEW_STATUS);
+    hash_line_str(&mut hash, b"service_id", SERVICE_ID);
+    hash_line_hash(
+        &mut hash,
+        b"source_probation_sha256",
+        probation.probation_hash,
+    );
+    hash_line_str(
+        &mut hash,
+        b"rollback_target_descriptor_id",
+        probation.previous_descriptor_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"rollback_target_descriptor_source_sha256",
+        probation.previous_descriptor_source_hash,
+    );
+    hash_line_str(
+        &mut hash,
+        b"current_descriptor_id",
+        probation.new_descriptor_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"current_descriptor_source_sha256",
+        probation.new_descriptor_source_hash,
+    );
+    hash_line_str(
+        &mut hash,
+        b"rollback_target_artifact_identity_id",
+        probation.previous_artifact_identity_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"rollback_target_artifact_identity_sha256",
+        probation.previous_artifact_identity_hash,
+    );
+    hash_line_str(
+        &mut hash,
+        b"current_artifact_identity_id",
+        probation.new_artifact_identity_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"current_artifact_identity_sha256",
+        probation.new_artifact_identity_hash,
+    );
+    hash_line_u64(
+        &mut hash,
+        b"rollback_target_generation",
+        probation.previous_generation,
+    );
+    hash_line_u64(&mut hash, b"current_generation", snapshot.generation);
+    hash_line_hash(
+        &mut hash,
+        b"rollback_target_state_sha256",
+        probation.previous_state_hash,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"current_state_sha256",
+        hello_state_hash(snapshot.state_counter),
+    );
+    hash_line_u64(
+        &mut hash,
+        b"rollback_target_state_counter",
+        probation.previous_state_counter,
+    );
+    hash_line_u64(&mut hash, b"current_state_counter", snapshot.state_counter);
+    hash_line_hash(
+        &mut hash,
+        b"state_migration_sha256",
+        probation.state_migration_hash,
+    );
+    hash_line_bool(&mut hash, b"read_only", true);
+    hash_line_bool(&mut hash, b"applies_rollback", false);
+    hash_line_bool(&mut hash, b"writes_persistent_state", false);
+    hash_line_bool(&mut hash, b"writes_durable_audit_log", false);
     finalize_sha256(hash)
 }
 
@@ -1107,6 +1201,10 @@ pub(crate) fn is_health_method(method: &str) -> bool {
     target_arg_matches(method, "service.health")
 }
 
+pub(crate) fn is_rollback_preview_method(method: &str) -> bool {
+    target_arg_matches(method, "service.rollback_preview")
+}
+
 pub(crate) fn is_descriptor_source_trust_selftest_method(method: &str) -> bool {
     method_eq(method, "service.descriptor_source_trust_selftest")
 }
@@ -1185,6 +1283,12 @@ pub(crate) fn emit_health(_method: &str) -> &'static str {
     let (snapshot, event_id) = health_probe("service.health");
     emit_health_response("service.health", snapshot, event_id);
     "service.health"
+}
+
+pub(crate) fn emit_rollback_preview(_method: &str) -> &'static str {
+    let (snapshot, event_id) = rollback_preview("service.rollback_preview");
+    emit_rollback_preview_response("service.rollback_preview", snapshot, event_id);
+    "service.rollback_preview"
 }
 
 pub(crate) fn emit_descriptor_source_trust_selftest() -> &'static str {
@@ -1810,6 +1914,37 @@ fn health_probe(source_method: &'static str) -> (Snapshot, event_log::EventId) {
     (snapshot, event_id)
 }
 
+fn rollback_preview(source_method: &'static str) -> (Snapshot, event_log::EventId) {
+    let state = STATE.lock();
+    let snapshot = state.snapshot();
+    let reason = if snapshot.hot_swap_probation.is_some() {
+        "rollback_preview_ready"
+    } else if snapshot.loaded {
+        "hot_swap_probation_missing"
+    } else {
+        "service_not_loaded"
+    };
+    let event_id = event_log::record_hello_service_rollback_preview(
+        source_method,
+        if snapshot.hot_swap_probation.is_some() {
+            "response"
+        } else {
+            "capability_denied"
+        },
+        reason,
+        lifecycle_binding(
+            snapshot.load_descriptor,
+            "none",
+            service_slot_activation_status(snapshot),
+            service_slot_activation_active(snapshot),
+            snapshot.state_counter,
+            snapshot.state_migration,
+            snapshot.hot_swap_probation,
+        ),
+    );
+    (snapshot, event_id)
+}
+
 fn load_request(method: &str) -> Option<LoadRequest> {
     load_request_for_head(method, "module.load_ephemeral")
         .or_else(|| load_request_for_head(method, "service.load_ephemeral"))
@@ -2315,6 +2450,120 @@ fn emit_hot_swap_state_migration_denied(
     raw_line("  }");
     raw_line("}");
     raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
+}
+
+fn emit_rollback_preview_response(
+    method: &'static str,
+    snapshot: Snapshot,
+    event_id: event_log::EventId,
+) {
+    let probation = snapshot.hot_swap_probation;
+    begin_response(method);
+    raw_line("      \"schema\": \"raios.ram_only_hello_service_rollback_preview.v0\",");
+    raw("      \"id\": ");
+    json_str(HELLO_ROLLBACK_PREVIEW_ID);
+    raw_line(",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"persistence\": \"none\",");
+    raw_line("      \"read_only\": true,");
+    raw("      \"status\": ");
+    json_str(if probation.is_some() {
+        HELLO_ROLLBACK_PREVIEW_STATUS
+    } else {
+        "missing_hot_swap_probation"
+    });
+    raw_line(",");
+    raw("      \"preview_available\": ");
+    raw_bool(probation.is_some());
+    raw_line(",");
+    raw("      \"event_id\": ");
+    json_event_id_option(Some(event_id));
+    raw_line(",");
+    raw("      \"audit_event_id\": ");
+    json_event_id_option(Some(event_id));
+    raw_line(",");
+    raw("      \"service_id\": ");
+    json_str(SERVICE_ID);
+    raw_line(",");
+    raw("      \"current_generation\": ");
+    raw_fmt(format_args!("{}", snapshot.generation));
+    raw_line(",");
+    raw("      \"current_state\": ");
+    emit_hello_state(snapshot);
+    raw_line(",");
+    raw("      \"source_probation\": ");
+    emit_hello_hot_swap_probation_option(probation);
+    raw_line(",");
+    raw("      \"preview_hash\": ");
+    if let Some(probation) = probation {
+        json_sha256(hello_rollback_preview_hash(snapshot, probation));
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("      \"rollback_target\": ");
+    if let Some(probation) = probation {
+        raw("{\"version\": ");
+        json_str(probation.previous_version);
+        raw(", \"descriptor_id\": ");
+        json_str(probation.previous_descriptor_id);
+        raw(", \"descriptor_source_hash\": ");
+        json_sha256(probation.previous_descriptor_source_hash);
+        raw(", \"artifact_identity_id\": ");
+        json_str(probation.previous_artifact_identity_id);
+        raw(", \"artifact_identity_hash\": ");
+        json_sha256(probation.previous_artifact_identity_hash);
+        raw(", \"generation\": ");
+        raw_fmt(format_args!("{}", probation.previous_generation));
+        raw(", \"state_hash\": ");
+        json_sha256(probation.previous_state_hash);
+        raw(", \"state_counter\": ");
+        raw_fmt(format_args!("{}", probation.previous_state_counter));
+        raw("}");
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("      \"current_candidate\": ");
+    if let Some(probation) = probation {
+        raw("{\"version\": ");
+        json_str(probation.new_version);
+        raw(", \"descriptor_id\": ");
+        json_str(probation.new_descriptor_id);
+        raw(", \"descriptor_source_hash\": ");
+        json_sha256(probation.new_descriptor_source_hash);
+        raw(", \"artifact_identity_id\": ");
+        json_str(probation.new_artifact_identity_id);
+        raw(", \"artifact_identity_hash\": ");
+        json_sha256(probation.new_artifact_identity_hash);
+        raw(", \"generation\": ");
+        raw_fmt(format_args!("{}", probation.new_generation));
+        raw(", \"state_hash\": ");
+        json_sha256(probation.new_state_hash);
+        raw(", \"state_counter\": ");
+        raw_fmt(format_args!("{}", probation.new_state_counter));
+        raw("}");
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("      \"state_migration\": ");
+    emit_hello_state_migration_option(snapshot.state_migration);
+    raw_line(",");
+    raw_line("      \"denied_surfaces\": {");
+    raw_line("        \"mutates_service_state\": false,");
+    raw_line("        \"applies_rollback\": false,");
+    raw_line("        \"installs_rollback_plan\": false,");
+    raw_line("        \"persistent_install\": \"denied\",");
+    raw_line("        \"durable_audit_write\": \"denied\",");
+    raw_line("        \"external_artifact_load\": \"denied\",");
+    raw_line("        \"candidate_artifact_execution\": \"denied\",");
+    raw_line("        \"executable_mapping\": \"denied\",");
+    raw_line("        \"provider_auto_load\": \"denied\",");
+    raw_line("        \"broad_mutation\": \"denied\"");
+    raw_line("      }");
+    end_response(method);
 }
 
 fn emit_response(

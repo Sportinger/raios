@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying accepted Hello
-hot-swap probation evidence.
+Last updated: 2026-07-02 by Codex after quick-VM-verifying the read-only Hello
+rollback preview over retained hot-swap probation evidence.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -193,6 +193,13 @@ Latest verified implementation slice:
   the accepted state-migration hash; the v1->v2 audit event retains the
   matching probation hash while candidate bytes, executable mapping,
   persistence, durable audit, rollback install, and rollback apply stay denied
+- `service.rollback_preview svc.demo.hello` now reads retained hot-swap
+  probation evidence into
+  `raios.ram_only_hello_service_rollback_preview.v0`, exposes previous/current
+  descriptor, artifact identity, generation, state hash/counter, and migration
+  facts plus a preview hash, records a RAM-only rollback-preview audit event,
+  and proves the active v2 service stays unchanged while rollback apply and
+  durable/persistent/external execution surfaces stay denied
 
 Previous full verification before the verifier-decision slice:
 
@@ -208,7 +215,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after accepted Hello hot-swap probation evidence:
+Latest focused verification after the read-only Hello rollback preview:
+
+```text
+release\vm-reports\shadow-20260702-081302-27580.json
+247/247 quick predicates, 52 executed commands, duration_ms: 81372
+```
+
+Previous focused verification after accepted Hello hot-swap probation evidence:
 
 ```text
 release\vm-reports\shadow-20260702-075957-15956.json
@@ -379,20 +393,21 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Continue the runtime artifact track with the smallest read-only rollback
-preview over retained Hello hot-swap probation evidence. The preview should
-identify previous/new descriptor and artifact identity, previous/new
-generation, state hash/counter, and migration facts without mutating service
-state, applying rollback, installing persistence, writing durable audit,
-loading external bytes, executing candidates, mapping executable pages,
-provider auto-load, or broad mutation.
+Continue the runtime artifact track with the smallest fail-closed
+rollback-apply gate over the retained Hello rollback-preview/probation
+evidence. `service.rollback_apply svc.demo.hello` should bind the current
+preview, probation, and state hashes, return structured `capability_denied`,
+and prove descriptor, generation, running state, and RAM-only state stay
+unchanged while persistent install, durable audit writes, external bytes,
+candidate execution, executable mapping, provider auto-load, and broad mutation
+remain denied.
 ```
 
 AI-parallel next wave:
 
-1. Runtime artifact track: add the read-only rollback preview over retained
-   Hello hot-swap probation evidence without applying rollback or claiming
-   persistence authority.
+1. Runtime artifact track: add the fail-closed rollback-apply gate over retained
+   Hello rollback-preview/probation evidence without applying rollback or
+   claiming persistence authority.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted

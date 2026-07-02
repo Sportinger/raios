@@ -458,6 +458,8 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
         event_log::EventBindings::HelloServiceLifecycle(binding) => {
             if kind == "raios.ram_only_hello_service.health" {
                 raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.health_binding.v0\", \"status\": \"current_boot_health_read\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
+            } else if kind == "raios.ram_only_hello_service.rollback_preview" {
+                raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.rollback_preview_binding.v0\", \"status\": \"current_boot_rollback_preview_read\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
             } else {
                 raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.lifecycle_binding.v0\", \"status\": \"current_boot_state_transition\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
             }

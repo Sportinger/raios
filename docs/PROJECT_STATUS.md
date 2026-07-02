@@ -109,11 +109,17 @@ are unchanged. Accepted hot-swaps now also emit
 previous/new descriptor source hash, artifact identity hash, generation, state
 hash/counter, and migration hash with `active_current_boot_probation` status
 while candidate execution, persistent state, durable audit, rollback install,
-and rollback apply stay denied. `service.hot_swap svc.demo.hello` can return
-to the signed v1 identity. `service.hot_swap external:svc.demo.hello` remains
-denied before the service is touched, and a follow-up health probe proves the
-running generation and state are preserved. `service.drop` clears the
-current-boot slot while citing the same activation before cleanup.
+and rollback apply stay denied. `service.rollback_preview svc.demo.hello` now
+reads the retained probation into
+`raios.ram_only_hello_service_rollback_preview.v0`, exposes the previous
+rollback target and current candidate descriptor, artifact identity,
+generation, state hash/counter, state-migration hash, and preview hash, records
+a RAM-only rollback-preview audit event, and proves with follow-up health that
+the active v2 service state is unchanged. `service.hot_swap svc.demo.hello` can
+return to the signed v1 identity. `service.hot_swap external:svc.demo.hello`
+remains denied before the service is touched, and a follow-up health probe
+proves the running generation and state are preserved. `service.drop` clears
+the current-boot slot while citing the same activation before cleanup.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -155,7 +161,21 @@ current-boot/local-only
 `raios.agent_command_envelope.audit_binding.v0`, and the envelope response
 returns the matching `event_id`/`audit_event_id`.
 
-Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding
+Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
+read-only Hello rollback preview over retained hot-swap probation evidence.
+Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-081302-27580.json` with 247/247
+predicates, 52 executed commands, and `duration_ms: 81372`. The quick smoke
+proves `service.rollback_preview svc.demo.hello` binds the retained v1->v2
+probation hash into
+`raios.ram_only_hello_service_rollback_preview.v0`, exposes previous/current
+descriptor, artifact identity, generation, state hash/counter, and migration
+facts, records a RAM-only rollback-preview audit event, keeps rollback apply,
+persistent install, durable audit writes, external bytes, candidate execution,
+executable mapping, provider auto-load, and broad mutation denied, and leaves
+the active v2 service generation/state unchanged in follow-up health.
+
+Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding
 RAM-only accepted hot-swap probation evidence. Quick Shadow VM smoke passed in
 `release/vm-reports/shadow-20260702-075957-15956.json` with 243/243
 predicates, 50 executed commands, and `duration_ms: 77226`. The quick smoke
@@ -1451,13 +1471,14 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that accepted Hello hot-swaps emit RAM-only probation evidence, continue the
-runtime artifact track with the smallest read-only rollback preview over that
-probation record: expose the previous descriptor/artifact identity,
-generation, state hash/counter, and current new facts from the retained
-probation evidence, but keep rollback apply, persistent install, durable audit
-writes, external artifact bytes, candidate-byte execution, executable mapping,
-provider-triggered auto-load, and broad mutation denied.
+Now that retained Hello hot-swap probation can be previewed read-only, continue
+the runtime artifact track with the smallest fail-closed rollback-apply gate
+over that preview: `service.rollback_apply svc.demo.hello` should bind the
+current rollback-preview, probation, and state hashes, return structured
+`capability_denied`, and prove descriptor, generation, running state, and
+RAM-only state stay unchanged while persistent install, durable audit writes,
+external artifact bytes, candidate-byte execution, executable mapping,
+provider-triggered auto-load, and broad mutation remain denied.
 Provider trust/context hardening remains a parallel Track B, but do not claim
 WebPKI chain or time validation until trusted roots, intermediate chain
 handling, and a trusted time source are actually present.
@@ -1482,10 +1503,12 @@ The next slice should:
 - keep `agent command_envelope ... target_method=problem.list ...` routing
   through the existing dispatcher
 - keep malformed or over-capable envelopes denied before dispatch
-- add the smallest read-only rollback preview over the retained hot-swap
-  probation evidence and prove it can identify previous/new descriptor,
-  generation, state hash/counter, and migration facts without mutating service
-  state
+- add the smallest fail-closed rollback-apply gate over the retained
+  rollback-preview/probation evidence and prove it cannot mutate descriptor,
+  generation, running state, or RAM-only Hello state
+- keep the read-only rollback preview over retained hot-swap probation evidence
+  proving previous/current descriptor, generation, state hash/counter, and
+  migration facts without mutating service state
 - keep accepted hot-swap probation evidence binding previous/new descriptor,
   generation, state hash/counter, and migration hash without claiming rollback
   or persistence authority
@@ -1537,10 +1560,11 @@ The next slice should:
 
 Do not add a signed artifact loader yet. The runtime-artifact track now has a
 real current-boot lifecycle, signed v1/v2 hot-swap, state-preserving migration
-evidence, a fail-closed reset-state migration denial, and accepted hot-swap
-probation evidence for the already-working Hello slot; the next highest-value
-OS core slice is a read-only rollback preview over retained probation facts
-while arbitrary module execution and rollback apply remain denied.
+evidence, a fail-closed reset-state migration denial, accepted hot-swap
+probation evidence, and a read-only rollback preview for the already-working
+Hello slot; the next highest-value OS core slice is a fail-closed
+rollback-apply gate over retained preview/probation facts while arbitrary
+module execution and real rollback application remain denied.
 
 For multi-agent execution, treat the agent-command boundary as Track A and
 provider trust/context as Track B. UI/input polish, harness speed/evidence, and
