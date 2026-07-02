@@ -29,8 +29,8 @@ RAM-only service vertical slice: `raios.ram_only_hello_service.v0`. The kernel
 can load/start the built-in `svc.demo.hello` test service through a typed
 current-boot load request/descriptor, expose it through `service.inventory`,
 report health, stop it, start it again through `service.start`, drop it, and
-retain RAM-only lifecycle/health audit
-events that cite the descriptor plus a validated current-image
+retain RAM-only lifecycle/health audit events that cite the descriptor plus a
+validated current-image
 descriptor-source locator/kind/hash. The current-image descriptor-source path
 now also carries a repo-local P-256/SHA-256 signature envelope that is checked
 by the build script and verified again in the kernel before descriptor-source
@@ -104,23 +104,16 @@ merged result must still be a real verified vertical slice on the final
 architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
-Latest focused verification: 2026-07-02 on Windows with QEMU 11 after adding
-the explicit `service.start svc.demo.hello` current-boot lifecycle transition.
-Quick Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-053445-10792.json` with 201/201
-predicates, 32 executed commands, and `duration_ms: 61451`.
-
-Last full verification before the explicit `service.start` slice: 2026-07-02
-on Windows with QEMU 11 after recording provider trust verifier decisions and
-optional standby SPKI rotation state through snapshots, provider-minimal
-context, positive request/export bindings, and direct-provider injection-gate
-markers. Full Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-051757-3004.json` with 6640/6640
-predicates, 243 executed commands, and `duration_ms: 612495`. The full
-smoke proves the provider context gate selftest still expects all 20 cases,
-including redaction/classification/budget/trust evidence hash mismatches, and
-that the provider context injection gate names `provider_trust_verifier_metadata`
-as required evidence. Provider snapshots and provider-minimal context now expose
+Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
+explicit `service.start svc.demo.hello` current-boot lifecycle transition on
+top of provider trust verifier decisions and optional standby SPKI rotation
+state. Full Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-053820-28640.json` with 6640/6640
+predicates, 243 executed commands, and `duration_ms: 610100`. The full smoke
+proves the provider context gate selftest still expects all 20 cases, including
+redaction/classification/budget/trust evidence hash mismatches, and that the
+provider context injection gate names `provider_trust_verifier_metadata` as
+required evidence. Provider snapshots and provider-minimal context now expose
 `raios.provider_trust_verifier_decision.v0` with verifier id, stage, outcome,
 and reason; the normal no-pin/no-trust state reports `pin_config` / `rejected`
 / `pin_config_missing`. The OpenAI SPKI verifier now also supports one optional
@@ -142,6 +135,11 @@ context export remains `capability_denied`; the current-image and host-bound
 Hello load/start/list/health/stop/drop paths still work; and arbitrary external
 artifacts, candidate-byte execution, executable page mapping, persistence,
 durable audit, rollback, provider auto-load, and broad mutation remain denied.
+
+Previous focused verification after the explicit `service.start` slice:
+2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-053445-10792.json` with 201/201
+predicates, 32 executed commands, and `duration_ms: 61451`.
 
 Previous full verification after the provider trust verifier metadata slice:
 2026-07-02 on Windows with QEMU 11. Full Shadow VM smoke passed in

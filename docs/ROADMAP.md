@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after recording provider trust verifier
-decisions through snapshots, provider context, and positive binding evidence.
+Last updated: 2026-07-02 by Codex after full-VM-verifying the explicit
+`service.start svc.demo.hello` RAM-only lifecycle transition.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -158,11 +158,11 @@ release\vm-reports\shadow-20260702-042431-24536.json
 6632/6632 predicates, 243 executed commands, duration_ms: 609828
 ```
 
-Latest full verification after the standby SPKI rotation slice:
+Latest full verification after the explicit hello `service.start` slice:
 
 ```text
-release\vm-reports\shadow-20260702-051757-3004.json
-6640/6640 predicates, 243 executed commands, duration_ms: 612495
+release\vm-reports\shadow-20260702-053820-28640.json
+6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
 Latest focused verification after the explicit hello `service.start` slice:

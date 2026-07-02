@@ -272,9 +272,10 @@ Verified in the VM today:
 - first positive RAM-only service lifecycle:
   `module.load_ephemeral svc.demo.hello` consumes a typed current-boot load
   descriptor from a validated current-image descriptor-source record, exposes
-  `svc.demo.hello` through `service.inventory`, supports health/stop/drop, and
-  leaves RAM-only lifecycle and health audit events bound to the same descriptor
-  source hash and a verified P-256/SHA-256 descriptor-source signature envelope;
+  `svc.demo.hello` through `service.inventory`, supports health/stop/start/drop,
+  and leaves RAM-only lifecycle and health audit events bound to the same
+  descriptor source hash and a verified P-256/SHA-256 descriptor-source
+  signature envelope;
   `service.descriptor_source_trust_selftest` proves valid and tampered envelope
   cases fail closed without accepting descriptor or artifact bytes; the built-in
   artifact id also carries a signed `raios.builtin_artifact_identity.v0`
@@ -293,8 +294,9 @@ Verified in the VM today:
   evidence fail closed without mutating the event log; a
   `raios.ram_only_service_slot_activation.v0` record derived from the accepted
   preflight now exposes activation id/hash/status/active state in load/start,
-  inventory, health, stop/drop, and RAM-audit bindings, with drop clearing the
-  current-boot slot while citing the same activation hash;
+  inventory, health, stop/drop, and RAM-audit bindings, with `service.start`
+  restarting the same loaded generation and drop clearing the current-boot slot
+  while citing the same activation hash;
   a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service
