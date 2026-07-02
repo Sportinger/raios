@@ -74,6 +74,14 @@ The read-only `service.artifact_load_plan_preflight_selftest` method now proves
 the accepted preflight validates and tampered descriptor-source, artifact
 identity, content-binding, artifact-reference, artifact-byte, service-slot, and
 denial-flag evidence fails closed without mutating the event log.
+The Hello path now also emits a
+`raios.ram_only_service_slot_activation.v0` record derived from the accepted
+preflight. Load/start, `service.inventory`, `service.health`, stop/drop
+responses, and lifecycle/health RAM audit bindings expose the activation
+id/hash/status plus active state. The activation hash stays stable across
+running, stopped, and cleared statuses for the same selected descriptor source
+and preflight; `service.drop` clears the current-boot slot while citing the same
+activation before cleanup.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -95,9 +103,9 @@ architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
 Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
-Hello artifact load-plan preflight selftest. Quick Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-032107-16036.json` with 182/182
-predicates, 31 executed commands, and `duration_ms: 38186`. The focused smoke
+Hello RAM-only service-slot activation record. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-033352-9800.json` with 185/185
+predicates, 31 executed commands, and `duration_ms: 60174`. The focused smoke
 proves the current-image and host-bound Hello load/start/list/health/stop/drop
 paths still work, arbitrary external artifacts and wrong targets remain denied,
 `service.descriptor_source_trust_selftest` stays green, and
@@ -108,10 +116,16 @@ passes while tampered descriptor/artifact/slot/denial evidence fails closed. The
 load response, `service.inventory`, `service.health`, and RAM audit events cite
 the verified artifact identity hash/signature envelope plus the artifact
 content binding hash/trust state plus artifact reference hash, artifact byte
-hash, trust signature state, and artifact load-plan preflight hash/status/slot
-evidence while keeping external artifact bytes, candidate-byte execution,
-executable page mapping, persistence, durable audit, rollback, provider
-auto-load, and broad mutation denied.
+hash, trust signature state, artifact load-plan preflight hash/status/slot
+evidence, and service-slot activation id/hash/status/active state while keeping
+external artifact bytes, candidate-byte execution, executable page mapping,
+persistence, durable audit, rollback, provider auto-load, and broad mutation
+denied.
+
+Previous focused verification after the artifact load-plan preflight selftest:
+2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-032107-16036.json` with 182/182
+predicates, 31 executed commands, and `duration_ms: 38186`.
 
 Previous focused verification after the artifact load-plan preflight:
 2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
@@ -1199,16 +1213,17 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that the built-in `svc.demo.hello` service has an accepted current-boot
-artifact load-plan preflight plus a fail-closed preflight selftest, add the
-smallest RAM-only service-slot activation record for the same Hello path. The
-activation should be derived from the accepted preflight and visible in
-load/start, `service.inventory`, `service.health`, stop/drop responses, and RAM
-audit evidence. Keep it current-boot only and make stop/drop cite the same
-active slot before cleaning it up. Keep execution bound to the existing
-built-in/current-boot service; do not map candidate bytes, write persistent
-state, write durable audit logs, install rollback plans, trigger provider
-auto-load, or grant broad module/service/config mutation.
+Now that the built-in `svc.demo.hello` service has accepted load-plan preflight
+evidence plus a RAM-only service-slot activation/cleanup record, switch the
+next OS-wide slice to the provider trust/context track. Harden the direct
+OpenAI/provider path so provider context export and injection require positive
+TLS provider trust evidence, explicit typed request/export authorization, field
+classification, redaction, and budget evidence. Keep the no-pin/no-trust path
+fail-closed and keep `satisfies_current_boot_export_gate: false` until those
+evidence gates are present. Do not use fake trust, fake persistence, automatic
+context stuffing, candidate-byte execution, durable audit writes, rollback
+installation, provider-triggered auto-load, or broad module/service/config
+mutation as a shortcut.
 
 The next slice should:
 
@@ -1236,10 +1251,12 @@ The next slice should:
 - keep the artifact load-plan preflight id/hash/status/accepted state visible
   in load response, nested descriptor, `service.inventory`, `service.health`,
   and lifecycle/health RAM audit evidence
-- add a narrow RAM-only service-slot activation record derived from the accepted
-  preflight, with stable id/hash/status and explicit current-boot scope
-- expose the activation id/hash/status in load/start, `service.inventory`,
-  `service.health`, stop/drop responses, and lifecycle/health RAM audit evidence
+- keep the RAM-only service-slot activation record derived from the accepted
+  preflight, with stable id/hash/status/active state and explicit current-boot
+  scope visible in load/start, `service.inventory`, `service.health`, stop/drop
+  responses, and lifecycle/health RAM audit evidence
+- harden provider trust/context gating with typed positive evidence rather than
+  prompt stuffing or a development TLS bypass
 - keep stable artifact byte/reference trust ids and hashes in load response,
   `service.inventory`, `service.health`, and RAM audit bindings
 - keep the selected descriptor source locator/kind/validation/hash plus any
@@ -1249,14 +1266,16 @@ The next slice should:
   rollback installation, provider-triggered auto-load, and broad
   module/service/config mutation denied
 
-Do not add a signed artifact loader yet. The next step is a real RAM-only
-activation record for the already-working Hello slot, not arbitrary module
-execution.
+Do not add a signed artifact loader yet. The runtime-artifact track now has a
+real current-boot activation record for the already-working Hello slot; the
+next highest-value OS slice is provider trust/context hardening while arbitrary
+module execution remains denied.
 
-For multi-agent execution, this remains Track A. Other agents may work in
-parallel on provider trust/context hardening, UI/input polish, harness
-speed/evidence, and recovery/persistence design as long as they preserve the
-same evidence gates and do not weaken the current runtime denials.
+For multi-agent execution, treat provider trust/context as Track B and keep
+Track A available only for narrow runtime-artifact follow-ups that preserve the
+same evidence gates. UI/input polish, harness speed/evidence, and
+recovery/persistence design may proceed in parallel as long as they do not
+weaken current runtime denials.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:

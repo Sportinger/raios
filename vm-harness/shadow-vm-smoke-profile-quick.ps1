@@ -3,6 +3,12 @@
         $HelloLoadPlanPreflightStatus = "accepted_builtin_current_boot_only"
         $HelloServiceSlotIntentId = "service_slot_intent.current_boot.svc.demo.hello.v0"
         $HelloRamOnlyServiceSlotId = "ram_only:svc.demo.hello"
+        $HelloServiceSlotActivationSchema = "raios.ram_only_service_slot_activation.v0"
+        $HelloServiceSlotActivationId = "service_slot_activation.current_boot.svc.demo.hello.v0"
+        $HelloServiceSlotActivationActiveStatus = "active_current_boot"
+        $HelloServiceSlotActivationStoppedStatus = "stopped_current_boot"
+        $HelloServiceSlotActivationClearedStatus = "cleared_current_boot"
+        $HelloServiceSlotActivationMissingStatus = "missing_current_boot"
         $HelloLoadPlanPreflightSelftestSchema = "raios.current_boot_artifact_load_plan_preflight_selftest.v0"
         $HelloLoadPlanPreflightSelftestId = "artifact_load_plan_preflight_selftest.current_boot.svc.demo.hello.v0"
 
@@ -83,6 +89,76 @@
             }
             if ($Record.ram_only_service_slot_id -ne $HelloRamOnlyServiceSlotId) {
                 throw "Expected $Name to cite the RAM-only service slot id"
+            }
+        }
+
+        $AssertHelloServiceSlotActivation = {
+            param(
+                [string]$Name,
+                [object]$Activation,
+                [string]$DescriptorSourceHash,
+                [string]$PreflightHash,
+                [string]$ExpectedStatus,
+                [bool]$ExpectedActive
+            )
+
+            if (-not $Activation) {
+                throw "Expected $Name to expose service-slot activation"
+            }
+            if ($Activation.schema -ne $HelloServiceSlotActivationSchema -or $Activation.id -ne $HelloServiceSlotActivationId) {
+                throw "Expected $Name service-slot activation schema/id"
+            }
+            if ($Activation.scope -ne "current_boot" -or $Activation.classification -ne "local_only" -or $Activation.persistence -ne "none") {
+                throw "Expected $Name service-slot activation current_boot/local_only/none"
+            }
+            if ($Activation.status -ne $ExpectedStatus -or $Activation.active -ne $ExpectedActive) {
+                throw "Expected $Name service-slot activation status $ExpectedStatus active=$ExpectedActive"
+            }
+            if (-not $Activation.activation_hash -or -not $Activation.activation_hash.StartsWith("sha256:")) {
+                throw "Expected $Name service-slot activation hash"
+            }
+            if ($Activation.service_id -ne "svc.demo.hello" -or $Activation.artifact_id -ne "builtin:svc.demo.hello" -or $Activation.load_descriptor_id -ne "load_descriptor.current_boot.svc.demo.hello.v0") {
+                throw "Expected $Name service-slot activation to bind the Hello service, artifact, and descriptor"
+            }
+            if ($Activation.descriptor_source_hash -ne $DescriptorSourceHash) {
+                throw "Expected $Name service-slot activation to bind the selected descriptor source hash"
+            }
+            if ($Activation.artifact_load_plan_preflight_id -ne $HelloLoadPlanPreflightId -or $Activation.artifact_load_plan_preflight_hash -ne $PreflightHash -or $Activation.artifact_load_plan_preflight_status -ne $HelloLoadPlanPreflightStatus) {
+                throw "Expected $Name service-slot activation to derive from the accepted load-plan preflight"
+            }
+            if ($Activation.service_slot_intent_id -ne $HelloServiceSlotIntentId -or $Activation.ram_only_service_slot_id -ne $HelloRamOnlyServiceSlotId) {
+                throw "Expected $Name service-slot activation to bind the RAM-only service slot"
+            }
+            if (-not $Activation.accepted_preflight -or -not $Activation.authorizes_builtin_current_boot_start) {
+                throw "Expected $Name service-slot activation to require accepted built-in current-boot preflight"
+            }
+            if ($Activation.authorizes_candidate_artifact_execution -or $Activation.writes_persistent_state) {
+                throw "Expected $Name service-slot activation to deny candidate execution and persistence"
+            }
+
+            return $Activation.activation_hash
+        }
+
+        $AssertHelloServiceSlotActivationReference = {
+            param(
+                [string]$Name,
+                [object]$Record,
+                [string]$ExpectedHash,
+                [string]$ExpectedStatus,
+                [bool]$ExpectedActive
+            )
+
+            if ($Record.service_slot_activation_id -ne $HelloServiceSlotActivationId) {
+                throw "Expected $Name to cite the service-slot activation id"
+            }
+            if ($Record.service_slot_activation_hash -ne $ExpectedHash) {
+                throw "Expected $Name to cite the service-slot activation hash"
+            }
+            if ($Record.service_slot_activation_status -ne $ExpectedStatus) {
+                throw "Expected $Name to cite service-slot activation status $ExpectedStatus"
+            }
+            if ($Record.service_slot_activation_active -ne $ExpectedActive) {
+                throw "Expected $Name to cite service-slot activation active=$ExpectedActive"
             }
         }
 
@@ -425,6 +501,13 @@
         if ($helloLoadDescriptorPreflightHash -ne $helloLoadPlanPreflightHash) {
             throw "Expected hello load response and descriptor to agree on artifact load-plan preflight hash"
         }
+        $helloServiceSlotActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "hello load response" `
+            -Activation $helloLoad.body.result.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationActiveStatus `
+            -ExpectedActive $true
         if ($helloLoad.body.result.load_request.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello load request to cite the same descriptor source hash"
         }
@@ -463,6 +546,7 @@
             throw "Expected hello service response to cite the verified artifact byte reference"
         }
         & $AssertHelloLoadPlanPreflightReference -Name "hello service response" -Record $helloLoad.body.result.service -ExpectedHash $helloLoadPlanPreflightHash
+        & $AssertHelloServiceSlotActivationReference -Name "hello service response" -Record $helloLoad.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
         if ($helloLoad.body.result.loader.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello loader response to cite the same descriptor source hash"
         }
@@ -482,6 +566,7 @@
             throw "Expected hello loader response to cite the verified artifact byte reference"
         }
         & $AssertHelloLoadPlanPreflightReference -Name "hello loader response" -Record $helloLoad.body.result.loader -ExpectedHash $helloLoadPlanPreflightHash -ExpectServiceSlotIntent $true
+        & $AssertHelloServiceSlotActivationReference -Name "hello loader response" -Record $helloLoad.body.result.loader -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
         if (-not $helloLoad.body.result.service.loaded -or -not $helloLoad.body.result.service.running) {
             throw "Expected loaded/running hello service after load_start"
         }
@@ -529,6 +614,7 @@
             throw "Expected svc.demo.hello inventory record to cite the verified artifact byte reference"
         }
         & $AssertHelloLoadPlanPreflightReference -Name "svc.demo.hello inventory record" -Record $helloInventory[0] -ExpectedHash $helloLoadPlanPreflightHash
+        & $AssertHelloServiceSlotActivationReference -Name "svc.demo.hello inventory record" -Record $helloInventory[0] -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthRunning = Get-LastAgentResponseJson -Method "service.health"
@@ -566,6 +652,24 @@
         if ($helloHealthRunningPreflightHash -ne $helloLoadPlanPreflightHash) {
             throw "Expected hello running health descriptor to retain the artifact load-plan preflight hash"
         }
+        $helloHealthRunningActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "hello running health response" `
+            -Activation $helloHealthRunning.body.result.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationActiveStatus `
+            -ExpectedActive $true
+        if ($helloHealthRunningActivationHash -ne $helloServiceSlotActivationHash) {
+            throw "Expected hello running health to retain the service-slot activation hash"
+        }
+        & $AssertHelloServiceSlotActivation `
+            -Name "hello running health descriptor" `
+            -Activation $helloHealthRunning.body.result.load_descriptor.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationActiveStatus `
+            -ExpectedActive $true | Out-Null
+        & $AssertHelloServiceSlotActivationReference -Name "hello running health service" -Record $helloHealthRunning.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
 
         Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
         $helloStop = Get-LastAgentResponseJson -Method "service.stop"
@@ -573,6 +677,18 @@
         if ($helloStop.body.result.service.running) {
             throw "Expected stopped hello service after service.stop"
         }
+        $helloStopActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "hello stop response" `
+            -Activation $helloStop.body.result.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationStoppedStatus `
+            -ExpectedActive $true
+        if ($helloStopActivationHash -ne $helloServiceSlotActivationHash) {
+            throw "Expected hello stop response to cite the same service-slot activation hash"
+        }
+        & $AssertHelloServiceSlotActivationReference -Name "hello stop service response" -Record $helloStop.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationStoppedStatus -ExpectedActive $true
+        & $AssertHelloServiceSlotActivationReference -Name "hello stop loader response" -Record $helloStop.body.result.loader -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationStoppedStatus -ExpectedActive $true
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthStopped = Get-LastAgentResponseJson -Method "service.health"
@@ -586,6 +702,17 @@
         if ($helloHealthStopped.body.result.load_descriptor.artifact_load_plan_preflight.preflight_hash -ne $helloLoadPlanPreflightHash) {
             throw "Expected stopped hello health probe to retain artifact load-plan preflight evidence"
         }
+        $helloHealthStoppedActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "hello stopped health response" `
+            -Activation $helloHealthStopped.body.result.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationStoppedStatus `
+            -ExpectedActive $true
+        if ($helloHealthStoppedActivationHash -ne $helloServiceSlotActivationHash) {
+            throw "Expected hello stopped health to retain the service-slot activation hash"
+        }
+        & $AssertHelloServiceSlotActivationReference -Name "hello stopped health service" -Record $helloHealthStopped.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationStoppedStatus -ExpectedActive $true
 
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $helloDrop = Get-LastAgentResponseJson -Method "service.drop"
@@ -593,6 +720,18 @@
         if ($helloDrop.body.result.service.loaded -or $helloDrop.body.result.service.running) {
             throw "Expected dropped hello service after service.drop"
         }
+        $helloDropActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "hello drop response" `
+            -Activation $helloDrop.body.result.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationClearedStatus `
+            -ExpectedActive $false
+        if ($helloDropActivationHash -ne $helloServiceSlotActivationHash) {
+            throw "Expected hello drop response to cite the same service-slot activation hash before cleanup"
+        }
+        & $AssertHelloServiceSlotActivationReference -Name "hello drop service response" -Record $helloDrop.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationClearedStatus -ExpectedActive $false
+        & $AssertHelloServiceSlotActivationReference -Name "hello drop loader response" -Record $helloDrop.body.result.loader -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationClearedStatus -ExpectedActive $false
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthMissing = Get-LastAgentResponseJson -Method "service.health"
@@ -600,6 +739,14 @@
         if ($helloHealthMissing.body.result.service.health -ne "missing" -or $helloHealthMissing.body.result.service.loaded -or $helloHealthMissing.body.result.service.running) {
             throw "Expected hello health probe to report missing after drop"
         }
+        & $AssertHelloServiceSlotActivation `
+            -Name "hello missing health response" `
+            -Activation $helloHealthMissing.body.result.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationClearedStatus `
+            -ExpectedActive $false | Out-Null
+        & $AssertHelloServiceSlotActivationReference -Name "hello missing health service" -Record $helloHealthMissing.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationClearedStatus -ExpectedActive $false
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
         $servicesAfterDrop = Get-LastAgentResponseJson -Method "service.inventory"
@@ -682,9 +829,21 @@
         if ($hostLoadResponsePreflightHash -ne $hostLoadPlanPreflightHash) {
             throw "Expected host-bound hello load response and descriptor to agree on artifact load-plan preflight hash"
         }
+        $hostServiceSlotActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "host-bound hello load response" `
+            -Activation $hostHelloLoad.body.result.service_slot_activation `
+            -DescriptorSourceHash $hostDescriptorHash `
+            -PreflightHash $hostLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationActiveStatus `
+            -ExpectedActive $true
+        if ($hostServiceSlotActivationHash -eq $helloServiceSlotActivationHash) {
+            throw "Expected host-bound service-slot activation hash to be derived from the host-bound preflight"
+        }
         & $AssertHelloLoadPlanPreflightReference -Name "host-bound hello load request" -Record $hostHelloLoad.body.result.load_request -ExpectedHash $hostLoadPlanPreflightHash -ExpectServiceSlotIntent $true
         & $AssertHelloLoadPlanPreflightReference -Name "host-bound hello service response" -Record $hostHelloLoad.body.result.service -ExpectedHash $hostLoadPlanPreflightHash
         & $AssertHelloLoadPlanPreflightReference -Name "host-bound hello loader response" -Record $hostHelloLoad.body.result.loader -ExpectedHash $hostLoadPlanPreflightHash -ExpectServiceSlotIntent $true
+        & $AssertHelloServiceSlotActivationReference -Name "host-bound hello service response" -Record $hostHelloLoad.body.result.service -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
+        & $AssertHelloServiceSlotActivationReference -Name "host-bound hello loader response" -Record $hostHelloLoad.body.result.loader -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
         $servicesAfterHostLoad = Get-LastAgentResponseJson -Method "service.inventory"
@@ -711,6 +870,7 @@
             throw "Expected host-bound inventory record to cite the verified artifact byte reference"
         }
         & $AssertHelloLoadPlanPreflightReference -Name "host-bound inventory record" -Record $hostInventory[0] -ExpectedHash $hostLoadPlanPreflightHash
+        & $AssertHelloServiceSlotActivationReference -Name "host-bound inventory record" -Record $hostInventory[0] -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $hostHealthRunning = Get-LastAgentResponseJson -Method "service.health"
@@ -742,18 +902,45 @@
         if ($hostHealthPreflightHash -ne $hostLoadPlanPreflightHash) {
             throw "Expected host-bound hello health descriptor to retain artifact load-plan preflight evidence"
         }
+        $hostHealthActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "host-bound hello health response" `
+            -Activation $hostHealthRunning.body.result.service_slot_activation `
+            -DescriptorSourceHash $hostDescriptorHash `
+            -PreflightHash $hostLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationActiveStatus `
+            -ExpectedActive $true
+        if ($hostHealthActivationHash -ne $hostServiceSlotActivationHash) {
+            throw "Expected host-bound health to retain the service-slot activation hash"
+        }
+        & $AssertHelloServiceSlotActivationReference -Name "host-bound health service" -Record $hostHealthRunning.body.result.service -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
 
         Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
         $hostStop = Get-LastAgentResponseJson -Method "service.stop"
         if ($hostStop.body.result.loader.descriptor_source_locator -ne $hostDescriptorLocator) {
             throw "Expected host-bound stop event response to cite the active descriptor source"
         }
+        & $AssertHelloServiceSlotActivation `
+            -Name "host-bound stop response" `
+            -Activation $hostStop.body.result.service_slot_activation `
+            -DescriptorSourceHash $hostDescriptorHash `
+            -PreflightHash $hostLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationStoppedStatus `
+            -ExpectedActive $true | Out-Null
+        & $AssertHelloServiceSlotActivationReference -Name "host-bound stop loader response" -Record $hostStop.body.result.loader -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationStoppedStatus -ExpectedActive $true
 
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $hostDrop = Get-LastAgentResponseJson -Method "service.drop"
         if ($hostDrop.body.result.loader.descriptor_source_locator -ne $hostDescriptorLocator) {
             throw "Expected host-bound drop event response to cite the active descriptor source"
         }
+        & $AssertHelloServiceSlotActivation `
+            -Name "host-bound drop response" `
+            -Activation $hostDrop.body.result.service_slot_activation `
+            -DescriptorSourceHash $hostDescriptorHash `
+            -PreflightHash $hostLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationClearedStatus `
+            -ExpectedActive $false | Out-Null
+        & $AssertHelloServiceSlotActivationReference -Name "host-bound drop loader response" -Record $hostDrop.body.result.loader -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationClearedStatus -ExpectedActive $false
 
         Send-AgentCommand -Command "agent audit.events 32" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
@@ -793,6 +980,16 @@
         if ($helloLoadPlanPreflightEvents.Count -lt 3) {
             throw "Expected hello lifecycle events to cite the accepted current-image artifact load-plan preflight"
         }
+        $helloServiceSlotActivationEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "service_slot_activation_hash" -and $_.bindings.service_slot_activation_id -eq $HelloServiceSlotActivationId -and $_.bindings.service_slot_activation_hash -eq $helloServiceSlotActivationHash -and $_.bindings.ram_only_service_slot_id -eq $HelloRamOnlyServiceSlotId })
+        if ($helloServiceSlotActivationEvents.Count -lt 3) {
+            throw "Expected hello lifecycle events to cite the current-image service-slot activation"
+        }
+        $helloServiceSlotActivationStatuses = @($helloServiceSlotActivationEvents | ForEach-Object { $_.bindings.service_slot_activation_status } | Select-Object -Unique)
+        foreach ($status in @($HelloServiceSlotActivationActiveStatus, $HelloServiceSlotActivationStoppedStatus, $HelloServiceSlotActivationClearedStatus)) {
+            if ($helloServiceSlotActivationStatuses -notcontains $status) {
+                throw "Expected hello lifecycle service-slot activation status $status"
+            }
+        }
         $hostDescriptorHashEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor_source_hash" -and $_.bindings.load_descriptor_source_hash -eq $hostDescriptorHash })
         if ($hostDescriptorHashEvents.Count -lt 3) {
             throw "Expected host-bound hello lifecycle events to cite the host-bound descriptor source hash"
@@ -804,6 +1001,16 @@
         $hostLoadPlanPreflightEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "artifact_load_plan_preflight_hash" -and $_.bindings.artifact_load_plan_preflight_hash -eq $hostLoadPlanPreflightHash -and $_.bindings.service_slot_intent_id -eq $HelloServiceSlotIntentId -and $_.bindings.ram_only_service_slot_id -eq $HelloRamOnlyServiceSlotId })
         if ($hostLoadPlanPreflightEvents.Count -lt 3) {
             throw "Expected host-bound hello lifecycle events to cite the host-bound artifact load-plan preflight"
+        }
+        $hostServiceSlotActivationEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "service_slot_activation_hash" -and $_.bindings.service_slot_activation_hash -eq $hostServiceSlotActivationHash -and $_.bindings.ram_only_service_slot_id -eq $HelloRamOnlyServiceSlotId })
+        if ($hostServiceSlotActivationEvents.Count -lt 3) {
+            throw "Expected host-bound hello lifecycle events to cite the host-bound service-slot activation"
+        }
+        $hostServiceSlotActivationStatuses = @($hostServiceSlotActivationEvents | ForEach-Object { $_.bindings.service_slot_activation_status } | Select-Object -Unique)
+        foreach ($status in @($HelloServiceSlotActivationActiveStatus, $HelloServiceSlotActivationStoppedStatus, $HelloServiceSlotActivationClearedStatus)) {
+            if ($hostServiceSlotActivationStatuses -notcontains $status) {
+                throw "Expected host-bound lifecycle service-slot activation status $status"
+            }
         }
         $helloHealthEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.health" -and $_.resource -eq "svc.demo.hello" })
         if ($helloHealthEvents.Count -lt 4) {
@@ -833,6 +1040,16 @@
         if ($helloHealthLoadPlanPreflightEvents.Count -lt 3) {
             throw "Expected hello health events to cite the current-image artifact load-plan preflight"
         }
+        $helloHealthServiceSlotActivationEvents = @($helloHealthEvents | Where-Object { @($_.evidence) -contains "service_slot_activation_hash" -and $_.bindings.service_slot_activation_hash -eq $helloServiceSlotActivationHash -and $_.bindings.ram_only_service_slot_id -eq $HelloRamOnlyServiceSlotId })
+        if ($helloHealthServiceSlotActivationEvents.Count -lt 3) {
+            throw "Expected hello health events to cite the current-image service-slot activation"
+        }
+        $helloHealthServiceSlotActivationStatuses = @($helloHealthServiceSlotActivationEvents | ForEach-Object { $_.bindings.service_slot_activation_status } | Select-Object -Unique)
+        foreach ($status in @($HelloServiceSlotActivationActiveStatus, $HelloServiceSlotActivationStoppedStatus, $HelloServiceSlotActivationClearedStatus)) {
+            if ($helloHealthServiceSlotActivationStatuses -notcontains $status) {
+                throw "Expected hello health service-slot activation status $status"
+            }
+        }
         $hostHealthEvents = @($helloHealthEvents | Where-Object { $_.bindings.load_descriptor_source_hash -eq $hostDescriptorHash -and $_.bindings.binds_source_hash -eq $helloDescriptorHash })
         if ($hostHealthEvents.Count -lt 1) {
             throw "Expected host-bound health event to cite the host-bound source and bound current-image hash"
@@ -840,6 +1057,10 @@
         $hostHealthLoadPlanPreflightEvents = @($helloHealthEvents | Where-Object { @($_.evidence) -contains "artifact_load_plan_preflight_hash" -and $_.bindings.artifact_load_plan_preflight_hash -eq $hostLoadPlanPreflightHash -and $_.bindings.artifact_load_plan_preflight_accepted -and $_.bindings.ram_only_service_slot_id -eq $HelloRamOnlyServiceSlotId })
         if ($hostHealthLoadPlanPreflightEvents.Count -lt 1) {
             throw "Expected host-bound health event to cite the host-bound artifact load-plan preflight"
+        }
+        $hostHealthServiceSlotActivationEvents = @($helloHealthEvents | Where-Object { @($_.evidence) -contains "service_slot_activation_hash" -and $_.bindings.service_slot_activation_hash -eq $hostServiceSlotActivationHash -and $_.bindings.service_slot_activation_status -eq $HelloServiceSlotActivationActiveStatus })
+        if ($hostHealthServiceSlotActivationEvents.Count -lt 1) {
+            throw "Expected host-bound health event to cite the host-bound service-slot activation"
         }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 32' -TimeoutSeconds 1
@@ -863,6 +1084,9 @@
         Assert-LogContains -Name "quick:audit_events_hello_load_plan_preflight_hash" -Needle '"artifact_load_plan_preflight_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_load_plan_preflight_accepted" -Needle '"artifact_load_plan_preflight_accepted": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_ram_only_slot" -Needle '"ram_only_service_slot_id": "ram_only:svc.demo.hello"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_slot_activation_id" -Needle '"service_slot_activation_id": "service_slot_activation.current_boot.svc.demo.hello.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_slot_activation_hash" -Needle '"service_slot_activation_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_slot_activation_status" -Needle '"service_slot_activation_status": "' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1

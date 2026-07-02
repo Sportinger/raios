@@ -448,18 +448,23 @@ mutation. `services` must show
 `svc.demo.hello` only while loaded and cite the same
 descriptor id/source/kind/validation/hash/signature envelope plus the same
 artifact identity hash/signature envelope, content binding hash, and artifact
-reference hash plus artifact load-plan preflight id/hash/status. `service.health
+reference hash plus artifact load-plan preflight id/hash/status and
+service-slot activation id/hash/status/active state. `service.health
 svc.demo.hello` must return `raios.ram_only_hello_service.health.v0`, report
 healthy while loaded/running, stopped while loaded/not running, and missing
-after drop, and cite the active descriptor source hash, signature envelope, and
-artifact identity/content/reference/preflight evidence while loaded. `audit.events` must show
+after drop, and cite the active descriptor source hash, signature envelope,
+artifact identity/content/reference/preflight evidence, and service-slot
+activation evidence while loaded. Stop keeps the same activation hash with
+`stopped_current_boot`; drop cites the same activation hash with
+`cleared_current_boot` before cleanup. `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
 same load descriptor, validated source hash, signature envelope hash, and
 signature verification state plus the verified artifact identity hash and
 signature envelope plus the artifact content binding hash and trust signature
 state plus artifact reference hash, byte hash, trust signature state, artifact
-load-plan preflight hash, accepted status, and RAM-only service-slot id.
+load-plan preflight hash, accepted status, RAM-only service-slot id, and
+service-slot activation hash/status.
 
 `service.descriptor_source_trust_selftest` must return
 `raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and

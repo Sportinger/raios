@@ -290,7 +290,11 @@ Verified in the VM today:
   candidate-byte execution, executable mapping, persistence, durable audit,
   rollback, and broad mutation denied; `service.artifact_load_plan_preflight_selftest`
   proves valid preflight evidence and tampered descriptor/artifact/slot/denial
-  evidence fail closed without mutating the event log;
+  evidence fail closed without mutating the event log; a
+  `raios.ram_only_service_slot_activation.v0` record derived from the accepted
+  preflight now exposes activation id/hash/status/active state in load/start,
+  inventory, health, stop/drop, and RAM-audit bindings, with drop clearing the
+  current-boot slot while citing the same activation hash;
   a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service

@@ -552,6 +552,14 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_str(binding.service_slot_intent_id);
             raw(", \"ram_only_service_slot_id\": ");
             json_str(binding.ram_only_service_slot_id);
+            raw(", \"service_slot_activation_id\": ");
+            json_str(binding.service_slot_activation_id);
+            raw(", \"service_slot_activation_hash\": ");
+            json_sha256(binding.service_slot_activation_hash);
+            raw(", \"service_slot_activation_status\": ");
+            json_str(binding.service_slot_activation_status);
+            raw(", \"service_slot_activation_active\": ");
+            raw_bool(binding.service_slot_activation_active);
             raw(", \"binds_source_locator\": ");
             json_opt_str(binding.binds_source_locator);
             raw(", \"binds_source_kind\": ");

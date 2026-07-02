@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after adding the Hello artifact load-plan
-preflight selftest.
+Last updated: 2026-07-02 by Codex after adding the Hello RAM-only service-slot
+activation record.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -64,6 +64,11 @@ Latest verified implementation slice:
 - `service.artifact_load_plan_preflight_selftest` proves that valid preflight
   evidence passes and tampered descriptor/artifact/slot/denial evidence fails
   closed without mutating the event log
+- the Hello load path now also emits
+  `raios.ram_only_service_slot_activation.v0`, derived from the accepted
+  preflight; load/start, inventory, health, stop/drop, and RAM-audit bindings
+  expose activation id/hash/status/active state, and drop clears the current
+  boot slot while citing the same activation hash
 - the host-bound descriptor-source path remains hash-bound to the current-image
   source and does not accept arbitrary descriptor or artifact bytes
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
@@ -172,23 +177,30 @@ release\vm-reports\shadow-20260702-032107-16036.json
 182/182 quick predicates, 31 executed commands, duration_ms: 38186
 ```
 
+Latest focused verification after the service-slot activation slice:
+
+```text
+release\vm-reports\shadow-20260702-033352-9800.json
+185/185 quick predicates, 31 executed commands, duration_ms: 60174
+```
+
 Exact next task:
 
 ```text
-Add the smallest RAM-only service-slot activation record for the Hello service
-path. Derive it from the accepted preflight, expose id/hash/status in
-load/start, inventory, health, stop/drop, and RAM-audit evidence, then cleanly
-clear it on drop. Keep candidate bytes non-executing.
+Switch the next OS-wide slice to provider trust/context hardening. Require
+positive TLS provider trust plus typed request/export authorization, redaction,
+classification, and budget evidence before provider context export/injection.
+Keep no-pin/no-trust paths fail-closed and keep candidate bytes non-executing.
 ```
 
 AI-parallel next wave:
 
-1. Runtime artifact track: add the RAM-only service-slot activation record over
-   the existing built-in Hello path; keep artifact bytes non-executing and
-   executable mapping denied.
-2. Provider trust/context track: harden the direct provider path toward
+1. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence.
+2. Runtime artifact track: keep the Hello activation record green; only add
+   narrow follow-ups that prove cleanup or trust evidence without executing
+   candidate bytes.
 3. UI/input track: improve response wrapping, scrolling, and settings controls
    while keeping UI state derived from typed system facts.
 4. VM harness/evidence track: keep focused smokes fast and add predicates only
@@ -197,10 +209,10 @@ AI-parallel next wave:
    persistence designed from the final trust model; do not implement fake
    persistence or rollback before the evidence chain exists.
 
-Only after the Hello path has real current-boot slot activation and cleanup
-evidence should a later integration cursor consider loading candidate bytes.
-Execution must stay built-in/current-boot until execution, audit, rollback, and
-recovery evidence exists.
+Only after provider trust/context and the live-load execution/audit/rollback
+evidence chain are real should a later integration cursor consider loading
+candidate bytes. Execution must stay built-in/current-boot until those gates
+exist.
 
 Documentation ownership:
 

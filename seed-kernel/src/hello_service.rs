@@ -31,6 +31,13 @@ pub(crate) const SERVICE_SLOT_INTENT_SCHEMA: &str = "raios.ram_only_service_slot
 pub(crate) const SERVICE_SLOT_INTENT_ID: &str =
     "service_slot_intent.current_boot.svc.demo.hello.v0";
 pub(crate) const RAM_ONLY_SERVICE_SLOT_ID: &str = "ram_only:svc.demo.hello";
+pub(crate) const SERVICE_SLOT_ACTIVATION_SCHEMA: &str = "raios.ram_only_service_slot_activation.v0";
+pub(crate) const SERVICE_SLOT_ACTIVATION_ID: &str =
+    "service_slot_activation.current_boot.svc.demo.hello.v0";
+pub(crate) const SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS: &str = "active_current_boot";
+pub(crate) const SERVICE_SLOT_ACTIVATION_STOPPED_STATUS: &str = "stopped_current_boot";
+pub(crate) const SERVICE_SLOT_ACTIVATION_CLEARED_STATUS: &str = "cleared_current_boot";
+pub(crate) const SERVICE_SLOT_ACTIVATION_MISSING_STATUS: &str = "missing_current_boot";
 const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_SCHEMA: &str =
     "raios.current_boot_artifact_load_plan_preflight_selftest.v0";
 const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_ID: &str =
@@ -90,6 +97,31 @@ struct ArtifactLoadPlanPreflightRecord {
     writes_durable_audit_log: bool,
     installs_rollback_plan: bool,
     grants_broad_mutation: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ServiceSlotActivationRecord {
+    schema: &'static str,
+    id: &'static str,
+    scope: &'static str,
+    classification: &'static str,
+    persistence: &'static str,
+    status: &'static str,
+    activation_hash: [u8; 32],
+    service_id: &'static str,
+    artifact_id: &'static str,
+    load_descriptor_id: &'static str,
+    descriptor_source_hash: [u8; 32],
+    artifact_load_plan_preflight_id: &'static str,
+    artifact_load_plan_preflight_hash: [u8; 32],
+    artifact_load_plan_preflight_status: &'static str,
+    service_slot_intent_id: &'static str,
+    ram_only_service_slot_id: &'static str,
+    active: bool,
+    accepted_preflight: bool,
+    authorizes_builtin_current_boot_start: bool,
+    authorizes_candidate_artifact_execution: bool,
+    writes_persistent_state: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -168,6 +200,11 @@ pub(crate) fn artifact_reference_bytes_hash(descriptor: LoadDescriptor) -> [u8; 
 
 pub(crate) fn artifact_load_plan_preflight_hash(descriptor: LoadDescriptor) -> [u8; 32] {
     artifact_load_plan_preflight_record(descriptor).preflight_hash
+}
+
+pub(crate) fn service_slot_activation_hash(descriptor: LoadDescriptor) -> [u8; 32] {
+    service_slot_activation_record(descriptor, SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS, true)
+        .activation_hash
 }
 
 fn artifact_load_plan_preflight_record(
@@ -314,6 +351,98 @@ fn artifact_load_plan_preflight_record_hash(record: ArtifactLoadPlanPreflightRec
         &mut hash,
         b"grants_broad_mutation",
         record.grants_broad_mutation,
+    );
+    finalize_sha256(hash)
+}
+
+fn service_slot_activation_record(
+    descriptor: LoadDescriptor,
+    status: &'static str,
+    active: bool,
+) -> ServiceSlotActivationRecord {
+    let preflight = artifact_load_plan_preflight_record(descriptor);
+    let mut record = ServiceSlotActivationRecord {
+        schema: SERVICE_SLOT_ACTIVATION_SCHEMA,
+        id: SERVICE_SLOT_ACTIVATION_ID,
+        scope: "current_boot",
+        classification: "local_only",
+        persistence: "none",
+        status,
+        activation_hash: [0; 32],
+        service_id: descriptor.service_id,
+        artifact_id: descriptor.artifact_id,
+        load_descriptor_id: descriptor.id,
+        descriptor_source_hash: descriptor_source_hash(descriptor),
+        artifact_load_plan_preflight_id: preflight.id,
+        artifact_load_plan_preflight_hash: preflight.preflight_hash,
+        artifact_load_plan_preflight_status: preflight.status,
+        service_slot_intent_id: preflight.service_slot_intent_id,
+        ram_only_service_slot_id: preflight.ram_only_service_slot_id,
+        active,
+        accepted_preflight: preflight.accepted,
+        authorizes_builtin_current_boot_start: preflight.authorizes_builtin_current_boot_start,
+        authorizes_candidate_artifact_execution: preflight.authorizes_candidate_artifact_execution,
+        writes_persistent_state: preflight.writes_persistent_state,
+    };
+    record.activation_hash = service_slot_activation_record_hash(record);
+    record
+}
+
+fn service_slot_activation_record_hash(record: ServiceSlotActivationRecord) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_line_str(&mut hash, b"schema", record.schema);
+    hash_line_str(&mut hash, b"id", record.id);
+    hash_line_str(&mut hash, b"scope", record.scope);
+    hash_line_str(&mut hash, b"classification", record.classification);
+    hash_line_str(&mut hash, b"persistence", record.persistence);
+    hash_line_str(&mut hash, b"service_id", record.service_id);
+    hash_line_str(&mut hash, b"artifact_id", record.artifact_id);
+    hash_line_str(&mut hash, b"load_descriptor_id", record.load_descriptor_id);
+    hash_line_hash(
+        &mut hash,
+        b"descriptor_source_sha256",
+        record.descriptor_source_hash,
+    );
+    hash_line_str(
+        &mut hash,
+        b"artifact_load_plan_preflight_id",
+        record.artifact_load_plan_preflight_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"artifact_load_plan_preflight_sha256",
+        record.artifact_load_plan_preflight_hash,
+    );
+    hash_line_str(
+        &mut hash,
+        b"artifact_load_plan_preflight_status",
+        record.artifact_load_plan_preflight_status,
+    );
+    hash_line_str(
+        &mut hash,
+        b"service_slot_intent_id",
+        record.service_slot_intent_id,
+    );
+    hash_line_str(
+        &mut hash,
+        b"ram_only_service_slot_id",
+        record.ram_only_service_slot_id,
+    );
+    hash_line_bool(&mut hash, b"accepted_preflight", record.accepted_preflight);
+    hash_line_bool(
+        &mut hash,
+        b"authorizes_builtin_current_boot_start",
+        record.authorizes_builtin_current_boot_start,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"authorizes_candidate_artifact_execution",
+        record.authorizes_candidate_artifact_execution,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"writes_persistent_state",
+        record.writes_persistent_state,
     );
     finalize_sha256(hash)
 }
@@ -924,7 +1053,12 @@ fn load_start(source_method: &'static str, descriptor: LoadDescriptor) -> Snapsh
         source_method,
         "response",
         reason,
-        lifecycle_binding(descriptor, inventory_change),
+        lifecycle_binding(
+            descriptor,
+            inventory_change,
+            SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS,
+            true,
+        ),
     );
 
     if !state.loaded {
@@ -957,11 +1091,21 @@ fn stop(source_method: &'static str) -> Snapshot {
     } else {
         "none"
     };
+    let activation_status = if state.loaded {
+        SERVICE_SLOT_ACTIVATION_STOPPED_STATUS
+    } else {
+        SERVICE_SLOT_ACTIVATION_MISSING_STATUS
+    };
     let event_id = event_log::record_hello_service_lifecycle(
         source_method,
         "response",
         reason,
-        lifecycle_binding(descriptor, inventory_change),
+        lifecycle_binding(
+            descriptor,
+            inventory_change,
+            activation_status,
+            state.loaded,
+        ),
     );
 
     if state.loaded {
@@ -988,11 +1132,16 @@ fn drop_service(source_method: &'static str) -> Snapshot {
     } else {
         "none"
     };
+    let activation_status = if state.loaded {
+        SERVICE_SLOT_ACTIVATION_CLEARED_STATUS
+    } else {
+        SERVICE_SLOT_ACTIVATION_MISSING_STATUS
+    };
     let event_id = event_log::record_hello_service_lifecycle(
         source_method,
         "response",
         reason,
-        lifecycle_binding(descriptor, inventory_change),
+        lifecycle_binding(descriptor, inventory_change, activation_status, false),
     );
 
     state.loaded = false;
@@ -1022,7 +1171,12 @@ fn health_probe(source_method: &'static str) -> (Snapshot, event_log::EventId) {
         source_method,
         health,
         reason,
-        lifecycle_binding(snapshot.load_descriptor, "none"),
+        lifecycle_binding(
+            snapshot.load_descriptor,
+            "none",
+            service_slot_activation_status(snapshot),
+            service_slot_activation_active(snapshot),
+        ),
     );
     (snapshot, event_id)
 }
@@ -1140,9 +1294,27 @@ fn health_state(snapshot: Snapshot) -> &'static str {
     }
 }
 
+pub(crate) fn service_slot_activation_status(snapshot: Snapshot) -> &'static str {
+    if snapshot.running {
+        SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS
+    } else if snapshot.loaded {
+        SERVICE_SLOT_ACTIVATION_STOPPED_STATUS
+    } else if snapshot.last_action == "drop" && snapshot.last_reason == "dropped" {
+        SERVICE_SLOT_ACTIVATION_CLEARED_STATUS
+    } else {
+        SERVICE_SLOT_ACTIVATION_MISSING_STATUS
+    }
+}
+
+pub(crate) fn service_slot_activation_active(snapshot: Snapshot) -> bool {
+    snapshot.loaded
+}
+
 fn lifecycle_binding(
     descriptor: LoadDescriptor,
     service_inventory_change: &'static str,
+    service_slot_activation_status: &'static str,
+    service_slot_activation_active: bool,
 ) -> event_log::HelloServiceLifecycleBinding {
     let identity = descriptor.artifact_identity;
     let identity_envelope = identity.signed_envelope;
@@ -1213,6 +1385,10 @@ fn lifecycle_binding(
         artifact_load_plan_preflight_accepted: true,
         service_slot_intent_id: SERVICE_SLOT_INTENT_ID,
         ram_only_service_slot_id: RAM_ONLY_SERVICE_SLOT_ID,
+        service_slot_activation_id: SERVICE_SLOT_ACTIVATION_ID,
+        service_slot_activation_hash: service_slot_activation_hash(descriptor),
+        service_slot_activation_status,
+        service_slot_activation_active,
         binds_source_locator: descriptor.binds_source_locator,
         binds_source_kind: descriptor.binds_source_kind,
         binds_source_hash: descriptor.binds_source_hash,
@@ -1228,6 +1404,8 @@ fn lifecycle_binding(
 
 fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: event_log::EventId) {
     let descriptor = snapshot.load_descriptor;
+    let activation_status = service_slot_activation_status(snapshot);
+    let activation_active = service_slot_activation_active(snapshot);
     begin_response(method);
     raw_line("      \"schema\": \"raios.ram_only_hello_service.health.v0\",");
     raw_line("      \"scope\": \"current_boot\",");
@@ -1239,6 +1417,9 @@ fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: even
     raw_line(",");
     raw("      \"audit_event_id\": ");
     json_event_id_option(Some(event_id));
+    raw_line(",");
+    raw("      \"service_slot_activation\": ");
+    emit_service_slot_activation(descriptor, activation_status, activation_active);
     raw_line(",");
     raw_line("      \"service\": {");
     raw("        \"id\": ");
@@ -1262,6 +1443,18 @@ fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: even
     raw_line(",");
     raw("        \"last_reason\": ");
     json_str(snapshot.last_reason);
+    raw_line(",");
+    raw("        \"service_slot_activation_id\": ");
+    json_str(SERVICE_SLOT_ACTIVATION_ID);
+    raw_line(",");
+    raw("        \"service_slot_activation_hash\": ");
+    json_sha256(service_slot_activation_hash(descriptor));
+    raw_line(",");
+    raw("        \"service_slot_activation_status\": ");
+    json_str(activation_status);
+    raw_line(",");
+    raw("        \"service_slot_activation_active\": ");
+    raw_bool(activation_active);
     raw_line(",");
     raw("        \"capabilities\": [");
     emit_inline_string_array(CAPABILITIES);
@@ -1303,6 +1496,9 @@ fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: even
     raw_line(",");
     raw("        \"artifact_load_plan_preflight\": ");
     emit_artifact_load_plan_preflight(descriptor);
+    raw_line(",");
+    raw("        \"service_slot_activation\": ");
+    emit_service_slot_activation(descriptor, activation_status, activation_active);
     raw_line("");
     raw_line("      },");
     raw_line("      \"denied_surfaces\": {");
@@ -1321,6 +1517,8 @@ fn emit_response(
     snapshot: Snapshot,
     descriptor: LoadDescriptor,
 ) {
+    let activation_status = service_slot_activation_status(snapshot);
+    let activation_active = service_slot_activation_active(snapshot);
     begin_response(method);
     raw_line("      \"schema\": \"raios.ram_only_hello_service.v0\",");
     raw_line("      \"scope\": \"current_boot\",");
@@ -1341,6 +1539,9 @@ fn emit_response(
     raw_line(",");
     raw("      \"artifact_load_plan_preflight\": ");
     emit_artifact_load_plan_preflight(descriptor);
+    raw_line(",");
+    raw("      \"service_slot_activation\": ");
+    emit_service_slot_activation(descriptor, activation_status, activation_active);
     raw_line(",");
     raw_line("      \"service\": {");
     raw("        \"id\": ");
@@ -1403,6 +1604,18 @@ fn emit_response(
     raw_line(",");
     raw("        \"artifact_load_plan_preflight_status\": ");
     json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
+    raw_line(",");
+    raw("        \"service_slot_activation_id\": ");
+    json_str(SERVICE_SLOT_ACTIVATION_ID);
+    raw_line(",");
+    raw("        \"service_slot_activation_hash\": ");
+    json_sha256(service_slot_activation_hash(descriptor));
+    raw_line(",");
+    raw("        \"service_slot_activation_status\": ");
+    json_str(activation_status);
+    raw_line(",");
+    raw("        \"service_slot_activation_active\": ");
+    raw_bool(activation_active);
     raw_line(",");
     raw("        \"ram_only_service_slot_id\": ");
     json_str(RAM_ONLY_SERVICE_SLOT_ID);
@@ -1540,6 +1753,18 @@ fn emit_response(
     raw_line(",");
     raw("        \"artifact_load_plan_preflight_status\": ");
     json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
+    raw_line(",");
+    raw("        \"service_slot_activation_id\": ");
+    json_str(SERVICE_SLOT_ACTIVATION_ID);
+    raw_line(",");
+    raw("        \"service_slot_activation_hash\": ");
+    json_sha256(service_slot_activation_hash(descriptor));
+    raw_line(",");
+    raw("        \"service_slot_activation_status\": ");
+    json_str(activation_status);
+    raw_line(",");
+    raw("        \"service_slot_activation_active\": ");
+    raw_bool(activation_active);
     raw_line(",");
     raw("        \"service_slot_intent_id\": ");
     json_str(SERVICE_SLOT_INTENT_ID);
@@ -1808,6 +2033,58 @@ pub(crate) fn emit_artifact_load_plan_preflight(descriptor: LoadDescriptor) {
     raw_bool(record.installs_rollback_plan);
     raw(", \"grants_broad_mutation\": ");
     raw_bool(record.grants_broad_mutation);
+    raw("}");
+}
+
+pub(crate) fn emit_service_slot_activation(
+    descriptor: LoadDescriptor,
+    status: &'static str,
+    active: bool,
+) {
+    let record = service_slot_activation_record(descriptor, status, active);
+    raw("{");
+    raw("\"schema\": ");
+    json_str(record.schema);
+    raw(", \"id\": ");
+    json_str(record.id);
+    raw(", \"scope\": ");
+    json_str(record.scope);
+    raw(", \"classification\": ");
+    json_str(record.classification);
+    raw(", \"persistence\": ");
+    json_str(record.persistence);
+    raw(", \"status\": ");
+    json_str(record.status);
+    raw(", \"activation_hash\": ");
+    json_sha256(record.activation_hash);
+    raw(", \"service_id\": ");
+    json_str(record.service_id);
+    raw(", \"artifact_id\": ");
+    json_str(record.artifact_id);
+    raw(", \"load_descriptor_id\": ");
+    json_str(record.load_descriptor_id);
+    raw(", \"descriptor_source_hash\": ");
+    json_sha256(record.descriptor_source_hash);
+    raw(", \"artifact_load_plan_preflight_id\": ");
+    json_str(record.artifact_load_plan_preflight_id);
+    raw(", \"artifact_load_plan_preflight_hash\": ");
+    json_sha256(record.artifact_load_plan_preflight_hash);
+    raw(", \"artifact_load_plan_preflight_status\": ");
+    json_str(record.artifact_load_plan_preflight_status);
+    raw(", \"service_slot_intent_id\": ");
+    json_str(record.service_slot_intent_id);
+    raw(", \"ram_only_service_slot_id\": ");
+    json_str(record.ram_only_service_slot_id);
+    raw(", \"active\": ");
+    raw_bool(record.active);
+    raw(", \"accepted_preflight\": ");
+    raw_bool(record.accepted_preflight);
+    raw(", \"authorizes_builtin_current_boot_start\": ");
+    raw_bool(record.authorizes_builtin_current_boot_start);
+    raw(", \"authorizes_candidate_artifact_execution\": ");
+    raw_bool(record.authorizes_candidate_artifact_execution);
+    raw(", \"writes_persistent_state\": ");
+    raw_bool(record.writes_persistent_state);
     raw("}");
 }
 

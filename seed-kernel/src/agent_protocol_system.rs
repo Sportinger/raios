@@ -715,6 +715,16 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
     ));
     raw(", \"artifact_load_plan_preflight_status\": ");
     json_str(hello_service::ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
+    raw(", \"service_slot_activation_id\": ");
+    json_str(hello_service::SERVICE_SLOT_ACTIVATION_ID);
+    raw(", \"service_slot_activation_hash\": ");
+    json_sha256(hello_service::service_slot_activation_hash(
+        hello.load_descriptor,
+    ));
+    raw(", \"service_slot_activation_status\": ");
+    json_str(hello_service::service_slot_activation_status(hello));
+    raw(", \"service_slot_activation_active\": ");
+    raw_bool(hello_service::service_slot_activation_active(hello));
     raw(", \"ram_only_service_slot_id\": ");
     json_str(hello_service::RAM_ONLY_SERVICE_SLOT_ID);
     raw(", \"load_descriptor_schema\": ");
