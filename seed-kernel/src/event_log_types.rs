@@ -52,6 +52,9 @@ pub struct ProviderRequestBinding {
     pub request_binding_hash: [u8; 32],
     pub context: ProviderContextHashes,
     pub provider_trust_state: &'static str,
+    pub provider_trust_pin_kind: Option<&'static str>,
+    pub provider_trust_pin_id: Option<&'static str>,
+    pub provider_trust_evidence_hash: [u8; 32],
     pub development_tls_bypass: bool,
 }
 
@@ -66,6 +69,9 @@ pub struct ProviderExportAuditBinding {
     pub export_audit_binding_hash: [u8; 32],
     pub context: ProviderContextHashes,
     pub provider_trust_state: &'static str,
+    pub provider_trust_pin_kind: Option<&'static str>,
+    pub provider_trust_pin_id: Option<&'static str>,
+    pub provider_trust_evidence_hash: [u8; 32],
     pub context_attached_to_provider_body: bool,
 }
 
@@ -78,6 +84,7 @@ pub struct ProviderBindingConsumption {
     pub request_binding_hash: [u8; 32],
     pub export_audit_binding_hash: [u8; 32],
     pub context: ProviderContextHashes,
+    pub provider_trust_evidence_hash: [u8; 32],
 }
 
 #[derive(Clone, Copy)]
@@ -93,6 +100,7 @@ pub struct ProviderContextInjectionAuthorization {
     pub export_audit_binding_hash: [u8; 32],
     pub context: ProviderContextHashes,
     pub provider_trust_state: &'static str,
+    pub provider_trust_evidence_hash: [u8; 32],
     pub final_authorization_hash: [u8; 32],
     pub context_attached_to_provider_body: bool,
 }
@@ -1653,7 +1661,7 @@ pub struct ProviderContextInjectionGateCheck {
     pub satisfies_current_boot_export_gate: bool,
 }
 
-pub const PROVIDER_BINDING_GATE_SELFTEST_CASES: usize = 19;
+pub const PROVIDER_BINDING_GATE_SELFTEST_CASES: usize = 20;
 pub const PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES: usize = 7;
 
 #[derive(Clone, Copy)]

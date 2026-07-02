@@ -402,6 +402,18 @@ impl EventLog {
                 export_binding,
             );
         }
+        if request_binding.provider_trust_evidence_hash
+            != export_binding.provider_trust_evidence_hash
+        {
+            return ProviderBindingGateCheck::with_pair(
+                "rejected",
+                "binding_provider_trust_evidence_hash_mismatch",
+                request_event.sequence,
+                request_binding,
+                export_event_id,
+                export_binding,
+            );
+        }
         if request_binding.development_tls_bypass {
             return ProviderBindingGateCheck::with_pair(
                 "rejected",
@@ -502,6 +514,7 @@ impl EventLog {
                 request_binding_hash: request_binding.request_binding_hash,
                 export_audit_binding_hash: export_binding.export_audit_binding_hash,
                 context: export_binding.context,
+                provider_trust_evidence_hash: export_binding.provider_trust_evidence_hash,
             }),
         });
         (check, Some(event_id))
@@ -633,6 +646,14 @@ impl EventLog {
                 authorization,
             );
         }
+        if authorization.provider_trust_evidence_hash != consumption.provider_trust_evidence_hash {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
 
         let Some(request_event) = self.event_by_sequence(authorization.request_binding_event_id)
         else {
@@ -752,6 +773,18 @@ impl EventLog {
         }
         if authorization.context.token_budget_hash != request_binding.context.token_budget_hash
             || authorization.context.token_budget_hash != export_binding.context.token_budget_hash
+        {
+            return ProviderContextInjectionGateCheck::with_authorization(
+                "rejected",
+                "final_injection_authorization_substituted_record",
+                authorization_event_id,
+                authorization,
+            );
+        }
+        if authorization.provider_trust_evidence_hash
+            != request_binding.provider_trust_evidence_hash
+            || authorization.provider_trust_evidence_hash
+                != export_binding.provider_trust_evidence_hash
         {
             return ProviderContextInjectionGateCheck::with_authorization(
                 "rejected",

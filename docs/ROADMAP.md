@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after tightening the provider-context smoke
-harness around redaction, field-classification, and token-budget evidence.
+Last updated: 2026-07-02 by Codex after binding provider trust evidence through
+the provider context request/export gate.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -24,16 +24,17 @@ Active execution rule:
 
 Latest verified implementation slice:
 
-- the provider-minimal context projection, provider request/export binding
-  hashes, provider context injection gate, retained provider evidence lists, and
-  quick Shadow VM predicates now include `redaction_policy_hash`,
-  `field_classification_hash`, and `token_budget_hash`; no-pin/no-trust export
-  remains denied and automatic context injection stays disabled
-- the full Shadow VM provider-memory slice now expects all 19 provider context
-  binding-gate selftest cases, including redaction/classification/budget hash
-  mismatches, and the direct OpenAI smoke harness compares those hashes across
-  positive request binding, export-audit binding, and blocked injection-gate
-  markers when a local pinned-trust image is supplied
+- positive provider request/export binding now carries a canonical
+  `provider_trust_evidence_hash` over provider host, trust state, pin kind/id,
+  and TLS-bypass state; the hash is folded into the request-binding and
+  export-audit binding hashes, retained through binding consumption and final
+  injection authorization checks, exposed in provider gate diagnostics and
+  RAM-only event bindings, and automatic context injection remains disabled
+- the full Shadow VM provider-memory slice now expects all 20 provider context
+  binding-gate selftest cases, including redaction/classification/budget/trust
+  evidence hash mismatches, and the direct OpenAI smoke harness compares the
+  trust evidence hash across positive request binding, export-audit binding,
+  and blocked injection-gate markers when a local pinned-trust image is supplied
 - `module.load_ephemeral svc.demo.hello` now loads/starts the built-in
   `svc.demo.hello` current-boot test service through a narrow RAM-only path
   that consumes `raios.current_boot_load_request.v0` and
@@ -134,15 +135,15 @@ Latest verified implementation slice:
 Latest full verification:
 
 ```text
-release\vm-reports\shadow-20260702-034736-23492.json
-6629/6629 predicates, 243 executed commands, duration_ms: 613395
+release\vm-reports\shadow-20260702-040609-11856.json
+6631/6631 predicates, 243 executed commands, duration_ms: 610028
 ```
 
 Latest focused verification:
 
 ```text
-release\vm-reports\shadow-20260702-034303-24400.json
-191/191 quick predicates, 31 executed commands, duration_ms: 60437
+release\vm-reports\shadow-20260702-040501-24236.json
+191/191 quick predicates, 31 executed commands, duration_ms: 60507
 ```
 
 Latest focused verification after the artifact identity slice:
@@ -204,11 +205,12 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Continue provider trust/context hardening. Prove positive SPKI/WebPKI TLS
-provider trust plus typed request/export authorization before any provider
-context export/injection can advance. Keep redaction, classification, and budget
-hash evidence bound through the path; keep no-pin/no-trust and development
-bypass paths fail-closed; keep candidate bytes non-executing.
+Continue provider trust/context hardening at the TLS verifier boundary: prove
+the positive SPKI/WebPKI trust source itself with typed verifier metadata
+(host, pin/chain evidence, hostname/time policy) while keeping the new
+provider-trust evidence hash, redaction/classification/budget hashes,
+no-pin/no-trust denial, development-bypass denial, disabled context injection,
+and non-executing candidate bytes intact.
 ```
 
 AI-parallel next wave:
@@ -808,15 +810,18 @@ Scope:
   `raios.provider_context_export_audit_binding.v0`
 - require matching request id, request-envelope event id, request-body hash,
   request-envelope hash, request-binding hash, and provider-minimal
-  packet/exported/omitted field-list hashes inside the retained binding pair
+  packet/exported/omitted field-list hashes plus redaction,
+  field-classification, token-budget, and provider-trust evidence hashes inside
+  the retained binding pair
 - reject development TLS bypass records, non-positive trust records, stale or
   dropped referenced events, wrong variants, already consumed pairs, and body
   attachment records
 - expose `provider.context_gate_selftest provider_minimal` as local-only test
   infrastructure that exercises stale/dropped ids,
   previous-boot-or-unretained ids, substituted denial schemas, substituted
-  positive records, and request/body/context hash mismatches without mutating
-  global event state
+  positive records, request/body/binding/context hash mismatches, and
+  redaction/classification/budget/trust-evidence hash mismatches without
+  mutating global event state
 - consume a valid pair once through `provider.context_export provider_minimal`
   and record `raios.provider_context_binding_consumption.v0`
 - keep `satisfies_current_boot_export_gate: false`,
@@ -829,9 +834,9 @@ Definition of done:
   creating request envelopes or positive bindings.
 - Shadow VM proves the selftest cases reject stale/dropped ids,
   previous-boot-or-unretained ids, substituted schemas, substituted positive
-  records, mismatched request/body/binding/context hashes, and trust-bypass
-  records while creating no provider request envelopes or positive binding
-  records.
+  records, mismatched request/body/binding/context/redaction/classification,
+  budget, and trust-evidence hashes, and trust-bypass records while creating no
+  provider request envelopes or positive binding records.
 - Direct OpenAI pin-mismatch smoke proves positive binding and consumption
   remain absent when trust fails.
 - Direct OpenAI SPKI pinned-trust smoke proves marker hashes match, the retained
@@ -862,8 +867,9 @@ Scope:
 - emit a blocked `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker on positive
   pinned/WebPKI OpenAI request paths before API-key copy or HTTPS write
 - require positive provider trust, retained current-boot binding evidence,
-  redaction projection hashes, single-use consumption, and a final local policy
-  decision before `context_attached_to_provider_body` may become true
+  redaction projection hashes, provider-trust evidence hash, single-use
+  consumption, and a final local policy decision before
+  `context_attached_to_provider_body` may become true
 - evaluate the current direct OpenAI gate synchronously before HTTPS write; a
   future provider-adapter service boundary may replace that direct path after it
   has equivalent evidence and tests

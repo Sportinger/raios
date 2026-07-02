@@ -32,6 +32,7 @@ pub(crate) fn provider_context_binding_gate_selftest(
         selftest_redaction_policy_hash_mismatch(context),
         selftest_field_classification_hash_mismatch(context),
         selftest_token_budget_hash_mismatch(context),
+        selftest_provider_trust_evidence_hash_mismatch(context),
         selftest_trust_bypass_record(context),
     ]
 }
@@ -441,6 +442,27 @@ fn selftest_token_budget_hash_mismatch(
     )
 }
 
+fn selftest_provider_trust_evidence_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderBindingGateSelfTestCase {
+    let mut log = EventLog::new();
+    let envelope_event_id = record_selftest_envelope(&mut log, 1);
+    let request_event_id = record_selftest_request_binding(
+        &mut log,
+        selftest_request_binding(1, envelope_event_id, context),
+    );
+    let mut export = selftest_export_binding(1, envelope_event_id, request_event_id, context);
+    export.provider_trust_evidence_hash = tagged_hash(52);
+    record_selftest_export_audit(&mut log, export);
+
+    selftest_case(
+        "provider_trust_evidence_hash_mismatch",
+        "rejected",
+        "binding_provider_trust_evidence_hash_mismatch",
+        log.check_provider_context_binding_gate(context),
+    )
+}
+
 fn selftest_trust_bypass_record(context: ProviderContextHashes) -> ProviderBindingGateSelfTestCase {
     let mut log = EventLog::new();
     let envelope_event_id = record_selftest_envelope(&mut log, 1);
@@ -752,6 +774,7 @@ fn record_selftest_injection_chain(
         request_binding_hash: request_binding.request_binding_hash,
         export_audit_binding_hash: export_binding.export_audit_binding_hash,
         context,
+        provider_trust_evidence_hash: export_binding.provider_trust_evidence_hash,
     };
     let binding_consumption_event_id = record_selftest_binding_consumption(log, consumption);
 
@@ -776,6 +799,9 @@ fn selftest_request_binding(
         request_binding_hash: tagged_hash(3),
         context,
         provider_trust_state: "pinned_spki_verified",
+        provider_trust_pin_kind: Some("spki_sha256"),
+        provider_trust_pin_id: Some("selftest-pin"),
+        provider_trust_evidence_hash: tagged_hash(6),
         development_tls_bypass: false,
     }
 }
@@ -796,6 +822,9 @@ fn selftest_export_binding(
         export_audit_binding_hash: tagged_hash(4),
         context,
         provider_trust_state: "pinned_spki_verified",
+        provider_trust_pin_kind: Some("spki_sha256"),
+        provider_trust_pin_id: Some("selftest-pin"),
+        provider_trust_evidence_hash: tagged_hash(6),
         context_attached_to_provider_body: false,
     }
 }
@@ -816,6 +845,7 @@ fn selftest_injection_authorization(
         export_audit_binding_hash: chain.consumption.export_audit_binding_hash,
         context,
         provider_trust_state: chain.export_binding.provider_trust_state,
+        provider_trust_evidence_hash: chain.consumption.provider_trust_evidence_hash,
         final_authorization_hash: tagged_hash(5),
         context_attached_to_provider_body: false,
     }

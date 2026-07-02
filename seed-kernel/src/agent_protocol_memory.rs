@@ -610,7 +610,13 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_sha256(binding.request_binding_hash);
             raw(", \"trust_snapshot\": {\"provider_trust_state\": ");
             json_str(binding.provider_trust_state);
-            raw(", \"provider_trust_positive\": true, \"development_tls_bypass\": ");
+            raw(", \"provider_trust_positive\": true, \"provider_trust_pin_kind\": ");
+            json_opt_str(binding.provider_trust_pin_kind);
+            raw(", \"provider_trust_pin_id\": ");
+            json_opt_str(binding.provider_trust_pin_id);
+            raw(", \"provider_trust_evidence_hash\": ");
+            json_sha256(binding.provider_trust_evidence_hash);
+            raw(", \"development_tls_bypass\": ");
             raw_bool(binding.development_tls_bypass);
             raw("}, \"hashes\": ");
             emit_provider_context_hashes(binding.context);
@@ -635,7 +641,13 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_sha256(binding.export_audit_binding_hash);
             raw(", \"trust_snapshot\": {\"provider_trust_state\": ");
             json_str(binding.provider_trust_state);
-            raw(", \"provider_trust_positive\": true, \"development_tls_bypass\": false}, \"hashes\": ");
+            raw(", \"provider_trust_positive\": true, \"provider_trust_pin_kind\": ");
+            json_opt_str(binding.provider_trust_pin_kind);
+            raw(", \"provider_trust_pin_id\": ");
+            json_opt_str(binding.provider_trust_pin_id);
+            raw(", \"provider_trust_evidence_hash\": ");
+            json_sha256(binding.provider_trust_evidence_hash);
+            raw(", \"development_tls_bypass\": false}, \"hashes\": ");
             emit_provider_context_hashes(binding.context);
             raw("}");
         }
@@ -652,6 +664,8 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_sha256(binding.request_binding_hash);
             raw(", \"export_audit_binding_hash\": ");
             json_sha256(binding.export_audit_binding_hash);
+            raw(", \"provider_trust_evidence_hash\": ");
+            json_sha256(binding.provider_trust_evidence_hash);
             raw(", \"hashes\": ");
             emit_provider_context_hashes(binding.context);
             raw("}");
@@ -681,7 +695,9 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_sha256(binding.final_authorization_hash);
             raw(", \"trust_snapshot\": {\"provider_trust_state\": ");
             json_str(binding.provider_trust_state);
-            raw(", \"provider_trust_positive\": true}, \"hashes\": ");
+            raw(", \"provider_trust_positive\": true, \"provider_trust_evidence_hash\": ");
+            json_sha256(binding.provider_trust_evidence_hash);
+            raw("}, \"hashes\": ");
             emit_provider_context_hashes(binding.context);
             raw("}");
         }

@@ -357,7 +357,8 @@ The export-gate selftest emits
 event log, does not create request envelopes or positive binding records, and
 checks stale/dropped ids, previous-boot-or-unretained ids, substituted
 denial/positive records, request/body/binding/context hash mismatches,
-redaction/classification/budget hash mismatches, and trust-bypass records.
+redaction/classification/budget/trust-evidence hash mismatches, and
+trust-bypass records.
 
 `provider.context_injection_gate` emits
 `raios.provider_context_injection_gate.v0`; it names the final authorization

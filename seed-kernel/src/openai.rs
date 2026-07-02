@@ -618,11 +618,13 @@ fn record_positive_provider_context_bindings(
     let context = agent_protocol::provider_minimal_context_evidence_for_runtime(runtime);
     let context_hashes = context.event_hashes();
     let provider_trust_state = trust.state.as_protocol();
+    let trust_evidence_hash = provider_trust_evidence_hash(trust);
     let request_binding_hash = provider_request_binding_hash(
         envelope,
         envelope_event_id,
         context_hashes,
         provider_trust_state,
+        trust_evidence_hash,
     );
     let request_binding = event_log::ProviderRequestBinding {
         request_id: envelope.request_id,
@@ -632,6 +634,9 @@ fn record_positive_provider_context_bindings(
         request_binding_hash,
         context: context_hashes,
         provider_trust_state,
+        provider_trust_pin_kind: trust.pin_kind,
+        provider_trust_pin_id: trust.pin_id,
+        provider_trust_evidence_hash: trust_evidence_hash,
         development_tls_bypass: trust.development_bypass,
     };
     let request_binding_event_id =
@@ -642,6 +647,7 @@ fn record_positive_provider_context_bindings(
         request_binding,
         request_binding_event_id,
         provider_trust_state,
+        trust_evidence_hash,
     );
     let export_binding = event_log::ProviderExportAuditBinding {
         request_id: envelope.request_id,
@@ -653,6 +659,9 @@ fn record_positive_provider_context_bindings(
         export_audit_binding_hash,
         context: context_hashes,
         provider_trust_state,
+        provider_trust_pin_kind: trust.pin_kind,
+        provider_trust_pin_id: trust.pin_id,
+        provider_trust_evidence_hash: trust_evidence_hash,
         context_attached_to_provider_body: false,
     };
     let export_audit_event_id =
@@ -678,9 +687,48 @@ fn emit_provider_context_injection_gate_blocked(
     write_raw_sha256(envelope.envelope_hash);
     serial::write_raw_str(",\"provider_trust_state\":\"");
     serial::write_raw_str(trust.state.as_protocol());
-    serial::write_raw_str("\",\"provider_trust_positive\":true,\"final_authorization_schema\":\"raios.provider_context_injection_authorization.v0\",\"final_authorization\":\"missing\",\"satisfies_current_boot_export_gate\":false,\"automatic_context_injection\":\"disabled\",\"context_attached_to_provider_body\":false,\"provider_write\":\"not_attempted\",\"can_attach_context\":false,\"hashes\":");
+    serial::write_raw_str("\",\"provider_trust_positive\":true,\"provider_trust_evidence_hash\":");
+    write_raw_sha256(provider_trust_evidence_hash(trust));
+    serial::write_raw_str(",\"final_authorization_schema\":\"raios.provider_context_injection_authorization.v0\",\"final_authorization\":\"missing\",\"satisfies_current_boot_export_gate\":false,\"automatic_context_injection\":\"disabled\",\"context_attached_to_provider_body\":false,\"provider_write\":\"not_attempted\",\"can_attach_context\":false,\"hashes\":");
     write_raw_context_hashes(context.event_hashes());
     serial::write_raw_str("}\r\n");
+}
+
+fn provider_trust_evidence_hash(trust: provider_trust::Snapshot) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_field(
+        &mut hash,
+        "domain",
+        "raios.provider_trust_evidence.canonical.v0",
+    );
+    hash_field(&mut hash, "schema", "raios.provider_trust_evidence.v0");
+    hash_field(&mut hash, "scope", "single_provider_request");
+    hash_field(&mut hash, "classification", "local_only");
+    hash_field(&mut hash, "provider.selected", "OPENAI");
+    hash_field(&mut hash, "provider.host", API_HOST);
+    hash_field(&mut hash, "provider.port", "443");
+    hash_field(&mut hash, "provider_trust_state", trust.state.as_protocol());
+    hash_field(
+        &mut hash,
+        "provider_trust_positive",
+        bool_str(provider_trust_positive(trust.state)),
+    );
+    hash_field(
+        &mut hash,
+        "provider_trust_pin_kind",
+        trust.pin_kind.unwrap_or("none"),
+    );
+    hash_field(
+        &mut hash,
+        "provider_trust_pin_id",
+        trust.pin_id.unwrap_or("none"),
+    );
+    hash_field(
+        &mut hash,
+        "development_tls_bypass",
+        bool_str(trust.development_bypass),
+    );
+    hash.finalize().into()
 }
 
 fn provider_request_binding_hash(
@@ -688,6 +736,7 @@ fn provider_request_binding_hash(
     envelope_event_id: event_log::EventId,
     context: event_log::ProviderContextHashes,
     provider_trust_state: &'static str,
+    provider_trust_evidence_hash: [u8; 32],
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash_field(
@@ -741,6 +790,11 @@ fn provider_request_binding_hash(
         "provider_trust_state_at_binding",
         provider_trust_state,
     );
+    hash_hash_field(
+        &mut hash,
+        "provider_trust_evidence_hash",
+        provider_trust_evidence_hash,
+    );
     hash_field(&mut hash, "development_tls_bypass", "false");
     hash_field(&mut hash, "provider_write_at_binding", "not_attempted");
     hash_field(&mut hash, "context_attached_to_provider_body", "false");
@@ -751,6 +805,7 @@ fn provider_export_audit_binding_hash(
     request_binding: event_log::ProviderRequestBinding,
     request_binding_event_id: event_log::EventId,
     provider_trust_state: &'static str,
+    provider_trust_evidence_hash: [u8; 32],
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash_field(
@@ -829,6 +884,11 @@ fn provider_export_audit_binding_hash(
         "provider_trust_state_at_binding",
         provider_trust_state,
     );
+    hash_hash_field(
+        &mut hash,
+        "provider_trust_evidence_hash",
+        provider_trust_evidence_hash,
+    );
     hash_field(&mut hash, "positive_export_authorization", "true");
     hash_field(&mut hash, "context_attached_to_provider_body", "false");
     hash_field(&mut hash, "automatic_context_injection", "disabled");
@@ -858,7 +918,13 @@ fn emit_provider_request_binding(
     write_raw_sha256(binding.request_binding_hash);
     serial::write_raw_str(",\"trust_snapshot\":{\"provider_trust_state\":\"");
     serial::write_raw_str(binding.provider_trust_state);
-    serial::write_raw_str("\",\"provider_trust_positive\":true,\"development_tls_bypass\":");
+    serial::write_raw_str("\",\"provider_trust_positive\":true,\"provider_trust_pin_kind\":");
+    write_raw_opt_str(binding.provider_trust_pin_kind);
+    serial::write_raw_str(",\"provider_trust_pin_id\":");
+    write_raw_opt_str(binding.provider_trust_pin_id);
+    serial::write_raw_str(",\"provider_trust_evidence_hash\":");
+    write_raw_sha256(binding.provider_trust_evidence_hash);
+    serial::write_raw_str(",\"development_tls_bypass\":");
     serial::write_raw_str(bool_str(binding.development_tls_bypass));
     serial::write_raw_str("},\"hashes\":");
     write_raw_context_hashes(binding.context);
@@ -897,11 +963,26 @@ fn emit_provider_export_audit_binding(
     write_raw_sha256(binding.export_audit_binding_hash);
     serial::write_raw_str(",\"trust_snapshot\":{\"provider_trust_state\":\"");
     serial::write_raw_str(binding.provider_trust_state);
-    serial::write_raw_str(
-        "\",\"provider_trust_positive\":true,\"development_tls_bypass\":false},\"hashes\":",
-    );
+    serial::write_raw_str("\",\"provider_trust_positive\":true,\"provider_trust_pin_kind\":");
+    write_raw_opt_str(binding.provider_trust_pin_kind);
+    serial::write_raw_str(",\"provider_trust_pin_id\":");
+    write_raw_opt_str(binding.provider_trust_pin_id);
+    serial::write_raw_str(",\"provider_trust_evidence_hash\":");
+    write_raw_sha256(binding.provider_trust_evidence_hash);
+    serial::write_raw_str(",\"development_tls_bypass\":false},\"hashes\":");
     write_raw_context_hashes(binding.context);
     serial::write_raw_str("}\r\n");
+}
+
+fn write_raw_opt_str(value: Option<&str>) {
+    match value {
+        Some(value) => {
+            serial::write_raw_str("\"");
+            serial::write_raw_str(value);
+            serial::write_raw_str("\"");
+        }
+        None => serial::write_raw_str("null"),
+    }
 }
 
 fn write_raw_context_hashes(context: event_log::ProviderContextHashes) {

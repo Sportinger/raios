@@ -8,7 +8,7 @@
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_no_write" -Needle '"provider_write": "not_attempted"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_injection_disabled" -Needle '"automatic_context_injection": "disabled"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_no_body_attachment" -Needle '"context_attached_to_provider_body": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_gate_selftest_count" -Needle '"case_count": 19' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_gate_selftest_count" -Needle '"case_count": 20' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_stale_request" -Needle '"case": "stale_dropped_request_binding_event_id"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_stale_envelope" -Needle '"case": "stale_dropped_envelope_event_id"' -TimeoutSeconds 1
@@ -24,12 +24,14 @@
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_redaction_hash" -Needle '"case": "redaction_policy_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_classification_hash" -Needle '"case": "field_classification_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_budget_hash" -Needle '"case": "token_budget_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_gate_selftest_trust_evidence_hash" -Needle '"case": "provider_trust_evidence_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_stale_reason" -Needle '"actual_reason": "binding_stale_or_dropped_event_id"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_denial_reason" -Needle '"actual_reason": "binding_denied_schema_or_wrong_variant"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_context_hash_reason" -Needle '"actual_reason": "binding_provider_minimal_packet_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_redaction_reason" -Needle '"actual_reason": "binding_redaction_policy_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_classification_reason" -Needle '"actual_reason": "binding_field_classification_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_budget_reason" -Needle '"actual_reason": "binding_token_budget_hash_mismatch"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_gate_selftest_trust_evidence_reason" -Needle '"actual_reason": "binding_provider_trust_evidence_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_gate_false" -Needle '"satisfies_current_boot_export_gate": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_can_export_false" -Needle '"can_export": false' -TimeoutSeconds 1
 

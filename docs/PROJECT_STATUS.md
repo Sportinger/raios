@@ -103,19 +103,28 @@ architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
 Last verified locally: 2026-07-02 on Windows with QEMU 11 after tightening the
-provider-context harness around redaction, field-classification, and
-token-budget hash evidence. Full Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-034736-23492.json` with 6629/6629
-predicates, 243 executed commands, and `duration_ms: 613395`. The full smoke
-proves the provider context gate selftest now expects all 19 cases, including
-redaction/classification/budget hash mismatches, and that retained provider
-denial/event bindings and injection-gate diagnostics expose
-`redaction_policy_hash`, `field_classification_hash`, and `token_budget_hash`.
+provider trust evidence binding through the provider-context request/export
+gate. Full Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-040609-11856.json` with 6631/6631
+predicates, 243 executed commands, and `duration_ms: 610028`. The full smoke
+proves the provider context gate selftest now expects all 20 cases, including
+redaction/classification/budget/trust evidence hash mismatches. Positive
+request/export bindings now carry a canonical `provider_trust_evidence_hash`
+over provider host, trust state, pin kind/id, and TLS-bypass state; that hash is
+folded into request/export binding hashes, retained through binding consumption
+and final injection authorization checks, and exposed in provider gate
+diagnostics and RAM-only event bindings alongside `redaction_policy_hash`,
+`field_classification_hash`, and `token_budget_hash`.
 No-pin/no-trust provider context export remains `capability_denied`; the
 current-image and host-bound Hello load/start/list/health/stop/drop paths still
 work; and arbitrary external artifacts, candidate-byte execution, executable
 page mapping, persistence, durable audit, rollback, provider auto-load, and
 broad mutation remain denied.
+
+Previous focused verification after the provider trust evidence binding slice:
+2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-040501-24236.json` with 191/191
+predicates, 31 executed commands, and `duration_ms: 60507`.
 
 Previous focused verification after the provider context hash-binding slice:
 2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
@@ -1219,13 +1228,14 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 ## Exact Next Task
 
 Now that the provider-minimal context path binds redaction,
-field-classification, and token-budget hashes through projection, request/export
-binding evidence, and injection-gate checks, continue the provider
-trust/context track by hardening the positive TLS trust path itself. The next
-slice should prove positive SPKI/WebPKI provider trust plus explicit typed
-request/export authorization before any provider context export or injection can
-advance; no-pin/no-trust and development-bypass paths must stay fail-closed,
-and `satisfies_current_boot_export_gate` must remain `false` until the full
+field-classification, token-budget, and provider-trust evidence hashes through
+projection, request/export binding evidence, consumption, and injection-gate
+checks, continue the provider trust/context track at the TLS verifier boundary.
+The next slice should prove the positive SPKI/WebPKI trust source itself with
+typed verifier metadata such as host, pin or chain evidence, hostname policy,
+and time policy before any provider context export or injection can advance;
+no-pin/no-trust and development-bypass paths must stay fail-closed, and
+`satisfies_current_boot_export_gate` must remain `false` until the full
 evidence gate is present. Do not use fake trust, fake persistence, automatic
 context stuffing, candidate-byte execution, durable audit writes, rollback
 installation, provider-triggered auto-load, or broad module/service/config
@@ -2212,7 +2222,10 @@ Historical verified recovery foundation retained for reference:
   `raios.provider_request_binding.v0` and
   `raios.provider_context_export_audit_binding.v0` events. They bind the exact
   request-body hash, request-envelope hash, provider-minimal packet hash,
-  exported-field-list hash, and omitted-field-list hash. The request binding
+  exported-field-list hash, omitted-field-list hash, redaction-policy hash,
+  field-classification hash, token-budget hash, and
+  `provider_trust_evidence_hash` over provider host, trust state, pin kind/id,
+  and TLS-bypass state. The request binding
   satisfies only `satisfies_request_binding_gate: true`; the export audit
   binding sets `positive_export_authorization: true`, but both retain
   `satisfies_current_boot_export_gate: false`,
@@ -2228,7 +2241,8 @@ Historical verified recovery foundation retained for reference:
   attempt provider writes. The Shadow VM smoke now covers stale/dropped event
   ids, previous-boot-or-unretained ids, denial-schema substitution,
   positive-record substitution, request/body/binding hash mismatches, context
-  hash mismatches, and trust-bypass records.
+  hash mismatches, redaction/classification/budget/trust-evidence hash
+  mismatches, and trust-bypass records.
 - `provider.context_export provider_minimal` now consumes one valid retained
   positive binding pair for local gate evaluation only, records
   `raios.provider_context_binding_consumption.v0`, and still returns
@@ -2251,8 +2265,9 @@ Historical verified recovery foundation retained for reference:
 - On positive pinned/WebPKI OpenAI request paths, Stage-0 now emits a local-only
   `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker after request/export binding
   evidence and before API-key copy or HTTPS write. The marker binds the request
-  body hash, request-envelope hash, and provider-minimal context hashes while
-  keeping provider write not attempted and body attachment false.
+  body hash, request-envelope hash, provider-minimal context hashes, and
+  provider-trust evidence hash while keeping provider write not attempted and
+  body attachment false.
 - `provider.context_export` still does not create a request envelope; the
   Shadow VM smoke checks that denied export cannot fake one.
 - `memory.query` and `memory.trace` include

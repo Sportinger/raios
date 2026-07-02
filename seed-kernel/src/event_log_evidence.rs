@@ -89,6 +89,7 @@ pub(crate) const PROVIDER_REQUEST_BINDING_EVIDENCE: &[&str] = &[
     "field_classification_hash",
     "token_budget_hash",
     "positive_provider_trust",
+    "provider_trust_evidence_hash",
     "provider_write_not_attempted",
 ];
 pub(crate) const PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE: &[&str] = &[
@@ -103,6 +104,7 @@ pub(crate) const PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE: &[&str] = &[
     "field_classification_hash",
     "token_budget_hash",
     "positive_provider_trust",
+    "provider_trust_evidence_hash",
     "context_injection_disabled",
 ];
 pub(crate) const PROVIDER_BINDING_CONSUMPTION_EVIDENCE: &[&str] = &[
@@ -111,6 +113,7 @@ pub(crate) const PROVIDER_BINDING_CONSUMPTION_EVIDENCE: &[&str] = &[
     "provider_context_export_audit_binding",
     "request_binding_hash",
     "export_audit_binding_hash",
+    "provider_trust_evidence_hash",
     "provider_write_not_attempted",
     "context_injection_disabled",
 ];
@@ -128,6 +131,7 @@ pub(crate) const PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_EVIDENCE: &[&str] = &[
     "field_classification_hash",
     "token_budget_hash",
     "positive_provider_trust",
+    "provider_trust_evidence_hash",
     "provider_write_not_attempted",
     "context_injection_disabled",
 ];

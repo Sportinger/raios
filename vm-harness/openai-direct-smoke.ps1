@@ -142,6 +142,7 @@ function Assert-PositiveBindingMarkers {
     Assert-Equal -Name "redaction policy hash" -Actual $exportBinding.hashes.redaction_policy_hash -Expected $requestBinding.hashes.redaction_policy_hash
     Assert-Equal -Name "field classification hash" -Actual $exportBinding.hashes.field_classification_hash -Expected $requestBinding.hashes.field_classification_hash
     Assert-Equal -Name "token budget hash" -Actual $exportBinding.hashes.token_budget_hash -Expected $requestBinding.hashes.token_budget_hash
+    Assert-Equal -Name "trust evidence hash" -Actual $exportBinding.trust_snapshot.provider_trust_evidence_hash -Expected $requestBinding.trust_snapshot.provider_trust_evidence_hash
     Assert-Equal -Name "request binding current boot export gate" -Actual $requestBinding.satisfies_current_boot_export_gate -Expected $false
     Assert-Equal -Name "export binding current boot export gate" -Actual $exportBinding.satisfies_current_boot_export_gate -Expected $false
     Assert-Equal -Name "automatic context injection" -Actual $exportBinding.automatic_context_injection -Expected "disabled"
@@ -155,6 +156,7 @@ function Assert-PositiveBindingMarkers {
     Assert-Equal -Name "injection gate redaction policy hash" -Actual $injectionGate.hashes.redaction_policy_hash -Expected $requestBinding.hashes.redaction_policy_hash
     Assert-Equal -Name "injection gate field classification hash" -Actual $injectionGate.hashes.field_classification_hash -Expected $requestBinding.hashes.field_classification_hash
     Assert-Equal -Name "injection gate token budget hash" -Actual $injectionGate.hashes.token_budget_hash -Expected $requestBinding.hashes.token_budget_hash
+    Assert-Equal -Name "injection gate trust evidence hash" -Actual $injectionGate.provider_trust_evidence_hash -Expected $requestBinding.trust_snapshot.provider_trust_evidence_hash
     Assert-Equal -Name "injection gate status" -Actual $injectionGate.status -Expected "blocked"
     Assert-Equal -Name "injection gate reason" -Actual $injectionGate.reason -Expected "automatic_context_injection_disabled"
     Assert-Equal -Name "injection gate final schema" -Actual $injectionGate.final_authorization_schema -Expected "raios.provider_context_injection_authorization.v0"
@@ -184,6 +186,7 @@ function Invoke-PositiveBindingGateChecks {
     Wait-ForLogText -Path $SerialLog -Needle '"redaction_policy_hash": "sha256:' -TimeoutSeconds $TimeoutSeconds
     Wait-ForLogText -Path $SerialLog -Needle '"field_classification_hash": "sha256:' -TimeoutSeconds $TimeoutSeconds
     Wait-ForLogText -Path $SerialLog -Needle '"token_budget_hash": "sha256:' -TimeoutSeconds $TimeoutSeconds
+    Wait-ForLogText -Path $SerialLog -Needle '"provider_trust_evidence_hash": "sha256:' -TimeoutSeconds $TimeoutSeconds
     Wait-ForLogText -Path $SerialLog -Needle '"satisfies_current_boot_export_gate": false' -TimeoutSeconds $TimeoutSeconds
 
     Send-SerialText -Port $Port -TimeoutSeconds $TimeoutSeconds -Text "agent provider.context_export provider_minimal`r"
