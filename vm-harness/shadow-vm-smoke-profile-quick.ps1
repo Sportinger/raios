@@ -714,6 +714,28 @@
         }
         & $AssertHelloServiceSlotActivationReference -Name "hello stopped health service" -Record $helloHealthStopped.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationStoppedStatus -ExpectedActive $true
 
+        Send-AgentCommand -Command "service.start svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.start"
+        $helloStart = Get-LastAgentResponseJson -Method "service.start"
+        Assert-CurrentBootEventId -Name "quick:hello_start_event_id" -Value $helloStart.body.result.event_id
+        if (-not $helloStart.body.result.service.loaded -or -not $helloStart.body.result.service.running) {
+            throw "Expected service.start to restart the loaded hello service"
+        }
+        if ($helloStart.body.result.lifecycle.start_event_id -ne $helloStart.body.result.event_id) {
+            throw "Expected service.start to record a distinct start event id"
+        }
+        $helloStartActivationHash = & $AssertHelloServiceSlotActivation `
+            -Name "hello start response" `
+            -Activation $helloStart.body.result.service_slot_activation `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -PreflightHash $helloLoadPlanPreflightHash `
+            -ExpectedStatus $HelloServiceSlotActivationActiveStatus `
+            -ExpectedActive $true
+        if ($helloStartActivationHash -ne $helloServiceSlotActivationHash) {
+            throw "Expected hello start response to cite the same service-slot activation hash"
+        }
+        & $AssertHelloServiceSlotActivationReference -Name "hello start service response" -Record $helloStart.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
+        & $AssertHelloServiceSlotActivationReference -Name "hello start loader response" -Record $helloStart.body.result.loader -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
+
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $helloDrop = Get-LastAgentResponseJson -Method "service.drop"
         Assert-CurrentBootEventId -Name "quick:hello_drop_event_id" -Value $helloDrop.body.result.event_id

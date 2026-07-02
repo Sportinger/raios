@@ -28,7 +28,8 @@ Active execution memory: as of 2026-07-02, Phase 6 has its first positive
 RAM-only service vertical slice: `raios.ram_only_hello_service.v0`. The kernel
 can load/start the built-in `svc.demo.hello` test service through a typed
 current-boot load request/descriptor, expose it through `service.inventory`,
-report health, stop it, drop it, and retain RAM-only lifecycle/health audit
+report health, stop it, start it again through `service.start`, drop it, and
+retain RAM-only lifecycle/health audit
 events that cite the descriptor plus a validated current-image
 descriptor-source locator/kind/hash. The current-image descriptor-source path
 now also carries a repo-local P-256/SHA-256 signature envelope that is checked
@@ -79,9 +80,10 @@ The Hello path now also emits a
 preflight. Load/start, `service.inventory`, `service.health`, stop/drop
 responses, and lifecycle/health RAM audit bindings expose the activation
 id/hash/status plus active state. The activation hash stays stable across
-running, stopped, and cleared statuses for the same selected descriptor source
-and preflight; `service.drop` clears the current-boot slot while citing the same
-activation before cleanup.
+running, stopped, restarted, and cleared statuses for the same selected
+descriptor source and preflight; `service.start` restarts a stopped loaded
+current-boot service without creating a new load generation, and `service.drop`
+clears the current-boot slot while citing the same activation before cleanup.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -102,15 +104,19 @@ merged result must still be a real verified vertical slice on the final
 architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
-Last verified locally: 2026-07-02 on Windows with QEMU 11 after recording
-provider trust verifier decisions and optional standby SPKI rotation state
-through snapshots, provider-minimal context, positive request/export bindings,
-and direct-provider injection-gate markers.
-Full Shadow VM smoke passed in
+Latest focused verification: 2026-07-02 on Windows with QEMU 11 after adding
+the explicit `service.start svc.demo.hello` current-boot lifecycle transition.
+Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-053445-10792.json` with 201/201
+predicates, 32 executed commands, and `duration_ms: 61451`.
+
+Last full verification before the explicit `service.start` slice: 2026-07-02
+on Windows with QEMU 11 after recording provider trust verifier decisions and
+optional standby SPKI rotation state through snapshots, provider-minimal
+context, positive request/export bindings, and direct-provider injection-gate
+markers. Full Shadow VM smoke passed in
 `release/vm-reports/shadow-20260702-051757-3004.json` with 6640/6640
-predicates, 243 executed commands, and `duration_ms: 612495`. Quick Shadow VM
-smoke passed in `release/vm-reports/shadow-20260702-051622-22932.json` with
-199/199 predicates, 31 executed commands, and `duration_ms: 86731`. The full
+predicates, 243 executed commands, and `duration_ms: 612495`. The full
 smoke proves the provider context gate selftest still expects all 20 cases,
 including redaction/classification/budget/trust evidence hash mismatches, and
 that the provider context injection gate names `provider_trust_verifier_metadata`
@@ -231,9 +237,11 @@ and records a local-only `raios.ram_only_hello_service.health` RAM event with
 `raios.ram_only_hello_service.health_binding.v0`.
 `service.stop svc.demo.hello` marks it stopped,
 `service.health svc.demo.hello` reports stopped while the service remains
-loaded, `service.drop svc.demo.hello` removes it from `service.inventory`, and
-after drop `service.health svc.demo.hello` reports missing without accepting
-external artifact bytes or writing persistent state.
+loaded, `service.start svc.demo.hello` marks the same loaded generation running
+again with the same activation hash, `service.drop svc.demo.hello` removes it
+from `service.inventory`, and after drop `service.health svc.demo.hello`
+reports missing without accepting external artifact bytes or writing persistent
+state.
 Then `module.load_ephemeral host_bound:svc.demo.hello` loads the same built-in
 RAM-only service through `host_build.descriptor_source.svc.demo.hello.v0` with
 source kind `host_bound_descriptor_source`; the host-bound source text and
@@ -1271,8 +1279,9 @@ shortcut.
 The next slice should:
 
 - keep bare `module.load_ephemeral` and arbitrary external artifacts denied
-- keep current-image and host-bound `svc.demo.hello` load/start/list/stop/drop
-  passing in quick VM smoke
+- keep current-image and host-bound `svc.demo.hello` load/list/stop/drop
+  passing in quick VM smoke, with explicit `service.start svc.demo.hello`
+  restarting a stopped loaded current-boot service
 - keep `raios.current_boot_load_request.v0` and
   `raios.current_boot_load_descriptor.v0` in the positive path
 - keep `service.health svc.demo.hello` proving healthy, stopped, missing, and

@@ -1123,6 +1123,11 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         return DispatchOutcome::Response(method);
     }
 
+    if hello_service::is_start_method(method) {
+        let method = hello_service::emit_start(method);
+        return DispatchOutcome::Response(method);
+    }
+
     if hello_service::is_stop_method(method) {
         let method = hello_service::emit_stop(method);
         return DispatchOutcome::Response(method);

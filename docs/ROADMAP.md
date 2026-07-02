@@ -103,8 +103,9 @@ Latest verified implementation slice:
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
   `service.health svc.demo.hello` reports healthy, stopped, or missing from the
   same current-boot state; `service.stop svc.demo.hello` marks it stopped;
-  `service.drop svc.demo.hello` removes it from inventory; the inventory and
-  health records cite
+  `service.start svc.demo.hello` restarts the same loaded generation and keeps
+  the same activation hash; `service.drop svc.demo.hello` removes it from
+  inventory; the inventory and health records cite
   `load_descriptor.current_boot.svc.demo.hello.v0` plus the descriptor source
   locator/kind/validation/hash and bound source hash when present
 - lifecycle and health actions retain
@@ -164,11 +165,11 @@ release\vm-reports\shadow-20260702-051757-3004.json
 6640/6640 predicates, 243 executed commands, duration_ms: 612495
 ```
 
-Latest focused verification:
+Latest focused verification after the explicit hello `service.start` slice:
 
 ```text
-release\vm-reports\shadow-20260702-051622-22932.json
-199/199 quick predicates, 31 executed commands, duration_ms: 86731
+release\vm-reports\shadow-20260702-053445-10792.json
+201/201 quick predicates, 32 executed commands, duration_ms: 61451
 ```
 
 Latest focused verification after the artifact identity slice:

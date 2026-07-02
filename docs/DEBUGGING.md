@@ -424,6 +424,7 @@ services
 service.health svc.demo.hello
 service.stop svc.demo.hello
 service.health svc.demo.hello
+service.start svc.demo.hello
 service.drop svc.demo.hello
 service.health svc.demo.hello
 module.load_ephemeral host_bound:svc.demo.hello
@@ -478,11 +479,13 @@ artifact identity hash/signature envelope, content binding hash, and artifact
 reference hash plus artifact load-plan preflight id/hash/status and
 service-slot activation id/hash/status/active state. `service.health
 svc.demo.hello` must return `raios.ram_only_hello_service.health.v0`, report
-healthy while loaded/running, stopped while loaded/not running, and missing
-after drop, and cite the active descriptor source hash, signature envelope,
+healthy while loaded/running, stopped while loaded/not running, running again
+after `service.start`, and missing after drop, and cite the active descriptor
+source hash, signature envelope,
 artifact identity/content/reference/preflight evidence, and service-slot
 activation evidence while loaded. Stop keeps the same activation hash with
-`stopped_current_boot`; drop cites the same activation hash with
+`stopped_current_boot`; start keeps the same activation hash with
+`active_current_boot`; drop cites the same activation hash with
 `cleared_current_boot` before cleanup. `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the

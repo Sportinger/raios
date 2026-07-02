@@ -739,6 +739,10 @@ pub(crate) fn is_stop_method(method: &str) -> bool {
     target_arg_matches(method, "service.stop")
 }
 
+pub(crate) fn is_start_method(method: &str) -> bool {
+    target_arg_matches(method, "service.start")
+}
+
 pub(crate) fn is_drop_method(method: &str) -> bool {
     target_arg_matches(method, "service.drop")
 }
@@ -777,6 +781,12 @@ pub(crate) fn emit_stop(_method: &str) -> &'static str {
     let snapshot = stop("service.stop");
     emit_response("service.stop", "stop", snapshot, snapshot.load_descriptor);
     "service.stop"
+}
+
+pub(crate) fn emit_start(_method: &str) -> &'static str {
+    let snapshot = start("service.start");
+    emit_response("service.start", "start", snapshot, snapshot.load_descriptor);
+    "service.start"
 }
 
 pub(crate) fn emit_drop(_method: &str) -> &'static str {
@@ -1070,6 +1080,49 @@ fn load_start(source_method: &'static str, descriptor: LoadDescriptor) -> Snapsh
     state.load_descriptor = descriptor;
     state.start_event_id = Some(event_id);
     state.last_action = "load_start";
+    state.last_reason = reason;
+    state.last_inventory_change = inventory_change;
+    state.last_event_id = Some(event_id);
+    state.snapshot()
+}
+
+fn start(source_method: &'static str) -> Snapshot {
+    let mut state = STATE.lock();
+    let descriptor = state.load_descriptor;
+    let reason = if state.loaded && state.running {
+        "already_running"
+    } else if state.loaded {
+        "started_loaded_service"
+    } else {
+        "not_loaded"
+    };
+    let inventory_change = if state.loaded {
+        "updated_current_boot_service"
+    } else {
+        "none"
+    };
+    let activation_status = if state.loaded {
+        SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS
+    } else {
+        SERVICE_SLOT_ACTIVATION_MISSING_STATUS
+    };
+    let event_id = event_log::record_hello_service_lifecycle(
+        source_method,
+        "response",
+        reason,
+        lifecycle_binding(
+            descriptor,
+            inventory_change,
+            activation_status,
+            state.loaded,
+        ),
+    );
+
+    if state.loaded {
+        state.running = true;
+        state.start_event_id = Some(event_id);
+    }
+    state.last_action = "start";
     state.last_reason = reason;
     state.last_inventory_change = inventory_change;
     state.last_event_id = Some(event_id);
