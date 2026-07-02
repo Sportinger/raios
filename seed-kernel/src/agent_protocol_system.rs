@@ -631,6 +631,34 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
     json_sha256(hello_service::artifact_identity_hash(hello.load_descriptor));
     raw(", \"artifact_identity_signature_envelope\": ");
     hello_service::emit_artifact_identity_signature_envelope(hello.load_descriptor);
+    raw(", \"artifact_content_binding_id\": ");
+    json_str(
+        hello
+            .load_descriptor
+            .artifact_identity
+            .artifact_content_binding_id,
+    );
+    raw(", \"artifact_content_binding_hash\": ");
+    json_sha256(hello_service::artifact_content_binding_hash(
+        hello.load_descriptor,
+    ));
+    raw(", \"artifact_content_source_hash\": ");
+    json_sha256(
+        hello
+            .load_descriptor
+            .artifact_identity
+            .artifact_content_source_hash,
+    );
+    raw(", \"artifact_content_trust_envelope_id\": ");
+    json_str(hello.load_descriptor.artifact_identity.signed_envelope.id);
+    raw(", \"artifact_content_trust_envelope_hash\": ");
+    json_sha256(
+        hello
+            .load_descriptor
+            .artifact_identity
+            .signed_envelope
+            .envelope_hash,
+    );
     raw(", \"load_descriptor_schema\": ");
     json_str(hello.load_descriptor.schema);
     raw(", \"load_descriptor_id\": ");

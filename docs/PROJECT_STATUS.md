@@ -45,9 +45,13 @@ The Hello path now also carries a signed
 P-256/SHA-256 identity signature, the kernel validates it before load, and load
 responses, `service.inventory`, `service.health`, and RAM audit bindings expose
 the artifact identity id/hash, trust-envelope id/hash, payload, public-key, and
-signature hashes, and `artifact_identity_signature_verified` while still
-denying arbitrary artifact bytes, executable page mapping, persistence, durable
-audit, rollback, provider-triggered auto-load, and broad mutation.
+signature hashes, `artifact_identity_signature_verified`, and a signed
+`raios.builtin_artifact_content_binding.v0` content/hash binding for the
+checked-in Hello service source snapshot. That binding exposes stable content
+id/source/hash/trust fields in load, inventory, health, and RAM audit evidence
+while still denying arbitrary artifact bytes, executable page mapping,
+persistence, durable audit, rollback, provider-triggered auto-load, and broad
+mutation.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -69,20 +73,26 @@ architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
 Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
-signed built-in Hello artifact identity/trust envelope. Quick Shadow VM smoke
-passed in `release/vm-reports/shadow-20260702-021750-7868.json` with 172/172
-predicates, 29 executed commands, and `duration_ms: 51268`. The focused smoke
+signed built-in Hello artifact content/hash binding. Quick Shadow VM smoke
+passed in `release/vm-reports/shadow-20260702-022858-26440.json` with 174/174
+predicates, 29 executed commands, and `duration_ms: 51671`. The focused smoke
 proves the current-image and host-bound Hello load/start/list/health/stop/drop
 paths still work, arbitrary external artifacts and wrong targets remain denied,
 `service.descriptor_source_trust_selftest` stays green, and the load response,
 `service.inventory`, `service.health`, and RAM audit events cite the verified
-artifact identity hash and signature envelope while keeping external artifact
-bytes, executable page mapping, persistence, durable audit, rollback, provider
+artifact identity hash/signature envelope plus the artifact content binding
+hash and trust signature state while keeping external artifact bytes,
+executable page mapping, persistence, durable audit, rollback, provider
 auto-load, and broad mutation denied.
 
-Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
-read-only descriptor-source trust selftest over the signed current-image Hello
-descriptor-source envelope. Quick Shadow VM smoke passed in
+Previous focused verification after artifact identity: 2026-07-02 on Windows
+with QEMU 11. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-021750-7868.json` with 172/172 predicates,
+29 executed commands, and `duration_ms: 51268`.
+
+Earlier focused verification: 2026-07-02 on Windows with QEMU 11 after adding
+the read-only descriptor-source trust selftest over the signed current-image
+Hello descriptor-source envelope. Quick Shadow VM smoke passed in
 `release/vm-reports/shadow-20260702-020435-6212.json` with 170/170 predicates,
 29 executed commands, and `duration_ms: 79153`: bare
 `module.load_ephemeral`, `module.load_ephemeral svc.demo.nope`, and
@@ -1141,11 +1151,10 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that the built-in `svc.demo.hello` service has a signed descriptor-source
-trust envelope and a signed built-in artifact identity envelope, add the
-smallest signed built-in artifact content/hash binding for the same Hello path.
-Keep execution bound to the existing built-in/current-boot service; do not
-accept arbitrary external artifact bytes, map executable pages, write
+Now that the built-in `svc.demo.hello` service has signed descriptor-source,
+artifact identity, and artifact content/hash evidence, add the smallest signed
+artifact-byte/reference slice for the same Hello path. Keep execution bound to
+the existing built-in/current-boot service; do not map candidate bytes, write
 persistent state, write durable audit logs, install rollback plans, trigger
 provider auto-load, or grant broad module/service/config mutation.
 
@@ -1162,10 +1171,13 @@ The next slice should:
   descriptor-source envelope cases
 - keep the signed built-in artifact identity/trust envelope visible in load
   response, `service.inventory`, `service.health`, and RAM audit bindings
-- add a signed content/hash binding for the existing built-in Hello artifact
-  candidate, reusing already-installed signing/verification primitives if they
-  fit
-- expose stable artifact content/trust ids and hashes in load response,
+- keep the signed content/hash binding for the existing built-in Hello artifact
+  candidate visible in load response, `service.inventory`, `service.health`,
+  and RAM audit bindings
+- add the narrowest signed artifact-byte or artifact-reference evidence for
+  the Hello candidate, reusing already-installed signing/verification
+  primitives if they fit
+- expose stable artifact byte/reference trust ids and hashes in load response,
   `service.inventory`, `service.health`, and RAM audit bindings
 - keep the selected descriptor source locator/kind/validation/hash plus any
   bound source hash visible in load response, service.inventory, health output,
@@ -1174,8 +1186,9 @@ The next slice should:
   rollback installation, provider-triggered auto-load, and broad
   module/service/config mutation denied
 
-Do not add a signed artifact loader yet. The next step is a content/hash binding
-for the already-working built-in service path, not arbitrary module execution.
+Do not add a signed artifact loader yet. The next step is artifact-byte or
+artifact-reference evidence for the already-working built-in service path, not
+arbitrary module execution.
 
 For multi-agent execution, this remains Track A. Other agents may work in
 parallel on provider trust/context hardening, UI/input polish, harness

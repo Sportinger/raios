@@ -174,6 +174,38 @@
         if ($helloArtifactIdentityEnvelope.authorizes_external_artifact_load -or $helloArtifactIdentityEnvelope.authorizes_persistent_install -or $helloArtifactIdentityEnvelope.authorizes_rollback_install) {
             throw "Artifact identity signature envelope must not authorize load, persistence, or rollback"
         }
+        $helloArtifactContentBinding = $helloArtifactIdentity.content_binding
+        if (-not $helloArtifactContentBinding) {
+            throw "Expected built-in artifact identity to expose content binding"
+        }
+        $helloArtifactContentHash = $helloArtifactContentBinding.binding_hash
+        if ($helloArtifactContentBinding.schema -ne "raios.builtin_artifact_content_binding.v0") {
+            throw "Expected built-in artifact content binding schema"
+        }
+        if ($helloArtifactContentBinding.id -ne "builtin_artifact_content.svc.demo.hello.v0") {
+            throw "Expected stable built-in artifact content binding id"
+        }
+        if ($helloArtifactContentBinding.content_kind -ne "repo_source_snapshot") {
+            throw "Expected built-in artifact content to bind a repo source snapshot"
+        }
+        if ($helloArtifactContentBinding.source_locator -ne "seed-kernel/src/hello_service.rs") {
+            throw "Expected built-in artifact content to cite hello_service.rs"
+        }
+        if (-not $helloArtifactContentBinding.source_sha256 -or -not $helloArtifactContentBinding.source_sha256.StartsWith("sha256:")) {
+            throw "Expected built-in artifact content source hash"
+        }
+        if (-not $helloArtifactContentHash -or -not $helloArtifactContentHash.StartsWith("sha256:")) {
+            throw "Expected built-in artifact content binding hash"
+        }
+        if ($helloArtifactContentBinding.trusted_by_envelope_id -ne $helloArtifactIdentityEnvelope.id -or $helloArtifactContentBinding.trusted_by_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
+            throw "Expected artifact content binding to cite the artifact identity trust envelope"
+        }
+        if (-not $helloArtifactContentBinding.trust_signature_verified -or -not $helloArtifactContentBinding.validated) {
+            throw "Expected artifact content binding trust and validation to pass"
+        }
+        if ($helloArtifactContentBinding.accepts_external_artifact_bytes -or $helloArtifactContentBinding.loads_external_artifact -or $helloArtifactContentBinding.maps_executable_pages -or $helloArtifactContentBinding.writes_persistent_state) {
+            throw "Artifact content binding must keep external artifact load, executable mapping, and persistence denied"
+        }
         if ($helloLoad.body.result.load_request.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello load request to cite the same descriptor source hash"
         }
@@ -185,6 +217,9 @@
         }
         if ($helloLoad.body.result.load_request.artifact_identity_hash -ne $helloArtifactIdentityHash -or -not $helloLoad.body.result.load_request.artifact_identity_signature_envelope.signature_verified) {
             throw "Expected hello load request to cite the verified artifact identity"
+        }
+        if ($helloLoad.body.result.load_request.artifact_content_binding_hash -ne $helloArtifactContentHash -or $helloLoad.body.result.load_request.artifact_content_source_hash -ne $helloArtifactContentBinding.source_sha256 -or $helloLoad.body.result.load_request.artifact_content_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
+            throw "Expected hello load request to cite the verified artifact content binding"
         }
         if ($helloLoad.body.result.service.load_descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello service response to cite the same descriptor source hash"
@@ -198,6 +233,9 @@
         if ($helloLoad.body.result.service.artifact_identity_hash -ne $helloArtifactIdentityHash -or -not $helloLoad.body.result.service.artifact_identity_signature_envelope.signature_verified) {
             throw "Expected hello service response to cite the verified artifact identity"
         }
+        if ($helloLoad.body.result.service.artifact_content_binding_hash -ne $helloArtifactContentHash -or $helloLoad.body.result.service.artifact_content_source_hash -ne $helloArtifactContentBinding.source_sha256 -or $helloLoad.body.result.service.artifact_content_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
+            throw "Expected hello service response to cite the verified artifact content binding"
+        }
         if ($helloLoad.body.result.loader.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello loader response to cite the same descriptor source hash"
         }
@@ -209,6 +247,9 @@
         }
         if ($helloLoad.body.result.loader.artifact_identity_hash -ne $helloArtifactIdentityHash -or -not $helloLoad.body.result.loader.artifact_identity_signature_envelope.signature_verified) {
             throw "Expected hello loader response to cite the verified artifact identity"
+        }
+        if ($helloLoad.body.result.loader.artifact_content_binding_hash -ne $helloArtifactContentHash -or $helloLoad.body.result.loader.artifact_content_source_hash -ne $helloArtifactContentBinding.source_sha256 -or $helloLoad.body.result.loader.artifact_content_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
+            throw "Expected hello loader response to cite the verified artifact content binding"
         }
         if (-not $helloLoad.body.result.service.loaded -or -not $helloLoad.body.result.service.running) {
             throw "Expected loaded/running hello service after load_start"
@@ -250,6 +291,9 @@
         if ($helloInventory[0].artifact_identity_hash -ne $helloArtifactIdentityHash -or -not $helloInventory[0].artifact_identity_signature_envelope.signature_verified) {
             throw "Expected svc.demo.hello inventory record to cite the verified artifact identity"
         }
+        if ($helloInventory[0].artifact_content_binding_hash -ne $helloArtifactContentHash -or $helloInventory[0].artifact_content_source_hash -ne $helloArtifactContentBinding.source_sha256 -or $helloInventory[0].artifact_content_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
+            throw "Expected svc.demo.hello inventory record to cite the verified artifact content binding"
+        }
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthRunning = Get-LastAgentResponseJson -Method "service.health"
@@ -268,6 +312,9 @@
         }
         if ($helloHealthRunning.body.result.load_descriptor.artifact_identity.sha256 -ne $helloArtifactIdentityHash -or -not $helloHealthRunning.body.result.load_descriptor.artifact_identity.signature_envelope.signature_verified) {
             throw "Expected hello health probe to cite the verified artifact identity"
+        }
+        if ($helloHealthRunning.body.result.load_descriptor.artifact_identity.content_binding.binding_hash -ne $helloArtifactContentHash -or -not $helloHealthRunning.body.result.load_descriptor.artifact_identity.content_binding.trust_signature_verified) {
+            throw "Expected hello health probe to cite the verified artifact content binding"
         }
 
         Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
@@ -355,6 +402,9 @@
         if ($hostHelloLoad.body.result.load_descriptor.artifact_identity.sha256 -ne $helloArtifactIdentityHash -or -not $hostHelloLoad.body.result.load_descriptor.artifact_identity.signature_envelope.signature_verified) {
             throw "Expected host-bound load to keep the same verified built-in artifact identity"
         }
+        if ($hostHelloLoad.body.result.load_descriptor.artifact_identity.content_binding.binding_hash -ne $helloArtifactContentHash -or -not $hostHelloLoad.body.result.load_descriptor.artifact_identity.content_binding.trust_signature_verified) {
+            throw "Expected host-bound load to keep the same verified built-in artifact content binding"
+        }
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
         $servicesAfterHostLoad = Get-LastAgentResponseJson -Method "service.inventory"
@@ -374,6 +424,9 @@
         if ($hostInventory[0].artifact_identity_hash -ne $helloArtifactIdentityHash -or -not $hostInventory[0].artifact_identity_signature_envelope.signature_verified) {
             throw "Expected host-bound inventory record to cite the verified artifact identity"
         }
+        if ($hostInventory[0].artifact_content_binding_hash -ne $helloArtifactContentHash -or $hostInventory[0].artifact_content_source_hash -ne $helloArtifactContentBinding.source_sha256 -or $hostInventory[0].artifact_content_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
+            throw "Expected host-bound inventory record to cite the verified artifact content binding"
+        }
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $hostHealthRunning = Get-LastAgentResponseJson -Method "service.health"
@@ -386,6 +439,9 @@
         }
         if ($hostHealthRunning.body.result.load_descriptor.artifact_identity.sha256 -ne $helloArtifactIdentityHash -or -not $hostHealthRunning.body.result.load_descriptor.artifact_identity.signature_envelope.signature_verified) {
             throw "Expected host-bound hello health probe to cite the verified artifact identity"
+        }
+        if ($hostHealthRunning.body.result.load_descriptor.artifact_identity.content_binding.binding_hash -ne $helloArtifactContentHash -or -not $hostHealthRunning.body.result.load_descriptor.artifact_identity.content_binding.trust_signature_verified) {
+            throw "Expected host-bound hello health probe to cite the verified artifact content binding"
         }
 
         Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
@@ -426,6 +482,10 @@
         if ($helloArtifactIdentityEvents.Count -lt 6) {
             throw "Expected hello lifecycle events to cite the verified artifact identity"
         }
+        $helloArtifactContentEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "artifact_content_binding_hash" -and $_.bindings.artifact_content_binding_hash -eq $helloArtifactContentHash -and $_.bindings.artifact_content_trust_signature_verified })
+        if ($helloArtifactContentEvents.Count -lt 6) {
+            throw "Expected hello lifecycle events to cite the verified artifact content binding"
+        }
         $hostDescriptorHashEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor_source_hash" -and $_.bindings.load_descriptor_source_hash -eq $hostDescriptorHash })
         if ($hostDescriptorHashEvents.Count -lt 3) {
             throw "Expected host-bound hello lifecycle events to cite the host-bound descriptor source hash"
@@ -450,6 +510,10 @@
         if ($helloHealthArtifactIdentityEvents.Count -lt 4) {
             throw "Expected hello health events to cite the verified artifact identity"
         }
+        $helloHealthArtifactContentEvents = @($helloHealthEvents | Where-Object { @($_.evidence) -contains "artifact_content_binding_hash" -and $_.bindings.artifact_content_binding_hash -eq $helloArtifactContentHash -and $_.bindings.artifact_content_trust_signature_verified })
+        if ($helloHealthArtifactContentEvents.Count -lt 4) {
+            throw "Expected hello health events to cite the verified artifact content binding"
+        }
         $hostHealthEvents = @($helloHealthEvents | Where-Object { $_.bindings.load_descriptor_source_hash -eq $hostDescriptorHash -and $_.bindings.binds_source_hash -eq $helloDescriptorHash })
         if ($hostHealthEvents.Count -lt 1) {
             throw "Expected host-bound health event to cite the host-bound source and bound current-image hash"
@@ -468,6 +532,8 @@
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_signature_verified" -Needle '"load_descriptor_source_signature_verified": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_artifact_identity_hash" -Needle '"artifact_identity_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_artifact_identity_signature_verified" -Needle '"artifact_identity_signature_verified": true' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_artifact_content_binding_hash" -Needle '"artifact_content_binding_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_artifact_content_signature_verified" -Needle '"artifact_content_trust_signature_verified": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1

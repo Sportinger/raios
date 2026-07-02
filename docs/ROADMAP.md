@@ -3,7 +3,7 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-07-02 by Codex after adding a signed built-in Hello artifact
-identity/trust envelope.
+content/hash binding.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -47,7 +47,9 @@ Latest verified implementation slice:
   `raios.builtin_artifact_identity.v0` identity/trust envelope; the build script
   checks the checked-in P-256 signature, the kernel validates it before load,
   and load/inventory/health/RAM-audit evidence exposes the identity id/hash,
-  trust-envelope id/hash, and signature verification state
+  trust-envelope id/hash, signature verification state, and a signed
+  `raios.builtin_artifact_content_binding.v0` content/hash binding for the
+  checked-in Hello service source snapshot
 - the host-bound descriptor-source path remains hash-bound to the current-image
   source and does not accept arbitrary descriptor or artifact bytes
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
@@ -121,22 +123,28 @@ release\vm-reports\shadow-20260702-021750-7868.json
 172/172 quick predicates, 29 executed commands, duration_ms: 51268
 ```
 
+Latest focused verification after the artifact content binding slice:
+
+```text
+release\vm-reports\shadow-20260702-022858-26440.json
+174/174 quick predicates, 29 executed commands, duration_ms: 51671
+```
+
 Exact next task:
 
 ```text
-Add the smallest signed built-in artifact content/hash binding for the Hello
-service path. Keep execution built-in/current-boot, keep arbitrary external
-artifact bytes denied, and keep executable mapping/persistence/durable
-audit/rollback denied.
+Add the smallest signed artifact-byte/reference evidence for the Hello service
+path. Keep execution built-in/current-boot, keep candidate bytes non-executing,
+and keep executable mapping/persistence/durable audit/rollback denied.
 ```
 
 AI-parallel next wave:
 
-1. Runtime artifact track: add a signed content/hash binding for the existing
-   built-in Hello artifact candidate, reusing the current P-256 verifier if it
-   fits; expose artifact content/trust ids and hashes in load, inventory,
-   health, and RAM audit while keeping external artifact bytes and executable
-   mapping denied.
+1. Runtime artifact track: add signed artifact-byte/reference evidence for the
+   existing built-in Hello artifact candidate, reusing the current P-256
+   verifier if it fits; expose artifact byte/reference trust ids and hashes in
+   load, inventory, health, and RAM audit while keeping executable mapping
+   denied.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence.
@@ -148,8 +156,8 @@ AI-parallel next wave:
    persistence designed from the final trust model; do not implement fake
    persistence or rollback before the evidence chain exists.
 
-Only after the built-in artifact content binding is real should a later
-integration cursor consider signed artifact bytes. Execution must stay
+Only after signed artifact-byte/reference evidence is real should a later
+integration cursor consider loading candidate bytes. Execution must stay
 built-in/current-boot until execution, audit, rollback, and recovery evidence
 exists.
 
