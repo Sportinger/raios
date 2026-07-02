@@ -191,12 +191,13 @@ Still shape every durable slice so it can become raiOS memory later:
   for schema `raios.agent_command_envelope.v0`, classification `local_only`,
   and the read-only target/capability pairs `system.describe` with
   `cap.system.describe.read` and `service.inventory` with
-  `cap.service.inventory.read`, then routes accepted envelopes through the
-  existing dispatcher path. Mismatched target/capability pairs, bad-schema
-  envelopes, and over-capable envelope targets are denied before dispatch
-  without provider writes, candidate-byte loading, persistence, or broad
-  mutation. Accepted, mismatched, bad-schema, and over-capable envelope
-  decisions are retained as current-boot/local-only
+  `cap.service.inventory.read` and `problem.list` with
+  `cap.problem.list.read`, then routes accepted envelopes through the existing
+  dispatcher path. Mismatched target/capability pairs, bad-schema envelopes,
+  and over-capable envelope targets are denied before dispatch without provider
+  writes, candidate-byte loading, persistence, or broad mutation. Accepted,
+  mismatched, bad-schema, and over-capable envelope decisions are retained as
+  current-boot/local-only
   `raios.agent_command_envelope.decision` audit events with
   `raios.agent_command_envelope.audit_binding.v0`.
 - `ask <text>` uses the in-guest OpenAI direct transport. The old host-side
@@ -285,8 +286,8 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 ## Next Engineering Steps
 
 1. Widen the native command envelope only to the next proven read-only target,
-   starting with `problem.list` and `cap.problem.list.read`, while preserving
-   target/capability mismatch denials.
+   starting with `system.snapshot` and `cap.system.snapshot.read`, while
+   preserving target/capability mismatch denials.
 2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
    validation once trusted roots, intermediate-chain handling, and trusted time
    exist.
