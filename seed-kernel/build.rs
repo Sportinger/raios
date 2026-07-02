@@ -18,10 +18,12 @@ fn main() {
         "cargo:rerun-if-changed=descriptors/svc.demo.hello.builtin_artifact_identity.p256.sig.der.hex"
     );
     println!("cargo:rerun-if-changed=src/hello_service.rs");
+    println!("cargo:rerun-if-changed=artifacts/svc.demo.hello.builtin.artifact");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let descriptor_path = manifest_dir.join("descriptors/svc.demo.hello.current_image.desc");
     let hello_service_path = manifest_dir.join("src/hello_service.rs");
+    let artifact_bytes_path = manifest_dir.join("artifacts/svc.demo.hello.builtin.artifact");
     let public_key_path =
         manifest_dir.join("descriptors/svc.demo.hello.current_image.p256.pub.hex");
     let signature_path =
@@ -34,6 +36,7 @@ fn main() {
         manifest_dir.join("descriptors/svc.demo.hello.builtin_artifact_identity.p256.sig.der.hex");
     let current_source = fs::read_to_string(descriptor_path).unwrap();
     let hello_service_source = fs::read(hello_service_path).unwrap();
+    let artifact_bytes = fs::read(artifact_bytes_path).unwrap();
     let artifact_identity_source = fs::read_to_string(artifact_identity_path).unwrap();
     let public_key = read_hex_file(public_key_path);
     let signature_der = read_hex_file(signature_path);
@@ -71,16 +74,52 @@ writes_persistent_state=false",
     );
     let artifact_content_binding_hash = Sha256::digest(artifact_content_binding_text.as_bytes());
     let artifact_content_binding_hash_hex = sha256_hex(&artifact_content_binding_hash);
+    let artifact_bytes_hash = Sha256::digest(&artifact_bytes);
+    let artifact_bytes_hash_hex = sha256_hex(&artifact_bytes_hash);
+    let artifact_reference_text = format!(
+        "schema=raios.builtin_artifact_reference.v0\n\
+id=builtin_artifact_reference.svc.demo.hello.v0\n\
+artifact_id=builtin:svc.demo.hello\n\
+service_id=svc.demo.hello\n\
+reference_kind=repo_artifact_bytes_snapshot\n\
+artifact_locator=seed-kernel/artifacts/svc.demo.hello.builtin.artifact\n\
+artifact_bytes_sha256=sha256:{}\n\
+content_binding_sha256=sha256:{}\n\
+accepts_external_artifact_bytes=false\n\
+loads_artifact_as_code=false\n\
+maps_executable_pages=false\n\
+writes_persistent_state=false",
+        artifact_bytes_hash_hex, artifact_content_binding_hash_hex
+    );
+    let artifact_reference_hash = Sha256::digest(artifact_reference_text.as_bytes());
+    let artifact_reference_hash_hex = sha256_hex(&artifact_reference_hash);
     let expected_artifact_content_source_hash =
         format!("sha256:{}", artifact_content_source_hash_hex);
     let expected_artifact_content_binding_hash =
         format!("sha256:{}", artifact_content_binding_hash_hex);
+    let expected_artifact_reference_hash = format!("sha256:{}", artifact_reference_hash_hex);
+    let expected_artifact_bytes_hash = format!("sha256:{}", artifact_bytes_hash_hex);
     assert_eq!(
         text_field(&artifact_identity_source, "artifact_content_source_sha256"),
         Some(expected_artifact_content_source_hash.as_str())
     );
     assert_eq!(
         text_field(&artifact_identity_source, "artifact_content_binding_sha256"),
+        Some(expected_artifact_content_binding_hash.as_str())
+    );
+    assert_eq!(
+        text_field(&artifact_identity_source, "artifact_reference_sha256"),
+        Some(expected_artifact_reference_hash.as_str())
+    );
+    assert_eq!(
+        text_field(&artifact_identity_source, "artifact_reference_bytes_sha256"),
+        Some(expected_artifact_bytes_hash.as_str())
+    );
+    assert_eq!(
+        text_field(
+            &artifact_identity_source,
+            "artifact_reference_content_binding_sha256"
+        ),
         Some(expected_artifact_content_binding_hash.as_str())
     );
     let artifact_identity_public_key_hash = Sha256::digest(&artifact_identity_public_key);
@@ -183,6 +222,13 @@ pub(crate) const HELLO_BUILTIN_ARTIFACT_CONTENT_SOURCE_LOCATOR: &str = \"seed-ke
 pub(crate) const HELLO_BUILTIN_ARTIFACT_CONTENT_SOURCE_HASH: [u8; 32] = {};\n\
 pub(crate) const HELLO_BUILTIN_ARTIFACT_CONTENT_BINDING_TEXT: &str = {};\n\
 pub(crate) const HELLO_BUILTIN_ARTIFACT_CONTENT_BINDING_HASH: [u8; 32] = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_REFERENCE_SCHEMA: &str = \"raios.builtin_artifact_reference.v0\";\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_REFERENCE_ID: &str = \"builtin_artifact_reference.svc.demo.hello.v0\";\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_REFERENCE_KIND: &str = \"repo_artifact_bytes_snapshot\";\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_REFERENCE_LOCATOR: &str = \"seed-kernel/artifacts/svc.demo.hello.builtin.artifact\";\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_BYTES_HASH: [u8; 32] = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_REFERENCE_TEXT: &str = {};\n\
+pub(crate) const HELLO_BUILTIN_ARTIFACT_REFERENCE_HASH: [u8; 32] = {};\n\
 pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
             rust_string(&envelope_text),
             rust_byte_array(&envelope_hash),
@@ -201,6 +247,9 @@ pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
             rust_byte_array(&artifact_content_source_hash),
             rust_string(&artifact_content_binding_text),
             rust_byte_array(&artifact_content_binding_hash),
+            rust_byte_array(&artifact_bytes_hash),
+            rust_string(&artifact_reference_text),
+            rust_byte_array(&artifact_reference_hash),
             rust_string(&host_source)
         ),
     )

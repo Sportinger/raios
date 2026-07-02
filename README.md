@@ -280,7 +280,8 @@ Verified in the VM today:
   artifact id also carries a signed `raios.builtin_artifact_identity.v0`
   identity/trust envelope whose id/hash and signature verification state are
   visible in load, inventory, health, and RAM-audit evidence, plus a signed
-  content/hash binding to the checked-in Hello service source snapshot;
+  content/hash binding to the checked-in Hello service source snapshot and a
+  signed repo-local artifact-byte reference that remains non-executing;
   a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service

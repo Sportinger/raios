@@ -659,6 +659,38 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
             .signed_envelope
             .envelope_hash,
     );
+    raw(", \"artifact_reference_id\": ");
+    json_str(
+        hello
+            .load_descriptor
+            .artifact_identity
+            .artifact_reference_id,
+    );
+    raw(", \"artifact_reference_hash\": ");
+    json_sha256(hello_service::artifact_reference_hash(
+        hello.load_descriptor,
+    ));
+    raw(", \"artifact_bytes_sha256\": ");
+    json_sha256(hello_service::artifact_reference_bytes_hash(
+        hello.load_descriptor,
+    ));
+    raw(", \"artifact_reference_content_binding_hash\": ");
+    json_sha256(
+        hello
+            .load_descriptor
+            .artifact_identity
+            .artifact_reference_content_binding_hash,
+    );
+    raw(", \"artifact_reference_trust_envelope_id\": ");
+    json_str(hello.load_descriptor.artifact_identity.signed_envelope.id);
+    raw(", \"artifact_reference_trust_envelope_hash\": ");
+    json_sha256(
+        hello
+            .load_descriptor
+            .artifact_identity
+            .signed_envelope
+            .envelope_hash,
+    );
     raw(", \"load_descriptor_schema\": ");
     json_str(hello.load_descriptor.schema);
     raw(", \"load_descriptor_id\": ");

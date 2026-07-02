@@ -154,6 +154,17 @@ pub(crate) struct ArtifactIdentityRecord {
     pub artifact_content_loads_external_artifact: bool,
     pub artifact_content_maps_executable_pages: bool,
     pub artifact_content_writes_persistent_state: bool,
+    pub artifact_reference_schema: &'static str,
+    pub artifact_reference_id: &'static str,
+    pub artifact_reference_kind: &'static str,
+    pub artifact_reference_locator: &'static str,
+    pub artifact_reference_hash: [u8; 32],
+    pub artifact_reference_bytes_hash: [u8; 32],
+    pub artifact_reference_content_binding_hash: [u8; 32],
+    pub artifact_reference_accepts_external_artifact_bytes: bool,
+    pub artifact_reference_loads_artifact_as_code: bool,
+    pub artifact_reference_maps_executable_pages: bool,
+    pub artifact_reference_writes_persistent_state: bool,
     pub scope: &'static str,
     pub classification: &'static str,
     pub persistence: &'static str,
@@ -239,6 +250,17 @@ const HELLO_BUILTIN_ARTIFACT_IDENTITY_RECORD: ArtifactIdentityRecord = ArtifactI
     artifact_content_loads_external_artifact: false,
     artifact_content_maps_executable_pages: false,
     artifact_content_writes_persistent_state: false,
+    artifact_reference_schema: HELLO_BUILTIN_ARTIFACT_REFERENCE_SCHEMA,
+    artifact_reference_id: HELLO_BUILTIN_ARTIFACT_REFERENCE_ID,
+    artifact_reference_kind: HELLO_BUILTIN_ARTIFACT_REFERENCE_KIND,
+    artifact_reference_locator: HELLO_BUILTIN_ARTIFACT_REFERENCE_LOCATOR,
+    artifact_reference_hash: HELLO_BUILTIN_ARTIFACT_REFERENCE_HASH,
+    artifact_reference_bytes_hash: HELLO_BUILTIN_ARTIFACT_BYTES_HASH,
+    artifact_reference_content_binding_hash: HELLO_BUILTIN_ARTIFACT_CONTENT_BINDING_HASH,
+    artifact_reference_accepts_external_artifact_bytes: false,
+    artifact_reference_loads_artifact_as_code: false,
+    artifact_reference_maps_executable_pages: false,
+    artifact_reference_writes_persistent_state: false,
     scope: "current_boot",
     classification: "local_only",
     persistence: "none",
@@ -298,6 +320,20 @@ pub(crate) fn validate_builtin_hello_artifact_identity(identity: ArtifactIdentit
         && !identity.artifact_content_loads_external_artifact
         && !identity.artifact_content_maps_executable_pages
         && !identity.artifact_content_writes_persistent_state
+        && identity.artifact_reference_schema == HELLO_BUILTIN_ARTIFACT_REFERENCE_SCHEMA
+        && identity.artifact_reference_id == HELLO_BUILTIN_ARTIFACT_REFERENCE_ID
+        && identity.artifact_reference_kind == HELLO_BUILTIN_ARTIFACT_REFERENCE_KIND
+        && identity.artifact_reference_locator == HELLO_BUILTIN_ARTIFACT_REFERENCE_LOCATOR
+        && identity.artifact_reference_hash == HELLO_BUILTIN_ARTIFACT_REFERENCE_HASH
+        && identity.artifact_reference_hash
+            == sha256_bytes(HELLO_BUILTIN_ARTIFACT_REFERENCE_TEXT.as_bytes())
+        && identity.artifact_reference_bytes_hash == HELLO_BUILTIN_ARTIFACT_BYTES_HASH
+        && identity.artifact_reference_content_binding_hash
+            == identity.artifact_content_binding_hash
+        && !identity.artifact_reference_accepts_external_artifact_bytes
+        && !identity.artifact_reference_loads_artifact_as_code
+        && !identity.artifact_reference_maps_executable_pages
+        && !identity.artifact_reference_writes_persistent_state
         && identity.scope == "current_boot"
         && identity.classification == "local_only"
         && identity.persistence == "none"
@@ -361,6 +397,52 @@ pub(crate) fn validate_builtin_hello_artifact_identity(identity: ArtifactIdentit
         && text_field_eq(
             identity.text,
             "artifact_content_writes_persistent_state",
+            "false",
+        )
+        && text_field_eq(
+            identity.text,
+            "artifact_reference_schema",
+            identity.artifact_reference_schema,
+        )
+        && text_field_eq(
+            identity.text,
+            "artifact_reference_id",
+            identity.artifact_reference_id,
+        )
+        && text_field_eq(
+            identity.text,
+            "artifact_reference_kind",
+            identity.artifact_reference_kind,
+        )
+        && text_field_eq(
+            identity.text,
+            "artifact_reference_locator",
+            identity.artifact_reference_locator,
+        )
+        && text_sha256_field(identity.text, "artifact_reference_sha256")
+            == Some(identity.artifact_reference_hash)
+        && text_sha256_field(identity.text, "artifact_reference_bytes_sha256")
+            == Some(identity.artifact_reference_bytes_hash)
+        && text_sha256_field(identity.text, "artifact_reference_content_binding_sha256")
+            == Some(identity.artifact_reference_content_binding_hash)
+        && text_field_eq(
+            identity.text,
+            "artifact_reference_accepts_external_artifact_bytes",
+            "false",
+        )
+        && text_field_eq(
+            identity.text,
+            "artifact_reference_loads_artifact_as_code",
+            "false",
+        )
+        && text_field_eq(
+            identity.text,
+            "artifact_reference_maps_executable_pages",
+            "false",
+        )
+        && text_field_eq(
+            identity.text,
+            "artifact_reference_writes_persistent_state",
             "false",
         )
         && text_field_eq(identity.text, "scope", identity.scope)
@@ -725,6 +807,14 @@ pub(crate) fn artifact_identity_hash(identity: ArtifactIdentityRecord) -> [u8; 3
 
 pub(crate) fn artifact_content_binding_hash(identity: ArtifactIdentityRecord) -> [u8; 32] {
     identity.artifact_content_binding_hash
+}
+
+pub(crate) fn artifact_reference_hash(identity: ArtifactIdentityRecord) -> [u8; 32] {
+    identity.artifact_reference_hash
+}
+
+pub(crate) fn artifact_reference_bytes_hash(identity: ArtifactIdentityRecord) -> [u8; 32] {
+    identity.artifact_reference_bytes_hash
 }
 
 fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {

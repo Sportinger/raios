@@ -431,20 +431,26 @@ persistence, or rollback. The identity must include a
 `raios.builtin_artifact_content_binding.v0` content binding with a `sha256:`
 binding hash, `seed-kernel/src/hello_service.rs` source locator, verified trust
 envelope linkage, and external artifact load, executable mapping, and
-persistence all disabled. `services` must show
+persistence all disabled. The identity must also include a
+`raios.builtin_artifact_reference.v0` artifact reference with a `sha256:`
+reference hash, `sha256:` artifact byte hash, content-binding hash linkage,
+`seed-kernel/artifacts/svc.demo.hello.builtin.artifact` locator, verified trust
+envelope linkage, and artifact byte intake, code loading, executable mapping,
+and persistence all disabled. `services` must show
 `svc.demo.hello` only while loaded and cite the same
 descriptor id/source/kind/validation/hash/signature envelope plus the same
-artifact identity hash/signature envelope and content binding hash. `service.health
+artifact identity hash/signature envelope, content binding hash, and artifact
+reference hash. `service.health
 svc.demo.hello` must return `raios.ram_only_hello_service.health.v0`, report
 healthy while loaded/running, stopped while loaded/not running, and missing
 after drop, and cite the active descriptor source hash, signature envelope, and
-artifact identity/content binding while loaded. `audit.events` must show
+artifact identity/content/reference evidence while loaded. `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
 same load descriptor, validated source hash, signature envelope hash, and
 signature verification state plus the verified artifact identity hash and
 signature envelope plus the artifact content binding hash and trust signature
-state.
+state plus artifact reference hash, byte hash, and trust signature state.
 
 `service.descriptor_source_trust_selftest` must return
 `raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and
