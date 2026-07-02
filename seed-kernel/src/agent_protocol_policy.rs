@@ -102,6 +102,8 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         "cap.service.descriptor_source_trust.read"
     } else if method_eq(method, "service.artifact_reference_trust_selftest") {
         "cap.service.artifact_reference_trust.read"
+    } else if method_eq(method, "service.artifact_load_plan_preflight_selftest") {
+        "cap.service.artifact_load_plan_preflight.read"
     } else if method_eq(method, "memory.profile") {
         "cap.memory.profile.read"
     } else if method_eq(method, "memory.context") {

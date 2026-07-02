@@ -391,6 +391,7 @@ module.load_ephemeral svc.demo.nope
 module.load_ephemeral external:svc.demo.hello
 service.descriptor_source_trust_selftest
 service.artifact_reference_trust_selftest
+service.artifact_load_plan_preflight_selftest
 module.load_ephemeral svc.demo.hello
 services
 service.health svc.demo.hello
@@ -475,6 +476,16 @@ reference plus tampered artifact byte hash, content-binding hash, reference
 hash, and trust payload hash, and keep artifact byte intake, artifact load,
 executable mapping, persistence, durable audit, rollback, broad mutation, and
 global event-log mutation denied.
+
+`service.artifact_load_plan_preflight_selftest` must return
+`raios.current_boot_artifact_load_plan_preflight_selftest.v0`, expose a stable
+diagnostic id and hash, cite the accepted artifact load-plan preflight plus the
+RAM-only service-slot intent, pass eight read-only cases for the valid
+preflight plus tampered descriptor-source hash, artifact identity hash,
+content-binding hash, artifact reference hash, artifact byte hash, service-slot
+intent, and denial flags, and keep candidate execution, executable mapping,
+persistence, durable audit, rollback, broad mutation, and global event-log
+mutation denied.
 
 The host-bound positive command must cite
 `host_build.descriptor_source.svc.demo.hello.v0`, source kind

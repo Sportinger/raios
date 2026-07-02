@@ -74,6 +74,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         summary: "read current-boot artifact-reference trust selftests",
     },
     Capability {
+        id: "cap.service.artifact_load_plan_preflight.read",
+        risk: "observe",
+        granted: true,
+        scope: "current_boot",
+        summary: "read current-boot artifact load-plan preflight selftests",
+    },
+    Capability {
         id: "cap.device.graph.read",
         risk: "observe",
         granted: true,
@@ -233,6 +240,7 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "service.health",
     "service.descriptor_source_trust_selftest",
     "service.artifact_reference_trust_selftest",
+    "service.artifact_load_plan_preflight_selftest",
     "memory.profile",
     "memory.context",
     "memory.query",

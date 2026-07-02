@@ -3,6 +3,8 @@
         $HelloLoadPlanPreflightStatus = "accepted_builtin_current_boot_only"
         $HelloServiceSlotIntentId = "service_slot_intent.current_boot.svc.demo.hello.v0"
         $HelloRamOnlyServiceSlotId = "ram_only:svc.demo.hello"
+        $HelloLoadPlanPreflightSelftestSchema = "raios.current_boot_artifact_load_plan_preflight_selftest.v0"
+        $HelloLoadPlanPreflightSelftestId = "artifact_load_plan_preflight_selftest.current_boot.svc.demo.hello.v0"
 
         $AssertHelloLoadPlanPreflight = {
             param(
@@ -183,6 +185,43 @@
         }
         if ($artifactReferenceTrustSelftest.body.result.denied_surfaces.artifact_bytes_intake -ne "denied" -or $artifactReferenceTrustSelftest.body.result.denied_surfaces.artifact_load -ne "denied" -or $artifactReferenceTrustSelftest.body.result.denied_surfaces.executable_mapping -ne "denied" -or $artifactReferenceTrustSelftest.body.result.denied_surfaces.persistent_install -ne "denied") {
             throw "Artifact-reference trust selftest must keep artifact bytes, artifact load, executable mapping, and persistence denied"
+        }
+
+        Send-AgentCommand -Command "service.artifact_load_plan_preflight_selftest" -ExpectedMarker "RAIOS_AGENT_END service.artifact_load_plan_preflight_selftest"
+        $loadPlanPreflightSelftest = Get-LastAgentResponseJson -Method "service.artifact_load_plan_preflight_selftest"
+        if ($loadPlanPreflightSelftest.body.result.schema -ne $HelloLoadPlanPreflightSelftestSchema) {
+            throw "Expected artifact load-plan preflight selftest schema"
+        }
+        if ($loadPlanPreflightSelftest.body.result.id -ne $HelloLoadPlanPreflightSelftestId) {
+            throw "Expected stable artifact load-plan preflight selftest id"
+        }
+        if (-not $loadPlanPreflightSelftest.body.result.read_only -or $loadPlanPreflightSelftest.body.result.mutates_global_event_log -or $loadPlanPreflightSelftest.body.result.persistence -ne "none") {
+            throw "Artifact load-plan preflight selftest must be read-only, RAM-only, and non-mutating"
+        }
+        if (-not $loadPlanPreflightSelftest.body.result.diagnostic_hash -or -not $loadPlanPreflightSelftest.body.result.diagnostic_hash.StartsWith("sha256:")) {
+            throw "Expected artifact load-plan preflight selftest diagnostic hash"
+        }
+        if ($loadPlanPreflightSelftest.body.result.service_slot_intent_id -ne $HelloServiceSlotIntentId -or $loadPlanPreflightSelftest.body.result.ram_only_service_slot_id -ne $HelloRamOnlyServiceSlotId) {
+            throw "Expected artifact load-plan preflight selftest to cite the RAM-only service slot intent"
+        }
+        if ($loadPlanPreflightSelftest.body.result.artifact_load_plan_preflight.schema -ne $HelloLoadPlanPreflightSchema -or $loadPlanPreflightSelftest.body.result.artifact_load_plan_preflight.id -ne $HelloLoadPlanPreflightId -or -not $loadPlanPreflightSelftest.body.result.artifact_load_plan_preflight.accepted) {
+            throw "Expected artifact load-plan preflight selftest to cite the accepted preflight"
+        }
+        if ($loadPlanPreflightSelftest.body.result.case_count -ne 8 -or $loadPlanPreflightSelftest.body.result.passed_count -ne 8 -or -not $loadPlanPreflightSelftest.body.result.all_passed) {
+            throw "Expected all artifact load-plan preflight selftest cases to pass"
+        }
+        $loadPlanPreflightCaseNames = @($loadPlanPreflightSelftest.body.result.cases | ForEach-Object { $_.name })
+        foreach ($caseName in @("valid_current_boot_load_plan_preflight", "tampered_descriptor_source_hash_denied", "tampered_artifact_identity_hash_denied", "tampered_content_binding_hash_denied", "tampered_artifact_reference_hash_denied", "tampered_artifact_bytes_hash_denied", "tampered_service_slot_intent_denied", "tampered_denial_flags_denied")) {
+            if ($loadPlanPreflightCaseNames -notcontains $caseName) {
+                throw "Missing artifact load-plan preflight selftest case $caseName"
+            }
+        }
+        $loadPlanPreflightFailedCases = @($loadPlanPreflightSelftest.body.result.cases | Where-Object { -not $_.passed })
+        if ($loadPlanPreflightFailedCases.Count -ne 0) {
+            throw "Expected no artifact load-plan preflight selftest failures"
+        }
+        if ($loadPlanPreflightSelftest.body.result.denied_surfaces.external_artifact_bytes -ne "denied" -or $loadPlanPreflightSelftest.body.result.denied_surfaces.candidate_artifact_execution -ne "denied" -or $loadPlanPreflightSelftest.body.result.denied_surfaces.executable_mapping -ne "denied" -or $loadPlanPreflightSelftest.body.result.denied_surfaces.persistent_install -ne "denied" -or $loadPlanPreflightSelftest.body.result.denied_surfaces.durable_audit -ne "denied" -or $loadPlanPreflightSelftest.body.result.denied_surfaces.rollback_install -ne "denied" -or $loadPlanPreflightSelftest.body.result.denied_surfaces.broad_mutation -ne "denied") {
+            throw "Artifact load-plan preflight selftest must keep candidate execution, executable mapping, persistence, durable audit, rollback, and mutation denied"
         }
 
         Send-AgentCommand -Command "module.load_ephemeral svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"

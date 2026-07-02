@@ -31,6 +31,11 @@ pub(crate) const SERVICE_SLOT_INTENT_SCHEMA: &str = "raios.ram_only_service_slot
 pub(crate) const SERVICE_SLOT_INTENT_ID: &str =
     "service_slot_intent.current_boot.svc.demo.hello.v0";
 pub(crate) const RAM_ONLY_SERVICE_SLOT_ID: &str = "ram_only:svc.demo.hello";
+const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_SCHEMA: &str =
+    "raios.current_boot_artifact_load_plan_preflight_selftest.v0";
+const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_ID: &str =
+    "artifact_load_plan_preflight_selftest.current_boot.svc.demo.hello.v0";
+const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_CASES: usize = 8;
 
 #[derive(Clone, Copy)]
 pub(crate) struct LoadDescriptor {
@@ -51,6 +56,49 @@ pub(crate) struct LoadDescriptor {
     pub scope: &'static str,
     pub classification: &'static str,
     pub persistence: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct ArtifactLoadPlanPreflightRecord {
+    schema: &'static str,
+    id: &'static str,
+    scope: &'static str,
+    classification: &'static str,
+    status: &'static str,
+    preflight_hash: [u8; 32],
+    service_id: &'static str,
+    artifact_id: &'static str,
+    load_descriptor_id: &'static str,
+    descriptor_source_locator: &'static str,
+    descriptor_source_hash: [u8; 32],
+    artifact_identity_id: &'static str,
+    artifact_identity_hash: [u8; 32],
+    artifact_content_binding_hash: [u8; 32],
+    artifact_reference_id: &'static str,
+    artifact_reference_hash: [u8; 32],
+    artifact_bytes_sha256: [u8; 32],
+    service_slot_intent_schema: &'static str,
+    service_slot_intent_id: &'static str,
+    ram_only_service_slot_id: &'static str,
+    accepted: bool,
+    authorizes_builtin_current_boot_start: bool,
+    authorizes_candidate_artifact_execution: bool,
+    accepts_external_artifact_bytes: bool,
+    loads_candidate_bytes: bool,
+    maps_executable_pages: bool,
+    writes_persistent_state: bool,
+    writes_durable_audit_log: bool,
+    installs_rollback_plan: bool,
+    grants_broad_mutation: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ArtifactLoadPlanPreflightSelftestCase {
+    name: &'static str,
+    expected_accept: bool,
+    actual_accept: bool,
+    passed: bool,
+    reason: &'static str,
 }
 
 #[derive(Clone, Copy)]
@@ -119,71 +167,319 @@ pub(crate) fn artifact_reference_bytes_hash(descriptor: LoadDescriptor) -> [u8; 
 }
 
 pub(crate) fn artifact_load_plan_preflight_hash(descriptor: LoadDescriptor) -> [u8; 32] {
+    artifact_load_plan_preflight_record(descriptor).preflight_hash
+}
+
+fn artifact_load_plan_preflight_record(
+    descriptor: LoadDescriptor,
+) -> ArtifactLoadPlanPreflightRecord {
+    let mut record = ArtifactLoadPlanPreflightRecord {
+        schema: ARTIFACT_LOAD_PLAN_PREFLIGHT_SCHEMA,
+        id: ARTIFACT_LOAD_PLAN_PREFLIGHT_ID,
+        scope: "current_boot",
+        classification: "local_only",
+        status: ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS,
+        preflight_hash: [0; 32],
+        service_id: descriptor.service_id,
+        artifact_id: descriptor.artifact_id,
+        load_descriptor_id: descriptor.id,
+        descriptor_source_locator: descriptor.source_locator,
+        descriptor_source_hash: descriptor_source_hash(descriptor),
+        artifact_identity_id: descriptor.artifact_identity.id,
+        artifact_identity_hash: artifact_identity_hash(descriptor),
+        artifact_content_binding_hash: artifact_content_binding_hash(descriptor),
+        artifact_reference_id: descriptor.artifact_identity.artifact_reference_id,
+        artifact_reference_hash: artifact_reference_hash(descriptor),
+        artifact_bytes_sha256: artifact_reference_bytes_hash(descriptor),
+        service_slot_intent_schema: SERVICE_SLOT_INTENT_SCHEMA,
+        service_slot_intent_id: SERVICE_SLOT_INTENT_ID,
+        ram_only_service_slot_id: RAM_ONLY_SERVICE_SLOT_ID,
+        accepted: true,
+        authorizes_builtin_current_boot_start: true,
+        authorizes_candidate_artifact_execution: false,
+        accepts_external_artifact_bytes: false,
+        loads_candidate_bytes: false,
+        maps_executable_pages: false,
+        writes_persistent_state: false,
+        writes_durable_audit_log: false,
+        installs_rollback_plan: false,
+        grants_broad_mutation: false,
+    };
+    record.preflight_hash = artifact_load_plan_preflight_record_hash(record);
+    record
+}
+
+fn artifact_load_plan_preflight_record_hash(record: ArtifactLoadPlanPreflightRecord) -> [u8; 32] {
     let mut hash = Sha256::new();
-    hash_line_str(&mut hash, b"schema", ARTIFACT_LOAD_PLAN_PREFLIGHT_SCHEMA);
-    hash_line_str(&mut hash, b"id", ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
-    hash_line_str(&mut hash, b"scope", "current_boot");
-    hash_line_str(&mut hash, b"classification", "local_only");
-    hash_line_str(&mut hash, b"status", ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
-    hash_line_str(&mut hash, b"service_id", descriptor.service_id);
-    hash_line_str(&mut hash, b"artifact_id", descriptor.artifact_id);
-    hash_line_str(&mut hash, b"load_descriptor_id", descriptor.id);
+    hash_line_str(&mut hash, b"schema", record.schema);
+    hash_line_str(&mut hash, b"id", record.id);
+    hash_line_str(&mut hash, b"scope", record.scope);
+    hash_line_str(&mut hash, b"classification", record.classification);
+    hash_line_str(&mut hash, b"status", record.status);
+    hash_line_str(&mut hash, b"service_id", record.service_id);
+    hash_line_str(&mut hash, b"artifact_id", record.artifact_id);
+    hash_line_str(&mut hash, b"load_descriptor_id", record.load_descriptor_id);
     hash_line_str(
         &mut hash,
         b"descriptor_source_locator",
-        descriptor.source_locator,
+        record.descriptor_source_locator,
     );
     hash_line_hash(
         &mut hash,
         b"descriptor_source_sha256",
-        descriptor_source_hash(descriptor),
+        record.descriptor_source_hash,
     );
     hash_line_str(
         &mut hash,
         b"artifact_identity_id",
-        descriptor.artifact_identity.id,
+        record.artifact_identity_id,
     );
     hash_line_hash(
         &mut hash,
         b"artifact_identity_sha256",
-        artifact_identity_hash(descriptor),
+        record.artifact_identity_hash,
     );
     hash_line_hash(
         &mut hash,
         b"artifact_content_binding_sha256",
-        artifact_content_binding_hash(descriptor),
+        record.artifact_content_binding_hash,
     );
     hash_line_str(
         &mut hash,
         b"artifact_reference_id",
-        descriptor.artifact_identity.artifact_reference_id,
+        record.artifact_reference_id,
     );
     hash_line_hash(
         &mut hash,
         b"artifact_reference_sha256",
-        artifact_reference_hash(descriptor),
+        record.artifact_reference_hash,
     );
     hash_line_hash(
         &mut hash,
         b"artifact_bytes_sha256",
-        artifact_reference_bytes_hash(descriptor),
+        record.artifact_bytes_sha256,
     );
-    hash_line_str(&mut hash, b"service_slot_intent_id", SERVICE_SLOT_INTENT_ID);
+    hash_line_str(
+        &mut hash,
+        b"service_slot_intent_id",
+        record.service_slot_intent_id,
+    );
     hash_line_str(
         &mut hash,
         b"ram_only_service_slot_id",
-        RAM_ONLY_SERVICE_SLOT_ID,
+        record.ram_only_service_slot_id,
     );
-    hash_line_bool(&mut hash, b"accepted", true);
-    hash_line_bool(&mut hash, b"authorizes_builtin_current_boot_start", true);
-    hash_line_bool(&mut hash, b"authorizes_candidate_artifact_execution", false);
-    hash_line_bool(&mut hash, b"accepts_external_artifact_bytes", false);
-    hash_line_bool(&mut hash, b"loads_candidate_bytes", false);
-    hash_line_bool(&mut hash, b"maps_executable_pages", false);
-    hash_line_bool(&mut hash, b"writes_persistent_state", false);
-    hash_line_bool(&mut hash, b"writes_durable_audit_log", false);
-    hash_line_bool(&mut hash, b"installs_rollback_plan", false);
-    hash_line_bool(&mut hash, b"grants_broad_mutation", false);
+    hash_line_bool(&mut hash, b"accepted", record.accepted);
+    hash_line_bool(
+        &mut hash,
+        b"authorizes_builtin_current_boot_start",
+        record.authorizes_builtin_current_boot_start,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"authorizes_candidate_artifact_execution",
+        record.authorizes_candidate_artifact_execution,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"accepts_external_artifact_bytes",
+        record.accepts_external_artifact_bytes,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"loads_candidate_bytes",
+        record.loads_candidate_bytes,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"maps_executable_pages",
+        record.maps_executable_pages,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"writes_persistent_state",
+        record.writes_persistent_state,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"writes_durable_audit_log",
+        record.writes_durable_audit_log,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"installs_rollback_plan",
+        record.installs_rollback_plan,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"grants_broad_mutation",
+        record.grants_broad_mutation,
+    );
+    finalize_sha256(hash)
+}
+
+fn validate_artifact_load_plan_preflight_record(
+    record: ArtifactLoadPlanPreflightRecord,
+    descriptor: LoadDescriptor,
+) -> bool {
+    record.schema == ARTIFACT_LOAD_PLAN_PREFLIGHT_SCHEMA
+        && record.id == ARTIFACT_LOAD_PLAN_PREFLIGHT_ID
+        && record.scope == "current_boot"
+        && record.classification == "local_only"
+        && record.status == ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS
+        && record.preflight_hash == artifact_load_plan_preflight_record_hash(record)
+        && record.service_id == descriptor.service_id
+        && record.artifact_id == descriptor.artifact_id
+        && record.load_descriptor_id == descriptor.id
+        && record.descriptor_source_locator == descriptor.source_locator
+        && record.descriptor_source_hash == descriptor_source_hash(descriptor)
+        && record.artifact_identity_id == descriptor.artifact_identity.id
+        && record.artifact_identity_hash == artifact_identity_hash(descriptor)
+        && record.artifact_content_binding_hash == artifact_content_binding_hash(descriptor)
+        && record.artifact_reference_id == descriptor.artifact_identity.artifact_reference_id
+        && record.artifact_reference_hash == artifact_reference_hash(descriptor)
+        && record.artifact_bytes_sha256 == artifact_reference_bytes_hash(descriptor)
+        && record.service_slot_intent_schema == SERVICE_SLOT_INTENT_SCHEMA
+        && record.service_slot_intent_id == SERVICE_SLOT_INTENT_ID
+        && record.ram_only_service_slot_id == RAM_ONLY_SERVICE_SLOT_ID
+        && record.accepted
+        && record.authorizes_builtin_current_boot_start
+        && !record.authorizes_candidate_artifact_execution
+        && !record.accepts_external_artifact_bytes
+        && !record.loads_candidate_bytes
+        && !record.maps_executable_pages
+        && !record.writes_persistent_state
+        && !record.writes_durable_audit_log
+        && !record.installs_rollback_plan
+        && !record.grants_broad_mutation
+}
+
+fn artifact_load_plan_preflight_selftest_hash() -> [u8; 32] {
+    sha256_bytes(
+        b"schema=raios.current_boot_artifact_load_plan_preflight_selftest.v0\n\
+id=artifact_load_plan_preflight_selftest.current_boot.svc.demo.hello.v0\n\
+cases=valid_preflight,tampered_descriptor_source_hash,tampered_artifact_identity_hash,tampered_content_binding_hash,tampered_artifact_reference_hash,tampered_artifact_bytes_hash,tampered_service_slot_intent,tampered_denial_flags",
+    )
+}
+
+fn artifact_load_plan_preflight_selftest_cases(
+) -> [ArtifactLoadPlanPreflightSelftestCase; ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_CASES] {
+    let valid = artifact_load_plan_preflight_record(LOAD_DESCRIPTOR);
+    let mut bad_descriptor_source = valid;
+    bad_descriptor_source.descriptor_source_hash = [0x11; 32];
+    let mut bad_artifact_identity = valid;
+    bad_artifact_identity.artifact_identity_hash = [0x22; 32];
+    let mut bad_content_binding = valid;
+    bad_content_binding.artifact_content_binding_hash = [0x33; 32];
+    let mut bad_artifact_reference = valid;
+    bad_artifact_reference.artifact_reference_hash = [0x44; 32];
+    let mut bad_artifact_bytes = valid;
+    bad_artifact_bytes.artifact_bytes_sha256 = [0x55; 32];
+    let mut bad_service_slot = valid;
+    bad_service_slot.service_slot_intent_id = "service_slot_intent.current_boot.svc.demo.bad.v0";
+    bad_service_slot.ram_only_service_slot_id = "ram_only:svc.demo.bad";
+    let mut bad_denial_flags = valid;
+    bad_denial_flags.authorizes_candidate_artifact_execution = true;
+    bad_denial_flags.maps_executable_pages = true;
+
+    [
+        preflight_case(
+            "valid_current_boot_load_plan_preflight",
+            true,
+            validate_artifact_load_plan_preflight_record(valid, LOAD_DESCRIPTOR),
+            "accepted_current_boot_load_plan_preflight",
+        ),
+        preflight_case(
+            "tampered_descriptor_source_hash_denied",
+            false,
+            validate_artifact_load_plan_preflight_record(
+                rehash_preflight_record(bad_descriptor_source),
+                LOAD_DESCRIPTOR,
+            ),
+            "preflight_must_bind_selected_descriptor_source_hash",
+        ),
+        preflight_case(
+            "tampered_artifact_identity_hash_denied",
+            false,
+            validate_artifact_load_plan_preflight_record(
+                rehash_preflight_record(bad_artifact_identity),
+                LOAD_DESCRIPTOR,
+            ),
+            "preflight_must_bind_artifact_identity_hash",
+        ),
+        preflight_case(
+            "tampered_content_binding_hash_denied",
+            false,
+            validate_artifact_load_plan_preflight_record(
+                rehash_preflight_record(bad_content_binding),
+                LOAD_DESCRIPTOR,
+            ),
+            "preflight_must_bind_content_binding_hash",
+        ),
+        preflight_case(
+            "tampered_artifact_reference_hash_denied",
+            false,
+            validate_artifact_load_plan_preflight_record(
+                rehash_preflight_record(bad_artifact_reference),
+                LOAD_DESCRIPTOR,
+            ),
+            "preflight_must_bind_artifact_reference_hash",
+        ),
+        preflight_case(
+            "tampered_artifact_bytes_hash_denied",
+            false,
+            validate_artifact_load_plan_preflight_record(
+                rehash_preflight_record(bad_artifact_bytes),
+                LOAD_DESCRIPTOR,
+            ),
+            "preflight_must_bind_artifact_bytes_hash",
+        ),
+        preflight_case(
+            "tampered_service_slot_intent_denied",
+            false,
+            validate_artifact_load_plan_preflight_record(
+                rehash_preflight_record(bad_service_slot),
+                LOAD_DESCRIPTOR,
+            ),
+            "preflight_must_bind_ram_only_service_slot_intent",
+        ),
+        preflight_case(
+            "tampered_denial_flags_denied",
+            false,
+            validate_artifact_load_plan_preflight_record(
+                rehash_preflight_record(bad_denial_flags),
+                LOAD_DESCRIPTOR,
+            ),
+            "preflight_must_keep_candidate_execution_and_mapping_denied",
+        ),
+    ]
+}
+
+fn rehash_preflight_record(
+    mut record: ArtifactLoadPlanPreflightRecord,
+) -> ArtifactLoadPlanPreflightRecord {
+    record.preflight_hash = artifact_load_plan_preflight_record_hash(record);
+    record
+}
+
+fn preflight_case(
+    name: &'static str,
+    expected_accept: bool,
+    actual_accept: bool,
+    reason: &'static str,
+) -> ArtifactLoadPlanPreflightSelftestCase {
+    ArtifactLoadPlanPreflightSelftestCase {
+        name,
+        expected_accept,
+        actual_accept,
+        passed: expected_accept == actual_accept,
+        reason,
+    }
+}
+
+fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(bytes);
     finalize_sha256(hash)
 }
 
@@ -328,6 +624,10 @@ pub(crate) fn is_descriptor_source_trust_selftest_method(method: &str) -> bool {
 
 pub(crate) fn is_artifact_reference_trust_selftest_method(method: &str) -> bool {
     method_eq(method, "service.artifact_reference_trust_selftest")
+}
+
+pub(crate) fn is_artifact_load_plan_preflight_selftest_method(method: &str) -> bool {
+    method_eq(method, "service.artifact_load_plan_preflight_selftest")
 }
 
 pub(crate) fn emit_load_start(method: &str) -> &'static str {
@@ -509,6 +809,92 @@ pub(crate) fn emit_artifact_reference_trust_selftest() -> &'static str {
     raw_line("      ],");
     raw_line("      \"denied_surfaces\": {");
     raw_line("        \"artifact_bytes_intake\": \"denied\",");
+    raw_line("        \"artifact_load\": \"denied\",");
+    raw_line("        \"executable_mapping\": \"denied\",");
+    raw_line("        \"persistent_install\": \"denied\",");
+    raw_line("        \"durable_audit\": \"denied\",");
+    raw_line("        \"rollback_install\": \"denied\",");
+    raw_line("        \"broad_mutation\": \"denied\"");
+    raw_line("      }");
+    end_response(method);
+    method
+}
+
+pub(crate) fn emit_artifact_load_plan_preflight_selftest() -> &'static str {
+    let method = "service.artifact_load_plan_preflight_selftest";
+    let cases = artifact_load_plan_preflight_selftest_cases();
+    let mut passed_count = 0usize;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        if cases[idx].passed {
+            passed_count += 1;
+        }
+        idx += 1;
+    }
+    begin_response(method);
+    raw("      \"schema\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_SCHEMA);
+    raw_line(",");
+    raw("      \"id\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_ID);
+    raw_line(",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"persistence\": \"none\",");
+    raw_line("      \"read_only\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw("      \"diagnostic_hash\": ");
+    json_sha256(artifact_load_plan_preflight_selftest_hash());
+    raw_line(",");
+    raw("      \"service_id\": ");
+    json_str(SERVICE_ID);
+    raw_line(",");
+    raw("      \"artifact_id\": ");
+    json_str(ARTIFACT_ID);
+    raw_line(",");
+    raw("      \"service_slot_intent_id\": ");
+    json_str(SERVICE_SLOT_INTENT_ID);
+    raw_line(",");
+    raw("      \"ram_only_service_slot_id\": ");
+    json_str(RAM_ONLY_SERVICE_SLOT_ID);
+    raw_line(",");
+    raw("      \"artifact_load_plan_preflight\": ");
+    emit_artifact_load_plan_preflight(LOAD_DESCRIPTOR);
+    raw_line(",");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed_count\": ");
+    raw_fmt(format_args!("{}", passed_count));
+    raw_line(",");
+    raw("      \"all_passed\": ");
+    raw_bool(passed_count == cases.len());
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        let case = cases[idx];
+        raw("        {\"name\": ");
+        json_str(case.name);
+        raw(", \"expected_accept\": ");
+        raw_bool(case.expected_accept);
+        raw(", \"actual_accept\": ");
+        raw_bool(case.actual_accept);
+        raw(", \"passed\": ");
+        raw_bool(case.passed);
+        raw(", \"reason\": ");
+        json_str(case.reason);
+        raw("}");
+        if idx + 1 != cases.len() {
+            raw(",");
+        }
+        raw_line("");
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"denied_surfaces\": {");
+    raw_line("        \"external_artifact_bytes\": \"denied\",");
+    raw_line("        \"candidate_artifact_execution\": \"denied\",");
     raw_line("        \"artifact_load\": \"denied\",");
     raw_line("        \"executable_mapping\": \"denied\",");
     raw_line("        \"persistent_install\": \"denied\",");
@@ -1360,55 +1746,68 @@ fn emit_load_descriptor(descriptor: LoadDescriptor) {
 }
 
 pub(crate) fn emit_artifact_load_plan_preflight(descriptor: LoadDescriptor) {
+    let record = artifact_load_plan_preflight_record(descriptor);
     raw("{");
     raw("\"schema\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_SCHEMA);
+    json_str(record.schema);
     raw(", \"id\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
-    raw(", \"scope\": \"current_boot\"");
-    raw(", \"classification\": \"local_only\"");
+    json_str(record.id);
+    raw(", \"scope\": ");
+    json_str(record.scope);
+    raw(", \"classification\": ");
+    json_str(record.classification);
     raw(", \"status\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
+    json_str(record.status);
     raw(", \"preflight_hash\": ");
-    json_sha256(artifact_load_plan_preflight_hash(descriptor));
+    json_sha256(record.preflight_hash);
     raw(", \"service_id\": ");
-    json_str(descriptor.service_id);
+    json_str(record.service_id);
     raw(", \"artifact_id\": ");
-    json_str(descriptor.artifact_id);
+    json_str(record.artifact_id);
     raw(", \"load_descriptor_id\": ");
-    json_str(descriptor.id);
+    json_str(record.load_descriptor_id);
     raw(", \"descriptor_source_locator\": ");
-    json_str(descriptor.source_locator);
+    json_str(record.descriptor_source_locator);
     raw(", \"descriptor_source_hash\": ");
-    json_sha256(descriptor_source_hash(descriptor));
+    json_sha256(record.descriptor_source_hash);
     raw(", \"artifact_identity_id\": ");
-    json_str(descriptor.artifact_identity.id);
+    json_str(record.artifact_identity_id);
     raw(", \"artifact_identity_hash\": ");
-    json_sha256(artifact_identity_hash(descriptor));
+    json_sha256(record.artifact_identity_hash);
     raw(", \"artifact_content_binding_hash\": ");
-    json_sha256(artifact_content_binding_hash(descriptor));
+    json_sha256(record.artifact_content_binding_hash);
     raw(", \"artifact_reference_id\": ");
-    json_str(descriptor.artifact_identity.artifact_reference_id);
+    json_str(record.artifact_reference_id);
     raw(", \"artifact_reference_hash\": ");
-    json_sha256(artifact_reference_hash(descriptor));
+    json_sha256(record.artifact_reference_hash);
     raw(", \"artifact_bytes_sha256\": ");
-    json_sha256(artifact_reference_bytes_hash(descriptor));
+    json_sha256(record.artifact_bytes_sha256);
     raw(", \"service_slot_intent_schema\": ");
-    json_str(SERVICE_SLOT_INTENT_SCHEMA);
+    json_str(record.service_slot_intent_schema);
     raw(", \"service_slot_intent_id\": ");
-    json_str(SERVICE_SLOT_INTENT_ID);
+    json_str(record.service_slot_intent_id);
     raw(", \"ram_only_service_slot_id\": ");
-    json_str(RAM_ONLY_SERVICE_SLOT_ID);
-    raw(", \"accepted\": true");
-    raw(", \"authorizes_builtin_current_boot_start\": true");
-    raw(", \"authorizes_candidate_artifact_execution\": false");
-    raw(", \"accepts_external_artifact_bytes\": false");
-    raw(", \"loads_candidate_bytes\": false");
-    raw(", \"maps_executable_pages\": false");
-    raw(", \"writes_persistent_state\": false");
-    raw(", \"writes_durable_audit_log\": false");
-    raw(", \"installs_rollback_plan\": false");
-    raw(", \"grants_broad_mutation\": false");
+    json_str(record.ram_only_service_slot_id);
+    raw(", \"accepted\": ");
+    raw_bool(record.accepted);
+    raw(", \"authorizes_builtin_current_boot_start\": ");
+    raw_bool(record.authorizes_builtin_current_boot_start);
+    raw(", \"authorizes_candidate_artifact_execution\": ");
+    raw_bool(record.authorizes_candidate_artifact_execution);
+    raw(", \"accepts_external_artifact_bytes\": ");
+    raw_bool(record.accepts_external_artifact_bytes);
+    raw(", \"loads_candidate_bytes\": ");
+    raw_bool(record.loads_candidate_bytes);
+    raw(", \"maps_executable_pages\": ");
+    raw_bool(record.maps_executable_pages);
+    raw(", \"writes_persistent_state\": ");
+    raw_bool(record.writes_persistent_state);
+    raw(", \"writes_durable_audit_log\": ");
+    raw_bool(record.writes_durable_audit_log);
+    raw(", \"installs_rollback_plan\": ");
+    raw_bool(record.installs_rollback_plan);
+    raw(", \"grants_broad_mutation\": ");
+    raw_bool(record.grants_broad_mutation);
     raw("}");
 }
 

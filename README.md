@@ -288,7 +288,9 @@ Verified in the VM today:
   selected descriptor source, artifact identity, content binding, artifact
   reference, and RAM-only service-slot intent before load/start while keeping
   candidate-byte execution, executable mapping, persistence, durable audit,
-  rollback, and broad mutation denied;
+  rollback, and broad mutation denied; `service.artifact_load_plan_preflight_selftest`
+  proves valid preflight evidence and tampered descriptor/artifact/slot/denial
+  evidence fail closed without mutating the event log;
   a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service

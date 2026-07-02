@@ -178,10 +178,12 @@ Still shape every durable slice so it can become raiOS memory later:
   load-plan preflight that binds the descriptor source, artifact identity,
   content binding, artifact reference, and RAM-only service-slot intent.
   `service.artifact_reference_trust_selftest` proves valid reference evidence
-  and tampered byte/content/reference/trust cases fail closed; arbitrary
-  external artifacts, candidate-byte execution, executable page mapping,
-  persistence, durable audit, rollback, provider auto-load, and broad mutation
-  remain denied.
+  and tampered byte/content/reference/trust cases fail closed.
+  `service.artifact_load_plan_preflight_selftest` proves valid preflight
+  evidence and tampered descriptor/artifact/slot/denial cases fail closed;
+  arbitrary external artifacts, candidate-byte execution, executable page
+  mapping, persistence, durable audit, rollback, provider auto-load, and broad
+  mutation remain denied.
 - `ask <text>` uses the in-guest OpenAI direct transport. The old host-side
   serial relay is no longer part of the runtime path; DNS, TCP 443, TLS 1.3,
   HTTPS, and first `output_text` parsing work in the bare-metal VM profile.

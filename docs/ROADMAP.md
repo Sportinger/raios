@@ -3,7 +3,7 @@
 ## Agent Handoff Cursor
 
 Last updated: 2026-07-02 by Codex after adding the Hello artifact load-plan
-preflight.
+preflight selftest.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -61,6 +61,9 @@ Latest verified implementation slice:
   artifact bytes, and `ram_only:svc.demo.hello` service-slot intent into one
   accepted current-boot/local-only preflight hash visible in load, inventory,
   health, and RAM-audit evidence
+- `service.artifact_load_plan_preflight_selftest` proves that valid preflight
+  evidence passes and tampered descriptor/artifact/slot/denial evidence fails
+  closed without mutating the event log
 - the host-bound descriptor-source path remains hash-bound to the current-image
   source and does not accept arbitrary descriptor or artifact bytes
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
@@ -162,21 +165,27 @@ release\vm-reports\shadow-20260702-030513-27840.json
 181/181 quick predicates, 30 executed commands, duration_ms: 59868
 ```
 
+Latest focused verification after the artifact load-plan preflight selftest:
+
+```text
+release\vm-reports\shadow-20260702-032107-16036.json
+182/182 quick predicates, 31 executed commands, duration_ms: 38186
+```
+
 Exact next task:
 
 ```text
-Add the smallest read-only artifact load-plan preflight selftest for the Hello
-service path. Prove the accepted preflight validates and tampered descriptor
-source, artifact identity, content binding, artifact reference, artifact bytes,
-service-slot intent, or denial flags fail closed. Keep it non-mutating and keep
-candidate bytes non-executing.
+Add the smallest RAM-only service-slot activation record for the Hello service
+path. Derive it from the accepted preflight, expose id/hash/status in
+load/start, inventory, health, stop/drop, and RAM-audit evidence, then cleanly
+clear it on drop. Keep candidate bytes non-executing.
 ```
 
 AI-parallel next wave:
 
-1. Runtime artifact track: add the read-only artifact load-plan preflight
-   selftest over the existing built-in Hello path; keep artifact bytes
-   non-executing and executable mapping denied.
+1. Runtime artifact track: add the RAM-only service-slot activation record over
+   the existing built-in Hello path; keep artifact bytes non-executing and
+   executable mapping denied.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence.
@@ -188,10 +197,10 @@ AI-parallel next wave:
    persistence designed from the final trust model; do not implement fake
    persistence or rollback before the evidence chain exists.
 
-Only after the load-plan preflight selftest proves fail-closed tamper handling
-should a later integration cursor consider loading candidate bytes. Execution
-must stay built-in/current-boot until execution, audit, rollback, and recovery
-evidence exists.
+Only after the Hello path has real current-boot slot activation and cleanup
+evidence should a later integration cursor consider loading candidate bytes.
+Execution must stay built-in/current-boot until execution, audit, rollback, and
+recovery evidence exists.
 
 Documentation ownership:
 
