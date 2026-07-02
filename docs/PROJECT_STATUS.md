@@ -103,20 +103,25 @@ architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
 Last verified locally: 2026-07-02 on Windows with QEMU 11 after recording
-provider trust verifier decisions through snapshots, provider-minimal context,
-positive request/export bindings, and direct-provider injection-gate markers.
+provider trust verifier decisions and optional standby SPKI rotation state
+through snapshots, provider-minimal context, positive request/export bindings,
+and direct-provider injection-gate markers.
 Full Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-045326-21116.json` with 6638/6638
-predicates, 243 executed commands, and `duration_ms: 613239`. Quick Shadow VM
-smoke passed in `release/vm-reports/shadow-20260702-045221-22244.json` with
-197/197 predicates, 31 executed commands, and `duration_ms: 60805`. The full
+`release/vm-reports/shadow-20260702-051757-3004.json` with 6640/6640
+predicates, 243 executed commands, and `duration_ms: 612495`. Quick Shadow VM
+smoke passed in `release/vm-reports/shadow-20260702-051622-22932.json` with
+199/199 predicates, 31 executed commands, and `duration_ms: 86731`. The full
 smoke proves the provider context gate selftest still expects all 20 cases,
 including redaction/classification/budget/trust evidence hash mismatches, and
 that the provider context injection gate names `provider_trust_verifier_metadata`
 as required evidence. Provider snapshots and provider-minimal context now expose
 `raios.provider_trust_verifier_decision.v0` with verifier id, stage, outcome,
 and reason; the normal no-pin/no-trust state reports `pin_config` / `rejected`
-/ `pin_config_missing`. Positive request/export bindings carry a canonical
+/ `pin_config_missing`. The OpenAI SPKI verifier now also supports one optional
+standby SPKI rotation pin supplied by `OPENAI_SPKI_SHA256_NEXT`; malformed
+rotation config fails closed, successful matches record the active or rotation
+pin id/slot, and the trust metadata still labels the path as pin-only without
+WebPKI chain or time validation. Positive request/export bindings carry a canonical
 `provider_trust_evidence_hash` over provider host, trust state, pin kind/id,
 TLS-bypass state, `raios.provider_trust_verifier_metadata.v0`, and the verifier
 decision; the verifier metadata names the real Stage-0 OpenAI pinned TLS
@@ -1254,14 +1259,14 @@ Stage-0 verifier metadata, and typed verifier decisions through projection,
 request/export binding evidence, consumption, and injection-gate checks,
 continue the provider trust/context track by replacing the visible
 `pin_only_no_webpki_chain_validation` / `not_validated_stage0` gap with real
-chain/time validation, or by defining a narrower explicit pin-rotation policy
-that stays honest about not being WebPKI. No-pin/no-trust and development-bypass
-paths must stay fail-closed, verifier decisions must continue to expose stage,
-outcome, and reason, and `satisfies_current_boot_export_gate` must remain
-`false` until the full evidence gate is present. Do not use fake trust, fake
-persistence, automatic context stuffing, candidate-byte execution, durable
-audit writes, rollback installation, provider-triggered auto-load, or broad
-module/service/config mutation as a shortcut.
+chain/time validation. No-pin/no-trust, malformed rotation config, and
+development-bypass paths must stay fail-closed, verifier decisions must
+continue to expose stage, outcome, and reason, and
+`satisfies_current_boot_export_gate` must remain `false` until the full evidence
+gate is present. Do not use fake trust, fake persistence, automatic context
+stuffing, candidate-byte execution, durable audit writes, rollback installation,
+provider-triggered auto-load, or broad module/service/config mutation as a
+shortcut.
 
 The next slice should:
 

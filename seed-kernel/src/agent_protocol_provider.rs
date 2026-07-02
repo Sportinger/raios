@@ -168,6 +168,24 @@ const PROVIDER_MINIMAL_INCLUDED_FIELDS: &[ProjectionFieldSpec] = &[
         reason: "short non-secret pin identifier only",
     },
     ProjectionFieldSpec {
+        field: "current.provider.pin_slot",
+        classification: "public",
+        action: "include",
+        reason: "active or rotation slot marker only",
+    },
+    ProjectionFieldSpec {
+        field: "current.provider.pin_rotation_policy",
+        classification: "public",
+        action: "include",
+        reason: "explicit pin-only rotation posture",
+    },
+    ProjectionFieldSpec {
+        field: "current.provider.pin_rotation_id",
+        classification: "public",
+        action: "include",
+        reason: "short non-secret standby pin identifier only",
+    },
+    ProjectionFieldSpec {
         field: "current.provider.development_bypass",
         classification: "public",
         action: "include",
@@ -472,6 +490,15 @@ fn emit_provider_minimal_packet(status: &SystemSnapshot, provider: &provider::Sn
     raw_line(",");
     raw("              \"pin_id\": ");
     json_opt_str(provider.trust_pin_id);
+    raw_line(",");
+    raw("              \"pin_slot\": ");
+    json_opt_str(provider.trust_pin_slot);
+    raw_line(",");
+    raw("              \"pin_rotation_policy\": ");
+    json_str(provider.trust_pin_rotation_policy);
+    raw_line(",");
+    raw("              \"pin_rotation_id\": ");
+    json_opt_str(provider.trust_pin_rotation_id);
     raw_line(",");
     raw("              \"development_bypass\": ");
     raw_bool(provider.trust_development_bypass);
@@ -1826,6 +1853,15 @@ fn hash_provider(hash: &mut EvidenceHash, provider: &provider::Snapshot) {
     hash.field("current.provider.trust_state", provider.trust_state);
     hash.opt_field("current.provider.pin_kind", provider.trust_pin_kind);
     hash.opt_field("current.provider.pin_id", provider.trust_pin_id);
+    hash.opt_field("current.provider.pin_slot", provider.trust_pin_slot);
+    hash.field(
+        "current.provider.pin_rotation_policy",
+        provider.trust_pin_rotation_policy,
+    );
+    hash.opt_field(
+        "current.provider.pin_rotation_id",
+        provider.trust_pin_rotation_id,
+    );
     hash.bool_field(
         "current.provider.development_bypass",
         provider.trust_development_bypass,

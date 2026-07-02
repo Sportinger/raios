@@ -614,6 +614,12 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_opt_str(binding.provider_trust_pin_kind);
             raw(", \"provider_trust_pin_id\": ");
             json_opt_str(binding.provider_trust_pin_id);
+            raw(", \"provider_trust_pin_slot\": ");
+            json_opt_str(binding.provider_trust_pin_slot);
+            raw(", \"provider_trust_pin_rotation_policy\": ");
+            json_str(binding.provider_trust_pin_rotation_policy);
+            raw(", \"provider_trust_pin_rotation_id\": ");
+            json_opt_str(binding.provider_trust_pin_rotation_id);
             raw(", \"provider_trust_verifier\": ");
             emit_provider_trust_verifier_metadata(binding.provider_trust_verifier);
             raw(", \"provider_trust_verifier_decision\": ");
@@ -649,6 +655,12 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_opt_str(binding.provider_trust_pin_kind);
             raw(", \"provider_trust_pin_id\": ");
             json_opt_str(binding.provider_trust_pin_id);
+            raw(", \"provider_trust_pin_slot\": ");
+            json_opt_str(binding.provider_trust_pin_slot);
+            raw(", \"provider_trust_pin_rotation_policy\": ");
+            json_str(binding.provider_trust_pin_rotation_policy);
+            raw(", \"provider_trust_pin_rotation_id\": ");
+            json_opt_str(binding.provider_trust_pin_rotation_id);
             raw(", \"provider_trust_verifier\": ");
             emit_provider_trust_verifier_metadata(binding.provider_trust_verifier);
             raw(", \"provider_trust_verifier_decision\": ");

@@ -111,7 +111,8 @@ function Assert-PositiveTrustDecision {
     Assert-Equal -Name "$Name outcome" -Actual $Decision.outcome -Expected "verified"
     $validReasons = @(
         "leaf_cert_pin_and_certificate_verify_valid",
-        "spki_pin_and_certificate_verify_valid"
+        "spki_pin_and_certificate_verify_valid",
+        "spki_rotation_pin_and_certificate_verify_valid"
     )
     if ($validReasons -notcontains $Decision.reason) {
         throw "$Name reason mismatch. Expected a verified pin reason but saw '$($Decision.reason)'."
@@ -168,7 +169,10 @@ function Assert-PositiveBindingMarkers {
     Assert-Equal -Name "trust verifier hostname policy" -Actual $requestBinding.trust_snapshot.provider_trust_verifier.hostname_policy -Expected "exact_api.openai.com_required"
     Assert-Equal -Name "trust verifier chain policy" -Actual $requestBinding.trust_snapshot.provider_trust_verifier.chain_policy -Expected "pin_only_no_webpki_chain_validation"
     Assert-Equal -Name "trust verifier time policy" -Actual $requestBinding.trust_snapshot.provider_trust_verifier.time_policy -Expected "not_validated_stage0"
+    Assert-Equal -Name "trust verifier pin policy" -Actual $requestBinding.trust_snapshot.provider_trust_verifier.pin_policy -Expected "configured_leaf_or_spki_sha256_required_optional_spki_rotation"
     Assert-Equal -Name "export trust verifier id" -Actual $exportBinding.trust_snapshot.provider_trust_verifier.id -Expected $requestBinding.trust_snapshot.provider_trust_verifier.id
+    Assert-Equal -Name "request trust pin rotation policy" -Actual $requestBinding.trust_snapshot.provider_trust_pin_rotation_policy -Expected "single_active_pin"
+    Assert-Equal -Name "export trust pin rotation policy" -Actual $exportBinding.trust_snapshot.provider_trust_pin_rotation_policy -Expected $requestBinding.trust_snapshot.provider_trust_pin_rotation_policy
     Assert-PositiveTrustDecision -Name "request trust verifier decision" -Decision $requestBinding.trust_snapshot.provider_trust_verifier_decision
     Assert-Equal -Name "export trust verifier decision schema" -Actual $exportBinding.trust_snapshot.provider_trust_verifier_decision.schema -Expected $requestBinding.trust_snapshot.provider_trust_verifier_decision.schema
     Assert-Equal -Name "export trust verifier decision stage" -Actual $exportBinding.trust_snapshot.provider_trust_verifier_decision.stage -Expected $requestBinding.trust_snapshot.provider_trust_verifier_decision.stage

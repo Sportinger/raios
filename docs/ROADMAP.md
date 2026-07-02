@@ -42,6 +42,11 @@ Latest verified implementation slice:
   `pin_config_missing`, and positive direct OpenAI pinned-trust markers bind the
   verified `certificate_verify` decision into request, export-audit, injection
   gate, and trust-evidence hashes
+- the OpenAI SPKI verifier now supports one optional standby SPKI rotation pin
+  supplied by `OPENAI_SPKI_SHA256_NEXT`; malformed rotation config fails closed,
+  successful matches record the active or rotation pin id/slot, and the trust
+  metadata still labels the path as pin-only without WebPKI chain or time
+  validation
 - the full Shadow VM provider-memory slice now expects all 20 provider context
   binding-gate selftest cases, including redaction/classification/budget/trust
   evidence hash mismatches, and the direct OpenAI smoke harness compares the
@@ -152,18 +157,18 @@ release\vm-reports\shadow-20260702-042431-24536.json
 6632/6632 predicates, 243 executed commands, duration_ms: 609828
 ```
 
-Latest full verification after the verifier-decision slice:
+Latest full verification after the standby SPKI rotation slice:
 
 ```text
-release\vm-reports\shadow-20260702-045326-21116.json
-6638/6638 predicates, 243 executed commands, duration_ms: 613239
+release\vm-reports\shadow-20260702-051757-3004.json
+6640/6640 predicates, 243 executed commands, duration_ms: 612495
 ```
 
 Latest focused verification:
 
 ```text
-release\vm-reports\shadow-20260702-045221-22244.json
-197/197 quick predicates, 31 executed commands, duration_ms: 60805
+release\vm-reports\shadow-20260702-051622-22932.json
+199/199 quick predicates, 31 executed commands, duration_ms: 86731
 ```
 
 Latest focused verification after the artifact identity slice:
@@ -227,12 +232,11 @@ Exact next task:
 ```text
 Continue provider trust/context hardening by replacing the visible
 `pin_only_no_webpki_chain_validation` / `not_validated_stage0` gap with real
-chain/time validation, or by defining a narrower explicit pin-rotation policy
-that stays honest about not being WebPKI. Keep verifier metadata, verifier
-decisions, provider-trust evidence hash, redaction/classification/budget hashes,
-no-pin/no-trust denial, development-bypass denial, disabled context injection,
-and non-executing candidate bytes intact; do not mark WebPKI or time validation
-as present until they are actually implemented.
+chain/time validation. Keep verifier metadata, verifier decisions, explicit
+pin-rotation policy, provider-trust evidence hash, redaction/classification/
+budget hashes, no-pin/no-trust denial, development-bypass denial, disabled
+context injection, and non-executing candidate bytes intact; do not mark WebPKI
+or time validation as present until they are actually implemented.
 ```
 
 AI-parallel next wave:

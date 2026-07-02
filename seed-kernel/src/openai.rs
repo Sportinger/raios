@@ -636,6 +636,9 @@ fn record_positive_provider_context_bindings(
         provider_trust_state,
         provider_trust_pin_kind: trust.pin_kind,
         provider_trust_pin_id: trust.pin_id,
+        provider_trust_pin_slot: trust.pin_slot,
+        provider_trust_pin_rotation_policy: trust.pin_rotation_policy,
+        provider_trust_pin_rotation_id: trust.pin_rotation_id,
         provider_trust_verifier: trust.verifier,
         provider_trust_verifier_decision: trust.verifier_decision,
         provider_trust_evidence_hash: trust_evidence_hash,
@@ -663,6 +666,9 @@ fn record_positive_provider_context_bindings(
         provider_trust_state,
         provider_trust_pin_kind: trust.pin_kind,
         provider_trust_pin_id: trust.pin_id,
+        provider_trust_pin_slot: trust.pin_slot,
+        provider_trust_pin_rotation_policy: trust.pin_rotation_policy,
+        provider_trust_pin_rotation_id: trust.pin_rotation_id,
         provider_trust_verifier: trust.verifier,
         provider_trust_verifier_decision: trust.verifier_decision,
         provider_trust_evidence_hash: trust_evidence_hash,
@@ -730,6 +736,21 @@ fn provider_trust_evidence_hash(trust: provider_trust::Snapshot) -> [u8; 32] {
         &mut hash,
         "provider_trust_pin_id",
         trust.pin_id.unwrap_or("none"),
+    );
+    hash_field(
+        &mut hash,
+        "provider_trust_pin_slot",
+        trust.pin_slot.unwrap_or("none"),
+    );
+    hash_field(
+        &mut hash,
+        "provider_trust_pin_rotation_policy",
+        trust.pin_rotation_policy,
+    );
+    hash_field(
+        &mut hash,
+        "provider_trust_pin_rotation_id",
+        trust.pin_rotation_id.unwrap_or("none"),
     );
     hash_field(&mut hash, "verifier.schema", trust.verifier.schema);
     hash_field(&mut hash, "verifier.id", trust.verifier.id);
@@ -981,6 +1002,12 @@ fn emit_provider_request_binding(
     write_raw_opt_str(binding.provider_trust_pin_kind);
     serial::write_raw_str(",\"provider_trust_pin_id\":");
     write_raw_opt_str(binding.provider_trust_pin_id);
+    serial::write_raw_str(",\"provider_trust_pin_slot\":");
+    write_raw_opt_str(binding.provider_trust_pin_slot);
+    serial::write_raw_str(",\"provider_trust_pin_rotation_policy\":\"");
+    serial::write_raw_str(binding.provider_trust_pin_rotation_policy);
+    serial::write_raw_str("\",\"provider_trust_pin_rotation_id\":");
+    write_raw_opt_str(binding.provider_trust_pin_rotation_id);
     serial::write_raw_str(",\"provider_trust_verifier\":");
     write_raw_provider_trust_verifier(binding.provider_trust_verifier);
     serial::write_raw_str(",\"provider_trust_verifier_decision\":");
@@ -1030,6 +1057,12 @@ fn emit_provider_export_audit_binding(
     write_raw_opt_str(binding.provider_trust_pin_kind);
     serial::write_raw_str(",\"provider_trust_pin_id\":");
     write_raw_opt_str(binding.provider_trust_pin_id);
+    serial::write_raw_str(",\"provider_trust_pin_slot\":");
+    write_raw_opt_str(binding.provider_trust_pin_slot);
+    serial::write_raw_str(",\"provider_trust_pin_rotation_policy\":\"");
+    serial::write_raw_str(binding.provider_trust_pin_rotation_policy);
+    serial::write_raw_str("\",\"provider_trust_pin_rotation_id\":");
+    write_raw_opt_str(binding.provider_trust_pin_rotation_id);
     serial::write_raw_str(",\"provider_trust_verifier\":");
     write_raw_provider_trust_verifier(binding.provider_trust_verifier);
     serial::write_raw_str(",\"provider_trust_verifier_decision\":");

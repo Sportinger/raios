@@ -2,6 +2,7 @@ use spin::Mutex;
 
 const OPENAI_CERT_SHA256: Option<&str> = option_env!("RAIOS_OPENAI_CERT_SHA256");
 const OPENAI_SPKI_SHA256: Option<&str> = option_env!("RAIOS_OPENAI_SPKI_SHA256");
+const OPENAI_SPKI_SHA256_NEXT: Option<&str> = option_env!("RAIOS_OPENAI_SPKI_SHA256_NEXT");
 const ALLOW_UNVERIFIED_OPENAI_TLS: Option<&str> = option_env!("RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS");
 
 static STATE: Mutex<RuntimeTrust> = Mutex::new(RuntimeTrust::new());
@@ -9,6 +10,7 @@ static STATE: Mutex<RuntimeTrust> = Mutex::new(RuntimeTrust::new());
 struct RuntimeTrust {
     state: TrustState,
     decision: ProviderTrustVerifierDecision,
+    matched_pin: Option<ProviderTrustMatchedPin>,
 }
 
 impl RuntimeTrust {
@@ -16,6 +18,7 @@ impl RuntimeTrust {
         Self {
             state: TrustState::Unknown,
             decision: ProviderTrustVerifierDecision::not_attempted(),
+            matched_pin: None,
         }
     }
 }
@@ -90,7 +93,7 @@ pub const OPENAI_PINNED_TLS_VERIFIER_METADATA: ProviderTrustVerifierMetadata =
         port: "443",
         transport: "tls1.3",
         hostname_policy: "exact_api.openai.com_required",
-        pin_policy: "configured_leaf_or_spki_sha256_required",
+        pin_policy: "configured_leaf_or_spki_sha256_required_optional_spki_rotation",
         chain_policy: "pin_only_no_webpki_chain_validation",
         time_policy: "not_validated_stage0",
         certificate_verify_policy: "tls13_ecdsa_secp256r1_sha256_required",
@@ -142,6 +145,9 @@ pub struct Snapshot {
     pub state: TrustState,
     pub pin_kind: Option<&'static str>,
     pub pin_id: Option<&'static str>,
+    pub pin_slot: Option<&'static str>,
+    pub pin_rotation_policy: &'static str,
+    pub pin_rotation_id: Option<&'static str>,
     pub verifier: ProviderTrustVerifierMetadata,
     pub verifier_decision: ProviderTrustVerifierDecision,
     pub development_bypass: bool,
@@ -178,15 +184,54 @@ impl PinKind {
 pub struct OpenAiPin {
     pub kind: PinKind,
     pub bytes: [u8; 32],
+    pub id: &'static str,
+    pub slot: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub struct OpenAiPins {
+    pub active: OpenAiPin,
+    pub rotation: Option<OpenAiPin>,
+}
+
+impl OpenAiPins {
+    pub fn match_pin(self, kind: PinKind, bytes: &[u8]) -> Option<ProviderTrustMatchedPin> {
+        if self.active.kind == kind && bytes == self.active.bytes.as_slice() {
+            return Some(ProviderTrustMatchedPin {
+                kind: self.active.kind,
+                id: self.active.id,
+                slot: self.active.slot,
+            });
+        }
+        let rotation = self.rotation?;
+        if rotation.kind == kind && bytes == rotation.bytes.as_slice() {
+            return Some(ProviderTrustMatchedPin {
+                kind: rotation.kind,
+                id: rotation.id,
+                slot: rotation.slot,
+            });
+        }
+        None
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ProviderTrustMatchedPin {
+    pub kind: PinKind,
+    pub id: &'static str,
+    pub slot: &'static str,
 }
 
 pub fn snapshot() -> Snapshot {
-    let pin = configured_openai_pin();
+    let pins = configured_openai_pins();
     if unverified_development_allowed() {
         return Snapshot {
             state: TrustState::TlsCertificateVerificationBypassed,
-            pin_kind: pin_kind(pin),
-            pin_id: pin_id(pin),
+            pin_kind: active_pin_kind(pins),
+            pin_id: active_pin_id(pins),
+            pin_slot: active_pin_slot(pins),
+            pin_rotation_policy: pin_rotation_policy(pins),
+            pin_rotation_id: pin_rotation_id(pins),
             verifier: OPENAI_PINNED_TLS_VERIFIER_METADATA,
             verifier_decision: ProviderTrustVerifierDecision::rejected(
                 "development_bypass",
@@ -196,25 +241,42 @@ pub fn snapshot() -> Snapshot {
         };
     }
 
-    let (state, verifier_decision) = match pin {
+    let (state, verifier_decision, matched_pin) = match pins {
+        _ if has_invalid_spki_rotation_config() => (
+            TrustState::PinConfigInvalid,
+            ProviderTrustVerifierDecision::rejected("pin_config", "pin_config_invalid"),
+            None,
+        ),
         None => (
             TrustState::PinConfigMissing,
             ProviderTrustVerifierDecision::rejected("pin_config", "pin_config_missing"),
+            None,
         ),
-        Some(value) if !is_sha256_hex(value.value) => (
+        Some(value) if !is_valid_pin_config(value) => (
             TrustState::PinConfigInvalid,
             ProviderTrustVerifierDecision::rejected("pin_config", "pin_config_invalid"),
+            None,
         ),
         Some(_) => {
             let runtime = STATE.lock();
-            (runtime.state, runtime.decision)
+            (runtime.state, runtime.decision, runtime.matched_pin)
         }
     };
+    let display_pin = matched_pin;
 
     Snapshot {
         state,
-        pin_kind: pin_kind(pin),
-        pin_id: pin_id(pin),
+        pin_kind: display_pin
+            .map(|pin| pin.kind.as_protocol())
+            .or_else(|| active_pin_kind(pins)),
+        pin_id: display_pin
+            .map(|pin| pin.id)
+            .or_else(|| active_pin_id(pins)),
+        pin_slot: display_pin
+            .map(|pin| pin.slot)
+            .or_else(|| active_pin_slot(pins)),
+        pin_rotation_policy: pin_rotation_policy(pins),
+        pin_rotation_id: pin_rotation_id(pins),
         verifier: OPENAI_PINNED_TLS_VERIFIER_METADATA,
         verifier_decision,
         development_bypass: false,
@@ -222,74 +284,139 @@ pub fn snapshot() -> Snapshot {
 }
 
 pub fn can_attempt_openai_tls() -> bool {
-    unverified_development_allowed() || openai_pin().is_ok()
+    unverified_development_allowed() || openai_pins().is_ok()
 }
 
-pub fn openai_pin() -> Result<OpenAiPin, TrustState> {
-    let Some(pin) = configured_openai_pin() else {
+pub fn openai_pins() -> Result<OpenAiPins, TrustState> {
+    if has_invalid_spki_rotation_config() {
+        return Err(TrustState::PinConfigInvalid);
+    }
+    let Some(pins) = configured_openai_pins() else {
         return Err(TrustState::PinConfigMissing);
     };
-    let bytes = parse_sha256_hex(pin.value).ok_or(TrustState::PinConfigInvalid)?;
-    Ok(OpenAiPin {
-        kind: pin.kind,
-        bytes,
-    })
+    if !is_valid_pin_config(pins) {
+        return Err(TrustState::PinConfigInvalid);
+    }
+    let active = parse_openai_pin(pins.active).ok_or(TrustState::PinConfigInvalid)?;
+    let rotation = match pins.rotation {
+        Some(pin) => Some(parse_openai_pin(pin).ok_or(TrustState::PinConfigInvalid)?),
+        None => None,
+    };
+    Ok(OpenAiPins { active, rotation })
 }
 
 pub fn mark_pin_mismatch_at(stage: &'static str, reason: &'static str) {
     let mut state = STATE.lock();
     state.state = TrustState::PinMismatch;
     state.decision = ProviderTrustVerifierDecision::rejected(stage, reason);
+    state.matched_pin = None;
 }
 
 pub fn mark_pin_verifier_unavailable_at(stage: &'static str, reason: &'static str) {
     let mut state = STATE.lock();
     state.state = TrustState::PinVerifierUnavailable;
     state.decision = ProviderTrustVerifierDecision::rejected(stage, reason);
+    state.matched_pin = None;
 }
 
-pub fn mark_pinned_cert_verified_at(stage: &'static str, reason: &'static str) {
+pub fn mark_pinned_cert_verified_at(
+    stage: &'static str,
+    reason: &'static str,
+    matched_pin: ProviderTrustMatchedPin,
+) {
     let mut state = STATE.lock();
     state.state = TrustState::PinnedCertVerified;
     state.decision = ProviderTrustVerifierDecision::verified(stage, reason);
+    state.matched_pin = Some(matched_pin);
 }
 
-pub fn mark_pinned_spki_verified_at(stage: &'static str, reason: &'static str) {
+pub fn mark_pinned_spki_verified_at(
+    stage: &'static str,
+    reason: &'static str,
+    matched_pin: ProviderTrustMatchedPin,
+) {
     let mut state = STATE.lock();
     state.state = TrustState::PinnedSpkiVerified;
     state.decision = ProviderTrustVerifierDecision::verified(stage, reason);
+    state.matched_pin = Some(matched_pin);
 }
 
 #[derive(Clone, Copy)]
 struct ConfiguredPin {
     kind: PinKind,
     value: &'static str,
+    slot: &'static str,
 }
 
-fn configured_openai_pin() -> Option<ConfiguredPin> {
+#[derive(Clone, Copy)]
+struct ConfiguredOpenAiPins {
+    active: ConfiguredPin,
+    rotation: Option<ConfiguredPin>,
+}
+
+fn configured_openai_pins() -> Option<ConfiguredOpenAiPins> {
+    let rotation = configured_openai_spki_rotation_pin().map(|value| ConfiguredPin {
+        kind: PinKind::SpkiSha256,
+        value,
+        slot: "rotation",
+    });
     if let Some(value) = configured_openai_spki_pin() {
-        return Some(ConfiguredPin {
-            kind: PinKind::SpkiSha256,
-            value,
+        return Some(ConfiguredOpenAiPins {
+            active: ConfiguredPin {
+                kind: PinKind::SpkiSha256,
+                value,
+                slot: "active",
+            },
+            rotation,
         });
     }
-    configured_openai_cert_pin().map(|value| ConfiguredPin {
-        kind: PinKind::LeafCertSha256,
-        value,
+    configured_openai_cert_pin().map(|value| ConfiguredOpenAiPins {
+        active: ConfiguredPin {
+            kind: PinKind::LeafCertSha256,
+            value,
+            slot: "active",
+        },
+        rotation,
     })
 }
 
-fn configured_openai_spki_pin() -> Option<&'static str> {
-    let value = OPENAI_SPKI_SHA256?.trim();
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
+fn parse_openai_pin(pin: ConfiguredPin) -> Option<OpenAiPin> {
+    let bytes = parse_sha256_hex(pin.value)?;
+    Some(OpenAiPin {
+        kind: pin.kind,
+        bytes,
+        id: pin_id(pin)?,
+        slot: pin.slot,
+    })
+}
+
+fn is_valid_pin_config(pins: ConfiguredOpenAiPins) -> bool {
+    if !is_sha256_hex(pins.active.value) {
+        return false;
     }
+    if let Some(rotation) = pins.rotation {
+        return pins.active.kind == PinKind::SpkiSha256
+            && rotation.kind == PinKind::SpkiSha256
+            && is_sha256_hex(rotation.value)
+            && rotation.value != pins.active.value;
+    }
+    true
+}
+
+fn configured_openai_spki_pin() -> Option<&'static str> {
+    configured_non_empty(OPENAI_SPKI_SHA256)
+}
+
+fn configured_openai_spki_rotation_pin() -> Option<&'static str> {
+    configured_non_empty(OPENAI_SPKI_SHA256_NEXT)
 }
 
 fn configured_openai_cert_pin() -> Option<&'static str> {
-    let value = OPENAI_CERT_SHA256?.trim();
+    configured_non_empty(OPENAI_CERT_SHA256)
+}
+
+fn configured_non_empty(value: Option<&'static str>) -> Option<&'static str> {
+    let value = value?.trim();
     if value.is_empty() {
         None
     } else {
@@ -297,12 +424,45 @@ fn configured_openai_cert_pin() -> Option<&'static str> {
     }
 }
 
-fn pin_kind(pin: Option<ConfiguredPin>) -> Option<&'static str> {
-    pin.map(|pin| pin.kind.as_protocol())
+fn active_pin_kind(pins: Option<ConfiguredOpenAiPins>) -> Option<&'static str> {
+    pins.map(|pins| pins.active.kind.as_protocol())
 }
 
-fn pin_id(pin: Option<ConfiguredPin>) -> Option<&'static str> {
-    let pin = pin?;
+fn active_pin_id(pins: Option<ConfiguredOpenAiPins>) -> Option<&'static str> {
+    pin_id(pins?.active)
+}
+
+fn active_pin_slot(pins: Option<ConfiguredOpenAiPins>) -> Option<&'static str> {
+    Some(pins?.active.slot)
+}
+
+fn pin_rotation_policy(pins: Option<ConfiguredOpenAiPins>) -> &'static str {
+    let Some(pins) = pins else {
+        if configured_openai_spki_rotation_pin().is_some() {
+            return "invalid_spki_rotation_config";
+        }
+        return "missing_active_pin";
+    };
+    if pins.rotation.is_some() {
+        if is_valid_pin_config(pins) {
+            "active_spki_plus_rotation_spki"
+        } else {
+            "invalid_spki_rotation_config"
+        }
+    } else {
+        "single_active_pin"
+    }
+}
+
+fn pin_rotation_id(pins: Option<ConfiguredOpenAiPins>) -> Option<&'static str> {
+    pin_id(pins?.rotation?)
+}
+
+fn has_invalid_spki_rotation_config() -> bool {
+    configured_openai_spki_rotation_pin().is_some() && configured_openai_spki_pin().is_none()
+}
+
+fn pin_id(pin: ConfiguredPin) -> Option<&'static str> {
     if is_sha256_hex(pin.value) {
         Some(&pin.value[..12])
     } else {

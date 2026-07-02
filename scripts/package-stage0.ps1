@@ -8,6 +8,8 @@ param(
     [string]$OpenAiCertPinEnvVar = "OPENAI_CERT_SHA256",
     [switch]$EmbedOpenAiSpkiPinFromEnv,
     [string]$OpenAiSpkiPinEnvVar = "OPENAI_SPKI_SHA256",
+    [switch]$EmbedOpenAiSpkiRotationPinFromEnv,
+    [string]$OpenAiSpkiRotationPinEnvVar = "OPENAI_SPKI_SHA256_NEXT",
     [switch]$AllowUnverifiedOpenAiTls,
     [switch]$UseTempEsp
 )
@@ -59,6 +61,9 @@ try {
     }
     if ($EmbedOpenAiSpkiPinFromEnv) {
         $buildArgs += @("-EmbedOpenAiSpkiPinFromEnv", "-OpenAiSpkiPinEnvVar", $OpenAiSpkiPinEnvVar)
+    }
+    if ($EmbedOpenAiSpkiRotationPinFromEnv) {
+        $buildArgs += @("-EmbedOpenAiSpkiRotationPinFromEnv", "-OpenAiSpkiRotationPinEnvVar", $OpenAiSpkiRotationPinEnvVar)
     }
     if ($AllowUnverifiedOpenAiTls) {
         $buildArgs += "-AllowUnverifiedOpenAiTls"

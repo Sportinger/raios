@@ -26,6 +26,16 @@ $env:OPENAI_SPKI_SHA256 = "<64 hex chars>"
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiSpkiPinFromEnv
 ```
 
+An optional standby SPKI pin can be embedded for a local pin-only rotation
+window:
+
+```powershell
+$env:OPENAI_API_KEY = "<local key or fake smoke key>"
+$env:OPENAI_SPKI_SHA256 = "<active 64 hex chars>"
+$env:OPENAI_SPKI_SHA256_NEXT = "<standby 64 hex chars>"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiSpkiPinFromEnv -EmbedOpenAiSpkiRotationPinFromEnv
+```
+
 Legacy leaf-certificate pinning is still supported for compatibility:
 
 ```powershell
@@ -36,7 +46,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -
 
 Provider pins are not provider keys, but they should still be treated as
 environment-supplied local configuration. Leaf-certificate pins rotate with the
-provider certificate and should not be hardcoded into normal docs or source.
+provider certificate and should not be hardcoded into normal docs or source. A
+standby SPKI pin is only a pin-rotation window, not WebPKI or time validation.
 
 ## Local OpenAI Boot Stick
 

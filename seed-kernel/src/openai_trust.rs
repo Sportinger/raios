@@ -16,7 +16,7 @@ pub struct OpenAiPinnedCertVerifier {
     transcript: Option<<Aes128GcmSha256 as TlsCipherSuite>::Hash>,
     public_key: [u8; P256_UNCOMPRESSED_POINT_LEN],
     public_key_len: usize,
-    pin_kind: Option<provider_trust::PinKind>,
+    matched_pin: Option<provider_trust::ProviderTrustMatchedPin>,
     pin_matched: bool,
 }
 
@@ -44,7 +44,7 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             transcript: None,
             public_key: [0; P256_UNCOMPRESSED_POINT_LEN],
             public_key_len: 0,
-            pin_kind: None,
+            matched_pin: None,
             pin_matched: false,
         }
     }
@@ -64,8 +64,8 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             );
         }
 
-        let configured_pin = match provider_trust::openai_pin() {
-            Ok(pin) => pin,
+        let configured_pins = match provider_trust::openai_pins() {
+            Ok(pins) => pins,
             Err(state) => {
                 return Self::reject(
                     state,
@@ -91,22 +91,24 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             );
             TlsError::InvalidCertificate
         })?;
-        let actual_pin = match configured_pin.kind {
+        let actual_pin_kind = configured_pins.active.kind;
+        let actual_pin = match actual_pin_kind {
             provider_trust::PinKind::LeafCertSha256 => Sha256::digest(leaf),
             provider_trust::PinKind::SpkiSha256 => Sha256::digest(spki.der),
         };
-        if actual_pin.as_slice() != configured_pin.bytes {
+        let Some(matched_pin) = configured_pins.match_pin(actual_pin_kind, actual_pin.as_slice())
+        else {
             return Self::reject(
                 provider_trust::TrustState::PinMismatch,
                 TlsError::InvalidCertificate,
                 "pin_match",
                 "configured_pin_mismatch",
             );
-        }
+        };
 
         self.public_key.copy_from_slice(spki.public_key);
         self.public_key_len = spki.public_key.len();
-        self.pin_kind = Some(configured_pin.kind);
+        self.matched_pin = Some(matched_pin);
         self.pin_matched = true;
         self.transcript.replace(transcript.clone());
         Ok(())
@@ -168,18 +170,28 @@ impl<'a> TlsVerifier<'a, Aes128GcmSha256> for OpenAiPinnedCertVerifier {
             return Err(TlsError::InvalidSignature);
         }
 
-        match self.pin_kind {
-            Some(provider_trust::PinKind::LeafCertSha256) => {
+        match self.matched_pin {
+            Some(pin) if pin.kind == provider_trust::PinKind::LeafCertSha256 => {
                 provider_trust::mark_pinned_cert_verified_at(
                     "certificate_verify",
                     "leaf_cert_pin_and_certificate_verify_valid",
+                    pin,
                 )
             }
-            Some(provider_trust::PinKind::SpkiSha256) => {
-                provider_trust::mark_pinned_spki_verified_at(
+            Some(pin) if pin.kind == provider_trust::PinKind::SpkiSha256 => {
+                let reason = if pin.slot == "rotation" {
+                    "spki_rotation_pin_and_certificate_verify_valid"
+                } else {
+                    "spki_pin_and_certificate_verify_valid"
+                };
+                provider_trust::mark_pinned_spki_verified_at("certificate_verify", reason, pin)
+            }
+            Some(_) => {
+                provider_trust::mark_pin_mismatch_at(
                     "certificate_verify",
-                    "spki_pin_and_certificate_verify_valid",
-                )
+                    "matched_pin_kind_unsupported",
+                );
+                return Err(TlsError::InvalidHandshake);
             }
             None => {
                 provider_trust::mark_pin_mismatch_at(

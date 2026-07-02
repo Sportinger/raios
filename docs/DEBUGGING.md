@@ -51,6 +51,18 @@ $env:OPENAI_SPKI_SHA256 = "<64 hex chars>"
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiSpkiPinFromEnv
 ```
 
+For an explicit pin-only rotation window, embed a second standby SPKI pin. The
+verifier will accept either the active SPKI pin or the standby SPKI pin, but the
+trust metadata still reports `pin_only_no_webpki_chain_validation` and
+`not_validated_stage0`:
+
+```powershell
+$env:OPENAI_API_KEY = "<local key or fake smoke key>"
+$env:OPENAI_SPKI_SHA256 = "<active 64 hex chars>"
+$env:OPENAI_SPKI_SHA256_NEXT = "<standby 64 hex chars>"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release -Image release\raios-stage0-local-openai.img -UseTempEsp -EmbedOpenAiApiKeyFromEnv -EmbedOpenAiSpkiPinFromEnv -EmbedOpenAiSpkiRotationPinFromEnv
+```
+
 For legacy leaf-certificate pinning, embed the current OpenAI leaf certificate
 SHA-256 pin instead:
 
@@ -336,7 +348,10 @@ pinned-trust markers must also carry
 `raios.provider_trust_verifier_decision.v0` with `stage: certificate_verify`,
 `outcome: verified`, and a leaf/SPKI verified reason; the no-pin/no-trust
 snapshot and provider-minimal context should show `stage: pin_config`,
-`outcome: rejected`, and `reason: pin_config_missing`.
+`outcome: rejected`, `reason: pin_config_missing`, and
+`pin_rotation_policy: missing_active_pin`. A configured standby SPKI pin should
+show `pin_rotation_policy: active_spki_plus_rotation_spki`; malformed standby
+config must fail closed as `pin_config_invalid`.
 
 Pinned-trust direct smokes also exercise the checked local gate:
 

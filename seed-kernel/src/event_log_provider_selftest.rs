@@ -802,6 +802,9 @@ fn selftest_request_binding(
         provider_trust_state: "pinned_spki_verified",
         provider_trust_pin_kind: Some("spki_sha256"),
         provider_trust_pin_id: Some("selftest-pin"),
+        provider_trust_pin_slot: Some("active"),
+        provider_trust_pin_rotation_policy: "single_active_pin",
+        provider_trust_pin_rotation_id: None,
         provider_trust_verifier: OPENAI_PINNED_TLS_VERIFIER_METADATA,
         provider_trust_verifier_decision: ProviderTrustVerifierDecision::verified(
             "certificate_verify",
@@ -830,6 +833,9 @@ fn selftest_export_binding(
         provider_trust_state: "pinned_spki_verified",
         provider_trust_pin_kind: Some("spki_sha256"),
         provider_trust_pin_id: Some("selftest-pin"),
+        provider_trust_pin_slot: Some("active"),
+        provider_trust_pin_rotation_policy: "single_active_pin",
+        provider_trust_pin_rotation_id: None,
         provider_trust_verifier: OPENAI_PINNED_TLS_VERIFIER_METADATA,
         provider_trust_verifier_decision: ProviderTrustVerifierDecision::verified(
             "certificate_verify",

@@ -7,6 +7,8 @@ param(
     [string]$OpenAiCertPinEnvVar = "OPENAI_CERT_SHA256",
     [switch]$EmbedOpenAiSpkiPinFromEnv,
     [string]$OpenAiSpkiPinEnvVar = "OPENAI_SPKI_SHA256",
+    [switch]$EmbedOpenAiSpkiRotationPinFromEnv,
+    [string]$OpenAiSpkiRotationPinEnvVar = "OPENAI_SPKI_SHA256_NEXT",
     [switch]$AllowUnverifiedOpenAiTls
 )
 
@@ -25,6 +27,7 @@ $oldRustFlags = $env:RUSTFLAGS
 $oldDefaultOpenAiApiKey = $env:RAIOS_DEFAULT_OPENAI_API_KEY
 $oldOpenAiCertSha256 = $env:RAIOS_OPENAI_CERT_SHA256
 $oldOpenAiSpkiSha256 = $env:RAIOS_OPENAI_SPKI_SHA256
+$oldOpenAiSpkiSha256Next = $env:RAIOS_OPENAI_SPKI_SHA256_NEXT
 $oldAllowUnverifiedOpenAiTls = $env:RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS
 $kernelRustFlags = @(
     "-C", "link-arg=-T$LinkerScript",
@@ -66,6 +69,17 @@ try {
     }
     else {
         Remove-Item Env:\RAIOS_OPENAI_SPKI_SHA256 -ErrorAction SilentlyContinue
+    }
+
+    if ($EmbedOpenAiSpkiRotationPinFromEnv) {
+        $spkiRotationPin = [Environment]::GetEnvironmentVariable($OpenAiSpkiRotationPinEnvVar, "Process")
+        if ([string]::IsNullOrWhiteSpace($spkiRotationPin)) {
+            throw "Environment variable '$OpenAiSpkiRotationPinEnvVar' is not set."
+        }
+        $env:RAIOS_OPENAI_SPKI_SHA256_NEXT = $spkiRotationPin
+    }
+    else {
+        Remove-Item Env:\RAIOS_OPENAI_SPKI_SHA256_NEXT -ErrorAction SilentlyContinue
     }
 
     if ($AllowUnverifiedOpenAiTls) {
@@ -111,6 +125,12 @@ finally {
     }
     else {
         $env:RAIOS_OPENAI_SPKI_SHA256 = $oldOpenAiSpkiSha256
+    }
+    if ($null -eq $oldOpenAiSpkiSha256Next) {
+        Remove-Item Env:\RAIOS_OPENAI_SPKI_SHA256_NEXT -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:RAIOS_OPENAI_SPKI_SHA256_NEXT = $oldOpenAiSpkiSha256Next
     }
     if ($null -eq $oldAllowUnverifiedOpenAiTls) {
         Remove-Item Env:\RAIOS_ALLOW_UNVERIFIED_OPENAI_TLS -ErrorAction SilentlyContinue

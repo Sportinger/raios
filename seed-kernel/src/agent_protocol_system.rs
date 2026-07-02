@@ -791,6 +791,15 @@ pub(crate) fn emit_provider_object(provider: &provider::Snapshot, comma: bool) {
     raw("        \"pin_id\": ");
     json_opt_str(provider.trust_pin_id);
     raw_line(",");
+    raw("        \"pin_slot\": ");
+    json_opt_str(provider.trust_pin_slot);
+    raw_line(",");
+    raw("        \"pin_rotation_policy\": ");
+    json_str(provider.trust_pin_rotation_policy);
+    raw_line(",");
+    raw("        \"pin_rotation_id\": ");
+    json_opt_str(provider.trust_pin_rotation_id);
+    raw_line(",");
     raw("        \"development_bypass\": ");
     raw_bool(provider.trust_development_bypass);
     raw_line(",");
