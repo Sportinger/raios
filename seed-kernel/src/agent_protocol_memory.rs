@@ -540,6 +540,18 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             raw_bool(binding.artifact_reference_trust_signature_verified);
             raw(", \"artifact_reference_validated\": ");
             raw_bool(binding.artifact_reference_validated);
+            raw(", \"artifact_load_plan_preflight_id\": ");
+            json_str(binding.artifact_load_plan_preflight_id);
+            raw(", \"artifact_load_plan_preflight_hash\": ");
+            json_sha256(binding.artifact_load_plan_preflight_hash);
+            raw(", \"artifact_load_plan_preflight_status\": ");
+            json_str(binding.artifact_load_plan_preflight_status);
+            raw(", \"artifact_load_plan_preflight_accepted\": ");
+            raw_bool(binding.artifact_load_plan_preflight_accepted);
+            raw(", \"service_slot_intent_id\": ");
+            json_str(binding.service_slot_intent_id);
+            raw(", \"ram_only_service_slot_id\": ");
+            json_str(binding.ram_only_service_slot_id);
             raw(", \"binds_source_locator\": ");
             json_opt_str(binding.binds_source_locator);
             raw(", \"binds_source_kind\": ");

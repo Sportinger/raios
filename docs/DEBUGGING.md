@@ -437,21 +437,28 @@ persistence all disabled. The identity must also include a
 reference hash, `sha256:` artifact byte hash, content-binding hash linkage,
 `seed-kernel/artifacts/svc.demo.hello.builtin.artifact` locator, verified trust
 envelope linkage, and artifact byte intake, code loading, executable mapping,
-and persistence all disabled. `services` must show
+and persistence all disabled. The load response and nested descriptor must also
+expose `raios.current_boot_artifact_load_plan_preflight.v0` with a `sha256:`
+preflight hash that binds the selected descriptor source, artifact identity,
+content binding, artifact reference, artifact bytes, and
+`ram_only:svc.demo.hello` service-slot intent while denying candidate-byte
+execution, executable mapping, persistence, durable audit, rollback, and broad
+mutation. `services` must show
 `svc.demo.hello` only while loaded and cite the same
 descriptor id/source/kind/validation/hash/signature envelope plus the same
 artifact identity hash/signature envelope, content binding hash, and artifact
-reference hash. `service.health
+reference hash plus artifact load-plan preflight id/hash/status. `service.health
 svc.demo.hello` must return `raios.ram_only_hello_service.health.v0`, report
 healthy while loaded/running, stopped while loaded/not running, and missing
 after drop, and cite the active descriptor source hash, signature envelope, and
-artifact identity/content/reference evidence while loaded. `audit.events` must show
+artifact identity/content/reference/preflight evidence while loaded. `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
 same load descriptor, validated source hash, signature envelope hash, and
 signature verification state plus the verified artifact identity hash and
 signature envelope plus the artifact content binding hash and trust signature
-state plus artifact reference hash, byte hash, and trust signature state.
+state plus artifact reference hash, byte hash, trust signature state, artifact
+load-plan preflight hash, accepted status, and RAM-only service-slot id.
 
 `service.descriptor_source_trust_selftest` must return
 `raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and
@@ -474,8 +481,9 @@ The host-bound positive command must cite
 `host_bound_descriptor_source`, and `binds_source_locator`,
 `binds_source_kind`, and `binds_source_hash` equal to the current-image source
 locator/kind/hash. The host-bound health response and health audit event must
-cite the host-bound source hash plus the bound current-image source hash. The
-path must keep `signature_envelope: null`, external artifact bytes,
+cite the host-bound source hash plus the bound current-image source hash and a
+host-bound artifact load-plan preflight hash. The path must keep
+`signature_envelope: null`, external artifact bytes, candidate-byte execution,
 persistence, durable audit writes, rollback installation, and broad mutation
 disabled.
 

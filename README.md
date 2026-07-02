@@ -283,7 +283,12 @@ Verified in the VM today:
   content/hash binding to the checked-in Hello service source snapshot and a
   signed repo-local artifact-byte reference that remains non-executing;
   `service.artifact_reference_trust_selftest` proves valid reference evidence
-  passes and tampered byte/content/reference/trust evidence fails closed;
+  passes and tampered byte/content/reference/trust evidence fails closed; a
+  `raios.current_boot_artifact_load_plan_preflight.v0` record now binds the
+  selected descriptor source, artifact identity, content binding, artifact
+  reference, and RAM-only service-slot intent before load/start while keeping
+  candidate-byte execution, executable mapping, persistence, durable audit,
+  rollback, and broad mutation denied;
   a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service

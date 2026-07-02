@@ -1,3 +1,89 @@
+        $HelloLoadPlanPreflightSchema = "raios.current_boot_artifact_load_plan_preflight.v0"
+        $HelloLoadPlanPreflightId = "artifact_load_plan_preflight.current_boot.svc.demo.hello.v0"
+        $HelloLoadPlanPreflightStatus = "accepted_builtin_current_boot_only"
+        $HelloServiceSlotIntentId = "service_slot_intent.current_boot.svc.demo.hello.v0"
+        $HelloRamOnlyServiceSlotId = "ram_only:svc.demo.hello"
+
+        $AssertHelloLoadPlanPreflight = {
+            param(
+                [string]$Name,
+                [object]$Preflight,
+                [string]$DescriptorSourceLocator,
+                [string]$DescriptorSourceHash,
+                [string]$ArtifactIdentityHash,
+                [string]$ArtifactContentHash,
+                [string]$ArtifactReferenceHash,
+                [string]$ArtifactBytesHash
+            )
+
+            if (-not $Preflight) {
+                throw "Expected $Name to expose artifact load-plan preflight"
+            }
+            if ($Preflight.schema -ne $HelloLoadPlanPreflightSchema) {
+                throw "Expected $Name artifact load-plan preflight schema"
+            }
+            if ($Preflight.id -ne $HelloLoadPlanPreflightId) {
+                throw "Expected $Name artifact load-plan preflight id"
+            }
+            if ($Preflight.scope -ne "current_boot" -or $Preflight.classification -ne "local_only" -or $Preflight.status -ne $HelloLoadPlanPreflightStatus) {
+                throw "Expected $Name artifact load-plan preflight current_boot/local_only accepted status"
+            }
+            if (-not $Preflight.preflight_hash -or -not $Preflight.preflight_hash.StartsWith("sha256:")) {
+                throw "Expected $Name artifact load-plan preflight hash"
+            }
+            if ($Preflight.service_id -ne "svc.demo.hello" -or $Preflight.artifact_id -ne "builtin:svc.demo.hello" -or $Preflight.load_descriptor_id -ne "load_descriptor.current_boot.svc.demo.hello.v0") {
+                throw "Expected $Name artifact load-plan preflight to bind the Hello service, artifact, and descriptor"
+            }
+            if ($Preflight.descriptor_source_locator -ne $DescriptorSourceLocator -or $Preflight.descriptor_source_hash -ne $DescriptorSourceHash) {
+                throw "Expected $Name artifact load-plan preflight to bind the selected descriptor source"
+            }
+            if ($Preflight.artifact_identity_id -ne "builtin_artifact_identity.svc.demo.hello.v0" -or $Preflight.artifact_identity_hash -ne $ArtifactIdentityHash) {
+                throw "Expected $Name artifact load-plan preflight to bind the artifact identity"
+            }
+            if ($Preflight.artifact_content_binding_hash -ne $ArtifactContentHash) {
+                throw "Expected $Name artifact load-plan preflight to bind the artifact content"
+            }
+            if ($Preflight.artifact_reference_id -ne "builtin_artifact_reference.svc.demo.hello.v0" -or $Preflight.artifact_reference_hash -ne $ArtifactReferenceHash -or $Preflight.artifact_bytes_sha256 -ne $ArtifactBytesHash) {
+                throw "Expected $Name artifact load-plan preflight to bind the artifact reference and bytes"
+            }
+            if ($Preflight.service_slot_intent_schema -ne "raios.ram_only_service_slot_intent.v0" -or $Preflight.service_slot_intent_id -ne $HelloServiceSlotIntentId -or $Preflight.ram_only_service_slot_id -ne $HelloRamOnlyServiceSlotId) {
+                throw "Expected $Name artifact load-plan preflight to bind the RAM-only service slot intent"
+            }
+            if (-not $Preflight.accepted -or -not $Preflight.authorizes_builtin_current_boot_start) {
+                throw "Expected $Name artifact load-plan preflight to authorize only the built-in current-boot start"
+            }
+            if ($Preflight.authorizes_candidate_artifact_execution -or $Preflight.accepts_external_artifact_bytes -or $Preflight.loads_candidate_bytes -or $Preflight.maps_executable_pages -or $Preflight.writes_persistent_state -or $Preflight.writes_durable_audit_log -or $Preflight.installs_rollback_plan -or $Preflight.grants_broad_mutation) {
+                throw "Expected $Name artifact load-plan preflight to deny candidate execution, external bytes, executable mapping, persistence, durable audit, rollback, and broad mutation"
+            }
+
+            return $Preflight.preflight_hash
+        }
+
+        $AssertHelloLoadPlanPreflightReference = {
+            param(
+                [string]$Name,
+                [object]$Record,
+                [string]$ExpectedHash,
+                [bool]$ExpectServiceSlotIntent = $false
+            )
+
+            if ($Record.artifact_load_plan_preflight_id -ne $HelloLoadPlanPreflightId) {
+                throw "Expected $Name to cite the artifact load-plan preflight id"
+            }
+            if ($Record.artifact_load_plan_preflight_hash -ne $ExpectedHash) {
+                throw "Expected $Name to cite the artifact load-plan preflight hash"
+            }
+            if ($Record.artifact_load_plan_preflight_status -ne $HelloLoadPlanPreflightStatus) {
+                throw "Expected $Name to cite the artifact load-plan preflight status"
+            }
+            if ($ExpectServiceSlotIntent -and $Record.service_slot_intent_id -ne $HelloServiceSlotIntentId) {
+                throw "Expected $Name to cite the RAM-only service slot intent"
+            }
+            if ($Record.ram_only_service_slot_id -ne $HelloRamOnlyServiceSlotId) {
+                throw "Expected $Name to cite the RAM-only service slot id"
+            }
+        }
+
         Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
         Assert-LogContains -Name "quick:module_load_schema" -Needle '"schema": "raios.module_load_gate.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:module_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1
@@ -279,6 +365,27 @@
         if ($helloArtifactReference.accepts_external_artifact_bytes -or $helloArtifactReference.loads_artifact_as_code -or $helloArtifactReference.maps_executable_pages -or $helloArtifactReference.writes_persistent_state) {
             throw "Artifact reference must keep artifact byte intake, code loading, executable mapping, and persistence denied"
         }
+        $helloLoadPlanPreflightHash = & $AssertHelloLoadPlanPreflight `
+            -Name "hello load response" `
+            -Preflight $helloLoad.body.result.artifact_load_plan_preflight `
+            -DescriptorSourceLocator $helloDescriptorLocator `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -ArtifactIdentityHash $helloArtifactIdentityHash `
+            -ArtifactContentHash $helloArtifactContentHash `
+            -ArtifactReferenceHash $helloArtifactReferenceHash `
+            -ArtifactBytesHash $helloArtifactBytesHash
+        $helloLoadDescriptorPreflightHash = & $AssertHelloLoadPlanPreflight `
+            -Name "hello load descriptor" `
+            -Preflight $helloLoad.body.result.load_descriptor.artifact_load_plan_preflight `
+            -DescriptorSourceLocator $helloDescriptorLocator `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -ArtifactIdentityHash $helloArtifactIdentityHash `
+            -ArtifactContentHash $helloArtifactContentHash `
+            -ArtifactReferenceHash $helloArtifactReferenceHash `
+            -ArtifactBytesHash $helloArtifactBytesHash
+        if ($helloLoadDescriptorPreflightHash -ne $helloLoadPlanPreflightHash) {
+            throw "Expected hello load response and descriptor to agree on artifact load-plan preflight hash"
+        }
         if ($helloLoad.body.result.load_request.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello load request to cite the same descriptor source hash"
         }
@@ -297,6 +404,7 @@
         if ($helloLoad.body.result.load_request.artifact_reference_hash -ne $helloArtifactReferenceHash -or $helloLoad.body.result.load_request.artifact_bytes_sha256 -ne $helloArtifactBytesHash -or $helloLoad.body.result.load_request.artifact_reference_content_binding_hash -ne $helloArtifactContentHash -or $helloLoad.body.result.load_request.artifact_reference_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
             throw "Expected hello load request to cite the verified artifact byte reference"
         }
+        & $AssertHelloLoadPlanPreflightReference -Name "hello load request" -Record $helloLoad.body.result.load_request -ExpectedHash $helloLoadPlanPreflightHash -ExpectServiceSlotIntent $true
         if ($helloLoad.body.result.service.load_descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello service response to cite the same descriptor source hash"
         }
@@ -315,6 +423,7 @@
         if ($helloLoad.body.result.service.artifact_reference_hash -ne $helloArtifactReferenceHash -or $helloLoad.body.result.service.artifact_bytes_sha256 -ne $helloArtifactBytesHash -or $helloLoad.body.result.service.artifact_reference_content_binding_hash -ne $helloArtifactContentHash -or $helloLoad.body.result.service.artifact_reference_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
             throw "Expected hello service response to cite the verified artifact byte reference"
         }
+        & $AssertHelloLoadPlanPreflightReference -Name "hello service response" -Record $helloLoad.body.result.service -ExpectedHash $helloLoadPlanPreflightHash
         if ($helloLoad.body.result.loader.descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello loader response to cite the same descriptor source hash"
         }
@@ -333,6 +442,7 @@
         if ($helloLoad.body.result.loader.artifact_reference_hash -ne $helloArtifactReferenceHash -or $helloLoad.body.result.loader.artifact_bytes_sha256 -ne $helloArtifactBytesHash -or $helloLoad.body.result.loader.artifact_reference_content_binding_hash -ne $helloArtifactContentHash -or $helloLoad.body.result.loader.artifact_reference_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
             throw "Expected hello loader response to cite the verified artifact byte reference"
         }
+        & $AssertHelloLoadPlanPreflightReference -Name "hello loader response" -Record $helloLoad.body.result.loader -ExpectedHash $helloLoadPlanPreflightHash -ExpectServiceSlotIntent $true
         if (-not $helloLoad.body.result.service.loaded -or -not $helloLoad.body.result.service.running) {
             throw "Expected loaded/running hello service after load_start"
         }
@@ -379,6 +489,7 @@
         if ($helloInventory[0].artifact_reference_hash -ne $helloArtifactReferenceHash -or $helloInventory[0].artifact_bytes_sha256 -ne $helloArtifactBytesHash -or $helloInventory[0].artifact_reference_content_binding_hash -ne $helloArtifactContentHash -or $helloInventory[0].artifact_reference_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
             throw "Expected svc.demo.hello inventory record to cite the verified artifact byte reference"
         }
+        & $AssertHelloLoadPlanPreflightReference -Name "svc.demo.hello inventory record" -Record $helloInventory[0] -ExpectedHash $helloLoadPlanPreflightHash
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthRunning = Get-LastAgentResponseJson -Method "service.health"
@@ -404,6 +515,18 @@
         if ($helloHealthRunning.body.result.load_descriptor.artifact_identity.artifact_reference.reference_hash -ne $helloArtifactReferenceHash -or $helloHealthRunning.body.result.load_descriptor.artifact_identity.artifact_reference.artifact_bytes_sha256 -ne $helloArtifactBytesHash -or -not $helloHealthRunning.body.result.load_descriptor.artifact_identity.artifact_reference.trust_signature_verified) {
             throw "Expected hello health probe to cite the verified artifact byte reference"
         }
+        $helloHealthRunningPreflightHash = & $AssertHelloLoadPlanPreflight `
+            -Name "hello running health descriptor" `
+            -Preflight $helloHealthRunning.body.result.load_descriptor.artifact_load_plan_preflight `
+            -DescriptorSourceLocator $helloDescriptorLocator `
+            -DescriptorSourceHash $helloDescriptorHash `
+            -ArtifactIdentityHash $helloArtifactIdentityHash `
+            -ArtifactContentHash $helloArtifactContentHash `
+            -ArtifactReferenceHash $helloArtifactReferenceHash `
+            -ArtifactBytesHash $helloArtifactBytesHash
+        if ($helloHealthRunningPreflightHash -ne $helloLoadPlanPreflightHash) {
+            throw "Expected hello running health descriptor to retain the artifact load-plan preflight hash"
+        }
 
         Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
         $helloStop = Get-LastAgentResponseJson -Method "service.stop"
@@ -420,6 +543,9 @@
         }
         if ($helloHealthStopped.body.result.load_descriptor.source.sha256 -ne $helloDescriptorHash) {
             throw "Expected stopped hello health probe to retain descriptor source evidence"
+        }
+        if ($helloHealthStopped.body.result.load_descriptor.artifact_load_plan_preflight.preflight_hash -ne $helloLoadPlanPreflightHash) {
+            throw "Expected stopped hello health probe to retain artifact load-plan preflight evidence"
         }
 
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
@@ -496,6 +622,30 @@
         if ($hostHelloLoad.body.result.load_descriptor.artifact_identity.artifact_reference.reference_hash -ne $helloArtifactReferenceHash -or $hostHelloLoad.body.result.load_descriptor.artifact_identity.artifact_reference.artifact_bytes_sha256 -ne $helloArtifactBytesHash -or -not $hostHelloLoad.body.result.load_descriptor.artifact_identity.artifact_reference.trust_signature_verified) {
             throw "Expected host-bound load to keep the same verified built-in artifact byte reference"
         }
+        $hostLoadPlanPreflightHash = & $AssertHelloLoadPlanPreflight `
+            -Name "host-bound hello load descriptor" `
+            -Preflight $hostHelloLoad.body.result.load_descriptor.artifact_load_plan_preflight `
+            -DescriptorSourceLocator $hostDescriptorLocator `
+            -DescriptorSourceHash $hostDescriptorHash `
+            -ArtifactIdentityHash $helloArtifactIdentityHash `
+            -ArtifactContentHash $helloArtifactContentHash `
+            -ArtifactReferenceHash $helloArtifactReferenceHash `
+            -ArtifactBytesHash $helloArtifactBytesHash
+        $hostLoadResponsePreflightHash = & $AssertHelloLoadPlanPreflight `
+            -Name "host-bound hello load response" `
+            -Preflight $hostHelloLoad.body.result.artifact_load_plan_preflight `
+            -DescriptorSourceLocator $hostDescriptorLocator `
+            -DescriptorSourceHash $hostDescriptorHash `
+            -ArtifactIdentityHash $helloArtifactIdentityHash `
+            -ArtifactContentHash $helloArtifactContentHash `
+            -ArtifactReferenceHash $helloArtifactReferenceHash `
+            -ArtifactBytesHash $helloArtifactBytesHash
+        if ($hostLoadResponsePreflightHash -ne $hostLoadPlanPreflightHash) {
+            throw "Expected host-bound hello load response and descriptor to agree on artifact load-plan preflight hash"
+        }
+        & $AssertHelloLoadPlanPreflightReference -Name "host-bound hello load request" -Record $hostHelloLoad.body.result.load_request -ExpectedHash $hostLoadPlanPreflightHash -ExpectServiceSlotIntent $true
+        & $AssertHelloLoadPlanPreflightReference -Name "host-bound hello service response" -Record $hostHelloLoad.body.result.service -ExpectedHash $hostLoadPlanPreflightHash
+        & $AssertHelloLoadPlanPreflightReference -Name "host-bound hello loader response" -Record $hostHelloLoad.body.result.loader -ExpectedHash $hostLoadPlanPreflightHash -ExpectServiceSlotIntent $true
 
         Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
         $servicesAfterHostLoad = Get-LastAgentResponseJson -Method "service.inventory"
@@ -521,6 +671,7 @@
         if ($hostInventory[0].artifact_reference_hash -ne $helloArtifactReferenceHash -or $hostInventory[0].artifact_bytes_sha256 -ne $helloArtifactBytesHash -or $hostInventory[0].artifact_reference_content_binding_hash -ne $helloArtifactContentHash -or $hostInventory[0].artifact_reference_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
             throw "Expected host-bound inventory record to cite the verified artifact byte reference"
         }
+        & $AssertHelloLoadPlanPreflightReference -Name "host-bound inventory record" -Record $hostInventory[0] -ExpectedHash $hostLoadPlanPreflightHash
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $hostHealthRunning = Get-LastAgentResponseJson -Method "service.health"
@@ -539,6 +690,18 @@
         }
         if ($hostHealthRunning.body.result.load_descriptor.artifact_identity.artifact_reference.reference_hash -ne $helloArtifactReferenceHash -or $hostHealthRunning.body.result.load_descriptor.artifact_identity.artifact_reference.artifact_bytes_sha256 -ne $helloArtifactBytesHash -or -not $hostHealthRunning.body.result.load_descriptor.artifact_identity.artifact_reference.trust_signature_verified) {
             throw "Expected host-bound hello health probe to cite the verified artifact byte reference"
+        }
+        $hostHealthPreflightHash = & $AssertHelloLoadPlanPreflight `
+            -Name "host-bound hello health descriptor" `
+            -Preflight $hostHealthRunning.body.result.load_descriptor.artifact_load_plan_preflight `
+            -DescriptorSourceLocator $hostDescriptorLocator `
+            -DescriptorSourceHash $hostDescriptorHash `
+            -ArtifactIdentityHash $helloArtifactIdentityHash `
+            -ArtifactContentHash $helloArtifactContentHash `
+            -ArtifactReferenceHash $helloArtifactReferenceHash `
+            -ArtifactBytesHash $helloArtifactBytesHash
+        if ($hostHealthPreflightHash -ne $hostLoadPlanPreflightHash) {
+            throw "Expected host-bound hello health descriptor to retain artifact load-plan preflight evidence"
         }
 
         Send-AgentCommand -Command "service.stop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.stop"
@@ -587,6 +750,10 @@
         if ($helloArtifactReferenceEvents.Count -lt 6) {
             throw "Expected hello lifecycle events to cite the verified artifact byte reference"
         }
+        $helloLoadPlanPreflightEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "artifact_load_plan_preflight_hash" -and $_.bindings.artifact_load_plan_preflight_id -eq $HelloLoadPlanPreflightId -and $_.bindings.artifact_load_plan_preflight_hash -eq $helloLoadPlanPreflightHash -and $_.bindings.artifact_load_plan_preflight_status -eq $HelloLoadPlanPreflightStatus -and $_.bindings.artifact_load_plan_preflight_accepted -and $_.bindings.service_slot_intent_id -eq $HelloServiceSlotIntentId -and $_.bindings.ram_only_service_slot_id -eq $HelloRamOnlyServiceSlotId })
+        if ($helloLoadPlanPreflightEvents.Count -lt 3) {
+            throw "Expected hello lifecycle events to cite the accepted current-image artifact load-plan preflight"
+        }
         $hostDescriptorHashEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor_source_hash" -and $_.bindings.load_descriptor_source_hash -eq $hostDescriptorHash })
         if ($hostDescriptorHashEvents.Count -lt 3) {
             throw "Expected host-bound hello lifecycle events to cite the host-bound descriptor source hash"
@@ -594,6 +761,10 @@
         $hostDescriptorSourceEvents = @($helloEvents | Where-Object { $_.bindings.load_descriptor_source_locator -eq $hostDescriptorLocator -and $_.bindings.load_descriptor_source_kind -eq $hostDescriptorKind -and $_.bindings.load_descriptor_source_validated -and $_.bindings.binds_source_hash -eq $helloDescriptorHash })
         if ($hostDescriptorSourceEvents.Count -lt 3) {
             throw "Expected host-bound hello lifecycle events to cite the bound current-image descriptor source hash"
+        }
+        $hostLoadPlanPreflightEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "artifact_load_plan_preflight_hash" -and $_.bindings.artifact_load_plan_preflight_hash -eq $hostLoadPlanPreflightHash -and $_.bindings.service_slot_intent_id -eq $HelloServiceSlotIntentId -and $_.bindings.ram_only_service_slot_id -eq $HelloRamOnlyServiceSlotId })
+        if ($hostLoadPlanPreflightEvents.Count -lt 3) {
+            throw "Expected host-bound hello lifecycle events to cite the host-bound artifact load-plan preflight"
         }
         $helloHealthEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.health" -and $_.resource -eq "svc.demo.hello" })
         if ($helloHealthEvents.Count -lt 4) {
@@ -619,9 +790,17 @@
         if ($helloHealthArtifactReferenceEvents.Count -lt 4) {
             throw "Expected hello health events to cite the verified artifact byte reference"
         }
+        $helloHealthLoadPlanPreflightEvents = @($helloHealthEvents | Where-Object { @($_.evidence) -contains "artifact_load_plan_preflight_hash" -and $_.bindings.artifact_load_plan_preflight_hash -eq $helloLoadPlanPreflightHash -and $_.bindings.artifact_load_plan_preflight_accepted -and $_.bindings.ram_only_service_slot_id -eq $HelloRamOnlyServiceSlotId })
+        if ($helloHealthLoadPlanPreflightEvents.Count -lt 3) {
+            throw "Expected hello health events to cite the current-image artifact load-plan preflight"
+        }
         $hostHealthEvents = @($helloHealthEvents | Where-Object { $_.bindings.load_descriptor_source_hash -eq $hostDescriptorHash -and $_.bindings.binds_source_hash -eq $helloDescriptorHash })
         if ($hostHealthEvents.Count -lt 1) {
             throw "Expected host-bound health event to cite the host-bound source and bound current-image hash"
+        }
+        $hostHealthLoadPlanPreflightEvents = @($helloHealthEvents | Where-Object { @($_.evidence) -contains "artifact_load_plan_preflight_hash" -and $_.bindings.artifact_load_plan_preflight_hash -eq $hostLoadPlanPreflightHash -and $_.bindings.artifact_load_plan_preflight_accepted -and $_.bindings.ram_only_service_slot_id -eq $HelloRamOnlyServiceSlotId })
+        if ($hostHealthLoadPlanPreflightEvents.Count -lt 1) {
+            throw "Expected host-bound health event to cite the host-bound artifact load-plan preflight"
         }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 32' -TimeoutSeconds 1
@@ -642,6 +821,9 @@
         Assert-LogContains -Name "quick:audit_events_hello_artifact_reference_hash" -Needle '"artifact_reference_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_artifact_bytes_hash" -Needle '"artifact_bytes_sha256": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_artifact_reference_signature_verified" -Needle '"artifact_reference_trust_signature_verified": true' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_load_plan_preflight_hash" -Needle '"artifact_load_plan_preflight_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_load_plan_preflight_accepted" -Needle '"artifact_load_plan_preflight_accepted": true' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_ram_only_slot" -Needle '"ram_only_service_slot_id": "ram_only:svc.demo.hello"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1

@@ -1,5 +1,7 @@
 use spin::Mutex;
 
+use sha2::{Digest, Sha256};
+
 use crate::{
     agent_protocol_support::{
         begin_response, emit_inline_string_array, end_response, json_event_id_option, json_opt_str,
@@ -20,6 +22,15 @@ pub(crate) const LOAD_DESCRIPTOR_SOURCE_LOCATOR: &str =
     descriptor_sources::HELLO_LOAD_DESCRIPTOR_SOURCE_LOCATOR;
 pub(crate) const LOAD_DESCRIPTOR_SOURCE_KIND: &str =
     descriptor_sources::HELLO_LOAD_DESCRIPTOR_SOURCE_KIND;
+pub(crate) const ARTIFACT_LOAD_PLAN_PREFLIGHT_SCHEMA: &str =
+    "raios.current_boot_artifact_load_plan_preflight.v0";
+pub(crate) const ARTIFACT_LOAD_PLAN_PREFLIGHT_ID: &str =
+    "artifact_load_plan_preflight.current_boot.svc.demo.hello.v0";
+pub(crate) const ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS: &str = "accepted_builtin_current_boot_only";
+pub(crate) const SERVICE_SLOT_INTENT_SCHEMA: &str = "raios.ram_only_service_slot_intent.v0";
+pub(crate) const SERVICE_SLOT_INTENT_ID: &str =
+    "service_slot_intent.current_boot.svc.demo.hello.v0";
+pub(crate) const RAM_ONLY_SERVICE_SLOT_ID: &str = "ram_only:svc.demo.hello";
 
 #[derive(Clone, Copy)]
 pub(crate) struct LoadDescriptor {
@@ -105,6 +116,105 @@ pub(crate) fn artifact_reference_hash(descriptor: LoadDescriptor) -> [u8; 32] {
 
 pub(crate) fn artifact_reference_bytes_hash(descriptor: LoadDescriptor) -> [u8; 32] {
     descriptor_sources::artifact_reference_bytes_hash(descriptor.artifact_identity)
+}
+
+pub(crate) fn artifact_load_plan_preflight_hash(descriptor: LoadDescriptor) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_line_str(&mut hash, b"schema", ARTIFACT_LOAD_PLAN_PREFLIGHT_SCHEMA);
+    hash_line_str(&mut hash, b"id", ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
+    hash_line_str(&mut hash, b"scope", "current_boot");
+    hash_line_str(&mut hash, b"classification", "local_only");
+    hash_line_str(&mut hash, b"status", ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
+    hash_line_str(&mut hash, b"service_id", descriptor.service_id);
+    hash_line_str(&mut hash, b"artifact_id", descriptor.artifact_id);
+    hash_line_str(&mut hash, b"load_descriptor_id", descriptor.id);
+    hash_line_str(
+        &mut hash,
+        b"descriptor_source_locator",
+        descriptor.source_locator,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"descriptor_source_sha256",
+        descriptor_source_hash(descriptor),
+    );
+    hash_line_str(
+        &mut hash,
+        b"artifact_identity_id",
+        descriptor.artifact_identity.id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"artifact_identity_sha256",
+        artifact_identity_hash(descriptor),
+    );
+    hash_line_hash(
+        &mut hash,
+        b"artifact_content_binding_sha256",
+        artifact_content_binding_hash(descriptor),
+    );
+    hash_line_str(
+        &mut hash,
+        b"artifact_reference_id",
+        descriptor.artifact_identity.artifact_reference_id,
+    );
+    hash_line_hash(
+        &mut hash,
+        b"artifact_reference_sha256",
+        artifact_reference_hash(descriptor),
+    );
+    hash_line_hash(
+        &mut hash,
+        b"artifact_bytes_sha256",
+        artifact_reference_bytes_hash(descriptor),
+    );
+    hash_line_str(&mut hash, b"service_slot_intent_id", SERVICE_SLOT_INTENT_ID);
+    hash_line_str(
+        &mut hash,
+        b"ram_only_service_slot_id",
+        RAM_ONLY_SERVICE_SLOT_ID,
+    );
+    hash_line_bool(&mut hash, b"accepted", true);
+    hash_line_bool(&mut hash, b"authorizes_builtin_current_boot_start", true);
+    hash_line_bool(&mut hash, b"authorizes_candidate_artifact_execution", false);
+    hash_line_bool(&mut hash, b"accepts_external_artifact_bytes", false);
+    hash_line_bool(&mut hash, b"loads_candidate_bytes", false);
+    hash_line_bool(&mut hash, b"maps_executable_pages", false);
+    hash_line_bool(&mut hash, b"writes_persistent_state", false);
+    hash_line_bool(&mut hash, b"writes_durable_audit_log", false);
+    hash_line_bool(&mut hash, b"installs_rollback_plan", false);
+    hash_line_bool(&mut hash, b"grants_broad_mutation", false);
+    finalize_sha256(hash)
+}
+
+fn finalize_sha256(hash: Sha256) -> [u8; 32] {
+    let digest = hash.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
+fn hash_line_str(hash: &mut Sha256, key: &'static [u8], value: &str) {
+    hash.update(key);
+    hash.update(b"=");
+    hash.update(value.as_bytes());
+    hash.update(b"\n");
+}
+
+fn hash_line_hash(hash: &mut Sha256, key: &'static [u8], value: [u8; 32]) {
+    hash.update(key);
+    hash.update(b"=");
+    hash.update(value);
+    hash.update(b"\n");
+}
+
+fn hash_line_bool(hash: &mut Sha256, key: &'static [u8], value: bool) {
+    hash.update(key);
+    if value {
+        hash.update(b"=true\n");
+    } else {
+        hash.update(b"=false\n");
+    }
 }
 
 pub(crate) fn artifact_identity_signature_verified(descriptor: LoadDescriptor) -> bool {
@@ -711,6 +821,12 @@ fn lifecycle_binding(
         artifact_reference_validated: descriptor_sources::validate_builtin_hello_artifact_identity(
             identity,
         ),
+        artifact_load_plan_preflight_id: ARTIFACT_LOAD_PLAN_PREFLIGHT_ID,
+        artifact_load_plan_preflight_hash: artifact_load_plan_preflight_hash(descriptor),
+        artifact_load_plan_preflight_status: ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS,
+        artifact_load_plan_preflight_accepted: true,
+        service_slot_intent_id: SERVICE_SLOT_INTENT_ID,
+        ram_only_service_slot_id: RAM_ONLY_SERVICE_SLOT_ID,
         binds_source_locator: descriptor.binds_source_locator,
         binds_source_kind: descriptor.binds_source_kind,
         binds_source_hash: descriptor.binds_source_hash,
@@ -798,6 +914,9 @@ fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: even
     raw_line("        },");
     raw("        \"artifact_identity\": ");
     emit_artifact_identity(descriptor);
+    raw_line(",");
+    raw("        \"artifact_load_plan_preflight\": ");
+    emit_artifact_load_plan_preflight(descriptor);
     raw_line("");
     raw_line("      },");
     raw_line("      \"denied_surfaces\": {");
@@ -833,6 +952,9 @@ fn emit_response(
     emit_load_request(descriptor);
     raw_line(",");
     emit_load_descriptor(descriptor);
+    raw_line(",");
+    raw("      \"artifact_load_plan_preflight\": ");
+    emit_artifact_load_plan_preflight(descriptor);
     raw_line(",");
     raw_line("      \"service\": {");
     raw("        \"id\": ");
@@ -886,6 +1008,18 @@ fn emit_response(
     raw_line(",");
     raw("        \"artifact_reference_trust_envelope_hash\": ");
     json_sha256(descriptor.artifact_identity.signed_envelope.envelope_hash);
+    raw_line(",");
+    raw("        \"artifact_load_plan_preflight_id\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
+    raw_line(",");
+    raw("        \"artifact_load_plan_preflight_hash\": ");
+    json_sha256(artifact_load_plan_preflight_hash(descriptor));
+    raw_line(",");
+    raw("        \"artifact_load_plan_preflight_status\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
+    raw_line(",");
+    raw("        \"ram_only_service_slot_id\": ");
+    json_str(RAM_ONLY_SERVICE_SLOT_ID);
     raw_line(",");
     raw("        \"load_descriptor_id\": ");
     json_str(descriptor.id);
@@ -1012,6 +1146,21 @@ fn emit_response(
     raw("        \"artifact_reference_trust_envelope_hash\": ");
     json_sha256(descriptor.artifact_identity.signed_envelope.envelope_hash);
     raw_line(",");
+    raw("        \"artifact_load_plan_preflight_id\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
+    raw_line(",");
+    raw("        \"artifact_load_plan_preflight_hash\": ");
+    json_sha256(artifact_load_plan_preflight_hash(descriptor));
+    raw_line(",");
+    raw("        \"artifact_load_plan_preflight_status\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
+    raw_line(",");
+    raw("        \"service_slot_intent_id\": ");
+    json_str(SERVICE_SLOT_INTENT_ID);
+    raw_line(",");
+    raw("        \"ram_only_service_slot_id\": ");
+    json_str(RAM_ONLY_SERVICE_SLOT_ID);
+    raw_line(",");
     raw("        \"binds_source_locator\": ");
     json_opt_str(descriptor.binds_source_locator);
     raw_line(",");
@@ -1110,6 +1259,21 @@ fn emit_load_request(descriptor: LoadDescriptor) {
     raw("        \"artifact_reference_trust_envelope_hash\": ");
     json_sha256(descriptor.artifact_identity.signed_envelope.envelope_hash);
     raw_line(",");
+    raw("        \"artifact_load_plan_preflight_id\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
+    raw_line(",");
+    raw("        \"artifact_load_plan_preflight_hash\": ");
+    json_sha256(artifact_load_plan_preflight_hash(descriptor));
+    raw_line(",");
+    raw("        \"artifact_load_plan_preflight_status\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
+    raw_line(",");
+    raw("        \"service_slot_intent_id\": ");
+    json_str(SERVICE_SLOT_INTENT_ID);
+    raw_line(",");
+    raw("        \"ram_only_service_slot_id\": ");
+    json_str(RAM_ONLY_SERVICE_SLOT_ID);
+    raw_line(",");
     raw("        \"binds_source_locator\": ");
     json_opt_str(descriptor.binds_source_locator);
     raw_line(",");
@@ -1176,6 +1340,9 @@ fn emit_load_descriptor(descriptor: LoadDescriptor) {
     raw("        \"artifact_identity\": ");
     emit_artifact_identity(descriptor);
     raw_line(",");
+    raw("        \"artifact_load_plan_preflight\": ");
+    emit_artifact_load_plan_preflight(descriptor);
+    raw_line(",");
     raw("        \"scope\": ");
     json_str(descriptor.scope);
     raw_line(",");
@@ -1190,6 +1357,59 @@ fn emit_load_descriptor(descriptor: LoadDescriptor) {
     raw_line("        \"maps_executable_pages\": false,");
     raw_line("        \"writes_persistent_state\": false");
     raw("      }");
+}
+
+pub(crate) fn emit_artifact_load_plan_preflight(descriptor: LoadDescriptor) {
+    raw("{");
+    raw("\"schema\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_SCHEMA);
+    raw(", \"id\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
+    raw(", \"scope\": \"current_boot\"");
+    raw(", \"classification\": \"local_only\"");
+    raw(", \"status\": ");
+    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
+    raw(", \"preflight_hash\": ");
+    json_sha256(artifact_load_plan_preflight_hash(descriptor));
+    raw(", \"service_id\": ");
+    json_str(descriptor.service_id);
+    raw(", \"artifact_id\": ");
+    json_str(descriptor.artifact_id);
+    raw(", \"load_descriptor_id\": ");
+    json_str(descriptor.id);
+    raw(", \"descriptor_source_locator\": ");
+    json_str(descriptor.source_locator);
+    raw(", \"descriptor_source_hash\": ");
+    json_sha256(descriptor_source_hash(descriptor));
+    raw(", \"artifact_identity_id\": ");
+    json_str(descriptor.artifact_identity.id);
+    raw(", \"artifact_identity_hash\": ");
+    json_sha256(artifact_identity_hash(descriptor));
+    raw(", \"artifact_content_binding_hash\": ");
+    json_sha256(artifact_content_binding_hash(descriptor));
+    raw(", \"artifact_reference_id\": ");
+    json_str(descriptor.artifact_identity.artifact_reference_id);
+    raw(", \"artifact_reference_hash\": ");
+    json_sha256(artifact_reference_hash(descriptor));
+    raw(", \"artifact_bytes_sha256\": ");
+    json_sha256(artifact_reference_bytes_hash(descriptor));
+    raw(", \"service_slot_intent_schema\": ");
+    json_str(SERVICE_SLOT_INTENT_SCHEMA);
+    raw(", \"service_slot_intent_id\": ");
+    json_str(SERVICE_SLOT_INTENT_ID);
+    raw(", \"ram_only_service_slot_id\": ");
+    json_str(RAM_ONLY_SERVICE_SLOT_ID);
+    raw(", \"accepted\": true");
+    raw(", \"authorizes_builtin_current_boot_start\": true");
+    raw(", \"authorizes_candidate_artifact_execution\": false");
+    raw(", \"accepts_external_artifact_bytes\": false");
+    raw(", \"loads_candidate_bytes\": false");
+    raw(", \"maps_executable_pages\": false");
+    raw(", \"writes_persistent_state\": false");
+    raw(", \"writes_durable_audit_log\": false");
+    raw(", \"installs_rollback_plan\": false");
+    raw(", \"grants_broad_mutation\": false");
+    raw("}");
 }
 
 pub(crate) fn emit_descriptor_source_signature_envelope(descriptor: LoadDescriptor) {

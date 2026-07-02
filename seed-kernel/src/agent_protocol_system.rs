@@ -699,6 +699,16 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
             .signed_envelope
             .envelope_hash,
     );
+    raw(", \"artifact_load_plan_preflight_id\": ");
+    json_str(hello_service::ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
+    raw(", \"artifact_load_plan_preflight_hash\": ");
+    json_sha256(hello_service::artifact_load_plan_preflight_hash(
+        hello.load_descriptor,
+    ));
+    raw(", \"artifact_load_plan_preflight_status\": ");
+    json_str(hello_service::ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
+    raw(", \"ram_only_service_slot_id\": ");
+    json_str(hello_service::RAM_ONLY_SERVICE_SLOT_ID);
     raw(", \"load_descriptor_schema\": ");
     json_str(hello.load_descriptor.schema);
     raw(", \"load_descriptor_id\": ");

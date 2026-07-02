@@ -60,6 +60,16 @@ and broad mutation. The read-only
 artifact reference validates and tampered artifact byte hash, content-binding
 hash, reference hash, and trust payload linkage fail closed without accepting
 artifact bytes or mutating the event log.
+The Hello load path now also emits a
+`raios.current_boot_artifact_load_plan_preflight.v0` decision before
+load/start. The preflight binds the selected descriptor source, artifact
+identity, content binding, artifact reference, artifact bytes, and
+`ram_only:svc.demo.hello` service-slot intent into one current-boot/local-only
+hash. Load responses, nested load descriptors, `service.inventory`,
+`service.health`, and RAM audit bindings expose the preflight id/hash/status,
+accepted state, service-slot intent id, and RAM-only service-slot id while
+candidate-byte execution, executable mapping, persistence, durable audit,
+rollback, provider-triggered auto-load, and broad mutation remain denied.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -81,9 +91,9 @@ architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
 Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
-read-only Hello artifact-reference trust selftest. Quick Shadow VM smoke passed
-in `release/vm-reports/shadow-20260702-025252-23928.json` with 178/178
-predicates, 30 executed commands, and `duration_ms: 53295`. The focused smoke
+Hello current-boot artifact load-plan preflight. Quick Shadow VM smoke passed
+in `release/vm-reports/shadow-20260702-030513-27840.json` with 181/181
+predicates, 30 executed commands, and `duration_ms: 59868`. The focused smoke
 proves the current-image and host-bound Hello load/start/list/health/stop/drop
 paths still work, arbitrary external artifacts and wrong targets remain denied,
 `service.descriptor_source_trust_selftest` stays green, and
@@ -92,9 +102,15 @@ passes while tampered byte/content/reference/trust evidence fails closed. The
 load response, `service.inventory`, `service.health`, and RAM audit events cite
 the verified artifact identity hash/signature envelope plus the artifact
 content binding hash/trust state plus artifact reference hash, artifact byte
-hash, and trust signature state while keeping external artifact bytes,
+hash, trust signature state, and artifact load-plan preflight hash/status/slot
+evidence while keeping external artifact bytes, candidate-byte execution,
 executable page mapping, persistence, durable audit, rollback, provider
 auto-load, and broad mutation denied.
+
+Previous focused verification after the artifact-reference trust selftest:
+2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-025252-23928.json` with 178/178
+predicates, 30 executed commands, and `duration_ms: 53295`.
 
 Previous focused verification after artifact byte/reference evidence:
 2026-07-02 on Windows with QEMU 11. Quick Shadow VM smoke passed in
@@ -1172,16 +1188,17 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that the built-in `svc.demo.hello` service has signed descriptor-source,
-artifact identity, content/hash, artifact byte/reference evidence, and a
-focused artifact-reference trust selftest, add the smallest current-boot
-artifact load-plan preflight for the same Hello path. Bind the selected
-descriptor source, artifact identity, content binding, artifact reference, and
-service-slot intent into one pre-execution decision that is visible in the load
-response and RAM audit evidence. Keep execution bound to the existing
-built-in/current-boot service; do not map candidate bytes, write persistent
-state, write durable audit logs, install rollback plans, trigger provider
-auto-load, or grant broad module/service/config mutation.
+Now that the built-in `svc.demo.hello` service has a current-boot artifact
+load-plan preflight bound into load, inventory, health, and RAM-audit evidence,
+add the smallest read-only preflight selftest for the same Hello path. The
+selftest should prove the accepted preflight validates and that tampered
+descriptor-source, artifact-identity, content-binding, artifact-reference,
+artifact-byte, and service-slot/denial-flag evidence fails closed. Keep it
+read-only and non-mutating like the descriptor-source and artifact-reference
+selftests. Keep execution bound to the existing built-in/current-boot service;
+do not map candidate bytes, write persistent state, write durable audit logs,
+install rollback plans, trigger provider auto-load, or grant broad
+module/service/config mutation.
 
 The next slice should:
 
@@ -1204,11 +1221,12 @@ The next slice should:
 - keep the signed artifact-byte/reference evidence for the Hello candidate
   visible in load response, `service.inventory`, `service.health`, and RAM
   audit bindings
-- add a narrow artifact load-plan preflight that consumes the already validated
-  descriptor-source, artifact identity, content binding, artifact reference,
-  and RAM-only service-slot intent
-- expose the preflight id/hash/status in load response and lifecycle audit
-  evidence
+- keep the artifact load-plan preflight id/hash/status/accepted state visible
+  in load response, nested descriptor, `service.inventory`, `service.health`,
+  and lifecycle/health RAM audit evidence
+- add a narrow read-only `service.artifact_load_plan_preflight_selftest`
+  surface with a stable diagnostic id/hash and explicit tamper cases for the
+  preflight bindings and denial flags
 - keep stable artifact byte/reference trust ids and hashes in load response,
   `service.inventory`, `service.health`, and RAM audit bindings
 - keep the selected descriptor source locator/kind/validation/hash plus any
@@ -1218,8 +1236,8 @@ The next slice should:
   rollback installation, provider-triggered auto-load, and broad
   module/service/config mutation denied
 
-Do not add a signed artifact loader yet. The next step is a pre-execution
-load-plan binding over the already-working Hello path, not arbitrary module
+Do not add a signed artifact loader yet. The next step is a fail-closed
+selftest for the already-working load-plan binding, not arbitrary module
 execution.
 
 For multi-agent execution, this remains Track A. Other agents may work in
