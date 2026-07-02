@@ -90,6 +90,7 @@ pub(crate) const PROVIDER_REQUEST_BINDING_EVIDENCE: &[&str] = &[
     "token_budget_hash",
     "positive_provider_trust",
     "provider_trust_evidence_hash",
+    "provider_trust_verifier_metadata",
     "provider_write_not_attempted",
 ];
 pub(crate) const PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE: &[&str] = &[
@@ -105,6 +106,7 @@ pub(crate) const PROVIDER_EXPORT_AUDIT_BINDING_EVIDENCE: &[&str] = &[
     "token_budget_hash",
     "positive_provider_trust",
     "provider_trust_evidence_hash",
+    "provider_trust_verifier_metadata",
     "context_injection_disabled",
 ];
 pub(crate) const PROVIDER_BINDING_CONSUMPTION_EVIDENCE: &[&str] = &[

@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after binding provider trust evidence through
-the provider context request/export gate.
+Last updated: 2026-07-02 by Codex after binding provider trust verifier
+metadata through the provider context request/export gate.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -30,6 +30,12 @@ Latest verified implementation slice:
   export-audit binding hashes, retained through binding consumption and final
   injection authorization checks, exposed in provider gate diagnostics and
   RAM-only event bindings, and automatic context injection remains disabled
+- the trust evidence now includes explicit
+  `raios.provider_trust_verifier_metadata.v0` for the real Stage-0 OpenAI
+  pinned TLS verifier: verifier id, exact-host policy, configured leaf/SPKI pin
+  policy, TLS 1.3 P-256 CertificateVerify policy, and explicit
+  `pin_only_no_webpki_chain_validation` / `not_validated_stage0` chain/time
+  policies
 - the full Shadow VM provider-memory slice now expects all 20 provider context
   binding-gate selftest cases, including redaction/classification/budget/trust
   evidence hash mismatches, and the direct OpenAI smoke harness compares the
@@ -135,15 +141,15 @@ Latest verified implementation slice:
 Latest full verification:
 
 ```text
-release\vm-reports\shadow-20260702-040609-11856.json
-6631/6631 predicates, 243 executed commands, duration_ms: 610028
+release\vm-reports\shadow-20260702-042431-24536.json
+6632/6632 predicates, 243 executed commands, duration_ms: 609828
 ```
 
 Latest focused verification:
 
 ```text
-release\vm-reports\shadow-20260702-040501-24236.json
-191/191 quick predicates, 31 executed commands, duration_ms: 60507
+release\vm-reports\shadow-20260702-042325-25648.json
+191/191 quick predicates, 31 executed commands, duration_ms: 61603
 ```
 
 Latest focused verification after the artifact identity slice:
@@ -206,11 +212,12 @@ Exact next task:
 
 ```text
 Continue provider trust/context hardening at the TLS verifier boundary: prove
-the positive SPKI/WebPKI trust source itself with typed verifier metadata
-(host, pin/chain evidence, hostname/time policy) while keeping the new
+the pinned verifier's real fail-closed decision points with typed diagnostics
+or implement a real WebPKI chain/time verifier. Keep the verifier metadata,
 provider-trust evidence hash, redaction/classification/budget hashes,
 no-pin/no-trust denial, development-bypass denial, disabled context injection,
-and non-executing candidate bytes intact.
+and non-executing candidate bytes intact; do not mark WebPKI or time validation
+as present until they are actually implemented.
 ```
 
 AI-parallel next wave:
@@ -811,8 +818,8 @@ Scope:
 - require matching request id, request-envelope event id, request-body hash,
   request-envelope hash, request-binding hash, and provider-minimal
   packet/exported/omitted field-list hashes plus redaction,
-  field-classification, token-budget, and provider-trust evidence hashes inside
-  the retained binding pair
+  field-classification, token-budget, provider-trust evidence hashes, and
+  provider trust verifier metadata inside the retained binding pair
 - reject development TLS bypass records, non-positive trust records, stale or
   dropped referenced events, wrong variants, already consumed pairs, and body
   attachment records

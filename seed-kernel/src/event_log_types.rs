@@ -1,5 +1,7 @@
 use core::str;
 
+use crate::provider_trust::ProviderTrustVerifierMetadata;
+
 pub const EVENT_CAPACITY: usize = 256;
 pub const DEFAULT_EVENT_LIMIT: usize = 32;
 pub use crate::module_evidence::MODULE_SERVICE_SLOT_ID_MAX;
@@ -54,6 +56,7 @@ pub struct ProviderRequestBinding {
     pub provider_trust_state: &'static str,
     pub provider_trust_pin_kind: Option<&'static str>,
     pub provider_trust_pin_id: Option<&'static str>,
+    pub provider_trust_verifier: ProviderTrustVerifierMetadata,
     pub provider_trust_evidence_hash: [u8; 32],
     pub development_tls_bypass: bool,
 }
@@ -71,6 +74,7 @@ pub struct ProviderExportAuditBinding {
     pub provider_trust_state: &'static str,
     pub provider_trust_pin_kind: Option<&'static str>,
     pub provider_trust_pin_id: Option<&'static str>,
+    pub provider_trust_verifier: ProviderTrustVerifierMetadata,
     pub provider_trust_evidence_hash: [u8; 32],
     pub context_attached_to_provider_body: bool,
 }

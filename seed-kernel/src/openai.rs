@@ -18,7 +18,7 @@ use crate::{
     provider_config, provider_trust, serial, time, tls_io::KernelTcpStream, ui,
 };
 
-const API_HOST: &str = "api.openai.com";
+const API_HOST: &str = provider_trust::OPENAI_PINNED_TLS_VERIFIER_METADATA.host;
 const API_PORT: u16 = 443;
 const API_PATH: &str = "/v1/responses";
 const MODEL: &str = "gpt-5.4";
@@ -636,6 +636,7 @@ fn record_positive_provider_context_bindings(
         provider_trust_state,
         provider_trust_pin_kind: trust.pin_kind,
         provider_trust_pin_id: trust.pin_id,
+        provider_trust_verifier: trust.verifier,
         provider_trust_evidence_hash: trust_evidence_hash,
         development_tls_bypass: trust.development_bypass,
     };
@@ -661,6 +662,7 @@ fn record_positive_provider_context_bindings(
         provider_trust_state,
         provider_trust_pin_kind: trust.pin_kind,
         provider_trust_pin_id: trust.pin_id,
+        provider_trust_verifier: trust.verifier,
         provider_trust_evidence_hash: trust_evidence_hash,
         context_attached_to_provider_body: false,
     };
@@ -689,6 +691,8 @@ fn emit_provider_context_injection_gate_blocked(
     serial::write_raw_str(trust.state.as_protocol());
     serial::write_raw_str("\",\"provider_trust_positive\":true,\"provider_trust_evidence_hash\":");
     write_raw_sha256(provider_trust_evidence_hash(trust));
+    serial::write_raw_str(",\"provider_trust_verifier\":");
+    write_raw_provider_trust_verifier(trust.verifier);
     serial::write_raw_str(",\"final_authorization_schema\":\"raios.provider_context_injection_authorization.v0\",\"final_authorization\":\"missing\",\"satisfies_current_boot_export_gate\":false,\"automatic_context_injection\":\"disabled\",\"context_attached_to_provider_body\":false,\"provider_write\":\"not_attempted\",\"can_attach_context\":false,\"hashes\":");
     write_raw_context_hashes(context.event_hashes());
     serial::write_raw_str("}\r\n");
@@ -722,6 +726,32 @@ fn provider_trust_evidence_hash(trust: provider_trust::Snapshot) -> [u8; 32] {
         &mut hash,
         "provider_trust_pin_id",
         trust.pin_id.unwrap_or("none"),
+    );
+    hash_field(&mut hash, "verifier.schema", trust.verifier.schema);
+    hash_field(&mut hash, "verifier.id", trust.verifier.id);
+    hash_field(&mut hash, "verifier.host", trust.verifier.host);
+    hash_field(&mut hash, "verifier.port", trust.verifier.port);
+    hash_field(&mut hash, "verifier.transport", trust.verifier.transport);
+    hash_field(
+        &mut hash,
+        "verifier.hostname_policy",
+        trust.verifier.hostname_policy,
+    );
+    hash_field(&mut hash, "verifier.pin_policy", trust.verifier.pin_policy);
+    hash_field(
+        &mut hash,
+        "verifier.chain_policy",
+        trust.verifier.chain_policy,
+    );
+    hash_field(
+        &mut hash,
+        "verifier.time_policy",
+        trust.verifier.time_policy,
+    );
+    hash_field(
+        &mut hash,
+        "verifier.certificate_verify_policy",
+        trust.verifier.certificate_verify_policy,
     );
     hash_field(
         &mut hash,
@@ -922,6 +952,8 @@ fn emit_provider_request_binding(
     write_raw_opt_str(binding.provider_trust_pin_kind);
     serial::write_raw_str(",\"provider_trust_pin_id\":");
     write_raw_opt_str(binding.provider_trust_pin_id);
+    serial::write_raw_str(",\"provider_trust_verifier\":");
+    write_raw_provider_trust_verifier(binding.provider_trust_verifier);
     serial::write_raw_str(",\"provider_trust_evidence_hash\":");
     write_raw_sha256(binding.provider_trust_evidence_hash);
     serial::write_raw_str(",\"development_tls_bypass\":");
@@ -967,6 +999,8 @@ fn emit_provider_export_audit_binding(
     write_raw_opt_str(binding.provider_trust_pin_kind);
     serial::write_raw_str(",\"provider_trust_pin_id\":");
     write_raw_opt_str(binding.provider_trust_pin_id);
+    serial::write_raw_str(",\"provider_trust_verifier\":");
+    write_raw_provider_trust_verifier(binding.provider_trust_verifier);
     serial::write_raw_str(",\"provider_trust_evidence_hash\":");
     write_raw_sha256(binding.provider_trust_evidence_hash);
     serial::write_raw_str(",\"development_tls_bypass\":false},\"hashes\":");
@@ -983,6 +1017,30 @@ fn write_raw_opt_str(value: Option<&str>) {
         }
         None => serial::write_raw_str("null"),
     }
+}
+
+fn write_raw_provider_trust_verifier(metadata: provider_trust::ProviderTrustVerifierMetadata) {
+    serial::write_raw_str("{\"schema\":\"");
+    serial::write_raw_str(metadata.schema);
+    serial::write_raw_str("\",\"id\":\"");
+    serial::write_raw_str(metadata.id);
+    serial::write_raw_str("\",\"host\":\"");
+    serial::write_raw_str(metadata.host);
+    serial::write_raw_str("\",\"port\":\"");
+    serial::write_raw_str(metadata.port);
+    serial::write_raw_str("\",\"transport\":\"");
+    serial::write_raw_str(metadata.transport);
+    serial::write_raw_str("\",\"hostname_policy\":\"");
+    serial::write_raw_str(metadata.hostname_policy);
+    serial::write_raw_str("\",\"pin_policy\":\"");
+    serial::write_raw_str(metadata.pin_policy);
+    serial::write_raw_str("\",\"chain_policy\":\"");
+    serial::write_raw_str(metadata.chain_policy);
+    serial::write_raw_str("\",\"time_policy\":\"");
+    serial::write_raw_str(metadata.time_policy);
+    serial::write_raw_str("\",\"certificate_verify_policy\":\"");
+    serial::write_raw_str(metadata.certificate_verify_policy);
+    serial::write_raw_str("\"}");
 }
 
 fn write_raw_context_hashes(context: event_log::ProviderContextHashes) {

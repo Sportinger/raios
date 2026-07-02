@@ -9,6 +9,7 @@ use crate::event_log::{
 use crate::event_log_evidence::{
     PROVIDER_BINDING_CONSUMPTION_EVIDENCE, PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_EVIDENCE,
 };
+use crate::provider_trust::OPENAI_PINNED_TLS_VERIFIER_METADATA;
 
 pub(crate) fn provider_context_binding_gate_selftest(
     context: ProviderContextHashes,
@@ -801,6 +802,7 @@ fn selftest_request_binding(
         provider_trust_state: "pinned_spki_verified",
         provider_trust_pin_kind: Some("spki_sha256"),
         provider_trust_pin_id: Some("selftest-pin"),
+        provider_trust_verifier: OPENAI_PINNED_TLS_VERIFIER_METADATA,
         provider_trust_evidence_hash: tagged_hash(6),
         development_tls_bypass: false,
     }
@@ -824,6 +826,7 @@ fn selftest_export_binding(
         provider_trust_state: "pinned_spki_verified",
         provider_trust_pin_kind: Some("spki_sha256"),
         provider_trust_pin_id: Some("selftest-pin"),
+        provider_trust_verifier: OPENAI_PINNED_TLS_VERIFIER_METADATA,
         provider_trust_evidence_hash: tagged_hash(6),
         context_attached_to_provider_body: false,
     }

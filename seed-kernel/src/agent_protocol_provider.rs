@@ -946,6 +946,7 @@ pub(crate) fn emit_provider_context_injection_gate(runtime: ui::RuntimeStatus, r
     raw_line("      \"required\": [");
     raw_line("        \"positive_provider_trust\",");
     raw_line("        \"provider_trust_evidence_hash\",");
+    raw_line("        \"provider_trust_verifier_metadata\",");
     raw_line("        \"raios.provider_context_projection.v0\",");
     raw_line("        \"raios.provider_request_binding.v0\",");
     raw_line("        \"raios.provider_context_export_audit_binding.v0\",");
@@ -1330,6 +1331,7 @@ pub(crate) fn emit_provider_context_export_denied(
     raw_line("    \"required\": [");
     raw_line("      \"positive_provider_trust\",");
     raw_line("      \"provider_trust_evidence_hash\",");
+    raw_line("      \"provider_trust_verifier_metadata\",");
     raw_line("      \"raios.provider_context_projection.v0\",");
     raw_line("      \"raios.provider_context_export.v0\",");
     raw_line("      \"projected_packet_hash\",");
@@ -1596,6 +1598,46 @@ fn emit_provider_binding_candidate(check: &event_log::ProviderBindingGateCheck, 
         json_sha256(binding.provider_trust_evidence_hash);
     } else if let Some(binding) = check.request_binding {
         json_sha256(binding.provider_trust_evidence_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    indent(spaces);
+    raw("\"provider_trust_verifier_id\": ");
+    if let Some(binding) = check.export_audit_binding {
+        json_str(binding.provider_trust_verifier.id);
+    } else if let Some(binding) = check.request_binding {
+        json_str(binding.provider_trust_verifier.id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    indent(spaces);
+    raw("\"provider_trust_hostname_policy\": ");
+    if let Some(binding) = check.export_audit_binding {
+        json_str(binding.provider_trust_verifier.hostname_policy);
+    } else if let Some(binding) = check.request_binding {
+        json_str(binding.provider_trust_verifier.hostname_policy);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    indent(spaces);
+    raw("\"provider_trust_chain_policy\": ");
+    if let Some(binding) = check.export_audit_binding {
+        json_str(binding.provider_trust_verifier.chain_policy);
+    } else if let Some(binding) = check.request_binding {
+        json_str(binding.provider_trust_verifier.chain_policy);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    indent(spaces);
+    raw("\"provider_trust_time_policy\": ");
+    if let Some(binding) = check.export_audit_binding {
+        json_str(binding.provider_trust_verifier.time_policy);
+    } else if let Some(binding) = check.request_binding {
+        json_str(binding.provider_trust_verifier.time_policy);
     } else {
         raw("null");
     }

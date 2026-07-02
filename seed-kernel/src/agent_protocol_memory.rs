@@ -11,7 +11,7 @@ use crate::{
         json_str, method_eq, method_head_eq, raw, raw_bool, raw_fmt, raw_line,
     },
     agent_protocol_system::{emit_problem_objects, emit_service_ids, emit_status_state},
-    event_log, provider, serial,
+    event_log, provider, provider_trust, serial,
     system_status::SystemSnapshot,
     ui,
 };
@@ -614,6 +614,8 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_opt_str(binding.provider_trust_pin_kind);
             raw(", \"provider_trust_pin_id\": ");
             json_opt_str(binding.provider_trust_pin_id);
+            raw(", \"provider_trust_verifier\": ");
+            emit_provider_trust_verifier_metadata(binding.provider_trust_verifier);
             raw(", \"provider_trust_evidence_hash\": ");
             json_sha256(binding.provider_trust_evidence_hash);
             raw(", \"development_tls_bypass\": ");
@@ -645,6 +647,8 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_opt_str(binding.provider_trust_pin_kind);
             raw(", \"provider_trust_pin_id\": ");
             json_opt_str(binding.provider_trust_pin_id);
+            raw(", \"provider_trust_verifier\": ");
+            emit_provider_trust_verifier_metadata(binding.provider_trust_verifier);
             raw(", \"provider_trust_evidence_hash\": ");
             json_sha256(binding.provider_trust_evidence_hash);
             raw(", \"development_tls_bypass\": false}, \"hashes\": ");
@@ -2861,6 +2865,30 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             raw("}}");
         }
     }
+}
+
+fn emit_provider_trust_verifier_metadata(metadata: provider_trust::ProviderTrustVerifierMetadata) {
+    raw("{\"schema\": ");
+    json_str(metadata.schema);
+    raw(", \"id\": ");
+    json_str(metadata.id);
+    raw(", \"host\": ");
+    json_str(metadata.host);
+    raw(", \"port\": ");
+    json_str(metadata.port);
+    raw(", \"transport\": ");
+    json_str(metadata.transport);
+    raw(", \"hostname_policy\": ");
+    json_str(metadata.hostname_policy);
+    raw(", \"pin_policy\": ");
+    json_str(metadata.pin_policy);
+    raw(", \"chain_policy\": ");
+    json_str(metadata.chain_policy);
+    raw(", \"time_policy\": ");
+    json_str(metadata.time_policy);
+    raw(", \"certificate_verify_policy\": ");
+    json_str(metadata.certificate_verify_policy);
+    raw("}");
 }
 
 fn emit_module_loader_live_load_boundary_event_binding(

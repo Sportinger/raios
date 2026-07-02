@@ -67,10 +67,39 @@ impl TrustState {
 }
 
 #[derive(Clone, Copy)]
+pub struct ProviderTrustVerifierMetadata {
+    pub schema: &'static str,
+    pub id: &'static str,
+    pub host: &'static str,
+    pub port: &'static str,
+    pub transport: &'static str,
+    pub hostname_policy: &'static str,
+    pub pin_policy: &'static str,
+    pub chain_policy: &'static str,
+    pub time_policy: &'static str,
+    pub certificate_verify_policy: &'static str,
+}
+
+pub const OPENAI_PINNED_TLS_VERIFIER_METADATA: ProviderTrustVerifierMetadata =
+    ProviderTrustVerifierMetadata {
+        schema: "raios.provider_trust_verifier_metadata.v0",
+        id: "openai.pinned_tls13_p256_sha256.v0",
+        host: "api.openai.com",
+        port: "443",
+        transport: "tls1.3",
+        hostname_policy: "exact_api.openai.com_required",
+        pin_policy: "configured_leaf_or_spki_sha256_required",
+        chain_policy: "pin_only_no_webpki_chain_validation",
+        time_policy: "not_validated_stage0",
+        certificate_verify_policy: "tls13_ecdsa_secp256r1_sha256_required",
+    };
+
+#[derive(Clone, Copy)]
 pub struct Snapshot {
     pub state: TrustState,
     pub pin_kind: Option<&'static str>,
     pub pin_id: Option<&'static str>,
+    pub verifier: ProviderTrustVerifierMetadata,
     pub development_bypass: bool,
 }
 
@@ -114,6 +143,7 @@ pub fn snapshot() -> Snapshot {
             state: TrustState::TlsCertificateVerificationBypassed,
             pin_kind: pin_kind(pin),
             pin_id: pin_id(pin),
+            verifier: OPENAI_PINNED_TLS_VERIFIER_METADATA,
             development_bypass: true,
         };
     }
@@ -128,6 +158,7 @@ pub fn snapshot() -> Snapshot {
         state,
         pin_kind: pin_kind(pin),
         pin_id: pin_id(pin),
+        verifier: OPENAI_PINNED_TLS_VERIFIER_METADATA,
         development_bypass: false,
     }
 }

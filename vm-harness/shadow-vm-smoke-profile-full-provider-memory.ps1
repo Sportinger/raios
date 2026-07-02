@@ -49,6 +49,7 @@
     Assert-LogContains -Name "protocol:provider_context_injection_gate_blocked_final" -Needle '"reason": "final_injection_authorization_missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_gate_blocked_disabled" -Needle '"reason": "automatic_context_injection_disabled"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_gate_required_authorization" -Needle '"raios.provider_context_injection_authorization.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_injection_gate_required_trust_verifier" -Needle '"provider_trust_verifier_metadata"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_gate_redaction_hash" -Needle '"redaction_policy_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_gate_classification_hash" -Needle '"field_classification_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_gate_budget_hash" -Needle '"token_budget_hash": "sha256:' -TimeoutSeconds 1

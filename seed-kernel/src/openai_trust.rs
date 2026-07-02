@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 use crate::provider_trust;
 
-const EXPECTED_HOST: &str = "api.openai.com";
+const EXPECTED_HOST: &str = provider_trust::OPENAI_PINNED_TLS_VERIFIER_METADATA.host;
 const TLS13_CERT_VERIFY_CONTEXT: &[u8] = b"TLS 1.3, server CertificateVerify\x00";
 const P256_UNCOMPRESSED_POINT_LEN: usize = 65;
 const OID_EC_PUBLIC_KEY: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01];

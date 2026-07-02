@@ -328,6 +328,9 @@ injection-gate marker is a blocked prewrite diagnostic; both keep
 does not include provider-minimal context. Provider-minimal context hashes must
 include the packet hash, exported/omitted field-list hashes,
 `redaction_policy_hash`, `field_classification_hash`, and `token_budget_hash`.
+Pinned-trust markers must also expose
+`raios.provider_trust_verifier_metadata.v0` with the verifier id, exact-host
+policy, pin policy, and the explicit Stage-0 chain/time policy.
 
 Pinned-trust direct smokes also exercise the checked local gate:
 
