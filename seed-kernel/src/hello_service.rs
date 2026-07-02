@@ -38,6 +38,12 @@ pub(crate) const SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS: &str = "active_current_b
 pub(crate) const SERVICE_SLOT_ACTIVATION_STOPPED_STATUS: &str = "stopped_current_boot";
 pub(crate) const SERVICE_SLOT_ACTIVATION_CLEARED_STATUS: &str = "cleared_current_boot";
 pub(crate) const SERVICE_SLOT_ACTIVATION_MISSING_STATUS: &str = "missing_current_boot";
+pub(crate) const HELLO_STATE_SCHEMA: &str = "raios.ram_only_hello_service_state.v0";
+pub(crate) const HELLO_STATE_ID: &str = "hello_state.current_boot.svc.demo.hello.v0";
+pub(crate) const HELLO_STATE_MIGRATION_SCHEMA: &str =
+    "raios.ram_only_hello_service_state_migration.v0";
+pub(crate) const HELLO_STATE_MIGRATION_ID: &str =
+    "hello_state_migration.current_boot.svc.demo.hello.v0";
 const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_SCHEMA: &str =
     "raios.current_boot_artifact_load_plan_preflight_selftest.v0";
 const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_ID: &str =
@@ -122,6 +128,29 @@ struct ServiceSlotActivationRecord {
     authorizes_builtin_current_boot_start: bool,
     authorizes_candidate_artifact_execution: bool,
     writes_persistent_state: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct HelloStateMigrationRecord {
+    schema: &'static str,
+    id: &'static str,
+    scope: &'static str,
+    classification: &'static str,
+    persistence: &'static str,
+    migration_hash: [u8; 32],
+    service_id: &'static str,
+    ram_only_service_slot_id: &'static str,
+    from_version: &'static str,
+    to_version: &'static str,
+    pre_state_hash: [u8; 32],
+    post_state_hash: [u8; 32],
+    pre_state_counter: u64,
+    post_state_counter: u64,
+    state_preserved: bool,
+    accepted: bool,
+    writes_persistent_state: bool,
+    writes_durable_audit_log: bool,
+    installs_rollback_plan: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -214,6 +243,97 @@ pub(crate) fn artifact_load_plan_preflight_hash(descriptor: LoadDescriptor) -> [
 pub(crate) fn service_slot_activation_hash(descriptor: LoadDescriptor) -> [u8; 32] {
     service_slot_activation_record(descriptor, SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS, true)
         .activation_hash
+}
+
+pub(crate) fn hello_state_hash(state_counter: u64) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_line_str(&mut hash, b"schema", HELLO_STATE_SCHEMA);
+    hash_line_str(&mut hash, b"id", HELLO_STATE_ID);
+    hash_line_str(&mut hash, b"scope", "current_boot");
+    hash_line_str(&mut hash, b"classification", "local_only");
+    hash_line_str(&mut hash, b"persistence", "none");
+    hash_line_str(&mut hash, b"service_id", SERVICE_ID);
+    hash_line_str(
+        &mut hash,
+        b"ram_only_service_slot_id",
+        RAM_ONLY_SERVICE_SLOT_ID,
+    );
+    hash_line_u64(&mut hash, b"state_counter", state_counter);
+    hash_line_bool(&mut hash, b"writes_persistent_state", false);
+    finalize_sha256(hash)
+}
+
+fn hello_state_migration_record(
+    from_descriptor: LoadDescriptor,
+    to_descriptor: LoadDescriptor,
+    pre_state_counter: u64,
+    post_state_counter: u64,
+) -> HelloStateMigrationRecord {
+    let pre_state_hash = hello_state_hash(pre_state_counter);
+    let post_state_hash = hello_state_hash(post_state_counter);
+    let mut record = HelloStateMigrationRecord {
+        schema: HELLO_STATE_MIGRATION_SCHEMA,
+        id: HELLO_STATE_MIGRATION_ID,
+        scope: "current_boot",
+        classification: "local_only",
+        persistence: "none",
+        migration_hash: [0; 32],
+        service_id: SERVICE_ID,
+        ram_only_service_slot_id: RAM_ONLY_SERVICE_SLOT_ID,
+        from_version: service_version(from_descriptor),
+        to_version: service_version(to_descriptor),
+        pre_state_hash,
+        post_state_hash,
+        pre_state_counter,
+        post_state_counter,
+        state_preserved: pre_state_hash == post_state_hash
+            && pre_state_counter == post_state_counter,
+        accepted: true,
+        writes_persistent_state: false,
+        writes_durable_audit_log: false,
+        installs_rollback_plan: false,
+    };
+    record.migration_hash = hello_state_migration_record_hash(record);
+    record
+}
+
+fn hello_state_migration_record_hash(record: HelloStateMigrationRecord) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_line_str(&mut hash, b"schema", record.schema);
+    hash_line_str(&mut hash, b"id", record.id);
+    hash_line_str(&mut hash, b"scope", record.scope);
+    hash_line_str(&mut hash, b"classification", record.classification);
+    hash_line_str(&mut hash, b"persistence", record.persistence);
+    hash_line_str(&mut hash, b"service_id", record.service_id);
+    hash_line_str(
+        &mut hash,
+        b"ram_only_service_slot_id",
+        record.ram_only_service_slot_id,
+    );
+    hash_line_str(&mut hash, b"from_version", record.from_version);
+    hash_line_str(&mut hash, b"to_version", record.to_version);
+    hash_line_hash(&mut hash, b"pre_state_sha256", record.pre_state_hash);
+    hash_line_hash(&mut hash, b"post_state_sha256", record.post_state_hash);
+    hash_line_u64(&mut hash, b"pre_state_counter", record.pre_state_counter);
+    hash_line_u64(&mut hash, b"post_state_counter", record.post_state_counter);
+    hash_line_bool(&mut hash, b"state_preserved", record.state_preserved);
+    hash_line_bool(&mut hash, b"accepted", record.accepted);
+    hash_line_bool(
+        &mut hash,
+        b"writes_persistent_state",
+        record.writes_persistent_state,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"writes_durable_audit_log",
+        record.writes_durable_audit_log,
+    );
+    hash_line_bool(
+        &mut hash,
+        b"installs_rollback_plan",
+        record.installs_rollback_plan,
+    );
+    finalize_sha256(hash)
 }
 
 fn artifact_load_plan_preflight_record(
@@ -651,6 +771,13 @@ fn hash_line_bool(hash: &mut Sha256, key: &'static [u8], value: bool) {
     }
 }
 
+fn hash_line_u64(hash: &mut Sha256, key: &'static [u8], value: u64) {
+    hash.update(key);
+    hash.update(b"=");
+    hash.update(value.to_le_bytes());
+    hash.update(b"\n");
+}
+
 pub(crate) fn artifact_identity_signature_verified(descriptor: LoadDescriptor) -> bool {
     let identity = descriptor.artifact_identity;
     descriptor_sources::verify_artifact_identity_envelope_parts(
@@ -666,6 +793,8 @@ pub(crate) struct Snapshot {
     pub loaded: bool,
     pub running: bool,
     pub generation: u64,
+    pub state_counter: u64,
+    pub state_migration: Option<HelloStateMigrationRecord>,
     pub load_descriptor: LoadDescriptor,
     pub last_action: &'static str,
     pub last_reason: &'static str,
@@ -683,6 +812,8 @@ struct State {
     loaded: bool,
     running: bool,
     generation: u64,
+    state_counter: u64,
+    state_migration: Option<HelloStateMigrationRecord>,
     load_descriptor: LoadDescriptor,
     last_action: &'static str,
     last_reason: &'static str,
@@ -701,6 +832,8 @@ impl State {
             loaded: false,
             running: false,
             generation: 0,
+            state_counter: 0,
+            state_migration: None,
             load_descriptor: LOAD_DESCRIPTOR,
             last_action: "none",
             last_reason: "not_loaded",
@@ -719,6 +852,8 @@ impl State {
             loaded: self.loaded,
             running: self.running,
             generation: self.generation,
+            state_counter: self.state_counter,
+            state_migration: self.state_migration,
             load_descriptor: self.load_descriptor,
             last_action: self.last_action,
             last_reason: self.last_reason,
@@ -1105,6 +1240,7 @@ fn load_start(source_method: &'static str, descriptor: LoadDescriptor) -> Snapsh
     } else {
         "upserted_current_boot_service"
     };
+    let state_counter = if state.loaded { state.state_counter } else { 1 };
     let event_id = event_log::record_hello_service_lifecycle(
         source_method,
         "response",
@@ -1114,16 +1250,20 @@ fn load_start(source_method: &'static str, descriptor: LoadDescriptor) -> Snapsh
             inventory_change,
             SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS,
             true,
+            state_counter,
+            None,
         ),
     );
 
     if !state.loaded {
         state.generation = state.generation.saturating_add(1);
+        state.state_counter = state_counter;
         state.load_event_id = Some(event_id);
     }
     state.loaded = true;
     state.running = true;
     state.load_descriptor = descriptor;
+    state.state_migration = None;
     state.start_event_id = Some(event_id);
     state.last_action = "load_start";
     state.last_reason = reason;
@@ -1152,6 +1292,11 @@ fn start(source_method: &'static str) -> Snapshot {
     } else {
         SERVICE_SLOT_ACTIVATION_MISSING_STATUS
     };
+    let state_counter = if state.loaded && !state.running {
+        state.state_counter.saturating_add(1)
+    } else {
+        state.state_counter
+    };
     let event_id = event_log::record_hello_service_lifecycle(
         source_method,
         "response",
@@ -1161,11 +1306,15 @@ fn start(source_method: &'static str) -> Snapshot {
             inventory_change,
             activation_status,
             state.loaded,
+            state_counter,
+            None,
         ),
     );
 
     if state.loaded {
         state.running = true;
+        state.state_counter = state_counter;
+        state.state_migration = None;
         state.start_event_id = Some(event_id);
     }
     state.last_action = "start";
@@ -1193,6 +1342,11 @@ fn restart(source_method: &'static str) -> Snapshot {
     } else {
         SERVICE_SLOT_ACTIVATION_MISSING_STATUS
     };
+    let state_counter = if state.loaded {
+        state.state_counter.saturating_add(1)
+    } else {
+        state.state_counter
+    };
     let event_id = event_log::record_hello_service_lifecycle(
         source_method,
         "response",
@@ -1202,11 +1356,15 @@ fn restart(source_method: &'static str) -> Snapshot {
             inventory_change,
             activation_status,
             state.loaded,
+            state_counter,
+            None,
         ),
     );
 
     if state.loaded {
         state.running = true;
+        state.state_counter = state_counter;
+        state.state_migration = None;
         state.start_event_id = Some(event_id);
     }
     state.last_action = "restart";
@@ -1233,6 +1391,17 @@ fn hot_swap(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot
     } else {
         SERVICE_SLOT_ACTIVATION_MISSING_STATUS
     };
+    let state_counter = state.state_counter;
+    let migration = if state.loaded {
+        Some(hello_state_migration_record(
+            state.load_descriptor,
+            descriptor,
+            state_counter,
+            state_counter,
+        ))
+    } else {
+        None
+    };
     let event_id = event_log::record_hello_service_lifecycle(
         source_method,
         "response",
@@ -1242,6 +1411,8 @@ fn hot_swap(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot
             inventory_change,
             activation_status,
             state.loaded,
+            state_counter,
+            migration,
         ),
     );
 
@@ -1252,6 +1423,7 @@ fn hot_swap(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot
         state.load_event_id = Some(event_id);
         state.start_event_id = Some(event_id);
         state.hot_swap_event_id = Some(event_id);
+        state.state_migration = migration;
     }
     state.last_action = "hot_swap";
     state.last_reason = reason;
@@ -1280,6 +1452,7 @@ fn stop(source_method: &'static str) -> Snapshot {
     } else {
         SERVICE_SLOT_ACTIVATION_MISSING_STATUS
     };
+    let state_counter = state.state_counter;
     let event_id = event_log::record_hello_service_lifecycle(
         source_method,
         "response",
@@ -1289,11 +1462,14 @@ fn stop(source_method: &'static str) -> Snapshot {
             inventory_change,
             activation_status,
             state.loaded,
+            state_counter,
+            None,
         ),
     );
 
     if state.loaded {
         state.running = false;
+        state.state_migration = None;
         state.stop_event_id = Some(event_id);
     }
     state.last_action = "stop";
@@ -1321,15 +1497,25 @@ fn drop_service(source_method: &'static str) -> Snapshot {
     } else {
         SERVICE_SLOT_ACTIVATION_MISSING_STATUS
     };
+    let state_counter = state.state_counter;
     let event_id = event_log::record_hello_service_lifecycle(
         source_method,
         "response",
         reason,
-        lifecycle_binding(descriptor, inventory_change, activation_status, false),
+        lifecycle_binding(
+            descriptor,
+            inventory_change,
+            activation_status,
+            false,
+            state_counter,
+            None,
+        ),
     );
 
     state.loaded = false;
     state.running = false;
+    state.state_counter = 0;
+    state.state_migration = None;
     state.drop_event_id = Some(event_id);
     state.last_action = "drop";
     state.last_reason = reason;
@@ -1360,6 +1546,8 @@ fn health_probe(source_method: &'static str) -> (Snapshot, event_log::EventId) {
             "none",
             service_slot_activation_status(snapshot),
             service_slot_activation_active(snapshot),
+            snapshot.state_counter,
+            snapshot.state_migration,
         ),
     );
     (snapshot, event_id)
@@ -1520,6 +1708,8 @@ fn lifecycle_binding(
     service_inventory_change: &'static str,
     service_slot_activation_status: &'static str,
     service_slot_activation_active: bool,
+    state_counter: u64,
+    state_migration: Option<HelloStateMigrationRecord>,
 ) -> event_log::HelloServiceLifecycleBinding {
     let identity = descriptor.artifact_identity;
     let identity_envelope = identity.signed_envelope;
@@ -1594,6 +1784,22 @@ fn lifecycle_binding(
         service_slot_activation_hash: service_slot_activation_hash(descriptor),
         service_slot_activation_status,
         service_slot_activation_active,
+        hello_state_schema: HELLO_STATE_SCHEMA,
+        hello_state_id: HELLO_STATE_ID,
+        hello_state_hash: hello_state_hash(state_counter),
+        hello_state_counter: state_counter,
+        state_migration_schema: state_migration.map(|record| record.schema),
+        state_migration_id: state_migration.map(|record| record.id),
+        state_migration_hash: state_migration.map(|record| record.migration_hash),
+        migration_from_version: state_migration.map(|record| record.from_version),
+        migration_to_version: state_migration.map(|record| record.to_version),
+        pre_migration_state_hash: state_migration.map(|record| record.pre_state_hash),
+        post_migration_state_hash: state_migration.map(|record| record.post_state_hash),
+        pre_migration_state_counter: state_migration.map(|record| record.pre_state_counter),
+        post_migration_state_counter: state_migration.map(|record| record.post_state_counter),
+        state_migration_preserved: state_migration
+            .map(|record| record.state_preserved)
+            .unwrap_or(false),
         binds_source_locator: descriptor.binds_source_locator,
         binds_source_kind: descriptor.binds_source_kind,
         binds_source_hash: descriptor.binds_source_hash,
@@ -1626,6 +1832,12 @@ fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: even
     raw("      \"service_slot_activation\": ");
     emit_service_slot_activation(descriptor, activation_status, activation_active);
     raw_line(",");
+    raw("      \"state\": ");
+    emit_hello_state(snapshot);
+    raw_line(",");
+    raw("      \"state_migration\": ");
+    emit_hello_state_migration_option(snapshot.state_migration);
+    raw_line(",");
     raw_line("      \"service\": {");
     raw("        \"id\": ");
     json_str(SERVICE_ID);
@@ -1645,6 +1857,9 @@ fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: even
     raw_line(",");
     raw("        \"generation\": ");
     raw_fmt(format_args!("{}", snapshot.generation));
+    raw_line(",");
+    raw("        \"state\": ");
+    emit_hello_state(snapshot);
     raw_line(",");
     raw("        \"last_action\": ");
     json_str(snapshot.last_action);
@@ -1751,6 +1966,12 @@ fn emit_response(
     raw("      \"service_slot_activation\": ");
     emit_service_slot_activation(descriptor, activation_status, activation_active);
     raw_line(",");
+    raw("      \"state\": ");
+    emit_hello_state(snapshot);
+    raw_line(",");
+    raw("      \"state_migration\": ");
+    emit_hello_state_migration_option(snapshot.state_migration);
+    raw_line(",");
     raw_line("      \"service\": {");
     raw("        \"id\": ");
     json_str(descriptor.service_id);
@@ -1853,6 +2074,9 @@ fn emit_response(
     raw_line(",");
     raw("        \"generation\": ");
     raw_fmt(format_args!("{}", snapshot.generation));
+    raw_line(",");
+    raw("        \"state\": ");
+    emit_hello_state(snapshot);
     raw_line(",");
     raw("        \"health\": ");
     json_str(if snapshot.running {
@@ -2299,6 +2523,78 @@ pub(crate) fn emit_service_slot_activation(
     raw_bool(record.authorizes_candidate_artifact_execution);
     raw(", \"writes_persistent_state\": ");
     raw_bool(record.writes_persistent_state);
+    raw("}");
+}
+
+pub(crate) fn emit_hello_state(snapshot: Snapshot) {
+    raw("{");
+    raw("\"schema\": ");
+    json_str(HELLO_STATE_SCHEMA);
+    raw(", \"id\": ");
+    json_str(HELLO_STATE_ID);
+    raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\"");
+    raw(", \"service_id\": ");
+    json_str(SERVICE_ID);
+    raw(", \"version\": ");
+    json_str(service_version(snapshot.load_descriptor));
+    raw(", \"ram_only_service_slot_id\": ");
+    json_str(RAM_ONLY_SERVICE_SLOT_ID);
+    raw(", \"state_counter\": ");
+    raw_fmt(format_args!("{}", snapshot.state_counter));
+    raw(", \"state_hash\": ");
+    json_sha256(hello_state_hash(snapshot.state_counter));
+    raw(", \"loaded\": ");
+    raw_bool(snapshot.loaded);
+    raw(", \"running\": ");
+    raw_bool(snapshot.running);
+    raw(", \"writes_persistent_state\": false");
+    raw("}");
+}
+
+fn emit_hello_state_migration_option(record: Option<HelloStateMigrationRecord>) {
+    let Some(record) = record else {
+        raw("null");
+        return;
+    };
+    raw("{");
+    raw("\"schema\": ");
+    json_str(record.schema);
+    raw(", \"id\": ");
+    json_str(record.id);
+    raw(", \"scope\": ");
+    json_str(record.scope);
+    raw(", \"classification\": ");
+    json_str(record.classification);
+    raw(", \"persistence\": ");
+    json_str(record.persistence);
+    raw(", \"migration_hash\": ");
+    json_sha256(record.migration_hash);
+    raw(", \"service_id\": ");
+    json_str(record.service_id);
+    raw(", \"ram_only_service_slot_id\": ");
+    json_str(record.ram_only_service_slot_id);
+    raw(", \"from_version\": ");
+    json_str(record.from_version);
+    raw(", \"to_version\": ");
+    json_str(record.to_version);
+    raw(", \"pre_state_hash\": ");
+    json_sha256(record.pre_state_hash);
+    raw(", \"post_state_hash\": ");
+    json_sha256(record.post_state_hash);
+    raw(", \"pre_state_counter\": ");
+    raw_fmt(format_args!("{}", record.pre_state_counter));
+    raw(", \"post_state_counter\": ");
+    raw_fmt(format_args!("{}", record.post_state_counter));
+    raw(", \"state_preserved\": ");
+    raw_bool(record.state_preserved);
+    raw(", \"accepted\": ");
+    raw_bool(record.accepted);
+    raw(", \"writes_persistent_state\": ");
+    raw_bool(record.writes_persistent_state);
+    raw(", \"writes_durable_audit_log\": ");
+    raw_bool(record.writes_durable_audit_log);
+    raw(", \"installs_rollback_plan\": ");
+    raw_bool(record.installs_rollback_plan);
     raw("}");
 }
 

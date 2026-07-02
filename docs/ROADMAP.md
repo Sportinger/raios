@@ -2,8 +2,9 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying the signed
-`service.hot_swap svc.demo.hello.v2` current-boot replacement candidate.
+Last updated: 2026-07-02 by Codex after quick-VM-verifying RAM-only Hello
+state migration across the signed `service.hot_swap svc.demo.hello.v2`
+replacement candidate.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -110,8 +111,12 @@ Latest verified implementation slice:
   mutation, `service.hot_swap svc.demo.hello.v2` selects a distinct signed v2
   artifact identity with visible `version: "v2"` and its own
   identity/preflight/activation hashes, both accepted hot-swaps record lifecycle
-  events and advance the loaded generation, and `service.drop svc.demo.hello`
-  removes it from inventory; the inventory and health records cite
+  events and advance the loaded generation, `raios.ram_only_hello_service_state.v0`
+  exposes a tiny current-boot counter in load, inventory, health, lifecycle,
+  and audit records, and v1->v2 plus v2->v1 hot-swaps preserve that state
+  through `raios.ram_only_hello_service_state_migration.v0` records while
+  denying persistence, durable audit, and rollback install; `service.drop
+  svc.demo.hello` removes it from inventory; the inventory and health records cite
   `load_descriptor.current_boot.svc.demo.hello.v0` plus the descriptor source
   locator/kind/validation/hash and bound source hash when present
 - lifecycle and health actions retain
@@ -193,7 +198,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the signed Hello v2 hot-swap slice:
+Latest focused verification after the Hello state migration slice:
+
+```text
+release\vm-reports\shadow-20260702-073742-10256.json
+237/237 quick predicates, 48 executed commands, duration_ms: 74841
+```
+
+Previous focused verification after the signed Hello v2 hot-swap slice:
 
 ```text
 release\vm-reports\shadow-20260702-072537-6980.json
@@ -343,18 +355,20 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Continue the runtime artifact track with the smallest real RAM-only state
-migration slice: add one tiny Hello service state value and prove a
-`service.hot_swap svc.demo.hello.v2` transition preserves it while recording
-current-boot migration evidence. Keep external bytes, candidate execution,
-executable mapping, persistence, durable audit writes, rollback install,
-provider auto-load, and broad mutation denied.
+Continue the runtime artifact track with the smallest fail-closed state
+migration gate: add a live denied reset/mismatch hot-swap path that computes a
+would-reset Hello state migration, refuses it before descriptor/state mutation,
+and proves the active generation plus state hash/counter stay unchanged with
+RAM-only audit evidence. Keep external bytes, candidate execution, executable
+mapping, persistence, durable audit writes, rollback install, provider
+auto-load, and broad mutation denied.
 ```
 
 AI-parallel next wave:
 
-1. Runtime artifact track: add the first tiny RAM-only state value and prove it
-   survives the signed Hello v2 hot-swap without accepting external bytes.
+1. Runtime artifact track: prove a bad Hello state migration is denied before
+   hot-swap mutation while preserving the active descriptor, generation, and
+   RAM-only state.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted

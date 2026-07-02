@@ -753,6 +753,8 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
     raw_bool(hello.running);
     raw(", \"generation\": ");
     raw_fmt(format_args!("{}", hello.generation));
+    raw(", \"state\": ");
+    hello_service::emit_hello_state(hello);
     raw(", \"last_action\": ");
     json_str(hello.last_action);
     raw(", \"capabilities\": [");

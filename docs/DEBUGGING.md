@@ -531,8 +531,13 @@ activation evidence while loaded. Stop keeps the same activation hash with
 `stopped_current_boot`; start and restart keep the same activation hash with
 `active_current_boot`; restart records `last_action: "restart"` and reason
 `restarted_loaded_service`; hot-swap records `last_action: "hot_swap"` and
-reason `hot_swapped_builtin_service`; drop cites the same activation hash with
-`cleared_current_boot` before cleanup. `audit.events` must show
+reason `hot_swapped_builtin_service`; the Hello state record
+`raios.ram_only_hello_service_state.v0` must start at counter 1, advance through
+start/restart to counter 3, stay unchanged across v1/v2 hot-swaps, and expose a
+`raios.ram_only_hello_service_state_migration.v0` record with matching pre/post
+state hash and counter for the v1->v2 transition; drop cites the same activation
+hash with `cleared_current_boot` before cleanup and clears the state counter.
+`audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
 same load descriptor, validated source hash, signature envelope hash, and
@@ -540,7 +545,8 @@ signature verification state plus the verified artifact identity hash and
 signature envelope plus the artifact content binding hash and trust signature
 state plus artifact reference hash, byte hash, trust signature state, artifact
 load-plan preflight hash, accepted status, RAM-only service-slot id, and
-service-slot activation hash/status.
+service-slot activation hash/status plus Hello state hash/counter and v2
+state-migration hash/preserved-state evidence.
 
 `service.descriptor_source_trust_selftest` must return
 `raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and

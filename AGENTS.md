@@ -184,8 +184,10 @@ Still shape every durable slice so it can become raiOS memory later:
   the same service can be stopped, started again, explicitly restarted without
   changing its loaded generation, hot-swapped through the same signed built-in
   evidence chain with a new loaded generation, hot-swapped to a distinct signed
-  `svc.demo.hello.v2` identity with visible version metadata, then hot-swapped
-  back to v1 and dropped while retaining RAM-only lifecycle evidence;
+  `svc.demo.hello.v2` identity with visible version metadata while preserving a
+  tiny RAM-only Hello state counter through explicit current-boot migration
+  evidence, then hot-swapped back to v1 and dropped while retaining RAM-only
+  lifecycle evidence;
   `service.hot_swap external:svc.demo.hello` remains denied before service
   mutation;
   arbitrary external artifacts, candidate-byte execution, executable page
@@ -293,10 +295,9 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Continue the runtime artifact track with the first tiny RAM-only service
-   state value and prove it survives `service.hot_swap svc.demo.hello.v2`,
-   while external bytes, persistence, durable audit, rollback install, and
-   broad mutation stay denied.
+1. Continue the runtime artifact track with the smallest fail-closed
+   state-migration gate: deny a would-reset hot-swap before descriptor/state
+   mutation and prove generation plus RAM-only Hello state stay unchanged.
 2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
    validation once trusted roots, intermediate-chain handling, and trusted time
    exist.

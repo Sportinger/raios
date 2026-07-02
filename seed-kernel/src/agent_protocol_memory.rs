@@ -560,6 +560,34 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_str(binding.service_slot_activation_status);
             raw(", \"service_slot_activation_active\": ");
             raw_bool(binding.service_slot_activation_active);
+            raw(", \"hello_state_schema\": ");
+            json_str(binding.hello_state_schema);
+            raw(", \"hello_state_id\": ");
+            json_str(binding.hello_state_id);
+            raw(", \"hello_state_hash\": ");
+            json_sha256(binding.hello_state_hash);
+            raw(", \"hello_state_counter\": ");
+            raw_fmt(format_args!("{}", binding.hello_state_counter));
+            raw(", \"state_migration_schema\": ");
+            json_opt_str(binding.state_migration_schema);
+            raw(", \"state_migration_id\": ");
+            json_opt_str(binding.state_migration_id);
+            raw(", \"state_migration_hash\": ");
+            json_sha256_option(binding.state_migration_hash);
+            raw(", \"migration_from_version\": ");
+            json_opt_str(binding.migration_from_version);
+            raw(", \"migration_to_version\": ");
+            json_opt_str(binding.migration_to_version);
+            raw(", \"pre_migration_state_hash\": ");
+            json_sha256_option(binding.pre_migration_state_hash);
+            raw(", \"post_migration_state_hash\": ");
+            json_sha256_option(binding.post_migration_state_hash);
+            raw(", \"pre_migration_state_counter\": ");
+            json_u64_option(binding.pre_migration_state_counter);
+            raw(", \"post_migration_state_counter\": ");
+            json_u64_option(binding.post_migration_state_counter);
+            raw(", \"state_migration_preserved\": ");
+            raw_bool(binding.state_migration_preserved);
             raw(", \"binds_source_locator\": ");
             json_opt_str(binding.binds_source_locator);
             raw(", \"binds_source_kind\": ");
@@ -2919,6 +2947,14 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_sha256(binding.execution_stage_projection_hash);
             raw("}}");
         }
+    }
+}
+
+fn json_u64_option(value: Option<u64>) {
+    if let Some(value) = value {
+        raw_fmt(format_args!("{}", value));
+    } else {
+        raw("null");
     }
 }
 

@@ -11,6 +11,10 @@
         $HelloServiceSlotActivationStoppedStatus = "stopped_current_boot"
         $HelloServiceSlotActivationClearedStatus = "cleared_current_boot"
         $HelloServiceSlotActivationMissingStatus = "missing_current_boot"
+        $HelloStateSchema = "raios.ram_only_hello_service_state.v0"
+        $HelloStateId = "hello_state.current_boot.svc.demo.hello.v0"
+        $HelloStateMigrationSchema = "raios.ram_only_hello_service_state_migration.v0"
+        $HelloStateMigrationId = "hello_state_migration.current_boot.svc.demo.hello.v0"
         $HelloLoadPlanPreflightSelftestSchema = "raios.current_boot_artifact_load_plan_preflight_selftest.v0"
         $HelloLoadPlanPreflightSelftestId = "artifact_load_plan_preflight_selftest.current_boot.svc.demo.hello.v0"
 
@@ -163,6 +167,83 @@
             if ($Record.service_slot_activation_active -ne $ExpectedActive) {
                 throw "Expected $Name to cite service-slot activation active=$ExpectedActive"
             }
+        }
+
+        $AssertHelloState = {
+            param(
+                [string]$Name,
+                [object]$State,
+                [int]$ExpectedCounter,
+                [string]$ExpectedVersion
+            )
+
+            if (-not $State) {
+                throw "Expected $Name to expose Hello RAM-only state"
+            }
+            if ($State.schema -ne $HelloStateSchema -or $State.id -ne $HelloStateId) {
+                throw "Expected $Name Hello state schema/id"
+            }
+            if ($State.scope -ne "current_boot" -or $State.classification -ne "local_only" -or $State.persistence -ne "none") {
+                throw "Expected $Name Hello state current_boot/local_only/none"
+            }
+            if ($State.service_id -ne "svc.demo.hello" -or $State.ram_only_service_slot_id -ne $HelloRamOnlyServiceSlotId) {
+                throw "Expected $Name Hello state to bind the RAM-only service slot"
+            }
+            if ($State.version -ne $ExpectedVersion -or $State.state_counter -ne $ExpectedCounter) {
+                throw "Expected $Name Hello state version $ExpectedVersion counter $ExpectedCounter"
+            }
+            if (-not $State.state_hash -or -not $State.state_hash.StartsWith("sha256:")) {
+                throw "Expected $Name Hello state hash"
+            }
+            if ($State.writes_persistent_state) {
+                throw "Expected $Name Hello state to remain RAM-only"
+            }
+
+            return $State.state_hash
+        }
+
+        $AssertHelloStateMigration = {
+            param(
+                [string]$Name,
+                [object]$Migration,
+                [string]$ExpectedFromVersion,
+                [string]$ExpectedToVersion,
+                [int]$ExpectedCounter,
+                [string]$ExpectedStateHash
+            )
+
+            if (-not $Migration) {
+                throw "Expected $Name to expose Hello state migration evidence"
+            }
+            if ($Migration.schema -ne $HelloStateMigrationSchema -or $Migration.id -ne $HelloStateMigrationId) {
+                throw "Expected $Name Hello state migration schema/id"
+            }
+            if ($Migration.scope -ne "current_boot" -or $Migration.classification -ne "local_only" -or $Migration.persistence -ne "none") {
+                throw "Expected $Name Hello state migration current_boot/local_only/none"
+            }
+            if (-not $Migration.migration_hash -or -not $Migration.migration_hash.StartsWith("sha256:")) {
+                throw "Expected $Name Hello state migration hash"
+            }
+            if ($Migration.service_id -ne "svc.demo.hello" -or $Migration.ram_only_service_slot_id -ne $HelloRamOnlyServiceSlotId) {
+                throw "Expected $Name Hello state migration to bind the RAM-only service slot"
+            }
+            if ($Migration.from_version -ne $ExpectedFromVersion -or $Migration.to_version -ne $ExpectedToVersion) {
+                throw "Expected $Name Hello state migration from $ExpectedFromVersion to $ExpectedToVersion"
+            }
+            if ($Migration.pre_state_counter -ne $ExpectedCounter -or $Migration.post_state_counter -ne $ExpectedCounter) {
+                throw "Expected $Name Hello state migration to preserve counter $ExpectedCounter"
+            }
+            if ($Migration.pre_state_hash -ne $ExpectedStateHash -or $Migration.post_state_hash -ne $ExpectedStateHash) {
+                throw "Expected $Name Hello state migration to preserve state hash"
+            }
+            if (-not $Migration.state_preserved -or -not $Migration.accepted) {
+                throw "Expected $Name Hello state migration to be accepted and preserved"
+            }
+            if ($Migration.writes_persistent_state -or $Migration.writes_durable_audit_log -or $Migration.installs_rollback_plan) {
+                throw "Expected $Name Hello state migration to deny persistence, durable audit, and rollback install"
+            }
+
+            return $Migration.migration_hash
         }
 
         $agentEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe requested_capability=cap.system.describe.read classification=local_only"
@@ -686,6 +767,14 @@
         if ($helloLoad.body.result.service.load_descriptor_source_hash -ne $helloDescriptorHash) {
             throw "Expected hello service response to cite the same descriptor source hash"
         }
+        $helloStateHash = & $AssertHelloState -Name "hello load response" -State $helloLoad.body.result.state -ExpectedCounter 1 -ExpectedVersion "v1"
+        $helloServiceStateHash = & $AssertHelloState -Name "hello load service response" -State $helloLoad.body.result.service.state -ExpectedCounter 1 -ExpectedVersion "v1"
+        if ($helloServiceStateHash -ne $helloStateHash) {
+            throw "Expected hello load response and service object to agree on RAM-only state hash"
+        }
+        if ($null -ne $helloLoad.body.result.state_migration) {
+            throw "Expected initial hello load to have no state migration record"
+        }
         if ($helloLoad.body.result.service.load_descriptor_source_kind -ne $helloDescriptorKind -or -not $helloLoad.body.result.service.load_descriptor_source_validated) {
             throw "Expected hello service response to cite the validated current-image descriptor source"
         }
@@ -769,6 +858,10 @@
         if ($helloInventory[0].artifact_reference_hash -ne $helloArtifactReferenceHash -or $helloInventory[0].artifact_bytes_sha256 -ne $helloArtifactBytesHash -or $helloInventory[0].artifact_reference_content_binding_hash -ne $helloArtifactContentHash -or $helloInventory[0].artifact_reference_trust_envelope_hash -ne $helloArtifactIdentityEnvelope.envelope_hash) {
             throw "Expected svc.demo.hello inventory record to cite the verified artifact byte reference"
         }
+        $helloInventoryStateHash = & $AssertHelloState -Name "svc.demo.hello inventory record" -State $helloInventory[0].state -ExpectedCounter 1 -ExpectedVersion "v1"
+        if ($helloInventoryStateHash -ne $helloStateHash) {
+            throw "Expected svc.demo.hello inventory to expose the same RAM-only state hash after load"
+        }
         & $AssertHelloLoadPlanPreflightReference -Name "svc.demo.hello inventory record" -Record $helloInventory[0] -ExpectedHash $helloLoadPlanPreflightHash
         & $AssertHelloServiceSlotActivationReference -Name "svc.demo.hello inventory record" -Record $helloInventory[0] -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
 
@@ -795,6 +888,10 @@
         }
         if ($helloHealthRunning.body.result.load_descriptor.artifact_identity.artifact_reference.reference_hash -ne $helloArtifactReferenceHash -or $helloHealthRunning.body.result.load_descriptor.artifact_identity.artifact_reference.artifact_bytes_sha256 -ne $helloArtifactBytesHash -or -not $helloHealthRunning.body.result.load_descriptor.artifact_identity.artifact_reference.trust_signature_verified) {
             throw "Expected hello health probe to cite the verified artifact byte reference"
+        }
+        $helloHealthStateHash = & $AssertHelloState -Name "hello running health response" -State $helloHealthRunning.body.result.state -ExpectedCounter 1 -ExpectedVersion "v1"
+        if ($helloHealthStateHash -ne $helloStateHash) {
+            throw "Expected hello running health to expose the same RAM-only state hash"
         }
         $helloHealthRunningPreflightHash = & $AssertHelloLoadPlanPreflight `
             -Name "hello running health descriptor" `
@@ -833,6 +930,10 @@
         if ($helloStop.body.result.service.running) {
             throw "Expected stopped hello service after service.stop"
         }
+        $helloStopStateHash = & $AssertHelloState -Name "hello stop response" -State $helloStop.body.result.state -ExpectedCounter 1 -ExpectedVersion "v1"
+        if ($helloStopStateHash -ne $helloStateHash) {
+            throw "Expected service.stop to preserve Hello RAM-only state"
+        }
         $helloStopActivationHash = & $AssertHelloServiceSlotActivation `
             -Name "hello stop response" `
             -Activation $helloStop.body.result.service_slot_activation `
@@ -858,6 +959,10 @@
         if ($helloHealthStopped.body.result.load_descriptor.artifact_load_plan_preflight.preflight_hash -ne $helloLoadPlanPreflightHash) {
             throw "Expected stopped hello health probe to retain artifact load-plan preflight evidence"
         }
+        $helloHealthStoppedStateHash = & $AssertHelloState -Name "hello stopped health response" -State $helloHealthStopped.body.result.state -ExpectedCounter 1 -ExpectedVersion "v1"
+        if ($helloHealthStoppedStateHash -ne $helloStateHash) {
+            throw "Expected stopped hello health to preserve Hello RAM-only state"
+        }
         $helloHealthStoppedActivationHash = & $AssertHelloServiceSlotActivation `
             -Name "hello stopped health response" `
             -Activation $helloHealthStopped.body.result.service_slot_activation `
@@ -881,6 +986,11 @@
         }
         if ($helloStart.body.result.lifecycle.last_action -ne "start" -or $helloStart.body.result.lifecycle.reason -ne "started_loaded_service") {
             throw "Expected service.start lifecycle to mark the stopped loaded service as started"
+        }
+        $helloStartStateHash = & $AssertHelloState -Name "hello start response" -State $helloStart.body.result.state -ExpectedCounter 2 -ExpectedVersion "v1"
+        $helloStartServiceStateHash = & $AssertHelloState -Name "hello start service response" -State $helloStart.body.result.service.state -ExpectedCounter 2 -ExpectedVersion "v1"
+        if ($helloStartServiceStateHash -ne $helloStartStateHash -or $helloStartStateHash -eq $helloStateHash) {
+            throw "Expected service.start to advance the tiny Hello RAM-only state value"
         }
         $helloStartActivationHash = & $AssertHelloServiceSlotActivation `
             -Name "hello start response" `
@@ -910,6 +1020,10 @@
         if ($helloRestart.body.result.service.generation -ne $helloStart.body.result.service.generation) {
             throw "Expected service.restart to preserve the loaded hello generation"
         }
+        $helloRestartStateHash = & $AssertHelloState -Name "hello restart response" -State $helloRestart.body.result.state -ExpectedCounter 3 -ExpectedVersion "v1"
+        if ($helloRestartStateHash -eq $helloStartStateHash) {
+            throw "Expected service.restart to advance the tiny Hello RAM-only state value"
+        }
         $helloRestartActivationHash = & $AssertHelloServiceSlotActivation `
             -Name "hello restart response" `
             -Activation $helloRestart.body.result.service_slot_activation `
@@ -938,6 +1052,10 @@
         if ($helloHealthAfterBadHotSwap.body.result.load_descriptor.source.sha256 -ne $helloDescriptorHash) {
             throw "Expected denied service.hot_swap to preserve the current-image descriptor"
         }
+        $helloAfterBadHotSwapStateHash = & $AssertHelloState -Name "hello health after denied hot-swap" -State $helloHealthAfterBadHotSwap.body.result.state -ExpectedCounter 3 -ExpectedVersion "v1"
+        if ($helloAfterBadHotSwapStateHash -ne $helloRestartStateHash) {
+            throw "Expected denied service.hot_swap to preserve Hello RAM-only state"
+        }
 
         Send-AgentCommand -Command "service.hot_swap svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
         $helloHotSwap = Get-LastAgentResponseJson -Method "service.hot_swap"
@@ -957,6 +1075,11 @@
         if ($helloHotSwap.body.result.load_descriptor.source.sha256 -ne $helloDescriptorHash -or $helloHotSwap.body.result.load_descriptor.artifact_identity.sha256 -ne $helloArtifactIdentityHash) {
             throw "Expected service.hot_swap to cite the accepted built-in descriptor and artifact identity"
         }
+        $helloHotSwapStateHash = & $AssertHelloState -Name "hello hot-swap response" -State $helloHotSwap.body.result.state -ExpectedCounter 3 -ExpectedVersion "v1"
+        if ($helloHotSwapStateHash -ne $helloRestartStateHash) {
+            throw "Expected accepted v1 service.hot_swap to preserve Hello RAM-only state"
+        }
+        $helloHotSwapMigrationHash = & $AssertHelloStateMigration -Name "hello v1 hot-swap response" -Migration $helloHotSwap.body.result.state_migration -ExpectedFromVersion "v1" -ExpectedToVersion "v1" -ExpectedCounter 3 -ExpectedStateHash $helloRestartStateHash
         $helloHotSwapActivationHash = & $AssertHelloServiceSlotActivation `
             -Name "hello hot-swap response" `
             -Activation $helloHotSwap.body.result.service_slot_activation `
@@ -982,6 +1105,11 @@
         if ($helloHotSwapV2.body.result.service.generation -ne ($helloHotSwap.body.result.service.generation + 1)) {
             throw "Expected accepted v2 service.hot_swap to advance the loaded hello generation"
         }
+        $helloHotSwapV2StateHash = & $AssertHelloState -Name "hello v2 hot-swap response" -State $helloHotSwapV2.body.result.state -ExpectedCounter 3 -ExpectedVersion "v2"
+        if ($helloHotSwapV2StateHash -ne $helloHotSwapStateHash) {
+            throw "Expected v2 service.hot_swap to preserve Hello RAM-only state"
+        }
+        $helloHotSwapV2MigrationHash = & $AssertHelloStateMigration -Name "hello v2 hot-swap response" -Migration $helloHotSwapV2.body.result.state_migration -ExpectedFromVersion "v1" -ExpectedToVersion "v2" -ExpectedCounter 3 -ExpectedStateHash $helloHotSwapStateHash
         $helloHotSwapV2PreflightHash = & $AssertHelloLoadPlanPreflight `
             -Name "hello v2 hot-swap response" `
             -Preflight $helloHotSwapV2.body.result.artifact_load_plan_preflight `
@@ -1011,12 +1139,21 @@
         if ($helloHotSwapBack.body.result.service.generation -ne ($helloHotSwapV2.body.result.service.generation + 1)) {
             throw "Expected accepted v1 service.hot_swap to advance the loaded hello generation after v2"
         }
+        $helloHotSwapBackStateHash = & $AssertHelloState -Name "hello v1 hot-swap back response" -State $helloHotSwapBack.body.result.state -ExpectedCounter 3 -ExpectedVersion "v1"
+        if ($helloHotSwapBackStateHash -ne $helloHotSwapV2StateHash) {
+            throw "Expected v1 service.hot_swap back to preserve Hello RAM-only state"
+        }
+        $helloHotSwapBackMigrationHash = & $AssertHelloStateMigration -Name "hello v1 hot-swap back response" -Migration $helloHotSwapBack.body.result.state_migration -ExpectedFromVersion "v2" -ExpectedToVersion "v1" -ExpectedCounter 3 -ExpectedStateHash $helloHotSwapV2StateHash
 
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $helloDrop = Get-LastAgentResponseJson -Method "service.drop"
         Assert-CurrentBootEventId -Name "quick:hello_drop_event_id" -Value $helloDrop.body.result.event_id
         if ($helloDrop.body.result.service.loaded -or $helloDrop.body.result.service.running) {
             throw "Expected dropped hello service after service.drop"
+        }
+        $helloDropStateHash = & $AssertHelloState -Name "hello drop response" -State $helloDrop.body.result.state -ExpectedCounter 0 -ExpectedVersion "v1"
+        if ($helloDropStateHash -eq $helloHotSwapBackStateHash) {
+            throw "Expected service.drop to clear Hello RAM-only state"
         }
         $helloDropActivationHash = & $AssertHelloServiceSlotActivation `
             -Name "hello drop response" `
@@ -1037,6 +1174,7 @@
         if ($helloHealthMissing.body.result.service.health -ne "missing" -or $helloHealthMissing.body.result.service.loaded -or $helloHealthMissing.body.result.service.running) {
             throw "Expected hello health probe to report missing after drop"
         }
+        & $AssertHelloState -Name "hello missing health response" -State $helloHealthMissing.body.result.state -ExpectedCounter 0 -ExpectedVersion "v1" | Out-Null
         & $AssertHelloServiceSlotActivation `
             -Name "hello missing health response" `
             -Activation $helloHealthMissing.body.result.service_slot_activation `
@@ -1318,6 +1456,14 @@
         if ($helloHotSwapV2Events.Count -lt 1) {
             throw "Expected hello lifecycle events to include the signed v2 hot-swap candidate"
         }
+        $helloStateEvents = @($helloEvents | Where-Object { $_.bindings.hello_state_id -eq $HelloStateId -and $_.bindings.hello_state_hash -and $_.bindings.hello_state_hash.StartsWith("sha256:") })
+        if ($helloStateEvents.Count -lt 6) {
+            throw "Expected hello lifecycle events to cite RAM-only Hello state"
+        }
+        $helloHotSwapV2MigrationEvents = @($helloHotSwapV2Events | Where-Object { $_.bindings.state_migration_schema -eq $HelloStateMigrationSchema -and $_.bindings.state_migration_id -eq $HelloStateMigrationId -and $_.bindings.state_migration_hash -eq $helloHotSwapV2MigrationHash -and $_.bindings.migration_from_version -eq "v1" -and $_.bindings.migration_to_version -eq "v2" -and $_.bindings.pre_migration_state_counter -eq 3 -and $_.bindings.post_migration_state_counter -eq 3 -and $_.bindings.pre_migration_state_hash -eq $helloHotSwapStateHash -and $_.bindings.post_migration_state_hash -eq $helloHotSwapStateHash -and $_.bindings.state_migration_preserved })
+        if ($helloHotSwapV2MigrationEvents.Count -lt 1) {
+            throw "Expected v2 hot-swap lifecycle audit event to bind preserved RAM-only state migration"
+        }
         $helloDescriptorEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor.current_boot.svc.demo.hello.v0" })
         if ($helloDescriptorEvents.Count -lt 6) {
             throw "Expected hello lifecycle events to cite the load descriptor"
@@ -1457,6 +1603,8 @@
         Assert-LogContains -Name "quick:audit_events_hello_slot_activation_id" -Needle '"service_slot_activation_id": "service_slot_activation.current_boot.svc.demo.hello.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_slot_activation_hash" -Needle '"service_slot_activation_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_slot_activation_status" -Needle '"service_slot_activation_status": "' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_state_hash" -Needle '"hello_state_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_state_migration_hash" -Needle '"state_migration_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1

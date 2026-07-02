@@ -310,8 +310,11 @@ Verified in the VM today:
   recording a restart while preserving that generation, `service.hot_swap`
   validating the signed built-in evidence chain before advancing the loaded
   generation, `service.hot_swap svc.demo.hello.v2` selecting a distinct signed
-  built-in v2 identity with visible version metadata, and drop clearing the
-  current-boot slot while citing the same activation hash;
+  built-in v2 identity with visible version metadata, v1->v2 and v2->v1
+  hot-swaps preserving a tiny RAM-only
+  `raios.ram_only_hello_service_state.v0` counter through explicit
+  `raios.ram_only_hello_service_state_migration.v0` evidence, and drop
+  clearing the current-boot slot while citing the same activation hash;
   a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service
