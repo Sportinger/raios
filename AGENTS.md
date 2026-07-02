@@ -194,10 +194,10 @@ Still shape every durable slice so it can become raiOS memory later:
   probation evidence without changing active service state, exposes
   `service.rollback_apply svc.demo.hello` as structured `capability_denied`
   over retained preview/probation/state hashes plus a rollback
-  transaction/durable-audit preflight without changing descriptor, generation,
-  running state, RAM-only state, durable audit, rollback-store, or persistence,
-  then hot-swapped back to v1 and dropped while retaining RAM-only lifecycle
-  evidence;
+  transaction/durable-audit preflight and write-authority gate without changing
+  descriptor, generation, running state, RAM-only state, durable audit,
+  rollback-store, transaction append, or persistence, then hot-swapped back to
+  v1 and dropped while retaining RAM-only lifecycle evidence;
   `service.hot_swap external:svc.demo.hello` remains denied before service
   mutation;
   arbitrary external artifacts, candidate-byte execution, executable page
@@ -305,11 +305,12 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Continue the runtime artifact track with the smallest runtime rollback
-   write-authority gate over the verified Hello rollback transaction/durable
-   audit preflight, while real rollback application, persistence, durable
-   audit writes, rollback-store writes, external bytes, candidate execution,
-   executable mapping, provider auto-load, and broad mutation remain denied.
+1. Continue the runtime artifact track with the smallest rollback transaction
+   append-intent/availability gate over the verified Hello rollback
+   write-authority gate, while real rollback application, persistence, durable
+   audit writes, rollback-store writes, transaction append, external bytes,
+   candidate execution, executable mapping, provider auto-load, and broad
+   mutation remain denied.
 2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
    validation once trusted roots, intermediate-chain handling, and trusted time
    exist.
