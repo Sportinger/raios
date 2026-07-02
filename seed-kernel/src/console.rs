@@ -21,6 +21,8 @@ const AGENT_COMMAND_ENVELOPE_METHOD: &str = "agent.command_envelope";
 const AGENT_COMMAND_ENVELOPE_SCHEMA: &str = "raios.agent_command_envelope.v0";
 const AGENT_COMMAND_ENVELOPE_TARGET: &str = "system.describe";
 const AGENT_COMMAND_ENVELOPE_CAPABILITY: &str = "cap.system.describe.read";
+const AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET: &str = "system.snapshot";
+const AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_CAPABILITY: &str = "cap.system.snapshot.read";
 const AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET: &str = "service.inventory";
 const AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_CAPABILITY: &str = "cap.service.inventory.read";
 const AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET: &str = "problem.list";
@@ -1205,7 +1207,7 @@ fn command_help() {
         "AGENT RAW: service.health service.descriptor_source_trust_selftest service.artifact_reference_trust_selftest service.artifact_load_plan_preflight_selftest memory.context provider.context_export provider.context_gate provider.context_gate_selftest provider.context_injection_gate provider.context_injection_gate_selftest memory.query memory.trace memory.recent_events"
     ));
     write_output(format_args!(
-        "AGENT ENVELOPE: agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe|service.inventory|problem.list requested_capability=cap.<target>.read classification=local_only"
+        "AGENT ENVELOPE: agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe|system.snapshot|service.inventory|problem.list requested_capability=cap.<target>.read classification=local_only"
     ));
     write_output(format_args!(
         "RECOVERY: recovery.load_artifact module.load_recovery_artifact recovery.lifeline_command_admission recovery.lifeline_command_envelope_diagnostic recovery.lifeline_command_dispatch_diagnostic recovery.lifeline_command_body_canonicalization_diagnostic recovery.lifeline_command_handler_binding_diagnostic recovery.lifeline_status_read_handler_diagnostic recovery.rollback_preview_authorization_diagnostic recovery.rollback_apply_authorization_diagnostic recovery.disable_module_target_binding_diagnostic recovery.restart_last_good_target_binding_diagnostic recovery.load_artifact_by_hash_target_binding_diagnostic recovery.memory_write_authority_diagnostic recovery.durable_audit_rollback_write_authority_diagnostic recovery.service_inventory_side_effect_boundary_diagnostic recovery.lifeline_command_dispatch_behavior_diagnostic recovery.lifeline_command_executor_capability_table_diagnostic recovery.lifeline_command_side_effect_gate_diagnostic recovery.lifeline_command_execution_enablement_diagnostic recovery.lifeline_command_execution_preflight_diagnostic recovery.lifeline_command_execution_intent_diagnostic recovery.lifeline_command_execution_commit_gate_diagnostic recovery.lifeline_command_execution_result_denial_diagnostic"
@@ -1368,6 +1370,8 @@ fn agent_command_envelope_event_target(value: Option<&str>) -> Option<&'static s
     let value = value.unwrap_or("");
     if method_eq(value, AGENT_COMMAND_ENVELOPE_TARGET) {
         Some(AGENT_COMMAND_ENVELOPE_TARGET)
+    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET) {
+        Some(AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET)
     } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET) {
         Some(AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET)
     } else if method_eq(value, AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET) {
@@ -1383,6 +1387,8 @@ fn agent_command_envelope_allowed_target(value: Option<&str>) -> Option<&'static
     let value = value.unwrap_or("");
     if method_eq(value, AGENT_COMMAND_ENVELOPE_TARGET) {
         Some(AGENT_COMMAND_ENVELOPE_TARGET)
+    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET) {
+        Some(AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET)
     } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET) {
         Some(AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET)
     } else if method_eq(value, AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET) {
@@ -1396,6 +1402,8 @@ fn agent_command_envelope_event_capability(value: Option<&str>) -> Option<&'stat
     let value = value.unwrap_or("");
     if method_eq(value, AGENT_COMMAND_ENVELOPE_CAPABILITY) {
         Some(AGENT_COMMAND_ENVELOPE_CAPABILITY)
+    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_CAPABILITY) {
+        Some(AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_CAPABILITY)
     } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_CAPABILITY) {
         Some(AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_CAPABILITY)
     } else if method_eq(value, AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_CAPABILITY) {
@@ -1418,6 +1426,11 @@ fn agent_command_envelope_event_classification(value: Option<&str>) -> Option<&'
 
 fn agent_command_envelope_expected_capability(envelope: AgentCommandEnvelope<'_>) -> &'static str {
     if method_eq(
+        envelope.target_method.unwrap_or(""),
+        AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET,
+    ) {
+        AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_CAPABILITY
+    } else if method_eq(
         envelope.target_method.unwrap_or(""),
         AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET,
     ) {
@@ -1558,6 +1571,8 @@ fn emit_agent_command_envelope(
     raw("      \"allowed_target_methods\": [");
     json_str(AGENT_COMMAND_ENVELOPE_TARGET);
     raw(", ");
+    json_str(AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET);
+    raw(", ");
     json_str(AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET);
     raw(", ");
     json_str(AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET);
@@ -1566,7 +1581,7 @@ fn emit_agent_command_envelope(
     json_str(agent_command_envelope_expected_capability(envelope));
     raw_line(",");
     raw_line(
-        "      \"target_allowlist\": \"system_describe_service_inventory_problem_list_read_only\",",
+        "      \"target_allowlist\": \"system_describe_system_snapshot_service_inventory_problem_list_read_only\",",
     );
     raw("      \"dispatches_existing_agent_method\": ");
     raw_bool(accepted);
@@ -1583,6 +1598,11 @@ fn emit_agent_command_envelope(
 
 fn agent_command_envelope_response_id(envelope: AgentCommandEnvelope<'_>) -> &'static str {
     if method_eq(
+        envelope.target_method.unwrap_or(""),
+        AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET,
+    ) {
+        "agent_command_envelope.current_boot.serial.system_snapshot.v0"
+    } else if method_eq(
         envelope.target_method.unwrap_or(""),
         AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET,
     ) {

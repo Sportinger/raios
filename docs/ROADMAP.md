@@ -155,8 +155,9 @@ Latest verified implementation slice:
 - `agent command_envelope` now accepts schema
   `raios.agent_command_envelope.v0`, classification `local_only`, and the
   read-only target/capability pairs `system.describe` with
-  `cap.system.describe.read` and `service.inventory` with
-  `cap.service.inventory.read` and `problem.list` with
+  `cap.system.describe.read`, `system.snapshot` with
+  `cap.system.snapshot.read`, `service.inventory` with
+  `cap.service.inventory.read`, and `problem.list` with
   `cap.problem.list.read`; it emits a local-only
   `raios.agent_command_envelope.v0` response and routes to the existing
   dispatcher path. Bad-schema and over-capable envelope attempts are denied
@@ -169,7 +170,7 @@ Latest verified implementation slice:
   current-boot/local-only `raios.agent_command_envelope.decision` events with
   `raios.agent_command_envelope.audit_binding.v0`; the envelope response
   carries matching `event_id`/`audit_event_id`, and `audit.events` proves the
-  six currently verified decision shapes
+  seven currently verified decision shapes
 
 Previous full verification before the verifier-decision slice:
 
@@ -185,7 +186,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the `problem.list` command-envelope slice:
+Latest focused verification after the `system.snapshot` command-envelope slice:
+
+```text
+release\vm-reports\shadow-20260702-064636-24876.json
+220/220 quick predicates, 40 executed commands, duration_ms: 67908
+```
+
+Previous focused verification after the `problem.list` command-envelope slice:
 
 ```text
 release\vm-reports\shadow-20260702-063508-18024.json
@@ -294,8 +302,9 @@ Exact next task:
 
 ```text
 Widen `raios.agent_command_envelope.v0` by one more proven read-only target:
-add `system.snapshot` with `cap.system.snapshot.read`. Keep `system.describe`,
-`service.inventory`, and `problem.list` accepted with their matching
+add `system.capabilities` with `cap.system.capabilities.read`. Keep
+`system.describe`, `system.snapshot`, `service.inventory`, and `problem.list`
+accepted with their matching
 capabilities, keep the target/capability mismatch denial audit-visible, and
 keep malformed or over-capable mutation targets denied before dispatch.
 ```
@@ -303,7 +312,7 @@ keep malformed or over-capable mutation targets denied before dispatch.
 AI-parallel next wave:
 
 1. Agent protocol track: widen the typed command envelope only from proven
-   read-only command use cases, next `system.snapshot`.
+   read-only command use cases, next `system.capabilities`.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted

@@ -192,6 +192,21 @@
             throw "Expected accepted agent command envelope to route through system.describe"
         }
 
+        $systemSnapshotEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.snapshot requested_capability=cap.system.snapshot.read classification=local_only"
+        Send-AgentCommand -Command $systemSnapshotEnvelopeCommand -ExpectedMarker "RAIOS_AGENT_END system.snapshot"
+        $systemSnapshotEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
+        Assert-CurrentBootEventId -Name "quick:agent_command_envelope_system_snapshot_event_id" -Value $systemSnapshotEnvelope.body.result.event_id
+        if (-not $systemSnapshotEnvelope.body.result.accepted -or $systemSnapshotEnvelope.body.result.reason -ne "accepted" -or -not $systemSnapshotEnvelope.body.result.dispatches_existing_agent_method) {
+            throw "Expected system.snapshot agent command envelope to dispatch"
+        }
+        if ($systemSnapshotEnvelope.body.result.target_method -ne "system.snapshot" -or $systemSnapshotEnvelope.body.result.requested_capability -ne "cap.system.snapshot.read") {
+            throw "Expected agent command envelope to bind system.snapshot and its read capability"
+        }
+        $envelopedSystemSnapshot = Get-LastAgentResponseJson -Method "system.snapshot"
+        if ($envelopedSystemSnapshot.body.result.schema -ne "system.snapshot.v0") {
+            throw "Expected accepted agent command envelope to route through system.snapshot"
+        }
+
         $serviceInventoryEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=service.inventory requested_capability=cap.service.inventory.read classification=local_only"
         Send-AgentCommand -Command $serviceInventoryEnvelopeCommand -ExpectedMarker "RAIOS_AGENT_END service.inventory"
         $serviceInventoryEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
@@ -252,52 +267,6 @@
         Assert-CurrentBootEventId -Name "quick:agent_command_envelope_over_cap_event_id" -Value $overCapEnvelope.body.result.event_id
         if ($overCapEnvelope.body.result.accepted -or $overCapEnvelope.body.result.code -ne "capability_denied" -or $overCapEnvelope.body.result.reason -ne "target_method_not_allowed" -or $overCapEnvelope.body.result.dispatches_existing_agent_method) {
             throw "Expected over-capable agent command envelope to be denied before dispatch"
-        }
-        Send-AgentCommand -Command "agent audit.events 10" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
-        $envelopeAudit = Get-LastAgentResponseJson -Method "memory.recent_events"
-        $envelopeAuditEvents = @($envelopeAudit.body.result.events | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
-        if ($envelopeAuditEvents.Count -ne 6) {
-            throw "Expected six agent command envelope audit events"
-        }
-        foreach ($event in $envelopeAuditEvents) {
-            if ($event.classification -ne "local_only" -or $event.bindings.schema -ne "raios.agent_command_envelope.audit_binding.v0" -or $event.bindings.command_schema -ne "raios.agent_command_envelope.v0") {
-                throw "Expected local-only agent command envelope audit binding"
-            }
-            if (
-                $event.bindings.creates_parallel_dispatcher -or
-                ($event.bindings.provider_write -ne "not_attempted") -or
-                $event.bindings.loads_candidate_bytes -or
-                $event.bindings.writes_persistent_state -or
-                $event.bindings.writes_durable_audit_log -or
-                $event.bindings.installs_rollback_plan -or
-                $event.bindings.grants_broad_mutation
-            ) {
-                throw "Expected agent command envelope audit event to keep unsafe side effects disabled"
-            }
-        }
-        $acceptedEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $agentEnvelope.body.result.audit_event_id } | Select-Object -First 1
-        if (-not $acceptedEnvelopeEvent -or $acceptedEnvelopeEvent.outcome -ne "accepted" -or -not $acceptedEnvelopeEvent.bindings.accepted -or -not $acceptedEnvelopeEvent.bindings.dispatches_existing_agent_method -or $acceptedEnvelopeEvent.bindings.target_method -ne "system.describe") {
-            throw "Expected accepted agent command envelope audit event to bind system.describe"
-        }
-        $serviceInventoryEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $serviceInventoryEnvelope.body.result.event_id } | Select-Object -First 1
-        if (-not $serviceInventoryEnvelopeEvent -or $serviceInventoryEnvelopeEvent.outcome -ne "accepted" -or -not $serviceInventoryEnvelopeEvent.bindings.accepted -or -not $serviceInventoryEnvelopeEvent.bindings.dispatches_existing_agent_method -or $serviceInventoryEnvelopeEvent.bindings.target_method -ne "service.inventory" -or $serviceInventoryEnvelopeEvent.bindings.requested_capability -ne "cap.service.inventory.read") {
-            throw "Expected accepted agent command envelope audit event to bind service.inventory"
-        }
-        $problemListEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $problemListEnvelope.body.result.event_id } | Select-Object -First 1
-        if (-not $problemListEnvelopeEvent -or $problemListEnvelopeEvent.outcome -ne "accepted" -or -not $problemListEnvelopeEvent.bindings.accepted -or -not $problemListEnvelopeEvent.bindings.dispatches_existing_agent_method -or $problemListEnvelopeEvent.bindings.target_method -ne "problem.list" -or $problemListEnvelopeEvent.bindings.requested_capability -ne "cap.problem.list.read") {
-            throw "Expected accepted agent command envelope audit event to bind problem.list"
-        }
-        $mismatchEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $mismatchEnvelope.body.result.event_id } | Select-Object -First 1
-        if (-not $mismatchEnvelopeEvent -or $mismatchEnvelopeEvent.outcome -ne "capability_denied" -or $mismatchEnvelopeEvent.bindings.reason -ne "requested_capability_denied" -or $mismatchEnvelopeEvent.bindings.target_method -ne "service.inventory" -or -not $mismatchEnvelopeEvent.bindings.target_method_allowed -or $mismatchEnvelopeEvent.bindings.requested_capability -ne "cap.system.describe.read" -or $mismatchEnvelopeEvent.bindings.requested_capability_allowed -or $mismatchEnvelopeEvent.bindings.dispatches_existing_agent_method) {
-            throw "Expected target/capability mismatch audit event to be denied before dispatch"
-        }
-        $badEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $badEnvelope.body.result.event_id } | Select-Object -First 1
-        if (-not $badEnvelopeEvent -or $badEnvelopeEvent.outcome -ne "invalid_envelope" -or $badEnvelopeEvent.bindings.schema_ok -or $badEnvelopeEvent.bindings.reason -ne "schema_mismatch" -or $badEnvelopeEvent.bindings.dispatches_existing_agent_method) {
-            throw "Expected bad-schema agent command envelope audit event"
-        }
-        $overCapEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $overCapEnvelope.body.result.event_id } | Select-Object -First 1
-        if (-not $overCapEnvelopeEvent -or $overCapEnvelopeEvent.outcome -ne "capability_denied" -or $overCapEnvelopeEvent.bindings.reason -ne "target_method_not_allowed" -or $overCapEnvelopeEvent.bindings.target_method -ne "module.load_ephemeral" -or $overCapEnvelopeEvent.bindings.dispatches_existing_agent_method) {
-            throw "Expected over-capable agent command envelope audit event to be denied before dispatch"
         }
         Assert-LogDoesNotContain -Name "quick:agent_command_envelope_denied_no_module_dispatch" -Needle "RAIOS_AGENT_END module.load_ephemeral"
 
@@ -1136,6 +1105,54 @@
 
         Send-AgentCommand -Command "agent audit.events 40" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
+        $envelopeAuditEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
+        if ($envelopeAuditEvents.Count -ne 7) {
+            throw "Expected seven agent command envelope audit events"
+        }
+        foreach ($event in $envelopeAuditEvents) {
+            if ($event.classification -ne "local_only" -or $event.bindings.schema -ne "raios.agent_command_envelope.audit_binding.v0" -or $event.bindings.command_schema -ne "raios.agent_command_envelope.v0") {
+                throw "Expected local-only agent command envelope audit binding"
+            }
+            if (
+                $event.bindings.creates_parallel_dispatcher -or
+                ($event.bindings.provider_write -ne "not_attempted") -or
+                $event.bindings.loads_candidate_bytes -or
+                $event.bindings.writes_persistent_state -or
+                $event.bindings.writes_durable_audit_log -or
+                $event.bindings.installs_rollback_plan -or
+                $event.bindings.grants_broad_mutation
+            ) {
+                throw "Expected agent command envelope audit event to keep unsafe side effects disabled"
+            }
+        }
+        $acceptedEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $agentEnvelope.body.result.audit_event_id } | Select-Object -First 1
+        if (-not $acceptedEnvelopeEvent -or $acceptedEnvelopeEvent.outcome -ne "accepted" -or -not $acceptedEnvelopeEvent.bindings.accepted -or -not $acceptedEnvelopeEvent.bindings.dispatches_existing_agent_method -or $acceptedEnvelopeEvent.bindings.target_method -ne "system.describe") {
+            throw "Expected accepted agent command envelope audit event to bind system.describe"
+        }
+        $systemSnapshotEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $systemSnapshotEnvelope.body.result.event_id } | Select-Object -First 1
+        if (-not $systemSnapshotEnvelopeEvent -or $systemSnapshotEnvelopeEvent.outcome -ne "accepted" -or -not $systemSnapshotEnvelopeEvent.bindings.accepted -or -not $systemSnapshotEnvelopeEvent.bindings.dispatches_existing_agent_method -or $systemSnapshotEnvelopeEvent.bindings.target_method -ne "system.snapshot" -or $systemSnapshotEnvelopeEvent.bindings.requested_capability -ne "cap.system.snapshot.read") {
+            throw "Expected accepted agent command envelope audit event to bind system.snapshot"
+        }
+        $serviceInventoryEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $serviceInventoryEnvelope.body.result.event_id } | Select-Object -First 1
+        if (-not $serviceInventoryEnvelopeEvent -or $serviceInventoryEnvelopeEvent.outcome -ne "accepted" -or -not $serviceInventoryEnvelopeEvent.bindings.accepted -or -not $serviceInventoryEnvelopeEvent.bindings.dispatches_existing_agent_method -or $serviceInventoryEnvelopeEvent.bindings.target_method -ne "service.inventory" -or $serviceInventoryEnvelopeEvent.bindings.requested_capability -ne "cap.service.inventory.read") {
+            throw "Expected accepted agent command envelope audit event to bind service.inventory"
+        }
+        $problemListEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $problemListEnvelope.body.result.event_id } | Select-Object -First 1
+        if (-not $problemListEnvelopeEvent -or $problemListEnvelopeEvent.outcome -ne "accepted" -or -not $problemListEnvelopeEvent.bindings.accepted -or -not $problemListEnvelopeEvent.bindings.dispatches_existing_agent_method -or $problemListEnvelopeEvent.bindings.target_method -ne "problem.list" -or $problemListEnvelopeEvent.bindings.requested_capability -ne "cap.problem.list.read") {
+            throw "Expected accepted agent command envelope audit event to bind problem.list"
+        }
+        $mismatchEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $mismatchEnvelope.body.result.event_id } | Select-Object -First 1
+        if (-not $mismatchEnvelopeEvent -or $mismatchEnvelopeEvent.outcome -ne "capability_denied" -or $mismatchEnvelopeEvent.bindings.reason -ne "requested_capability_denied" -or $mismatchEnvelopeEvent.bindings.target_method -ne "service.inventory" -or -not $mismatchEnvelopeEvent.bindings.target_method_allowed -or $mismatchEnvelopeEvent.bindings.requested_capability -ne "cap.system.describe.read" -or $mismatchEnvelopeEvent.bindings.requested_capability_allowed -or $mismatchEnvelopeEvent.bindings.dispatches_existing_agent_method) {
+            throw "Expected target/capability mismatch audit event to be denied before dispatch"
+        }
+        $badEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $badEnvelope.body.result.event_id } | Select-Object -First 1
+        if (-not $badEnvelopeEvent -or $badEnvelopeEvent.outcome -ne "invalid_envelope" -or $badEnvelopeEvent.bindings.schema_ok -or $badEnvelopeEvent.bindings.reason -ne "schema_mismatch" -or $badEnvelopeEvent.bindings.dispatches_existing_agent_method) {
+            throw "Expected bad-schema agent command envelope audit event"
+        }
+        $overCapEnvelopeEvent = $envelopeAuditEvents | Where-Object { $_.id -eq $overCapEnvelope.body.result.event_id } | Select-Object -First 1
+        if (-not $overCapEnvelopeEvent -or $overCapEnvelopeEvent.outcome -ne "capability_denied" -or $overCapEnvelopeEvent.bindings.reason -ne "target_method_not_allowed" -or $overCapEnvelopeEvent.bindings.target_method -ne "module.load_ephemeral" -or $overCapEnvelopeEvent.bindings.dispatches_existing_agent_method) {
+            throw "Expected over-capable agent command envelope audit event to be denied before dispatch"
+        }
         $helloEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.lifecycle" -and $_.resource -eq "svc.demo.hello" })
         if ($helloEvents.Count -lt 6) {
             throw "Expected hello load/stop/drop lifecycle events in RAM audit log"
