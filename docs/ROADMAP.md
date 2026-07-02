@@ -18,6 +18,9 @@ Active execution rule:
   the RAM-only service path
 - prove the next slice with one real observable service lifecycle:
   load/start/list/stop/drop, all current-boot and non-persistent
+- treat the plan as an AI-parallel OS build, not a traditional serial
+  big-team roadmap: split independent agents by ownership boundary, then merge
+  only real verified slices
 
 Latest verified implementation slice:
 
@@ -114,15 +117,26 @@ service path. Keep execution built-in/current-boot, keep arbitrary artifact
 bytes denied, and keep persistence/durable audit/rollback denied.
 ```
 
-Next three tasks:
+AI-parallel next wave:
 
-1. Add a signed identity/trust envelope for the existing built-in Hello artifact
-   id or artifact descriptor, reusing the current P-256 verifier if it fits.
-2. Expose artifact identity/trust ids and hashes in load, inventory, health, and
-   RAM audit evidence while keeping artifact bytes denied.
-3. Only after built-in artifact identity is real, consider accepting signed
-   artifact bytes; keep execution built-in/current-boot until execution,
-   audit, rollback, and recovery evidence exists.
+1. Runtime identity track: add a signed identity/trust envelope for the existing
+   built-in Hello artifact id or artifact descriptor, reusing the current P-256
+   verifier if it fits; expose artifact identity/trust ids and hashes in load,
+   inventory, health, and RAM audit while keeping artifact bytes denied.
+2. Provider trust/context track: harden the direct provider path toward
+   SPKI/WebPKI trust and keep context injection gated by typed request/export
+   authorization evidence.
+3. UI/input track: improve response wrapping, scrolling, and settings controls
+   while keeping UI state derived from typed system facts.
+4. VM harness/evidence track: keep focused smokes fast and add predicates only
+   when they prove positive behavior or necessary fail-closed denials.
+5. Recovery/persistence track: keep lifeline, durable audit, rollback, and
+   persistence designed from the final trust model; do not implement fake
+   persistence or rollback before the evidence chain exists.
+
+Only after built-in artifact identity is real should a later integration cursor
+consider signed artifact bytes. Execution must stay built-in/current-boot until
+execution, audit, rollback, and recovery evidence exists.
 
 Documentation ownership:
 

@@ -50,6 +50,15 @@ boundary by default. Persistence, arbitrary external artifact intake, durable
 audit writes, rollback installation, provider-triggered auto-load, and broad
 module/service/config mutation remain denied.
 
+OS-wide AI-parallel pivot memory: treat the current cursor as one integration
+track inside the whole raiOS build, not as a traditional serial master plan.
+Independent agents may work in parallel on runtime identity, provider
+trust/context, UI/input, VM harness/evidence, docs/status, and
+recovery/persistence design when ownership boundaries do not conflict. Each
+merged result must still be a real verified vertical slice on the final
+architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
+schema-only detour that does not unblock positive runtime behavior.
+
 Last verified locally: 2026-07-02 on Windows with QEMU 11 after adding the
 read-only descriptor-source trust selftest over the signed current-image Hello
 descriptor-source envelope. Quick Shadow VM smoke passed in
@@ -1144,6 +1153,11 @@ The next slice should:
 
 Do not add a signed artifact loader yet. The next step is artifact identity for
 the already-working built-in service path, not arbitrary module bytes.
+
+For multi-agent execution, this is Track A. Other agents may work in parallel on
+provider trust/context hardening, UI/input polish, harness speed/evidence, and
+recovery/persistence design as long as they preserve the same evidence gates and
+do not weaken the current runtime denials.
 
 Historical recovery refactor notes retained below are no longer the active
 roadmap cursor:

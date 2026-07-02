@@ -65,6 +65,9 @@ final architecture or test the real path.
 Keep the full raiOS vision, but move it through observable vertical slices.
 The default next step should be the smallest real capability on the final
 architecture path, not another schema-only boundary.
+This is an OS-wide AI-parallel build, not a traditional serial big-team plan:
+independent agents may work at the same time when their ownership boundaries do
+not conflict, but every merged result must be a real, tested slice.
 
 - A non-authorizing schema or diagnostic slice is allowed only when it directly
   unblocks the next positive behavior, closes a concrete trust gap, or repairs
