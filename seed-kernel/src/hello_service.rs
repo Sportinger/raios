@@ -268,6 +268,7 @@ fn hello_state_migration_record(
     to_descriptor: LoadDescriptor,
     pre_state_counter: u64,
     post_state_counter: u64,
+    accepted: bool,
 ) -> HelloStateMigrationRecord {
     let pre_state_hash = hello_state_hash(pre_state_counter);
     let post_state_hash = hello_state_hash(post_state_counter);
@@ -288,7 +289,7 @@ fn hello_state_migration_record(
         post_state_counter,
         state_preserved: pre_state_hash == post_state_hash
             && pre_state_counter == post_state_counter,
-        accepted: true,
+        accepted,
         writes_persistent_state: false,
         writes_durable_audit_log: false,
         installs_rollback_plan: false,
@@ -896,7 +897,7 @@ pub(crate) fn is_restart_method(method: &str) -> bool {
 }
 
 pub(crate) fn is_hot_swap_method(method: &str) -> bool {
-    hot_swap_request(method).is_some()
+    hot_swap_request(method).is_some() || reset_state_hot_swap_target(method)
 }
 
 pub(crate) fn is_drop_method(method: &str) -> bool {
@@ -957,17 +958,22 @@ pub(crate) fn emit_restart(_method: &str) -> &'static str {
 }
 
 pub(crate) fn emit_hot_swap(method: &str) -> &'static str {
-    let Some(request) = hot_swap_request(method) else {
-        return "service.hot_swap";
-    };
-    let snapshot = hot_swap(request.source_method, request.descriptor);
-    emit_response(
-        request.source_method,
-        "hot_swap",
-        snapshot,
-        request.descriptor,
-    );
-    request.source_method
+    if let Some(request) = hot_swap_request(method) {
+        let snapshot = hot_swap(request.source_method, request.descriptor);
+        emit_response(
+            request.source_method,
+            "hot_swap",
+            snapshot,
+            request.descriptor,
+        );
+        request.source_method
+    } else if reset_state_hot_swap_target(method) {
+        let (snapshot, event_id, migration) = denied_reset_state_hot_swap();
+        emit_hot_swap_state_migration_denied("service.hot_swap", snapshot, event_id, migration);
+        "service.hot_swap"
+    } else {
+        "service.hot_swap"
+    }
 }
 
 pub(crate) fn emit_drop(_method: &str) -> &'static str {
@@ -1398,6 +1404,7 @@ fn hot_swap(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot
             descriptor,
             state_counter,
             state_counter,
+            true,
         ))
     } else {
         None
@@ -1430,6 +1437,31 @@ fn hot_swap(source_method: &'static str, descriptor: LoadDescriptor) -> Snapshot
     state.last_inventory_change = inventory_change;
     state.last_event_id = Some(event_id);
     state.snapshot()
+}
+
+fn denied_reset_state_hot_swap() -> (Snapshot, event_log::EventId, HelloStateMigrationRecord) {
+    let snapshot = STATE.lock().snapshot();
+    let migration = hello_state_migration_record(
+        snapshot.load_descriptor,
+        snapshot.load_descriptor,
+        snapshot.state_counter,
+        0,
+        false,
+    );
+    let event_id = event_log::record_hello_service_lifecycle(
+        "service.hot_swap",
+        "capability_denied",
+        "state_migration_would_reset_state",
+        lifecycle_binding(
+            snapshot.load_descriptor,
+            "none",
+            service_slot_activation_status(snapshot),
+            service_slot_activation_active(snapshot),
+            snapshot.state_counter,
+            Some(migration),
+        ),
+    );
+    (snapshot, event_id, migration)
 }
 
 fn stop(source_method: &'static str) -> Snapshot {
@@ -1661,6 +1693,16 @@ fn replacement_target_matches(target: &str) -> bool {
         || target.eq_ignore_ascii_case(descriptor_sources::HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID)
 }
 
+fn reset_state_hot_swap_target(method: &str) -> bool {
+    let method = method.trim();
+    if !method_head_eq(method, "service.hot_swap") {
+        return false;
+    }
+    let target = method["service.hot_swap".len()..].trim();
+    target.eq_ignore_ascii_case("svc.demo.hello.reset_state")
+        || target.eq_ignore_ascii_case("hello.reset_state")
+}
+
 fn target_arg_matches(method: &str, head: &str) -> bool {
     let method = method.trim();
     if !method_head_eq(method, head) {
@@ -1800,6 +1842,9 @@ fn lifecycle_binding(
         state_migration_preserved: state_migration
             .map(|record| record.state_preserved)
             .unwrap_or(false),
+        state_migration_accepted: state_migration
+            .map(|record| record.accepted)
+            .unwrap_or(false),
         binds_source_locator: descriptor.binds_source_locator,
         binds_source_kind: descriptor.binds_source_kind,
         binds_source_hash: descriptor.binds_source_hash,
@@ -1932,6 +1977,73 @@ fn emit_health_response(method: &'static str, snapshot: Snapshot, event_id: even
     raw_line("        \"broad_mutation\": \"denied\"");
     raw_line("      }");
     end_response(method);
+}
+
+fn emit_hot_swap_state_migration_denied(
+    method: &'static str,
+    snapshot: Snapshot,
+    event_id: event_log::EventId,
+    migration: HelloStateMigrationRecord,
+) {
+    raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
+    raw_line("{");
+    raw_line("  \"v\": \"raios.agent.v0\",");
+    raw_line("  \"t\": \"error\",");
+    raw_line("  \"id\": \"serial\",");
+    raw_line("  \"body\": {");
+    raw("    \"method\": ");
+    json_str(method);
+    raw_line(",");
+    raw("    \"event_id\": ");
+    json_event_id_option(Some(event_id));
+    raw_line(",");
+    raw("    \"audit_event_id\": ");
+    json_event_id_option(Some(event_id));
+    raw_line(",");
+    raw_line("    \"code\": \"capability_denied\",");
+    raw("    \"reason\": ");
+    json_str("state_migration_would_reset_state");
+    raw_line(",");
+    raw("    \"message\": ");
+    json_str("hello hot-swap denied because the candidate would reset RAM-only service state before a rollback-capable migrator exists");
+    raw_line(",");
+    raw("    \"service_id\": ");
+    json_str(SERVICE_ID);
+    raw_line(",");
+    raw("    \"target\": ");
+    json_str("svc.demo.hello.reset_state");
+    raw_line(",");
+    raw("    \"active_generation\": ");
+    raw_fmt(format_args!("{}", snapshot.generation));
+    raw_line(",");
+    raw("    \"active_descriptor_id\": ");
+    json_str(snapshot.load_descriptor.id);
+    raw_line(",");
+    raw("    \"state\": ");
+    emit_hello_state(snapshot);
+    raw_line(",");
+    raw("    \"state_migration\": ");
+    emit_hello_state_migration_option(Some(migration));
+    raw_line(",");
+    raw_line("    \"required\": [");
+    raw_line("      \"state_preserving_migrator\",");
+    raw_line("      \"raios.audit_record.v0\",");
+    raw_line("      \"rollback_plan\"");
+    raw_line("    ],");
+    raw_line("    \"denied_surfaces\": {");
+    raw_line("      \"descriptor_mutation\": \"not_attempted\",");
+    raw_line("      \"state_reset\": \"denied\",");
+    raw_line("      \"external_artifact_load\": \"denied\",");
+    raw_line("      \"candidate_artifact_execution\": \"denied\",");
+    raw_line("      \"executable_mapping\": \"denied\",");
+    raw_line("      \"persistent_install\": \"denied\",");
+    raw_line("      \"durable_audit\": \"denied\",");
+    raw_line("      \"rollback_install\": \"denied\",");
+    raw_line("      \"broad_mutation\": \"denied\"");
+    raw_line("    }");
+    raw_line("  }");
+    raw_line("}");
+    raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
 }
 
 fn emit_response(

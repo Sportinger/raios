@@ -1037,6 +1037,43 @@
         & $AssertHelloServiceSlotActivationReference -Name "hello restart service response" -Record $helloRestart.body.result.service -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
         & $AssertHelloServiceSlotActivationReference -Name "hello restart loader response" -Record $helloRestart.body.result.loader -ExpectedHash $helloServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationActiveStatus -ExpectedActive $true
 
+        Send-AgentCommand -Command "service.hot_swap svc.demo.hello.reset_state" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
+        $resetHelloHotSwap = Get-LastAgentResponseJson -Method "service.hot_swap"
+        Assert-CurrentBootEventId -Name "quick:hello_hot_swap_reset_denied_event_id" -Value $resetHelloHotSwap.body.event_id
+        if ($resetHelloHotSwap.t -ne "error" -or $resetHelloHotSwap.body.code -ne "capability_denied" -or $resetHelloHotSwap.body.reason -ne "state_migration_would_reset_state") {
+            throw "Expected reset-state service.hot_swap target to be denied by the state migration gate"
+        }
+        $resetHelloStateHash = & $AssertHelloState -Name "hello reset hot-swap denied response" -State $resetHelloHotSwap.body.state -ExpectedCounter 3 -ExpectedVersion "v1"
+        if ($resetHelloStateHash -ne $helloRestartStateHash) {
+            throw "Expected denied reset-state service.hot_swap response to cite the active Hello state"
+        }
+        if (-not $resetHelloHotSwap.body.state_migration -or $resetHelloHotSwap.body.state_migration.schema -ne $HelloStateMigrationSchema) {
+            throw "Expected denied reset-state service.hot_swap to expose migration evidence"
+        }
+        if ($resetHelloHotSwap.body.state_migration.pre_state_counter -ne 3 -or $resetHelloHotSwap.body.state_migration.post_state_counter -ne 0) {
+            throw "Expected denied reset-state migration to show the candidate would reset the counter"
+        }
+        if ($resetHelloHotSwap.body.state_migration.pre_state_hash -ne $helloRestartStateHash -or $resetHelloHotSwap.body.state_migration.post_state_hash -eq $helloRestartStateHash) {
+            throw "Expected denied reset-state migration to preserve the pre-state hash and reject the reset post-state"
+        }
+        if ($resetHelloHotSwap.body.state_migration.state_preserved -or $resetHelloHotSwap.body.state_migration.accepted) {
+            throw "Expected denied reset-state migration to be rejected and not state-preserving"
+        }
+        $resetHelloMigrationHash = $resetHelloHotSwap.body.state_migration.migration_hash
+
+        Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
+        $helloHealthAfterResetHotSwap = Get-LastAgentResponseJson -Method "service.health"
+        if ($helloHealthAfterResetHotSwap.body.result.service.generation -ne $helloRestart.body.result.service.generation -or -not $helloHealthAfterResetHotSwap.body.result.service.running) {
+            throw "Expected denied reset-state service.hot_swap to preserve the running hello generation"
+        }
+        if ($helloHealthAfterResetHotSwap.body.result.load_descriptor.source.sha256 -ne $helloDescriptorHash) {
+            throw "Expected denied reset-state service.hot_swap to preserve the current-image descriptor"
+        }
+        $helloAfterResetHotSwapStateHash = & $AssertHelloState -Name "hello health after denied reset hot-swap" -State $helloHealthAfterResetHotSwap.body.result.state -ExpectedCounter 3 -ExpectedVersion "v1"
+        if ($helloAfterResetHotSwapStateHash -ne $helloRestartStateHash) {
+            throw "Expected denied reset-state service.hot_swap to preserve Hello RAM-only state"
+        }
+
         Send-AgentCommand -Command "service.hot_swap external:svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
         $badHelloHotSwap = Get-LastAgentResponseJson -Method "service.hot_swap"
         Assert-CurrentBootEventId -Name "quick:hello_hot_swap_external_denied_event_id" -Value $badHelloHotSwap.body.event_id
@@ -1378,7 +1415,7 @@
             -ExpectedActive $false | Out-Null
         & $AssertHelloServiceSlotActivationReference -Name "host-bound drop loader response" -Record $hostDrop.body.result.loader -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationClearedStatus -ExpectedActive $false
 
-        Send-AgentCommand -Command "agent audit.events 50" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+        Send-AgentCommand -Command "agent audit.events 52" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
         $envelopeAuditEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
         if ($envelopeAuditEvents.Count -ne 10) {
@@ -1460,7 +1497,11 @@
         if ($helloStateEvents.Count -lt 6) {
             throw "Expected hello lifecycle events to cite RAM-only Hello state"
         }
-        $helloHotSwapV2MigrationEvents = @($helloHotSwapV2Events | Where-Object { $_.bindings.state_migration_schema -eq $HelloStateMigrationSchema -and $_.bindings.state_migration_id -eq $HelloStateMigrationId -and $_.bindings.state_migration_hash -eq $helloHotSwapV2MigrationHash -and $_.bindings.migration_from_version -eq "v1" -and $_.bindings.migration_to_version -eq "v2" -and $_.bindings.pre_migration_state_counter -eq 3 -and $_.bindings.post_migration_state_counter -eq 3 -and $_.bindings.pre_migration_state_hash -eq $helloHotSwapStateHash -and $_.bindings.post_migration_state_hash -eq $helloHotSwapStateHash -and $_.bindings.state_migration_preserved })
+        $helloResetDeniedEvents = @($helloEvents | Where-Object { $_.id -eq $resetHelloHotSwap.body.event_id -and $_.outcome -eq "capability_denied" -and $_.reason -eq "state_migration_would_reset_state" -and $_.bindings.state_migration_schema -eq $HelloStateMigrationSchema -and $_.bindings.state_migration_id -eq $HelloStateMigrationId -and $_.bindings.state_migration_hash -eq $resetHelloMigrationHash -and $_.bindings.pre_migration_state_counter -eq 3 -and $_.bindings.post_migration_state_counter -eq 0 -and $_.bindings.pre_migration_state_hash -eq $helloRestartStateHash -and -not $_.bindings.state_migration_preserved -and -not $_.bindings.state_migration_accepted })
+        if ($helloResetDeniedEvents.Count -lt 1) {
+            throw "Expected reset-state hot-swap denial audit event to bind the rejected state migration"
+        }
+        $helloHotSwapV2MigrationEvents = @($helloHotSwapV2Events | Where-Object { $_.bindings.state_migration_schema -eq $HelloStateMigrationSchema -and $_.bindings.state_migration_id -eq $HelloStateMigrationId -and $_.bindings.state_migration_hash -eq $helloHotSwapV2MigrationHash -and $_.bindings.migration_from_version -eq "v1" -and $_.bindings.migration_to_version -eq "v2" -and $_.bindings.pre_migration_state_counter -eq 3 -and $_.bindings.post_migration_state_counter -eq 3 -and $_.bindings.pre_migration_state_hash -eq $helloHotSwapStateHash -and $_.bindings.post_migration_state_hash -eq $helloHotSwapStateHash -and $_.bindings.state_migration_preserved -and $_.bindings.state_migration_accepted })
         if ($helloHotSwapV2MigrationEvents.Count -lt 1) {
             throw "Expected v2 hot-swap lifecycle audit event to bind preserved RAM-only state migration"
         }
@@ -1579,7 +1620,7 @@
             throw "Expected host-bound health event to cite the host-bound service-slot activation"
         }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 50' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 52' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_module_load_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_recovery_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
@@ -1605,6 +1646,7 @@
         Assert-LogContains -Name "quick:audit_events_hello_slot_activation_status" -Needle '"service_slot_activation_status": "' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_state_hash" -Needle '"hello_state_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_state_migration_hash" -Needle '"state_migration_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_state_migration_accepted" -Needle '"state_migration_accepted": false' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1

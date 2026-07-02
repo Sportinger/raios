@@ -205,6 +205,7 @@ pub struct HelloServiceLifecycleBinding {
     pub pre_migration_state_counter: Option<u64>,
     pub post_migration_state_counter: Option<u64>,
     pub state_migration_preserved: bool,
+    pub state_migration_accepted: bool,
     pub binds_source_locator: Option<&'static str>,
     pub binds_source_kind: Option<&'static str>,
     pub binds_source_hash: Option<[u8; 32]>,

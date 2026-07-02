@@ -588,6 +588,8 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             json_u64_option(binding.post_migration_state_counter);
             raw(", \"state_migration_preserved\": ");
             raw_bool(binding.state_migration_preserved);
+            raw(", \"state_migration_accepted\": ");
+            raw_bool(binding.state_migration_accepted);
             raw(", \"binds_source_locator\": ");
             json_opt_str(binding.binds_source_locator);
             raw(", \"binds_source_kind\": ");

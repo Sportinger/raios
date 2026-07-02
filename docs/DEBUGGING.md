@@ -459,6 +459,8 @@ service.stop svc.demo.hello
 service.health svc.demo.hello
 service.start svc.demo.hello
 service.restart svc.demo.hello
+service.hot_swap svc.demo.hello.reset_state
+service.health svc.demo.hello
 service.hot_swap external:svc.demo.hello
 service.health svc.demo.hello
 service.hot_swap svc.demo.hello
@@ -471,7 +473,7 @@ services
 service.health svc.demo.hello
 service.stop svc.demo.hello
 service.drop svc.demo.hello
-agent audit.events 50
+agent audit.events 52
 ```
 
 The two wrong-target commands must still return `raios.module_load_gate.v0`
@@ -521,6 +523,7 @@ svc.demo.hello` must return `raios.ram_only_hello_service.health.v0`, report
 healthy while loaded/running, stopped while loaded/not running, running again
 after `service.start`, still running after `service.restart` with the same
 loaded generation, still unchanged after denied `service.hot_swap
+svc.demo.hello.reset_state` and denied `service.hot_swap
 external:svc.demo.hello`, advanced by one generation after accepted
 `service.hot_swap svc.demo.hello`, advanced again with visible `version: "v2"`
 after `service.hot_swap svc.demo.hello.v2`, back to `version: "v1"` after the
@@ -533,10 +536,14 @@ activation evidence while loaded. Stop keeps the same activation hash with
 `restarted_loaded_service`; hot-swap records `last_action: "hot_swap"` and
 reason `hot_swapped_builtin_service`; the Hello state record
 `raios.ram_only_hello_service_state.v0` must start at counter 1, advance through
-start/restart to counter 3, stay unchanged across v1/v2 hot-swaps, and expose a
-`raios.ram_only_hello_service_state_migration.v0` record with matching pre/post
-state hash and counter for the v1->v2 transition; drop cites the same activation
-hash with `cleared_current_boot` before cleanup and clears the state counter.
+start/restart to counter 3, stay unchanged across the denied reset-state
+hot-swap and accepted v1/v2 hot-swaps, expose a denied
+`raios.ram_only_hello_service_state_migration.v0` with pre-counter 3,
+post-counter 0, `state_preserved: false`, and `accepted: false` for
+`svc.demo.hello.reset_state`, and expose an accepted migration record with
+matching pre/post state hash and counter for the v1->v2 transition; drop cites
+the same activation hash with `cleared_current_boot` before cleanup and clears
+the state counter.
 `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
 `raios.ram_only_hello_service.health` records whose evidence/bindings cite the
@@ -545,8 +552,9 @@ signature verification state plus the verified artifact identity hash and
 signature envelope plus the artifact content binding hash and trust signature
 state plus artifact reference hash, byte hash, trust signature state, artifact
 load-plan preflight hash, accepted status, RAM-only service-slot id, and
-service-slot activation hash/status plus Hello state hash/counter and v2
-state-migration hash/preserved-state evidence.
+service-slot activation hash/status plus Hello state hash/counter, denied
+reset-state migration evidence, and accepted v2 state-migration
+hash/preserved-state evidence.
 
 `service.descriptor_source_trust_selftest` must return
 `raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and

@@ -98,11 +98,17 @@ artifact identity id/hash/preflight/activation hash, and preserves the tiny
 unchanged across v1 hot-swap, v1->v2 hot-swap, and v2->v1 hot-swap, and is
 visible in load responses, `service.inventory`, `service.health`, and RAM
 audit bindings with `writes_persistent_state: false`. `service.hot_swap
-svc.demo.hello` can return to the signed v1 identity. `service.hot_swap
-external:svc.demo.hello` remains denied before the service is touched, and a
-follow-up health probe proves the running generation and state are preserved.
-`service.drop` clears the current-boot slot while citing the same activation
-before cleanup.
+svc.demo.hello.reset_state` now computes a would-reset
+`raios.ram_only_hello_service_state_migration.v0` record with
+`accepted: false` / `state_preserved: false`, records a local-only
+`capability_denied` lifecycle event, and returns before descriptor,
+generation, running state, or the RAM-only counter can change; a follow-up
+health probe proves the active generation, descriptor, and state hash/counter
+are unchanged. `service.hot_swap svc.demo.hello` can return to the signed v1
+identity. `service.hot_swap external:svc.demo.hello` remains denied before the
+service is touched, and a follow-up health probe proves the running generation
+and state are preserved. `service.drop` clears the current-boot slot while
+citing the same activation before cleanup.
 The same lifecycle can also be driven through a host-produced, hash-bound
 descriptor-source candidate (`host_bound:svc.demo.hello`) that binds the
 current-image source hash while still loading only the built-in current-boot
@@ -145,13 +151,18 @@ current-boot/local-only
 returns the matching `event_id`/`audit_event_id`.
 
 Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
-RAM-only Hello service state migration evidence across signed hot-swap. Quick
-Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-073742-10256.json` with 237/237
-predicates, 48 executed commands, and `duration_ms: 74841`. The quick smoke
+fail-closed Hello state-migration reset gate. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-074900-3852.json` with 241/241
+predicates, 50 executed commands, and `duration_ms: 79318`. The quick smoke
 proves load creates `raios.ram_only_hello_service_state.v0` with counter 1,
 start/restart advance it to 3, stop and denied external hot-swap preserve it,
-`service.hot_swap svc.demo.hello.v2` selects
+`service.hot_swap svc.demo.hello.reset_state` returns structured
+`capability_denied`, exposes a would-reset
+`raios.ram_only_hello_service_state_migration.v0` with pre-counter 3,
+post-counter 0, `state_preserved: false`, and `accepted: false`, then a
+follow-up `service.health svc.demo.hello` proves the active generation,
+current-image descriptor hash, state hash, and counter remain unchanged.
+`service.hot_swap svc.demo.hello.v2` still selects
 `builtin_artifact_identity.svc.demo.hello.v2`, exposes `version: "v2"`, keeps
 the content/reference bytes non-executing and identical to the checked-in
 built-in artifact snapshot, produces a distinct artifact identity hash,
@@ -159,9 +170,19 @@ advances the loaded generation, preserves the same state hash/counter through a
 `raios.ram_only_hello_service_state_migration.v0` record from v1 to v2, then
 `service.hot_swap svc.demo.hello` returns to the signed v1 identity while
 advancing the generation again and preserving the same state. The final quick
-audit read uses `agent audit.events 50` and proves the v2 hot-swap lifecycle
-event carries the state migration hash, from/to versions, pre/post state hash,
-pre/post counter, and `state_migration_preserved: true`.
+audit read uses `agent audit.events 52` and proves both the denied reset
+migration (`state_migration_accepted: false`) and the accepted v2 migration
+(`state_migration_accepted: true`) are retained as RAM-only audit evidence.
+
+Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding
+the RAM-only Hello service state migration evidence across signed hot-swap.
+Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-073742-10256.json` with 237/237
+predicates, 48 executed commands, and `duration_ms: 74841`. The quick smoke
+proved load created `raios.ram_only_hello_service_state.v0` with counter 1,
+start/restart advanced it to 3, stop and denied external hot-swap preserved it,
+and the v2/v1 accepted hot-swaps preserved the same state through explicit
+state-migration records.
 
 Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding
 the distinct signed built-in `svc.demo.hello.v2` hot-swap candidate. Quick
@@ -1425,14 +1446,15 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that `service.hot_swap svc.demo.hello.v2` proves state-preserving signed
-hot-swap, continue with the smallest fail-closed migration gate: add a live
-denied reset/mismatch hot-swap path that computes a would-reset Hello state
-migration, refuses it before descriptor/state mutation, and proves the running
-generation plus `raios.ram_only_hello_service_state.v0` hash/counter stay
-unchanged with RAM-only audit evidence. Keep external artifact bytes,
-candidate-byte execution, executable mapping, persistence, durable audit,
-rollback install, provider-triggered auto-load, and broad mutation denied.
+Now that `service.hot_swap svc.demo.hello.reset_state` proves the fail-closed
+state-migration denial, continue the runtime artifact track with the smallest
+RAM-only hot-swap probation record: accepted Hello hot-swaps should bind the
+previous descriptor/generation/state hash, the new descriptor/generation/state
+hash, the migration hash, and an explicit current-boot probation status before
+any future persistence or rollback claim. Keep rollback application,
+persistent install, durable audit writes, external artifact bytes,
+candidate-byte execution, executable mapping, provider-triggered auto-load, and
+broad mutation denied.
 Provider trust/context hardening remains a parallel Track B, but do not claim
 WebPKI chain or time validation until trusted roots, intermediate chain
 handling, and a trusted time source are actually present.
@@ -1457,8 +1479,12 @@ The next slice should:
 - keep `agent command_envelope ... target_method=problem.list ...` routing
   through the existing dispatcher
 - keep malformed or over-capable envelopes denied before dispatch
-- add the smallest denied state-migration gate and prove a would-reset hot-swap
-  cannot change the active descriptor, generation, or RAM-only Hello state
+- add the smallest accepted hot-swap probation evidence and prove it binds the
+  previous/new descriptor, generation, state hash/counter, and migration hash
+  without claiming rollback or persistence authority
+- keep `service.hot_swap svc.demo.hello.reset_state` denied by the
+  state-migration gate and prove it cannot change the active descriptor,
+  generation, or RAM-only Hello state
 - keep current-image and host-bound `svc.demo.hello` load/list/stop/start/
   restart/drop passing in quick VM smoke, with explicit `service.start
   svc.demo.hello` starting a stopped loaded current-boot service and
