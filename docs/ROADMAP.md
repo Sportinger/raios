@@ -2,9 +2,9 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying the
-`service.inventory` read-only command-envelope target and current-boot audit
-evidence for accepted and denied `raios.agent_command_envelope.v0` decisions.
+Last updated: 2026-07-02 by Codex after quick-VM-verifying
+`raios.agent_command_envelope.v0` target/capability mismatch denial plus
+current-boot audit evidence.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -159,14 +159,16 @@ Latest verified implementation slice:
   `cap.service.inventory.read`; it emits a local-only
   `raios.agent_command_envelope.v0` response and routes to the existing
   dispatcher path. Bad-schema and over-capable envelope attempts are denied
-  before dispatch, and the boundary does not create a parallel dispatcher,
-  provider write, candidate-byte load, persistence, durable audit write,
-  rollback install, or broad mutation
-- accepted, bad-schema, and over-capable command-envelope decisions now retain
+  before dispatch; allowed read-only targets paired with the wrong allowed read
+  capability are denied as `requested_capability_denied` before dispatch; and
+  the boundary does not create a parallel dispatcher, provider write,
+  candidate-byte load, persistence, durable audit write, rollback install, or
+  broad mutation
+- accepted, mismatched, bad-schema, and over-capable command-envelope decisions now retain
   current-boot/local-only `raios.agent_command_envelope.decision` events with
   `raios.agent_command_envelope.audit_binding.v0`; the envelope response
   carries matching `event_id`/`audit_event_id`, and `audit.events` proves the
-  four currently verified decision shapes
+  five currently verified decision shapes
 
 Previous full verification before the verifier-decision slice:
 
@@ -182,7 +184,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the `service.inventory` command-envelope slice:
+Latest focused verification after the command-envelope mismatch denial slice:
+
+```text
+release\vm-reports\shadow-20260702-063057-5156.json
+217/217 quick predicates, 39 executed commands, duration_ms: 67751
+```
+
+Previous focused verification after the `service.inventory` command-envelope slice:
 
 ```text
 release\vm-reports\shadow-20260702-062447-11572.json
@@ -276,18 +285,17 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Add the missing target/capability mismatch denial proof for
-`raios.agent_command_envelope.v0`: an allowed read-only target paired with the
-wrong allowed read capability must be denied as `requested_capability_denied`
-before dispatch and must be visible through `audit.events`. Keep
-`system.describe` and `service.inventory` accepted with their matching
-capabilities, and keep malformed or over-capable mutation targets denied.
+Widen `raios.agent_command_envelope.v0` by one more proven read-only target:
+add `problem.list` with `cap.problem.list.read`. Keep `system.describe` and
+`service.inventory` accepted with their matching capabilities, keep the
+target/capability mismatch denial audit-visible, and keep malformed or
+over-capable mutation targets denied before dispatch.
 ```
 
 AI-parallel next wave:
 
-1. Agent protocol track: prove target/capability mismatch denial, then widen
-   the typed command envelope only from proven read-only command use cases.
+1. Agent protocol track: widen the typed command envelope only from proven
+   read-only command use cases, next `problem.list`.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted
