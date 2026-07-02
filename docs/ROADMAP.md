@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying the read-only Hello
-rollback preview over retained hot-swap probation evidence.
+Last updated: 2026-07-02 by Codex after quick-VM-verifying the fail-closed
+Hello rollback-apply gate over retained preview/probation evidence.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -200,6 +200,14 @@ Latest verified implementation slice:
   facts plus a preview hash, records a RAM-only rollback-preview audit event,
   and proves the active v2 service stays unchanged while rollback apply and
   durable/persistent/external execution surfaces stay denied
+- `service.rollback_apply svc.demo.hello` now returns structured
+  `capability_denied`, binds the current rollback-preview hash, probation hash,
+  Hello state hash/counter, rollback target, current candidate, and migration
+  hash, records a RAM-only rollback-apply denial audit event, and proves the
+  active v2 descriptor, generation, running state, and RAM-only state stay
+  unchanged while real rollback application, persistence, durable audit writes,
+  external bytes, candidate execution, executable mapping, provider auto-load,
+  and broad mutation stay denied
 
 Previous full verification before the verifier-decision slice:
 
@@ -215,7 +223,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the read-only Hello rollback preview:
+Latest focused verification after the fail-closed Hello rollback-apply gate:
+
+```text
+release\vm-reports\shadow-20260702-082918-20728.json
+254/254 quick predicates, 54 executed commands, duration_ms: 77410
+```
+
+Previous focused verification after the read-only Hello rollback preview:
 
 ```text
 release\vm-reports\shadow-20260702-081302-27580.json
@@ -393,20 +408,19 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Continue the runtime artifact track with the smallest fail-closed
-rollback-apply gate over the retained Hello rollback-preview/probation
-evidence. `service.rollback_apply svc.demo.hello` should bind the current
-preview, probation, and state hashes, return structured `capability_denied`,
-and prove descriptor, generation, running state, and RAM-only state stay
-unchanged while persistent install, durable audit writes, external bytes,
-candidate execution, executable mapping, provider auto-load, and broad mutation
-remain denied.
+Continue the runtime artifact track with the smallest rollback transaction and
+durable-audit preflight over the denied Hello rollback-apply request. It should
+bind the retained preview hash, probation hash, current state hash, rollback
+target, current candidate, requested capability, and missing write authorities
+into current-boot/local-only evidence while actual rollback application,
+persistent install, durable audit writes, external bytes, candidate execution,
+executable mapping, provider auto-load, and broad mutation remain denied.
 ```
 
 AI-parallel next wave:
 
-1. Runtime artifact track: add the fail-closed rollback-apply gate over retained
-   Hello rollback-preview/probation evidence without applying rollback or
+1. Runtime artifact track: add the rollback transaction/durable-audit preflight
+   over the denied Hello rollback-apply request without applying rollback or
    claiming persistence authority.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export

@@ -207,6 +207,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         summary: "load, stop, and drop the built-in hello demo service in RAM",
     },
     Capability {
+        id: "cap.service.rollback_apply.current_boot",
+        risk: "modify_ram",
+        granted: false,
+        scope: "denied_until_rollback_apply_authority_durable_audit_and_transaction_evidence",
+        summary: "apply a retained current-boot service rollback",
+    },
+    Capability {
         id: "cap.recovery.load_artifact",
         risk: "recovery_modify_ram",
         granted: false,
@@ -423,6 +430,7 @@ pub(crate) const DENIED_METHODS: &[&str] = &[
     "service.load_ephemeral",
     "service.restart",
     "service.hot_swap",
+    "service.rollback_apply",
     "service.start",
     "service.stop",
     "service.drop",

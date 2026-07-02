@@ -460,6 +460,8 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
                 raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.health_binding.v0\", \"status\": \"current_boot_health_read\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
             } else if kind == "raios.ram_only_hello_service.rollback_preview" {
                 raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.rollback_preview_binding.v0\", \"status\": \"current_boot_rollback_preview_read\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
+            } else if kind == "raios.ram_only_hello_service.rollback_apply" {
+                raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.rollback_apply_denial_binding.v0\", \"status\": \"current_boot_rollback_apply_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
             } else {
                 raw(", \"bindings\": {\"schema\": \"raios.ram_only_hello_service.lifecycle_binding.v0\", \"status\": \"current_boot_state_transition\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"load_descriptor_schema\": ");
             }
@@ -636,6 +638,26 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             raw_bool(binding.hot_swap_probation_installs_rollback_plan);
             raw(", \"hot_swap_probation_applies_rollback\": ");
             raw_bool(binding.hot_swap_probation_applies_rollback);
+            raw(", \"rollback_preview_schema\": ");
+            json_opt_str(binding.rollback_preview_schema);
+            raw(", \"rollback_preview_id\": ");
+            json_opt_str(binding.rollback_preview_id);
+            raw(", \"rollback_preview_hash\": ");
+            json_sha256_option(binding.rollback_preview_hash);
+            raw(", \"rollback_preview_status\": ");
+            json_opt_str(binding.rollback_preview_status);
+            raw(", \"rollback_apply_schema\": ");
+            json_opt_str(binding.rollback_apply_schema);
+            raw(", \"rollback_apply_id\": ");
+            json_opt_str(binding.rollback_apply_id);
+            raw(", \"rollback_apply_hash\": ");
+            json_sha256_option(binding.rollback_apply_hash);
+            raw(", \"rollback_apply_status\": ");
+            json_opt_str(binding.rollback_apply_status);
+            raw(", \"rollback_apply_authorized\": ");
+            raw_bool(binding.rollback_apply_authorized);
+            raw(", \"rollback_apply_mutates_service_state\": ");
+            raw_bool(binding.rollback_apply_mutates_service_state);
             raw(", \"binds_source_locator\": ");
             json_opt_str(binding.binds_source_locator);
             raw(", \"binds_source_kind\": ");

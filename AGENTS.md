@@ -191,8 +191,11 @@ Still shape every durable slice so it can become raiOS memory later:
   `raios.ram_only_hello_service_hot_swap_probation.v0` evidence for accepted
   v1/v2/v1-back hot-swaps, exposes `service.rollback_preview svc.demo.hello`
   as a read-only rollback target/current candidate preview over retained
-  probation evidence without changing active service state, then hot-swapped
-  back to v1 and dropped while retaining RAM-only lifecycle evidence;
+  probation evidence without changing active service state, exposes
+  `service.rollback_apply svc.demo.hello` as structured `capability_denied`
+  over retained preview/probation/state hashes without changing descriptor,
+  generation, running state, or RAM-only state, then hot-swapped back to v1 and
+  dropped while retaining RAM-only lifecycle evidence;
   `service.hot_swap external:svc.demo.hello` remains denied before service
   mutation;
   arbitrary external artifacts, candidate-byte execution, executable page
@@ -300,11 +303,11 @@ Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
 ## Next Engineering Steps
 
-1. Continue the runtime artifact track with the smallest fail-closed
-   rollback-apply gate over retained Hello rollback-preview/probation evidence,
-   while descriptor, generation, running state, RAM-only state, persistence,
-   durable audit writes, external bytes, candidate execution, executable
-   mapping, provider auto-load, and broad mutation remain unchanged or denied.
+1. Continue the runtime artifact track with the smallest rollback
+   transaction/durable-audit preflight over the denied Hello rollback-apply
+   request, while real rollback application, persistence, durable audit writes,
+   external bytes, candidate execution, executable mapping, provider auto-load,
+   and broad mutation remain denied.
 2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
    validation once trusted roots, intermediate-chain handling, and trusted time
    exist.

@@ -321,6 +321,9 @@ Verified in the VM today:
   `service.rollback_preview svc.demo.hello` reading that retained probation
   into a read-only rollback target/current candidate preview and proving the
   active service state unchanged,
+  `service.rollback_apply svc.demo.hello` binding the preview/probation/state
+  hashes into structured `capability_denied` evidence while proving descriptor,
+  generation, running state, and RAM-only state unchanged,
   `service.hot_swap svc.demo.hello.reset_state` denying a would-reset migration
   before descriptor/generation/state mutation with RAM-only audit evidence,
   and drop clearing the current-boot slot while citing the same activation hash;

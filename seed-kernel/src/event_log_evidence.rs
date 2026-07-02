@@ -80,6 +80,7 @@ pub(crate) const HELLO_SERVICE_HEALTH_EVIDENCE: &[&str] = &[
 pub(crate) const HELLO_SERVICE_ROLLBACK_PREVIEW_EVIDENCE: &[&str] = &[
     "raios.ram_only_hello_service_hot_swap_probation.v0",
     "hello_hot_swap_probation_hash",
+    "hello_rollback_preview_hash",
     "hello_hot_swap_probation_status",
     "previous_descriptor_source_hash",
     "new_descriptor_source_hash",
@@ -92,6 +93,18 @@ pub(crate) const HELLO_SERVICE_ROLLBACK_PREVIEW_EVIDENCE: &[&str] = &[
     "hello_state_migration_hash",
     "rollback_preview_read_only",
     "rollback_apply_not_attempted",
+    "durable_audit_not_written",
+    "persistent_state_not_written",
+];
+pub(crate) const HELLO_SERVICE_ROLLBACK_APPLY_EVIDENCE: &[&str] = &[
+    "raios.ram_only_hello_service_rollback_preview.v0",
+    "hello_rollback_preview_hash",
+    "raios.ram_only_hello_service_hot_swap_probation.v0",
+    "hello_hot_swap_probation_hash",
+    "hello_state_hash",
+    "rollback_apply_authority_missing",
+    "rollback_apply_not_executed",
+    "service_state_not_mutated",
     "durable_audit_not_written",
     "persistent_state_not_written",
 ];

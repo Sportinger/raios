@@ -258,6 +258,8 @@ fn requested_capability_for_denial(method: &str) -> &'static str {
         "cap.module.load_ephemeral"
     } else if method_head_eq(method, "service.hot_swap") {
         "cap.service.hello_demo.current_boot"
+    } else if method_head_eq(method, "service.rollback_apply") {
+        "cap.service.rollback_apply.current_boot"
     } else if recovery_artifact_load_method(method) {
         "cap.recovery.load_artifact"
     } else if method_eq(method, "module.persist") {

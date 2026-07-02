@@ -1187,6 +1187,7 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
         | "service.load_ephemeral"
         | "service.restart"
         | "service.hot_swap"
+        | "service.rollback_apply"
         | "service.start"
         | "service.stop"
         | "service.drop"
@@ -1212,7 +1213,7 @@ fn command_help() {
         "AGENT: describe snapshot caps bootlog services problems device.graph memory.profile"
     ));
     write_output(format_args!(
-        "AGENT RAW: service.health service.rollback_preview service.descriptor_source_trust_selftest service.artifact_reference_trust_selftest service.artifact_load_plan_preflight_selftest memory.context provider.context_export provider.context_gate provider.context_gate_selftest provider.context_injection_gate provider.context_injection_gate_selftest memory.query memory.trace memory.recent_events"
+        "AGENT RAW: service.health service.rollback_preview service.rollback_apply service.descriptor_source_trust_selftest service.artifact_reference_trust_selftest service.artifact_load_plan_preflight_selftest memory.context provider.context_export provider.context_gate provider.context_gate_selftest provider.context_injection_gate provider.context_injection_gate_selftest memory.query memory.trace memory.recent_events"
     ));
     write_output(format_args!(
         "AGENT ENVELOPE: agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe|system.snapshot|system.boot_log|system.capabilities|device.graph|service.inventory|problem.list requested_capability=cap.<target>.read classification=local_only"

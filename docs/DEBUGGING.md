@@ -467,6 +467,8 @@ service.hot_swap svc.demo.hello
 service.hot_swap svc.demo.hello.v2
 service.rollback_preview svc.demo.hello
 service.health svc.demo.hello
+service.rollback_apply svc.demo.hello
+service.health svc.demo.hello
 service.hot_swap svc.demo.hello
 service.drop svc.demo.hello
 service.health svc.demo.hello
@@ -475,7 +477,7 @@ services
 service.health svc.demo.hello
 service.stop svc.demo.hello
 service.drop svc.demo.hello
-agent audit.events 56
+agent audit.events 58
 ```
 
 The two wrong-target commands must still return `raios.module_load_gate.v0`
@@ -555,7 +557,15 @@ denied. `service.rollback_preview svc.demo.hello` must return
 hash, expose rollback-target and current-candidate descriptor/artifact
 identity/generation/state/migration facts, keep apply/install/write surfaces
 denied, and a follow-up health probe must prove the active v2 generation and
-state are unchanged; drop cites the same activation hash with
+state are unchanged. `service.rollback_apply svc.demo.hello` must return
+structured `capability_denied`, bind the rollback-preview hash, probation hash,
+current state hash/counter, rollback target, current candidate, and migration
+hash, keep actual rollback apply, descriptor mutation, generation mutation,
+running-state mutation, RAM-only state mutation, persistent install, durable
+audit write, external bytes, candidate execution, executable mapping, provider
+auto-load, and broad mutation denied or not attempted, and a follow-up health
+probe must prove the active v2 descriptor, generation, running state, and state
+hash are unchanged; drop cites the same activation hash with
 `cleared_current_boot` before cleanup and clears the state counter.
 `audit.events` must show
 `raios.ram_only_hello_service.lifecycle` and
@@ -570,7 +580,9 @@ reset-state migration evidence, and accepted v2 state-migration
 hash/preserved-state evidence plus the accepted hot-swap probation hash/status
 and previous/new descriptor, artifact identity, generation, state, and
 migration facts, plus the rollback-preview event binding with the same
-probation hash and explicit no-apply/no-install evidence.
+probation hash and explicit no-apply/no-install evidence, plus the
+rollback-apply denial event binding with the same preview/probation/state hashes
+and explicit no-apply/no-mutation evidence.
 
 `service.descriptor_source_trust_selftest` must return
 `raios.descriptor_source_trust_selftest.v0`, expose a stable diagnostic id and

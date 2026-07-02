@@ -21,6 +21,9 @@
         $HelloRollbackPreviewSchema = "raios.ram_only_hello_service_rollback_preview.v0"
         $HelloRollbackPreviewId = "hello_rollback_preview.current_boot.svc.demo.hello.v0"
         $HelloRollbackPreviewStatus = "preview_only_current_boot"
+        $HelloRollbackApplySchema = "raios.ram_only_hello_service_rollback_apply.v0"
+        $HelloRollbackApplyId = "hello_rollback_apply.current_boot.svc.demo.hello.v0"
+        $HelloRollbackApplyStatus = "denied_missing_rollback_apply_authority"
         $HelloLoadPlanPreflightSelftestSchema = "raios.current_boot_artifact_load_plan_preflight_selftest.v0"
         $HelloLoadPlanPreflightSelftestId = "artifact_load_plan_preflight_selftest.current_boot.svc.demo.hello.v0"
 
@@ -363,6 +366,70 @@
             if ($Preview.denied_surfaces.persistent_install -ne "denied" -or $Preview.denied_surfaces.durable_audit_write -ne "denied" -or $Preview.denied_surfaces.external_artifact_load -ne "denied" -or $Preview.denied_surfaces.candidate_artifact_execution -ne "denied" -or $Preview.denied_surfaces.executable_mapping -ne "denied" -or $Preview.denied_surfaces.provider_auto_load -ne "denied" -or $Preview.denied_surfaces.broad_mutation -ne "denied") {
                 throw "Expected Hello rollback preview to keep unsafe surfaces denied"
             }
+        }
+
+        $AssertHelloRollbackApplyDenied = {
+            param(
+                [object]$Apply,
+                [string]$ExpectedProbationHash,
+                [string]$ExpectedPreviewHash,
+                [string]$ExpectedTargetVersion,
+                [string]$ExpectedCurrentVersion,
+                [int]$ExpectedTargetGeneration,
+                [int]$ExpectedCurrentGeneration,
+                [string]$ExpectedTargetArtifactIdentityHash,
+                [string]$ExpectedCurrentArtifactIdentityHash,
+                [string]$ExpectedStateHash,
+                [string]$ExpectedStateMigrationHash
+            )
+
+            if ($Apply.code -ne "capability_denied" -or $Apply.schema -ne $HelloRollbackApplySchema -or $Apply.id -ne $HelloRollbackApplyId) {
+                throw "Expected Hello rollback apply to return structured capability_denied"
+            }
+            if ($Apply.scope -ne "current_boot" -or $Apply.classification -ne "local_only" -or $Apply.persistence -ne "none" -or $Apply.status -ne $HelloRollbackApplyStatus) {
+                throw "Expected Hello rollback apply denial to be current_boot/local_only/non-persistent"
+            }
+            if ($Apply.reason -ne "rollback_apply_authority_missing") {
+                throw "Expected Hello rollback apply to be denied by missing apply authority"
+            }
+            if (-not $Apply.rollback_apply_hash -or -not $Apply.rollback_apply_hash.StartsWith("sha256:")) {
+                throw "Expected Hello rollback apply denial hash"
+            }
+            if ($Apply.service_id -ne "svc.demo.hello" -or $Apply.source_probation.probation_hash -ne $ExpectedProbationHash) {
+                throw "Expected Hello rollback apply denial to bind retained probation evidence"
+            }
+            if ($Apply.required_preview.schema -ne $HelloRollbackPreviewSchema -or $Apply.required_preview.id -ne $HelloRollbackPreviewId -or $Apply.required_preview.status -ne $HelloRollbackPreviewStatus -or $Apply.required_preview.preview_hash -ne $ExpectedPreviewHash) {
+                throw "Expected Hello rollback apply denial to bind the current rollback preview hash"
+            }
+            if ($Apply.rollback_target.version -ne $ExpectedTargetVersion -or $Apply.rollback_target.generation -ne $ExpectedTargetGeneration) {
+                throw "Expected Hello rollback apply rollback target version/generation"
+            }
+            if ($Apply.current_candidate.version -ne $ExpectedCurrentVersion -or $Apply.current_candidate.generation -ne $ExpectedCurrentGeneration -or $Apply.active_generation -ne $ExpectedCurrentGeneration) {
+                throw "Expected Hello rollback apply current candidate version/generation"
+            }
+            if ($Apply.rollback_target.artifact_identity_hash -ne $ExpectedTargetArtifactIdentityHash -or $Apply.current_candidate.artifact_identity_hash -ne $ExpectedCurrentArtifactIdentityHash) {
+                throw "Expected Hello rollback apply artifact identities"
+            }
+            if ($Apply.rollback_target.state_hash -ne $ExpectedStateHash -or $Apply.current_candidate.state_hash -ne $ExpectedStateHash -or $Apply.current_state.state_hash -ne $ExpectedStateHash) {
+                throw "Expected Hello rollback apply denial to retain state hashes"
+            }
+            if ($Apply.rollback_target.state_counter -ne 3 -or $Apply.current_candidate.state_counter -ne 3 -or $Apply.current_state.state_counter -ne 3) {
+                throw "Expected Hello rollback apply denial to retain state counter 3"
+            }
+            if ($Apply.state_migration.migration_hash -ne $ExpectedStateMigrationHash) {
+                throw "Expected Hello rollback apply denial to bind state migration hash"
+            }
+            if ($Apply.denied_surfaces.mutates_service_state -or $Apply.denied_surfaces.applies_rollback) {
+                throw "Expected Hello rollback apply denial to avoid service mutation and rollback apply"
+            }
+            if ($Apply.denied_surfaces.descriptor_mutation -ne "not_attempted" -or $Apply.denied_surfaces.generation_mutation -ne "not_attempted" -or $Apply.denied_surfaces.running_state_mutation -ne "not_attempted" -or $Apply.denied_surfaces.ram_only_state_mutation -ne "not_attempted") {
+                throw "Expected Hello rollback apply denial to avoid descriptor, generation, running-state, and RAM-only state mutation"
+            }
+            if ($Apply.denied_surfaces.persistent_install -ne "denied" -or $Apply.denied_surfaces.durable_audit_write -ne "denied" -or $Apply.denied_surfaces.external_artifact_load -ne "denied" -or $Apply.denied_surfaces.candidate_artifact_execution -ne "denied" -or $Apply.denied_surfaces.executable_mapping -ne "denied" -or $Apply.denied_surfaces.provider_auto_load -ne "denied" -or $Apply.denied_surfaces.broad_mutation -ne "denied") {
+                throw "Expected Hello rollback apply denial to keep unsafe surfaces denied"
+            }
+
+            return $Apply.rollback_apply_hash
         }
 
         $agentEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe requested_capability=cap.system.describe.read classification=local_only"
@@ -1335,6 +1402,32 @@
             throw "Expected rollback preview to preserve Hello RAM-only state"
         }
 
+        Send-AgentCommand -Command "service.rollback_apply svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.rollback_apply"
+        $helloRollbackApply = Get-LastAgentResponseJson -Method "service.rollback_apply"
+        Assert-CurrentBootEventId -Name "quick:hello_rollback_apply_event_id" -Value $helloRollbackApply.body.event_id
+        $helloRollbackApplyHash = & $AssertHelloRollbackApplyDenied `
+            -Apply $helloRollbackApply.body `
+            -ExpectedProbationHash $helloHotSwapV2ProbationHash `
+            -ExpectedPreviewHash $helloRollbackPreview.body.result.preview_hash `
+            -ExpectedTargetVersion "v1" `
+            -ExpectedCurrentVersion "v2" `
+            -ExpectedTargetGeneration $helloHotSwap.body.result.service.generation `
+            -ExpectedCurrentGeneration $helloHotSwapV2.body.result.service.generation `
+            -ExpectedTargetArtifactIdentityHash $helloArtifactIdentityHash `
+            -ExpectedCurrentArtifactIdentityHash $helloHotSwapV2.body.result.service.artifact_identity_hash `
+            -ExpectedStateHash $helloHotSwapStateHash `
+            -ExpectedStateMigrationHash $helloHotSwapV2MigrationHash
+
+        Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
+        $helloHealthAfterRollbackApply = Get-LastAgentResponseJson -Method "service.health"
+        if ($helloHealthAfterRollbackApply.body.result.service.version -ne "v2" -or $helloHealthAfterRollbackApply.body.result.service.generation -ne $helloHotSwapV2.body.result.service.generation) {
+            throw "Expected rollback apply denial to leave the active v2 service unchanged"
+        }
+        $helloHealthAfterRollbackApplyStateHash = & $AssertHelloState -Name "hello health after rollback apply denial" -State $helloHealthAfterRollbackApply.body.result.state -ExpectedCounter 3 -ExpectedVersion "v2"
+        if ($helloHealthAfterRollbackApplyStateHash -ne $helloHotSwapV2StateHash) {
+            throw "Expected rollback apply denial to preserve Hello RAM-only state"
+        }
+
         Send-AgentCommand -Command "service.hot_swap svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
         $helloHotSwapBack = Get-LastAgentResponseJson -Method "service.hot_swap"
         Assert-CurrentBootEventId -Name "quick:hello_hot_swap_back_event_id" -Value $helloHotSwapBack.body.result.event_id
@@ -1595,7 +1688,7 @@
             -ExpectedActive $false | Out-Null
         & $AssertHelloServiceSlotActivationReference -Name "host-bound drop loader response" -Record $hostDrop.body.result.loader -ExpectedHash $hostServiceSlotActivationHash -ExpectedStatus $HelloServiceSlotActivationClearedStatus -ExpectedActive $false
 
-        Send-AgentCommand -Command "agent audit.events 56" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+        Send-AgentCommand -Command "agent audit.events 58" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
         $recentEvents = Get-LastAgentResponseJson -Method "memory.recent_events"
         $envelopeAuditEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.agent_command_envelope.decision" })
         if ($envelopeAuditEvents.Count -ne 10) {
@@ -1689,9 +1782,13 @@
         if ($helloHotSwapV2ProbationEvents.Count -lt 1) {
             throw "Expected v2 hot-swap lifecycle audit event to bind RAM-only probation evidence"
         }
-        $helloRollbackPreviewEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.rollback_preview" -and $_.id -eq $helloRollbackPreview.body.result.audit_event_id -and $_.outcome -eq "response" -and $_.requested_capability -eq "cap.service.rollback_preview.read" -and $_.bindings.schema -eq "raios.ram_only_hello_service.rollback_preview_binding.v0" -and $_.bindings.hot_swap_probation_hash -eq $helloHotSwapV2ProbationHash -and $_.bindings.hot_swap_probation_previous_artifact_identity_hash -eq $helloArtifactIdentityHash -and $_.bindings.hot_swap_probation_new_artifact_identity_hash -eq $helloHotSwapV2.body.result.service.artifact_identity_hash -and $_.bindings.hot_swap_probation_previous_generation -eq $helloHotSwap.body.result.service.generation -and $_.bindings.hot_swap_probation_new_generation -eq $helloHotSwapV2.body.result.service.generation -and $_.bindings.hot_swap_probation_state_migration_hash -eq $helloHotSwapV2MigrationHash -and -not $_.bindings.hot_swap_probation_applies_rollback -and -not $_.bindings.hot_swap_probation_installs_rollback_plan })
+        $helloRollbackPreviewEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.rollback_preview" -and $_.id -eq $helloRollbackPreview.body.result.audit_event_id -and $_.outcome -eq "response" -and $_.requested_capability -eq "cap.service.rollback_preview.read" -and $_.bindings.schema -eq "raios.ram_only_hello_service.rollback_preview_binding.v0" -and $_.bindings.rollback_preview_hash -eq $helloRollbackPreview.body.result.preview_hash -and $_.bindings.hot_swap_probation_hash -eq $helloHotSwapV2ProbationHash -and $_.bindings.hot_swap_probation_previous_artifact_identity_hash -eq $helloArtifactIdentityHash -and $_.bindings.hot_swap_probation_new_artifact_identity_hash -eq $helloHotSwapV2.body.result.service.artifact_identity_hash -and $_.bindings.hot_swap_probation_previous_generation -eq $helloHotSwap.body.result.service.generation -and $_.bindings.hot_swap_probation_new_generation -eq $helloHotSwapV2.body.result.service.generation -and $_.bindings.hot_swap_probation_state_migration_hash -eq $helloHotSwapV2MigrationHash -and -not $_.bindings.hot_swap_probation_applies_rollback -and -not $_.bindings.hot_swap_probation_installs_rollback_plan })
         if ($helloRollbackPreviewEvents.Count -lt 1) {
             throw "Expected rollback preview audit event to bind retained hot-swap probation without rollback apply"
+        }
+        $helloRollbackApplyEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.rollback_apply" -and $_.id -eq $helloRollbackApply.body.audit_event_id -and $_.outcome -eq "capability_denied" -and $_.requested_capability -eq "cap.service.rollback_apply.current_boot" -and $_.bindings.schema -eq "raios.ram_only_hello_service.rollback_apply_denial_binding.v0" -and $_.bindings.rollback_preview_hash -eq $helloRollbackPreview.body.result.preview_hash -and $_.bindings.rollback_apply_hash -eq $helloRollbackApplyHash -and $_.bindings.rollback_apply_status -eq $HelloRollbackApplyStatus -and -not $_.bindings.rollback_apply_authorized -and -not $_.bindings.rollback_apply_mutates_service_state -and $_.bindings.hot_swap_probation_hash -eq $helloHotSwapV2ProbationHash -and $_.bindings.hot_swap_probation_previous_artifact_identity_hash -eq $helloArtifactIdentityHash -and $_.bindings.hot_swap_probation_new_artifact_identity_hash -eq $helloHotSwapV2.body.result.service.artifact_identity_hash -and $_.bindings.hot_swap_probation_previous_generation -eq $helloHotSwap.body.result.service.generation -and $_.bindings.hot_swap_probation_new_generation -eq $helloHotSwapV2.body.result.service.generation -and $_.bindings.hello_state_hash -eq $helloHotSwapV2StateHash -and $_.bindings.hello_state_counter -eq 3 -and -not $_.bindings.hot_swap_probation_applies_rollback -and -not $_.bindings.hot_swap_probation_installs_rollback_plan })
+        if ($helloRollbackApplyEvents.Count -lt 1) {
+            throw "Expected rollback apply audit event to bind preview/probation/state evidence without mutating service state"
         }
         $helloDescriptorEvents = @($helloEvents | Where-Object { @($_.evidence) -contains "load_descriptor.current_boot.svc.demo.hello.v0" })
         if ($helloDescriptorEvents.Count -lt 6) {
@@ -1808,13 +1905,14 @@
             throw "Expected host-bound health event to cite the host-bound service-slot activation"
         }
         Assert-LogContains -Name "quick:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 56' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_limit" -Needle '"limit": 58' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_module_load_source" -Needle '"source_method": "module.load_ephemeral"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_recovery_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_kind" -Needle '"kind": "raios.ram_only_hello_service.lifecycle"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_health_kind" -Needle '"kind": "raios.ram_only_hello_service.health"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_preview_kind" -Needle '"kind": "raios.ram_only_hello_service.rollback_preview"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_kind" -Needle '"kind": "raios.ram_only_hello_service.rollback_apply"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_resource" -Needle '"resource": "svc.demo.hello"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor" -Needle "load_descriptor.current_boot.svc.demo.hello.v0" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_hash" -Needle '"load_descriptor_source_hash": "sha256:' -TimeoutSeconds 1
@@ -1838,6 +1936,9 @@
         Assert-LogContains -Name "quick:audit_events_hello_state_migration_accepted" -Needle '"state_migration_accepted": false' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_hot_swap_probation_hash" -Needle '"hot_swap_probation_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_hot_swap_probation_status" -Needle '"hot_swap_probation_status": "active_current_boot_probation"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_preview_hash" -Needle '"rollback_preview_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_hash" -Needle '"rollback_apply_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_denied" -Needle '"rollback_apply_authorized": false' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_kind" -Needle "current_image_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_source_kind" -Needle "host_bound_descriptor_source" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1
