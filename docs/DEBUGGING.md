@@ -390,6 +390,7 @@ module loading:
 module.load_ephemeral svc.demo.nope
 module.load_ephemeral external:svc.demo.hello
 service.descriptor_source_trust_selftest
+service.artifact_reference_trust_selftest
 module.load_ephemeral svc.demo.hello
 services
 service.health svc.demo.hello
@@ -458,6 +459,15 @@ hash, pass five read-only cases for the valid envelope plus tampered payload,
 locator/kind, public-key hash, and signature, and keep descriptor byte intake,
 external artifact load, persistence, durable audit, rollback, and broad mutation
 denied.
+
+`service.artifact_reference_trust_selftest` must return
+`raios.builtin_artifact_reference_trust_selftest.v0`, expose a stable
+diagnostic id and hash, cite the validated artifact reference plus the verified
+artifact identity trust envelope, pass five read-only cases for the valid
+reference plus tampered artifact byte hash, content-binding hash, reference
+hash, and trust payload hash, and keep artifact byte intake, artifact load,
+executable mapping, persistence, durable audit, rollback, broad mutation, and
+global event-log mutation denied.
 
 The host-bound positive command must cite
 `host_build.descriptor_source.svc.demo.hello.v0`, source kind

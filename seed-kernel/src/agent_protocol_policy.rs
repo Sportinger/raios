@@ -100,6 +100,8 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         "cap.service.health.read"
     } else if method_eq(method, "service.descriptor_source_trust_selftest") {
         "cap.service.descriptor_source_trust.read"
+    } else if method_eq(method, "service.artifact_reference_trust_selftest") {
+        "cap.service.artifact_reference_trust.read"
     } else if method_eq(method, "memory.profile") {
         "cap.memory.profile.read"
     } else if method_eq(method, "memory.context") {

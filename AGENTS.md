@@ -174,9 +174,11 @@ Still shape every durable slice so it can become raiOS memory later:
 - `module.load_ephemeral svc.demo.hello` loads the built-in current-boot Hello
   service with validated descriptor-source evidence plus a signed built-in
   artifact identity/trust envelope, signed content/hash binding, and signed
-  repo-local artifact-byte reference; arbitrary external artifacts, executable
-  page mapping, persistence, durable audit, rollback, provider auto-load, and
-  broad mutation remain denied.
+  repo-local artifact-byte reference. `service.artifact_reference_trust_selftest`
+  proves valid reference evidence and tampered byte/content/reference/trust
+  cases fail closed; arbitrary external artifacts, executable page mapping,
+  persistence, durable audit, rollback, provider auto-load, and broad mutation
+  remain denied.
 - `ask <text>` uses the in-guest OpenAI direct transport. The old host-side
   serial relay is no longer part of the runtime path; DNS, TCP 443, TLS 1.3,
   HTTPS, and first `output_text` parsing work in the bare-metal VM profile.

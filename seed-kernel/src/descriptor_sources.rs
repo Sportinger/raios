@@ -29,6 +29,9 @@ pub(crate) const HELLO_BUILTIN_ARTIFACT_IDENTITY_SOURCE: &str =
 pub(crate) const HELLO_DESCRIPTOR_SOURCE_TRUST_SELFTEST_ID: &str =
     "descriptor_source_trust_selftest.current_image.svc.demo.hello.v0";
 pub(crate) const HELLO_DESCRIPTOR_SOURCE_TRUST_SELFTEST_CASES: usize = 5;
+pub(crate) const HELLO_ARTIFACT_REFERENCE_TRUST_SELFTEST_ID: &str =
+    "artifact_reference_trust_selftest.builtin.svc.demo.hello.v0";
+pub(crate) const HELLO_ARTIFACT_REFERENCE_TRUST_SELFTEST_CASES: usize = 5;
 
 #[derive(Clone, Copy)]
 pub(crate) struct DescriptorSourceEnvelope {
@@ -603,6 +606,60 @@ pub(crate) fn hello_descriptor_source_trust_selftest_cases(
                 HELLO_LOAD_DESCRIPTOR_SOURCE,
             ),
             "signature_must_verify_payload",
+        ),
+    ]
+}
+
+pub(crate) fn hello_artifact_reference_trust_selftest_hash() -> [u8; 32] {
+    sha256_bytes(
+        b"schema=raios.builtin_artifact_reference_trust_selftest.v0\n\
+id=artifact_reference_trust_selftest.builtin.svc.demo.hello.v0\n\
+cases=valid_reference,tampered_artifact_bytes_hash,tampered_content_binding_hash,tampered_reference_hash,tampered_trust_payload_hash",
+    )
+}
+
+pub(crate) fn hello_artifact_reference_trust_selftest_cases(
+) -> [DescriptorSourceTrustSelftestCase; HELLO_ARTIFACT_REFERENCE_TRUST_SELFTEST_CASES] {
+    let identity = HELLO_BUILTIN_ARTIFACT_IDENTITY_RECORD;
+    let mut bad_bytes = identity;
+    bad_bytes.artifact_reference_bytes_hash = [0x11; 32];
+    let mut bad_content_binding = identity;
+    bad_content_binding.artifact_reference_content_binding_hash = [0x22; 32];
+    let mut bad_reference_hash = identity;
+    bad_reference_hash.artifact_reference_hash = [0x33; 32];
+    let mut bad_trust_linkage = identity;
+    bad_trust_linkage.signed_envelope.payload_hash = [0x44; 32];
+
+    [
+        trust_case(
+            "valid_builtin_artifact_reference",
+            true,
+            validate_builtin_hello_artifact_identity(identity),
+            "accepted_verified_builtin_artifact_reference",
+        ),
+        trust_case(
+            "tampered_artifact_bytes_hash_denied",
+            false,
+            validate_builtin_hello_artifact_identity(bad_bytes),
+            "artifact_bytes_hash_must_match_signed_reference",
+        ),
+        trust_case(
+            "tampered_content_binding_hash_denied",
+            false,
+            validate_builtin_hello_artifact_identity(bad_content_binding),
+            "artifact_reference_must_bind_content_binding_hash",
+        ),
+        trust_case(
+            "tampered_reference_hash_denied",
+            false,
+            validate_builtin_hello_artifact_identity(bad_reference_hash),
+            "artifact_reference_hash_must_match_reference_text",
+        ),
+        trust_case(
+            "tampered_trust_payload_hash_denied",
+            false,
+            validate_builtin_hello_artifact_identity(bad_trust_linkage),
+            "artifact_identity_trust_envelope_must_bind_payload_hash",
         ),
     ]
 }

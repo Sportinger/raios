@@ -216,6 +216,10 @@ pub(crate) fn is_descriptor_source_trust_selftest_method(method: &str) -> bool {
     method_eq(method, "service.descriptor_source_trust_selftest")
 }
 
+pub(crate) fn is_artifact_reference_trust_selftest_method(method: &str) -> bool {
+    method_eq(method, "service.artifact_reference_trust_selftest")
+}
+
 pub(crate) fn emit_load_start(method: &str) -> &'static str {
     let Some(request) = load_request(method) else {
         return "module.load_ephemeral";
@@ -317,6 +321,86 @@ pub(crate) fn emit_descriptor_source_trust_selftest() -> &'static str {
     raw_line("      \"denied_surfaces\": {");
     raw_line("        \"descriptor_bytes_intake\": \"denied\",");
     raw_line("        \"external_artifact_load\": \"denied\",");
+    raw_line("        \"persistent_install\": \"denied\",");
+    raw_line("        \"durable_audit\": \"denied\",");
+    raw_line("        \"rollback_install\": \"denied\",");
+    raw_line("        \"broad_mutation\": \"denied\"");
+    raw_line("      }");
+    end_response(method);
+    method
+}
+
+pub(crate) fn emit_artifact_reference_trust_selftest() -> &'static str {
+    let method = "service.artifact_reference_trust_selftest";
+    let cases = descriptor_sources::hello_artifact_reference_trust_selftest_cases();
+    let mut passed_count = 0usize;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        if cases[idx].passed {
+            passed_count += 1;
+        }
+        idx += 1;
+    }
+    begin_response(method);
+    raw_line("      \"schema\": \"raios.builtin_artifact_reference_trust_selftest.v0\",");
+    raw("      \"id\": ");
+    json_str(descriptor_sources::HELLO_ARTIFACT_REFERENCE_TRUST_SELFTEST_ID);
+    raw_line(",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"persistence\": \"none\",");
+    raw_line("      \"read_only\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw("      \"diagnostic_hash\": ");
+    json_sha256(descriptor_sources::hello_artifact_reference_trust_selftest_hash());
+    raw_line(",");
+    raw("      \"service_id\": ");
+    json_str(SERVICE_ID);
+    raw_line(",");
+    raw("      \"artifact_id\": ");
+    json_str(ARTIFACT_ID);
+    raw_line(",");
+    raw("      \"artifact_reference\": ");
+    emit_artifact_reference(LOAD_DESCRIPTOR);
+    raw_line(",");
+    raw("      \"identity_signature_envelope\": ");
+    emit_artifact_identity_signature_envelope(LOAD_DESCRIPTOR);
+    raw_line(",");
+    raw("      \"case_count\": ");
+    raw_fmt(format_args!("{}", cases.len()));
+    raw_line(",");
+    raw("      \"passed_count\": ");
+    raw_fmt(format_args!("{}", passed_count));
+    raw_line(",");
+    raw("      \"all_passed\": ");
+    raw_bool(passed_count == cases.len());
+    raw_line(",");
+    raw_line("      \"cases\": [");
+    idx = 0;
+    while idx < cases.len() {
+        let case = cases[idx];
+        raw("        {\"name\": ");
+        json_str(case.name);
+        raw(", \"expected_accept\": ");
+        raw_bool(case.expected_accept);
+        raw(", \"actual_accept\": ");
+        raw_bool(case.actual_accept);
+        raw(", \"passed\": ");
+        raw_bool(case.passed);
+        raw(", \"reason\": ");
+        json_str(case.reason);
+        raw("}");
+        if idx + 1 != cases.len() {
+            raw(",");
+        }
+        raw_line("");
+        idx += 1;
+    }
+    raw_line("      ],");
+    raw_line("      \"denied_surfaces\": {");
+    raw_line("        \"artifact_bytes_intake\": \"denied\",");
+    raw_line("        \"artifact_load\": \"denied\",");
+    raw_line("        \"executable_mapping\": \"denied\",");
     raw_line("        \"persistent_install\": \"denied\",");
     raw_line("        \"durable_audit\": \"denied\",");
     raw_line("        \"rollback_install\": \"denied\",");

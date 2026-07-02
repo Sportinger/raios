@@ -282,6 +282,8 @@ Verified in the VM today:
   visible in load, inventory, health, and RAM-audit evidence, plus a signed
   content/hash binding to the checked-in Hello service source snapshot and a
   signed repo-local artifact-byte reference that remains non-executing;
+  `service.artifact_reference_trust_selftest` proves valid reference evidence
+  passes and tampered byte/content/reference/trust evidence fails closed;
   a second `host_bound:svc.demo.hello` path uses a host-produced
   descriptor-source candidate that binds the current-image source hash while
   still loading only the built-in current-boot service

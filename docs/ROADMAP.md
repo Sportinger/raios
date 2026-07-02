@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after adding signed built-in Hello artifact
-byte/reference evidence.
+Last updated: 2026-07-02 by Codex after adding the Hello artifact-reference
+trust selftest.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -52,6 +52,9 @@ Latest verified implementation slice:
   checked-in Hello service source snapshot plus a signed repo-local artifact
   byte/reference hash for
   `seed-kernel/artifacts/svc.demo.hello.builtin.artifact`
+- `service.artifact_reference_trust_selftest` proves that valid artifact
+  reference evidence passes and tampered byte/content/reference/trust evidence
+  fails closed without accepting artifact bytes or mutating the event log
 - the host-bound descriptor-source path remains hash-bound to the current-image
   source and does not accept arbitrary descriptor or artifact bytes
 - `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
@@ -139,21 +142,29 @@ release\vm-reports\shadow-20260702-023832-25068.json
 177/177 quick predicates, 29 executed commands, duration_ms: 53786
 ```
 
+Latest focused verification after the artifact-reference trust selftest:
+
+```text
+release\vm-reports\shadow-20260702-025252-23928.json
+178/178 quick predicates, 30 executed commands, duration_ms: 53295
+```
+
 Exact next task:
 
 ```text
-Add the smallest artifact-reference trust selftest for the Hello service path.
-Prove valid reference evidence passes and tampered byte/content/reference/trust
-evidence fails closed. Keep candidate bytes non-executing, and keep executable
-mapping/persistence/durable audit/rollback denied.
+Add the smallest current-boot artifact load-plan preflight for the Hello service
+path. Bind descriptor-source, artifact identity, content binding, artifact
+reference, and RAM-only service-slot intent into one pre-execution decision.
+Keep candidate bytes non-executing, and keep executable mapping, persistence,
+durable audit, and rollback denied.
 ```
 
 AI-parallel next wave:
 
-1. Runtime artifact track: add a focused artifact-reference trust selftest for
-   the existing built-in Hello artifact candidate, reusing the current P-256
-   verifier and validator; keep artifact bytes non-executing and executable
-   mapping denied.
+1. Runtime artifact track: add a narrow artifact load-plan preflight for the
+   existing built-in Hello artifact candidate, reusing the validated
+   descriptor/artifact/reference evidence; keep artifact bytes non-executing
+   and executable mapping denied.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence.
@@ -165,9 +176,10 @@ AI-parallel next wave:
    persistence designed from the final trust model; do not implement fake
    persistence or rollback before the evidence chain exists.
 
-Only after artifact-reference tampering fails closed should a later integration
-cursor consider loading candidate bytes. Execution must stay built-in/current-boot
-until execution, audit, rollback, and recovery evidence exists.
+Only after the load-plan preflight is bound into the positive Hello path should
+a later integration cursor consider loading candidate bytes. Execution must
+stay built-in/current-boot until execution, audit, rollback, and recovery
+evidence exists.
 
 Documentation ownership:
 

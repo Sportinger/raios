@@ -336,6 +336,11 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
         let method = hello_service::emit_descriptor_source_trust_selftest();
         return DispatchOutcome::Response(method);
     }
+    if hello_service::is_artifact_reference_trust_selftest_method(method) {
+        record_read("service.artifact_reference_trust_selftest");
+        let method = hello_service::emit_artifact_reference_trust_selftest();
+        return DispatchOutcome::Response(method);
+    }
     if hello_service::is_health_method(method) {
         let method = hello_service::emit_health(method);
         return DispatchOutcome::Response(method);

@@ -62,6 +62,43 @@
             throw "Descriptor-source trust selftest must keep descriptor bytes, artifact load, and persistence denied"
         }
 
+        Send-AgentCommand -Command "service.artifact_reference_trust_selftest" -ExpectedMarker "RAIOS_AGENT_END service.artifact_reference_trust_selftest"
+        $artifactReferenceTrustSelftest = Get-LastAgentResponseJson -Method "service.artifact_reference_trust_selftest"
+        if ($artifactReferenceTrustSelftest.body.result.schema -ne "raios.builtin_artifact_reference_trust_selftest.v0") {
+            throw "Expected artifact-reference trust selftest schema"
+        }
+        if ($artifactReferenceTrustSelftest.body.result.id -ne "artifact_reference_trust_selftest.builtin.svc.demo.hello.v0") {
+            throw "Expected stable artifact-reference trust selftest id"
+        }
+        if (-not $artifactReferenceTrustSelftest.body.result.read_only -or $artifactReferenceTrustSelftest.body.result.mutates_global_event_log -or $artifactReferenceTrustSelftest.body.result.persistence -ne "none") {
+            throw "Artifact-reference trust selftest must be read-only, RAM-only, and non-mutating"
+        }
+        if (-not $artifactReferenceTrustSelftest.body.result.diagnostic_hash -or -not $artifactReferenceTrustSelftest.body.result.diagnostic_hash.StartsWith("sha256:")) {
+            throw "Expected artifact-reference trust selftest diagnostic hash"
+        }
+        if ($artifactReferenceTrustSelftest.body.result.case_count -ne 5 -or $artifactReferenceTrustSelftest.body.result.passed_count -ne 5 -or -not $artifactReferenceTrustSelftest.body.result.all_passed) {
+            throw "Expected all artifact-reference trust selftest cases to pass"
+        }
+        if ($artifactReferenceTrustSelftest.body.result.artifact_reference.schema -ne "raios.builtin_artifact_reference.v0" -or -not $artifactReferenceTrustSelftest.body.result.artifact_reference.validated) {
+            throw "Expected artifact-reference trust selftest to cite validated artifact reference evidence"
+        }
+        if ($artifactReferenceTrustSelftest.body.result.identity_signature_envelope.schema -ne "raios.builtin_artifact_identity_signature_envelope.v0" -or -not $artifactReferenceTrustSelftest.body.result.identity_signature_envelope.signature_verified) {
+            throw "Expected artifact-reference trust selftest to cite verified identity trust envelope"
+        }
+        $artifactReferenceTrustCaseNames = @($artifactReferenceTrustSelftest.body.result.cases | ForEach-Object { $_.name })
+        foreach ($caseName in @("valid_builtin_artifact_reference", "tampered_artifact_bytes_hash_denied", "tampered_content_binding_hash_denied", "tampered_reference_hash_denied", "tampered_trust_payload_hash_denied")) {
+            if ($artifactReferenceTrustCaseNames -notcontains $caseName) {
+                throw "Missing artifact-reference trust selftest case $caseName"
+            }
+        }
+        $artifactReferenceTrustFailedCases = @($artifactReferenceTrustSelftest.body.result.cases | Where-Object { -not $_.passed })
+        if ($artifactReferenceTrustFailedCases.Count -ne 0) {
+            throw "Expected no artifact-reference trust selftest failures"
+        }
+        if ($artifactReferenceTrustSelftest.body.result.denied_surfaces.artifact_bytes_intake -ne "denied" -or $artifactReferenceTrustSelftest.body.result.denied_surfaces.artifact_load -ne "denied" -or $artifactReferenceTrustSelftest.body.result.denied_surfaces.executable_mapping -ne "denied" -or $artifactReferenceTrustSelftest.body.result.denied_surfaces.persistent_install -ne "denied") {
+            throw "Artifact-reference trust selftest must keep artifact bytes, artifact load, executable mapping, and persistence denied"
+        }
+
         Send-AgentCommand -Command "module.load_ephemeral svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
         $helloLoad = Get-LastAgentResponseJson -Method "module.load_ephemeral"
         if ($helloLoad.body.result.schema -ne "raios.ram_only_hello_service.v0") {
