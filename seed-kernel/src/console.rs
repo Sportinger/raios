@@ -3,13 +3,24 @@ use core::str;
 
 use spin::Mutex;
 
-use crate::{agent_protocol, input, provider, provider_config, serial, system_status, ui, wifi};
+use crate::{
+    agent_protocol,
+    agent_protocol_support::{
+        begin_response, end_response, json_opt_str, json_str, method_eq, method_head_eq, raw,
+        raw_bool, raw_line,
+    },
+    input, provider, provider_config, serial, system_status, ui, wifi,
+};
 
 const COMMAND_WIDTH: usize = 4096;
 const OUTPUT_WIDTH: usize = 104;
 const OUTPUT_LINES: usize = 8;
 const CHAT_LINES: usize = 10;
 const MAX_BYTES_PER_POLL: usize = 64;
+const AGENT_COMMAND_ENVELOPE_METHOD: &str = "agent.command_envelope";
+const AGENT_COMMAND_ENVELOPE_SCHEMA: &str = "raios.agent_command_envelope.v0";
+const AGENT_COMMAND_ENVELOPE_TARGET: &str = "system.describe";
+const AGENT_COMMAND_ENVELOPE_CAPABILITY: &str = "cap.system.describe.read";
 
 static CONSOLE: Mutex<ConsoleState> = Mutex::new(ConsoleState::new());
 
@@ -1135,7 +1146,7 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
         "memory.recent_events" | "audit.events" | "events" => {
             command_agent_protocol(command_line.trimmed_str(), runtime)
         }
-        "agent" => command_agent_protocol(command_line.arguments_after_command(), runtime),
+        "agent" => command_agent(command_line.arguments_after_command(), runtime),
         "memory.record_observation"
         | "memory.propose_policy"
         | "memory.supersede_fact"
@@ -1188,6 +1199,9 @@ fn command_help() {
     ));
     write_output(format_args!(
         "AGENT RAW: service.health service.descriptor_source_trust_selftest service.artifact_reference_trust_selftest service.artifact_load_plan_preflight_selftest memory.context provider.context_export provider.context_gate provider.context_gate_selftest provider.context_injection_gate provider.context_injection_gate_selftest memory.query memory.trace memory.recent_events"
+    ));
+    write_output(format_args!(
+        "AGENT ENVELOPE: agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe requested_capability=cap.system.describe.read classification=local_only"
     ));
     write_output(format_args!(
         "RECOVERY: recovery.load_artifact module.load_recovery_artifact recovery.lifeline_command_admission recovery.lifeline_command_envelope_diagnostic recovery.lifeline_command_dispatch_diagnostic recovery.lifeline_command_body_canonicalization_diagnostic recovery.lifeline_command_handler_binding_diagnostic recovery.lifeline_status_read_handler_diagnostic recovery.rollback_preview_authorization_diagnostic recovery.rollback_apply_authorization_diagnostic recovery.disable_module_target_binding_diagnostic recovery.restart_last_good_target_binding_diagnostic recovery.load_artifact_by_hash_target_binding_diagnostic recovery.memory_write_authority_diagnostic recovery.durable_audit_rollback_write_authority_diagnostic recovery.service_inventory_side_effect_boundary_diagnostic recovery.lifeline_command_dispatch_behavior_diagnostic recovery.lifeline_command_executor_capability_table_diagnostic recovery.lifeline_command_side_effect_gate_diagnostic recovery.lifeline_command_execution_enablement_diagnostic recovery.lifeline_command_execution_preflight_diagnostic recovery.lifeline_command_execution_intent_diagnostic recovery.lifeline_command_execution_commit_gate_diagnostic recovery.lifeline_command_execution_result_denial_diagnostic"
@@ -1243,6 +1257,15 @@ fn command_log() {
     record_event(format_args!("RECENT LOG WRITTEN TO SERIAL"));
 }
 
+fn command_agent(arguments: &str, runtime: ui::RuntimeStatus) {
+    let arguments = arguments.trim();
+    if method_head_eq(arguments, "command_envelope") {
+        command_agent_command_envelope(arguments["command_envelope".len()..].trim(), runtime);
+    } else {
+        command_agent_protocol(arguments, runtime);
+    }
+}
+
 fn command_agent_protocol(method: &str, runtime: ui::RuntimeStatus) {
     match agent_protocol::dispatch(method, runtime) {
         agent_protocol::DispatchOutcome::Response(method) => {
@@ -1257,6 +1280,174 @@ fn command_agent_protocol(method: &str, runtime: ui::RuntimeStatus) {
             write_output(format_args!("UNKNOWN AGENT METHOD: {}", method.trim()));
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct AgentCommandEnvelope<'a> {
+    schema: Option<&'a str>,
+    target_method: Option<&'a str>,
+    requested_capability: Option<&'a str>,
+    classification: Option<&'a str>,
+    malformed_token: Option<&'a str>,
+    unexpected_field: Option<&'a str>,
+    duplicate_field: Option<&'a str>,
+}
+
+impl<'a> AgentCommandEnvelope<'a> {
+    const fn empty() -> Self {
+        Self {
+            schema: None,
+            target_method: None,
+            requested_capability: None,
+            classification: None,
+            malformed_token: None,
+            unexpected_field: None,
+            duplicate_field: None,
+        }
+    }
+}
+
+fn command_agent_command_envelope(arguments: &str, runtime: ui::RuntimeStatus) {
+    let envelope = parse_agent_command_envelope(arguments);
+    let reason = agent_command_envelope_reason(envelope);
+    let accepted = reason == "accepted";
+    emit_agent_command_envelope(envelope, reason, accepted);
+    if accepted {
+        record_event(format_args!("AGENT COMMAND ENVELOPE ACCEPTED"));
+        command_agent_protocol(AGENT_COMMAND_ENVELOPE_TARGET, runtime);
+    } else {
+        record_event(format_args!("AGENT COMMAND ENVELOPE DENIED"));
+        serial::write_line("AGENT COMMAND ENVELOPE DENIED");
+    }
+}
+
+fn parse_agent_command_envelope(arguments: &str) -> AgentCommandEnvelope<'_> {
+    let mut envelope = AgentCommandEnvelope::empty();
+    for token in arguments.split_ascii_whitespace() {
+        let Some((key, value)) = token.split_once('=') else {
+            envelope.malformed_token = envelope.malformed_token.or(Some(token));
+            continue;
+        };
+        if method_eq(key, "schema") {
+            if envelope.schema.replace(value).is_some() {
+                envelope.duplicate_field = envelope.duplicate_field.or(Some(key));
+            }
+        } else if method_eq(key, "target_method") {
+            if envelope.target_method.replace(value).is_some() {
+                envelope.duplicate_field = envelope.duplicate_field.or(Some(key));
+            }
+        } else if method_eq(key, "requested_capability") {
+            if envelope.requested_capability.replace(value).is_some() {
+                envelope.duplicate_field = envelope.duplicate_field.or(Some(key));
+            }
+        } else if method_eq(key, "classification") {
+            if envelope.classification.replace(value).is_some() {
+                envelope.duplicate_field = envelope.duplicate_field.or(Some(key));
+            }
+        } else {
+            envelope.unexpected_field = envelope.unexpected_field.or(Some(key));
+        }
+    }
+    envelope
+}
+
+fn agent_command_envelope_reason(envelope: AgentCommandEnvelope<'_>) -> &'static str {
+    if envelope.malformed_token.is_some() {
+        "malformed_key_value"
+    } else if envelope.unexpected_field.is_some() {
+        "unexpected_field"
+    } else if envelope.duplicate_field.is_some() {
+        "duplicate_field"
+    } else if envelope.schema.is_none()
+        || envelope.target_method.is_none()
+        || envelope.requested_capability.is_none()
+        || envelope.classification.is_none()
+    {
+        "missing_required_field"
+    } else if !method_eq(envelope.schema.unwrap_or(""), AGENT_COMMAND_ENVELOPE_SCHEMA) {
+        "schema_mismatch"
+    } else if !method_eq(envelope.classification.unwrap_or(""), "local_only") {
+        "classification_denied"
+    } else if !method_eq(
+        envelope.target_method.unwrap_or(""),
+        AGENT_COMMAND_ENVELOPE_TARGET,
+    ) {
+        "target_method_not_allowed"
+    } else if !method_eq(
+        envelope.requested_capability.unwrap_or(""),
+        AGENT_COMMAND_ENVELOPE_CAPABILITY,
+    ) {
+        "requested_capability_denied"
+    } else {
+        "accepted"
+    }
+}
+
+fn agent_command_envelope_code(reason: &'static str) -> &'static str {
+    if reason == "accepted" {
+        "accepted"
+    } else if reason == "target_method_not_allowed"
+        || reason == "requested_capability_denied"
+        || reason == "classification_denied"
+    {
+        "capability_denied"
+    } else {
+        "invalid_envelope"
+    }
+}
+
+fn emit_agent_command_envelope(
+    envelope: AgentCommandEnvelope<'_>,
+    reason: &'static str,
+    accepted: bool,
+) {
+    begin_response(AGENT_COMMAND_ENVELOPE_METHOD);
+    raw("      \"schema\": ");
+    json_str(AGENT_COMMAND_ENVELOPE_SCHEMA);
+    raw_line(",");
+    raw_line("      \"id\": \"agent_command_envelope.current_boot.serial.system_describe.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"transport\": \"serial-console\",");
+    raw("      \"accepted\": ");
+    raw_bool(accepted);
+    raw_line(",");
+    raw("      \"code\": ");
+    json_str(agent_command_envelope_code(reason));
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(reason);
+    raw_line(",");
+    raw("      \"submitted_schema\": ");
+    json_opt_str(envelope.schema);
+    raw_line(",");
+    raw("      \"target_method\": ");
+    json_opt_str(envelope.target_method);
+    raw_line(",");
+    raw("      \"requested_capability\": ");
+    json_opt_str(envelope.requested_capability);
+    raw_line(",");
+    raw("      \"submitted_classification\": ");
+    json_opt_str(envelope.classification);
+    raw_line(",");
+    raw("      \"allowed_target_method\": ");
+    json_str(AGENT_COMMAND_ENVELOPE_TARGET);
+    raw_line(",");
+    raw("      \"allowed_requested_capability\": ");
+    json_str(AGENT_COMMAND_ENVELOPE_CAPABILITY);
+    raw_line(",");
+    raw_line("      \"target_allowlist\": \"single_method_system_describe\",");
+    raw("      \"dispatches_existing_agent_method\": ");
+    raw_bool(accepted);
+    raw_line(",");
+    raw_line("      \"creates_parallel_dispatcher\": false,");
+    raw_line("      \"provider_write\": \"not_attempted\",");
+    raw_line("      \"loads_candidate_bytes\": false,");
+    raw_line("      \"writes_persistent_state\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"grants_broad_mutation\": false");
+    end_response(AGENT_COMMAND_ENVELOPE_METHOD);
 }
 
 fn command_setup_enter() {

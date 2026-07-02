@@ -162,6 +162,47 @@
             }
         }
 
+        $agentEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe requested_capability=cap.system.describe.read classification=local_only"
+        Send-AgentCommand -Command $agentEnvelopeCommand -ExpectedMarker "RAIOS_AGENT_END system.describe"
+        $agentEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
+        if ($agentEnvelope.body.result.schema -ne "raios.agent_command_envelope.v0") {
+            throw "Expected agent command envelope schema"
+        }
+        if (-not $agentEnvelope.body.result.accepted -or $agentEnvelope.body.result.reason -ne "accepted" -or -not $agentEnvelope.body.result.dispatches_existing_agent_method) {
+            throw "Expected valid agent command envelope to dispatch the existing system.describe method"
+        }
+        if ($agentEnvelope.body.result.target_method -ne "system.describe" -or $agentEnvelope.body.result.requested_capability -ne "cap.system.describe.read") {
+            throw "Expected agent command envelope to bind system.describe and its read capability"
+        }
+        if (
+            $agentEnvelope.body.result.creates_parallel_dispatcher -or
+            ($agentEnvelope.body.result.provider_write -ne "not_attempted") -or
+            $agentEnvelope.body.result.loads_candidate_bytes -or
+            $agentEnvelope.body.result.writes_persistent_state -or
+            $agentEnvelope.body.result.writes_durable_audit_log -or
+            $agentEnvelope.body.result.installs_rollback_plan -or
+            $agentEnvelope.body.result.grants_broad_mutation
+        ) {
+            throw "Expected agent command envelope to avoid parallel dispatch, provider writes, candidate bytes, persistence, durable audit writes, rollback install, and broad mutation"
+        }
+        $envelopedDescribe = Get-LastAgentResponseJson -Method "system.describe"
+        if ($envelopedDescribe.body.result.schema -ne "system.describe.v0") {
+            throw "Expected accepted agent command envelope to route through system.describe"
+        }
+
+        Send-AgentCommand -Command "agent command_envelope schema=bad target_method=system.describe requested_capability=cap.system.describe.read classification=local_only" -ExpectedMarker "RAIOS_AGENT_END agent.command_envelope"
+        $badEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
+        if ($badEnvelope.body.result.accepted -or $badEnvelope.body.result.code -ne "invalid_envelope" -or $badEnvelope.body.result.reason -ne "schema_mismatch" -or $badEnvelope.body.result.dispatches_existing_agent_method) {
+            throw "Expected bad-schema agent command envelope to be denied before dispatch"
+        }
+
+        Send-AgentCommand -Command "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=module.load_ephemeral requested_capability=cap.module.load_ephemeral classification=local_only" -ExpectedMarker "RAIOS_AGENT_END agent.command_envelope"
+        $overCapEnvelope = Get-LastAgentResponseJson -Method "agent.command_envelope"
+        if ($overCapEnvelope.body.result.accepted -or $overCapEnvelope.body.result.code -ne "capability_denied" -or $overCapEnvelope.body.result.reason -ne "target_method_not_allowed" -or $overCapEnvelope.body.result.dispatches_existing_agent_method) {
+            throw "Expected over-capable agent command envelope to be denied before dispatch"
+        }
+        Assert-LogDoesNotContain -Name "quick:agent_command_envelope_denied_no_module_dispatch" -Needle "RAIOS_AGENT_END module.load_ephemeral"
+
         Send-AgentCommand -Command "module.load_ephemeral" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
         Assert-LogContains -Name "quick:module_load_schema" -Needle '"schema": "raios.module_load_gate.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:module_load_denied" -Needle '"code": "capability_denied"' -TimeoutSeconds 1

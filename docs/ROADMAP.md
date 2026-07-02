@@ -2,8 +2,8 @@
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying the explicit
-`service.restart svc.demo.hello` RAM-only lifecycle transition.
+Last updated: 2026-07-02 by Codex after quick-VM-verifying the first
+`raios.agent_command_envelope.v0` boundary over `system.describe`.
 Keep this section compact. The authoritative, unabridged current
 state is
 `docs/PROJECT_STATUS.md`; this file should describe direction and the next
@@ -151,6 +151,15 @@ Latest verified implementation slice:
   unload/cleanup, live-load commit, load-commit audit writing, commit rollback
   install, result recording, service inventory mutation, service-slot
   allocation, durable audit writes, rollback install, and load attempts false
+- `agent command_envelope` now accepts schema
+  `raios.agent_command_envelope.v0`, target method `system.describe`,
+  requested capability `cap.system.describe.read`, and classification
+  `local_only`; it emits a local-only `raios.agent_command_envelope.v0`
+  response and routes to the existing `system.describe` dispatcher path.
+  Bad-schema and over-capable envelope attempts are denied before dispatch, and
+  the boundary does not create a parallel dispatcher, provider write,
+  candidate-byte load, persistence, durable audit write, rollback install, or
+  broad mutation
 
 Previous full verification before the verifier-decision slice:
 
@@ -166,7 +175,14 @@ release\vm-reports\shadow-20260702-053820-28640.json
 6640/6640 predicates, 243 executed commands, duration_ms: 610100
 ```
 
-Latest focused verification after the explicit hello `service.restart` slice:
+Latest focused verification after the first agent-command envelope slice:
+
+```text
+release\vm-reports\shadow-20260702-061129-8152.json
+207/207 quick predicates, 36 executed commands, duration_ms: 64609
+```
+
+Previous focused verification after the explicit hello `service.restart` slice:
 
 ```text
 release\vm-reports\shadow-20260702-055608-6288.json
@@ -239,18 +255,16 @@ release\vm-reports\shadow-20260702-034303-24400.json
 Exact next task:
 
 ```text
-Add the first narrow `raios.agent_command_envelope.v0` boundary around one
-already-working serial `agent <method>` command and route it to the existing
-dispatcher. Prove the envelope path in quick VM smoke without adding fake
-persistence, broad mutation, provider auto-load, candidate-byte execution, or a
-parallel ad-hoc command protocol.
+Record accepted and denied `raios.agent_command_envelope.v0` decisions as
+RAM-only current-boot audit events and expose them through `audit.events`.
+Keep the one-method `system.describe` allowlist until accepted, malformed, and
+over-capable envelope decisions have event evidence in quick VM smoke.
 ```
 
 AI-parallel next wave:
 
-1. Agent protocol track: wrap one existing positive command in a typed native
-   command envelope, preserve the existing dispatcher behavior, and deny
-   malformed or over-capable envelopes explicitly.
+1. Agent protocol track: make the first typed command-envelope decisions
+   audit-visible, then widen the envelope only from proven command use cases.
 2. Provider trust/context track: harden the direct provider path toward
    SPKI/WebPKI trust and keep context injection gated by typed request/export
    authorization evidence; do not claim WebPKI/time validation before trusted

@@ -264,6 +264,12 @@ Verified in the VM today:
 - fail-closed provider trust gates for SPKI or leaf-certificate pins
 - native serial `raios.agent.v0` read-only methods for snapshot, capabilities,
   service inventory, problem state, memory context, event log, and provider gates
+- first typed serial command envelope:
+  `raios.agent_command_envelope.v0` accepts a local-only `system.describe`
+  request only when its requested capability matches, routes through the
+  existing dispatcher, and denies bad-schema or over-capable targets before
+  dispatch without provider writes, candidate-byte loading, persistence, or broad
+  mutation
 - RAM-only current-boot event evidence and provider-minimal context projection,
   with provider export and automatic context injection still denied
 - denied-by-default module and recovery load boundaries with retained hash

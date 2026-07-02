@@ -107,8 +107,29 @@ merged result must still be a real verified vertical slice on the final
 architecture path, not scaffolding, mocks, fake trust, fake persistence, or a
 schema-only detour that does not unblock positive runtime behavior.
 
+Agent protocol track memory: Stage-0 now has its first narrow native
+`raios.agent_command_envelope.v0` boundary on the existing serial
+`agent <method>` path. The accepted form is intentionally one-method only:
+`agent command_envelope` with schema
+`raios.agent_command_envelope.v0`, target method `system.describe`, requested
+capability `cap.system.describe.read`, and classification `local_only`. The
+envelope emits a typed local response, rejects bad schema and over-capable
+targets before dispatch, and on success routes to the existing
+`system.describe` dispatcher path without creating a parallel dispatcher,
+provider write, candidate-byte load, persistence, durable audit write, rollback
+install, or broad mutation.
+
 Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
-explicit `service.restart svc.demo.hello` current-boot lifecycle transition on
+first `raios.agent_command_envelope.v0` serial boundary over `system.describe`.
+Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-061129-8152.json` with 207/207
+predicates, 36 executed commands, and `duration_ms: 64609`. The quick smoke
+proves valid envelopes dispatch through the existing `system.describe` method,
+bad-schema envelopes are rejected, and an over-capable `module.load_ephemeral`
+target is denied before module dispatch.
+
+Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding
+the explicit `service.restart svc.demo.hello` current-boot lifecycle transition on
 top of the RAM-only Hello service activation slice. Quick Shadow VM smoke
 passed in `release/vm-reports/shadow-20260702-055608-6288.json` with 203/203
 predicates, 33 executed commands, and `duration_ms: 62948`. The quick smoke
@@ -1271,21 +1292,22 @@ See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
 ## Exact Next Task
 
-Now that the RAM-only Hello service has real load/start/list/health/stop/start/
-restart/drop behavior with signed descriptor/artifact evidence, accepted
-preflight, activation records, and current-boot RAM audit events, continue the
-OS pivot by adding the first narrow native agent-command boundary around the
-existing serial `agent <method>` path. The next slice should define and verify a
-small `raios.agent_command_envelope.v0` for one already-working command, then
-route it to the existing dispatcher without adding fake persistence, broad
-mutation, provider auto-load, candidate-byte execution, or a second ad-hoc
-protocol. Keep provider trust/context hardening as a parallel Track B, but do
-not claim WebPKI chain or time validation until trusted roots, intermediate
-chain handling, and a trusted time source are actually present.
+Now that the first native `raios.agent_command_envelope.v0` can validate one
+existing serial agent command and route it through the existing dispatcher,
+continue the agent-protocol track by making envelope decisions visible in the
+RAM-only event log. Record accepted and denied envelope decisions as
+current-boot/local-only evidence, expose them through `audit.events`, and keep
+the same one-method allowlist until the audit shape is proven. Keep provider
+trust/context hardening as a parallel Track B, but do not claim WebPKI chain or
+time validation until trusted roots, intermediate chain handling, and a trusted
+time source are actually present.
 
 The next slice should:
 
 - keep bare `module.load_ephemeral` and arbitrary external artifacts denied
+- keep `agent command_envelope ... target_method=system.describe ...` routing
+  through the existing dispatcher and keep malformed or over-capable envelopes
+  denied before dispatch
 - keep current-image and host-bound `svc.demo.hello` load/list/stop/start/
   restart/drop passing in quick VM smoke, with explicit `service.start
   svc.demo.hello` starting a stopped loaded current-boot service and
@@ -1327,9 +1349,10 @@ The next slice should:
   module/service/config mutation denied
 
 Do not add a signed artifact loader yet. The runtime-artifact track now has a
-real current-boot lifecycle for the already-working Hello slot; the next
-highest-value OS core slice is a typed agent-command boundary over existing
-positive commands while arbitrary module execution remains denied.
+real current-boot lifecycle for the already-working Hello slot, and the agent
+track has a first typed command envelope; the next highest-value OS core slice
+is event-log evidence for those envelope decisions while arbitrary module
+execution remains denied.
 
 For multi-agent execution, treat the agent-command boundary as Track A and
 provider trust/context as Track B. UI/input polish, harness speed/evidence, and
