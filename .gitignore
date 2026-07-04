@@ -11,3 +11,8 @@ release/esp/NvVars
 /release/*secret*.img
 /release/vm-reports/
 /release/attestations/
+
+# Release binaries are published via tagged releases, not tracked (review-4 hygiene)
+/release/raios-stage0.img
+/release/esp/kernel/kernel.elf
+/release/esp/kernel/seed-kernel.elf
