@@ -573,7 +573,7 @@ pub(crate) fn emit_module_append_payload_hash_facts(
         "rollback_transaction_append_payload_hash",
         "raios.rollback_transaction_append_payload_hash_envelope.v0",
         "append_payload.rollback_transaction.current_boot",
-        "raios.rollback_plan.v0",
+        "raios.rollback_transaction.v0",
         "append.rollback_store.current_boot",
         payload.rollback_transaction_payload_hash,
         evaluation.rollback_payload_status,

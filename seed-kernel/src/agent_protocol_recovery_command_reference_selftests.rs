@@ -442,6 +442,9 @@ pub(crate) fn recovery_rollback_apply_authorization_selftest_cases(
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         rollback_apply_authorization_id: Some(RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_BOUNDARY_ID),
         rollback_apply_projection_hash: Some([0x67; 32]),
+        source_rollback_apply_denial_hash: Some([0x68; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0x69; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0x6a; 32]),
     };
     let expected = module_evidence::computed_recovery_rollback_apply_authorization_hash(
         module_evidence::RecoveryRollbackApplyAuthorizationHashInput {
@@ -458,6 +461,9 @@ pub(crate) fn recovery_rollback_apply_authorization_selftest_cases(
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             rollback_apply_authorization_id: RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_BOUNDARY_ID,
             rollback_apply_projection_hash: [0x67; 32],
+            source_rollback_apply_denial_hash: [0x68; 32],
+            source_durable_policy_write_authority_decision_hash: [0x69; 32],
+            source_recovery_rollback_inspect_source_reference_hash: [0x6a; 32],
         },
     );
     let mut valid = valid_input;
@@ -582,9 +588,12 @@ pub(crate) fn recovery_disable_module_target_binding_selftest_cases(
         status_read_handler_hash: Some([0x65; 32]),
         rollback_preview_authorization_hash: Some([0x66; 32]),
         rollback_apply_authorization_hash: Some([0x67; 32]),
+        source_rollback_apply_denial_hash: Some([0x68; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0x69; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0x6a; 32]),
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         disable_module_target_id: Some(RECOVERY_DISABLE_MODULE_TARGET_BINDING_BOUNDARY_ID),
-        disable_module_target_projection_hash: Some([0x68; 32]),
+        disable_module_target_projection_hash: Some([0x6b; 32]),
     };
     let expected = module_evidence::computed_recovery_disable_module_target_binding_hash(
         module_evidence::RecoveryDisableModuleTargetBindingHashInput {
@@ -599,9 +608,12 @@ pub(crate) fn recovery_disable_module_target_binding_selftest_cases(
             status_read_handler_hash: [0x65; 32],
             rollback_preview_authorization_hash: [0x66; 32],
             rollback_apply_authorization_hash: [0x67; 32],
+            source_rollback_apply_denial_hash: [0x68; 32],
+            source_durable_policy_write_authority_decision_hash: [0x69; 32],
+            source_recovery_rollback_inspect_source_reference_hash: [0x6a; 32],
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             disable_module_target_id: RECOVERY_DISABLE_MODULE_TARGET_BINDING_BOUNDARY_ID,
-            disable_module_target_projection_hash: [0x68; 32],
+            disable_module_target_projection_hash: [0x6b; 32],
         },
     );
     let mut valid = valid_input;
@@ -726,9 +738,12 @@ pub(crate) fn recovery_restart_last_good_target_binding_selftest_cases(
         rollback_preview_authorization_hash: Some([0x66; 32]),
         rollback_apply_authorization_hash: Some([0x67; 32]),
         disable_module_target_binding_hash: Some([0x68; 32]),
+        source_rollback_apply_denial_hash: Some([0x69; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0x6a; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0x6b; 32]),
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         restart_last_good_target_id: Some(RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_BOUNDARY_ID),
-        restart_last_good_target_projection_hash: Some([0x69; 32]),
+        restart_last_good_target_projection_hash: Some([0x6c; 32]),
     };
     let expected = module_evidence::computed_recovery_restart_last_good_target_binding_hash(
         module_evidence::RecoveryRestartLastGoodTargetBindingHashInput {
@@ -744,9 +759,12 @@ pub(crate) fn recovery_restart_last_good_target_binding_selftest_cases(
             rollback_preview_authorization_hash: [0x66; 32],
             rollback_apply_authorization_hash: [0x67; 32],
             disable_module_target_binding_hash: [0x68; 32],
+            source_rollback_apply_denial_hash: [0x69; 32],
+            source_durable_policy_write_authority_decision_hash: [0x6a; 32],
+            source_recovery_rollback_inspect_source_reference_hash: [0x6b; 32],
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             restart_last_good_target_id: RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_BOUNDARY_ID,
-            restart_last_good_target_projection_hash: [0x69; 32],
+            restart_last_good_target_projection_hash: [0x6c; 32],
         },
     );
     let mut valid = valid_input;
@@ -873,12 +891,15 @@ pub(crate) fn recovery_load_artifact_by_hash_target_binding_selftest_cases(
         rollback_apply_authorization_hash: Some([0x67; 32]),
         disable_module_target_binding_hash: Some([0x68; 32]),
         restart_last_good_target_binding_hash: Some([0x69; 32]),
+        source_rollback_apply_denial_hash: Some([0x6a; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0x6b; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0x6c; 32]),
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         load_artifact_by_hash_target_id: Some(
             RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_BOUNDARY_ID,
         ),
-        load_artifact_by_hash_target_artifact_hash: Some([0x6a; 32]),
-        load_artifact_by_hash_target_projection_hash: Some([0x6b; 32]),
+        load_artifact_by_hash_target_artifact_hash: Some([0x6d; 32]),
+        load_artifact_by_hash_target_projection_hash: Some([0x6e; 32]),
     };
     let expected = module_evidence::computed_recovery_load_artifact_by_hash_target_binding_hash(
         module_evidence::RecoveryLoadArtifactByHashTargetBindingHashInput {
@@ -895,11 +916,14 @@ pub(crate) fn recovery_load_artifact_by_hash_target_binding_selftest_cases(
             rollback_apply_authorization_hash: [0x67; 32],
             disable_module_target_binding_hash: [0x68; 32],
             restart_last_good_target_binding_hash: [0x69; 32],
+            source_rollback_apply_denial_hash: [0x6a; 32],
+            source_durable_policy_write_authority_decision_hash: [0x6b; 32],
+            source_recovery_rollback_inspect_source_reference_hash: [0x6c; 32],
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             load_artifact_by_hash_target_id:
                 RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_BOUNDARY_ID,
-            load_artifact_by_hash_target_artifact_hash: [0x6a; 32],
-            load_artifact_by_hash_target_projection_hash: [0x6b; 32],
+            load_artifact_by_hash_target_artifact_hash: [0x6d; 32],
+            load_artifact_by_hash_target_projection_hash: [0x6e; 32],
         },
     );
     let mut valid = valid_input;
@@ -1026,9 +1050,12 @@ pub(crate) fn recovery_memory_write_authority_selftest_cases(
         disable_module_target_binding_hash: Some([0x68; 32]),
         restart_last_good_target_binding_hash: Some([0x69; 32]),
         load_artifact_by_hash_target_binding_hash: Some([0x6a; 32]),
+        source_rollback_apply_denial_hash: Some([0x6b; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0x6c; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0x6d; 32]),
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         recovery_memory_write_authority_id: Some(RECOVERY_MEMORY_WRITE_AUTHORITY_BOUNDARY_ID),
-        recovery_memory_projection_hash: Some([0x6b; 32]),
+        recovery_memory_projection_hash: Some([0x6e; 32]),
     };
     let expected = module_evidence::computed_recovery_memory_write_authority_hash(
         module_evidence::RecoveryMemoryWriteAuthorityHashInput {
@@ -1046,9 +1073,12 @@ pub(crate) fn recovery_memory_write_authority_selftest_cases(
             disable_module_target_binding_hash: [0x68; 32],
             restart_last_good_target_binding_hash: [0x69; 32],
             load_artifact_by_hash_target_binding_hash: [0x6a; 32],
+            source_rollback_apply_denial_hash: [0x6b; 32],
+            source_durable_policy_write_authority_decision_hash: [0x6c; 32],
+            source_recovery_rollback_inspect_source_reference_hash: [0x6d; 32],
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             recovery_memory_write_authority_id: RECOVERY_MEMORY_WRITE_AUTHORITY_BOUNDARY_ID,
-            recovery_memory_projection_hash: [0x6b; 32],
+            recovery_memory_projection_hash: [0x6e; 32],
         },
     );
     let mut valid = valid_input;
@@ -1177,11 +1207,14 @@ pub(crate) fn durable_audit_rollback_write_authority_selftest_cases(
         restart_last_good_target_binding_hash: Some([0x79; 32]),
         load_artifact_by_hash_target_binding_hash: Some([0x7a; 32]),
         recovery_memory_write_authority_hash: Some([0x7b; 32]),
+        source_rollback_apply_denial_hash: Some([0x7c; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0x7d; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0x7e; 32]),
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         durable_audit_rollback_write_authority_id: Some(
             DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_BOUNDARY_ID,
         ),
-        durable_audit_rollback_projection_hash: Some([0x7c; 32]),
+        durable_audit_rollback_projection_hash: Some([0x7f; 32]),
     };
     let expected = module_evidence::computed_durable_audit_rollback_write_authority_hash(
         module_evidence::DurableAuditRollbackWriteAuthorityHashInput {
@@ -1200,10 +1233,13 @@ pub(crate) fn durable_audit_rollback_write_authority_selftest_cases(
             restart_last_good_target_binding_hash: [0x79; 32],
             load_artifact_by_hash_target_binding_hash: [0x7a; 32],
             recovery_memory_write_authority_hash: [0x7b; 32],
+            source_rollback_apply_denial_hash: [0x7c; 32],
+            source_durable_policy_write_authority_decision_hash: [0x7d; 32],
+            source_recovery_rollback_inspect_source_reference_hash: [0x7e; 32],
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             durable_audit_rollback_write_authority_id:
                 DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_BOUNDARY_ID,
-            durable_audit_rollback_projection_hash: [0x7c; 32],
+            durable_audit_rollback_projection_hash: [0x7f; 32],
         },
     );
     let mut valid = valid_input;
@@ -1335,11 +1371,14 @@ pub(crate) fn recovery_service_inventory_side_effect_boundary_selftest_cases(
         load_artifact_by_hash_target_binding_hash: Some([0x8a; 32]),
         recovery_memory_write_authority_hash: Some([0x8b; 32]),
         durable_audit_rollback_write_authority_hash: Some([0x8c; 32]),
+        source_rollback_apply_denial_hash: Some([0x8d; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0x8e; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0x8f; 32]),
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         service_inventory_side_effect_boundary_id: Some(
             RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_ID,
         ),
-        service_inventory_projection_hash: Some([0x8d; 32]),
+        service_inventory_projection_hash: Some([0x90; 32]),
     };
     let expected = module_evidence::computed_recovery_service_inventory_side_effect_boundary_hash(
         module_evidence::RecoveryServiceInventorySideEffectBoundaryHashInput {
@@ -1359,10 +1398,13 @@ pub(crate) fn recovery_service_inventory_side_effect_boundary_selftest_cases(
             load_artifact_by_hash_target_binding_hash: [0x8a; 32],
             recovery_memory_write_authority_hash: [0x8b; 32],
             durable_audit_rollback_write_authority_hash: [0x8c; 32],
+            source_rollback_apply_denial_hash: [0x8d; 32],
+            source_durable_policy_write_authority_decision_hash: [0x8e; 32],
+            source_recovery_rollback_inspect_source_reference_hash: [0x8f; 32],
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             service_inventory_side_effect_boundary_id:
                 RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_ID,
-            service_inventory_projection_hash: [0x8d; 32],
+            service_inventory_projection_hash: [0x90; 32],
         },
     );
     let mut valid = valid_input;
@@ -1498,9 +1540,12 @@ pub(crate) fn recovery_lifeline_command_dispatch_behavior_selftest_cases(
         recovery_memory_write_authority_hash: Some([0x9b; 32]),
         durable_audit_rollback_write_authority_hash: Some([0x9c; 32]),
         service_inventory_side_effect_boundary_hash: Some([0x9d; 32]),
+        source_rollback_apply_denial_hash: Some([0x9e; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0x9f; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0xa0; 32]),
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         command_dispatch_behavior_id: Some(RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_BOUNDARY_ID),
-        command_dispatch_behavior_projection_hash: Some([0x9e; 32]),
+        command_dispatch_behavior_projection_hash: Some([0xa1; 32]),
     };
     let expected = module_evidence::computed_recovery_lifeline_command_dispatch_behavior_hash(
         module_evidence::RecoveryLifelineCommandDispatchBehaviorHashInput {
@@ -1521,9 +1566,12 @@ pub(crate) fn recovery_lifeline_command_dispatch_behavior_selftest_cases(
             recovery_memory_write_authority_hash: [0x9b; 32],
             durable_audit_rollback_write_authority_hash: [0x9c; 32],
             service_inventory_side_effect_boundary_hash: [0x9d; 32],
+            source_rollback_apply_denial_hash: [0x9e; 32],
+            source_durable_policy_write_authority_decision_hash: [0x9f; 32],
+            source_recovery_rollback_inspect_source_reference_hash: [0xa0; 32],
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             command_dispatch_behavior_id: RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_BOUNDARY_ID,
-            command_dispatch_behavior_projection_hash: [0x9e; 32],
+            command_dispatch_behavior_projection_hash: [0xa1; 32],
         },
     );
     let mut valid = valid_input;
@@ -1655,11 +1703,14 @@ pub(crate) fn recovery_lifeline_command_executor_capability_table_selftest_cases
         durable_audit_rollback_write_authority_hash: Some([0xac; 32]),
         service_inventory_side_effect_boundary_hash: Some([0xad; 32]),
         command_dispatch_behavior_hash: Some([0xae; 32]),
+        source_rollback_apply_denial_hash: Some([0xaf; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0xb0; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0xb1; 32]),
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         executor_capability_table_id: Some(
             RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_BOUNDARY_ID,
         ),
-        executor_capability_projection_hash: Some([0xaf; 32]),
+        executor_capability_projection_hash: Some([0xb2; 32]),
     };
     let expected =
         module_evidence::computed_recovery_lifeline_command_executor_capability_table_hash(
@@ -1682,10 +1733,13 @@ pub(crate) fn recovery_lifeline_command_executor_capability_table_selftest_cases
                 durable_audit_rollback_write_authority_hash: [0xac; 32],
                 service_inventory_side_effect_boundary_hash: [0xad; 32],
                 command_dispatch_behavior_hash: [0xae; 32],
+                source_rollback_apply_denial_hash: [0xaf; 32],
+                source_durable_policy_write_authority_decision_hash: [0xb0; 32],
+                source_recovery_rollback_inspect_source_reference_hash: [0xb1; 32],
                 command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
                 executor_capability_table_id:
                     RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_BOUNDARY_ID,
-                executor_capability_projection_hash: [0xaf; 32],
+                executor_capability_projection_hash: [0xb2; 32],
             },
         );
     let mut valid = valid_input;
@@ -1833,9 +1887,12 @@ pub(crate) fn recovery_lifeline_command_side_effect_gate_selftest_cases(
         service_inventory_side_effect_boundary_hash: Some([0xbd; 32]),
         command_dispatch_behavior_hash: Some([0xbe; 32]),
         executor_capability_table_hash: Some([0xbf; 32]),
+        source_rollback_apply_denial_hash: Some([0xc0; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0xc1; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0xc2; 32]),
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         side_effect_gate_id: Some(RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_BOUNDARY_ID),
-        side_effect_projection_hash: Some([0xc0; 32]),
+        side_effect_projection_hash: Some([0xc3; 32]),
     };
     let expected = module_evidence::computed_recovery_lifeline_command_side_effect_gate_hash(
         module_evidence::RecoveryLifelineCommandSideEffectGateHashInput {
@@ -1858,9 +1915,12 @@ pub(crate) fn recovery_lifeline_command_side_effect_gate_selftest_cases(
             service_inventory_side_effect_boundary_hash: [0xbd; 32],
             command_dispatch_behavior_hash: [0xbe; 32],
             executor_capability_table_hash: [0xbf; 32],
+            source_rollback_apply_denial_hash: [0xc0; 32],
+            source_durable_policy_write_authority_decision_hash: [0xc1; 32],
+            source_recovery_rollback_inspect_source_reference_hash: [0xc2; 32],
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             side_effect_gate_id: RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_BOUNDARY_ID,
-            side_effect_projection_hash: [0xc0; 32],
+            side_effect_projection_hash: [0xc3; 32],
         },
     );
     let mut valid = valid_input;

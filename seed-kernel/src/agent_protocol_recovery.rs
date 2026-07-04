@@ -37,6 +37,7 @@ use crate::{
     agent_protocol_recovery_lifeline_protocol_types::*,
     agent_protocol_recovery_load_binding::{
         evaluate_recovery_load_binding, recovery_load_binding_candidate_from_retained,
+        recovery_load_binding_retained_execution_completion_denial_mismatch,
         recovery_load_binding_retained_loader_mismatch,
         recovery_load_binding_retained_local_approval_mismatch,
         recovery_load_binding_retained_rollback_evidence_mismatch,
@@ -77,8 +78,8 @@ use crate::{
     agent_protocol_recovery_status_handler_emit::*,
     agent_protocol_recovery_target_binding_emit::*,
     agent_protocol_support::{
-        begin_response, crlf, end_response, json_event_id, json_str, raw, raw_bool, raw_fmt,
-        raw_line,
+        begin_response, crlf, end_response, json_event_id, json_event_id_option, json_sha256_option,
+        json_str, raw, raw_bool, raw_fmt, raw_line,
     },
     event_log, module_evidence, serial,
 };
@@ -2350,6 +2351,8 @@ pub(crate) fn emit_recovery_lifeline_command_admission() {
         "        \"command_admission_schema\": \"raios.recovery_lifeline_command_admission.v0\"",
     );
     raw_line("      },");
+    emit_recovery_artifact_load_denial_source_evidence();
+    raw_line(",");
     emit_recovery_lifeline_protocol_request_state(retained_request, &protocol_check, true);
     raw_line("      \"required_retained_evidence\": {");
     emit_recovery_load_identity_binding_fact(retained_identity, true);
@@ -2849,6 +2852,8 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
         "        \"command_admission_schema\": \"raios.recovery_lifeline_command_admission.v0\"",
     );
     raw_line("      },");
+    emit_recovery_artifact_load_denial_source_evidence();
+    raw_line(",");
     emit_recovery_lifeline_command_dispatch_retained_envelope(retained_envelope, retained_request);
     raw_line(",");
     raw_line("      \"command_dispatch_requirements\": [");
@@ -3031,7 +3036,8 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_diagnostic() {
     raw_line("      ],");
     raw_line("      \"boundary\": {");
     emit_recovery_lifeline_command_dispatch_boundary(&check);
-    raw_line("      }");
+    raw_line("      },");
+    emit_recovery_lifeline_status_execution_readiness(&check, retained_status_handler);
     end_response("recovery.lifeline_command_dispatch_diagnostic");
 }
 
@@ -3835,7 +3841,7 @@ pub(crate) fn emit_recovery_rollback_apply_authorization_diagnostic(method: &str
     raw_line("      \"allocates_service_slot\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"recovery.rollback_apply_authorization_diagnostic <rollback_apply_authorization_hash> <retained_rollback_preview_authorization_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <command_dispatch_boundary_id> <rollback_apply_authorization_id> <rollback_apply_projection_hash> [current_boot]\",");
+    raw_line("      \"reference_format\": \"recovery.rollback_apply_authorization_diagnostic <rollback_apply_authorization_hash> <retained_rollback_preview_authorization_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <command_dispatch_boundary_id> <rollback_apply_authorization_id> <rollback_apply_projection_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> [current_boot]\",");
     raw_line("      \"request\": {");
     raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
     raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
@@ -3984,7 +3990,7 @@ pub(crate) fn emit_recovery_disable_module_target_binding_diagnostic(method: &st
     raw_line("      \"allocates_service_slot\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"recovery.disable_module_target_binding_diagnostic <disable_module_target_binding_hash> <retained_rollback_apply_authorization_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <command_dispatch_boundary_id> <disable_module_target_id> <disable_module_target_projection_hash> [current_boot]\",");
+    raw_line("      \"reference_format\": \"recovery.disable_module_target_binding_diagnostic <disable_module_target_binding_hash> <retained_rollback_apply_authorization_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <command_dispatch_boundary_id> <disable_module_target_id> <disable_module_target_projection_hash> [current_boot]\",");
     raw_line("      \"request\": {");
     raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
     raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
@@ -4137,7 +4143,7 @@ pub(crate) fn emit_recovery_restart_last_good_target_binding_diagnostic(method: 
     raw_line("      \"allocates_service_slot\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"recovery.restart_last_good_target_binding_diagnostic <restart_last_good_target_binding_hash> <retained_disable_module_target_binding_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <command_dispatch_boundary_id> <restart_last_good_target_id> <restart_last_good_target_projection_hash> [current_boot]\",");
+    raw_line("      \"reference_format\": \"recovery.restart_last_good_target_binding_diagnostic <restart_last_good_target_binding_hash> <retained_disable_module_target_binding_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <command_dispatch_boundary_id> <restart_last_good_target_id> <restart_last_good_target_projection_hash> [current_boot]\",");
     raw_line("      \"request\": {");
     raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
     raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
@@ -4294,7 +4300,7 @@ pub(crate) fn emit_recovery_load_artifact_by_hash_target_binding_diagnostic(meth
     raw_line("      \"allocates_service_slot\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"recovery.load_artifact_by_hash_target_binding_diagnostic <load_artifact_by_hash_target_binding_hash> <retained_restart_last_good_target_binding_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <command_dispatch_boundary_id> <load_artifact_by_hash_target_id> <load_artifact_by_hash_target_artifact_hash> <load_artifact_by_hash_target_projection_hash> [current_boot]\",");
+    raw_line("      \"reference_format\": \"recovery.load_artifact_by_hash_target_binding_diagnostic <load_artifact_by_hash_target_binding_hash> <retained_restart_last_good_target_binding_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <command_dispatch_boundary_id> <load_artifact_by_hash_target_id> <load_artifact_by_hash_target_artifact_hash> <load_artifact_by_hash_target_projection_hash> [current_boot]\",");
     raw_line("      \"request\": {");
     raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
     raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
@@ -4307,6 +4313,8 @@ pub(crate) fn emit_recovery_load_artifact_by_hash_target_binding_diagnostic(meth
         "        \"load_artifact_by_hash_target_binding_boundary_id\": \"boundary.recovery_load_artifact_by_hash_target_binding.current_boot\"",
     );
     raw_line("      },");
+    emit_recovery_artifact_load_denial_source_evidence();
+    raw_line(",");
     emit_recovery_load_artifact_by_hash_target_binding_reference_object(&check);
     raw_line(",");
     raw_line("      \"load_artifact_by_hash_target_binding_requirements\": [");
@@ -4453,7 +4461,7 @@ pub(crate) fn emit_recovery_memory_write_authority_diagnostic(method: &str) {
     raw_line("      \"allocates_service_slot\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"recovery.memory_write_authority_diagnostic <recovery_memory_write_authority_hash> <retained_load_artifact_by_hash_target_binding_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <command_dispatch_boundary_id> <recovery_memory_write_authority_id> <recovery_memory_projection_hash> [current_boot]\",");
+    raw_line("      \"reference_format\": \"recovery.memory_write_authority_diagnostic <recovery_memory_write_authority_hash> <retained_load_artifact_by_hash_target_binding_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <command_dispatch_boundary_id> <recovery_memory_write_authority_id> <recovery_memory_projection_hash> [current_boot]\",");
     raw_line("      \"request\": {");
     raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
     raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
@@ -4466,6 +4474,8 @@ pub(crate) fn emit_recovery_memory_write_authority_diagnostic(method: &str) {
         "        \"recovery_memory_write_authority_boundary_id\": \"boundary.recovery_memory_write_authority.current_boot\"",
     );
     raw_line("      },");
+    emit_recovery_artifact_load_denial_source_evidence();
+    raw_line(",");
     emit_recovery_memory_write_authority_reference_object(&check);
     raw_line(",");
     raw_line("      \"recovery_memory_write_authority_requirements\": [");
@@ -4603,7 +4613,7 @@ pub(crate) fn emit_durable_audit_rollback_write_authority_diagnostic(method: &st
     raw_line("      \"allocates_service_slot\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"recovery.durable_audit_rollback_write_authority_diagnostic <durable_audit_rollback_write_authority_hash> <retained_recovery_memory_write_authority_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <command_dispatch_boundary_id> <durable_audit_rollback_write_authority_id> <durable_audit_rollback_projection_hash> [current_boot]\",");
+    raw_line("      \"reference_format\": \"recovery.durable_audit_rollback_write_authority_diagnostic <durable_audit_rollback_write_authority_hash> <retained_recovery_memory_write_authority_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <command_dispatch_boundary_id> <durable_audit_rollback_write_authority_id> <durable_audit_rollback_projection_hash> [current_boot]\",");
     raw_line("      \"request\": {");
     raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
     raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
@@ -4616,6 +4626,8 @@ pub(crate) fn emit_durable_audit_rollback_write_authority_diagnostic(method: &st
         "        \"durable_audit_rollback_write_authority_boundary_id\": \"boundary.durable_audit_rollback_write_authority.current_boot\"",
     );
     raw_line("      },");
+    emit_recovery_artifact_load_denial_source_evidence();
+    raw_line(",");
     emit_durable_audit_rollback_write_authority_reference_object(&check);
     raw_line(",");
     raw_line("      \"durable_audit_rollback_write_authority_requirements\": [");
@@ -4761,7 +4773,7 @@ pub(crate) fn emit_recovery_service_inventory_side_effect_boundary_diagnostic(me
     raw_line("      \"creates_service_inventory_records\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"recovery.service_inventory_side_effect_boundary_diagnostic <service_inventory_side_effect_boundary_hash> <retained_durable_audit_rollback_write_authority_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <command_dispatch_boundary_id> <service_inventory_side_effect_boundary_id> <service_inventory_projection_hash> [current_boot]\",");
+    raw_line("      \"reference_format\": \"recovery.service_inventory_side_effect_boundary_diagnostic <service_inventory_side_effect_boundary_hash> <retained_durable_audit_rollback_write_authority_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <command_dispatch_boundary_id> <service_inventory_side_effect_boundary_id> <service_inventory_projection_hash> [current_boot]\",");
     raw_line("      \"request\": {");
     raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
     raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
@@ -4774,6 +4786,8 @@ pub(crate) fn emit_recovery_service_inventory_side_effect_boundary_diagnostic(me
         "        \"service_inventory_side_effect_boundary_id\": \"boundary.recovery_service_inventory_side_effect_boundary.current_boot\"",
     );
     raw_line("      },");
+    emit_recovery_artifact_load_denial_source_evidence();
+    raw_line(",");
     emit_recovery_service_inventory_side_effect_boundary_reference_object(&check);
     raw_line(",");
     raw_line("      \"service_inventory_side_effect_boundary_requirements\": [");
@@ -4916,7 +4930,7 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_behavior_diagnostic(method
     raw_line("      \"creates_service_inventory_records\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"recovery.lifeline_command_dispatch_behavior_diagnostic <command_dispatch_behavior_hash> <retained_service_inventory_side_effect_boundary_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_boundary_id> <command_dispatch_behavior_id> <command_dispatch_behavior_projection_hash> [current_boot]\",");
+    raw_line("      \"reference_format\": \"recovery.lifeline_command_dispatch_behavior_diagnostic <command_dispatch_behavior_hash> <retained_service_inventory_side_effect_boundary_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <command_dispatch_boundary_id> <command_dispatch_behavior_id> <command_dispatch_behavior_projection_hash> [current_boot]\",");
     raw_line("      \"request\": {");
     raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
     raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
@@ -4929,6 +4943,8 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_behavior_diagnostic(method
         "        \"command_dispatch_behavior_id\": \"boundary.recovery_lifeline_command_dispatch_behavior.current_boot\"",
     );
     raw_line("      },");
+    emit_recovery_artifact_load_denial_source_evidence();
+    raw_line(",");
     emit_recovery_lifeline_command_dispatch_behavior_reference_object(&check);
     raw_line(",");
     raw_line("      \"command_dispatch_behavior_requirements\": [");
@@ -5087,7 +5103,7 @@ pub(crate) fn emit_recovery_lifeline_command_executor_capability_table_diagnosti
     raw_line("      \"creates_service_inventory_records\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"recovery.lifeline_command_executor_capability_table_diagnostic <executor_capability_table_hash> <retained_command_dispatch_behavior_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <command_dispatch_boundary_id> <executor_capability_table_id> <executor_capability_projection_hash> [current_boot]\",");
+    raw_line("      \"reference_format\": \"recovery.lifeline_command_executor_capability_table_diagnostic <executor_capability_table_hash> <retained_command_dispatch_behavior_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <command_dispatch_boundary_id> <executor_capability_table_id> <executor_capability_projection_hash> [current_boot]\",");
     raw_line("      \"request\": {");
     raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
     raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
@@ -5100,6 +5116,8 @@ pub(crate) fn emit_recovery_lifeline_command_executor_capability_table_diagnosti
         "        \"executor_capability_table_id\": \"boundary.recovery_lifeline_command_executor_capability_table.current_boot\"",
     );
     raw_line("      },");
+    emit_recovery_artifact_load_denial_source_evidence();
+    raw_line(",");
     emit_recovery_lifeline_command_executor_capability_table_reference_object(&check);
     raw_line(",");
     raw_line("      \"executor_capability_table_requirements\": [");
@@ -5252,7 +5270,7 @@ pub(crate) fn emit_recovery_lifeline_command_side_effect_gate_diagnostic(method:
     raw_line("      \"creates_service_inventory_records\": false,");
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"recovery.lifeline_command_side_effect_gate_diagnostic <side_effect_gate_hash> <retained_executor_capability_table_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <command_dispatch_boundary_id> <side_effect_gate_id> <side_effect_projection_hash> [current_boot]\",");
+    raw_line("      \"reference_format\": \"recovery.lifeline_command_side_effect_gate_diagnostic <side_effect_gate_hash> <retained_executor_capability_table_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <command_dispatch_boundary_id> <side_effect_gate_id> <side_effect_projection_hash> [current_boot]\",");
     raw_line("      \"request\": {");
     raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
     raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
@@ -5265,6 +5283,8 @@ pub(crate) fn emit_recovery_lifeline_command_side_effect_gate_diagnostic(method:
         "        \"side_effect_gate_id\": \"boundary.recovery_lifeline_command_side_effect_gate.current_boot\"",
     );
     raw_line("      },");
+    emit_recovery_artifact_load_denial_source_evidence();
+    raw_line(",");
     emit_recovery_lifeline_command_side_effect_gate_reference_object(&check);
     raw_line(",");
     raw_line("      \"side_effect_gate_requirements\": [");
@@ -5352,6 +5372,10 @@ pub(crate) fn emit_recovery_artifact_load_binding() {
     let retained_loader = event_log::latest_recovery_artifact_loader_reference();
     let retained_rollback_evidence =
         event_log::latest_recovery_artifact_rollback_evidence_reference();
+    let retained_execution_completion_denial =
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE.reference_schema,
+        );
     let live = evaluate_recovery_load_binding(recovery_load_binding_candidate_from_retained(
         retained_identity,
         retained_trust,
@@ -5359,6 +5383,7 @@ pub(crate) fn emit_recovery_artifact_load_binding() {
         retained_local_approval,
         retained_loader,
         retained_rollback_evidence,
+        retained_execution_completion_denial,
     ));
 
     begin_response(RECOVERY_ARTIFACT_LOAD_BINDING_METHOD);
@@ -5391,7 +5416,8 @@ pub(crate) fn emit_recovery_artifact_load_binding() {
     raw_line("        \"recovery_vm_test_event_id\",");
     raw_line("        \"recovery_local_approval_event_id\",");
     raw_line("        \"recovery_loader_event_id\",");
-    raw_line("        \"recovery_rollback_evidence_event_id\"");
+    raw_line("        \"recovery_rollback_evidence_event_id\",");
+    raw_line("        \"recovery_lifeline_command_execution_completion_denial_event_id\"");
     raw_line("      ],");
     raw_line("      \"required_retained_evidence\": {");
     emit_recovery_load_identity_binding_fact(retained_identity, true);
@@ -5424,6 +5450,10 @@ pub(crate) fn emit_recovery_artifact_load_binding() {
         retained_local_approval,
         retained_loader,
         retained_rollback_evidence,
+        true,
+    );
+    emit_recovery_load_execution_completion_denial_binding_fact(
+        retained_execution_completion_denial,
         false,
     );
     raw_line("      },");
@@ -5553,6 +5583,25 @@ pub(crate) fn emit_recovery_artifact_load_binding() {
             reason,
         );
     }
+    if retained_execution_completion_denial.is_none() {
+        emit_recovery_load_blocker(
+            &mut wrote_blocker,
+            "recovery_lifeline_command_execution_completion_denial_event_id",
+            "missing",
+            "recovery_lifeline_command_execution_completion_denial_event_id_missing",
+        );
+    } else if let Some(reason) =
+        recovery_load_binding_retained_execution_completion_denial_mismatch(
+            retained_execution_completion_denial,
+        )
+    {
+        emit_recovery_load_blocker(
+            &mut wrote_blocker,
+            "recovery_lifeline_command_execution_completion_denial_event_id",
+            "rejected",
+            reason,
+        );
+    }
     crlf();
     raw_line("      ]");
     end_response(RECOVERY_ARTIFACT_LOAD_BINDING_METHOD);
@@ -5612,6 +5661,39 @@ pub(crate) fn emit_recovery_artifact_load_denied(
     method: &'static str,
     event_id: event_log::EventId,
 ) {
+    let retained_identity = event_log::latest_recovery_artifact_identity_reference();
+    let retained_trust = event_log::latest_recovery_artifact_trust_reference();
+    let retained_vm_test = event_log::latest_recovery_artifact_vm_test_reference();
+    let retained_local_approval = event_log::latest_recovery_artifact_local_approval_reference();
+    let retained_loader = event_log::latest_recovery_artifact_loader_reference();
+    let retained_rollback_evidence =
+        event_log::latest_recovery_artifact_rollback_evidence_reference();
+    let retained_execution_completion_denial =
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE.reference_schema,
+        );
+    let live = evaluate_recovery_load_binding(recovery_load_binding_candidate_from_retained(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        retained_rollback_evidence,
+        retained_execution_completion_denial,
+    ));
+    let (load_denial_status, load_denial_reason) =
+        if live.status == "available_non_authorizing" {
+            (
+                "denied_recovery_load_binding_not_authorizing",
+                "recovery_load_binding_not_authorizing",
+            )
+        } else {
+            (
+                "denied_missing_recovery_artifact_evidence",
+                "missing_recovery_artifact_evidence",
+            )
+        };
+
     serial::write_raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
     raw_line("{");
     raw_line("  \"v\": \"raios.agent.v0\",");
@@ -5648,7 +5730,12 @@ pub(crate) fn emit_recovery_artifact_load_denied(
     raw_line("      \"schema\": \"raios.recovery_artifact_load_denial_evidence.v0\",");
     raw_line("      \"scope\": \"current_boot\",");
     raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"status\": \"denied_missing_recovery_artifact_evidence\",");
+    raw("      \"status\": ");
+    json_str(load_denial_status);
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(load_denial_reason);
+    raw_line(",");
     raw_line("      \"recovery_artifact_identity\": \"missing\",");
     raw_line("      \"recovery_artifact_trust\": \"missing\",");
     raw_line("      \"recovery_vm_test\": \"missing\",");
@@ -5660,43 +5747,54 @@ pub(crate) fn emit_recovery_artifact_load_denied(
     raw_line("      \"service_inventory_change\": \"none\",");
     raw_line("      \"load_attempted\": false");
     raw_line("    },");
-    raw_line("    \"missing_facts\": {");
-    emit_recovery_artifact_load_missing_fact(
-        "recovery_artifact_identity",
-        "raios.recovery_artifact_identity.v0",
-        "recovery_artifact_identity_missing",
+    raw_line("    \"recovery_load_binding\": {");
+    raw_line("      \"schema\": \"raios.recovery_artifact_load_binding.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw_line("      \"read_only\": true,");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_records\": false,");
+    raw_line("      \"boundary\": {");
+    emit_recovery_load_binding_check(&live, 8, true);
+    raw_line("      },");
+    raw_line("      \"required_retained_evidence\": {");
+    emit_recovery_load_identity_binding_fact(retained_identity, true);
+    emit_recovery_load_trust_binding_fact(retained_identity, retained_trust, true);
+    emit_recovery_load_vm_test_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
         true,
     );
-    emit_recovery_artifact_load_missing_fact(
-        "recovery_artifact_trust",
-        "raios.recovery_artifact_trust.v0",
-        "recovery_artifact_trust_missing",
+    emit_recovery_load_local_approval_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
         true,
     );
-    emit_recovery_artifact_load_missing_fact(
-        "recovery_vm_test",
-        "raios.recovery_artifact_vm_test.v0",
-        "recovery_vm_test_missing",
+    emit_recovery_load_loader_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
         true,
     );
-    emit_recovery_artifact_load_missing_fact(
-        "recovery_local_approval",
-        "raios.recovery_artifact_local_approval.v0",
-        "recovery_local_approval_missing",
+    emit_recovery_load_rollback_evidence_binding_fact(
+        retained_identity,
+        retained_trust,
+        retained_vm_test,
+        retained_local_approval,
+        retained_loader,
+        retained_rollback_evidence,
         true,
     );
-    emit_recovery_artifact_load_missing_fact(
-        "recovery_loader",
-        "raios.recovery_artifact_loader.v0",
-        "recovery_loader_missing",
-        true,
-    );
-    emit_recovery_artifact_load_missing_fact(
-        "recovery_rollback_evidence",
-        "raios.recovery_artifact_rollback_evidence.v0",
-        "recovery_rollback_evidence_missing",
+    emit_recovery_load_execution_completion_denial_binding_fact(
+        retained_execution_completion_denial,
         false,
     );
+    raw_line("      }");
     raw_line("    },");
     raw_line("    \"blocked_by\": [");
     raw_line("      {\"gate\": \"recovery_artifact_identity\", \"state\": \"missing\", \"reason\": \"recovery_artifact_identity_missing\"},");
@@ -5734,7 +5832,23 @@ pub(crate) fn emit_recovery_artifact_load_denied(
 pub(crate) fn emit_recovery_artifact_load_denial_event_binding(
     binding: event_log::RecoveryArtifactLoadDenialBinding,
 ) {
-    raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_load_denial_evidence.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"status\": \"denied_missing_recovery_artifact_evidence\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"separate_from\": \"cap.module.load_ephemeral\", \"normal_module_load_path_used\": false, \"normal_module_capability_used\": false, \"recovery_artifact_identity\": ");
+    let (load_denial_status, load_denial_reason) =
+        if binding.recovery_load_binding_status == "available_non_authorizing" {
+            (
+                "denied_recovery_load_binding_not_authorizing",
+                "recovery_load_binding_not_authorizing",
+            )
+        } else {
+            (
+                "denied_missing_recovery_artifact_evidence",
+                "missing_recovery_artifact_evidence",
+            )
+        };
+    raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_load_denial_evidence.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"status\": ");
+    json_str(load_denial_status);
+    raw(", \"reason\": ");
+    json_str(load_denial_reason);
+    raw(", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"separate_from\": \"cap.module.load_ephemeral\", \"normal_module_load_path_used\": false, \"normal_module_capability_used\": false, \"recovery_artifact_identity\": ");
     json_missing_state(binding.recovery_artifact_identity_missing);
     raw(", \"recovery_artifact_trust\": ");
     json_missing_state(binding.recovery_artifact_trust_missing);
@@ -5746,7 +5860,61 @@ pub(crate) fn emit_recovery_artifact_load_denial_event_binding(
     json_missing_state(binding.recovery_loader_missing);
     raw(", \"recovery_rollback_evidence\": ");
     json_missing_state(binding.recovery_rollback_evidence_missing);
-    raw(", \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"missing_fact_schemas\": [\"raios.recovery_artifact_identity.v0\", \"raios.recovery_artifact_trust.v0\", \"raios.recovery_artifact_vm_test.v0\", \"raios.recovery_artifact_local_approval.v0\", \"raios.recovery_artifact_loader.v0\", \"raios.recovery_artifact_rollback_evidence.v0\"]}");
+    raw(", \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"recovery_load_binding\": {\"schema\": \"raios.recovery_artifact_load_binding.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"status\": ");
+    json_str(binding.recovery_load_binding_status);
+    raw(", \"reason\": ");
+    json_str(binding.recovery_load_binding_reason);
+    raw(", \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
+    json_event_id_option(binding.retained_recovery_artifact_identity_event_id);
+    raw(", \"identity_reference_hash\": ");
+    json_sha256_option(binding.identity_reference_hash);
+    raw(", \"retained_recovery_artifact_trust_event_id\": ");
+    json_event_id_option(binding.retained_recovery_artifact_trust_event_id);
+    raw(", \"trust_reference_hash\": ");
+    json_sha256_option(binding.trust_reference_hash);
+    raw(", \"retained_recovery_vm_test_event_id\": ");
+    json_event_id_option(binding.retained_recovery_vm_test_event_id);
+    raw(", \"vm_test_reference_hash\": ");
+    json_sha256_option(binding.vm_test_reference_hash);
+    raw(", \"retained_recovery_local_approval_event_id\": ");
+    json_event_id_option(binding.retained_recovery_local_approval_event_id);
+    raw(", \"local_approval_reference_hash\": ");
+    json_sha256_option(binding.local_approval_reference_hash);
+    raw(", \"retained_recovery_loader_event_id\": ");
+    json_event_id_option(binding.retained_recovery_loader_event_id);
+    raw(", \"loader_reference_hash\": ");
+    json_sha256_option(binding.loader_reference_hash);
+    raw(", \"retained_recovery_rollback_evidence_event_id\": ");
+    json_event_id_option(binding.retained_recovery_rollback_evidence_event_id);
+    raw(", \"rollback_evidence_reference_hash\": ");
+    json_sha256_option(binding.rollback_evidence_reference_hash);
+    raw(", \"retained_execution_completion_denial_event_id\": ");
+    json_event_id_option(binding.retained_execution_completion_denial_event_id);
+    raw(", \"execution_completion_denial_hash\": ");
+    json_sha256_option(binding.execution_completion_denial_hash);
+    raw(", \"side_effect_gate_hash\": ");
+    json_sha256_option(binding.side_effect_gate_hash);
+    raw(", \"source_rollback_apply_denial_hash\": ");
+    json_sha256_option(binding.source_rollback_apply_denial_hash);
+    raw(", \"source_durable_policy_write_authority_decision_hash\": ");
+    json_sha256_option(binding.source_durable_policy_write_authority_decision_hash);
+    raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
+    json_sha256_option(binding.source_recovery_rollback_inspect_source_reference_hash);
+    raw(", \"execution_enablement_hash\": ");
+    json_sha256_option(binding.execution_enablement_hash);
+    raw(", \"execution_preflight_hash\": ");
+    json_sha256_option(binding.execution_preflight_hash);
+    raw(", \"execution_intent_hash\": ");
+    json_sha256_option(binding.execution_intent_hash);
+    raw(", \"execution_commit_gate_hash\": ");
+    json_sha256_option(binding.execution_commit_gate_hash);
+    raw(", \"execution_result_denial_hash\": ");
+    json_sha256_option(binding.execution_result_denial_hash);
+    raw(", \"execution_audit_denial_hash\": ");
+    json_sha256_option(binding.execution_audit_denial_hash);
+    raw(", \"execution_observation_denial_hash\": ");
+    json_sha256_option(binding.execution_observation_denial_hash);
+    raw("}, \"missing_fact_schemas\": [\"raios.recovery_artifact_identity.v0\", \"raios.recovery_artifact_trust.v0\", \"raios.recovery_artifact_vm_test.v0\", \"raios.recovery_artifact_local_approval.v0\", \"raios.recovery_artifact_loader.v0\", \"raios.recovery_artifact_rollback_evidence.v0\"]}");
 }
 
 fn recovery_lifeline_protocol_candidate_from_retained(

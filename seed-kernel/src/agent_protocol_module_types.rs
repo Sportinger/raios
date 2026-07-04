@@ -1,4 +1,4 @@
-use crate::event_log;
+use crate::{ahci::AhciReadOnlyProbe, event_log};
 
 #[derive(Clone, Copy)]
 pub(crate) struct ModuleManifestReferenceCheck<'a> {
@@ -2388,7 +2388,19 @@ pub(crate) struct ModuleAuditRollbackPersistenceDeviceFact {
     pub(crate) scope: &'static str,
     pub(crate) provenance_ok: bool,
     pub(crate) classification: &'static str,
+    pub(crate) storage_controller_observed: bool,
+    pub(crate) controller_bus: u8,
+    pub(crate) controller_device: u8,
+    pub(crate) controller_function: u8,
+    pub(crate) controller_vendor_id: u16,
+    pub(crate) controller_device_id: u16,
+    pub(crate) controller_subclass: u8,
+    pub(crate) controller_prog_if: u8,
+    pub(crate) ahci_probe: AhciReadOnlyProbe,
+    pub(crate) block_driver_available: bool,
     pub(crate) stable_identity: bool,
+    pub(crate) block_device_identity_available: bool,
+    pub(crate) sector_read_available: bool,
     pub(crate) partition_inventory_available: bool,
     pub(crate) write_path_available: bool,
 }
@@ -2421,6 +2433,14 @@ pub(crate) struct ModuleAuditRollbackStorageLayoutEvaluation {
     pub(crate) persistence_device_reason: &'static str,
     pub(crate) storage_layout_status: &'static str,
     pub(crate) storage_layout_reason: &'static str,
+    pub(crate) storage_controller_observed: bool,
+    pub(crate) ahci_register_probe_available: bool,
+    pub(crate) block_driver_available: bool,
+    pub(crate) block_device_identity_available: bool,
+    pub(crate) sector_read_available: bool,
+    pub(crate) partition_inventory_available: bool,
+    pub(crate) block_write_path_available: bool,
+    pub(crate) block_write_path_reason: &'static str,
     pub(crate) persistence_device_available: bool,
     pub(crate) storage_layout_available: bool,
     pub(crate) append_engine_available: bool,
@@ -2502,6 +2522,8 @@ pub(crate) struct ModuleAuditRollbackAppendContractFact {
     pub(crate) binds_envelope_provenance: bool,
     pub(crate) storage_layout_available: bool,
     pub(crate) append_engine_available: bool,
+    pub(crate) block_write_path_available: bool,
+    pub(crate) block_write_path_reason: &'static str,
 }
 
 #[derive(Clone, Copy)]
@@ -2520,6 +2542,14 @@ pub(crate) struct ModuleAuditRollbackAppendContractEvaluation {
     pub(crate) rollback_transaction_reason: &'static str,
     pub(crate) storage_layout_available: bool,
     pub(crate) append_engine_available: bool,
+    pub(crate) append_target_owner_status: &'static str,
+    pub(crate) append_target_owner_reason: &'static str,
+    pub(crate) append_target_owner_available: bool,
+    pub(crate) transaction_writer_status: &'static str,
+    pub(crate) transaction_writer_reason: &'static str,
+    pub(crate) transaction_writer_ready: bool,
+    pub(crate) block_write_path_available: bool,
+    pub(crate) block_write_path_reason: &'static str,
     pub(crate) writes_enabled: bool,
     pub(crate) installs_rollback_plan: bool,
     pub(crate) can_load: bool,
@@ -3071,7 +3101,7 @@ pub(crate) const MODULE_LOADER_IDENTITY_SELFTEST_CASES: usize = 12;
 pub(crate) const MODULE_LOADER_ARTIFACT_HASH_BINDING_SELFTEST_CASES: usize = 14;
 pub(crate) const MODULE_AUDIT_ROLLBACK_AVAILABILITY_SELFTEST_CASES: usize = 8;
 pub(crate) const MODULE_AUDIT_ROLLBACK_WRITE_POLICY_SELFTEST_CASES: usize = 12;
-pub(crate) const MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_SELFTEST_CASES: usize = 15;
+pub(crate) const MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_SELFTEST_CASES: usize = 18;
 pub(crate) const MODULE_AUDIT_ROLLBACK_APPEND_ENGINE_SELFTEST_CASES: usize = 16;
 pub(crate) const MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_SELFTEST_CASES: usize = 24;
 pub(crate) const MODULE_AUDIT_ROLLBACK_APPEND_PAYLOAD_HASH_SELFTEST_CASES: usize = 20;

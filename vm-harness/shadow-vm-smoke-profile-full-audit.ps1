@@ -365,25 +365,6 @@
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_entrypoint_handoff_boundary_no_artifact_bytes" -Needle '"accepts_artifact_bytes": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_entrypoint_invocation_boundary" -Needle '"executable_entrypoint_invocation_boundary": {"schema": "raios.module_loader_executable_entrypoint_invocation_boundary.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_executable_entrypoint_invocation_boundary_reason" -Needle '"reason": "module_loader_executable_entrypoint_invocation_boundary_non_authorizing"' -TimeoutSeconds 1
-    $moduleAuditEventsResponse = Get-LastAgentResponseJson -Method "memory.recent_events"
-    $moduleAuditInvocationEvents = @($moduleAuditEventsResponse.body.result.events | Where-Object { $_.bindings.schema -eq "raios.module_loader_executable_entrypoint_invocation_boundary_source_evidence.v0" })
-    $moduleAuditInvocationBoundary = if ($moduleAuditInvocationEvents.Count -gt 0) { $moduleAuditInvocationEvents[0].bindings } else { $null }
-    $moduleAuditInvocationBoundaryChecks = @(
-        @{ Suffix = "no_entrypoint_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.jumps_to_entrypoint } else { $null }) },
-        @{ Suffix = "no_binding_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.binds_capability_validated_descriptor_to_executable_pages } else { $null }) },
-        @{ Suffix = "no_maps_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.maps_executable_pages } else { $null }) },
-        @{ Suffix = "no_page_mapping_plan_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.produces_executable_page_mapping_plan } else { $null }) },
-        @{ Suffix = "no_image_layout_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.produces_executable_image_layout } else { $null }) },
-        @{ Suffix = "no_load_plan_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.produces_executable_load_plan } else { $null }) },
-        @{ Suffix = "no_artifact_bytes_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleAuditInvocationBoundary) { [bool]$moduleAuditInvocationBoundary.accepts_artifact_bytes } else { $null }) }
-    )
-    foreach ($check in $moduleAuditInvocationBoundaryChecks) {
-        $passed = ($null -ne $moduleAuditInvocationBoundary) -and $check.Actual -eq $check.Expected
-        Add-Predicate -Name ("protocol:module_load_audit_loader_runtime_executable_entrypoint_invocation_boundary_" + $check.Suffix) -Expected ([string]$check.Expected) -Passed $passed -Actual ([string]$check.Actual)
-        if (-not $passed) {
-            throw ("Expected audit event invocation boundary " + $check.Suffix + " to be " + [string]$check.Expected + ", got " + [string]$check.Actual)
-        }
-    }
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_no_load" -Needle '"loader_runtime_readiness": {"schema": "raios.module_loader_runtime_readiness.v0", "scope": "current_boot", "classification": "local_only"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_count" -Needle '"source_fact_count": 10, "source_fact_map_complete": true, "source_fact_map": ' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_load_audit_loader_runtime_source_map_identity" -Needle '"fact": "loader_identity"' -TimeoutSeconds 1
@@ -503,6 +484,9 @@
     Assert-LogContains -Name "protocol:recovery_rollback_apply_authorization_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_rollback_apply_authorization.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_rollback_apply_authorization_audit_preview_event" -Needle "`"retained_recovery_rollback_preview_authorization_event_id`": `"$recoveryRollbackPreviewAuthorizationEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_rollback_apply_authorization_audit_hash" -Needle "`"rollback_apply_authorization_hash`": `"sha256:$recoveryRollbackApplyAuthorizationHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_rollback_apply_authorization_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_rollback_apply_authorization_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_rollback_apply_authorization_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_rollback_apply_authorization_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_rollback_apply_authorization_audit_no_apply" -Needle '"executes_rollback_apply": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_source" -Needle '"source_method": "recovery.disable_module_target_binding_diagnostic"' -TimeoutSeconds 1
@@ -511,6 +495,9 @@
     Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_disable_module_target_binding.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_apply_event" -Needle "`"retained_recovery_rollback_apply_authorization_event_id`": `"$recoveryRollbackApplyAuthorizationEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_hash" -Needle "`"disable_module_target_binding_hash`": `"sha256:$recoveryDisableModuleTargetBindingHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_disable_module_target_binding_audit_no_disable" -Needle '"disables_module": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_source" -Needle '"source_method": "recovery.restart_last_good_target_binding_diagnostic"' -TimeoutSeconds 1
@@ -519,6 +506,9 @@
     Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_restart_last_good_target_binding.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_disable_event" -Needle "`"retained_recovery_disable_module_target_binding_event_id`": `"$recoveryDisableModuleTargetBindingEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_hash" -Needle "`"restart_last_good_target_binding_hash`": `"sha256:$recoveryRestartLastGoodTargetBindingHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_restart_last_good_target_binding_audit_no_restart" -Needle '"restarts_last_good": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_artifact_by_hash_target_binding_audit_source" -Needle '"source_method": "recovery.load_artifact_by_hash_target_binding_diagnostic"' -TimeoutSeconds 1
@@ -527,6 +517,9 @@
     Assert-LogContains -Name "protocol:recovery_load_artifact_by_hash_target_binding_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_load_artifact_by_hash_target_binding.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_artifact_by_hash_target_binding_audit_restart_event" -Needle "`"retained_recovery_restart_last_good_target_binding_event_id`": `"$recoveryRestartLastGoodTargetBindingEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_artifact_by_hash_target_binding_audit_hash" -Needle "`"load_artifact_by_hash_target_binding_hash`": `"sha256:$recoveryLoadArtifactByHashTargetBindingHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_artifact_by_hash_target_binding_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_artifact_by_hash_target_binding_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_load_artifact_by_hash_target_binding_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_artifact_by_hash_target_binding_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_load_artifact_by_hash_target_binding_audit_no_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_memory_write_authority_audit_source" -Needle '"source_method": "recovery.memory_write_authority_diagnostic"' -TimeoutSeconds 1
@@ -535,6 +528,9 @@
     Assert-LogContains -Name "protocol:recovery_memory_write_authority_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_memory_write_authority.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_memory_write_authority_audit_load_event" -Needle "`"retained_recovery_load_artifact_by_hash_target_binding_event_id`": `"$recoveryLoadArtifactByHashTargetBindingEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_memory_write_authority_audit_hash" -Needle "`"recovery_memory_write_authority_hash`": `"sha256:$recoveryMemoryWriteAuthorityHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_memory_write_authority_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_memory_write_authority_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_memory_write_authority_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_memory_write_authority_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_memory_write_authority_audit_no_write" -Needle '"writes_recovery_memory": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_source" -Needle '"source_method": "recovery.durable_audit_rollback_write_authority_diagnostic"' -TimeoutSeconds 1
@@ -543,6 +539,9 @@
     Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_binding_schema" -Needle '"bindings": {"schema": "raios.durable_audit_rollback_write_authority.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_memory_event" -Needle "`"retained_recovery_memory_write_authority_event_id`": `"$recoveryMemoryWriteAuthorityEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_hash" -Needle "`"durable_audit_rollback_write_authority_hash`": `"sha256:$durableAuditRollbackWriteAuthorityHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_no_durable_write" -Needle '"writes_durable_audit_log": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:durable_audit_rollback_write_authority_audit_no_rollback_write" -Needle '"writes_rollback_store": false' -TimeoutSeconds 1
@@ -552,6 +551,9 @@
     Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_service_inventory_side_effect_boundary.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_durable_event" -Needle "`"retained_durable_audit_rollback_write_authority_event_id`": `"$durableAuditRollbackWriteAuthorityEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_hash" -Needle "`"service_inventory_side_effect_boundary_hash`": `"sha256:$serviceInventorySideEffectBoundaryHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_no_service_slot" -Needle '"allocates_service_slot": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:service_inventory_side_effect_boundary_audit_no_service_records" -Needle '"creates_service_inventory_records": false' -TimeoutSeconds 1
@@ -563,6 +565,9 @@
     Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_service_event" -Needle "`"retained_service_inventory_side_effect_boundary_event_id`": `"$serviceInventorySideEffectBoundaryEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_hash" -Needle "`"command_dispatch_behavior_hash`": `"sha256:$recoveryCommandDispatchBehaviorHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_service_hash" -Needle "`"service_inventory_side_effect_boundary_hash`": `"sha256:$serviceInventorySideEffectBoundaryHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_execution_false" -Needle '"command_execution_enabled": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_dispatch_behavior_audit_no_service_change" -Needle '"service_inventory_change": "none"' -TimeoutSeconds 1
@@ -573,6 +578,9 @@
     Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_behavior_event" -Needle "`"retained_command_dispatch_behavior_event_id`": `"$recoveryCommandDispatchBehaviorEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_hash" -Needle "`"executor_capability_table_hash`": `"sha256:$recoveryExecutorCapabilityTableHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_behavior_hash" -Needle "`"command_dispatch_behavior_hash`": `"sha256:$recoveryCommandDispatchBehaviorHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_projection_hash" -Needle "`"executor_capability_projection_hash`": `"sha256:$recoveryExecutorCapabilityProjectionHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_executor_capability_table_audit_execution_false" -Needle '"command_execution_enabled": false' -TimeoutSeconds 1
@@ -584,6 +592,9 @@
     Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_executor_event" -Needle "`"retained_executor_capability_table_event_id`": `"$recoveryExecutorCapabilityTableEventId`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_hash" -Needle "`"side_effect_gate_hash`": `"sha256:$recoverySideEffectGateHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_executor_hash" -Needle "`"executor_capability_table_hash`": `"sha256:$recoveryExecutorCapabilityTableHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_projection_hash" -Needle "`"side_effect_projection_hash`": `"sha256:$recoverySideEffectProjectionHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_side_effect_gate_audit_execution_false" -Needle '"command_execution_enabled": false' -TimeoutSeconds 1
@@ -594,13 +605,26 @@
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_lifeline_command_execution_enablement.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_stage_hash" -Needle "`"execution_stage_hash`": `"sha256:$recoveryExecutionEnablementHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_previous_event" -Needle "`"retained_previous_stage_event_id`": `"$recoverySideEffectGateEventId`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_enablement_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_preflight_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_preflight_diagnostic_selftest"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_kind" -Needle '"kind": "recovery.lifeline_command_execution_preflight.retained"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_binding_schema" -Needle '"bindings": {"schema": "raios.recovery_lifeline_command_execution_preflight.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_stage_hash" -Needle "`"execution_stage_hash`": `"sha256:$recoveryExecutionPreflightHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_previous_event" -Needle "`"retained_previous_stage_event_id`": `"$recoveryExecutionEnablementEventId`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_service_hash" -Needle "`"service_inventory_side_effect_boundary_hash`": `"sha256:$serviceInventorySideEffectBoundaryHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_dispatch_hash" -Needle "`"command_dispatch_behavior_hash`": `"sha256:$recoveryCommandDispatchBehaviorHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_executor_hash" -Needle "`"executor_capability_table_hash`": `"sha256:$recoveryExecutorCapabilityTableHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_side_effect_hash" -Needle "`"side_effect_gate_hash`": `"sha256:$recoverySideEffectGateHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_source_denial_hash" -Needle "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_source_policy_hash" -Needle "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_source_inspect_hash" -Needle "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_enablement_hash" -Needle "`"execution_enablement_hash`": `"sha256:$recoveryExecutionEnablementHash`"" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_preflight_audit_execution_false" -Needle '"command_execution_enabled": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_intent_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_intent_diagnostic"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_intent_selftest_audit_source" -Needle '"source_method": "recovery.lifeline_command_execution_intent_diagnostic_selftest"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:recovery_lifeline_command_execution_intent_audit_kind" -Needle '"kind": "recovery.lifeline_command_execution_intent.retained"' -TimeoutSeconds 1

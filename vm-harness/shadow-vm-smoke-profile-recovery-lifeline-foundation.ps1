@@ -726,6 +726,9 @@
         @{ Suffix = "reason"; Needle = '"reason": "recovery_lifeline_protocol_state_missing"' },
         @{ Suffix = "no_mutation"; Needle = '"mutates_global_event_log": false' },
         @{ Suffix = "no_records"; Needle = '"creates_retained_recovery_lifeline_command_admission_records": false' },
+        @{ Suffix = "load_denial_source_schema"; Needle = '"recovery_artifact_load_denial_source": {' },
+        @{ Suffix = "load_denial_source_missing"; Needle = '"reason": "recovery_artifact_identity_event_id_missing"' },
+        @{ Suffix = "load_denial_source_present_true"; Needle = '"source_evidence_present": true' },
         @{ Suffix = "no_command_envelope"; Needle = '"accepts_lifeline_command_envelope": false' },
         @{ Suffix = "no_dispatch"; Needle = '"dispatches_lifeline_command": false' },
         @{ Suffix = "no_status_exec"; Needle = '"executes_lifeline_status": false' },
@@ -803,3 +806,5 @@
         @{ Suffix = "dispatch_false"; Needle = '"dispatches_lifeline_command": false' },
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
+
+    Send-AgentCommand -Command "agent audit.events 96" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.recovery_lifeline_foundation"

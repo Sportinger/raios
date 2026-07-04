@@ -31,8 +31,163 @@ const AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET: &str = "device.graph";
 const AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_CAPABILITY: &str = "cap.device.graph.read";
 const AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET: &str = "service.inventory";
 const AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_CAPABILITY: &str = "cap.service.inventory.read";
+const AGENT_COMMAND_ENVELOPE_SERVICE_HEALTH_TARGET: &str = "service.health";
+const AGENT_COMMAND_ENVELOPE_SERVICE_HEALTH_CAPABILITY: &str = "cap.service.health.read";
+const AGENT_COMMAND_ENVELOPE_SERVICE_ROLLBACK_PREVIEW_TARGET: &str = "service.rollback_preview";
+const AGENT_COMMAND_ENVELOPE_SERVICE_ROLLBACK_PREVIEW_CAPABILITY: &str =
+    "cap.service.rollback_preview.read";
+const AGENT_COMMAND_ENVELOPE_RECOVERY_ROLLBACK_INSPECT_TARGET: &str =
+    "recovery.rollback_inspect";
+const AGENT_COMMAND_ENVELOPE_RECOVERY_ROLLBACK_INSPECT_CAPABILITY: &str =
+    "cap.recovery.rollback_inspect.read";
+const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_AVAILABILITY_TARGET: &str =
+    "module.audit_rollback_availability";
+const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_POLICY_TARGET: &str =
+    "module.audit_rollback_write_policy";
+const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_TARGET: &str =
+    "module.audit_rollback_storage_layout";
+const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_ENGINE_TARGET: &str =
+    "module.audit_rollback_append_engine";
+const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_TARGET: &str =
+    "module.audit_rollback_append_contract";
+const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_PAYLOAD_HASH_TARGET: &str =
+    "module.audit_rollback_append_payload_hash";
+const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_INTENT_TARGET: &str =
+    "module.audit_rollback_append_intent";
+const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_BOUNDARY_TARGET: &str =
+    "module.audit_rollback_write_boundary";
+const AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY: &str =
+    "cap.module.grant_diagnostic.read";
 const AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET: &str = "problem.list";
 const AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_CAPABILITY: &str = "cap.problem.list.read";
+const AGENT_COMMAND_ENVELOPE_RECOVERY_LIFELINE_STATUS_TARGET: &str = "recovery.lifeline.status";
+const AGENT_COMMAND_ENVELOPE_RECOVERY_LIFELINE_STATUS_CAPABILITY: &str =
+    "cap.recovery.load_artifact.read";
+
+#[derive(Clone, Copy)]
+struct AgentCommandEnvelopeAllowedTarget {
+    method: &'static str,
+    capability: &'static str,
+    response_id: &'static str,
+    dispatch_method: &'static str,
+}
+
+const AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS: [AgentCommandEnvelopeAllowedTarget; 19] = [
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.system_describe.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.system_snapshot.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_BOOT_LOG_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.system_boot_log.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.system_capabilities.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.device_graph.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.service_inventory.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_SERVICE_HEALTH_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_SERVICE_HEALTH_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.service_health.v0",
+        dispatch_method: "service.health svc.demo.hello",
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_SERVICE_ROLLBACK_PREVIEW_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_SERVICE_ROLLBACK_PREVIEW_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.service_rollback_preview.v0",
+        dispatch_method: "service.rollback_preview svc.demo.hello",
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_RECOVERY_ROLLBACK_INSPECT_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_RECOVERY_ROLLBACK_INSPECT_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.recovery_rollback_inspect.v0",
+        dispatch_method: "recovery.rollback_inspect svc.demo.hello",
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_AVAILABILITY_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_availability.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_AVAILABILITY_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_POLICY_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_write_policy.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_POLICY_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_storage_layout.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_ENGINE_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_append_engine.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_ENGINE_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_append_contract.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_PAYLOAD_HASH_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_append_payload_hash.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_PAYLOAD_HASH_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_INTENT_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_append_intent.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_INTENT_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_BOUNDARY_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_write_boundary.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_BOUNDARY_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.problem_list.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET,
+    },
+    AgentCommandEnvelopeAllowedTarget {
+        method: AGENT_COMMAND_ENVELOPE_RECOVERY_LIFELINE_STATUS_TARGET,
+        capability: AGENT_COMMAND_ENVELOPE_RECOVERY_LIFELINE_STATUS_CAPABILITY,
+        response_id: "agent_command_envelope.current_boot.serial.recovery_lifeline_status.v0",
+        dispatch_method: AGENT_COMMAND_ENVELOPE_RECOVERY_LIFELINE_STATUS_TARGET,
+    },
+];
 
 static CONSOLE: Mutex<ConsoleState> = Mutex::new(ConsoleState::new());
 
@@ -1001,6 +1156,15 @@ pub fn set_view(view: UiView) -> bool {
     apply_action(action, ui::RuntimeStatus::new())
 }
 
+pub fn activate_focus(focus: UiFocus) -> bool {
+    let action = {
+        let mut state = CONSOLE.lock();
+        state.focus = focus;
+        state.activate_focus()
+    };
+    apply_action(action, ui::RuntimeStatus::new())
+}
+
 pub fn record_event(args: fmt::Arguments<'_>) {
     let mut line = ConsoleLine::empty();
     let _ = line.write_fmt(args);
@@ -1184,6 +1348,9 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
         | "module.persist"
         | "module.rollback"
         | "recovery.load_artifact"
+        | "recovery.rollback_inspect"
+        | "recovery.rollback_inspect_source_reference_selftest"
+        | "recovery.rollback_materialize_dry_run"
         | "service.load_ephemeral"
         | "service.restart"
         | "service.hot_swap"
@@ -1213,13 +1380,16 @@ fn command_help() {
         "AGENT: describe snapshot caps bootlog services problems device.graph memory.profile"
     ));
     write_output(format_args!(
-        "AGENT RAW: service.health service.rollback_preview service.rollback_apply service.descriptor_source_trust_selftest service.artifact_reference_trust_selftest service.artifact_load_plan_preflight_selftest memory.context provider.context_export provider.context_gate provider.context_gate_selftest provider.context_injection_gate provider.context_injection_gate_selftest memory.query memory.trace memory.recent_events"
+        "AGENT RAW: service.health service.rollback_preview service.rollback_apply recovery.rollback_inspect recovery.rollback_inspect_source_reference_selftest recovery.rollback_materialize_dry_run service.descriptor_source_trust_selftest service.artifact_reference_trust_selftest service.artifact_load_plan_preflight_selftest memory.context provider.context_export provider.context_gate provider.context_gate_selftest provider.context_injection_gate provider.context_injection_gate_selftest memory.query memory.trace memory.recent_events"
     ));
     write_output(format_args!(
-        "AGENT ENVELOPE: agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe|system.snapshot|system.boot_log|system.capabilities|device.graph|service.inventory|problem.list requested_capability=cap.<target>.read classification=local_only"
+        "AGENT ENVELOPE: agent command_envelope schema=raios.agent_command_envelope.v0 target_method=system.describe|system.snapshot|system.boot_log|system.capabilities|device.graph|service.inventory|service.health|service.rollback_preview|recovery.rollback_inspect|module.audit_rollback_availability|module.audit_rollback_write_policy|module.audit_rollback_storage_layout|module.audit_rollback_append_engine|module.audit_rollback_append_contract|module.audit_rollback_append_payload_hash|module.audit_rollback_append_intent|module.audit_rollback_write_boundary|problem.list|recovery.lifeline.status requested_capability=cap.<target>.read classification=local_only"
     ));
     write_output(format_args!(
         "RECOVERY: recovery.load_artifact module.load_recovery_artifact recovery.lifeline_command_admission recovery.lifeline_command_envelope_diagnostic recovery.lifeline_command_dispatch_diagnostic recovery.lifeline_command_body_canonicalization_diagnostic recovery.lifeline_command_handler_binding_diagnostic recovery.lifeline_status_read_handler_diagnostic recovery.rollback_preview_authorization_diagnostic recovery.rollback_apply_authorization_diagnostic recovery.disable_module_target_binding_diagnostic recovery.restart_last_good_target_binding_diagnostic recovery.load_artifact_by_hash_target_binding_diagnostic recovery.memory_write_authority_diagnostic recovery.durable_audit_rollback_write_authority_diagnostic recovery.service_inventory_side_effect_boundary_diagnostic recovery.lifeline_command_dispatch_behavior_diagnostic recovery.lifeline_command_executor_capability_table_diagnostic recovery.lifeline_command_side_effect_gate_diagnostic recovery.lifeline_command_execution_enablement_diagnostic recovery.lifeline_command_execution_preflight_diagnostic recovery.lifeline_command_execution_intent_diagnostic recovery.lifeline_command_execution_commit_gate_diagnostic recovery.lifeline_command_execution_result_denial_diagnostic"
+    ));
+    write_output(format_args!(
+        "RECOVERY EXEC: recovery.lifeline_command_execution_audit_denial_diagnostic recovery.lifeline_command_execution_observation_denial_diagnostic recovery.lifeline_command_execution_completion_denial_diagnostic recovery.lifeline_status_execution_result_diagnostic recovery.lifeline_status_result_read recovery.lifeline.status"
     ));
 }
 
@@ -1331,11 +1501,7 @@ fn command_agent_command_envelope(arguments: &str, runtime: ui::RuntimeStatus) {
     emit_agent_command_envelope(envelope, reason, accepted, event_id);
     if accepted {
         record_event(format_args!("AGENT COMMAND ENVELOPE ACCEPTED"));
-        command_agent_protocol(
-            agent_command_envelope_allowed_target(envelope.target_method)
-                .unwrap_or(AGENT_COMMAND_ENVELOPE_TARGET),
-            runtime,
-        );
+        command_agent_protocol(agent_command_envelope_dispatch_method(envelope), runtime);
     } else {
         record_event(format_args!("AGENT COMMAND ENVELOPE DENIED"));
         serial::write_line("AGENT COMMAND ENVELOPE DENIED");
@@ -1375,23 +1541,38 @@ fn agent_command_envelope_event_binding(
     }
 }
 
-fn agent_command_envelope_event_target(value: Option<&str>) -> Option<&'static str> {
+fn agent_command_envelope_lookup_allowed_target(
+    value: Option<&str>,
+) -> Option<AgentCommandEnvelopeAllowedTarget> {
     let value = value.unwrap_or("");
-    if method_eq(value, AGENT_COMMAND_ENVELOPE_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET)
-    } else if method_eq(value, "module.load_ephemeral") {
+    let mut index = 0usize;
+    while index < AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS.len() {
+        let target = AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS[index];
+        if method_eq(value, target.method) {
+            return Some(target);
+        }
+        index += 1;
+    }
+    None
+}
+
+fn agent_command_envelope_lookup_allowed_capability(value: Option<&str>) -> Option<&'static str> {
+    let value = value.unwrap_or("");
+    let mut index = 0usize;
+    while index < AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS.len() {
+        let target = AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS[index];
+        if method_eq(value, target.capability) {
+            return Some(target.capability);
+        }
+        index += 1;
+    }
+    None
+}
+
+fn agent_command_envelope_event_target(value: Option<&str>) -> Option<&'static str> {
+    if let Some(target) = agent_command_envelope_lookup_allowed_target(value) {
+        Some(target.method)
+    } else if method_eq(value.unwrap_or(""), "module.load_ephemeral") {
         Some("module.load_ephemeral")
     } else {
         None
@@ -1399,43 +1580,25 @@ fn agent_command_envelope_event_target(value: Option<&str>) -> Option<&'static s
 }
 
 fn agent_command_envelope_allowed_target(value: Option<&str>) -> Option<&'static str> {
-    let value = value.unwrap_or("");
-    if method_eq(value, AGENT_COMMAND_ENVELOPE_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET) {
-        Some(AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET)
+    if let Some(target) = agent_command_envelope_lookup_allowed_target(value) {
+        Some(target.method)
     } else {
         None
     }
 }
 
+fn agent_command_envelope_dispatch_method(envelope: AgentCommandEnvelope<'_>) -> &'static str {
+    if let Some(target) = agent_command_envelope_lookup_allowed_target(envelope.target_method) {
+        target.dispatch_method
+    } else {
+        AGENT_COMMAND_ENVELOPE_TARGET
+    }
+}
+
 fn agent_command_envelope_event_capability(value: Option<&str>) -> Option<&'static str> {
-    let value = value.unwrap_or("");
-    if method_eq(value, AGENT_COMMAND_ENVELOPE_CAPABILITY) {
-        Some(AGENT_COMMAND_ENVELOPE_CAPABILITY)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_CAPABILITY) {
-        Some(AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_CAPABILITY)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_BOOT_LOG_CAPABILITY) {
-        Some(AGENT_COMMAND_ENVELOPE_BOOT_LOG_CAPABILITY)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_CAPABILITY) {
-        Some(AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_CAPABILITY)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_CAPABILITY) {
-        Some(AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_CAPABILITY)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_CAPABILITY) {
-        Some(AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_CAPABILITY)
-    } else if method_eq(value, AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_CAPABILITY) {
-        Some(AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_CAPABILITY)
-    } else if method_eq(value, "cap.module.load_ephemeral") {
+    if let Some(capability) = agent_command_envelope_lookup_allowed_capability(value) {
+        Some(capability)
+    } else if method_eq(value.unwrap_or(""), "cap.module.load_ephemeral") {
         Some("cap.module.load_ephemeral")
     } else {
         None
@@ -1452,36 +1615,8 @@ fn agent_command_envelope_event_classification(value: Option<&str>) -> Option<&'
 }
 
 fn agent_command_envelope_expected_capability(envelope: AgentCommandEnvelope<'_>) -> &'static str {
-    if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET,
-    ) {
-        AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_CAPABILITY
-    } else if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET,
-    ) {
-        AGENT_COMMAND_ENVELOPE_BOOT_LOG_CAPABILITY
-    } else if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET,
-    ) {
-        AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_CAPABILITY
-    } else if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET,
-    ) {
-        AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_CAPABILITY
-    } else if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET,
-    ) {
-        AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_CAPABILITY
-    } else if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET,
-    ) {
-        AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_CAPABILITY
+    if let Some(target) = agent_command_envelope_lookup_allowed_target(envelope.target_method) {
+        target.capability
     } else {
         AGENT_COMMAND_ENVELOPE_CAPABILITY
     }
@@ -1611,25 +1746,20 @@ fn emit_agent_command_envelope(
     json_str(AGENT_COMMAND_ENVELOPE_TARGET);
     raw_line(",");
     raw("      \"allowed_target_methods\": [");
-    json_str(AGENT_COMMAND_ENVELOPE_TARGET);
-    raw(", ");
-    json_str(AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET);
-    raw(", ");
-    json_str(AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET);
-    raw(", ");
-    json_str(AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET);
-    raw(", ");
-    json_str(AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET);
-    raw(", ");
-    json_str(AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET);
-    raw(", ");
-    json_str(AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET);
+    let mut allowed_index = 0usize;
+    while allowed_index < AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS.len() {
+        if allowed_index > 0 {
+            raw(", ");
+        }
+        json_str(AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS[allowed_index].method);
+        allowed_index += 1;
+    }
     raw_line("],");
     raw("      \"allowed_requested_capability\": ");
     json_str(agent_command_envelope_expected_capability(envelope));
     raw_line(",");
     raw_line(
-        "      \"target_allowlist\": \"system_describe_system_snapshot_system_boot_log_system_capabilities_device_graph_service_inventory_problem_list_read_only\",",
+        "      \"target_allowlist\": \"system_describe_system_snapshot_system_boot_log_system_capabilities_device_graph_service_inventory_service_health_service_rollback_preview_recovery_rollback_inspect_module_audit_rollback_availability_module_audit_rollback_write_policy_module_audit_rollback_storage_layout_module_audit_rollback_append_engine_module_audit_rollback_append_contract_module_audit_rollback_append_payload_hash_module_audit_rollback_append_intent_module_audit_rollback_write_boundary_problem_list_recovery_lifeline_status_read_only\",",
     );
     raw("      \"dispatches_existing_agent_method\": ");
     raw_bool(accepted);
@@ -1645,36 +1775,8 @@ fn emit_agent_command_envelope(
 }
 
 fn agent_command_envelope_response_id(envelope: AgentCommandEnvelope<'_>) -> &'static str {
-    if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET,
-    ) {
-        "agent_command_envelope.current_boot.serial.system_snapshot.v0"
-    } else if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET,
-    ) {
-        "agent_command_envelope.current_boot.serial.system_boot_log.v0"
-    } else if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET,
-    ) {
-        "agent_command_envelope.current_boot.serial.system_capabilities.v0"
-    } else if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET,
-    ) {
-        "agent_command_envelope.current_boot.serial.device_graph.v0"
-    } else if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET,
-    ) {
-        "agent_command_envelope.current_boot.serial.service_inventory.v0"
-    } else if method_eq(
-        envelope.target_method.unwrap_or(""),
-        AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET,
-    ) {
-        "agent_command_envelope.current_boot.serial.problem_list.v0"
+    if let Some(target) = agent_command_envelope_lookup_allowed_target(envelope.target_method) {
+        target.response_id
     } else {
         "agent_command_envelope.current_boot.serial.system_describe.v0"
     }

@@ -1,5 +1,5 @@
         Assert-LogContains -Name "recovery:audit_events_schema" -Needle '"schema": "event.log.v0"' -TimeoutSeconds 1
-        Assert-LogContains -Name "recovery:audit_events_limit" -Needle '"limit": 256' -TimeoutSeconds 1
+        Assert-LogContains -Name "recovery:audit_events_limit" -Needle '"limit": 96' -TimeoutSeconds 1
         Assert-LogContains -Name "recovery:audit_events_provider_export_source" -Needle '"source_method": "provider.context_export"' -TimeoutSeconds 1
         Assert-LogContains -Name "recovery:audit_events_load_source" -Needle '"source_method": "recovery.load_artifact"' -TimeoutSeconds 1
         Assert-LogContains -Name "recovery:audit_events_identity_source" -Needle '"source_method": "recovery.identity_diagnostic"' -TimeoutSeconds 1

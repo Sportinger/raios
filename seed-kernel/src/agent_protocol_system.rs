@@ -67,6 +67,20 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         summary: "read current-boot rollback preview evidence",
     },
     Capability {
+        id: "cap.recovery.rollback_inspect.read",
+        risk: "observe",
+        granted: true,
+        scope: "current_boot",
+        summary: "read current-boot rollback recovery inspection evidence",
+    },
+    Capability {
+        id: "cap.recovery.rollback_materialize_dry_run.current_boot",
+        risk: "test_media_write",
+        granted: true,
+        scope: "current_boot_test_infrastructure",
+        summary: "materialize current-boot rollback test-sector evidence",
+    },
+    Capability {
         id: "cap.service.descriptor_source_trust.read",
         risk: "observe",
         granted: true,
@@ -343,6 +357,7 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.loader_diagnostic_selftest",
     "recovery.rollback_evidence_diagnostic",
     "recovery.rollback_evidence_diagnostic_selftest",
+    "recovery.rollback_inspect",
     "recovery.lifeline_request_diagnostic",
     "recovery.lifeline_request_diagnostic_selftest",
     "recovery.lifeline_protocol_diagnostic",
@@ -407,6 +422,9 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "recovery.lifeline_command_execution_observation_denial_diagnostic_selftest",
     "recovery.lifeline_command_execution_completion_denial_diagnostic",
     "recovery.lifeline_command_execution_completion_denial_diagnostic_selftest",
+    "recovery.lifeline_status_execution_result_diagnostic",
+    "recovery.lifeline_status_result_read",
+    "recovery.lifeline.status",
     "recovery.load_binding",
     "recovery.load_binding_selftest",
 ];

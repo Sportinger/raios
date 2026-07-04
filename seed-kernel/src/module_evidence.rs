@@ -245,6 +245,9 @@ pub struct RecoveryRollbackApplyAuthorizationHashInput<'a> {
     pub command_dispatch_boundary_id: &'a str,
     pub rollback_apply_authorization_id: &'a str,
     pub rollback_apply_projection_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
 }
 
 pub struct RecoveryDisableModuleTargetBindingHashInput<'a> {
@@ -259,6 +262,9 @@ pub struct RecoveryDisableModuleTargetBindingHashInput<'a> {
     pub status_read_handler_hash: [u8; 32],
     pub rollback_preview_authorization_hash: [u8; 32],
     pub rollback_apply_authorization_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
     pub command_dispatch_boundary_id: &'a str,
     pub disable_module_target_id: &'a str,
     pub disable_module_target_projection_hash: [u8; 32],
@@ -277,6 +283,9 @@ pub struct RecoveryRestartLastGoodTargetBindingHashInput<'a> {
     pub rollback_preview_authorization_hash: [u8; 32],
     pub rollback_apply_authorization_hash: [u8; 32],
     pub disable_module_target_binding_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
     pub command_dispatch_boundary_id: &'a str,
     pub restart_last_good_target_id: &'a str,
     pub restart_last_good_target_projection_hash: [u8; 32],
@@ -296,6 +305,9 @@ pub struct RecoveryLoadArtifactByHashTargetBindingHashInput<'a> {
     pub rollback_apply_authorization_hash: [u8; 32],
     pub disable_module_target_binding_hash: [u8; 32],
     pub restart_last_good_target_binding_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
     pub command_dispatch_boundary_id: &'a str,
     pub load_artifact_by_hash_target_id: &'a str,
     pub load_artifact_by_hash_target_artifact_hash: [u8; 32],
@@ -317,6 +329,9 @@ pub struct RecoveryMemoryWriteAuthorityHashInput<'a> {
     pub disable_module_target_binding_hash: [u8; 32],
     pub restart_last_good_target_binding_hash: [u8; 32],
     pub load_artifact_by_hash_target_binding_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
     pub command_dispatch_boundary_id: &'a str,
     pub recovery_memory_write_authority_id: &'a str,
     pub recovery_memory_projection_hash: [u8; 32],
@@ -338,6 +353,9 @@ pub struct DurableAuditRollbackWriteAuthorityHashInput<'a> {
     pub restart_last_good_target_binding_hash: [u8; 32],
     pub load_artifact_by_hash_target_binding_hash: [u8; 32],
     pub recovery_memory_write_authority_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
     pub command_dispatch_boundary_id: &'a str,
     pub durable_audit_rollback_write_authority_id: &'a str,
     pub durable_audit_rollback_projection_hash: [u8; 32],
@@ -360,6 +378,9 @@ pub struct RecoveryServiceInventorySideEffectBoundaryHashInput<'a> {
     pub load_artifact_by_hash_target_binding_hash: [u8; 32],
     pub recovery_memory_write_authority_hash: [u8; 32],
     pub durable_audit_rollback_write_authority_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
     pub command_dispatch_boundary_id: &'a str,
     pub service_inventory_side_effect_boundary_id: &'a str,
     pub service_inventory_projection_hash: [u8; 32],
@@ -383,6 +404,9 @@ pub struct RecoveryLifelineCommandDispatchBehaviorHashInput<'a> {
     pub recovery_memory_write_authority_hash: [u8; 32],
     pub durable_audit_rollback_write_authority_hash: [u8; 32],
     pub service_inventory_side_effect_boundary_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
     pub command_dispatch_boundary_id: &'a str,
     pub command_dispatch_behavior_id: &'a str,
     pub command_dispatch_behavior_projection_hash: [u8; 32],
@@ -407,6 +431,9 @@ pub struct RecoveryLifelineCommandExecutorCapabilityTableHashInput<'a> {
     pub durable_audit_rollback_write_authority_hash: [u8; 32],
     pub service_inventory_side_effect_boundary_hash: [u8; 32],
     pub command_dispatch_behavior_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
     pub command_dispatch_boundary_id: &'a str,
     pub executor_capability_table_id: &'a str,
     pub executor_capability_projection_hash: [u8; 32],
@@ -432,6 +459,9 @@ pub struct RecoveryLifelineCommandSideEffectGateHashInput<'a> {
     pub service_inventory_side_effect_boundary_hash: [u8; 32],
     pub command_dispatch_behavior_hash: [u8; 32],
     pub executor_capability_table_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
     pub command_dispatch_boundary_id: &'a str,
     pub side_effect_gate_id: &'a str,
     pub side_effect_projection_hash: [u8; 32],
@@ -462,6 +492,9 @@ pub struct RecoveryLifelineCommandExecutionStageHashInput<'a> {
     pub command_dispatch_behavior_hash: [u8; 32],
     pub executor_capability_table_hash: [u8; 32],
     pub side_effect_gate_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
     pub execution_enablement_hash: Option<[u8; 32]>,
     pub execution_preflight_hash: Option<[u8; 32]>,
     pub execution_intent_hash: Option<[u8; 32]>,
@@ -474,6 +507,36 @@ pub struct RecoveryLifelineCommandExecutionStageHashInput<'a> {
     pub execution_stage_id: &'a str,
     pub execution_stage_projection_hash_field: &'static str,
     pub execution_stage_projection_hash: [u8; 32],
+}
+
+pub struct RecoveryLifelineStatusExecutionResultHashInput<'a> {
+    pub retained_status_read_handler_event_id: &'a str,
+    pub retained_execution_completion_denial_event_id: &'a str,
+    pub command_id: &'a str,
+    pub argument_schema: &'a str,
+    pub argument_hash: [u8; 32],
+    pub target_locator: &'a str,
+    pub command_envelope_reference_hash: [u8; 32],
+    pub command_body_canonicalization_hash: [u8; 32],
+    pub handler_binding_hash: [u8; 32],
+    pub status_read_handler_hash: [u8; 32],
+    pub status_read_projection_hash: [u8; 32],
+    pub command_dispatch_behavior_hash: [u8; 32],
+    pub executor_capability_table_hash: [u8; 32],
+    pub side_effect_gate_hash: [u8; 32],
+    pub source_rollback_apply_denial_hash: [u8; 32],
+    pub source_durable_policy_write_authority_decision_hash: [u8; 32],
+    pub source_recovery_rollback_inspect_source_reference_hash: [u8; 32],
+    pub execution_enablement_hash: [u8; 32],
+    pub execution_preflight_hash: [u8; 32],
+    pub execution_intent_hash: [u8; 32],
+    pub execution_commit_gate_hash: [u8; 32],
+    pub execution_result_denial_hash: [u8; 32],
+    pub execution_audit_denial_hash: [u8; 32],
+    pub execution_observation_denial_hash: [u8; 32],
+    pub execution_completion_denial_hash: [u8; 32],
+    pub command_dispatch_boundary_id: &'a str,
+    pub status_execution_result_id: &'a str,
 }
 
 pub fn computed_module_manifest_reference_hash(manifest_hash: [u8; 32]) -> [u8; 32] {
@@ -1435,6 +1498,24 @@ pub fn computed_recovery_rollback_apply_authorization_hash(
         input.rollback_apply_projection_hash,
         true,
     );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
+        true,
+    );
     hash_static_line(&mut hash, b"accepts_raw_command_body=false", true);
     hash_static_line(&mut hash, b"accepts_lifeline_command_body=false", true);
     hash_static_line(&mut hash, b"accepts_lifeline_command_envelope=false", true);
@@ -1522,6 +1603,24 @@ pub fn computed_recovery_disable_module_target_binding_hash(
         &mut hash,
         b"rollback_apply_authorization_sha256",
         input.rollback_apply_authorization_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
         true,
     );
     hash_str_line(
@@ -1636,6 +1735,24 @@ pub fn computed_recovery_restart_last_good_target_binding_hash(
         &mut hash,
         b"disable_module_target_binding_sha256",
         input.disable_module_target_binding_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
         true,
     );
     hash_str_line(
@@ -1757,6 +1874,24 @@ pub fn computed_recovery_load_artifact_by_hash_target_binding_hash(
         &mut hash,
         b"restart_last_good_target_binding_sha256",
         input.restart_last_good_target_binding_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
         true,
     );
     hash_str_line(
@@ -1886,6 +2021,24 @@ pub fn computed_recovery_memory_write_authority_hash(
         &mut hash,
         b"load_artifact_by_hash_target_binding_sha256",
         input.load_artifact_by_hash_target_binding_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
         true,
     );
     hash_str_line(
@@ -2019,6 +2172,24 @@ pub fn computed_durable_audit_rollback_write_authority_hash(
         &mut hash,
         b"recovery_memory_write_authority_sha256",
         input.recovery_memory_write_authority_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
         true,
     );
     hash_str_line(
@@ -2158,6 +2329,24 @@ pub fn computed_recovery_service_inventory_side_effect_boundary_hash(
         &mut hash,
         b"durable_audit_rollback_write_authority_sha256",
         input.durable_audit_rollback_write_authority_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
         true,
     );
     hash_str_line(
@@ -2304,6 +2493,24 @@ pub fn computed_recovery_lifeline_command_dispatch_behavior_hash(
         &mut hash,
         b"service_inventory_side_effect_boundary_sha256",
         input.service_inventory_side_effect_boundary_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
         true,
     );
     hash_str_line(
@@ -2457,6 +2664,24 @@ pub fn computed_recovery_lifeline_command_executor_capability_table_hash(
         &mut hash,
         b"command_dispatch_behavior_sha256",
         input.command_dispatch_behavior_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
         true,
     );
     hash_str_line(
@@ -2618,6 +2843,24 @@ pub fn computed_recovery_lifeline_command_side_effect_gate_hash(
         input.executor_capability_table_hash,
         true,
     );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
+        true,
+    );
     hash_str_line(
         &mut hash,
         b"command_dispatch_boundary_id",
@@ -2771,6 +3014,24 @@ pub fn computed_recovery_lifeline_command_execution_stage_hash(
         input.side_effect_gate_hash,
         true,
     );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
+        true,
+    );
     if let Some(execution_enablement_hash) = input.execution_enablement_hash {
         hash_hash_line(
             &mut hash,
@@ -2861,6 +3122,202 @@ pub fn computed_recovery_lifeline_command_execution_stage_hash(
     hash_static_line(&mut hash, b"executes_rollback_apply=false", true);
     hash_static_line(&mut hash, b"disables_module=false", true);
     hash_static_line(&mut hash, b"restarts_last_good=false", true);
+    hash_static_line(&mut hash, b"exports_provider_context=false", true);
+    hash_static_line(&mut hash, b"authorizes_recovery_load=false", true);
+    hash_static_line(&mut hash, b"allocates_service_slot=false", true);
+    hash_static_line(&mut hash, b"creates_service_inventory_records=false", true);
+    hash_static_line(&mut hash, b"service_inventory_change=none", true);
+    hash_static_line(&mut hash, b"load_attempted=false", false);
+    finalize_sha256(hash)
+}
+
+pub fn computed_recovery_lifeline_status_execution_result_hash(
+    input: RecoveryLifelineStatusExecutionResultHashInput<'_>,
+) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash_static_line(
+        &mut hash,
+        b"canonicalization=raios.recovery_lifeline_status_execution_result.canonical.v0",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"schema=raios.recovery_lifeline_status_execution_result.v0",
+        true,
+    );
+    hash_static_line(&mut hash, b"load_mode=recovery_only", true);
+    hash_static_line(&mut hash, b"subject=agent.session.serial", true);
+    hash_static_line(
+        &mut hash,
+        b"resource=recovery_lifeline_status_execution_result",
+        true,
+    );
+    hash_static_line(&mut hash, b"scope=current_boot", true);
+    hash_str_line(
+        &mut hash,
+        b"retained_status_read_handler_event_id",
+        input.retained_status_read_handler_event_id,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"retained_execution_completion_denial_event_id",
+        input.retained_execution_completion_denial_event_id,
+        true,
+    );
+    hash_str_line(&mut hash, b"command_id", input.command_id, true);
+    hash_str_line(&mut hash, b"argument_schema", input.argument_schema, true);
+    hash_hash_line(&mut hash, b"argument_sha256", input.argument_hash, true);
+    hash_str_line(&mut hash, b"target_locator", input.target_locator, true);
+    hash_hash_line(
+        &mut hash,
+        b"command_envelope_reference_sha256",
+        input.command_envelope_reference_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"command_body_canonicalization_sha256",
+        input.command_body_canonicalization_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"handler_binding_sha256",
+        input.handler_binding_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"status_read_handler_sha256",
+        input.status_read_handler_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"status_read_projection_sha256",
+        input.status_read_projection_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"command_dispatch_behavior_sha256",
+        input.command_dispatch_behavior_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"executor_capability_table_sha256",
+        input.executor_capability_table_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"side_effect_gate_sha256",
+        input.side_effect_gate_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_rollback_apply_denial_sha256",
+        input.source_rollback_apply_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_durable_policy_write_authority_decision_sha256",
+        input.source_durable_policy_write_authority_decision_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"source_recovery_rollback_inspect_source_reference_sha256",
+        input.source_recovery_rollback_inspect_source_reference_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"execution_enablement_sha256",
+        input.execution_enablement_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"execution_preflight_sha256",
+        input.execution_preflight_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"execution_intent_sha256",
+        input.execution_intent_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"execution_commit_gate_sha256",
+        input.execution_commit_gate_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"execution_result_denial_sha256",
+        input.execution_result_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"execution_audit_denial_sha256",
+        input.execution_audit_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"execution_observation_denial_sha256",
+        input.execution_observation_denial_hash,
+        true,
+    );
+    hash_hash_line(
+        &mut hash,
+        b"execution_completion_denial_sha256",
+        input.execution_completion_denial_hash,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"command_dispatch_boundary_id",
+        input.command_dispatch_boundary_id,
+        true,
+    );
+    hash_str_line(
+        &mut hash,
+        b"status_execution_result_id",
+        input.status_execution_result_id,
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"status_execution_readiness=available_read_only_non_authorizing",
+        true,
+    );
+    hash_static_line(
+        &mut hash,
+        b"readiness_reason=recovery_lifeline_status_read_ready_command_execution_disabled",
+        true,
+    );
+    hash_static_line(&mut hash, b"would_execute_lifeline_status_read=true", true);
+    hash_static_line(&mut hash, b"accepts_raw_command_body=false", true);
+    hash_static_line(&mut hash, b"accepts_lifeline_command_body=false", true);
+    hash_static_line(&mut hash, b"accepts_lifeline_command_envelope=false", true);
+    hash_static_line(&mut hash, b"dispatches_lifeline_command=false", true);
+    hash_static_line(&mut hash, b"command_execution_enabled=false", true);
+    hash_static_line(&mut hash, b"executes_lifeline_status=false", true);
+    hash_static_line(&mut hash, b"writes_recovery_memory=false", true);
+    hash_static_line(&mut hash, b"writes_durable_audit_log=false", true);
+    hash_static_line(&mut hash, b"writes_rollback_store=false", true);
+    hash_static_line(&mut hash, b"creates_durable_records=false", true);
+    hash_static_line(&mut hash, b"installs_rollback_plan=false", true);
+    hash_static_line(&mut hash, b"loads_recovery_artifact=false", true);
     hash_static_line(&mut hash, b"exports_provider_context=false", true);
     hash_static_line(&mut hash, b"authorizes_recovery_load=false", true);
     hash_static_line(&mut hash, b"allocates_service_slot=false", true);
@@ -4004,7 +4461,11 @@ pub fn computed_module_rollback_append_payload_hash_from_sequences(
         b"schema=raios.rollback_transaction_append_payload_hash_envelope.v0",
         true,
     );
-    hash_static_line(&mut hash, b"target_schema=raios.rollback_plan.v0", true);
+    hash_static_line(
+        &mut hash,
+        b"target_schema=raios.rollback_transaction.v0",
+        true,
+    );
     hash_static_line(
         &mut hash,
         b"pre_load_write_request_schema=raios.module_pre_load_audit_rollback_write_request.v0",

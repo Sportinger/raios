@@ -184,6 +184,13 @@ transaction away.
 Nothing the AI generates can touch the recovery core. Nothing can exceed its
 declared capabilities at runtime. Nothing lands without a record.
 
+Verification should stay evidence-first without turning every tiny change into
+a full release rehearsal. Small local slices get the smallest check that can
+catch their failure; trust, storage, rollback, recovery, authority, provider,
+descriptor, and boot changes still need focused VM evidence before they are
+claimed. Full VM profiles are checkpoint evidence, not the tax on every minor
+field or diagnostic hop.
+
 ## The Recovery Lifeline
 
 Because the AI has write access to almost everything, the parts it *cannot*
@@ -250,116 +257,53 @@ raiOS holds a small set of architectural principles that override convenience:
 
 ## Current Reality
 
-This repository is the Stage-0 seed of raiOS: a bootable Rust kernel that proves
-the machine can come up, render a UI, accept input, reach the network, expose a
-native agent protocol, and deny unsafe system mutation through typed evidence.
+This README intentionally stays compact. It describes the product thesis and
+durable current shape, not the active engineering cursor or every verified
+predicate. Read `docs/PROJECT_STATUS.md` for the authoritative detailed state,
+exact next task, latest VM reports, known gaps, and implementation history;
+read `docs/ROADMAP.md` for the compact phase plan and parallel work lanes.
 
-Verified in the VM today:
+Stable current shape:
 
-- UEFI/Limine boot into the higher-half Rust kernel
-- framebuffer UI with `AI`, `CONSOLE`, and `SET` modes
-- serial command input plus USB-HID keyboard, mouse, and tablet input in QEMU
-- Intel e1000 DHCP networking and entropy from RDRAND
-- direct OpenAI transport through DNS, TCP, TLS 1.3, HTTPS, and Responses API parsing
-- fail-closed provider trust gates for SPKI or leaf-certificate pins
-- native serial `raios.agent.v0` read-only methods for snapshot, capabilities,
-  service inventory, problem state, memory context, event log, and provider gates
-- first typed serial command envelope:
-  `raios.agent_command_envelope.v0` accepts local-only read-only
-  `system.describe`, `system.snapshot`, `system.boot_log`,
-  `system.capabilities`, `device.graph`, `service.inventory`, and
-  `problem.list` requests only when the requested capability matches the
-  target, routes through the existing
-  dispatcher, and denies target/capability mismatches, bad-schema envelopes, or
-  over-capable targets before dispatch without provider writes, candidate-byte
-  loading, persistence, or broad mutation; accepted and denied envelope
-  decisions retain current-boot local-only audit evidence visible through
-  `audit.events`
-- RAM-only current-boot event evidence and provider-minimal context projection,
-  with provider export and automatic context injection still denied
-- denied-by-default module and recovery load boundaries with retained hash
-  references, audit/rollback diagnostics, service-slot diagnostics, loader-runtime
-  diagnostics, and Shadow VM evidence
-- first positive RAM-only service lifecycle:
-  `module.load_ephemeral svc.demo.hello` consumes a typed current-boot load
-  descriptor from a validated current-image descriptor-source record, exposes
-  `svc.demo.hello` through `service.inventory`, supports health/stop/start/drop,
-  and leaves RAM-only lifecycle and health audit events bound to the same
-  descriptor source hash and a verified P-256/SHA-256 descriptor-source
-  signature envelope;
-  `service.descriptor_source_trust_selftest` proves valid and tampered envelope
-  cases fail closed without accepting descriptor or artifact bytes; the built-in
-  artifact id also carries a signed `raios.builtin_artifact_identity.v0`
-  identity/trust envelope whose id/hash and signature verification state are
-  visible in load, inventory, health, and RAM-audit evidence, plus a signed
-  content/hash binding to the checked-in Hello service source snapshot and a
-  signed repo-local artifact-byte reference that remains non-executing;
-  `service.artifact_reference_trust_selftest` proves valid reference evidence
-  passes and tampered byte/content/reference/trust evidence fails closed; a
-  `raios.current_boot_artifact_load_plan_preflight.v0` record now binds the
-  selected descriptor source, artifact identity, content binding, artifact
-  reference, and RAM-only service-slot intent before load/start while keeping
-  candidate-byte execution, executable mapping, persistence, durable audit,
-  rollback, and broad mutation denied; `service.artifact_load_plan_preflight_selftest`
-  proves valid preflight evidence and tampered descriptor/artifact/slot/denial
-  evidence fail closed without mutating the event log; a
-  `raios.ram_only_service_slot_activation.v0` record derived from the accepted
-  preflight now exposes activation id/hash/status/active state in load/start,
-  inventory, health, stop/start/restart/drop, and RAM-audit bindings, with
-  `service.start` starting the same loaded generation, `service.restart`
-  recording a restart while preserving that generation, `service.hot_swap`
-  validating the signed built-in evidence chain before advancing the loaded
-  generation, `service.hot_swap svc.demo.hello.v2` selecting a distinct signed
-  built-in v2 identity with visible version metadata, v1->v2 and v2->v1
-  hot-swaps preserving a tiny RAM-only
-  `raios.ram_only_hello_service_state.v0` counter through explicit
-  `raios.ram_only_hello_service_state_migration.v0` evidence,
-  accepted hot-swaps emitting
-  `raios.ram_only_hello_service_hot_swap_probation.v0` evidence that binds
-  previous/new descriptor, artifact identity, generation, state, and migration
-  facts without claiming rollback or persistence authority,
-  `service.rollback_preview svc.demo.hello` reading that retained probation
-  into a read-only rollback target/current candidate preview and proving the
-  active service state unchanged,
-  `service.rollback_apply svc.demo.hello` binding the preview/probation/state
-  hashes plus rollback transaction/durable-audit preflight and write-authority
-  gate plus append-intent availability evidence into structured
-  `capability_denied` while proving descriptor, generation, running state,
-  RAM-only state, durable audit, rollback-store, transaction append, and
-  persistence remain unchanged,
-  `service.hot_swap svc.demo.hello.reset_state` denying a would-reset migration
-  before descriptor/generation/state mutation with RAM-only audit evidence,
-  and drop clearing the current-boot slot while citing the same activation hash;
-  a second `host_bound:svc.demo.hello` path uses a host-produced
-  descriptor-source candidate that binds the current-image source hash while
-  still loading only the built-in current-boot service
-- Phase-6 normal-module loader diagnostics through descriptor/artifact intake,
-  execution authorization, service-registry mutation, live-load attempt,
-  artifact-load, executable-mapping, entrypoint-transfer, service-start,
-  service-health-binding, service-running-state, service-start-audit, and
-  service-unload-cleanup boundaries, plus live-load commit, commit-audit,
-  commit-rollback, commit-result, descriptor-acceptance authority,
-  descriptor-parser contract, descriptor-parser result, and descriptor
-  schema-validation, capability-validation, load-plan, executable load-plan
-  authority/result, executable image-layout, executable page-mapping plan, and
-  executable page-mapping, descriptor/executable-page binding, and executable
-  entrypoint binding, executable entrypoint transfer authorization, executable
-  entrypoint transfer, and executable entrypoint handoff boundaries, all still
-  non-authorizing
-- a Shadow VM smoke harness that verifies the real boot and serial protocol path
-  and writes `raios.vm_test_report.v0` reports
+- Stage-0 is a bootable Rust kernel handed off by Limine from UEFI.
+- The kernel renders a double-buffered framebuffer UI with `AI`, `CONSOLE`,
+  and `SET` modes, accepts serial input, and has QEMU HID/e1000 VM bring-up.
+- The in-guest provider path can reach OpenAI through DNS, TCP, TLS, HTTPS,
+  and response parsing. The current TLS path is pin/SPKI based and still lacks
+  full WebPKI chain validation and trusted-time validation.
+- Native read-only agent protocol surfaces exist for system/device/service/
+  problem/provider/event-log style inspection, including a local-only typed
+  command-envelope path for read-only dispatch.
+- `svc.demo.hello` is the real current-boot built-in service test path. It
+  exercises signed descriptor/artifact evidence, lifecycle/inventory,
+  hot-swap/state migration, rollback preview/apply denial, test-media
+  write/readback evidence, and recovery-lifeline bindings. The exact current
+  slice and latest evidence live in `docs/PROJECT_STATUS.md`.
+- Persistence, external unsigned artifact intake, executable candidate-byte
+  mapping, provider auto-load, broad mutation, durable audit writes, rollback
+  store writes, real transaction append, rollback application, and installed
+  rollback state remain denied unless the status and roadmap say otherwise.
+- Shadow VM smoke profiles verify boot/protocol behavior and write
+  `raios.vm_test_report.v0` reports under `release/vm-reports/`.
 
 Still intentionally missing:
 
-- signed replaceable modules and an isolated runtime that can actually load them
+- signed replaceable modules and an isolated runtime that can actually load
+  them
 - positive module/service/config mutation authority
-- durable audit ledger, rollback store, persistent memory, and recovery shell
-- TLS/HTTPS as a replaceable service instead of kernel-resident Stage-0 code
-- Wi-Fi firmware upload, association, WPA, and packet transport
-- broad provider trust, WebPKI, and provider-agnostic adapters
-- re-binding to new hardware as a supported flow
+- durable audit ledger, rollback store, persistent memory, recovery shell, and
+  real transaction append
+- TLS/HTTPS as a replaceable service rather than Stage-0 kernel-resident code
+- broad provider trust, WebPKI, trusted time, provider-agnostic adapters, and
+  production Wi-Fi support
+- supported re-binding to new hardware
 
-The detailed, unabridged current state and exact next engineering task live in
-`docs/PROJECT_STATUS.md`. The phase plan lives in `docs/ROADMAP.md`; build,
-run, and smoke-test commands live in `docs/DEBUGGING.md`; the foundational
-protocol and memory decisions live in `docs/architecture-decisions/`.
+Document map:
+
+- `docs/PROJECT_STATUS.md`: detailed current state, exact next task, latest
+  reports, gaps, and unabridged implementation history
+- `docs/ROADMAP.md`: phase direction, compact active cursor, and parallel work
+  lanes
+- `docs/DEBUGGING.md`: build, run, smoke-test, protocol-probe, and failure-mode
+  commands
+- `docs/architecture-decisions/`: durable protocol and memory decisions

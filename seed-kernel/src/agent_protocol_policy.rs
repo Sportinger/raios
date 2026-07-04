@@ -100,6 +100,13 @@ fn requested_capability_for_read(method: &str) -> &'static str {
         "cap.service.health.read"
     } else if method_eq(method, "service.rollback_preview") {
         "cap.service.rollback_preview.read"
+    } else if method_eq(method, "recovery.rollback_inspect") {
+        "cap.recovery.rollback_inspect.read"
+    } else if method_eq(
+        method,
+        "recovery.rollback_inspect_source_reference_selftest",
+    ) {
+        "cap.recovery.rollback_inspect.read"
     } else if method_eq(method, "service.descriptor_source_trust_selftest") {
         "cap.service.descriptor_source_trust.read"
     } else if method_eq(method, "service.artifact_reference_trust_selftest") {

@@ -47,6 +47,7 @@
     $moduleManifestResponse = Get-LastAgentResponseJson -Method "module.manifest_diagnostic"
     $moduleManifestRetainedReferenceEventId = [string]$moduleManifestResponse.body.result.retained_manifest_reference.event_id
     Assert-CurrentBootEventId -Name "protocol:module_manifest_retained_reference_event_id_captured" -Value $moduleManifestRetainedReferenceEventId
+    Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_manifest_reference"
 
     Send-AgentCommand -Command "agent module.manifest_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.manifest_diagnostic_selftest"
     Assert-LogContains -Name "protocol:module_manifest_selftest_schema" -Needle '"schema": "raios.module_manifest_reference_diagnostic_selftest.v0"' -TimeoutSeconds 1
@@ -115,6 +116,7 @@
     $moduleGrantResponse = Get-LastAgentResponseJson -Method "module.grant_diagnostic"
     $moduleAuditRetainedReferenceEventId = [string]$moduleGrantResponse.body.result.retained_reference.event_id
     Assert-CurrentBootEventId -Name "protocol:module_grant_retained_reference_event_id_captured" -Value $moduleAuditRetainedReferenceEventId
+    Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_grant_reference"
 
     Send-AgentCommand -Command "agent module.artifact_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.artifact_diagnostic"
     Assert-LogContains -Name "protocol:module_artifact_diag_schema" -Needle '"schema": "raios.module_candidate_artifact_reference_diagnostic.v0"' -TimeoutSeconds 1
@@ -170,6 +172,7 @@
     $moduleArtifactResponse = Get-LastAgentResponseJson -Method "module.artifact_diagnostic"
     $moduleArtifactRetainedReferenceEventId = [string]$moduleArtifactResponse.body.result.retained_candidate_artifact_reference.event_id
     Assert-CurrentBootEventId -Name "protocol:module_artifact_retained_reference_event_id_captured" -Value $moduleArtifactRetainedReferenceEventId
+    Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_artifact_reference"
 
     Send-AgentCommand -Command "agent module.artifact_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.artifact_diagnostic_selftest"
     Assert-LogContains -Name "protocol:module_artifact_selftest_schema" -Needle '"schema": "raios.module_candidate_artifact_reference_diagnostic_selftest.v0"' -TimeoutSeconds 1
@@ -241,6 +244,7 @@
     $moduleVmReportResponse = Get-LastAgentResponseJson -Method "module.vm_report_diagnostic"
     $moduleVmReportRetainedReferenceEventId = [string]$moduleVmReportResponse.body.result.retained_vm_test_report_reference.event_id
     Assert-CurrentBootEventId -Name "protocol:module_vm_report_retained_reference_event_id_captured" -Value $moduleVmReportRetainedReferenceEventId
+    Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_vm_report_reference"
 
     Send-AgentCommand -Command "agent module.vm_report_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.vm_report_diagnostic_selftest"
     Assert-LogContains -Name "protocol:module_vm_report_selftest_schema" -Needle '"schema": "raios.module_vm_test_report_reference_diagnostic_selftest.v0"' -TimeoutSeconds 1
@@ -315,6 +319,7 @@
     $moduleAttestationResponse = Get-LastAgentResponseJson -Method "module.attestation_diagnostic"
     $moduleAttestationRetainedReferenceEventId = [string]$moduleAttestationResponse.body.result.retained_local_attestation_reference.event_id
     Assert-CurrentBootEventId -Name "protocol:module_attestation_retained_reference_event_id_captured" -Value $moduleAttestationRetainedReferenceEventId
+    Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_attestation_reference"
 
     Send-AgentCommand -Command "agent module.attestation_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.attestation_diagnostic_selftest"
     Assert-LogContains -Name "protocol:module_attestation_selftest_schema" -Needle '"schema": "raios.module_local_attestation_reference_diagnostic_selftest.v0"' -TimeoutSeconds 1
@@ -392,6 +397,7 @@
     $moduleApprovalResponse = Get-LastAgentResponseJson -Method "module.approval_diagnostic"
     $moduleApprovalRetainedReferenceEventId = [string]$moduleApprovalResponse.body.result.retained_local_approval_reference.event_id
     Assert-CurrentBootEventId -Name "protocol:module_approval_retained_reference_event_id_captured" -Value $moduleApprovalRetainedReferenceEventId
+    Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_approval_reference"
 
     Send-AgentCommand -Command "agent module.approval_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END module.approval_diagnostic_selftest"
     Assert-LogContains -Name "protocol:module_approval_selftest_schema" -Needle '"schema": "raios.module_local_approval_reference_diagnostic_selftest.v0"' -TimeoutSeconds 1
@@ -532,6 +538,7 @@
     $moduleAuditResponse = Get-LastAgentResponseJson -Method "module.audit_rollback_diagnostic"
     $moduleServiceSlotRetainedAuditEventId = [string]$moduleAuditResponse.body.result.retained_audit_rollback_reference.event_id
     Assert-CurrentBootEventId -Name "protocol:module_service_slot_retained_audit_reference_event_id_captured" -Value $moduleServiceSlotRetainedAuditEventId
+    Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_audit_rollback_reference"
 
     Send-AgentCommand -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic"
     Assert-LogContains -Name "protocol:module_service_slot_diag_schema" -Needle '"schema": "raios.module_service_slot_reservation_diagnostic.v0"' -TimeoutSeconds 1
@@ -623,6 +630,7 @@
         @{ Suffix = "policy_can_load_false"; Needle = '"can_load_now": false' },
         @{ Suffix = "policy_inventory_none"; Needle = '"service_inventory_change": "none"' }
     )
+    Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_service_slot_reference"
 
     Send-AgentCommand -Command "agent module.service_slot_allocator" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_allocator"
     Assert-LogContainsFields -NamePrefix "protocol:module_service_slot_allocator_after_reservation_" -TimeoutSeconds 1 -Fields @(
@@ -1193,5 +1201,25 @@
         Add-Predicate -Name ("protocol:module_loader_runtime_" + $check.Suffix) -Expected ([string]$check.Expected) -Passed $passed -Actual ([string]$check.Actual)
         if (-not $passed) {
             throw ("Expected module.loader_runtime " + $check.Suffix + " to be " + [string]$check.Expected + ", got " + [string]$check.Actual)
+        }
+    }
+    Send-AgentCommand -Command "agent audit.events 64" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.module_loader_runtime_source_evidence"
+    $moduleLoaderRuntimeAuditEventsResponse = Get-LastAgentResponseJson -Method "memory.recent_events"
+    $moduleLoaderRuntimeInvocationEvents = @($moduleLoaderRuntimeAuditEventsResponse.body.result.events | Where-Object { $_.bindings.schema -eq "raios.module_loader_executable_entrypoint_invocation_boundary_source_evidence.v0" })
+    $moduleLoaderRuntimeInvocationBoundary = if ($moduleLoaderRuntimeInvocationEvents.Count -gt 0) { $moduleLoaderRuntimeInvocationEvents[0].bindings } else { $null }
+    $moduleLoaderRuntimeAuditInvocationChecks = @(
+        @{ Suffix = "no_entrypoint_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleLoaderRuntimeInvocationBoundary) { [bool]$moduleLoaderRuntimeInvocationBoundary.jumps_to_entrypoint } else { $null }) },
+        @{ Suffix = "no_binding_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleLoaderRuntimeInvocationBoundary) { [bool]$moduleLoaderRuntimeInvocationBoundary.binds_capability_validated_descriptor_to_executable_pages } else { $null }) },
+        @{ Suffix = "no_maps_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleLoaderRuntimeInvocationBoundary) { [bool]$moduleLoaderRuntimeInvocationBoundary.maps_executable_pages } else { $null }) },
+        @{ Suffix = "no_page_mapping_plan_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleLoaderRuntimeInvocationBoundary) { [bool]$moduleLoaderRuntimeInvocationBoundary.produces_executable_page_mapping_plan } else { $null }) },
+        @{ Suffix = "no_image_layout_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleLoaderRuntimeInvocationBoundary) { [bool]$moduleLoaderRuntimeInvocationBoundary.produces_executable_image_layout } else { $null }) },
+        @{ Suffix = "no_load_plan_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleLoaderRuntimeInvocationBoundary) { [bool]$moduleLoaderRuntimeInvocationBoundary.produces_executable_load_plan } else { $null }) },
+        @{ Suffix = "no_artifact_bytes_scoped"; Expected = $false; Actual = $(if ($null -ne $moduleLoaderRuntimeInvocationBoundary) { [bool]$moduleLoaderRuntimeInvocationBoundary.accepts_artifact_bytes } else { $null }) }
+    )
+    foreach ($check in $moduleLoaderRuntimeAuditInvocationChecks) {
+        $passed = ($null -ne $moduleLoaderRuntimeInvocationBoundary) -and $check.Actual -eq $check.Expected
+        Add-Predicate -Name ("protocol:module_loader_runtime_audit_event_invocation_boundary_" + $check.Suffix) -Expected ([string]$check.Expected) -Passed $passed -Actual ([string]$check.Actual)
+        if (-not $passed) {
+            throw ("Expected module.loader_runtime audit event invocation boundary " + $check.Suffix + " to be " + [string]$check.Expected + ", got " + [string]$check.Actual)
         }
     }

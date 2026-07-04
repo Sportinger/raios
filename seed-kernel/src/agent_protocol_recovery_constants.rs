@@ -1,7 +1,7 @@
 pub(crate) const RECOVERY_ARTIFACT_LOAD_CAPABILITY: &str = "cap.recovery.load_artifact";
 pub(crate) const RECOVERY_ARTIFACT_LOAD_READ_CAPABILITY: &str = "cap.recovery.load_artifact.read";
 
-pub(crate) const RECOVERY_LOAD_BINDING_SELFTEST_CASES: usize = 14;
+pub(crate) const RECOVERY_LOAD_BINDING_SELFTEST_CASES: usize = 15;
 pub(crate) const RECOVERY_IDENTITY_SELFTEST_CASES: usize = 6;
 pub(crate) const RECOVERY_TRUST_SELFTEST_CASES: usize = 8;
 pub(crate) const RECOVERY_VM_TEST_SELFTEST_CASES: usize = 10;

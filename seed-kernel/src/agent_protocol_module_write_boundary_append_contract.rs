@@ -1,7 +1,33 @@
 use crate::{
     agent_protocol_module_types::*, agent_protocol_module_write_boundary_append_engine::*,
-    agent_protocol_module_write_boundary_storage_layout::*, agent_protocol_support::*,
+    agent_protocol_module_write_boundary_storage_layout::*, agent_protocol_support::*, ahci,
 };
+
+pub(crate) const MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_METHOD: &str =
+    "module.audit_rollback_append_contract";
+pub(crate) const AUDIT_ROLLBACK_APPEND_TARGET_OWNER_SCHEMA: &str =
+    "raios.audit_rollback_append_target_owner.v0";
+pub(crate) const AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID: &str =
+    "append_target_owner.audit_rollback.current_boot";
+pub(crate) const AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_SCHEMA: &str =
+    "raios.audit_rollback_transaction_writer_readiness.v0";
+pub(crate) const AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_ID: &str =
+    "transaction_writer.audit_rollback.current_boot";
+pub(crate) const AUDIT_ROLLBACK_TRANSACTION_WRITER_SCRATCH_DRY_RUN_SCHEMA: &str =
+    "raios.audit_rollback_transaction_writer_scratch_dry_run.v0";
+pub(crate) const AUDIT_ROLLBACK_TRANSACTION_WRITER_SCRATCH_DRY_RUN_ID: &str =
+    "transaction_writer.scratch_dry_run.audit_rollback.current_boot";
+pub(crate) const AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_SCHEMA: &str =
+    "raios.audit_rollback_target_region_writer_contract.v0";
+pub(crate) const AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_ID: &str =
+    "target_region_writer_contract.audit_rollback.current_boot";
+pub(crate) const AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_SCHEMA: &str =
+    "raios.audit_rollback_target_region_media_write_policy_preflight.v0";
+pub(crate) const AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_ID: &str =
+    "target_region_media_write_policy_preflight.audit_rollback.current_boot";
+pub(crate) const AUDIT_ROLLBACK_WRITER_READINESS_MISSING_STATUS: &str = "missing";
+pub(crate) const AUDIT_ROLLBACK_WRITER_READINESS_MISSING_REASON: &str =
+    "block_write_path_unavailable";
 
 pub(crate) fn emit_module_audit_rollback_append_contract() {
     let storage = module_audit_rollback_storage_layout_snapshot();
@@ -33,7 +59,35 @@ pub(crate) fn emit_module_audit_rollback_append_contract() {
     raw_line(",");
     emit_module_append_contract_facts(append, evaluation);
     raw_line(",");
+    emit_module_append_target_owner(evaluation);
+    raw_line(",");
+    emit_module_transaction_writer_readiness(storage, evaluation);
+    raw_line(",");
     raw_line("      \"policy_result\": {");
+    raw("        \"append_target_owner_status\": ");
+    json_str(evaluation.append_target_owner_status);
+    raw_line(",");
+    raw("        \"append_target_owner_reason\": ");
+    json_str(evaluation.append_target_owner_reason);
+    raw_line(",");
+    raw("        \"append_target_owner_available\": ");
+    raw_bool(evaluation.append_target_owner_available);
+    raw_line(",");
+    raw("        \"transaction_writer_status\": ");
+    json_str(evaluation.transaction_writer_status);
+    raw_line(",");
+    raw("        \"transaction_writer_reason\": ");
+    json_str(evaluation.transaction_writer_reason);
+    raw_line(",");
+    raw("        \"transaction_writer_ready\": ");
+    raw_bool(evaluation.transaction_writer_ready);
+    raw_line(",");
+    raw("        \"block_write_path_available\": ");
+    raw_bool(evaluation.block_write_path_available);
+    raw_line(",");
+    raw("        \"block_write_path_reason\": ");
+    json_str(evaluation.block_write_path_reason);
+    raw_line(",");
     raw("        \"append_contract_status\": ");
     json_str(evaluation.status);
     raw_line(",");
@@ -192,6 +246,8 @@ pub(crate) fn module_audit_rollback_missing_append_contract_fact(
         binds_envelope_provenance: false,
         storage_layout_available: storage.storage_layout_available,
         append_engine_available: engine.append_engine_available,
+        block_write_path_available: storage.block_write_path_available,
+        block_write_path_reason: storage.block_write_path_reason,
     }
 }
 
@@ -212,6 +268,8 @@ pub(crate) fn module_audit_rollback_available_append_contract_fact(
         binds_envelope_provenance: true,
         storage_layout_available: true,
         append_engine_available: true,
+        block_write_path_available: true,
+        block_write_path_reason: "block_write_path_available",
     }
 }
 
@@ -277,6 +335,39 @@ pub(crate) fn evaluate_module_audit_rollback_append_contract_candidate(
         )
     };
 
+    let storage_layout_available = candidate.audit_append_envelope.storage_layout_available
+        && candidate
+            .rollback_transaction_envelope
+            .storage_layout_available;
+    let append_engine_available = candidate.audit_append_envelope.append_engine_available
+        && candidate
+            .rollback_transaction_envelope
+            .append_engine_available;
+    let block_write_path_available = candidate.audit_append_envelope.block_write_path_available
+        && candidate
+            .rollback_transaction_envelope
+            .block_write_path_available;
+    let block_write_path_reason = if block_write_path_available {
+        "block_write_path_available"
+    } else {
+        candidate.audit_append_envelope.block_write_path_reason
+    };
+    let (append_target_owner_status, append_target_owner_reason, append_target_owner_available) =
+        evaluate_append_target_owner_status(
+            storage_layout_available,
+            append_engine_available,
+            block_write_path_available,
+            block_write_path_reason,
+            audit_append_status,
+            rollback_transaction_status,
+        );
+    let (transaction_writer_status, transaction_writer_reason, transaction_writer_ready) =
+        evaluate_transaction_writer_readiness(
+            append_target_owner_available,
+            false,
+            append_target_owner_reason,
+        );
+
     ModuleAuditRollbackAppendContractEvaluation {
         status,
         reason,
@@ -284,18 +375,141 @@ pub(crate) fn evaluate_module_audit_rollback_append_contract_candidate(
         audit_append_reason,
         rollback_transaction_status,
         rollback_transaction_reason,
-        storage_layout_available: candidate.audit_append_envelope.storage_layout_available
-            && candidate
-                .rollback_transaction_envelope
-                .storage_layout_available,
-        append_engine_available: candidate.audit_append_envelope.append_engine_available
-            && candidate
-                .rollback_transaction_envelope
-                .append_engine_available,
+        storage_layout_available,
+        append_engine_available,
+        append_target_owner_status,
+        append_target_owner_reason,
+        append_target_owner_available,
+        transaction_writer_status,
+        transaction_writer_reason,
+        transaction_writer_ready,
+        block_write_path_available,
+        block_write_path_reason,
         writes_enabled: false,
         installs_rollback_plan: false,
         can_load: false,
         load_attempted: false,
+    }
+}
+
+pub(crate) fn evaluate_append_target_owner_status(
+    storage_layout_available: bool,
+    append_engine_available: bool,
+    block_write_path_available: bool,
+    block_write_path_reason: &'static str,
+    audit_append_status: &'static str,
+    rollback_transaction_status: &'static str,
+) -> (&'static str, &'static str, bool) {
+    if !block_write_path_available {
+        return (
+            AUDIT_ROLLBACK_WRITER_READINESS_MISSING_STATUS,
+            block_write_path_reason,
+            false,
+        );
+    }
+    if !storage_layout_available {
+        return (
+            AUDIT_ROLLBACK_WRITER_READINESS_MISSING_STATUS,
+            AUDIT_ROLLBACK_WRITER_READINESS_MISSING_REASON,
+            false,
+        );
+    }
+    if !append_engine_available {
+        return ("missing", "append_engine_unavailable", false);
+    }
+    if !method_eq(audit_append_status, "available")
+        || !method_eq(rollback_transaction_status, "available")
+    {
+        return ("missing", "append_contract_envelope_missing", false);
+    }
+    ("available", "append_target_owner_ready", true)
+}
+
+pub(crate) fn evaluate_transaction_writer_readiness(
+    append_target_owner_available: bool,
+    writes_enabled: bool,
+    missing_reason: &'static str,
+) -> (&'static str, &'static str, bool) {
+    if !append_target_owner_available {
+        return (
+            AUDIT_ROLLBACK_WRITER_READINESS_MISSING_STATUS,
+            missing_reason,
+            false,
+        );
+    }
+    if !writes_enabled {
+        return ("missing", "append_engine_write_path_disabled", false);
+    }
+    ("available", "transaction_writer_ready", true)
+}
+
+pub(crate) fn audit_rollback_scratch_writer_dry_run_ready(
+    scratch: ahci::AhciScratchWriteReadbackEvidence,
+) -> bool {
+    scratch.block_write_authority_available
+        && scratch.region_within_device_bounds
+        && scratch.no_boot_or_partition_metadata_overlap
+}
+
+pub(crate) fn audit_rollback_scratch_writer_dry_run_status(ready: bool) -> &'static str {
+    if ready {
+        "scratch_range_ready_not_durable_authority"
+    } else {
+        "missing"
+    }
+}
+
+pub(crate) fn audit_rollback_scratch_writer_dry_run_reason(ready: bool) -> &'static str {
+    if ready {
+        "scratch_write_authority_verified_current_boot"
+    } else {
+        "scratch_block_write_authority_missing"
+    }
+}
+
+pub(crate) fn audit_rollback_target_region_writer_contract_ready(
+    discovery: AuditRollbackTargetRegionDiscovery,
+) -> bool {
+    discovery.durable_region_available
+        && discovery.candidate_region_present
+        && !discovery.candidate_region_is_scratch
+        && !discovery.candidate_overlaps_boot_metadata
+        && !discovery.candidate_overlaps_scratch
+}
+
+pub(crate) fn audit_rollback_target_region_writer_contract_status(ready: bool) -> &'static str {
+    if ready {
+        "target_region_ready_not_write_authority"
+    } else {
+        "missing"
+    }
+}
+
+pub(crate) fn audit_rollback_target_region_writer_contract_reason(ready: bool) -> &'static str {
+    if ready {
+        "target_region_read_only_missing_media_write_authority"
+    } else {
+        "target_region_discovery_missing"
+    }
+}
+
+pub(crate) fn audit_rollback_target_region_media_write_policy_preflight_status(
+    contract_ready: bool,
+) -> &'static str {
+    if contract_ready {
+        "denied_missing_media_write_authority_and_durable_audit_policy"
+    } else {
+        "missing"
+    }
+}
+
+pub(crate) fn audit_rollback_target_region_media_write_policy_preflight_reason(
+    contract_ready: bool,
+) -> &'static str {
+    if contract_ready {
+        "target_region_contract_ready_policy_or_write_authority_missing"
+    } else {
+        "target_region_writer_contract_missing"
     }
 }
 
@@ -379,7 +593,7 @@ pub(crate) fn emit_module_append_contract_facts(
         "rollback_transaction_envelope",
         "raios.rollback_store_transaction_envelope.v0",
         "append.rollback_store.current_boot",
-        "raios.rollback_plan.v0",
+        "raios.rollback_transaction.v0",
         "storage.audit_rollback_layout.current_boot",
         "append_engine.rollback_store.current_boot",
         "policy.rollback_install.current_boot",
@@ -389,6 +603,371 @@ pub(crate) fn emit_module_append_contract_facts(
         evaluation.rollback_transaction_reason,
         false,
     );
+    raw_line("      }");
+}
+
+pub(crate) fn emit_module_append_target_owner(
+    evaluation: ModuleAuditRollbackAppendContractEvaluation,
+) {
+    raw_line("      \"append_target_owner\": {");
+    raw("        \"schema\": ");
+    json_str(AUDIT_ROLLBACK_APPEND_TARGET_OWNER_SCHEMA);
+    raw_line(",");
+    raw("        \"id\": ");
+    json_str(AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID);
+    raw_line(",");
+    raw("        \"owner_method\": ");
+    json_str(MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_METHOD);
+    raw_line(",");
+    raw("        \"storage_authority_id\": ");
+    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
+    raw_line(",");
+    raw("        \"storage_authority_owner\": ");
+    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_OWNER);
+    raw_line(",");
+    raw("        \"status\": ");
+    json_str(evaluation.append_target_owner_status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(evaluation.append_target_owner_reason);
+    raw_line(",");
+    raw("        \"available\": ");
+    raw_bool(evaluation.append_target_owner_available);
+    raw_line(",");
+    raw("        \"block_write_path_available\": ");
+    raw_bool(evaluation.block_write_path_available);
+    raw_line(",");
+    raw("        \"block_write_path_reason\": ");
+    json_str(evaluation.block_write_path_reason);
+    raw_line(",");
+    raw_line("        \"authorizes_append\": false,");
+    raw_line("        \"writes_enabled\": false,");
+    raw_line("        \"targets\": {");
+    raw("          \"audit_ledger\": {\"id\": ");
+    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+    raw(", \"schema\": ");
+    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+    raw(", \"owner_bound\": ");
+    raw_bool(evaluation.append_target_owner_available);
+    raw(", \"available\": false},");
+    crlf();
+    raw("          \"rollback_store\": {\"id\": ");
+    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+    raw(", \"schema\": ");
+    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+    raw(", \"owner_bound\": ");
+    raw_bool(evaluation.append_target_owner_available);
+    raw(", \"available\": false}");
+    crlf();
+    raw_line("        }");
+    raw_line("      }");
+}
+
+pub(crate) fn emit_module_transaction_writer_readiness(
+    storage: ModuleAuditRollbackStorageLayoutCandidate,
+    evaluation: ModuleAuditRollbackAppendContractEvaluation,
+) {
+    let scratch = storage
+        .persistence_device_inventory
+        .ahci_probe
+        .scratch_write_readback;
+    let scratch_dry_run_ready = audit_rollback_scratch_writer_dry_run_ready(scratch);
+    let target_region_discovery =
+        audit_rollback_target_region_discovery(storage.persistence_device_inventory);
+    let target_region_contract_ready =
+        audit_rollback_target_region_writer_contract_ready(target_region_discovery);
+    raw_line("      \"transaction_writer_readiness\": {");
+    raw("        \"schema\": ");
+    json_str(AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_SCHEMA);
+    raw_line(",");
+    raw("        \"id\": ");
+    json_str(AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_ID);
+    raw_line(",");
+    raw("        \"owner_method\": ");
+    json_str(AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER);
+    raw_line(",");
+    raw("        \"append_target_owner_id\": ");
+    json_str(AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID);
+    raw_line(",");
+    raw("        \"storage_authority_id\": ");
+    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
+    raw_line(",");
+    raw("        \"status\": ");
+    json_str(evaluation.transaction_writer_status);
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(evaluation.transaction_writer_reason);
+    raw_line(",");
+    raw("        \"ready\": ");
+    raw_bool(evaluation.transaction_writer_ready);
+    raw_line(",");
+    raw("        \"block_write_path_available\": ");
+    raw_bool(evaluation.block_write_path_available);
+    raw_line(",");
+    raw("        \"block_write_path_reason\": ");
+    json_str(evaluation.block_write_path_reason);
+    raw_line(",");
+    raw_line("        \"scratch_only_writer_dry_run\": {");
+    raw("          \"schema\": ");
+    json_str(AUDIT_ROLLBACK_TRANSACTION_WRITER_SCRATCH_DRY_RUN_SCHEMA);
+    raw_line(",");
+    raw("          \"id\": ");
+    json_str(AUDIT_ROLLBACK_TRANSACTION_WRITER_SCRATCH_DRY_RUN_ID);
+    raw_line(",");
+    raw_line("          \"scope\": \"current_boot\",");
+    raw_line("          \"classification\": \"local_only\",");
+    raw("          \"status\": ");
+    json_str(audit_rollback_scratch_writer_dry_run_status(
+        scratch_dry_run_ready,
+    ));
+    raw_line(",");
+    raw("          \"reason\": ");
+    json_str(audit_rollback_scratch_writer_dry_run_reason(
+        scratch_dry_run_ready,
+    ));
+    raw_line(",");
+    raw("          \"source_authority_id\": ");
+    json_str(ahci::SCRATCH_BLOCK_WRITE_AUTHORITY_ID);
+    raw_line(",");
+    raw("          \"source_region_id\": ");
+    json_str(scratch.region_id);
+    raw_line(",");
+    raw("          \"target_region_start_lba\": ");
+    raw_fmt(format_args!("{}", scratch.region_start_lba));
+    raw_line(",");
+    raw("          \"target_region_lba_count\": ");
+    raw_fmt(format_args!("{}", scratch.region_lba_count));
+    raw_line(",");
+    raw("          \"target_byte_count\": ");
+    raw_fmt(format_args!("{}", scratch.byte_count));
+    raw_line(",");
+    raw("          \"target_range_scratch_owned\": ");
+    raw_bool(scratch.block_write_authority_available);
+    raw_line(",");
+    raw("          \"target_range_within_device_bounds\": ");
+    raw_bool(scratch.region_within_device_bounds);
+    raw_line(",");
+    raw("          \"target_range_no_boot_or_partition_metadata_overlap\": ");
+    raw_bool(scratch.no_boot_or_partition_metadata_overlap);
+    raw_line(",");
+    raw("          \"target_range_ready\": ");
+    raw_bool(scratch_dry_run_ready);
+    raw_line(",");
+    raw("          \"audit_ledger_target_id\": ");
+    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+    raw_line(",");
+    raw("          \"audit_record_schema\": ");
+    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+    raw_line(",");
+    raw("          \"rollback_store_target_id\": ");
+    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+    raw_line(",");
+    raw("          \"rollback_transaction_schema\": ");
+    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+    raw_line(",");
+    raw_line("          \"dry_run_evaluated\": true,");
+    raw_line("          \"authorizes_append\": false,");
+    raw_line("          \"writes_durable_audit_log\": false,");
+    raw_line("          \"writes_rollback_store\": false,");
+    raw_line("          \"appends_rollback_transaction\": false,");
+    raw_line("          \"write_attempted\": false");
+    raw_line("        },");
+    raw_line("        \"target_region_writer_contract\": {");
+    raw("          \"schema\": ");
+    json_str(AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_SCHEMA);
+    raw_line(",");
+    raw("          \"id\": ");
+    json_str(AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_ID);
+    raw_line(",");
+    raw_line("          \"scope\": \"current_boot\",");
+    raw_line("          \"classification\": \"local_only\",");
+    raw("          \"status\": ");
+    json_str(audit_rollback_target_region_writer_contract_status(
+        target_region_contract_ready,
+    ));
+    raw_line(",");
+    raw("          \"reason\": ");
+    json_str(audit_rollback_target_region_writer_contract_reason(
+        target_region_contract_ready,
+    ));
+    raw_line(",");
+    raw("          \"source_discovery_schema\": ");
+    json_str(target_region_discovery.schema);
+    raw_line(",");
+    raw("          \"source_discovery_id\": ");
+    json_str(target_region_discovery.id);
+    raw_line(",");
+    raw("          \"source_discovery_status\": ");
+    json_str(target_region_discovery.status);
+    raw_line(",");
+    raw("          \"source_discovery_reason\": ");
+    json_str(target_region_discovery.reason);
+    raw_line(",");
+    raw("          \"target_region_present\": ");
+    raw_bool(target_region_discovery.candidate_region_present);
+    raw_line(",");
+    raw("          \"target_region_start_lba\": ");
+    raw_fmt(format_args!(
+        "{}",
+        target_region_discovery.candidate_region_start_lba
+    ));
+    raw_line(",");
+    raw("          \"target_region_lba_count\": ");
+    raw_fmt(format_args!(
+        "{}",
+        target_region_discovery.candidate_region_lba_count
+    ));
+    raw_line(",");
+    raw("          \"target_byte_count\": ");
+    raw_fmt(format_args!(
+        "{}",
+        target_region_discovery.candidate_region_lba_count * ahci::SECTOR_BYTES as u64
+    ));
+    raw_line(",");
+    raw("          \"owner_method\": ");
+    json_str(AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER);
+    raw_line(",");
+    raw("          \"append_target_owner_id\": ");
+    json_str(AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID);
+    raw_line(",");
+    raw("          \"storage_authority_id\": ");
+    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
+    raw_line(",");
+    raw("          \"target_region_is_scratch\": ");
+    raw_bool(target_region_discovery.candidate_region_is_scratch);
+    raw_line(",");
+    raw("          \"target_region_overlaps_boot_metadata\": ");
+    raw_bool(target_region_discovery.candidate_overlaps_boot_metadata);
+    raw_line(",");
+    raw("          \"target_region_overlaps_scratch\": ");
+    raw_bool(target_region_discovery.candidate_overlaps_scratch);
+    raw_line(",");
+    raw("          \"target_range_ready\": ");
+    raw_bool(target_region_contract_ready);
+    raw_line(",");
+    raw("          \"audit_ledger_target_id\": ");
+    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+    raw_line(",");
+    raw("          \"audit_record_schema\": ");
+    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+    raw_line(",");
+    raw("          \"rollback_store_target_id\": ");
+    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+    raw_line(",");
+    raw("          \"rollback_transaction_schema\": ");
+    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+    raw_line(",");
+    raw_line("          \"media_write_policy_preflight\": {");
+    raw("            \"schema\": ");
+    json_str(AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_SCHEMA);
+    raw_line(",");
+    raw("            \"id\": ");
+    json_str(AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_ID);
+    raw_line(",");
+    raw_line("            \"scope\": \"current_boot\",");
+    raw_line("            \"classification\": \"local_only\",");
+    raw("            \"status\": ");
+    json_str(
+        audit_rollback_target_region_media_write_policy_preflight_status(
+            target_region_contract_ready,
+        ),
+    );
+    raw_line(",");
+    raw("            \"reason\": ");
+    json_str(
+        audit_rollback_target_region_media_write_policy_preflight_reason(
+            target_region_contract_ready,
+        ),
+    );
+    raw_line(",");
+    raw("            \"source_contract_schema\": ");
+    json_str(AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_SCHEMA);
+    raw_line(",");
+    raw("            \"source_contract_id\": ");
+    json_str(AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_ID);
+    raw_line(",");
+    raw("            \"source_contract_status\": ");
+    json_str(audit_rollback_target_region_writer_contract_status(
+        target_region_contract_ready,
+    ));
+    raw_line(",");
+    raw("            \"source_contract_reason\": ");
+    json_str(audit_rollback_target_region_writer_contract_reason(
+        target_region_contract_ready,
+    ));
+    raw_line(",");
+    raw("            \"owner_method\": ");
+    json_str(AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER);
+    raw_line(",");
+    raw("            \"append_target_owner_id\": ");
+    json_str(AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID);
+    raw_line(",");
+    raw("            \"storage_authority_id\": ");
+    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
+    raw_line(",");
+    raw("            \"audit_ledger_target_id\": ");
+    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+    raw_line(",");
+    raw("            \"audit_record_schema\": ");
+    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+    raw_line(",");
+    raw("            \"rollback_store_target_id\": ");
+    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+    raw_line(",");
+    raw("            \"rollback_transaction_schema\": ");
+    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+    raw_line(",");
+    raw("            \"target_region_start_lba\": ");
+    raw_fmt(format_args!(
+        "{}",
+        target_region_discovery.candidate_region_start_lba
+    ));
+    raw_line(",");
+    raw("            \"target_region_lba_count\": ");
+    raw_fmt(format_args!(
+        "{}",
+        target_region_discovery.candidate_region_lba_count
+    ));
+    raw_line(",");
+    raw("            \"target_byte_count\": ");
+    raw_fmt(format_args!(
+        "{}",
+        target_region_discovery.candidate_region_lba_count * ahci::SECTOR_BYTES as u64
+    ));
+    raw_line(",");
+    raw("            \"source_contract_target_range_ready\": ");
+    raw_bool(target_region_contract_ready);
+    raw_line(",");
+    raw_line("            \"owner_ids_verified\": true,");
+    raw_line("            \"target_ids_verified\": true,");
+    raw("            \"target_span_verified\": ");
+    raw_bool(target_region_contract_ready);
+    raw_line(",");
+    raw_line("            \"schema_ids_verified\": true,");
+    raw_line("            \"media_write_authority_required\": true,");
+    raw_line("            \"media_write_authority_available\": false,");
+    raw_line("            \"media_write_authority_reason\": \"media_write_authority_missing\",");
+    raw_line("            \"durable_audit_policy_required\": true,");
+    raw_line("            \"durable_audit_policy_available\": false,");
+    raw_line("            \"durable_audit_policy_reason\": \"durable_audit_policy_missing\",");
+    raw_line("            \"authorizes_media_write\": false,");
+    raw_line("            \"authorizes_append\": false,");
+    raw_line("            \"writes_durable_audit_log\": false,");
+    raw_line("            \"writes_rollback_store\": false,");
+    raw_line("            \"appends_rollback_transaction\": false,");
+    raw_line("            \"write_attempted\": false");
+    raw_line("          },");
+    raw_line("          \"write_authority_available\": false,");
+    raw_line("          \"durable_audit_policy_available\": false,");
+    raw_line("          \"authorizes_append\": false,");
+    raw_line("          \"writes_durable_audit_log\": false,");
+    raw_line("          \"writes_rollback_store\": false,");
+    raw_line("          \"appends_rollback_transaction\": false,");
+    raw_line("          \"write_attempted\": false");
+    raw_line("        },");
+    raw_line("        \"writes_durable_audit_log\": false,");
+    raw_line("        \"writes_rollback_store\": false,");
+    raw_line("        \"appends_rollback_transaction\": false");
     raw_line("      }");
 }
 
@@ -408,6 +987,34 @@ pub(crate) fn emit_module_append_contract_storage_layout_inputs(
     raw("          \"present\": ");
     raw_bool(storage.persistence_device_inventory.present);
     raw_line(",");
+    raw("          \"storage_controller_observed\": ");
+    raw_bool(
+        storage
+            .persistence_device_inventory
+            .storage_controller_observed,
+    );
+    raw_line(",");
+    raw("          \"block_driver_available\": ");
+    raw_bool(storage.persistence_device_inventory.block_driver_available);
+    raw_line(",");
+    raw("          \"ahci_register_probe_available\": ");
+    raw_bool(
+        storage
+            .persistence_device_inventory
+            .ahci_probe
+            .registers_mapped,
+    );
+    raw_line(",");
+    raw("          \"block_device_identity_available\": ");
+    raw_bool(
+        storage
+            .persistence_device_inventory
+            .block_device_identity_available,
+    );
+    raw_line(",");
+    raw("          \"sector_read_available\": ");
+    raw_bool(storage.persistence_device_inventory.sector_read_available);
+    raw_line(",");
     raw("          \"stable_identity\": ");
     raw_bool(storage.persistence_device_inventory.stable_identity);
     raw_line(",");
@@ -420,6 +1027,9 @@ pub(crate) fn emit_module_append_contract_storage_layout_inputs(
     raw_line(",");
     raw("          \"write_path_available\": ");
     raw_bool(storage.persistence_device_inventory.write_path_available);
+    raw_line(",");
+    raw("          \"block_write_path_reason\": ");
+    json_str(evaluation.block_write_path_reason);
     raw_line(",");
     raw_line("          \"authorizes_append\": false");
     raw_line("        },");
@@ -463,6 +1073,14 @@ pub(crate) fn emit_module_append_contract_storage_layout_inputs(
     raw_line("        },");
     raw("        \"storage_layout_available\": ");
     raw_bool(evaluation.storage_layout_available);
+    raw_line(",");
+    raw("        \"block_write_path_available\": ");
+    raw_bool(evaluation.block_write_path_available);
+    raw_line(",");
+    raw("        \"block_write_path_reason\": ");
+    json_str(evaluation.block_write_path_reason);
+    raw_line(",");
+    emit_module_block_write_path_authority_gate(storage.persistence_device_inventory, evaluation);
     raw_line(",");
     raw_line("        \"storage_layout_facts_are_append_authority\": false");
     raw_line("      }");

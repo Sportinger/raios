@@ -2,7 +2,9 @@ use spin::Mutex;
 
 use crate::event_log_evidence::{
     AGENT_COMMAND_ENVELOPE_DECISION_EVIDENCE, DENIED_EVIDENCE,
-    DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE, HELLO_SERVICE_HEALTH_EVIDENCE,
+    DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE,
+    HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_EVIDENCE,
+    HELLO_RECOVERY_ROLLBACK_MATERIALIZE_DRY_RUN_EVIDENCE, HELLO_SERVICE_HEALTH_EVIDENCE,
     HELLO_SERVICE_LIFECYCLE_EVIDENCE, HELLO_SERVICE_ROLLBACK_APPLY_EVIDENCE,
     HELLO_SERVICE_ROLLBACK_PREVIEW_EVIDENCE, MODULE_AUDIT_ROLLBACK_REFERENCE_EVIDENCE,
     MODULE_CANDIDATE_ARTIFACT_REFERENCE_EVIDENCE, MODULE_COMPUTED_GRANT_REFERENCE_EVIDENCE,
@@ -68,6 +70,7 @@ use crate::event_log_evidence::{
     RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_EVIDENCE,
     RECOVERY_LIFELINE_REQUEST_REFERENCE_EVIDENCE, RECOVERY_LIFELINE_STATUS_READ_HANDLER_EVIDENCE,
+    RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_EVIDENCE,
     RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_EVIDENCE,
     RECOVERY_MEMORY_WRITE_AUTHORITY_EVIDENCE, RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_EVIDENCE,
     RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_EVIDENCE,
@@ -86,9 +89,11 @@ use crate::event_log_module_checks::{
 };
 pub use crate::event_log_types::{
     AgentCommandEnvelopeBinding, DurableAuditRollbackWriteAuthorityReference, Event, EventBindings,
-    EventId, EventSnapshot, HelloServiceLifecycleBinding, ModuleAuditRollbackReference,
-    ModuleCandidateArtifactReference, ModuleComputedGrantReference, ModuleLoadGateBinding,
-    ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
+    EventId, EventSnapshot, HelloRecoveryRollbackInspectSourceReferenceBinding,
+    HelloRecoveryRollbackInspectSourceReferenceCheck,
+    HelloRecoveryRollbackInspectSourceReferenceSelfTestCase, HelloServiceLifecycleBinding,
+    ModuleAuditRollbackReference, ModuleCandidateArtifactReference, ModuleComputedGrantReference,
+    ModuleLoadGateBinding, ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
     ModuleLoaderArtifactHashBindingSourceEvidence,
     ModuleLoaderDescriptorIntakeBoundarySourceEvidence,
     ModuleLoaderExecutionAuthorizationBoundarySourceEvidence, ModuleLoaderFactSourceEvidence,
@@ -117,11 +122,13 @@ pub use crate::event_log_types::{
     RecoveryLifelineCommandExecutionStageReference,
     RecoveryLifelineCommandExecutorCapabilityTableReference,
     RecoveryLifelineCommandHandlerBindingReference, RecoveryLifelineCommandSideEffectGateReference,
-    RecoveryLifelineRequestReference, RecoveryLifelineStatusReadHandlerReference,
+    RecoveryLifelineRequestReference, RecoveryLifelineStatusExecutionResultReference,
+    RecoveryLifelineStatusReadHandlerReference,
     RecoveryLoadArtifactByHashTargetBindingReference, RecoveryMemoryWriteAuthorityReference,
     RecoveryRestartLastGoodTargetBindingReference, RecoveryRollbackApplyAuthorizationReference,
     RecoveryRollbackPreviewAuthorizationReference,
     RecoveryServiceInventorySideEffectBoundaryReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
+    HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SELFTEST_CASES,
     PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::event_log_types::{
@@ -167,6 +174,20 @@ impl EventLog {
         self.len = usize::min(self.len + 1, EVENT_CAPACITY);
 
         EventId { sequence }
+    }
+
+    pub(crate) fn clear_for_selftest(&mut self) {
+        let mut idx = 0usize;
+        while idx < EVENT_CAPACITY {
+            self.events[idx] = None;
+            self.consumed_bindings[idx] = None;
+            idx += 1;
+        }
+        self.next_slot = 0;
+        self.next_consumed_slot = 0;
+        self.len = 0;
+        self.consumed_len = 0;
+        self.next_sequence = 1;
     }
 
     fn snapshot_recent(&self, requested_limit: usize) -> EventSnapshot {
@@ -936,6 +957,31 @@ impl EventLog {
         None
     }
 
+    fn latest_recovery_artifact_load_denied_binding(
+        &self,
+    ) -> Option<(EventId, RecoveryArtifactLoadDenialBinding)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryArtifactLoadDenied(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
     fn latest_recovery_artifact_trust_reference(
         &self,
     ) -> Option<(EventId, RecoveryArtifactTrustReference)> {
@@ -1526,6 +1572,33 @@ impl EventLog {
                             binding,
                         ));
                     }
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn latest_recovery_lifeline_status_execution_result_reference(
+        &self,
+    ) -> Option<(EventId, RecoveryLifelineStatusExecutionResultReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::RecoveryLifelineStatusExecutionResultReference(binding) =
+                    event.bindings
+                {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
                 }
             }
             idx += 1;
@@ -4079,6 +4152,79 @@ impl EventLog {
         None
     }
 
+    pub(crate) fn check_hello_recovery_rollback_inspect_source_reference(
+        &self,
+        audit_event_id: EventId,
+        expected: HelloRecoveryRollbackInspectSourceReferenceBinding,
+    ) -> HelloRecoveryRollbackInspectSourceReferenceCheck {
+        let Some(source_event) = self.event_by_sequence(expected.source_event_id) else {
+            return HelloRecoveryRollbackInspectSourceReferenceCheck {
+                status: "rejected",
+                reason: "recovery_rollback_inspect_source_event_stale_or_dropped",
+                source_event_retained: false,
+                audit_event_retained: false,
+                validated: false,
+            };
+        };
+        if source_event.source_method != "recovery.rollback_inspect"
+            || source_event.requested_capability != "cap.recovery.rollback_inspect.read"
+            || source_event.outcome != "response"
+        {
+            return HelloRecoveryRollbackInspectSourceReferenceCheck {
+                status: "rejected",
+                reason: "recovery_rollback_inspect_source_event_wrong_read_binding",
+                source_event_retained: true,
+                audit_event_retained: false,
+                validated: false,
+            };
+        }
+
+        let Some(audit_event) = self.event_by_sequence(audit_event_id) else {
+            return HelloRecoveryRollbackInspectSourceReferenceCheck {
+                status: "rejected",
+                reason: "recovery_rollback_inspect_source_audit_event_stale_or_dropped",
+                source_event_retained: true,
+                audit_event_retained: false,
+                validated: false,
+            };
+        };
+        let EventBindings::HelloRecoveryRollbackInspectSourceReference(actual) =
+            audit_event.bindings
+        else {
+            return HelloRecoveryRollbackInspectSourceReferenceCheck {
+                status: "rejected",
+                reason: "recovery_rollback_inspect_source_audit_wrong_schema_or_variant",
+                source_event_retained: true,
+                audit_event_retained: true,
+                validated: false,
+            };
+        };
+        if actual.source_event_id.sequence() != expected.source_event_id.sequence()
+            || actual.reference_hash != expected.reference_hash
+            || actual.inspection_hash != expected.inspection_hash
+            || actual.source_sector_plan_hash != expected.source_sector_plan_hash
+            || actual.source_target_region_write_readback_hash
+                != expected.source_target_region_write_readback_hash
+            || actual.authorizes_rollback_apply
+        {
+            return HelloRecoveryRollbackInspectSourceReferenceCheck {
+                status: "rejected",
+                reason: "recovery_rollback_inspect_source_audit_substituted_or_mismatched",
+                source_event_retained: true,
+                audit_event_retained: true,
+                validated: false,
+            };
+        }
+
+        HelloRecoveryRollbackInspectSourceReferenceCheck {
+            status: "retained_audit_event_verified",
+            reason: "recovery_rollback_inspect_source_reference_ram_audit_verified",
+            source_event_retained: true,
+            audit_event_retained: true,
+            validated: true,
+        }
+    }
+
     fn binding_consumed(
         &self,
         request_binding_event_id: EventId,
@@ -4339,6 +4485,44 @@ pub fn record_hello_service_rollback_preview(
     })
 }
 
+pub fn record_hello_recovery_rollback_materialize_dry_run() -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "raios.recovery_rollback_materialize_dry_run",
+        source_method: "recovery.rollback_materialize_dry_run",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "test_media_write_readback",
+        requested_capability: "cap.recovery.rollback_materialize_dry_run.current_boot",
+        risk: "test_media_write",
+        subject: "agent.session.serial",
+        resource: "svc.demo.hello",
+        reason: "current_boot_test_infrastructure_only",
+        evidence: HELLO_RECOVERY_ROLLBACK_MATERIALIZE_DRY_RUN_EVIDENCE,
+        bindings: EventBindings::None,
+    })
+}
+
+pub fn record_hello_recovery_rollback_inspect_source_reference(
+    binding: HelloRecoveryRollbackInspectSourceReferenceBinding,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "raios.recovery_rollback_inspect_source_reference",
+        source_method: "recovery.rollback_inspect",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_source_reference",
+        requested_capability: "cap.recovery.rollback_inspect.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "svc.demo.hello",
+        reason: "retained_recovery_rollback_inspect_source_matches_sector_inspection",
+        evidence: HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_EVIDENCE,
+        bindings: EventBindings::HelloRecoveryRollbackInspectSourceReference(binding),
+    })
+}
+
 pub fn record_hello_service_rollback_apply(
     source_method: &'static str,
     reason: &'static str,
@@ -4385,7 +4569,80 @@ pub fn record_module_load_ephemeral_denied(
 }
 
 pub fn record_recovery_artifact_load_denied(source_method: &'static str) -> EventId {
-    LOG.lock().record(Event {
+    let mut log = LOG.lock();
+    let retained_identity = log.latest_recovery_artifact_identity_reference();
+    let retained_trust = log.latest_recovery_artifact_trust_reference();
+    let retained_vm_test = log.latest_recovery_artifact_vm_test_reference();
+    let retained_local_approval = log.latest_recovery_artifact_local_approval_reference();
+    let retained_loader = log.latest_recovery_artifact_loader_reference();
+    let retained_rollback_evidence = log.latest_recovery_artifact_rollback_evidence_reference();
+    let retained_execution_completion_denial =
+        log.latest_recovery_lifeline_command_execution_stage_reference(
+            "raios.recovery_lifeline_command_execution_completion_denial.v0",
+        );
+    let (status, reason) = if retained_identity.is_none() {
+        ("missing", "recovery_artifact_identity_event_id_missing")
+    } else if retained_trust.is_none() {
+        ("missing", "recovery_artifact_trust_event_id_missing")
+    } else if retained_vm_test.is_none() {
+        ("missing", "recovery_vm_test_event_id_missing")
+    } else if retained_local_approval.is_none() {
+        ("missing", "recovery_local_approval_event_id_missing")
+    } else if retained_loader.is_none() {
+        ("missing", "recovery_loader_event_id_missing")
+    } else if retained_rollback_evidence.is_none() {
+        ("missing", "recovery_rollback_evidence_event_id_missing")
+    } else if retained_execution_completion_denial.is_none() {
+        (
+            "missing",
+            "recovery_lifeline_command_execution_completion_denial_event_id_missing",
+        )
+    } else {
+        ("available_non_authorizing", "recovery_lifeline_protocol_missing")
+    };
+    let event_reason = if status == "available_non_authorizing" {
+        "recovery_load_binding_not_authorizing"
+    } else {
+        "missing_recovery_artifact_evidence"
+    };
+
+    let binding = RecoveryArtifactLoadDenialBinding {
+        recovery_artifact_identity_missing: retained_identity.is_none(),
+        recovery_artifact_trust_missing: retained_trust.is_none(),
+        recovery_vm_test_missing: retained_vm_test.is_none(),
+        recovery_local_approval_missing: retained_local_approval.is_none(),
+        recovery_loader_missing: retained_loader.is_none(),
+        recovery_rollback_evidence_missing: retained_rollback_evidence.is_none(),
+        recovery_load_binding_status: status,
+        recovery_load_binding_reason: reason,
+        retained_recovery_artifact_identity_event_id: retained_identity.map(|(event_id, _)| event_id),
+        identity_reference_hash: retained_identity.map(|(_, reference)| reference.identity_reference_hash),
+        retained_recovery_artifact_trust_event_id: retained_trust.map(|(event_id, _)| event_id),
+        trust_reference_hash: retained_trust.map(|(_, reference)| reference.trust_reference_hash),
+        retained_recovery_vm_test_event_id: retained_vm_test.map(|(event_id, _)| event_id),
+        vm_test_reference_hash: retained_vm_test.map(|(_, reference)| reference.vm_test_reference_hash),
+        retained_recovery_local_approval_event_id: retained_local_approval.map(|(event_id, _)| event_id),
+        local_approval_reference_hash: retained_local_approval.map(|(_, reference)| reference.local_approval_reference_hash),
+        retained_recovery_loader_event_id: retained_loader.map(|(event_id, _)| event_id),
+        loader_reference_hash: retained_loader.map(|(_, reference)| reference.loader_reference_hash),
+        retained_recovery_rollback_evidence_event_id: retained_rollback_evidence.map(|(event_id, _)| event_id),
+        rollback_evidence_reference_hash: retained_rollback_evidence.map(|(_, reference)| reference.rollback_evidence_reference_hash),
+        retained_execution_completion_denial_event_id: retained_execution_completion_denial.map(|(event_id, _)| event_id),
+        execution_completion_denial_hash: retained_execution_completion_denial.map(|(_, reference)| reference.execution_stage_hash),
+        side_effect_gate_hash: retained_execution_completion_denial.map(|(_, reference)| reference.side_effect_gate_hash),
+        source_rollback_apply_denial_hash: retained_execution_completion_denial.map(|(_, reference)| reference.source_rollback_apply_denial_hash),
+        source_durable_policy_write_authority_decision_hash: retained_execution_completion_denial.map(|(_, reference)| reference.source_durable_policy_write_authority_decision_hash),
+        source_recovery_rollback_inspect_source_reference_hash: retained_execution_completion_denial.map(|(_, reference)| reference.source_recovery_rollback_inspect_source_reference_hash),
+        execution_enablement_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_enablement_hash),
+        execution_preflight_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_preflight_hash),
+        execution_intent_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_intent_hash),
+        execution_commit_gate_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_commit_gate_hash),
+        execution_result_denial_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_result_denial_hash),
+        execution_audit_denial_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_audit_denial_hash),
+        execution_observation_denial_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_observation_denial_hash),
+    };
+
+    log.record(Event {
         sequence: 0,
         kind: "agent_protocol.capability_denied",
         source_method,
@@ -4396,21 +4653,22 @@ pub fn record_recovery_artifact_load_denied(source_method: &'static str) -> Even
         risk: "recovery_modify_ram",
         subject: "agent.session.serial",
         resource: "recovery_lifeline",
-        reason: "missing_recovery_artifact_evidence",
+        reason: event_reason,
         evidence: RECOVERY_ARTIFACT_LOAD_DENIAL_EVIDENCE,
-        bindings: EventBindings::RecoveryArtifactLoadDenied(RecoveryArtifactLoadDenialBinding {
-            recovery_artifact_identity_missing: true,
-            recovery_artifact_trust_missing: true,
-            recovery_vm_test_missing: true,
-            recovery_local_approval_missing: true,
-            recovery_loader_missing: true,
-            recovery_rollback_evidence_missing: true,
-        }),
+        bindings: EventBindings::RecoveryArtifactLoadDenied(binding),
     })
 }
 
 pub fn module_load_gate_binding_snapshot() -> ModuleLoadGateBinding {
     LOG.lock().module_load_gate_binding()
+}
+
+pub fn check_hello_recovery_rollback_inspect_source_reference(
+    audit_event_id: EventId,
+    expected: HelloRecoveryRollbackInspectSourceReferenceBinding,
+) -> HelloRecoveryRollbackInspectSourceReferenceCheck {
+    LOG.lock()
+        .check_hello_recovery_rollback_inspect_source_reference(audit_event_id, expected)
 }
 
 pub fn record_recovery_artifact_identity_reference(
@@ -4872,6 +5130,26 @@ pub fn record_recovery_lifeline_command_execution_stage_reference(
         reason,
         evidence: RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_EVIDENCE,
         bindings: EventBindings::RecoveryLifelineCommandExecutionStageReference(binding),
+    })
+}
+
+pub fn record_recovery_lifeline_status_execution_result_reference(
+    binding: RecoveryLifelineStatusExecutionResultReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "recovery.lifeline_status_execution_result.retained",
+        source_method: "recovery.lifeline_status_execution_result_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_read_only_result_command_still_denied",
+        requested_capability: "cap.recovery.command.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "recovery_lifeline_status_execution_result",
+        reason: "recovery_lifeline_status_execution_result_retained_command_execution_disabled",
+        evidence: RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_EVIDENCE,
+        bindings: EventBindings::RecoveryLifelineStatusExecutionResultReference(binding),
     })
 }
 
@@ -6127,6 +6405,12 @@ pub fn provider_context_injection_gate_selftest(
     crate::event_log_provider_selftest::provider_context_injection_gate_selftest(context)
 }
 
+pub fn hello_recovery_rollback_inspect_source_reference_selftest(
+) -> [HelloRecoveryRollbackInspectSourceReferenceSelfTestCase;
+       HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SELFTEST_CASES] {
+    crate::event_log_hello_selftest::hello_recovery_rollback_inspect_source_reference_selftest()
+}
+
 pub fn record_provider_context_export_denial_audit(hashes: ProviderContextHashes) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -6156,6 +6440,11 @@ pub fn latest_module_manifest_reference() -> Option<(EventId, ModuleManifestRefe
 pub fn latest_recovery_artifact_identity_reference(
 ) -> Option<(EventId, RecoveryArtifactIdentityReference)> {
     LOG.lock().latest_recovery_artifact_identity_reference()
+}
+
+pub fn latest_recovery_artifact_load_denied_binding(
+) -> Option<(EventId, RecoveryArtifactLoadDenialBinding)> {
+    LOG.lock().latest_recovery_artifact_load_denied_binding()
 }
 
 pub fn latest_recovery_artifact_trust_reference(
@@ -6289,6 +6578,12 @@ pub fn latest_recovery_lifeline_command_execution_stage_reference(
 ) -> Option<(EventId, RecoveryLifelineCommandExecutionStageReference)> {
     LOG.lock()
         .latest_recovery_lifeline_command_execution_stage_reference(schema)
+}
+
+pub fn latest_recovery_lifeline_status_execution_result_reference(
+) -> Option<(EventId, RecoveryLifelineStatusExecutionResultReference)> {
+    LOG.lock()
+        .latest_recovery_lifeline_status_execution_result_reference()
 }
 
 pub fn latest_module_candidate_artifact_reference(

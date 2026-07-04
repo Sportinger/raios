@@ -1,3 +1,4 @@
+function Invoke-ProviderContextGateSelftestProfile {
     Send-AgentCommand -Command "agent provider.context_gate_selftest provider_minimal" -ExpectedMarker "RAIOS_AGENT_END provider.context_gate_selftest"
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_schema" -Needle '"schema": "raios.provider_context_gate_negative_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
@@ -34,6 +35,7 @@
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_trust_evidence_reason" -Needle '"actual_reason": "binding_provider_trust_evidence_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_gate_false" -Needle '"satisfies_current_boot_export_gate": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_selftest_can_export_false" -Needle '"can_export": false' -TimeoutSeconds 1
+}
 
     Send-AgentCommand -Command "agent provider.context_injection_gate provider_minimal" -ExpectedMarker "RAIOS_AGENT_END provider.context_injection_gate"
     Assert-LogContains -Name "protocol:provider_context_injection_gate_schema" -Needle '"schema": "raios.provider_context_injection_gate.v0"' -TimeoutSeconds 1
@@ -53,7 +55,24 @@
     Assert-LogContains -Name "protocol:provider_context_injection_gate_redaction_hash" -Needle '"redaction_policy_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_gate_classification_hash" -Needle '"field_classification_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_gate_budget_hash" -Needle '"token_budget_hash": "sha256:' -TimeoutSeconds 1
+    $providerContextInjectionGate = Get-LastAgentResponseJson -Method "provider.context_injection_gate"
+    $providerContextInjectionOmission = $providerContextInjectionGate.body.result.evidence.recovery_status_omission
+    $providerContextInjectionOmissionOk = (
+        $providerContextInjectionOmission.schema -eq "raios.provider_minimal.local_only_omission.v0" -and
+        $providerContextInjectionOmission.status -eq "omitted_from_provider_context" -and
+        $providerContextInjectionOmission.fact_field -eq "current.recovery_lifeline_status" -and
+        $providerContextInjectionOmission.locator -eq "recovery.lifeline.status.current_boot" -and
+        $providerContextInjectionOmission.classification -eq "local_only" -and
+        $providerContextInjectionOmission.provider_export -eq $false -and
+        $providerContextInjectionOmission.context_attached_to_provider_body -eq $false -and
+        $providerContextInjectionOmission.provider_write -eq "not_attempted"
+    )
+    Add-Predicate -Name "protocol:provider_context_injection_gate_recovery_status_omission_evidence" -Expected "provider_context_injection_gate_recovery_status_omitted" -Passed $providerContextInjectionOmissionOk -Actual $(if ($providerContextInjectionOmissionOk) { "omitted" } else { "missing_or_exportable" })
+    if (-not $providerContextInjectionOmissionOk) {
+        throw "Expected provider.context_injection_gate to expose recovery status omission evidence without body attachment"
+    }
 
+function Invoke-ProviderContextInjectionGateSelftestProfile {
     Send-AgentCommand -Command "agent provider.context_injection_gate_selftest provider_minimal" -ExpectedMarker "RAIOS_AGENT_END provider.context_injection_gate_selftest"
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_schema" -Needle '"schema": "raios.provider_context_injection_gate_negative_selftest.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_local_only" -Needle '"classification": "local_only"' -TimeoutSeconds 1
@@ -66,12 +85,13 @@
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_injection_disabled" -Needle '"automatic_context_injection": "disabled"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_no_attachment" -Needle '"context_attached_to_provider_body": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_can_attach_false" -Needle '"can_attach_context": false' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:provider_context_injection_selftest_count" -Needle '"case_count": 7' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_injection_selftest_count" -Needle '"case_count": 8' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_missing" -Needle '"case": "missing_final_authorization"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_stale" -Needle '"case": "stale_dropped_final_authorization_event_id"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_schema_substitution" -Needle '"case": "final_authorization_schema_substitution"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_positive_substitution" -Needle '"case": "substituted_positive_final_authorization_record"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:provider_context_injection_selftest_omitted_hash" -Needle '"case": "final_authorization_omitted_field_list_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_body_hash" -Needle '"case": "final_authorization_body_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_trust_downgrade" -Needle '"case": "final_authorization_trust_downgrade"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_body_attachment_attempt" -Needle '"case": "body_attachment_without_final_authorization"' -TimeoutSeconds 1
@@ -82,6 +102,7 @@
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_body_hash_reason" -Needle '"actual_reason": "final_prewrite_body_hash_mismatch"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_trust_reason" -Needle '"actual_reason": "final_provider_trust_downgraded_before_write"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_injection_selftest_attachment_reason" -Needle '"actual_reason": "body_attachment_without_final_authorization"' -TimeoutSeconds 1
+}
 
     Send-AgentCommand -Command "agent memory.query" -ExpectedMarker "RAIOS_AGENT_END memory.query"
     Assert-LogContains -Name "protocol:memory_query_schema" -Needle '"schema": "memory.query.v0"' -TimeoutSeconds 1

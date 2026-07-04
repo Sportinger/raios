@@ -124,7 +124,11 @@ evidence and
 `raios.ram_only_hello_service_rollback_write_authority_gate.v0` current-boot
 write-authority evidence plus a
 `raios.ram_only_hello_service_rollback_append_intent_gate.v0` append-intent
-availability gate retained on the
+availability gate plus a
+`raios.ram_only_hello_service_rollback_payload_envelope_gate.v0` payload/hash
+envelope gate plus
+`raios.ram_only_hello_service_rollback_transaction_writer_storage_authority_gate.v0`
+writer/storage authority gate retained on the
 `raios.ram_only_hello_service.rollback_apply` RAM audit event. The preflight
 hash binds the apply denial hash, preview hash, probation hash, state
 hash/counter, target/current descriptor and artifact identity facts, migration
@@ -137,11 +141,195 @@ write/apply side effects. The append-intent gate hash binds the write-authority
 gate hash, preflight hash, apply denial hash, preview hash, probation hash,
 current state, rollback target/current candidate descriptor and artifact facts,
 required durable schemas, unavailable append/durable-store authorities, and
-disabled append/write/apply side effects while proving descriptor, generation,
-running state, and RAM-only state remain unchanged and rollback application,
-persistent install, durable audit writes, rollback-store writes, rollback
-transaction append, external artifact bytes, candidate execution, executable
-mapping, provider auto-load, and broad mutation stay denied. `service.hot_swap
+disabled append/write/apply side effects. The payload envelope gate hash binds
+the append-intent gate hash, write-authority gate hash, preflight hash, apply
+denial hash, preview hash, probation hash, current state, rollback
+target/current candidate descriptor and artifact facts, proposed
+`raios.rollback_transaction.v0` payload schema/id/hash, payload provenance hash,
+required durable schemas, unavailable transaction-writer/durable-store
+authorities, and disabled append/write/apply side effects. The writer/storage
+authority gate hash binds the payload-envelope gate hash, proposed payload and
+provenance hashes, append-intent gate hash, write-authority gate hash,
+preflight hash, apply-denial hash, preview hash, probation hash, current state,
+rollback target/current candidate descriptor and artifact facts, requested
+capability, required durable schemas, unavailable transaction-writer,
+durable-audit-store, rollback-store, and append authority, and disabled
+append/write/apply side effects. It now also consumes the shared
+`raios.module_audit_rollback_append_contract.v0` current-boot writer/storage
+foundation, names `module.audit_rollback_append_contract` as the recovery
+visible owner, names `storage.authority.audit_rollback.current_boot` as the
+local-only storage authority, names `append.audit_ledger.current_boot` and
+`append.rollback_store.current_boot` as the audit and rollback append targets,
+records `module.audit_rollback_storage_layout` as the storage authority owner
+and `module.audit_rollback_append_contract` as the transaction-writer owner,
+adds `raios.audit_rollback_append_target_owner.v0` plus
+`raios.audit_rollback_transaction_writer_readiness.v0` readiness facts that
+consume the same storage authority and append target IDs, keep both
+`missing` / `persistence_device_write_path_missing` after observing the
+current-boot QEMU AHCI controller, mapping AHCI ABAR, reading AHCI
+version/port registers, issuing one read-only AHCI IDENTIFY DEVICE command on
+the active first SATA port, exposing block-device identity for the QEMU
+HARDDISK, completing one read-only AHCI Sector-0 read with MBR signature
+evidence, parsing empty MBR partition inventory, and exposing
+`raios.read_only_block_driver.v0` readiness over that verified read path while
+still denying media writes. The storage diagnostic, append-contract inputs, and
+Hello rollback writer/storage foundation now also expose
+`raios.block_write_path_authority_gate.v0` with id
+`block_write_path.authority.audit_rollback.current_boot`, binding the missing
+write path to the verified read-only AHCI block driver and empty MBR partition
+inventory while keeping `available: false`, `authorizes_media_write: false`,
+`authorizes_append: false`, `writes_enabled: false`, and
+`write_attempted: false`. The storage diagnostic now also emits
+`raios.audit_rollback_target_region_discovery.v0` with id
+`target_region.audit_rollback.current_boot`, source
+`dedicated_audit_rollback_label_scan`, status `available`, and reason
+`dedicated_audit_rollback_region_discovered_read_only`: the VM harness attaches
+a separate `RAIOS_AUDITRB_V0`-labeled non-scratch disk, the kernel reads the
+label and LBA1 target region without writing it, reports
+`candidate_region_present: true`, `candidate_region_start_lba: 1`,
+`candidate_region_lba_count: 1`, `candidate_region_is_scratch: false`,
+`candidate_overlaps_boot_metadata: false`, `candidate_overlaps_scratch: false`,
+rejects the VM scratch region as durable authority, and keeps append/write
+authority flags false.
+The Hello durable append-authority preflight and rollback-apply RAM audit
+binding now retain that discovery under the same preflight hash. The storage
+diagnostic and append-contract inputs now
+also expose a separate VM-harness-labeled
+`raios.scratch_block_region_write_readback.v0` evidence object with id
+`scratch.block_region.current_boot.v0`: the harness attaches a temporary
+scratch disk on a separate QEMU AHCI/IDE port, LBA0 carries only the
+`RAIOS_SCRATCH_V0` label, the kernel skips unlabeled disks and the boot port,
+then writes and reads back LBA1 on the labeled scratch region only. Successful
+evidence reports `scratch_write_readback_verified`,
+`scratch_write_path_available: true`, `write_attempted: true`,
+`write_completed: true`, `readback_completed: true`, and
+`readback_matches: true`. The same scratch evidence now binds the scratch
+device identity, `region_start_lba: 1`, `region_lba_count: 1`,
+`region_within_device_bounds: true`, `boot_port_overlap: false`,
+`metadata_lba_overlap: false`,
+`no_boot_or_partition_metadata_overlap: true`, and
+`block_write_authority_available: true`, while explicitly keeping
+`authorizes_audit_rollback: false`, `authorizes_append: false`, and
+`writes_enabled: false`. The storage diagnostic also emits the separate
+current-boot/local-only
+`raios.scratch_block_write_authority.v0` object with id
+`scratch.block_write_authority.current_boot.v0`, owned by the VM harness
+scratch region, authorizing only the verified scratch write/readback proof and
+not audit rollback, append, persistence, durable audit, rollback-store, or
+rollback application. The audit/rollback block-write-path authority gate and
+Hello rollback writer/storage foundation retain the scratch authority id,
+bounds, and no-overlap facts as evidence but still remain unavailable for
+audit/rollback writes. The shared transaction-writer readiness path now also
+emits
+`raios.audit_rollback_transaction_writer_scratch_dry_run.v0` with id
+`transaction_writer.scratch_dry_run.audit_rollback.current_boot`, status
+`scratch_range_ready_not_durable_authority`, and reason
+`scratch_write_authority_verified_current_boot`. That dry-run names
+`append.audit_ledger.current_boot` / `raios.audit_record.v0` and
+`append.rollback_store.current_boot` / `raios.rollback_transaction.v0`, binds
+the scratch write authority and `scratch.block_region.current_boot.v0`, proves
+the target range is LBA1/512 bytes, scratch-owned, within device bounds, and
+free of boot/partition metadata overlap, and still reports
+`authorizes_append: false`, `writes_durable_audit_log: false`,
+`writes_rollback_store: false`, `appends_rollback_transaction: false`, and
+`write_attempted: false`. The same transaction-writer readiness path now also
+emits `raios.audit_rollback_target_region_writer_contract.v0` with id
+`target_region_writer_contract.audit_rollback.current_boot`, status
+`target_region_ready_not_write_authority`, reason
+`target_region_read_only_missing_media_write_authority`, the read-only
+non-scratch target-region discovery as source evidence, LBA1/512-byte target
+span, audit-ledger and rollback-store target ids/schemas, and all
+write/append flags false. Nested under that contract, the readiness path now
+also emits `raios.audit_rollback_target_region_media_write_policy_preflight.v0`
+with id `target_region_media_write_policy_preflight.audit_rollback.current_boot`,
+status `denied_missing_media_write_authority_and_durable_audit_policy`, reason
+`target_region_contract_ready_policy_or_write_authority_missing`, verified
+owner/target/span/schema ids, explicit missing media-write authority and
+durable-audit-policy facts, and all write/append flags false. The Hello
+durable append-authority preflight now also emits
+`raios.ram_only_hello_service_rollback_media_write_authority_gate.v0` with id
+`hello_rollback_media_write_authority_gate.current_boot.svc.demo.hello.v0`,
+status `denied_missing_durable_audit_policy`, reason
+`target_region_test_media_write_verified_durable_audit_policy_missing`, the
+durable append preflight hash, the target-region media-write policy preflight
+hash, the target-region write/readback dry-run hash now already lifted into the
+durable append-authority preflight and writer-storage gate hash,
+source-contract and target-span verification facts,
+`test_infrastructure_media_write_authority_available: true`, missing
+durable-audit-policy facts, and all durable
+media-write/append/durable-write flags false while recording that the target
+region write/readback was attempted and verified before the gate. The same
+durable append-authority preflight now also carries
+`raios.ram_only_hello_service_rollback_durable_writer_policy_preflight.v0`,
+binding the append-record dry-run hash, sector-plan hash, target-region
+write/readback hash, audit-ledger target/schema, rollback-store target/schema,
+the LBA1/512-byte target span, verified current-boot test media authority, and
+accepted current-boot no-write durable-audit, rollback-store, and
+transaction-append writer candidates over the canonical audit-record,
+rollback-transaction, and combined append images, with all write/append flags
+false. The
+rollback-apply RAM
+audit binding now also retains
+`raios.ram_only_hello_service_rollback_durable_append_transaction_authorization_gate.v0`
+with id
+`hello_rollback_durable_append_transaction_authorization_gate.current_boot.svc.demo.hello.v0`,
+status `denied_missing_durable_append_transaction_authority`, reason
+`writer_policy_ready_durable_append_authority_missing`, the
+writer-policy preflight hash, append-record/sector-plan/target-region
+write-readback hashes, audit-ledger and rollback-store target/schema ids, the
+LBA1/512-byte target span, verified test-media evidence, an accepted
+current-boot no-write append-engine candidate over the canonical sector image,
+accepted no-write durable-audit, rollback-store, and transaction-append writer
+candidates, and missing durable append authority, with all authorize/write/append
+flags false. The rollback-apply
+response and RAM audit binding now also emit
+`raios.ram_only_hello_service_rollback_append_engine_readiness_decision.v0`
+with id
+`hello_rollback_append_engine_readiness_decision.current_boot.svc.demo.hello.v0`,
+status `available`, reason
+`transaction_append_engine_ready`,
+the authorization-gate, writer-policy, append-record, sector-plan, and
+target-region write/readback source hashes, LBA1/512-byte target span, verified
+target-range and test-media facts, available no-write append-engine candidate,
+available no-write durable-audit, rollback-store, and transaction-append writer
+candidates, `ready: true`, and all
+authorize/write/append flags false. The rollback-apply
+response and RAM audit binding now also emit
+`raios.ram_only_hello_service_rollback_durable_append_authority_decision.v0`
+with id
+`hello_rollback_durable_append_authority_decision.current_boot.svc.demo.hello.v0`,
+status `denied_missing_durable_append_authority`, reason
+`append_engine_ready_durable_audit_policy_missing`, the durable append preflight
+hash, writer-policy preflight hash, append-engine readiness decision hash,
+media-write authority gate hash, target-region media-write policy preflight
+hash, target-region write/readback hash, LBA1/512-byte target span, ready
+writer-policy/append-engine/media-write-gate/test-media facts, missing
+durable-audit-policy and durable-append-authority facts, and all
+authorize/write/append flags false. The rollback-apply response and RAM audit
+binding now also emit
+`raios.ram_only_hello_service_rollback_durable_audit_policy_decision.v0` with
+id
+`hello_rollback_durable_audit_policy_decision.current_boot.svc.demo.hello.v0`,
+status `denied_missing_durable_audit_policy`, reason
+`durable_append_authority_blocked_by_missing_durable_audit_policy`, the durable
+append-authority decision hash, target-region media-write policy preflight
+hash, media-write authority gate hash, target-region write/readback hash,
+LBA1/512-byte target span, ready append-engine/media-policy/test-media facts,
+missing durable-audit-policy and durable-append-authority facts, and all
+authorize/write/append flags false. The rollback-apply RAM audit binding
+retains the same writer-policy preflight, authorization gate, append-engine
+readiness decision, durable append-authority decision, durable audit-policy
+decision, media-write-authority gate, block-write-path gate
+schema/id/status/reason, read-only block-driver id, partition-inventory scheme,
+and scratch writer dry-run fields as current-boot/local-only evidence.
+It retains the current
+missing storage-layout, append-engine, append-contract, and rollback-transaction
+envelope statuses on the rollback-apply RAM audit event while proving
+descriptor, generation, running state, and RAM-only state remain unchanged and
+rollback application, persistent install, durable audit writes, rollback-store
+writes, rollback transaction append, external artifact bytes, candidate
+execution, executable mapping, provider auto-load, and broad mutation stay
+denied. `service.hot_swap
 svc.demo.hello` can return to
 the signed v1 identity. `service.hot_swap external:svc.demo.hello` remains
 denied before the service is touched, and a follow-up health probe proves the
@@ -176,8 +364,9 @@ local-only read-only targets: `system.describe` with
 `cap.system.boot_log.read`, `system.capabilities` with
 `cap.system.capabilities.read`, `device.graph` with
 `cap.device.graph.read`, `service.inventory` with
-`cap.service.inventory.read`, and `problem.list` with
-`cap.problem.list.read`. The envelope emits a typed local response, rejects
+`cap.service.inventory.read`, `problem.list` with
+`cap.problem.list.read`, and `recovery.lifeline.status` with the existing
+recovery read capability `cap.recovery.load_artifact.read`. The envelope emits a typed local response, rejects
 target/capability mismatches, bad schema, and over-capable targets before
 dispatch, and on success routes to the existing dispatcher path without
 creating a parallel dispatcher, provider write, candidate-byte load,
@@ -188,29 +377,170 @@ current-boot/local-only
 `raios.agent_command_envelope.audit_binding.v0`, and the envelope response
 returns the matching `event_id`/`audit_event_id`.
 
-Last focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
-Hello rollback append-intent availability gate over the verified rollback
-write-authority gate.
-Quick Shadow VM smoke passed in
-`release/vm-reports/shadow-20260702-090105-12232.json` with 263/263
-predicates, 54 executed commands, and `duration_ms: 84226`. The quick smoke
-proves `service.rollback_apply svc.demo.hello` returns structured
-`capability_denied`, exposes
-`raios.ram_only_hello_service_rollback_transaction_preflight.v0` plus
-`raios.ram_only_hello_service_rollback_write_authority_gate.v0` plus
-`raios.ram_only_hello_service_rollback_append_intent_gate.v0`, binds the current
-rollback-preview hash, preflight hash, write-authority gate hash, apply-denial
-hash, probation hash, state hash/counter, rollback target, current candidate,
-requested capability, required durable schemas, unavailable
-append/durable-store authorities, and state-migration hash, records
-`raios.ram_only_hello_service.rollback_apply` with
-`cap.service.rollback_apply.current_boot` plus the same preflight,
-write-authority gate, and append-intent gate hashes, keeps rollback application,
-persistent install, durable audit writes, rollback-store writes, rollback
-transaction append, external bytes, candidate execution, executable mapping,
-provider auto-load, and broad mutation denied, and leaves the active v2
-descriptor, generation, running state, and RAM-only state unchanged in follow-up
-health.
+Previous focused verification: 2026-07-02 on Windows with QEMU 11 after adding the
+read-only non-scratch audit/rollback target-region writer contract under the
+shared transaction-writer readiness path. Quick Shadow VM smoke passed in
+`release/vm-reports/shadow-20260702-184713-22996.json` with 298/298
+predicates, 56 executed commands, `duration_ms: 87046`, and report SHA-256
+`a50e6b2627bc54df84b3a772525b1089411e1543afa0c4f273389d88bac32a46`. The
+serial log proves `module.audit_rollback_storage_layout` emits
+`raios.audit_rollback_target_region_discovery.v0` with id
+`target_region.audit_rollback.current_boot`, source
+`dedicated_audit_rollback_label_scan`, status `available`, reason
+`dedicated_audit_rollback_region_discovered_read_only`, empty `mbr_empty`
+partition evidence for the boot disk, `candidate_region_present: true`,
+`candidate_region_start_lba: 1`, `candidate_region_lba_count: 1`,
+`candidate_region_is_scratch: false`,
+`candidate_overlaps_boot_metadata: false`, `candidate_overlaps_scratch: false`,
+`scratch_rejected_as_durable_authority: true`, and
+`durable_region_available: true`, while append/write authority remains false.
+The same quick run proves
+`raios.audit_rollback_transaction_writer_readiness.v0` now carries
+`raios.audit_rollback_target_region_writer_contract.v0` with id
+`target_region_writer_contract.audit_rollback.current_boot`, status
+`target_region_ready_not_write_authority`, reason
+`target_region_read_only_missing_media_write_authority`, source discovery
+schema/id/status/reason bound to the positive target-region evidence, LBA1/1
+sector and 512-byte target span, audit-ledger target
+`append.audit_ledger.current_boot` / `raios.audit_record.v0`, rollback-store
+target `append.rollback_store.current_boot` /
+`raios.rollback_transaction.v0`, `target_range_ready: true`, and all
+write/append flags false. It also proves
+`service.rollback_apply svc.demo.hello` emits
+`raios.audit_rollback_transaction_writer_scratch_dry_run.v0` with id
+`transaction_writer.scratch_dry_run.audit_rollback.current_boot`, status
+`scratch_range_ready_not_durable_authority`, reason
+`scratch_write_authority_verified_current_boot`, source authority
+`scratch.block_write_authority.current_boot.v0`, source region
+`scratch.block_region.current_boot.v0`, LBA1/512-byte target range,
+`target_range_scratch_owned: true`,
+`target_range_within_device_bounds: true`,
+`target_range_no_boot_or_partition_metadata_overlap: true`, and
+`target_range_ready: true`, while keeping `authorizes_append: false`,
+durable-audit/rollback-store/transaction-append writes false, and
+`write_attempted: false`. Nested under the same
+`raios.audit_rollback_transaction_writer_readiness.v0` object, the shared
+writer-readiness path now also emits
+`raios.audit_rollback_target_region_writer_contract.v0` with id
+`target_region_writer_contract.audit_rollback.current_boot`, status
+`target_region_ready_not_write_authority`, reason
+`target_region_read_only_missing_media_write_authority`, and source discovery
+`target_region.audit_rollback.current_boot`. It consumes the read-only
+non-scratch LBA1/512-byte target-region evidence, names
+`append.audit_ledger.current_boot` / `raios.audit_record.v0` and
+`append.rollback_store.current_boot` / `raios.rollback_transaction.v0`, proves
+`target_range_ready: true`, and keeps `write_authority_available: false`,
+`durable_audit_policy_available: false`, `authorizes_append: false`,
+`writes_durable_audit_log: false`, `writes_rollback_store: false`,
+`appends_rollback_transaction: false`, and `write_attempted: false`. Nested
+inside that contract, `raios.audit_rollback_target_region_media_write_policy_preflight.v0`
+verifies the source contract, owner, target, span, and schema ids, reports
+`media_write_authority_available: false` with reason
+`media_write_authority_missing`, reports
+`durable_audit_policy_available: false` with reason
+`durable_audit_policy_missing`, and keeps authorizing/writing/appending flags
+false. The same response and RAM audit binding now retain
+`raios.ram_only_hello_service_rollback_append_record_dry_run.v0` with
+canonicalization `raios.rollback_append_record_image.canonical.v0`, dry-run
+hash, audit-record image hash, rollback-transaction image hash, byte lengths
+255/225/480, LBA1/512-byte target span, source payload/provenance hashes, and
+all append/write flags false. The same rollback-apply response and RAM audit
+binding now retain
+`raios.ram_only_hello_service_rollback_append_sector_plan_dry_run.v0` with
+canonicalization `raios.rollback_append_sector_plan.canonical.v0`, plan hash,
+sector-image hash, 512-byte sector size, audit-record offset 0,
+rollback-transaction offset 255, zero-padding offset/length 480/32, LBA1 target
+span, source append-record hash, and all append/write flags false. Nested under
+that plan, the same response and RAM audit binding now retain
+`raios.ram_only_hello_service_rollback_append_sector_write_readback_dry_run.v0`
+with planned sector-image hash, readback sector-image hash, matching
+`readback_matches_planned_image: true`, LBA1/512-byte target span,
+`write_attempted: true`, `write_completed: true`, and `readback_completed:
+true`, while still setting append, durable-audit, rollback-store, and
+rollback-transaction writes false. Nested under that write/readback evidence,
+the same response and RAM audit binding now retain
+`raios.ram_only_hello_service_rollback_durable_append_authority_preflight.v0`
+with status `denied_missing_durable_append_authority`, reason
+`durable_append_authority_not_granted`, remaining denial reason
+`durable_append_authority_missing`, the source write/readback hash,
+the target-region discovery schema/id/status/reason/source and read-only
+durable-region availability facts,
+`storage.authority.audit_rollback.current_boot`,
+`append_target_owner.audit_rollback.current_boot`,
+`transaction_writer.audit_rollback.current_boot`,
+`append.audit_ledger.current_boot`, and `append.rollback_store.current_boot`.
+Nested in that durable append preflight, the Hello rollback response and RAM
+audit binding now also consume
+`raios.audit_rollback_target_region_media_write_policy_preflight.v0` with its
+schema/id/status/reason, preflight hash, source target-region writer contract,
+owner/target/span/schema verification facts, explicit missing media-write
+authority and durable-audit-policy reasons, and all media-write/append/write
+flags false. Nested beside it, the same response and RAM audit binding retain
+`raios.ram_only_hello_service_rollback_media_write_authority_gate.v0` with its
+schema/id/status/reason, gate hash, durable append preflight hash, policy
+preflight hash, source-contract facts, target span, verification booleans,
+missing media-write authority and durable-audit-policy reasons, and all
+media-write/append/durable-write/target-region-write flags false. It proves
+`scratch_write_readback_verified: true` while
+`scratch_used_as_durable_authority: false`, durable-audit writer,
+rollback-store writer, and transaction append writer availability false, and
+all append/write flags false. Rollback application, persistent install, durable
+audit writes, rollback-store writes, rollback transaction append, external
+bytes, candidate execution, executable mapping, provider auto-load, and broad
+mutation stay denied and follow-up health proves the active descriptor,
+generation, running state, and RAM-only state are unchanged.
+
+Previous focused verification after adding the Hello rollback
+media-write-authority gate over the target-region policy preflight: 2026-07-02
+on Windows with QEMU 11 in
+`release/vm-reports/shadow-20260702-192027-4988.json` with 306/306 quick
+predicates, 56 executed commands, `duration_ms: 67009`, base image SHA-256
+`23aa783ada0d690c94c09b9167c1129785b4d42b10c39db729917a78ad3c08dd`, and
+report SHA-256
+`cb77021e5e6aec6ac3b9fe919c1777a2bfc684fb8bb41ef297d451acc6a1290e`.
+
+Most recent full Shadow VM profile attempt around this storage-authority
+sequence: 2026-07-02 on Windows with QEMU 11 in
+`release/vm-reports/shadow-20260702-182522-7236.json`, report SHA-256
+`757ab5a00ca4e1a1b5a6415b1862095bdf7e14fc96f820d910c0e97c5f62fb17`.
+It reached 163/163 passing predicates and 11 executed commands through
+`provider.context_gate_selftest`, then failed before the module/recovery
+profiles on a serial TCP transport error (`Remotehost geschlossen`). Treat this
+as a harness/serial follow-up, not a full verification of these latest focused
+storage-authority slices.
+
+Latest full verification before this slice: 2026-07-02 on Windows with QEMU 11
+in `release/vm-reports/shadow-20260702-174421-7208.json` with 6789/6789
+predicates, 243 executed commands, `duration_ms: 553963`, and report SHA-256
+`80be25579114eb7f23e7501134948e6a36728b4af258e44280968c2f8ccf77ea`.
+
+Previous full verification after the read-only block-driver readiness slice:
+
+```text
+release\vm-reports\shadow-20260702-130028-34200.json
+6706/6706 predicates, 243 executed commands, duration_ms: 541557
+```
+
+Previous full verification after the read-only MBR partition inventory slice:
+
+```text
+release\vm-reports\shadow-20260702-124055-34392.json
+6698/6698 predicates, 243 executed commands, duration_ms: 538777
+```
+
+Previous focused verification after the Hello rollback payload-envelope gate:
+
+```text
+release\vm-reports\shadow-20260702-091057-17852.json
+266/266 quick predicates, 54 executed commands, duration_ms: 83454
+```
+
+Previous focused verification after the Hello rollback append-intent gate:
+
+```text
+release\vm-reports\shadow-20260702-090105-12232.json
+263/263 quick predicates, 54 executed commands, duration_ms: 84226
+```
 
 Previous focused verification after the Hello rollback write-authority gate:
 
@@ -382,7 +712,7 @@ proves `service.restart` records a real lifecycle event, keeps the same loaded
 generation and activation hash, and preserves current-boot/local-only
 non-persistence.
 
-Latest full verification remains 2026-07-02 on Windows with QEMU 11 after the
+Previous full verification at that point: 2026-07-02 on Windows with QEMU 11 after the
 explicit `service.start svc.demo.hello` current-boot lifecycle transition on
 top of provider trust verifier decisions and optional standby SPKI rotation
 state. Full Shadow VM smoke passed in
@@ -1024,16 +1354,29 @@ authorization reference, validates command id, argument schema, argument hash,
 target locator, command-envelope reference hash, body-canonicalization hash,
 handler-binding hash, status-read handler hash, rollback-preview authorization
 hash, dispatch boundary id, rollback-apply authorization id, and apply
-projection hash, retains only local-only current-boot apply authorization
-evidence, and advances dispatch only to missing disable-module target binding
-while still executing no rollback apply or recovery command, plus read-only
-`raios.recovery_disable_module_target_binding.v0`,
-`raios.recovery_restart_last_good_target_binding.v0`,
+projection hash, and now also binds the sourced
+`raios.ram_only_hello_service_rollback_apply.v0` denial hash, retained durable
+policy write-authority decision hash, and retained
+`raios.recovery_rollback_inspect_source_reference.v0` hash, retains only
+local-only current-boot apply authorization evidence, and advances dispatch
+only to missing disable-module target binding while still executing no rollback
+apply or recovery command, plus read-only
+`raios.recovery_disable_module_target_binding.v0` hash-reference diagnostic
+that consumes the retained rollback-apply authorization reference, validates
+command id, argument schema, argument hash, target locator, command-envelope
+reference hash, body-canonicalization hash, handler-binding hash,
+status-read-handler hash, rollback-preview authorization hash,
+rollback-apply authorization hash, dispatch boundary id, disable-module target
+id, and disable-module projection hash, and now also binds the sourced
+`raios.ram_only_hello_service_rollback_apply.v0` denial hash, retained durable
+policy write-authority decision hash, and retained
+`raios.recovery_rollback_inspect_source_reference.v0` hash from that retained
+apply-authorization event, while still executing no module disable or recovery
+command, plus read-only `raios.recovery_restart_last_good_target_binding.v0`,
 `raios.recovery_load_artifact_by_hash_target_binding.v0`, and
 `raios.recovery_memory_write_authority.v0` hash-reference diagnostics that
-chain rollback-apply authorization through disable/restart/load/memory
-authority without disabling modules, restarting services, loading artifacts,
-or writing recovery memory, plus a read-only
+chain disable/restart/load/memory authority without restarting services,
+loading artifacts, or writing recovery memory, plus a read-only
 `raios.durable_audit_rollback_write_authority.v0` hash-reference diagnostic
 that consumes the retained recovery-memory write authority, validates the
 command/argument/target/envelope/body/handler/status/authorization/target/
@@ -1048,7 +1391,22 @@ status/authorization/target/memory/durable/dispatch/projection hashes, retains
 only local-only current-boot service-inventory side-effect boundary evidence,
 and advances dispatch only to explicit `defined_non_executable` behavior while
 still allocating no service slot, creating no service inventory records,
-changing no service inventory, and dispatching no behavior, via
+changing no service inventory, and dispatching no behavior, plus a read-only
+`raios.recovery_lifeline_command_dispatch_behavior.v0` hash-reference
+diagnostic that consumes the retained service-inventory side-effect boundary,
+carries the same source hashes, retains only local-only current-boot
+command-dispatch behavior evidence, and keeps command dispatch, command
+execution, and service inventory mutation denied, plus a read-only
+`raios.recovery_lifeline_command_executor_capability_table.v0` hash-reference
+diagnostic that consumes the retained command-dispatch behavior event, carries
+the same source hashes, retains only local-only current-boot executor
+capability-table evidence, and keeps command dispatch, command execution, and
+service inventory mutation denied, plus a read-only
+`raios.recovery_lifeline_command_side_effect_gate.v0` hash-reference diagnostic
+that consumes the retained executor capability-table event, carries the same
+source hashes, retains only local-only current-boot side-effect gate evidence,
+and keeps command dispatch, command execution, and service inventory mutation
+denied, via
 headless
 Shadow VM smoke
 covering
@@ -1104,37 +1462,899 @@ local-only retained local-approval reference gate selftests.
 Direct OpenAI pin-mismatch plus SPKI pinned-trust smokes using a fake local API
 key remain previously verified from the prior handoff.
 
-Latest current-cursor verification: 2026-07-02 on Windows with
-`scripts\build-seed-kernel.ps1 -Profile release`,
+Latest current-cursor focused verification: 2026-07-02 on Windows with
 `cargo fmt --all -- --check`,
+`scripts\build-seed-kernel.ps1 -Profile release`,
+`scripts\package-stage0.ps1 -Profile release`,
 `cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`,
 `git diff --check`, `scripts\scan-secrets.ps1`, and
-`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 300 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10 -SerialTcpPort 4581`.
-The passing full report is
-`release\vm-reports\shadow-20260702-001225-25068.json` with 6611/6611
-predicates, 243/243 executed commands, and `duration_ms: 541342`, covering the
-load-attempt, artifact-load, executable-mapping, entrypoint-transfer,
-service-start, service-health-binding, service-running-state,
-service-start-audit, service-unload-cleanup, live-load-commit, commit-audit,
-commit-rollback, commit-result, descriptor-acceptance authority, and
-descriptor-parser contract plus descriptor-parser result and descriptor
-schema-validation plus descriptor capability-validation, descriptor load-plan,
-executable load-plan authority, executable load-plan result, executable
-image-layout, executable page-mapping plan, executable page-mapping, and
-descriptor/executable-page binding plus executable entrypoint binding,
-executable entrypoint transfer authorization, executable entrypoint transfer,
-executable entrypoint handoff, and executable entrypoint invocation
-loader-runtime boundaries, denied load-gate/audit projections, event-log memory
-bindings, and the updated loader-runtime selftest matrix. The passing run used
-a fresh port, 300-second command window, smaller chunks, and delayed serial
-writes.
+`vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 300`.
+The focused quick report is
+`release\vm-reports\shadow-20260702-185627-6792.json` with 298/298
+predicates, 56 executed commands, `duration_ms: 86581`, and report SHA-256
+`542d99dc6989a7edf63c50d2f8ac76e46c14ff29c4d47471b693e53fab291e89`.
+The quick run verifies `raios.audit_rollback_target_region_discovery.v0` under
+the storage authority foundation with positive read-only non-scratch
+target-region evidence, scratch rejected as durable authority, and
+durable-region availability true while append/write authority stays false. It
+also verifies `raios.audit_rollback_target_region_writer_contract.v0` nested
+under `raios.audit_rollback_transaction_writer_readiness.v0`, bound to that
+target discovery, `append.audit_ledger.current_boot` /
+`raios.audit_record.v0`, `append.rollback_store.current_boot` /
+`raios.rollback_transaction.v0`, LBA1/512-byte target span, and all
+write/append flags false. Nested under that contract it also verifies
+`raios.audit_rollback_target_region_media_write_policy_preflight.v0`, bound to
+the contract schema/id/status/reason plus owner/target/span/schema ids, with
+missing media write authority and durable audit policy expressed as structured
+denial facts and all write/append flags false. The Hello durable
+append-authority preflight still proves scratch write/readback is not treated
+as durable authority and that durable audit writes, rollback-store writes,
+transaction append, rollback application, persistence, external bytes,
+candidate execution, executable mapping, provider auto-load, and broad mutation
+remain denied. Latest passing full Shadow VM report remains
+`release\vm-reports\shadow-20260702-174421-7208.json` with 6789/6789
+predicates; later full-profile attempts around the storage-authority slices
+hit a serial TCP transport failure after `provider.context_gate_selftest` and
+are tracked as harness/serial follow-up, not full verification.
 
-Latest host-tool verification: 2026-05-24 on Windows with
-`cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`
-covering OTA/registry tooling plus the non-authorizing
+Latest focused verification: 2026-07-03 local report timestamp on Windows with
+QEMU 11 after adding the Hello rollback current-boot transaction-append dry-run
+blocked by the transaction-append authority-denial gate. Quick Shadow VM smoke
+passed against `release\raios-stage0.img` in
+`release\vm-reports\shadow-20260703-010933-17728.json` with 373/373
+predicates, 56 executed commands, and `duration_ms: 85447`; report SHA-256 is
+`a3d999dbe8b7cc0ba1d0b0a6b3b14614004ffbf8e1b1ca5dd97bc6ecbd0f8c6b`,
+base image SHA-256 is
+`2b05f9935ebc289cbc738cb3a0052374842586282a806d0ea4bff1d702a48242`.
+The quick smoke proves
+`raios.ram_only_hello_service_rollback_durable_audit_policy_ledger_aware_acceptance_result.v0`
+is nested under the durable append-authority preflight and retained on the
+rollback-apply RAM audit binding. The write-authority, policy-ledger, and
+audit-policy availability facts keep binding the ledger-aware result,
+ledger-candidate, target-region media-write policy preflight, target-region
+write/readback hash, audit/rollback append target ids and schemas, and the same
+LBA1/512-byte target span while reporting write authority, durable policy
+ledger, durable audit policy, and durable append authority unavailable. The new
+`raios.ram_only_hello_service_rollback_durable_append_authority_availability.v0`
+fact consumes the durable audit-policy availability evidence and binds its hash
+plus the policy-ledger availability hash, write-authority availability hash,
+ledger-aware result hash, ledger-candidate hash, target-region media-write
+policy preflight hash, target-region write/readback hash, audit/rollback append
+target ids and schemas, and the same LBA1/512-byte target span. It verifies
+audit-policy availability, policy-ledger, write-authority, ledger, media-write
+policy, target-region write/readback, span, target ids, and test-media evidence,
+but still reports durable append authority, durable audit policy, durable policy
+ledger, and write authority unavailable and performs no durable write or append.
+The new
+`raios.ram_only_hello_service_rollback_transaction_append_availability_decision.v0`
+decision consumes the durable append-authority availability hash, audit-policy
+availability hash, append-engine readiness hash, durable writer-policy
+preflight hash, media-write policy preflight hash, target-region write/readback
+hash, audit/rollback append target ids and schemas, and the same LBA1/512-byte
+target span. It verifies append-authority availability evidence, audit-policy
+availability evidence, append-engine readiness, writer-policy readiness,
+media-write policy, target readback, target span, target ids, and test-media
+evidence, but still reports durable append authority, durable audit policy, and
+transaction append unavailable and performs no write, append, or transaction
+append.
+The new
+`raios.ram_only_hello_service_rollback_transaction_append_authority_denial_gate.v0`
+gate consumes the transaction-append availability decision hash plus the
+durable append-authority availability hash, audit-policy availability hash,
+append-engine readiness hash, durable writer-policy preflight hash, media-write
+policy preflight hash, target-region write/readback hash, audit/rollback append
+target ids and schemas, and the same LBA1/512-byte target span. It verifies
+availability-decision evidence, append-engine readiness, writer-policy
+readiness, media-write policy, target readback, target span, target ids, and
+test-media evidence, but keeps `missing_transaction_append_authority: true` and
+all media-write, append, transaction-append, durable-audit, rollback-store, and
+write-attempt side effects false.
+The new
+`raios.ram_only_hello_service_rollback_transaction_append_dry_run.v0` evidence
+is consumed by the rollback-apply denial and RAM audit binding under that
+authority-denial gate. It binds the authority-denial gate hash,
+transaction-append availability decision hash, append-record dry-run hash,
+sector-plan hash, target-region write/readback hash, planned/readback sector
+image hashes, audit-ledger target/schema, rollback-store target/schema, and the
+same LBA1/512-byte target span. It proves append-image readiness only as
+current-boot/test-media evidence, reports the authority-denial gate verified,
+target span verified, target-region write/readback verified, append image
+ready, and blocked by missing transaction-append authority, while keeping
+media-write, append, transaction-append, durable-audit, rollback-store, and
+transaction-append-attempt side effects false.
+The rollback-apply denial now exposes
+`raios.ram_only_hello_service_rollback_target_region_sector_inspection.v0` as
+read-only current-boot recovery evidence over the already materialized
+dedicated target-region LBA1 sector. The AHCI path re-reads the labeled
+`RAIOS_AUDITRB_V0` target-region sector through the existing block path, hashes
+the full 512-byte sector image, hashes the canonical audit-record and
+rollback-transaction byte ranges, verifies offsets 0/255/480 with zero padding,
+binds the target-region write/readback hash and sector-plan hash, and keeps
+media-write, append, durable-audit, rollback-store, rollback-transaction append,
+and installed rollback state false.
+The rollback-apply denial now consumes that dry-run in
+`raios.ram_only_hello_service_rollback_durable_policy_write_authority_decision.v0`.
+That decision binds the durable append-authority availability dry-run hash,
+transaction-append dry-run hash, target-region sector inspection hash,
+write-authority availability hash, durable audit-policy availability hash,
+durable append-authority availability hash, authority-denial gate hash,
+transaction append-availability decision hash, audit/rollback target ids and
+schemas, and the same LBA1/512-byte target span. It verifies the dry-run,
+sector inspection, write-authority evidence, audit-policy availability evidence,
+append-authority availability evidence, target span, and current-boot
+test-media write/readback evidence, then records write authority, durable
+policy ledger, durable audit policy, durable append authority, transaction
+append, media write, append, rollback transaction append, durable audit writes,
+rollback-store writes, write attempts, and rollback application as
+unavailable/false.
+The rollback-apply denial now also exposes
+`raios.ram_only_hello_service_rollback_durable_policy_ledger_availability_dry_run.v0`
+as current-boot test-media-only evidence. It binds the durable policy-ledger
+availability hash, policy write-authority availability hash, ledger-aware
+acceptance result hash, ledger-candidate hash, media-policy preflight hash,
+target-region write/readback hash, transaction-append authority-denial gate
+hash, transaction append-availability decision hash, audit/rollback target ids
+and schemas, and the same LBA1/512-byte target span. It verifies the
+policy-ledger availability evidence, write-authority evidence, ledger evidence,
+media policy, target-region write/readback, transaction-append denial gate,
+target span, audit/rollback target ids, and current-boot test-media write
+authority while keeping write authority, durable policy ledger, durable audit
+policy, durable append authority, transaction append, media write, append,
+rollback transaction append, durable audit writes, rollback-store writes,
+write attempts, rollback application, and installed rollback state
+unavailable/false.
+The rollback-apply denial now also exposes
+`raios.ram_only_hello_service_rollback_durable_audit_policy_availability_dry_run.v0`
+as current-boot test-media-only evidence. It binds the durable audit-policy
+availability hash, durable policy-ledger availability dry-run hash, durable
+policy-ledger availability hash, policy write-authority availability hash,
+ledger-aware acceptance result hash, ledger-candidate hash, media-policy
+preflight hash, target-region write/readback hash, transaction-append
+authority-denial gate hash, transaction append-availability decision hash,
+audit/rollback target ids and schemas, and the same LBA1/512-byte target span.
+It verifies the audit-policy availability evidence, policy-ledger dry-run
+evidence, policy-ledger availability evidence, write-authority evidence, ledger
+evidence, media policy, target-region write/readback, transaction-append denial
+gate, target span, audit/rollback target ids, and current-boot test-media write
+authority while keeping write authority, durable policy ledger, durable audit
+policy, durable append authority, transaction append, media write, append,
+rollback transaction append, durable audit writes, rollback-store writes,
+write attempts, rollback application, and installed rollback state
+unavailable/false.
+The rollback-apply denial now also exposes
+`raios.ram_only_hello_service_rollback_durable_append_authority_availability_dry_run.v0`
+as current-boot test-media-only evidence. It binds the durable
+append-authority availability hash, durable audit-policy availability dry-run
+hash, durable audit-policy availability hash, durable policy-ledger
+availability dry-run hash, durable policy-ledger availability hash, policy
+write-authority availability hash, ledger-aware acceptance result hash,
+ledger-candidate hash, media-policy preflight hash, target-region
+write/readback hash, transaction-append authority-denial gate hash,
+transaction append-availability decision hash, audit/rollback target ids and
+schemas, and the same LBA1/512-byte target span. It verifies the
+append-authority availability evidence, audit-policy dry-run evidence,
+audit-policy availability evidence, policy-ledger dry-run evidence,
+policy-ledger availability evidence, write-authority evidence, ledger evidence,
+media policy, target-region write/readback, transaction-append denial gate,
+target span, audit/rollback target ids, and current-boot test-media write
+authority while keeping write authority, durable policy ledger, durable audit
+policy, durable append authority, transaction append, media write, append,
+rollback transaction append, durable audit writes, rollback-store writes,
+write attempts, rollback application, and installed rollback state
+unavailable/false.
+Durable media writes, durable audit writes, rollback-store writes, transaction
+append, rollback application, persistence, external bytes, candidate execution,
+executable mapping, provider auto-load, broad mutation, durable append
+authority, and installed rollback state remain denied.
+
+Latest focused/quick harness verification for that evidence: 2026-07-03 local
+report timestamp on Windows with QEMU 11 after binding the top-level
+rollback-apply denial hash to retained durable policy write-authority decision
+and retained recovery inspect-source evidence.
+The focused `hello-rollback-dry-run`
+profile still loads the built-in Hello service, hot-swaps to v2, runs rollback
+preview, materializes only the planned LBA1/512-byte `RAIOS_AUDITRB_V0` test
+sector, inspects the retained sector, and keeps the still-denied
+`service.rollback_apply svc.demo.hello` consuming the validated source
+reference plus the policy write-authority decision in the top-level
+`raios.ram_only_hello_service_rollback_apply.v0` denial hash without granting
+durable authority. Descriptor/generation/running/RAM state, durable-audit,
+rollback-store, transaction append, apply, persistence, external-artifact bytes,
+executable mapping, provider auto-load, broad mutation, and installed rollback
+state stay unchanged/denied. Focused report
+`release\vm-reports\shadow-20260703-052003-28604.json` passed 181/181
+predicates with 24 executed commands and `duration_ms: 82145`; report SHA-256
+is `e4f509a05e47b1ecab54852c9a2ded7ff16607f80473ff32d3bc545aceebd9ef`;
+base image SHA-256 is
+`98afce8ca591e11bc6e5db4e89ab6cd4e6311d1a142e731f926439c7f4e90327`.
+The quick profile report `release\vm-reports\shadow-20260703-052134-30240.json`
+passed 404/404 predicates with 59 executed commands and `duration_ms: 148672`;
+report SHA-256 is
+`8cf2496d99becbbeaaa73632c5b56fe39690ad67d8a8c34daf4a97fc573dee57`;
+base image SHA-256 is
+`6b543c73b0a7a2fe2a37a4fbd12759b0695e418df095cc4c7ae8885f3763bce0`.
+
+Latest recovery execution-enablement verification: the recovery profile report
+`release\vm-reports\shadow-20260703-074211-20452.json` passed 2823/2823
+predicates with 142 executed commands and `duration_ms: 227267`; report SHA-256
+is `81ab2dfe9301cdabe579e860406a1db8c027e51fdd795fa01adae0c3e25183db`;
+base image SHA-256 is
+`370bb1d851374def07003968d6292fff940dba4ad72c04719f2584d7e7efe402`.
+The focused `hello-rollback-dry-run` guard report
+`release\vm-reports\shadow-20260703-074606-9508.json` passed 181/181
+predicates with 24 executed commands and `duration_ms: 83725`; report SHA-256
+is `e0e0e287da3e936546abc696dfacc04c165e179421ce33e7436f92b5eedb4495`;
+base image SHA-256 is
+`9fdc804342b97fe26a8c90862a8f4d23a43803cf7ef5c10f8ae2982e322e4558`.
+Previous recovery side-effect gate verification: the recovery profile report
+`release\vm-reports\shadow-20260703-072638-30256.json` passed 2799/2799
+predicates with 142 executed commands and `duration_ms: 222896`; report SHA-256
+is `4f4df2c6c44f4c5a75d63d30e6bcf4ff5b54091eb6ac720a48c4039fed4a3751`;
+base image SHA-256 is
+`dc8db0b397ed84915f36cb759a4a971ef09ab7c04413fd60e376b1834f096fb7`.
+
+Previous recovery executor capability-table verification: the recovery profile
+report `release\vm-reports\shadow-20260703-071243-14856.json` passed 2793/2793
+predicates with 142 executed commands and `duration_ms: 223571`; report SHA-256
+is `7038b842c55a30442dce3af0629d91c6cecec0f4299e5d759808975186f12699`;
+base image SHA-256 is
+`023fe7ef056f99ac2fd53e470181ce4575488d844109812c9f432449328ec709`.
+The focused `hello-rollback-dry-run` guard report
+`release\vm-reports\shadow-20260703-071631-28124.json` passed 181/181
+predicates with 24 executed commands and `duration_ms: 81316`; report SHA-256
+is `c2330af8ff9331c3f30d1d110518fa6f4abf58f447d0abf26eae8f53d04595b6`;
+base image SHA-256 is
+`644997917a4c6f3f5472eda1f8e3947c82b476d4757d744787d4acb9679f7401`.
+
+Previous recovery command-dispatch behavior verification: the recovery profile
+report `release\vm-reports\shadow-20260703-070020-19184.json` passed 2787/2787
+predicates with 142 executed commands and `duration_ms: 222220`; report SHA-256
+is `57424c7ff566d505cf012ed785e2b02fcd04d6f8aeed6e6b5837af90b09e0403`;
+base image SHA-256 is
+`62550e2f675e0dc38e3f974d040c47a3d382d9ba6a5658ce673021e34b140770`.
+The focused `hello-rollback-dry-run` guard report
+`release\vm-reports\shadow-20260703-070408-13684.json` passed 181/181
+predicates with 24 executed commands and `duration_ms: 80756`; report SHA-256
+is `d805c998b68b80f6e68d1dce958ea752bd5eb262b717c2c843e930bce70a83f0`;
+base image SHA-256 is
+`7cf1beab1c349a2b1f369bb584eb6349a9967b925526522d3c6cf45fbc179f62`.
+
+Previous recovery service-inventory side-effect boundary verification: the
+recovery profile report `release\vm-reports\shadow-20260703-064708-18720.json`
+passed 2781/2781 predicates with 142 executed commands and
+`duration_ms: 223126`;
+report SHA-256 is
+`5521c70ec182d5f37dd67d0041e422a8ecad92cb745522470701455f79591ff1`;
+base image SHA-256 is
+`d11b8d5ff5cc2bae433664730c6997e4cf4d7046dc7c82240263cee6ee1de3a6`.
+The follow-up focused `hello-rollback-dry-run` report
+`release\vm-reports\shadow-20260703-065115-22780.json` passed 181/181
+predicates with 24 executed commands and `duration_ms: 81111`; report SHA-256
+is
+`81212860e351693cc7882e162eadb8a7bda926f37d46e0065a2f0cc3d8ebe74d`;
+base image SHA-256 is
+`93a22948850c4a21bc38ac26f3e05387a13f5cf7046b3c9caffc53dd07904ea9`.
+
+Latest recovery load-artifact denial status/load-binding verification: the 2026-07-03
+local report-timestamp recovery profile
+`release\vm-reports\shadow-20260703-085421-6328.json` passed 2898/2898
+predicates with 143 executed commands and `duration_ms: 242684`; report
+SHA-256 is
+`7a3aa6e4a18fe0e21aa1afb1c4c46c5608a1b6684001c7797bc3cdde234f3824`;
+base image SHA-256 is
+`73ffe138f7dd0d735bb0ff1e5334e13c699169a09931b8c50600e5bd00ba3a8a`.
+It proves `recovery.load_binding` consumes the retained source-bound
+`raios.recovery_lifeline_command_execution_completion_denial.v0` reference from
+the dispatch-denial chain, and the separate denied `recovery.load_artifact`
+response now nests that same current-boot/local-only/read-only load-binding
+denial evidence after the retained chain exists. The nested evidence preserves
+the load-binding status/reason, completion-denial event id, final stage hash,
+side-effect-gate hash, source rollback/policy/inspect hashes, and prior
+execution-stage hashes. The RAM audit/event-log binding for denied
+`recovery.load_artifact` now carries the same nested load-binding status/reason,
+retained evidence event ids/hashes, completion-denial chain, and no-mutation
+flags so `audit.events` does not need to infer it from the response body. Once
+that nested load-binding reaches `available_non_authorizing`, the top-level
+denial response and audit binding now distinguish
+`denied_recovery_load_binding_not_authorizing` from the initial
+missing-evidence state.
+`recovery.load_binding_selftest` covers the missing completion-denial reference
+as a fifteenth fail-closed case. The path keeps module disable, restart,
+artifact load, memory write, durable media writes, durable audit writes,
+rollback-store writes, transaction append, rollback application, service
+inventory mutation, lifeline command dispatch, command execution, persistence,
+external bytes, candidate execution, executable mapping, provider auto-load,
+broad mutation, and installed rollback state denied.
+
+Latest module audit/rollback write-boundary command-envelope verification: the
+2026-07-03 local report-timestamp focused module-audit-rollback profile
+`release\vm-reports\shadow-20260703-180640-6876.json` passed 1610/1610
+predicates with 71 executed commands and `duration_ms: 168943`; report SHA-256
+is `268d01494ec751ff20bd8d940d3926199aa4e29fd847d903fb581be7a925f5fa`;
+base image SHA-256 is
+`54f4d0a78f1d412724ff55eafaad7f75ea651fa8360c9533ce60be1fde77b560`.
+It extends the centralized serial `raios.agent_command_envelope.v0` allowlist
+to `module.audit_rollback_write_boundary` with the existing
+`cap.module.grant_diagnostic.read` authority, dispatching to the existing
+`module.audit_rollback_write_boundary` implementation. The focused VM proves
+the enveloped command returns the real
+`raios.module_audit_rollback_write_boundary.v0` response, preserves the
+write-boundary denial evidence for missing durable audit write and rollback
+install authority, keeps write policy, rollback policy, storage layout, append
+engine, payload-hash, and append-intent prerequisites missing, creates no
+durable audit records or rollback plans, loads no recovery artifact, and does
+not attempt load. A mismatched capability (`cap.system.describe.read`) is
+denied by the envelope before any write-boundary dispatch. Persistence, durable
+audit writes, rollback-store writes, transaction append, rollback application,
+external artifact intake, candidate execution, executable mapping,
+provider auto-load, broad mutation, and installed rollback state remain denied.
+
+Full checkpoint status after the write-boundary envelope slice: the full Shadow
+VM checkpoint is not yet green because the current full profile still has a
+repeatable harness/serial checkpoint failure around the non-terminal
+`agent audit.events 256` scrape in
+`vm-harness\shadow-vm-smoke-profile-full-module-load-gate.ps1`. Two runs with
+the current full profile,
+`release\vm-reports\shadow-20260703-181303-6380.json` and
+`release\vm-reports\shadow-20260703-182424-4208.json`, each passed all 3522
+predicates reached with 125 executed commands, then failed on the next TCP
+serial connection after the module load-gate `agent audit.events 256` command.
+The first report has SHA-256
+`e4c0f6ff52cf049094468674298b5b020189b569bf70e01425614690411a8b3e` and base
+image SHA-256
+`f241b896060b9ee4f3d547aed0803b7676d1cb063b4efec1c7052551dd4d56a9`; the fresh
+port rerun has report SHA-256
+`6b28da9ea9cb2e0620713584f9d9241aa517da4818466fc5b29d64008ccd222f` and base
+image SHA-256
+`db8b9a91bd071aa92963feabbe3c0ab9ae234963b2abf8d578a20b57e60a0a78`. A
+diagnostic reduced-window attempt reached recovery and passed 7005/7006
+predicates with 299 executed commands, but failed
+`protocol:module_manifest_audit_source`, proving the later full-audit checks
+still depend on preserving the earlier module evidence audit scrape. A
+keep-open TCP experiment still observed a remote close after the same large
+scrape and was backed out. No runtime authority, durable write, rollback,
+external artifact, executable mapping, provider auto-load, broad mutation, or
+installed rollback state was enabled by these failed checkpoint attempts.
+
+Latest module audit/rollback append-intent command-envelope verification: the
+2026-07-03 local report-timestamp focused module-audit-rollback profile
+`release\vm-reports\shadow-20260703-175627-17296.json` passed 1607/1607
+predicates with 69 executed commands and `duration_ms: 166258`; report SHA-256
+is `8d72411b5d9ef5700d747cb503fee577ba701efd4547b8540d26094744cfaa19`;
+base image SHA-256 is
+`bf4b445b03010088756d754361bd6891826e394b6b9c76e8fced85a24aed0851`.
+It extends the centralized serial `raios.agent_command_envelope.v0` allowlist
+to `module.audit_rollback_append_intent` with the existing
+`cap.module.grant_diagnostic.read` authority, dispatching to the existing
+`module.audit_rollback_append_intent` implementation. The focused VM proves
+the enveloped command returns the real
+`raios.module_audit_rollback_append_intent.v0` response with append-contract,
+payload-hash, audit-record intent, and rollback-transaction intent facts; keeps
+writes disabled; creates no durable audit records or rollback plans; reports
+missing append intents and unavailable load; and does not attempt load. A
+mismatched capability (`cap.system.describe.read`) is denied by the envelope
+before any append-intent dispatch. Persistence, durable audit writes,
+rollback-store writes, transaction append, rollback application, external
+artifact intake, candidate execution, executable mapping, provider auto-load,
+broad mutation, and installed rollback state remain denied.
+
+Latest module audit/rollback append-payload-hash command-envelope verification:
+the 2026-07-03 local report-timestamp focused module-audit-rollback profile
+`release\vm-reports\shadow-20260703-175035-2800.json` passed 1604/1604
+predicates with 67 executed commands and `duration_ms: 177113`; report SHA-256
+is `582f61003c4456b47771c0299eca2a9524dafc6584c984db74019d5b91323b34`;
+base image SHA-256 is
+`857e6fec52753b20a9bd3261aa840b08df2c9aae3730ddf685ef81cf3e9f75a5`.
+It extends the centralized serial `raios.agent_command_envelope.v0` allowlist
+to `module.audit_rollback_append_payload_hash` with the existing
+`cap.module.grant_diagnostic.read` authority, dispatching to the existing
+`module.audit_rollback_append_payload_hash` implementation. The focused VM
+proves the enveloped command returns the real
+`raios.module_audit_rollback_append_payload_hash.v0` response with retained
+audit/rollback evidence, service-slot reservation, append-contract input, and
+payload-hash envelope facts; keeps writes disabled; creates no durable audit
+records or rollback plans; reports missing payload-hash append authority; and
+does not attempt load. A mismatched capability (`cap.system.describe.read`) is
+denied by the envelope before any append-payload-hash dispatch. Persistence,
+durable audit writes, rollback-store writes, transaction append, rollback
+application, external artifact intake, candidate execution, executable mapping,
+provider auto-load, broad mutation, and installed rollback state remain denied.
+
+Latest module audit/rollback append-contract command-envelope verification: the
+2026-07-03 local report-timestamp focused module-audit-rollback profile
+`release\vm-reports\shadow-20260703-174332-4352.json` passed 1601/1601
+predicates with 65 executed commands and `duration_ms: 187156`; report SHA-256
+is `ca7eb7d28195ddbdf7d6bb95d386856de139b5759f0393b7e05b5dedf0da8e2c`;
+base image SHA-256 is
+`e4d69b69adaebe9b05069297859f41ae8b83c44af936c02444777ad7c83222ca`.
+It extends the centralized serial `raios.agent_command_envelope.v0` allowlist
+to `module.audit_rollback_append_contract` with the existing
+`cap.module.grant_diagnostic.read` authority, dispatching to the existing
+`module.audit_rollback_append_contract` implementation. The focused VM proves
+the enveloped command returns the real
+`raios.module_audit_rollback_append_contract.v0` response with storage-layout,
+append-engine, write-policy, availability, append-target owner, and
+transaction-writer readiness bindings; keeps writes disabled; creates no
+durable audit records or rollback plans; reports missing append envelopes and
+unavailable load; and does not attempt load. A mismatched capability
+(`cap.system.describe.read`) is denied by the envelope before any
+append-contract dispatch. Persistence, durable audit writes, rollback-store
+writes, transaction append, rollback application, external artifact intake,
+candidate execution, executable mapping, provider auto-load, broad mutation,
+and installed rollback state remain denied.
+
+Latest module audit/rollback append-engine command-envelope verification: the
+2026-07-03 local report-timestamp focused module-audit-rollback profile
+`release\vm-reports\shadow-20260703-173613-18376.json` passed 1598/1598
+predicates with 63 executed commands and `duration_ms: 186625`; report SHA-256
+is `6d12fb98e5a77c5be7ff2a0f0571981a0cefb8539d5c04f7f84ad3c369655b97`;
+base image SHA-256 is
+`e163138c8832eb160e7507f30deda32670085fd84a2bcb03fa328cd3f7dfe6b5`.
+It extends the centralized serial `raios.agent_command_envelope.v0` allowlist
+to `module.audit_rollback_append_engine` with the existing
+`cap.module.grant_diagnostic.read` authority, dispatching to the existing
+`module.audit_rollback_append_engine` implementation. The focused VM proves
+the enveloped command returns the real
+`raios.module_audit_rollback_append_engine.v0` response with append-engine
+readiness and missing audit-ledger/rollback-store engine facts; keeps writes
+disabled; creates no durable audit records or rollback plans; reports the
+append engine missing/unavailable; and does not attempt load. A mismatched
+capability (`cap.system.describe.read`) is denied by the envelope before any
+append-engine dispatch. Persistence, durable audit writes, rollback-store
+writes, transaction append, rollback application, external artifact intake,
+candidate execution, executable mapping, provider auto-load, broad mutation,
+and installed rollback state remain denied.
+
+Latest module audit/rollback storage-layout command-envelope verification: the
+2026-07-03 local report-timestamp focused module-audit-rollback profile
+`release\vm-reports\shadow-20260703-172803-24984.json` passed 1595/1595
+predicates with 61 executed commands and `duration_ms: 168454`; report SHA-256
+is `18afb623facb2d03f2b0c647be2ed5a82a3044550b5a5a4e976a279c72b8a96f`;
+base image SHA-256 is
+`26b8eb5e98701360178e5d7ed7bd838b166f879e4f886892066189f2f5fc764d`.
+It extends the centralized serial `raios.agent_command_envelope.v0` allowlist
+to `module.audit_rollback_storage_layout` with the existing
+`cap.module.grant_diagnostic.read` authority, dispatching to the existing
+`module.audit_rollback_storage_layout` implementation. The focused VM proves
+the enveloped command returns the real
+`raios.module_audit_rollback_storage_layout.v0` response with its read-only
+AHCI block-driver, scratch write/readback, and audit/rollback target-region
+evidence; keeps writes disabled; creates no durable audit records or rollback
+plans; reports missing durable storage layout and unavailable load; and does
+not attempt load. A mismatched capability (`cap.system.describe.read`) is
+denied by the envelope before any storage-layout dispatch. Persistence, durable
+audit writes, rollback-store writes, transaction append, rollback application,
+external artifact intake, candidate execution, executable mapping,
+provider auto-load, broad mutation, and installed rollback state remain denied.
+
+Latest module audit/rollback write-policy command-envelope verification: the
+2026-07-03 local report-timestamp focused module-audit-rollback profile
+`release\vm-reports\shadow-20260703-164538-10396.json` passed 1592/1592
+predicates with 59 executed commands and `duration_ms: 170656`; report SHA-256
+is `04e902095c5892728fe3d6b7651e9a39969627f40db7436bee6f1ec92bec2288`;
+base image SHA-256 is
+`668bcf60b9d72b47c0af02144089ba3f873f203fb479b06dfc0d6eb6361fa1af`.
+It extends the centralized serial `raios.agent_command_envelope.v0` allowlist
+to `module.audit_rollback_write_policy` with the existing
+`cap.module.grant_diagnostic.read` authority, dispatching to the existing
+`module.audit_rollback_write_policy` implementation. The focused VM proves the
+enveloped command returns the real
+`raios.module_audit_rollback_write_policy.v0` response, remains
+local-only/read-only, keeps writes disabled, creates no durable audit records
+or rollback plans, does not install rollback state, and does not attempt load.
+A mismatched capability (`cap.system.describe.read`) is denied by the envelope
+before any write-policy dispatch. The focused profile also re-proves the
+availability envelope and the downstream module audit/rollback evidence chain.
+Persistence, durable audit writes, rollback-store writes, transaction append,
+rollback application, external artifact intake, candidate execution, executable
+mapping, provider auto-load, broad mutation, and installed rollback state remain
+denied.
+
+Latest module audit/rollback availability command-envelope verification: the
+2026-07-03 local report-timestamp focused module-audit-rollback profile
+`release\vm-reports\shadow-20260703-163924-21932.json` passed 1589/1589
+predicates with 57 executed commands and `duration_ms: 163752`; report SHA-256
+is `a484522e6e4ea58c65f374d7e3ff91a6f856fa30e94fd901bed79c042aa676dd`;
+base image SHA-256 is
+`a4d55f11c6b0280a8dd13a3622a02a6024e42ee7b49c0b76eb8a6fe1822d0594`.
+It adds the focused `module-audit-rollback` Shadow VM profile, which runs the
+common boot/provider checks plus the existing module evidence and
+audit/rollback profile without the full provider/recovery/hello matrix. The
+same slice extends the centralized serial `raios.agent_command_envelope.v0`
+allowlist to `module.audit_rollback_availability` with the existing
+`cap.module.grant_diagnostic.read` authority, dispatching to the existing
+`module.audit_rollback_availability` implementation. The focused VM proves the
+enveloped command returns the real `raios.module_audit_rollback_availability.v0`
+response, remains local-only/read-only, keeps writes disabled, creates no
+durable audit records or rollback plans, does not install rollback state, and
+does not attempt load. A mismatched capability (`cap.system.describe.read`) is
+denied by the envelope before any availability dispatch. The focused profile
+also re-proves the downstream module audit/rollback evidence chain. Persistence,
+durable audit writes, rollback-store writes, transaction append, rollback
+application, external artifact intake, candidate execution, executable mapping,
+provider auto-load, broad mutation, and installed rollback state remain denied.
+
+Latest Hello service-health command-envelope verification: the 2026-07-03
+local report-timestamp focused hello-rollback-dry-run profile
+`release\vm-reports\shadow-20260703-163113-23516.json` passed 203/203
+predicates with 30 executed commands and `duration_ms: 116096`; report SHA-256
+is `70960acd9f617528e0eaa6980d2d8bde70e2c92372baee8a9f647ef4a6152989`;
+base image SHA-256 is
+`8bd6ab77ff13824ef127d7c0a0b7455fa5200dc20be4d16e91d80992ce85c913`.
+It extends the centralized serial `raios.agent_command_envelope.v0` allowlist
+to `service.health` with the existing `cap.service.health.read` authority,
+dispatching to the existing `service.health svc.demo.hello` implementation
+instead of adding service-target parsing or new health logic. The focused VM
+proves the enveloped command returns the real
+`raios.ram_only_hello_service.health.v0` response for the loaded v1 Hello
+service, and that a mismatched capability (`cap.system.describe.read`) is
+denied by the envelope before any `service.health` dispatch. The same run keeps
+the previously verified `service.rollback_preview` and
+`recovery.rollback_inspect` envelope paths green. Persistence, durable audit
+writes, rollback-store writes, transaction append, rollback application,
+external artifact intake, candidate execution, executable mapping,
+provider auto-load, broad mutation, and installed rollback state remain denied.
+
+Latest Hello recovery rollback-inspect command-envelope verification: the
+2026-07-03 local report-timestamp focused hello-rollback-dry-run profile
+`release\vm-reports\shadow-20260703-144833-19104.json` passed 200/200
+predicates with 28 executed commands and `duration_ms: 109610`; report SHA-256
+is `3b748444200f54626e693ac103917fa965b822b23b339e3d87bc1e5781b32296`;
+base image SHA-256 is
+`4e5ecd18d8803dc2f2768a673c02617e78ea708cbc3f892ff9582cbdba28908f`.
+It cleans up the serial `raios.agent_command_envelope.v0` allowlist into a
+single method/capability/response-id/dispatch-method table and extends that
+shared boundary to `recovery.rollback_inspect` with
+`cap.recovery.rollback_inspect.read`, dispatching to the existing
+`recovery.rollback_inspect svc.demo.hello` implementation rather than adding
+new rollback logic. The focused VM proves the enveloped command returns the
+real `raios.recovery_rollback_inspect.v0` response after target-region
+materialization, remains read-only, does not authorize media write/append,
+does not write durable audit or rollback-store state, does not append a
+rollback transaction, does not apply rollback, and does not install rollback
+state. The same profile proves a mismatched capability
+(`cap.system.describe.read`) is denied by the envelope before any
+`recovery.rollback_inspect` dispatch, while the prior
+`service.rollback_preview` envelope path remains green. Persistence, durable
+audit writes, rollback-store writes, transaction append, rollback application,
+external artifact intake, candidate execution, executable mapping,
+provider auto-load, broad mutation, and installed rollback state remain denied.
+
+Latest Hello rollback command-envelope preview verification: the 2026-07-03
+local report-timestamp focused hello-rollback-dry-run profile
+`release\vm-reports\shadow-20260703-144044-22112.json` passed 197/197
+predicates with 26 executed commands and `duration_ms: 100716`; report SHA-256
+is `e0acd8bd07e4abda57d9f95fdcd641e91093d9b05f089347466a5c310a6c8122`;
+base image SHA-256 is
+`61692613d30515dfb7b57b22ec66d7761181816f1b9b40cb9b1a0a4fdf26a040`.
+It extends the existing `raios.agent_command_envelope.v0` allowlist to
+`service.rollback_preview` with `cap.service.rollback_preview.read`, dispatching
+to the existing `service.rollback_preview svc.demo.hello` implementation rather
+than adding a new rollback path. The focused VM proves the enveloped command
+returns the real `raios.ram_only_hello_service_rollback_preview.v0` response
+after a v2 hot-swap probation exists, remains read-only, does not apply
+rollback, does not install a rollback plan, and does not write durable audit.
+The same profile proves a mismatched capability
+(`cap.system.describe.read`) is denied by the envelope before any
+`service.rollback_preview` dispatch. Persistence, durable audit writes,
+rollback-store writes, transaction append, rollback application, external
+artifact intake, candidate execution, executable mapping, provider auto-load,
+broad mutation, and installed rollback state remain denied.
+
+Latest provider-memory/full verification cleanup: the 2026-07-03 local
+report-timestamp focused provider-memory-full profile
+`release\vm-reports\shadow-20260703-142658-22296.json` passed 258/258
+predicates with 21 executed commands and `duration_ms: 86345`; report SHA-256
+is `b5c69047eb76cfc22f1fac5f0d17f4e4c623937920b6c0ff5a8d00791a489fce`;
+base image SHA-256 is
+`b470ba5d2bc3b275c09d7ceda6c63e748921a17660c2fd9718f7ff8697b3dab5`.
+It adds the focused `provider-memory-full` Shadow VM profile so the
+full-profile provider-memory assertions can be run without the long
+module/recovery matrix. The cleanup leaves runtime provider behavior unchanged:
+`provider.context_injection_gate provider_minimal`, memory query/trace/recent
+events, memory mutation denials, and the broader provider-memory checks still
+run before the large `provider.context_gate_selftest provider_minimal`, and the
+gate selftest is now invoked terminally in both the focused
+`provider-memory-full` path and at the end of the `full` profile. This avoids
+requiring a fragile immediate serial reconnect after the large gate-selftest
+response. The report proves the terminal gate selftest still covers all 20
+negative cases, including `omitted_field_list_hash_mismatch`, without global
+event-log mutation, real request envelopes, positive bindings, provider writes,
+or provider body attachment. The injection-gate omission selftest remains
+covered by the focused `provider-memory` report
+`release\vm-reports\shadow-20260703-141539-23964.json`. The cleanup does not
+add memory writes, provider export, fallback execution, recovery command
+dispatch, service inventory mutation, module disable, restart, artifact load,
+durable writes, rollback-store writes, transaction append, rollback
+application, persistence, external bytes, candidate execution, executable
+mapping, provider auto-load, broad mutation, or installed rollback state.
+
+Latest provider context injection-gate omission negative selftest verification:
+the 2026-07-03 local report-timestamp focused provider-memory profile
+`release\vm-reports\shadow-20260703-141539-23964.json` passed 169/169
+predicates with 12 executed commands and `duration_ms: 73231`; report SHA-256
+is `bfe3f93b043a5385bee753f988f9e64c12b8e4539ae5ccf8bf807a0e5a361cc6`;
+base image SHA-256 is
+`1df763d1db5798468eb23dd3bdcca2c8a4ad0dc4e3a35dfe2c7fd1c34c7fd6c5`.
+It extends `provider.context_injection_gate_selftest provider_minimal` to 8
+cases with
+`final_authorization_omitted_field_list_hash_mismatch`, proving a tampered
+`omitted_field_list_hash` in the final injection authorization is rejected as
+`final_injection_authorization_substituted_record`. The focused profile also
+keeps the denied pre-attachment `provider.context_injection_gate` path green
+with provider export disabled, automatic context injection disabled,
+`context_attached_to_provider_body: false`, provider write `not_attempted`,
+`can_attach_context: false`, and explicit local-only recovery-status omission
+evidence present. The selftest remains local-only test infrastructure: it
+mutates no global event log, creates no real provider request envelope, creates
+no positive binding records, creates no final authorization records, attaches
+no provider context body, and attempts no provider write. A prior attempt,
+`release\vm-reports\shadow-20260703-141017-18808.json`, observed the new
+selftest response passing but failed the run on a post-selftest serial TCP
+reconnect; the focused profile now runs that selftest as the terminal command.
+The slice does not add memory writes, provider export, fallback execution,
+recovery command dispatch, service inventory mutation, module disable,
+restart, artifact load, durable writes, rollback-store writes, transaction
+append, rollback application, persistence, external bytes, candidate execution,
+executable mapping, provider auto-load, broad mutation, or installed rollback
+state.
+
+Latest provider context injection-gate recovery-status omission verification:
+the 2026-07-03 local report-timestamp focused provider-memory profile
+`release\vm-reports\shadow-20260703-140416-24496.json` passed 159/159
+predicates with 11 executed commands and `duration_ms: 62815`; report SHA-256
+is `f971fbb182fce2574843b5950076c694a240868b46491161f5c3b1b38de24fd0`;
+base image SHA-256 is
+`c4d8a6f9ba317213d59b71aa75b63b9b9c298f6e26853d56a84d1efbdf4d2182`.
+It adds the same read-only
+`raios.provider_minimal.local_only_omission.v0` recovery-status omission object
+to `provider.context_injection_gate provider_minimal`, proving the local-only
+`current.recovery_lifeline_status` fact and
+`recovery.lifeline.status.current_boot` locator stay omitted before provider
+body attachment. The focused profile `provider-memory` was added to run common
+provider context checks plus this injection-gate path without the long full
+provider/module matrix. The VM proved automatic context injection disabled,
+`context_attached_to_provider_body: false`, `can_attach_context: false`, final
+authorization missing, prewrite body check not attempted, provider writes
+`not_attempted`, and the recovery status omission evidence present. The slice
+does not add memory writes, provider export, fallback execution, recovery
+command dispatch, service inventory mutation, module disable, restart, artifact
+load, durable writes, rollback-store writes, transaction append, rollback
+application, persistence, external bytes, candidate execution, executable
+mapping, provider auto-load, broad mutation, or installed rollback state.
+
+Latest provider context gate/export recovery-status omission verification: the
+2026-07-03 local report-timestamp quick profile
+`release\vm-reports\shadow-20260703-135340-24628.json` passed 417/417
+predicates with 59 executed commands and `duration_ms: 169446`; report SHA-256
+is `dee6d94fd7c865abe13760c6261927e0711c6970f6e2a6fee47e074d8674104b`;
+base image SHA-256 is
+`d5148c70ec56787f65f9642c71bb68fc83369d9b8d004a33f8aaf8e36cce2c11`.
+It adds read-only
+`raios.provider_minimal.local_only_omission.v0` evidence to
+`provider.context_gate provider_minimal` and
+`provider.context_export provider_minimal`, proving
+`current.recovery_lifeline_status` and
+`recovery.lifeline.status.current_boot` are local-only fields omitted from
+provider context. The same quick VM also re-proved the provider packet omission
+from `memory.context provider_minimal`, kept provider export disabled, kept
+context attachment to provider bodies false, kept provider writes
+`not_attempted`, and continued to deny export without a fake provider request
+envelope. The slice does not add memory writes, provider export, fallback
+execution, recovery command dispatch, service inventory mutation, module
+disable, restart, artifact load, durable writes, rollback-store writes,
+transaction append, rollback application, persistence, external bytes,
+candidate execution, executable mapping, provider auto-load, broad mutation, or
+installed rollback state.
+
+Latest provider-minimal recovery status omission verification: the 2026-07-03
+local report-timestamp quick profile
+`release\vm-reports\shadow-20260703-134738-27480.json` passed 415/415
+predicates with 59 executed commands and `duration_ms: 185349`; report SHA-256
+is `768419ef893172f42fbab42a3bede18b90ca3e02054834828af7bc2a3973d615`;
+base image SHA-256 is
+`d1dc57bda91e4cc1becaff02e249a8218d3af9f359b35655b8ed421fd21e6886`.
+It extends `provider_minimal` redaction/classification evidence so the new
+local-only `current.recovery_lifeline_status` fact and
+`recovery.lifeline.status.current_boot` locator are explicitly listed in
+`omitted_fields` and in the nested provider packet `omitted` list, while the
+packet `included.current` list continues to omit the recovery status locator.
+The quick VM parsed the `memory.context provider_minimal` response and proved
+the local-only recovery status fact is omitted from the provider packet, and it
+kept `provider.context_export provider_minimal` denied with packet/exported
+field/omitted field/redaction/classification/token-budget hashes present,
+request/export bindings missing, no provider write attempted, and no fake
+request envelope. The slice does not add memory writes, provider export,
+fallback execution, recovery command dispatch, service inventory mutation,
+module disable, restart, artifact load, durable writes, rollback-store writes,
+transaction append, rollback application, persistence, external bytes,
+candidate execution, executable mapping, provider auto-load, broad mutation, or
+installed rollback state.
+
+Latest recovery agent-context status fact verification: the 2026-07-03 local
+report-timestamp focused recovery profile
+`release\vm-reports\shadow-20260703-133613-9360.json` passed 3634/3634
+predicates with 184 executed commands and `duration_ms: 311351`; report
+SHA-256 is
+`2a7253e34aea055bdfcdd05a8772e548ef3bf3e1b776aad8b8050dca0d5c0771`;
+base image SHA-256 is
+`dc9d1aab855f39161413bde3e612b1dc0d6b24f805349463d22771d901801399`.
+It adds `recovery.lifeline.status.current_boot` to `memory.context` as a
+current-boot/local-only `raios.agent_context.recovery_lifeline_status_fact.v0`
+fact and to `memory.query`/`memory.trace` as a locator back to the read-only
+`recovery.lifeline.status` source. Before the retained status-execution result
+exists, the fact reports `unavailable_missing_retained_result` with
+`source_retained_result_verified: false`. After the retained result exists, it
+verifies the result against the retained status-read handler and
+completion-denial evidence, reports `available_read_only_current_boot`, exposes
+the retained result event id/hash and source event ids, and keeps the nested
+projection bounded. The fact does not write memory, export to a provider, create
+a fallback executor, dispatch a recovery command, mutate service inventory,
+enable command execution, load recovery artifacts, write durable audit or
+rollback-store state, attempt transaction append, apply rollback, persist state,
+consume external bytes, map executable candidates, auto-load from a provider, or
+grant broad mutation. The same cleanup centralizes missing/mismatched/accepted
+status handling in the shared recovery status-read state helper.
+
+Latest recovery command-envelope status-read verification: the 2026-07-03 local
+report-timestamp focused recovery profile
+`release\vm-reports\shadow-20260703-132135-17152.json` passed 3623/3623
+predicates with 181 executed commands and `duration_ms: 313612`; report
+SHA-256 is
+`c0213b4df9f7578e0d6e12b56e57abb44b77d66b44d6108b31870edd0d6fa7eb`;
+base image SHA-256 is
+`a7e4d985fd440b08cd57658864a5593c64c966f8d226ed8e0e2ea7be2cc363e7`.
+It keeps `recovery.lifeline_status_result_read` as the read-only consumer of the
+retained `raios.recovery_lifeline_status_execution_result.v0` record and exposes
+the same consumer through the command-shaped `recovery.lifeline.status` method.
+Before the retained result exists, both paths report
+`denied_missing_retained_result`, create no recovery result records, and return
+an unavailable status projection. After the retained result exists, both verify
+the result against the latest retained status-read handler and completion-denial
+evidence, then return a bounded current-boot
+`raios.recovery_lifeline_status_projection.v0` with `recovery_core_alive: true`.
+The existing `agent command_envelope` boundary now also allowlists
+`target_method=recovery.lifeline.status` with
+`requested_capability=cap.recovery.load_artifact.read`, records the normal
+current-boot/local-only envelope decision event, and dispatches only to the
+existing status-read method; a wrong capability is denied before status dispatch.
+The status read itself remains non-mutating, and provider recovery route,
+lifeline dispatch, command execution, actual status execution, module disable,
+restart last-good, recovery artifact load, recovery-memory writes, durable audit
+writes, rollback-store writes, service-inventory mutation, and load attempt all
+remain false.
+
+Latest recovery status execution-result verification: the 2026-07-03 local
+report-timestamp focused recovery profile
+`release\vm-reports\shadow-20260703-124307-23596.json` passed 3536/3536
+predicates with 174 executed commands and `duration_ms: 281958`; report
+SHA-256 is
+`a99f62a9c1e807bd417815a0ee96f4cda5b84bbcb7962ebc1d6fc04d6227fd3e`;
+base image SHA-256 is
+`1ae08ce368d3eeed327cc75842dbedceaf63fe42c8d3b21d6d0dd72519e8ca3a`.
+It adds `recovery.lifeline_status_execution_result_diagnostic`, which consumes
+the existing dispatch behavior, executor capability table, side-effect gate,
+retained status-read handler, and retained execution-stage completion-denial
+chain. Before execution-stage evidence is retained, the diagnostic reports
+`blocked_missing_evidence`, creates no event-log record, and keeps
+`recorded_event_id: null`. After the completion-denial stage is retained, it
+records a current-boot/local-only
+`raios.recovery_lifeline_status_execution_result.v0` hash reference with
+`retained_read_only_result_command_still_denied`, binds the retained
+status-read-handler event/hash/projection, retained completion-denial event/hash,
+dispatch behavior hash, executor capability table hash, side-effect gate hash,
+and all prior execution-stage hashes, and exposes the binding through
+`audit.events`. The result remains non-authorizing: dispatch, command execution,
+actual lifeline-status execution, recovery-memory writes, durable audit writes,
+rollback-store writes, recovery artifact load, service-inventory record
+creation, inventory mutation, and load attempt all remain false. The same slice
+also cleaned the readiness decision into the recovery command eval path so the
+diagnostic and future consumers share one gate.
+
+Latest recovery execution-stage source-diagnostic, harness-cleanup, and
+status-readiness verification: the 2026-07-03 local report-timestamp recovery
+profile `release\vm-reports\shadow-20260703-121942-14876.json` passed
+3478/3478 predicates with 172 executed commands and `duration_ms: 297242`;
+report SHA-256 is
+`e2ca038c5d743612109c1eab3a6e4c38cf77e8e1228f7e01ef97b3db1d63e1b4`;
+base image SHA-256 is
+`55e11a8783b89996ee79894b4d2171299d6e2e25f4e5ca78a2e84b409d5319a2`.
+It proves `recovery.lifeline_command_admission`,
+`recovery.load_artifact_by_hash_target_binding_diagnostic`,
+`recovery.lifeline_command_dispatch_diagnostic`,
+`recovery.memory_write_authority_diagnostic`,
+`recovery.durable_audit_rollback_write_authority_diagnostic`,
+`recovery.service_inventory_side_effect_boundary_diagnostic`,
+`recovery.lifeline_command_dispatch_behavior_diagnostic`,
+`recovery.lifeline_command_executor_capability_table_diagnostic`,
+`recovery.lifeline_command_side_effect_gate_diagnostic`, and every
+execution-stage diagnostic from
+`recovery.lifeline_command_execution_enablement_diagnostic` through
+`recovery.lifeline_command_execution_completion_denial_diagnostic` now expose a
+current-boot/local-only/read-only
+`raios.recovery_artifact_load_denial_source.v0` object after the denied
+`recovery.load_artifact` audit binding exists, and they report the earlier
+incomplete source state as present-but-missing identity evidence before the
+full recovery load-binding chain is retained. The available source object
+carries the denied load-artifact event id, nested load-binding status/reason,
+completion denial event id/hash, side-effect-gate hash, and source
+rollback/policy/inspect hashes into the
+admission/target/dispatch/memory-write/durable-audit/service-inventory/dispatch-behavior/executor/side-effect-gate/enablement/preflight/intent/commit-gate/result-denial/audit-denial/observation-denial/completion-denial
+diagnostic views without changing the canonical load-artifact-by-hash target
+binding, memory-write authority hash, durable-audit authority hash, service
+inventory side-effect boundary hash, command-dispatch behavior hash, executor
+capability table hash, side-effect gate hash, execution enablement hash,
+execution preflight hash, execution intent hash, execution commit-gate hash,
+execution result-denial hash, execution audit-denial hash, execution
+observation-denial hash, or execution completion-denial hash or creating new
+retained target, dispatch, memory-write, durable-audit, service-inventory,
+command-dispatch behavior, executor capability, side-effect gate, or
+execution-stage records from source-only diagnostics. The recovery
+execution-binding harness now sends `agent audit.events 256` after these
+diagnostics so the large audit scrape remains terminal and does not require a
+post-audit serial reconnect. The cleanup checkpoint also groups the eight
+duplicated execution-stage load-denial source assertion blocks behind
+`Assert-RecoveryExecutionStageLoadDenialSource` while preserving their predicate
+names and stage-specific hash assertions; PowerShell parsing passed and
+`git diff --check` reported only the repo's existing CRLF warnings. The same
+report also proves the existing dispatch diagnostic now emits
+`raios.recovery_lifeline_status_execution_readiness.v0`: before the execution
+chain is retained it reports `blocked_missing_evidence` with
+`recovery_lifeline_command_execution_enablement_not_implemented`,
+`execution_completion_denial_present: false`, and
+`would_execute_lifeline_status_read: false`; after the retained completion
+denial exists it reports `available_read_only_non_authorizing` with
+`recovery_lifeline_status_read_ready_command_execution_disabled`, the retained
+status-read-handler event/hash/projection/id, completion-denial presence, and
+`would_execute_lifeline_status_read: true`. The readiness record remains
+non-authorizing: dispatch, command execution, actual lifeline-status execution,
+recovery memory writes, durable audit writes, rollback-store writes, recovery
+artifact load, service-inventory record creation, inventory mutation, and load
+attempt all remain false. The same report also proves the denied dispatch view
+reports `defined_non_executable` /
+`recovery_lifeline_command_dispatch_execution_disabled` with the retained
+completion-denial event/hash and the non-authorizing load-denial source object.
+The path keeps module disable, restart, artifact load, memory write, durable
+media writes, durable audit writes, rollback-store writes, transaction append,
+rollback application, service inventory mutation, lifeline command dispatch,
+command execution, persistence, external bytes, candidate execution,
+executable mapping, provider auto-load, broad mutation, and installed rollback
+state denied.
+
+Current exact next task: repair the full Shadow VM checkpoint harness around the
+non-terminal module load-gate audit scrape without weakening the evidence. Keep
+the full-audit module source-method checks authoritative, but avoid a giant
+mid-profile `agent audit.events 256` response that closes the serial path before
+recovery/Hello checks can run. Prefer splitting the full-audit evidence scrape
+by ownership boundary or moving bounded audit checks closer to the records they
+prove; do not add runtime schemas, do not relax predicates, and do not grant new
+authority. Verify the repair with the full profile using delayed serial writes.
+Keep persistence, durable audit writes, rollback-store writes, transaction
+append, rollback application, external unsigned artifact intake, executable
+candidate-byte mapping, provider auto-load, broad mutation, and installed
+rollback state denied.
+
+Latest host-tool verification: after the 2026-07-03 local report-timestamp
+recovery/hello dispatch-bound completion-denial smoke runs on Windows with
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`,
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-stage0.ps1 -Profile release`,
+`cargo test --locked -p ota-tools -p registry-core -p registry-tools -p fake-cloud-server`,
+`git diff --check` (CRLF warnings only), and
+`scripts\scan-secrets.ps1` with no OpenAI-key-like values found, covering
+OTA/registry tooling plus the non-authorizing
 `raios.computed_capability_grant.v0` diagnostic, host-side
 `raios.module_audit_rollback_diagnostic.v0` audit/rollback candidates, and
 negative manifest/artifact/report/attestation/audit/rollback evidence cases.
+`cargo fmt --all -- --check` was attempted in the same pass with
+`RUST_MIN_STACK=67108864` and failed before format-diff output with `rustfmt`
+stack overflow on the current oversized Rust sources.
+`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 420 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10`
+was also attempted and failed before reaching recovery/full-audit assertions:
+after 11 provider-memory commands it timed out reconnecting to QEMU serial TCP
+port 4565; report `release\vm-reports\shadow-20260703-074757-29068.json`
+recorded `result: failed`, 163/163 predicates, `duration_ms: 477924`, and
+report SHA-256
+`6d6f031cb3eb784ad164a711e2eaf0da7ecda4af6804c6c37b826bc57d19ae26`.
 
 Latest quick guest-protocol verification: 2026-06-30 on Windows with
 `vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 180 -SerialWriteChunkSize 64 -SerialWriteDelayMilliseconds 2 -SerialTcpPort 4568`,
@@ -1145,13 +2365,16 @@ covering the real QEMU/serial path through boot readiness, core read-only
 methods, provider-minimal export gates, denied `module.load_ephemeral`, denied
 `recovery.load_artifact`, and RAM-only audit visibility.
 
-Latest focused recovery guest-protocol verification: 2026-05-24 on Windows with
-`vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180`, report
-`release\vm-reports\shadow-20260524-175144-24260.json` with 2725/2725
-predicates, 142 `executed_commands` entries, and no static command inventory,
-covering the real QEMU/serial path through the recovery artifact boundary,
-recovery evidence retention, lifeline-command diagnostics, load-binding denial,
-and RAM-only recovery audit visibility while skipping the normal module-loading
+Latest focused recovery guest-protocol verification: 2026-07-03 on Windows with
+`vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 90 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10 -SerialTcpPort 4624`,
+report `release\vm-reports\shadow-20260703-133613-9360.json` with 3634/3634
+predicates, 184 `executed_commands` entries, and no static command inventory,
+covering the real QEMU/serial path through recovery evidence retention,
+lifeline-command diagnostics, retained recovery status execution-result read,
+command-envelope dispatch to the existing status read, the read-only recovery
+lifeline status fact in `memory.context`, `memory.query`, and `memory.trace`,
+provider/export side-effect denial, service inventory mutation denial, and
+RAM-only recovery audit visibility while skipping the normal module-loading
 diagnostic matrix.
 
 Historical full guest-protocol verification: 2026-05-24 on Windows with
@@ -1535,23 +2758,112 @@ Stage-0.
 
 See `docs/architecture-decisions/0001-raios-agent-protocol.md`.
 
-## Exact Next Task
+## Historical Rollback Cursor Archive
 
-Now that `service.rollback_apply svc.demo.hello` exposes a verified
-current-boot rollback append-intent availability gate over the write-authority
-gate and transaction/durable-audit preflight, continue the runtime artifact
-track with the smallest rollback transaction payload/hash-envelope gate over
-that append-intent evidence: bind the retained append-intent gate hash,
-write-authority gate hash, preflight hash, apply-denial hash, rollback-preview
-hash, probation hash, current state hash, rollback target/current candidate,
-requested capability, required `raios.audit_record.v0` /
-`raios.rollback_transaction.v0` schemas, proposed transaction payload schema/id,
-payload hash, provenance hash, and unavailable transaction writer/durable-store
-authority into current-boot/local-only evidence, but keep actual rollback
-application, persistent install, durable audit writes, rollback-store writes,
-rollback transaction append, external artifact bytes, candidate-byte execution,
-executable mapping, provider-triggered auto-load, and broad mutation denied
-until real write/transaction authority exists.
+This section is historical handoff material from earlier rollback/storage
+slices. Do not use it as the current cursor; the current exact next task is the
+`Current exact next task` paragraph above and the compact cursor in
+`docs/ROADMAP.md`.
+
+Now that `service.rollback_apply svc.demo.hello` consumes the shared
+current-boot append-contract foundation, names the rollback-transaction append
+target, observes real AHCI read evidence, proves the VM-harness-labeled scratch
+region, writes and reads back the planned Hello rollback append sector image on
+scratch only, binds a read-only `RAIOS_AUDITRB_V0` target-region discovery,
+writes/reads back that same planned sector image on the dedicated non-scratch
+target region as test infrastructure, exposes
+`raios.ram_only_hello_service_rollback_durable_writer_policy_preflight.v0`, and
+then denies
+`raios.ram_only_hello_service_rollback_durable_append_transaction_authorization_gate.v0`
+over the append-record, sector-plan, target-region write/readback,
+audit-ledger, rollback-store, target-span, writer-policy, and missing writer
+evidence, and then consumes that gate in
+`raios.ram_only_hello_service_rollback_append_engine_readiness_decision.v0`,
+and then binds that readiness through
+`raios.ram_only_hello_service_rollback_durable_append_authority_decision.v0`,
+binds that append decision through
+`raios.ram_only_hello_service_rollback_durable_audit_policy_decision.v0`, and
+binds the policy decision, canonical audit-record image, media-write policy
+evidence, and verified LBA1/512-byte target span through
+`raios.ram_only_hello_service_rollback_durable_audit_policy_candidate.v0`, and
+consumes that candidate through
+`raios.ram_only_hello_service_rollback_durable_audit_policy_acceptance_gate.v0`,
+then emits
+`raios.ram_only_hello_service_rollback_durable_audit_policy_ledger_candidate.v0`
+over that acceptance gate, candidate, decision, audit image, media policy, and
+target span as read-only current-boot evidence, then emits
+`raios.ram_only_hello_service_rollback_durable_audit_policy_ledger_aware_acceptance_result.v0`
+over that ledger candidate as a fail-closed acceptance result, then emits
+`raios.ram_only_hello_service_rollback_durable_audit_policy_write_authority_availability.v0`
+over that result, ledger candidate, media policy, target-region write/readback,
+audit/rollback target ids/schemas, and target span while still withholding
+durable media writes and durable append authority, then emits
+`raios.ram_only_hello_service_rollback_durable_policy_ledger_availability.v0`
+over that write-authority availability evidence, ledger-aware result, ledger
+candidate, media policy, target-region write/readback, audit/rollback target
+ids/schemas, and target span while still withholding durable policy ledger,
+durable audit policy, durable media writes, and durable append authority, then
+emits
+`raios.ram_only_hello_service_rollback_durable_audit_policy_availability.v0`
+over that policy-ledger availability evidence, write-authority availability,
+ledger-aware result, ledger candidate, media policy, target-region
+write/readback, audit/rollback target ids/schemas, and target span while still
+withholding durable audit policy, durable policy ledger, write authority,
+durable media writes, and durable append authority, then emits
+`raios.ram_only_hello_service_rollback_durable_append_authority_availability.v0`
+over that audit-policy availability evidence, policy-ledger availability,
+write-authority availability, ledger-aware result, ledger candidate, media
+policy, target-region write/readback, audit/rollback target ids/schemas, and
+target span while still withholding durable append authority, durable audit
+policy, durable policy ledger, write authority, and durable media writes,
+then emits
+`raios.ram_only_hello_service_rollback_transaction_append_availability_decision.v0`
+over that durable append-authority availability evidence, audit-policy
+availability, append-engine readiness, durable writer policy, media policy,
+target-region write/readback, audit/rollback target ids/schemas, and target
+span while still withholding durable append authority, durable audit policy,
+transaction append, durable writes, and rollback application,
+then emits
+`raios.ram_only_hello_service_rollback_transaction_append_authority_denial_gate.v0`
+over that transaction-append availability decision, durable append-authority
+availability, audit-policy availability, append-engine readiness, durable writer
+policy, media policy, target-region write/readback, audit/rollback target
+ids/schemas, and target span while keeping
+`missing_transaction_append_authority: true` and all write/append side effects
+false, then emits
+`raios.ram_only_hello_service_rollback_durable_append_authority_availability_dry_run.v0`
+over durable append-authority availability, audit-policy availability dry-run,
+audit-policy availability, policy-ledger availability dry-run, policy-ledger
+availability, write-authority availability, ledger-aware result,
+ledger-candidate, media policy, target-region write/readback,
+transaction-append authority-denial gate, transaction append-availability
+decision, audit/rollback target ids/schemas, and target span as current-boot
+test-media-only evidence, then makes
+`raios.ram_only_hello_service_rollback_durable_policy_write_authority_decision.v0`
+consume that durable append-authority availability dry-run hash alongside its
+transaction-append dry-run, target-sector inspection, write-authority,
+audit-policy, append-authority, transaction-denial, transaction
+append-availability, audit/rollback target id/schema, and LBA1/512-byte span
+evidence, then makes the top-level
+`raios.ram_only_hello_service_rollback_apply.v0` denial hash consume that
+retained durable policy write-authority decision hash plus retained
+`raios.recovery_rollback_inspect_source_reference.v0` evidence, and now makes
+the read-only `raios.recovery_rollback_apply_authorization.v0`
+diagnostic/reference path bind that sourced denial hash plus the retained
+durable policy write-authority decision and inspect-source hashes, then makes
+the read-only `raios.recovery_disable_module_target_binding.v0`
+diagnostic/reference path carry the same source-bound apply evidence through
+the retained disable-module target binding while still disabling no module. Do
+not make the global AHCI block driver writable, do not treat scratch or
+test-media writes as durable authority, and do not claim installed rollback
+state. The next slice should carry that source-bound disable-module
+target-binding evidence into the existing
+`raios.recovery_restart_last_good_target_binding.v0` diagnostic/reference path.
+Continue to
+keep rollback application, persistent install, durable audit writes,
+rollback-store writes, rollback transaction append, external artifact bytes,
+candidate-byte execution, executable mapping, provider-triggered auto-load, and
+broad mutation denied until the real writer and storage authority exists.
 Provider trust/context hardening remains a parallel Track B, but do not claim
 WebPKI chain or time validation until trusted roots, intermediate chain
 handling, and a trusted time source are actually present.
@@ -1576,12 +2888,23 @@ The next slice should:
 - keep `agent command_envelope ... target_method=problem.list ...` routing
   through the existing dispatcher
 - keep malformed or over-capable envelopes denied before dispatch
-- add the smallest rollback transaction payload/hash-envelope gate over the
-  verified append-intent gate and prove it binds the append gate, write gate,
-  preflight, preview/probation/state, target/current candidate, requested
-  capability, durable schemas, payload/provenance hashes, and missing
-  writer/storage authority without applying rollback, appending a transaction,
-  or writing durable records
+- keep the rollback-apply writer/storage gate bound to the shared
+  append-contract foundation, `storage.authority.audit_rollback.current_boot`,
+  `append.audit_ledger.current_boot`, and `append.rollback_store.current_boot`,
+  plus append-target-owner, transaction-writer-readiness, and
+  block-write-path authority-gate facts derived from the verified read-only
+  block-driver and partition inventory evidence
+- keep the durable append-authority availability fact bound into the
+  rollback-apply response and RAM audit event, keep the no-write
+  rollback transaction-append dry-run blocked by the authority-denial gate, keep
+  the durable policy write-authority decision bound to the durable
+  append-authority availability dry-run hash, keep the top-level
+  rollback-apply denial hash bound to the retained durable policy
+  write-authority decision plus retained inspect-source evidence, and make the
+  next slice feed that sourced denial evidence into the recovery
+  rollback-apply authorization diagnostic/reference path while all durable
+  media writes, durable appends, and audit/rollback application paths remain
+  denied
 - keep the fail-closed rollback-apply gate over retained rollback-preview/
   probation evidence proving it cannot mutate descriptor, generation, running
   state, or RAM-only Hello state
@@ -1834,9 +3157,10 @@ Historical verified recovery foundation retained for reference:
   `recovery.lifeline_command_execution_completion_denial_diagnostic`, with their
   selftests, now retain local-only current-boot hash references over the
   previous execution stage. They validate the same command, target, authority,
-  side-effect-gate, executor, and dispatch hashes, advance dispatch through the
-  enablement, preflight, intent, commit-gate, result-denial, audit-denial, and
-  observation-denial, and completion-denial facts, and still end at explicit
+  side-effect-gate, executor, dispatch, and source-bound rollback-apply/policy/
+  inspect hashes, advance dispatch through the enablement, preflight, intent,
+  commit-gate, result-denial, audit-denial, observation-denial, and
+  completion-denial facts, and still end at explicit
   `defined_non_executable` /
   `recovery_lifeline_command_dispatch_execution_disabled`. They do not accept
   raw command bodies or lifeline envelopes, dispatch commands, execute
@@ -1847,7 +3171,8 @@ Historical verified recovery foundation retained for reference:
   `recovery.lifeline_command_executor_capability_table_diagnostic_selftest`
   now retain only local-only current-boot executor-capability-table hash
   references over the retained command-dispatch behavior reference and advance
-  dispatch only to the missing side-effect gate until that gate is retained.
+  dispatch only to the side-effect gate boundary, which remains non-executing
+  until the execution-enablement boundary is retained.
   They do not accept
   raw command bodies or lifeline envelopes, dispatch commands, execute
   lifeline status/rollback/module/load behavior, allocate service slots, mutate
@@ -2715,11 +4040,14 @@ Historical verified recovery foundation retained for reference:
   `release\vm-reports\shadow-20260701-091747-9784.json` with 6446/6446
   predicates, 243 executed commands, and `duration_ms: 490492`.
   Latest focused reports:
-  `release\vm-reports\shadow-20260630-225419-7620.json` with 136/136 quick
-  predicates, 13 executed commands, and `duration_ms: 32290`, and
+  `release\vm-reports\shadow-20260703-180640-6876.json` with 1610/1610
+  module-audit-rollback predicates, 71 executed commands, and
+  `duration_ms: 168943`,
+  `release\vm-reports\shadow-20260702-234758-31976.json` with 361/361 quick
+  predicates, 56 executed commands, and `duration_ms: 103205`, and
   `release\vm-reports\shadow-20260524-175144-24260.json` with 2725/2725
   recovery predicates, 142 executed commands, and `duration_ms: 138960`.
-  Both reports derive `commands` from observed serial execution. The recovery
+  These reports derive `commands` from observed serial execution. The recovery
   profile still exercises the same predicate/command count, but serial command
   echo no longer forces framebuffer redraws while long hash-reference commands
   are being received.

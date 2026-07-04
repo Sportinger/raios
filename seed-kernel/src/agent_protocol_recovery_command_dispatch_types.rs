@@ -152,6 +152,10 @@ pub(crate) struct RecoveryLifelineCommandDispatchCandidate {
     pub(crate) execution_audit_denial_present: bool,
     pub(crate) execution_observation_denial_present: bool,
     pub(crate) execution_completion_denial_present: bool,
+    pub(crate) execution_completion_denial_reference: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
 }
 
 #[derive(Clone, Copy)]
@@ -183,6 +187,10 @@ pub(crate) struct RecoveryLifelineCommandDispatchCheck {
     pub(crate) execution_audit_denial_present: bool,
     pub(crate) execution_observation_denial_present: bool,
     pub(crate) execution_completion_denial_present: bool,
+    pub(crate) execution_completion_denial_reference: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
     pub(crate) accepts_lifeline_command_body: bool,
     pub(crate) accepts_lifeline_command_envelope: bool,
     pub(crate) dispatches_lifeline_command: bool,

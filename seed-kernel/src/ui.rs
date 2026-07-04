@@ -116,6 +116,38 @@ impl StatusUi {
             return console::set_view(console::UiView::Settings);
         }
 
+        let snapshot = console::snapshot();
+        if snapshot.view == console::UiView::Ai {
+            let input_y = logical_height(surface.info()).saturating_sub(74);
+            if point_in(x, y, 42, input_y + 10, width.saturating_sub(118), 30) {
+                return console::set_view(console::UiView::Ai);
+            }
+        }
+        if snapshot.view == console::UiView::Settings && !snapshot.settings_entry_active {
+            let top = CONTENT_TOP;
+            if point_in(x, y, 72, top + 250, 342, 38) {
+                return console::activate_focus(console::UiFocus::SettingsProvider);
+            }
+            if point_in(x, y, 430, top + 250, 342, 38) {
+                return console::activate_focus(console::UiFocus::SettingsApiKey);
+            }
+            if point_in(x, y, 72, top + 304, 342, 38) {
+                return console::activate_focus(console::UiFocus::SettingsClear);
+            }
+            if point_in(x, y, 430, top + 304, 342, 38) {
+                return console::activate_focus(console::UiFocus::SettingsWifiSsid);
+            }
+            if point_in(x, y, 72, top + 358, 342, 38) {
+                return console::activate_focus(console::UiFocus::SettingsWifiPassphrase);
+            }
+            if point_in(x, y, 430, top + 358, 342, 38) {
+                return console::activate_focus(console::UiFocus::SettingsWifiClear);
+            }
+            if point_in(x, y, 72, top + 412, 700, 38) {
+                return console::activate_focus(console::UiFocus::SettingsClose);
+            }
+        }
+
         false
     }
 
@@ -850,18 +882,27 @@ fn draw_console(
     );
     text::draw_text(surface, 44, top + 18, "Console", TEXT_MAIN, None);
 
-    let mut line_y = top + 56;
-    let mut idx = 0usize;
-    while idx < snapshot.lines.len() {
+    let input_y = height.saturating_sub(74);
+    let max_chars = usize::max(8, width.saturating_sub(88) / FONT_ADVANCE);
+    let min_y = top + 56;
+    let mut cursor_y = input_y.saturating_sub(22);
+    let mut idx = snapshot.lines.len();
+    while idx > 0 {
+        idx -= 1;
         let line = snapshot.lines[idx].as_str();
-        if !line.is_empty() {
-            text::draw_text(surface, 44, line_y, line, TEXT_MUTED, None);
+        if line.is_empty() {
+            continue;
         }
-        line_y += 18;
-        idx += 1;
+
+        let (line_count, _) = wrap_metrics(line, max_chars);
+        let y = cursor_y.saturating_sub(line_count.saturating_sub(1) * CHAT_LINE_HEIGHT);
+        if y < min_y {
+            break;
+        }
+        draw_wrapped_text(surface, 44, y, line, max_chars, TEXT_MUTED, line_count);
+        cursor_y = y.saturating_sub(CHAT_LINE_HEIGHT);
     }
 
-    let input_y = height.saturating_sub(74);
     draw_soft_rect(
         surface,
         24,

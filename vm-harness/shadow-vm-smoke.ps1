@@ -9,7 +9,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery")]
+    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full")]
     [string]$Profile = "full"
 )
 
@@ -37,6 +37,8 @@ $script:SerialTcpStream = $null
 $QemuArgList = @()
 $HardwareProfile = $null
 $ResolvedImage = $null
+$ScratchImage = $null
+$AuditRollbackTargetImage = $null
 $ResolvedArtifact = $null
 $ResolvedManifest = $null
 $ManifestValidation = $null
@@ -82,11 +84,39 @@ try {
         }
     }
 
+    $ScratchImage = Join-Path $RunDir "raios-stage0-scratch.img"
+    $scratchSector0 = New-Object byte[] 512
+    $scratchMarker = [System.Text.Encoding]::ASCII.GetBytes("RAIOS_SCRATCH_V0")
+    [Array]::Copy($scratchMarker, 0, $scratchSector0, 0, $scratchMarker.Length)
+    $scratchStream = [System.IO.File]::Open($ScratchImage, [System.IO.FileMode]::Create, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::Read)
+    try {
+        $scratchStream.SetLength(1MB)
+        $scratchStream.Write($scratchSector0, 0, $scratchSector0.Length)
+    }
+    finally {
+        $scratchStream.Dispose()
+    }
+
+    $AuditRollbackTargetImage = Join-Path $RunDir "raios-stage0-audit-rollback-target.img"
+    $auditRollbackTargetSector0 = New-Object byte[] 512
+    $auditRollbackTargetMarker = [System.Text.Encoding]::ASCII.GetBytes("RAIOS_AUDITRB_V0")
+    [Array]::Copy($auditRollbackTargetMarker, 0, $auditRollbackTargetSector0, 0, $auditRollbackTargetMarker.Length)
+    $auditRollbackTargetStream = [System.IO.File]::Open($AuditRollbackTargetImage, [System.IO.FileMode]::Create, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::Read)
+    try {
+        $auditRollbackTargetStream.SetLength(1MB)
+        $auditRollbackTargetStream.Write($auditRollbackTargetSector0, 0, $auditRollbackTargetSector0.Length)
+    }
+    finally {
+        $auditRollbackTargetStream.Dispose()
+    }
+
     $Nic = if ($Network) { "e1000" } else { "none" }
-    $HardwareProfile = New-HardwareProfile -Nic $Nic
+    $HardwareProfile = New-HardwareProfile -Nic $Nic -ScratchDrive $true -AuditRollbackTargetDrive $true
     $QemuArgList = @(
         "-StopExisting",
         "-Image", $ResolvedImage,
+        "-ScratchImage", $ScratchImage,
+        "-AuditRollbackTargetImage", $AuditRollbackTargetImage,
         "-SerialMode", "tcp",
         "-SerialTcpPort", "$SerialTcpPort",
         "-SerialLog", $SerialLog,
@@ -98,6 +128,8 @@ try {
     $runParams = @{
         StopExisting = $true
         Image = $ResolvedImage
+        ScratchImage = $ScratchImage
+        AuditRollbackTargetImage = $AuditRollbackTargetImage
         SerialMode = "tcp"
         SerialTcpPort = $SerialTcpPort
         SerialLog = $SerialLog
@@ -124,8 +156,30 @@ try {
     :SmokeProfileValidation while ($true) {
         . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-common.ps1")
 
+        if ($Profile -eq "provider-memory") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-provider-memory.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "provider-memory-full") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-full-provider-memory.ps1")
+            Invoke-ProviderContextGateSelftestProfile
+            break SmokeProfileValidation
+        }
+
         if ($Profile -eq "quick") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-quick.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "hello-rollback-dry-run") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-hello-rollback-dry-run.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "module-audit-rollback") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-full-module-evidence.ps1")
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-full-module-audit-rollback.ps1")
             break SmokeProfileValidation
         }
 
@@ -150,6 +204,10 @@ try {
         }
 
         . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-full-audit.ps1")
+        . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-hello-rollback-dry-run.ps1")
+        if ($Profile -eq "full") {
+            Invoke-ProviderContextGateSelftestProfile
+        }
         break SmokeProfileValidation
     }
 

@@ -104,7 +104,11 @@ function Get-SerialLogTail {
 }
 
 function New-HardwareProfile {
-    param([string]$Nic)
+    param(
+        [string]$Nic,
+        [bool]$ScratchDrive = $false,
+        [bool]$AuditRollbackTargetDrive = $false
+    )
 
     $networkDevice = if ($Nic -eq "e1000") {
         "e1000_user"
@@ -120,6 +124,8 @@ function New-HardwareProfile {
         cpu = "max"
         firmware = "edk2-x86_64"
         boot_drive = "ide_raw_image"
+        scratch_drive = if ($ScratchDrive) { "ide_raw_scratch_label_v0" } else { "none" }
+        audit_rollback_target_drive = if ($AuditRollbackTargetDrive) { "ide_raw_audit_rollback_label_v0" } else { "none" }
         display = "none"
         serial = "tcp_chardev_with_log"
         input = @(

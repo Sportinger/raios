@@ -1723,6 +1723,9 @@ pub(crate) fn parse_recovery_rollback_apply_authorization_reference(
     let command_dispatch_boundary_id = parts.next();
     let rollback_apply_authorization_id = parts.next();
     let rollback_apply_projection_hash = parts.next();
+    let source_rollback_apply_denial_hash = parts.next();
+    let source_durable_policy_write_authority_decision_hash = parts.next();
+    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
     let scope = parts.next().unwrap_or("current_boot");
     let extra = parts.next();
     let input = RecoveryRollbackApplyAuthorizationInput {
@@ -1741,6 +1744,9 @@ pub(crate) fn parse_recovery_rollback_apply_authorization_reference(
             && command_dispatch_boundary_id.is_some()
             && rollback_apply_authorization_id.is_some()
             && rollback_apply_projection_hash.is_some()
+            && source_rollback_apply_denial_hash.is_some()
+            && source_durable_policy_write_authority_decision_hash.is_some()
+            && source_recovery_rollback_inspect_source_reference_hash.is_some()
             && extra.is_none(),
         scope,
         rollback_apply_authorization_hash: rollback_apply_authorization_hash
@@ -1760,6 +1766,12 @@ pub(crate) fn parse_recovery_rollback_apply_authorization_reference(
         command_dispatch_boundary_id,
         rollback_apply_authorization_id,
         rollback_apply_projection_hash: rollback_apply_projection_hash.and_then(parse_sha256_ref),
+        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
+            .and_then(parse_sha256_ref),
+        source_durable_policy_write_authority_decision_hash:
+            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
+        source_recovery_rollback_inspect_source_reference_hash:
+            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
     };
     evaluate_recovery_rollback_apply_authorization_reference(input, require_live_retained)
 }
@@ -1818,6 +1830,19 @@ pub(crate) fn evaluate_recovery_rollback_apply_authorization_reference(
         return recovery_rollback_apply_authorization_invalid(input);
     };
     let Some(rollback_apply_projection_hash) = input.rollback_apply_projection_hash else {
+        return recovery_rollback_apply_authorization_invalid(input);
+    };
+    let Some(source_rollback_apply_denial_hash) = input.source_rollback_apply_denial_hash else {
+        return recovery_rollback_apply_authorization_invalid(input);
+    };
+    let Some(source_durable_policy_write_authority_decision_hash) =
+        input.source_durable_policy_write_authority_decision_hash
+    else {
+        return recovery_rollback_apply_authorization_invalid(input);
+    };
+    let Some(source_recovery_rollback_inspect_source_reference_hash) =
+        input.source_recovery_rollback_inspect_source_reference_hash
+    else {
         return recovery_rollback_apply_authorization_invalid(input);
     };
     if !input.arity_valid {
@@ -1930,6 +1955,9 @@ pub(crate) fn evaluate_recovery_rollback_apply_authorization_reference(
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             rollback_apply_authorization_id: RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_BOUNDARY_ID,
             rollback_apply_projection_hash,
+            source_rollback_apply_denial_hash,
+            source_durable_policy_write_authority_decision_hash,
+            source_recovery_rollback_inspect_source_reference_hash,
         },
     );
     if input.rollback_apply_authorization_hash != Some(expected) {
@@ -2010,6 +2038,11 @@ pub(crate) fn recovery_rollback_apply_authorization_reference_check<'a>(
         command_dispatch_boundary_id: input.command_dispatch_boundary_id,
         rollback_apply_authorization_id: input.rollback_apply_authorization_id,
         rollback_apply_projection_hash: input.rollback_apply_projection_hash,
+        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
+        source_durable_policy_write_authority_decision_hash: input
+            .source_durable_policy_write_authority_decision_hash,
+        source_recovery_rollback_inspect_source_reference_hash: input
+            .source_recovery_rollback_inspect_source_reference_hash,
         normalized_spec,
         target_locator_value,
         status,
@@ -2077,6 +2110,11 @@ pub(crate) fn recovery_rollback_apply_authorization_from_check(
         command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
         rollback_apply_authorization_id: RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_BOUNDARY_ID,
         rollback_apply_projection_hash: check.rollback_apply_projection_hash?,
+        source_rollback_apply_denial_hash: check.source_rollback_apply_denial_hash?,
+        source_durable_policy_write_authority_decision_hash: check
+            .source_durable_policy_write_authority_decision_hash?,
+        source_recovery_rollback_inspect_source_reference_hash: check
+            .source_recovery_rollback_inspect_source_reference_hash?,
     })
 }
 
@@ -2097,6 +2135,9 @@ pub(crate) fn parse_recovery_disable_module_target_binding_reference(
     let status_read_handler_hash = parts.next();
     let rollback_preview_authorization_hash = parts.next();
     let rollback_apply_authorization_hash = parts.next();
+    let source_rollback_apply_denial_hash = parts.next();
+    let source_durable_policy_write_authority_decision_hash = parts.next();
+    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
     let command_dispatch_boundary_id = parts.next();
     let disable_module_target_id = parts.next();
     let disable_module_target_projection_hash = parts.next();
@@ -2116,6 +2157,9 @@ pub(crate) fn parse_recovery_disable_module_target_binding_reference(
             && status_read_handler_hash.is_some()
             && rollback_preview_authorization_hash.is_some()
             && rollback_apply_authorization_hash.is_some()
+            && source_rollback_apply_denial_hash.is_some()
+            && source_durable_policy_write_authority_decision_hash.is_some()
+            && source_recovery_rollback_inspect_source_reference_hash.is_some()
             && command_dispatch_boundary_id.is_some()
             && disable_module_target_id.is_some()
             && disable_module_target_projection_hash.is_some()
@@ -2137,6 +2181,12 @@ pub(crate) fn parse_recovery_disable_module_target_binding_reference(
             .and_then(parse_sha256_ref),
         rollback_apply_authorization_hash: rollback_apply_authorization_hash
             .and_then(parse_sha256_ref),
+        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
+            .and_then(parse_sha256_ref),
+        source_durable_policy_write_authority_decision_hash:
+            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
+        source_recovery_rollback_inspect_source_reference_hash:
+            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
         command_dispatch_boundary_id,
         disable_module_target_id,
         disable_module_target_projection_hash: disable_module_target_projection_hash
@@ -2192,6 +2242,19 @@ pub(crate) fn evaluate_recovery_disable_module_target_binding_reference(
         return recovery_disable_module_target_binding_invalid(input);
     };
     let Some(rollback_apply_authorization_hash) = input.rollback_apply_authorization_hash else {
+        return recovery_disable_module_target_binding_invalid(input);
+    };
+    let Some(source_rollback_apply_denial_hash) = input.source_rollback_apply_denial_hash else {
+        return recovery_disable_module_target_binding_invalid(input);
+    };
+    let Some(source_durable_policy_write_authority_decision_hash) =
+        input.source_durable_policy_write_authority_decision_hash
+    else {
+        return recovery_disable_module_target_binding_invalid(input);
+    };
+    let Some(source_recovery_rollback_inspect_source_reference_hash) =
+        input.source_recovery_rollback_inspect_source_reference_hash
+    else {
         return recovery_disable_module_target_binding_invalid(input);
     };
     let Some(command_dispatch_boundary_id) = input.command_dispatch_boundary_id else {
@@ -2312,6 +2375,9 @@ pub(crate) fn evaluate_recovery_disable_module_target_binding_reference(
             status_read_handler_hash,
             rollback_preview_authorization_hash,
             rollback_apply_authorization_hash,
+            source_rollback_apply_denial_hash,
+            source_durable_policy_write_authority_decision_hash,
+            source_recovery_rollback_inspect_source_reference_hash,
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             disable_module_target_id: RECOVERY_DISABLE_MODULE_TARGET_BINDING_BOUNDARY_ID,
             disable_module_target_projection_hash,
@@ -2393,6 +2459,11 @@ pub(crate) fn recovery_disable_module_target_binding_reference_check<'a>(
         status_read_handler_hash: input.status_read_handler_hash,
         rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
         rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
+        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
+        source_durable_policy_write_authority_decision_hash: input
+            .source_durable_policy_write_authority_decision_hash,
+        source_recovery_rollback_inspect_source_reference_hash: input
+            .source_recovery_rollback_inspect_source_reference_hash,
         command_dispatch_boundary_id: input.command_dispatch_boundary_id,
         disable_module_target_id: input.disable_module_target_id,
         disable_module_target_projection_hash: input.disable_module_target_projection_hash,
@@ -2430,6 +2501,12 @@ pub(crate) fn recovery_disable_module_target_binding_live_chain_mismatch(
             != Some(latest_reference.rollback_preview_authorization_hash)
         || input.rollback_apply_authorization_hash
             != Some(latest_reference.rollback_apply_authorization_hash)
+        || input.source_rollback_apply_denial_hash
+            != Some(latest_reference.source_rollback_apply_denial_hash)
+        || input.source_durable_policy_write_authority_decision_hash
+            != Some(latest_reference.source_durable_policy_write_authority_decision_hash)
+        || input.source_recovery_rollback_inspect_source_reference_hash
+            != Some(latest_reference.source_recovery_rollback_inspect_source_reference_hash)
         || !method_eq(
             input.target_locator?,
             latest_reference.target_locator.as_str(),
@@ -2463,6 +2540,11 @@ pub(crate) fn recovery_disable_module_target_binding_from_check(
         status_read_handler_hash: check.status_read_handler_hash?,
         rollback_preview_authorization_hash: check.rollback_preview_authorization_hash?,
         rollback_apply_authorization_hash: check.rollback_apply_authorization_hash?,
+        source_rollback_apply_denial_hash: check.source_rollback_apply_denial_hash?,
+        source_durable_policy_write_authority_decision_hash: check
+            .source_durable_policy_write_authority_decision_hash?,
+        source_recovery_rollback_inspect_source_reference_hash: check
+            .source_recovery_rollback_inspect_source_reference_hash?,
         command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
         disable_module_target_id: RECOVERY_DISABLE_MODULE_TARGET_BINDING_BOUNDARY_ID,
         disable_module_target_projection_hash: check.disable_module_target_projection_hash?,
@@ -2487,6 +2569,9 @@ pub(crate) fn parse_recovery_restart_last_good_target_binding_reference(
     let rollback_preview_authorization_hash = parts.next();
     let rollback_apply_authorization_hash = parts.next();
     let disable_module_target_binding_hash = parts.next();
+    let source_rollback_apply_denial_hash = parts.next();
+    let source_durable_policy_write_authority_decision_hash = parts.next();
+    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
     let command_dispatch_boundary_id = parts.next();
     let restart_last_good_target_id = parts.next();
     let restart_last_good_target_projection_hash = parts.next();
@@ -2507,6 +2592,9 @@ pub(crate) fn parse_recovery_restart_last_good_target_binding_reference(
             && rollback_preview_authorization_hash.is_some()
             && rollback_apply_authorization_hash.is_some()
             && disable_module_target_binding_hash.is_some()
+            && source_rollback_apply_denial_hash.is_some()
+            && source_durable_policy_write_authority_decision_hash.is_some()
+            && source_recovery_rollback_inspect_source_reference_hash.is_some()
             && command_dispatch_boundary_id.is_some()
             && restart_last_good_target_id.is_some()
             && restart_last_good_target_projection_hash.is_some()
@@ -2530,6 +2618,12 @@ pub(crate) fn parse_recovery_restart_last_good_target_binding_reference(
             .and_then(parse_sha256_ref),
         disable_module_target_binding_hash: disable_module_target_binding_hash
             .and_then(parse_sha256_ref),
+        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
+            .and_then(parse_sha256_ref),
+        source_durable_policy_write_authority_decision_hash:
+            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
+        source_recovery_rollback_inspect_source_reference_hash:
+            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
         command_dispatch_boundary_id,
         restart_last_good_target_id,
         restart_last_good_target_projection_hash: restart_last_good_target_projection_hash
@@ -2589,6 +2683,19 @@ pub(crate) fn evaluate_recovery_restart_last_good_target_binding_reference(
         return recovery_restart_last_good_target_binding_invalid(input);
     };
     let Some(disable_module_target_binding_hash) = input.disable_module_target_binding_hash else {
+        return recovery_restart_last_good_target_binding_invalid(input);
+    };
+    let Some(source_rollback_apply_denial_hash) = input.source_rollback_apply_denial_hash else {
+        return recovery_restart_last_good_target_binding_invalid(input);
+    };
+    let Some(source_durable_policy_write_authority_decision_hash) =
+        input.source_durable_policy_write_authority_decision_hash
+    else {
+        return recovery_restart_last_good_target_binding_invalid(input);
+    };
+    let Some(source_recovery_rollback_inspect_source_reference_hash) =
+        input.source_recovery_rollback_inspect_source_reference_hash
+    else {
         return recovery_restart_last_good_target_binding_invalid(input);
     };
     let Some(command_dispatch_boundary_id) = input.command_dispatch_boundary_id else {
@@ -2711,6 +2818,9 @@ pub(crate) fn evaluate_recovery_restart_last_good_target_binding_reference(
             rollback_preview_authorization_hash,
             rollback_apply_authorization_hash,
             disable_module_target_binding_hash,
+            source_rollback_apply_denial_hash,
+            source_durable_policy_write_authority_decision_hash,
+            source_recovery_rollback_inspect_source_reference_hash,
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             restart_last_good_target_id: RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_BOUNDARY_ID,
             restart_last_good_target_projection_hash,
@@ -2794,6 +2904,11 @@ pub(crate) fn recovery_restart_last_good_target_binding_reference_check<'a>(
         rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
         rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
         disable_module_target_binding_hash: input.disable_module_target_binding_hash,
+        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
+        source_durable_policy_write_authority_decision_hash: input
+            .source_durable_policy_write_authority_decision_hash,
+        source_recovery_rollback_inspect_source_reference_hash: input
+            .source_recovery_rollback_inspect_source_reference_hash,
         command_dispatch_boundary_id: input.command_dispatch_boundary_id,
         restart_last_good_target_id: input.restart_last_good_target_id,
         restart_last_good_target_projection_hash: input.restart_last_good_target_projection_hash,
@@ -2833,6 +2948,12 @@ pub(crate) fn recovery_restart_last_good_target_binding_live_chain_mismatch(
             != Some(latest_reference.rollback_apply_authorization_hash)
         || input.disable_module_target_binding_hash
             != Some(latest_reference.disable_module_target_binding_hash)
+        || input.source_rollback_apply_denial_hash
+            != Some(latest_reference.source_rollback_apply_denial_hash)
+        || input.source_durable_policy_write_authority_decision_hash
+            != Some(latest_reference.source_durable_policy_write_authority_decision_hash)
+        || input.source_recovery_rollback_inspect_source_reference_hash
+            != Some(latest_reference.source_recovery_rollback_inspect_source_reference_hash)
         || !method_eq(
             input.target_locator?,
             latest_reference.target_locator.as_str(),
@@ -2867,6 +2988,11 @@ pub(crate) fn recovery_restart_last_good_target_binding_from_check(
         rollback_preview_authorization_hash: check.rollback_preview_authorization_hash?,
         rollback_apply_authorization_hash: check.rollback_apply_authorization_hash?,
         disable_module_target_binding_hash: check.disable_module_target_binding_hash?,
+        source_rollback_apply_denial_hash: check.source_rollback_apply_denial_hash?,
+        source_durable_policy_write_authority_decision_hash: check
+            .source_durable_policy_write_authority_decision_hash?,
+        source_recovery_rollback_inspect_source_reference_hash: check
+            .source_recovery_rollback_inspect_source_reference_hash?,
         command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
         restart_last_good_target_id: RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_BOUNDARY_ID,
         restart_last_good_target_projection_hash: check.restart_last_good_target_projection_hash?,
@@ -2892,6 +3018,9 @@ pub(crate) fn parse_recovery_load_artifact_by_hash_target_binding_reference(
     let rollback_apply_authorization_hash = parts.next();
     let disable_module_target_binding_hash = parts.next();
     let restart_last_good_target_binding_hash = parts.next();
+    let source_rollback_apply_denial_hash = parts.next();
+    let source_durable_policy_write_authority_decision_hash = parts.next();
+    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
     let command_dispatch_boundary_id = parts.next();
     let load_artifact_by_hash_target_id = parts.next();
     let load_artifact_by_hash_target_artifact_hash = parts.next();
@@ -2914,6 +3043,9 @@ pub(crate) fn parse_recovery_load_artifact_by_hash_target_binding_reference(
             && rollback_apply_authorization_hash.is_some()
             && disable_module_target_binding_hash.is_some()
             && restart_last_good_target_binding_hash.is_some()
+            && source_rollback_apply_denial_hash.is_some()
+            && source_durable_policy_write_authority_decision_hash.is_some()
+            && source_recovery_rollback_inspect_source_reference_hash.is_some()
             && command_dispatch_boundary_id.is_some()
             && load_artifact_by_hash_target_id.is_some()
             && load_artifact_by_hash_target_artifact_hash.is_some()
@@ -2940,6 +3072,12 @@ pub(crate) fn parse_recovery_load_artifact_by_hash_target_binding_reference(
             .and_then(parse_sha256_ref),
         restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
             .and_then(parse_sha256_ref),
+        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
+            .and_then(parse_sha256_ref),
+        source_durable_policy_write_authority_decision_hash:
+            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
+        source_recovery_rollback_inspect_source_reference_hash:
+            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
         command_dispatch_boundary_id,
         load_artifact_by_hash_target_id,
         load_artifact_by_hash_target_artifact_hash: load_artifact_by_hash_target_artifact_hash
@@ -3004,6 +3142,19 @@ pub(crate) fn evaluate_recovery_load_artifact_by_hash_target_binding_reference(
         return recovery_load_artifact_by_hash_target_binding_invalid(input);
     };
     let Some(restart_last_good_target_binding_hash) = input.restart_last_good_target_binding_hash
+    else {
+        return recovery_load_artifact_by_hash_target_binding_invalid(input);
+    };
+    let Some(source_rollback_apply_denial_hash) = input.source_rollback_apply_denial_hash else {
+        return recovery_load_artifact_by_hash_target_binding_invalid(input);
+    };
+    let Some(source_durable_policy_write_authority_decision_hash) =
+        input.source_durable_policy_write_authority_decision_hash
+    else {
+        return recovery_load_artifact_by_hash_target_binding_invalid(input);
+    };
+    let Some(source_recovery_rollback_inspect_source_reference_hash) =
+        input.source_recovery_rollback_inspect_source_reference_hash
     else {
         return recovery_load_artifact_by_hash_target_binding_invalid(input);
     };
@@ -3133,6 +3284,9 @@ pub(crate) fn evaluate_recovery_load_artifact_by_hash_target_binding_reference(
             rollback_apply_authorization_hash,
             disable_module_target_binding_hash,
             restart_last_good_target_binding_hash,
+            source_rollback_apply_denial_hash,
+            source_durable_policy_write_authority_decision_hash,
+            source_recovery_rollback_inspect_source_reference_hash,
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             load_artifact_by_hash_target_id:
                 RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_BOUNDARY_ID,
@@ -3220,6 +3374,11 @@ pub(crate) fn recovery_load_artifact_by_hash_target_binding_reference_check<'a>(
         rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
         disable_module_target_binding_hash: input.disable_module_target_binding_hash,
         restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
+        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
+        source_durable_policy_write_authority_decision_hash: input
+            .source_durable_policy_write_authority_decision_hash,
+        source_recovery_rollback_inspect_source_reference_hash: input
+            .source_recovery_rollback_inspect_source_reference_hash,
         command_dispatch_boundary_id: input.command_dispatch_boundary_id,
         load_artifact_by_hash_target_id: input.load_artifact_by_hash_target_id,
         load_artifact_by_hash_target_artifact_hash: input
@@ -3266,6 +3425,12 @@ pub(crate) fn recovery_load_artifact_by_hash_target_binding_live_chain_mismatch(
             != Some(latest_reference.disable_module_target_binding_hash)
         || input.restart_last_good_target_binding_hash
             != Some(latest_reference.restart_last_good_target_binding_hash)
+        || input.source_rollback_apply_denial_hash
+            != Some(latest_reference.source_rollback_apply_denial_hash)
+        || input.source_durable_policy_write_authority_decision_hash
+            != Some(latest_reference.source_durable_policy_write_authority_decision_hash)
+        || input.source_recovery_rollback_inspect_source_reference_hash
+            != Some(latest_reference.source_recovery_rollback_inspect_source_reference_hash)
         || !method_eq(
             input.target_locator?,
             latest_reference.target_locator.as_str(),
@@ -3303,6 +3468,11 @@ pub(crate) fn recovery_load_artifact_by_hash_target_binding_from_check(
             rollback_apply_authorization_hash: check.rollback_apply_authorization_hash?,
             disable_module_target_binding_hash: check.disable_module_target_binding_hash?,
             restart_last_good_target_binding_hash: check.restart_last_good_target_binding_hash?,
+            source_rollback_apply_denial_hash: check.source_rollback_apply_denial_hash?,
+            source_durable_policy_write_authority_decision_hash: check
+                .source_durable_policy_write_authority_decision_hash?,
+            source_recovery_rollback_inspect_source_reference_hash: check
+                .source_recovery_rollback_inspect_source_reference_hash?,
             command_dispatch_boundary_id: RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
             load_artifact_by_hash_target_id:
                 RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_BOUNDARY_ID,

@@ -2,6 +2,8 @@ use crate::{
     agent_protocol_recovery_constants::{
         RECOVERY_ARTIFACT_LOAD_CAPABILITY, RECOVERY_LOAD_BINDING_SELFTEST_CASES,
     },
+    agent_protocol_recovery_execution::RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
+    agent_protocol_recovery_lifeline::RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
     agent_protocol_support::method_eq,
     event_log,
 };
@@ -24,6 +26,7 @@ pub(crate) struct RecoveryLoadBindingCandidate {
     pub(crate) local_approval: RecoveryEvidenceCandidate,
     pub(crate) loader: RecoveryEvidenceCandidate,
     pub(crate) rollback_evidence: RecoveryEvidenceCandidate,
+    pub(crate) execution_completion_denial: RecoveryEvidenceCandidate,
     pub(crate) normal_module_capability_substituted: bool,
     pub(crate) normal_module_append_intent_substituted: bool,
     pub(crate) append_payload_hash_claimed_authority: bool,
@@ -77,6 +80,8 @@ pub(crate) fn recovery_load_binding_selftest_cases(
     loader_missing.loader = recovery_evidence_missing();
     let mut rollback_missing = valid;
     rollback_missing.rollback_evidence = recovery_evidence_missing();
+    let mut execution_completion_missing = valid;
+    execution_completion_missing.execution_completion_denial = recovery_evidence_missing();
 
     let mut module_capability = valid;
     module_capability.requested_capability = "cap.module.load_ephemeral";
@@ -138,6 +143,12 @@ pub(crate) fn recovery_load_binding_selftest_cases(
             "missing",
             "recovery_rollback_evidence_event_id_missing",
             rollback_missing,
+        ),
+        recovery_load_binding_selftest_case(
+            "missing_recovery_lifeline_command_execution_completion_denial_event_id",
+            "missing",
+            "recovery_lifeline_command_execution_completion_denial_event_id_missing",
+            execution_completion_missing,
         ),
         recovery_load_binding_selftest_case(
             "module_load_ephemeral_capability_substituted",
@@ -288,6 +299,15 @@ pub(crate) fn evaluate_recovery_load_binding(
         "recovery_rollback_evidence_schema_mismatch",
     ) {
         result
+    } else if let Some(result) = evaluate_recovery_evidence(
+        candidate.execution_completion_denial,
+        "missing",
+        "recovery_lifeline_command_execution_completion_denial_event_id_missing",
+        "rejected",
+        "recovery_lifeline_command_execution_completion_denial_event_id_not_current_boot",
+        "recovery_lifeline_command_execution_completion_denial_schema_mismatch",
+    ) {
+        result
     } else {
         (
             "available_non_authorizing",
@@ -360,6 +380,10 @@ pub(crate) fn recovery_load_binding_candidate_from_retained(
         event_log::EventId,
         event_log::RecoveryArtifactRollbackEvidenceReference,
     )>,
+    retained_execution_completion_denial: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
 ) -> RecoveryLoadBindingCandidate {
     let mut candidate = recovery_load_binding_missing_candidate();
     if retained_identity.is_some() {
@@ -420,6 +444,16 @@ pub(crate) fn recovery_load_binding_candidate_from_retained(
                 retained_local_approval,
                 retained_loader,
                 retained_rollback_evidence,
+            ) {
+            recovery_evidence_rejected(reason)
+        } else {
+            recovery_evidence_available()
+        };
+    }
+    if retained_execution_completion_denial.is_some() {
+        candidate.execution_completion_denial = if let Some(reason) =
+            recovery_load_binding_retained_execution_completion_denial_mismatch(
+                retained_execution_completion_denial,
             ) {
             recovery_evidence_rejected(reason)
         } else {
@@ -793,6 +827,63 @@ pub(crate) fn recovery_load_binding_retained_rollback_evidence_mismatch(
     None
 }
 
+pub(crate) fn recovery_load_binding_retained_execution_completion_denial_mismatch(
+    retained_execution_completion_denial: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+) -> Option<&'static str> {
+    let Some((_event_id, reference)) = retained_execution_completion_denial else {
+        return None;
+    };
+    if !method_eq(
+        reference.schema,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE.reference_schema,
+    ) {
+        return Some("recovery_lifeline_command_execution_completion_denial_schema_mismatch");
+    }
+    if !method_eq(
+        reference.stage_name,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE.stage_name,
+    ) {
+        return Some("recovery_lifeline_command_execution_completion_denial_stage_mismatch");
+    }
+    if !method_eq(
+        reference.execution_stage_id,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE.stage_id,
+    ) {
+        return Some("recovery_lifeline_command_execution_completion_denial_id_mismatch");
+    }
+    if !method_eq(
+        reference.command_dispatch_boundary_id,
+        RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+    ) {
+        return Some("recovery_lifeline_command_execution_completion_denial_dispatch_boundary_mismatch");
+    }
+    if reference.execution_enablement_hash.is_none() {
+        return Some("recovery_lifeline_command_execution_completion_denial_enablement_hash_missing");
+    }
+    if reference.execution_preflight_hash.is_none() {
+        return Some("recovery_lifeline_command_execution_completion_denial_preflight_hash_missing");
+    }
+    if reference.execution_intent_hash.is_none() {
+        return Some("recovery_lifeline_command_execution_completion_denial_intent_hash_missing");
+    }
+    if reference.execution_commit_gate_hash.is_none() {
+        return Some("recovery_lifeline_command_execution_completion_denial_commit_gate_hash_missing");
+    }
+    if reference.execution_result_denial_hash.is_none() {
+        return Some("recovery_lifeline_command_execution_completion_denial_result_hash_missing");
+    }
+    if reference.execution_audit_denial_hash.is_none() {
+        return Some("recovery_lifeline_command_execution_completion_denial_audit_hash_missing");
+    }
+    if reference.execution_observation_denial_hash.is_none() {
+        return Some("recovery_lifeline_command_execution_completion_denial_observation_hash_missing");
+    }
+    None
+}
+
 fn recovery_load_binding_missing_candidate() -> RecoveryLoadBindingCandidate {
     RecoveryLoadBindingCandidate {
         requested_capability: RECOVERY_ARTIFACT_LOAD_CAPABILITY,
@@ -802,6 +893,7 @@ fn recovery_load_binding_missing_candidate() -> RecoveryLoadBindingCandidate {
         local_approval: recovery_evidence_missing(),
         loader: recovery_evidence_missing(),
         rollback_evidence: recovery_evidence_missing(),
+        execution_completion_denial: recovery_evidence_missing(),
         normal_module_capability_substituted: false,
         normal_module_append_intent_substituted: false,
         append_payload_hash_claimed_authority: false,
@@ -819,6 +911,7 @@ fn recovery_load_binding_available_candidate() -> RecoveryLoadBindingCandidate {
         local_approval: recovery_evidence_available(),
         loader: recovery_evidence_available(),
         rollback_evidence: recovery_evidence_available(),
+        execution_completion_denial: recovery_evidence_available(),
         normal_module_capability_substituted: false,
         normal_module_append_intent_substituted: false,
         append_payload_hash_claimed_authority: false,

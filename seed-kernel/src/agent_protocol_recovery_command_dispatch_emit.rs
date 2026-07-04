@@ -1,8 +1,14 @@
 use crate::{
+    agent_protocol_recovery_command_eval::{
+        recovery_lifeline_status_execution_readiness_ready,
+        recovery_lifeline_status_execution_readiness_reason,
+    },
     agent_protocol_recovery_command_dispatch_types::{
         RecoveryLifelineCommandDispatchCheck, RecoveryLifelineCommandDispatchSelfTestCase,
     },
-    agent_protocol_support::{crlf, json_event_id, json_sha256, json_str, raw, raw_bool, raw_line},
+    agent_protocol_support::{
+        crlf, json_event_id, json_sha256, json_sha256_option, json_str, raw, raw_bool, raw_line,
+    },
     event_log,
 };
 
@@ -144,6 +150,71 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_requirement(
     crlf();
 }
 
+fn emit_recovery_lifeline_command_execution_completion_reference(
+    check: &RecoveryLifelineCommandDispatchCheck,
+) {
+    raw("        \"retained_execution_completion_denial_event_id\": ");
+    if let Some((event_id, _)) = check.execution_completion_denial_reference {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw_line("        \"retained_execution_completion_denial_reference\": {");
+    raw("          \"status\": ");
+    if let Some((_, reference)) = check.execution_completion_denial_reference {
+        json_str("retained_hash_reference_command_still_denied");
+        raw_line(",");
+        raw_line("          \"scope\": \"current_boot\",");
+        raw_line("          \"classification\": \"local_only\",");
+        raw("          \"schema\": ");
+        json_str(reference.schema);
+        raw_line(",");
+        raw("          \"stage_name\": ");
+        json_str(reference.stage_name);
+        raw_line(",");
+        raw("          \"execution_stage_id\": ");
+        json_str(reference.execution_stage_id);
+        raw_line(",");
+        raw_line("          \"accepts_lifeline_command_body\": false,");
+        raw_line("          \"dispatches_lifeline_command\": false,");
+        raw_line("          \"command_execution_enabled\": false,");
+        raw("          \"hashes\": {\"execution_stage_hash\": ");
+        json_sha256(reference.execution_stage_hash);
+        raw(", \"execution_completion_denial_hash\": ");
+        json_sha256(reference.execution_stage_hash);
+        raw(", \"side_effect_gate_hash\": ");
+        json_sha256(reference.side_effect_gate_hash);
+        raw(", \"source_rollback_apply_denial_hash\": ");
+        json_sha256(reference.source_rollback_apply_denial_hash);
+        raw(", \"source_durable_policy_write_authority_decision_hash\": ");
+        json_sha256(reference.source_durable_policy_write_authority_decision_hash);
+        raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
+        json_sha256(reference.source_recovery_rollback_inspect_source_reference_hash);
+        raw(", \"execution_enablement_hash\": ");
+        json_sha256_option(reference.execution_enablement_hash);
+        raw(", \"execution_preflight_hash\": ");
+        json_sha256_option(reference.execution_preflight_hash);
+        raw(", \"execution_intent_hash\": ");
+        json_sha256_option(reference.execution_intent_hash);
+        raw(", \"execution_commit_gate_hash\": ");
+        json_sha256_option(reference.execution_commit_gate_hash);
+        raw(", \"execution_result_denial_hash\": ");
+        json_sha256_option(reference.execution_result_denial_hash);
+        raw(", \"execution_audit_denial_hash\": ");
+        json_sha256_option(reference.execution_audit_denial_hash);
+        raw(", \"execution_observation_denial_hash\": ");
+        json_sha256_option(reference.execution_observation_denial_hash);
+        raw_line("}");
+    } else {
+        json_str("missing");
+        raw_line(",");
+        raw_line("          \"scope\": \"current_boot\",");
+        raw_line("          \"classification\": \"local_only\"");
+    }
+    raw_line("        },");
+}
+
 pub(crate) fn emit_recovery_lifeline_command_dispatch_boundary(
     check: &RecoveryLifelineCommandDispatchCheck,
 ) {
@@ -225,6 +296,7 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_boundary(
     raw("        \"execution_completion_denial_present\": ");
     raw_bool(check.execution_completion_denial_present);
     raw_line(",");
+    emit_recovery_lifeline_command_execution_completion_reference(check);
     raw("        \"accepts_lifeline_command_body\": ");
     raw_bool(check.accepts_lifeline_command_body);
     raw_line(",");
@@ -282,6 +354,82 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_boundary(
     raw("        \"load_attempted\": ");
     raw_bool(check.load_attempted);
     raw_line("");
+}
+
+pub(crate) fn emit_recovery_lifeline_status_execution_readiness(
+    check: &RecoveryLifelineCommandDispatchCheck,
+    retained_status_handler: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineStatusReadHandlerReference,
+    )>,
+) {
+    let retained_status_handler_present = retained_status_handler.is_some();
+    let ready =
+        recovery_lifeline_status_execution_readiness_ready(check, retained_status_handler_present);
+    let reason =
+        recovery_lifeline_status_execution_readiness_reason(check, retained_status_handler_present);
+
+    raw_line("      \"status_execution_readiness\": {");
+    raw_line("        \"schema\": \"raios.recovery_lifeline_status_execution_readiness.v0\",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw("        \"status\": ");
+    json_str(if ready {
+        "available_read_only_non_authorizing"
+    } else {
+        "blocked_missing_evidence"
+    });
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(reason);
+    raw_line(",");
+    raw_line("        \"command_id\": \"recovery.lifeline.status\",");
+    raw_line("        \"argument_schema\": \"raios.recovery_lifeline_command.status_args.v0\",");
+    raw("        \"retained_status_read_handler_event_id\": ");
+    if let Some((event_id, _)) = retained_status_handler {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"status_read_handler_hash\": ");
+    if let Some((_, reference)) = retained_status_handler {
+        json_sha256(reference.status_read_handler_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"status_read_projection_hash\": ");
+    if let Some((_, reference)) = retained_status_handler {
+        json_sha256(reference.status_read_projection_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"status_handler_id\": ");
+    if let Some((_, reference)) = retained_status_handler {
+        json_str(reference.status_handler_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"execution_completion_denial_present\": ");
+    raw_bool(check.execution_completion_denial_present);
+    raw_line(",");
+    raw("        \"would_execute_lifeline_status_read\": ");
+    raw_bool(ready);
+    raw_line(",");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"executes_lifeline_status\": false,");
+    raw_line("        \"writes_recovery_memory\": false,");
+    raw_line("        \"writes_durable_audit_log\": false,");
+    raw_line("        \"writes_rollback_store\": false,");
+    raw_line("        \"loads_recovery_artifact\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
 }
 
 pub(crate) fn emit_recovery_lifeline_command_dispatch_selftest_case(

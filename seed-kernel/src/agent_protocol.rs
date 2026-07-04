@@ -188,6 +188,8 @@ use crate::{
         emit_recovery_lifeline_command_execution_preflight_diagnostic_selftest,
         emit_recovery_lifeline_command_execution_result_denial_diagnostic,
         emit_recovery_lifeline_command_execution_result_denial_diagnostic_selftest,
+        emit_recovery_lifeline_status_execution_result_diagnostic,
+        emit_recovery_lifeline_status_result_read,
         recovery_lifeline_command_execution_audit_denial_diagnostic_method,
         recovery_lifeline_command_execution_audit_denial_diagnostic_selftest_method,
         recovery_lifeline_command_execution_commit_gate_diagnostic_method,
@@ -204,6 +206,9 @@ use crate::{
         recovery_lifeline_command_execution_preflight_diagnostic_selftest_method,
         recovery_lifeline_command_execution_result_denial_diagnostic_method,
         recovery_lifeline_command_execution_result_denial_diagnostic_selftest_method,
+        recovery_lifeline_status_execution_result_diagnostic_method,
+        recovery_lifeline_status_result_read_method,
+        recovery_lifeline_status_result_read_response_method,
     },
     agent_protocol_recovery_methods::{
         canonical_recovery_artifact_load_method,
@@ -1101,6 +1106,17 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
             "recovery.lifeline_command_execution_completion_denial_diagnostic_selftest",
         );
     }
+    if recovery_lifeline_status_execution_result_diagnostic_method(method) {
+        record_read("recovery.lifeline_status_execution_result_diagnostic");
+        emit_recovery_lifeline_status_execution_result_diagnostic();
+        return DispatchOutcome::Response("recovery.lifeline_status_execution_result_diagnostic");
+    }
+    if recovery_lifeline_status_result_read_method(method) {
+        let response_method = recovery_lifeline_status_result_read_response_method(method);
+        record_read(response_method);
+        emit_recovery_lifeline_status_result_read(response_method);
+        return DispatchOutcome::Response(response_method);
+    }
     if recovery_artifact_load_binding_method(method) {
         record_read("recovery.load_binding");
         emit_recovery_artifact_load_binding();
@@ -1146,6 +1162,24 @@ pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
     if hello_service::is_rollback_apply_method(method) {
         let method = hello_service::emit_rollback_apply(method);
         return DispatchOutcome::Denied(method);
+    }
+
+    if hello_service::is_recovery_rollback_inspect_method(method) {
+        let event_id = record_read("recovery.rollback_inspect");
+        let method = hello_service::emit_recovery_rollback_inspect(method, event_id);
+        return DispatchOutcome::Response(method);
+    }
+
+    if hello_service::is_recovery_rollback_inspect_source_reference_selftest_method(method) {
+        record_read("recovery.rollback_inspect_source_reference_selftest");
+        let method = hello_service::emit_recovery_rollback_inspect_source_reference_selftest();
+        return DispatchOutcome::Response(method);
+    }
+
+    if hello_service::is_recovery_rollback_materialize_dry_run_method(method) {
+        let event_id = event_log::record_hello_recovery_rollback_materialize_dry_run();
+        let method = hello_service::emit_recovery_rollback_materialize_dry_run(method, event_id);
+        return DispatchOutcome::Response(method);
     }
 
     if hello_service::is_stop_method(method) {

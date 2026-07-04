@@ -187,6 +187,8 @@
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
 
+    Send-AgentCommand -Command "agent audit.events 96" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.recovery_command_frontdoor"
+
     Send-AgentCommand -Command "agent recovery.lifeline_command_dispatch_diagnostic_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_dispatch_diagnostic_selftest"
     Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_dispatch_selftest_" -TimeoutSeconds 1 -Fields @(
         @{ Suffix = "schema"; Needle = '"schema": "raios.recovery_lifeline_command_dispatch_denial_selftest.v0"' },

@@ -28,6 +28,15 @@ pub struct PciBar {
     pub size: u64,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct PciMassStorageController {
+    pub address: PciAddress,
+    pub vendor_id: u16,
+    pub device_id: u16,
+    pub subclass: u8,
+    pub prog_if: u8,
+}
+
 impl PciBar {
     pub fn is_memory(&self) -> bool {
         self.kind != PciBarKind::Io
@@ -200,6 +209,36 @@ pub fn find_by_class(class: u8, subclass: u8, prog_if: u8) -> Option<PciAddress>
                     && addr.read_u8(0x09) == prog_if
                 {
                     return Some(addr);
+                }
+                if func == 0 && !has_multiple_functions(&addr) {
+                    break;
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn find_mass_storage_controller() -> Option<PciMassStorageController> {
+    for bus in 0..=255 {
+        for dev in 0..32 {
+            for func in 0..8 {
+                let addr = PciAddress::new(bus, dev, func);
+                let vendor_id = read_vendor(&addr);
+                if vendor_id == 0xFFFF {
+                    if func == 0 {
+                        break;
+                    }
+                    continue;
+                }
+                if addr.read_u8(0x0B) == 0x01 {
+                    return Some(PciMassStorageController {
+                        address: addr,
+                        vendor_id,
+                        device_id: read_device_id(&addr),
+                        subclass: addr.read_u8(0x0A),
+                        prog_if: addr.read_u8(0x09),
+                    });
                 }
                 if func == 0 && !has_multiple_functions(&addr) {
                     break;

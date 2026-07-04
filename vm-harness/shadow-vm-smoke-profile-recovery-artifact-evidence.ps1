@@ -534,3 +534,5 @@
         @{ Suffix = "valid_reason"; Needle = '"actual_reason": "recovery_artifact_rollback_evidence_reference_valid_but_lifeline_protocol_missing"' },
         @{ Suffix = "load_attempted_false"; Needle = '"load_attempted": false' }
     )
+
+    Send-AgentCommand -Command "agent audit.events 96" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.recovery_artifact_evidence"

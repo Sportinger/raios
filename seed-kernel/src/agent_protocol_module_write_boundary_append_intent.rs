@@ -578,7 +578,7 @@ pub(crate) fn emit_module_append_intent_facts(
         "rollback_transaction_append_intent",
         "raios.rollback_transaction_append_intent.v0",
         "append_intent.rollback_transaction.current_boot",
-        "raios.rollback_plan.v0",
+        "raios.rollback_transaction.v0",
         "append.rollback_store.current_boot",
         "append_engine.rollback_store.current_boot",
         "storage.audit_rollback_layout.current_boot",

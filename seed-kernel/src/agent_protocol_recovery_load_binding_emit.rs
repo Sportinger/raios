@@ -2,34 +2,17 @@ use crate::{
     agent_protocol_recovery_load_binding::{
         recovery_load_binding_retained_loader_mismatch,
         recovery_load_binding_retained_local_approval_mismatch,
+        recovery_load_binding_retained_execution_completion_denial_mismatch,
         recovery_load_binding_retained_rollback_evidence_mismatch,
         recovery_load_binding_retained_trust_mismatch,
         recovery_load_binding_retained_vm_test_mismatch, RecoveryLoadBindingCheck,
         RecoveryLoadBindingSelfTestCase,
     },
-    agent_protocol_support::{crlf, json_event_id, json_sha256, json_str, raw, raw_bool, raw_line},
+    agent_protocol_support::{
+        crlf, json_event_id, json_sha256, json_sha256_option, json_str, raw, raw_bool, raw_line,
+    },
     event_log,
 };
-
-pub(crate) fn emit_recovery_artifact_load_missing_fact(
-    field: &'static str,
-    schema: &'static str,
-    reason: &'static str,
-    comma: bool,
-) {
-    raw("      \"");
-    raw(field);
-    raw("\": {\"schema\": ");
-    json_str(schema);
-    raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
-    json_str(reason);
-    raw(", \"authorizes_recovery_load\": false, \"loads_recovery_artifact\": false}");
-    if comma {
-        raw_line(",");
-    } else {
-        raw_line("");
-    }
-}
 
 pub(crate) fn emit_recovery_load_identity_binding_fact(
     retained: Option<(
@@ -48,7 +31,7 @@ pub(crate) fn emit_recovery_load_identity_binding_fact(
         json_sha256(reference.artifact_hash);
         raw("}");
     } else {
-        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_artifact_identity_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_artifact_identity_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false");
     }
     raw("}");
     if comma {
@@ -94,7 +77,7 @@ pub(crate) fn emit_recovery_load_trust_binding_fact(
         json_sha256(reference.trust_hash);
         raw("}");
     } else {
-        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_artifact_trust_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_artifact_trust_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false");
     }
     raw("}");
     if comma {
@@ -156,7 +139,7 @@ pub(crate) fn emit_recovery_load_vm_test_binding_fact(
         json_sha256(reference.vm_test_hash);
         raw("}");
     } else {
-        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_vm_test_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_vm_test_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false");
     }
     raw("}");
     if comma {
@@ -230,7 +213,7 @@ pub(crate) fn emit_recovery_load_local_approval_binding_fact(
         json_sha256(reference.local_approval_hash);
         raw("}");
     } else {
-        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_local_approval_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_local_approval_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false");
     }
     raw("}");
     if comma {
@@ -312,7 +295,7 @@ pub(crate) fn emit_recovery_load_loader_binding_fact(
         json_sha256(reference.loader_hash);
         raw("}");
     } else {
-        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_loader_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_loader_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false");
     }
     raw("}");
     if comma {
@@ -409,7 +392,68 @@ pub(crate) fn emit_recovery_load_rollback_evidence_binding_fact(
         json_sha256(reference.rollback_evidence_hash);
         raw("}");
     } else {
-        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_rollback_evidence_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false}");
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_rollback_evidence_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false");
+    }
+    raw("}");
+    if comma {
+        raw_line(",");
+    } else {
+        raw_line("");
+    }
+}
+
+pub(crate) fn emit_recovery_load_execution_completion_denial_binding_fact(
+    retained: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineCommandExecutionStageReference,
+    )>,
+    comma: bool,
+) {
+    raw("      \"recovery_lifeline_command_execution_completion_denial_event_id\": {\"schema\": \"raios.recovery_lifeline_command_execution_completion_denial.v0\"");
+    if let Some((event_id, reference)) = retained {
+        let mismatch =
+            recovery_load_binding_retained_execution_completion_denial_mismatch(retained);
+        raw(", \"status\": ");
+        json_str(if mismatch.is_some() {
+            "rejected_retained_reference"
+        } else {
+            "retained_hash_reference_command_still_denied"
+        });
+        raw(", \"event_id\": ");
+        json_event_id(event_id);
+        raw(", \"retained\": true, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
+        json_str(mismatch.unwrap_or("retained_recovery_lifeline_command_execution_completion_denial_reference_not_authorizing"));
+        raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"accepts_lifeline_command_body\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"command_dispatch_boundary_id\": ");
+        json_str(reference.command_dispatch_boundary_id);
+        raw(", \"hashes\": {\"execution_stage_hash\": ");
+        json_sha256(reference.execution_stage_hash);
+        raw(", \"execution_completion_denial_hash\": ");
+        json_sha256(reference.execution_stage_hash);
+        raw(", \"side_effect_gate_hash\": ");
+        json_sha256(reference.side_effect_gate_hash);
+        raw(", \"source_rollback_apply_denial_hash\": ");
+        json_sha256(reference.source_rollback_apply_denial_hash);
+        raw(", \"source_durable_policy_write_authority_decision_hash\": ");
+        json_sha256(reference.source_durable_policy_write_authority_decision_hash);
+        raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
+        json_sha256(reference.source_recovery_rollback_inspect_source_reference_hash);
+        raw(", \"execution_enablement_hash\": ");
+        json_sha256_option(reference.execution_enablement_hash);
+        raw(", \"execution_preflight_hash\": ");
+        json_sha256_option(reference.execution_preflight_hash);
+        raw(", \"execution_intent_hash\": ");
+        json_sha256_option(reference.execution_intent_hash);
+        raw(", \"execution_commit_gate_hash\": ");
+        json_sha256_option(reference.execution_commit_gate_hash);
+        raw(", \"execution_result_denial_hash\": ");
+        json_sha256_option(reference.execution_result_denial_hash);
+        raw(", \"execution_audit_denial_hash\": ");
+        json_sha256_option(reference.execution_audit_denial_hash);
+        raw(", \"execution_observation_denial_hash\": ");
+        json_sha256_option(reference.execution_observation_denial_hash);
+        raw("}");
+    } else {
+        raw(", \"status\": \"missing\", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": \"recovery_lifeline_command_execution_completion_denial_event_id_missing\", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"accepts_lifeline_command_body\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"loads_recovery_artifact\": false");
     }
     raw("}");
     if comma {

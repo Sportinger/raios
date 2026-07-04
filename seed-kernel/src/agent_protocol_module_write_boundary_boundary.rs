@@ -69,7 +69,9 @@ pub(crate) fn emit_module_audit_rollback_write_boundary() {
     raw_line(
         "          {\"target\": \"durable_audit_ledger\", \"schema\": \"raios.audit_record.v0\"},",
     );
-    raw_line("          {\"target\": \"rollback_store\", \"schema\": \"raios.rollback_plan.v0\"}");
+    raw_line(
+        "          {\"target\": \"rollback_store\", \"schema\": \"raios.rollback_transaction.v0\"}",
+    );
     raw_line("        ],");
     raw_line("        \"required_retained_references\": [");
     raw_line("          \"raios.module_manifest_reference.v0\",");

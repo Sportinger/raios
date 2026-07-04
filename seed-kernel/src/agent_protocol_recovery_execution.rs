@@ -1,8 +1,18 @@
+use alloc::format;
+
 use crate::{
+    agent_protocol_recovery_command_eval::{
+        evaluate_recovery_lifeline_command_dispatch,
+        recovery_lifeline_command_dispatch_candidate_from_retained,
+        recovery_lifeline_status_execution_readiness_ready,
+        recovery_lifeline_status_execution_readiness_reason,
+    },
+    agent_protocol_recovery_command_dispatch_types::RecoveryLifelineCommandDispatchCheck,
     agent_protocol_recovery_lifeline::{
         recovery_lifeline_command_spec, RecoveryLifelineCommandSpec,
         RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
     },
+    agent_protocol_recovery_target_binding_emit::emit_recovery_artifact_load_denial_source_evidence,
     agent_protocol_support::{
         begin_response, crlf, current_boot_event_id_str, end_response, json_event_id,
         json_event_id_option, json_opt_str, json_sha256, json_sha256_option, json_str, method_eq,
@@ -77,6 +87,9 @@ pub(crate) struct RecoveryLifelineCommandExecutionStageInput<'a> {
     pub(crate) command_dispatch_behavior_hash: Option<[u8; 32]>,
     pub(crate) executor_capability_table_hash: Option<[u8; 32]>,
     pub(crate) side_effect_gate_hash: Option<[u8; 32]>,
+    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
+    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
+    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
     pub(crate) execution_enablement_hash: Option<[u8; 32]>,
     pub(crate) execution_preflight_hash: Option<[u8; 32]>,
     pub(crate) execution_intent_hash: Option<[u8; 32]>,
@@ -117,6 +130,9 @@ pub(crate) struct RecoveryLifelineCommandExecutionStageReferenceCheck<'a> {
     pub(crate) command_dispatch_behavior_hash: Option<[u8; 32]>,
     pub(crate) executor_capability_table_hash: Option<[u8; 32]>,
     pub(crate) side_effect_gate_hash: Option<[u8; 32]>,
+    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
+    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
+    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
     pub(crate) execution_enablement_hash: Option<[u8; 32]>,
     pub(crate) execution_preflight_hash: Option<[u8; 32]>,
     pub(crate) execution_intent_hash: Option<[u8; 32]>,
@@ -183,7 +199,7 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE:
         stage_id: RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_BOUNDARY_ID,
         stage_projection_field: "execution_projection_sha256",
         retained_previous_stage_event_id_field: "retained_side_effect_gate_event_id",
-        reference_format: "recovery.lifeline_command_execution_enablement_diagnostic <execution_enablement_hash> <retained_side_effect_gate_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <command_dispatch_boundary_id> <execution_enablement_id> <execution_projection_hash> [current_boot]",
+        reference_format: "recovery.lifeline_command_execution_enablement_diagnostic <execution_enablement_hash> <retained_side_effect_gate_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <command_dispatch_boundary_id> <execution_enablement_id> <execution_projection_hash> [current_boot]",
         absent_reason: "recovery_lifeline_command_execution_enablement_absent",
         arity_reason: "recovery_lifeline_command_execution_enablement_arity_invalid",
         scope_reason: "recovery_lifeline_command_execution_enablement_scope_must_be_current_boot",
@@ -222,7 +238,7 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE:
         stage_id: RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_BOUNDARY_ID,
         stage_projection_field: "execution_preflight_projection_sha256",
         retained_previous_stage_event_id_field: "retained_execution_enablement_event_id",
-        reference_format: "recovery.lifeline_command_execution_preflight_diagnostic <execution_preflight_hash> <retained_execution_enablement_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <execution_enablement_hash> <command_dispatch_boundary_id> <execution_preflight_id> <execution_preflight_projection_hash> [current_boot]",
+        reference_format: "recovery.lifeline_command_execution_preflight_diagnostic <execution_preflight_hash> <retained_execution_enablement_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <execution_enablement_hash> <command_dispatch_boundary_id> <execution_preflight_id> <execution_preflight_projection_hash> [current_boot]",
         absent_reason: "recovery_lifeline_command_execution_preflight_absent",
         arity_reason: "recovery_lifeline_command_execution_preflight_arity_invalid",
         scope_reason: "recovery_lifeline_command_execution_preflight_scope_must_be_current_boot",
@@ -261,7 +277,7 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE:
         stage_id: RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_BOUNDARY_ID,
         stage_projection_field: "execution_intent_projection_sha256",
         retained_previous_stage_event_id_field: "retained_execution_preflight_event_id",
-        reference_format: "recovery.lifeline_command_execution_intent_diagnostic <execution_intent_hash> <retained_execution_preflight_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <execution_enablement_hash> <execution_preflight_hash> <command_dispatch_boundary_id> <execution_intent_id> <execution_intent_projection_hash> [current_boot]",
+        reference_format: "recovery.lifeline_command_execution_intent_diagnostic <execution_intent_hash> <retained_execution_preflight_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <execution_enablement_hash> <execution_preflight_hash> <command_dispatch_boundary_id> <execution_intent_id> <execution_intent_projection_hash> [current_boot]",
         absent_reason: "recovery_lifeline_command_execution_intent_absent",
         arity_reason: "recovery_lifeline_command_execution_intent_arity_invalid",
         scope_reason: "recovery_lifeline_command_execution_intent_scope_must_be_current_boot",
@@ -300,7 +316,7 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE:
         stage_id: RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_BOUNDARY_ID,
         stage_projection_field: "execution_commit_gate_projection_sha256",
         retained_previous_stage_event_id_field: "retained_execution_intent_event_id",
-        reference_format: "recovery.lifeline_command_execution_commit_gate_diagnostic <execution_commit_gate_hash> <retained_execution_intent_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <command_dispatch_boundary_id> <execution_commit_gate_id> <execution_commit_gate_projection_hash> [current_boot]",
+        reference_format: "recovery.lifeline_command_execution_commit_gate_diagnostic <execution_commit_gate_hash> <retained_execution_intent_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <command_dispatch_boundary_id> <execution_commit_gate_id> <execution_commit_gate_projection_hash> [current_boot]",
         absent_reason: "recovery_lifeline_command_execution_commit_gate_absent",
         arity_reason: "recovery_lifeline_command_execution_commit_gate_arity_invalid",
         scope_reason: "recovery_lifeline_command_execution_commit_gate_scope_must_be_current_boot",
@@ -342,7 +358,7 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE:
         stage_id: RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_BOUNDARY_ID,
         stage_projection_field: "execution_result_projection_sha256",
         retained_previous_stage_event_id_field: "retained_execution_commit_gate_event_id",
-        reference_format: "recovery.lifeline_command_execution_result_denial_diagnostic <execution_result_denial_hash> <retained_execution_commit_gate_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <execution_commit_gate_hash> <command_dispatch_boundary_id> <execution_result_denial_id> <execution_result_projection_hash> [current_boot]",
+        reference_format: "recovery.lifeline_command_execution_result_denial_diagnostic <execution_result_denial_hash> <retained_execution_commit_gate_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <execution_commit_gate_hash> <command_dispatch_boundary_id> <execution_result_denial_id> <execution_result_projection_hash> [current_boot]",
         absent_reason: "recovery_lifeline_command_execution_result_denial_absent",
         arity_reason: "recovery_lifeline_command_execution_result_denial_arity_invalid",
         scope_reason: "recovery_lifeline_command_execution_result_denial_scope_must_be_current_boot",
@@ -387,7 +403,7 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE:
         stage_id: RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_BOUNDARY_ID,
         stage_projection_field: "execution_audit_projection_sha256",
         retained_previous_stage_event_id_field: "retained_execution_result_denial_event_id",
-        reference_format: "recovery.lifeline_command_execution_audit_denial_diagnostic <execution_audit_denial_hash> <retained_execution_result_denial_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <execution_commit_gate_hash> <execution_result_denial_hash> <command_dispatch_boundary_id> <execution_audit_denial_id> <execution_audit_projection_hash> [current_boot]",
+        reference_format: "recovery.lifeline_command_execution_audit_denial_diagnostic <execution_audit_denial_hash> <retained_execution_result_denial_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <execution_commit_gate_hash> <execution_result_denial_hash> <command_dispatch_boundary_id> <execution_audit_denial_id> <execution_audit_projection_hash> [current_boot]",
         absent_reason: "recovery_lifeline_command_execution_audit_denial_absent",
         arity_reason: "recovery_lifeline_command_execution_audit_denial_arity_invalid",
         scope_reason: "recovery_lifeline_command_execution_audit_denial_scope_must_be_current_boot",
@@ -438,7 +454,7 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE:
         stage_id: RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_BOUNDARY_ID,
         stage_projection_field: "execution_observation_projection_sha256",
         retained_previous_stage_event_id_field: "retained_execution_audit_denial_event_id",
-        reference_format: "recovery.lifeline_command_execution_observation_denial_diagnostic <execution_observation_denial_hash> <retained_execution_audit_denial_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <execution_commit_gate_hash> <execution_result_denial_hash> <execution_audit_denial_hash> <command_dispatch_boundary_id> <execution_observation_denial_id> <execution_observation_projection_hash> [current_boot]",
+        reference_format: "recovery.lifeline_command_execution_observation_denial_diagnostic <execution_observation_denial_hash> <retained_execution_audit_denial_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <execution_commit_gate_hash> <execution_result_denial_hash> <execution_audit_denial_hash> <command_dispatch_boundary_id> <execution_observation_denial_id> <execution_observation_projection_hash> [current_boot]",
         absent_reason: "recovery_lifeline_command_execution_observation_denial_absent",
         arity_reason: "recovery_lifeline_command_execution_observation_denial_arity_invalid",
         scope_reason:
@@ -496,7 +512,7 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE:
         stage_id: RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_BOUNDARY_ID,
         stage_projection_field: "execution_completion_projection_sha256",
         retained_previous_stage_event_id_field: "retained_execution_observation_denial_event_id",
-        reference_format: "recovery.lifeline_command_execution_completion_denial_diagnostic <execution_completion_denial_hash> <retained_execution_observation_denial_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <execution_commit_gate_hash> <execution_result_denial_hash> <execution_audit_denial_hash> <execution_observation_denial_hash> <command_dispatch_boundary_id> <execution_completion_denial_id> <execution_completion_projection_hash> [current_boot]",
+        reference_format: "recovery.lifeline_command_execution_completion_denial_diagnostic <execution_completion_denial_hash> <retained_execution_observation_denial_event_id> <command_id> <argument_schema> <argument_hash> <target_locator> <command_envelope_reference_hash> <command_body_canonicalization_hash> <handler_binding_hash> <status_read_handler_hash> <rollback_preview_authorization_hash> <rollback_apply_authorization_hash> <disable_module_target_binding_hash> <restart_last_good_target_binding_hash> <load_artifact_by_hash_target_binding_hash> <recovery_memory_write_authority_hash> <durable_audit_rollback_write_authority_hash> <service_inventory_side_effect_boundary_hash> <command_dispatch_behavior_hash> <executor_capability_table_hash> <side_effect_gate_hash> <source_rollback_apply_denial_hash> <source_durable_policy_write_authority_decision_hash> <source_recovery_rollback_inspect_source_reference_hash> <execution_enablement_hash> <execution_preflight_hash> <execution_intent_hash> <execution_commit_gate_hash> <execution_result_denial_hash> <execution_audit_denial_hash> <execution_observation_denial_hash> <command_dispatch_boundary_id> <execution_completion_denial_id> <execution_completion_projection_hash> [current_boot]",
         absent_reason: "recovery_lifeline_command_execution_completion_denial_absent",
         arity_reason: "recovery_lifeline_command_execution_completion_denial_arity_invalid",
         scope_reason:
@@ -523,6 +539,188 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE:
         next_requirement_schema: None,
         next_requirement_reason: None,
     };
+
+const RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_ID: &str =
+    "result.recovery_lifeline_status.current_boot";
+
+fn latest_recovery_lifeline_command_dispatch_check() -> (
+    RecoveryLifelineCommandDispatchCheck,
+    Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineStatusReadHandlerReference,
+    )>,
+) {
+    let retained_status_handler =
+        event_log::latest_recovery_lifeline_status_read_handler_reference();
+    let candidate = recovery_lifeline_command_dispatch_candidate_from_retained(
+        event_log::latest_recovery_lifeline_command_envelope_reference(),
+        event_log::latest_recovery_lifeline_request_reference(),
+        event_log::latest_recovery_lifeline_command_body_canonicalization_reference(),
+        event_log::latest_recovery_lifeline_command_handler_binding_reference(),
+        retained_status_handler,
+        event_log::latest_recovery_rollback_preview_authorization_reference(),
+        event_log::latest_recovery_rollback_apply_authorization_reference(),
+        event_log::latest_recovery_disable_module_target_binding_reference(),
+        event_log::latest_recovery_restart_last_good_target_binding_reference(),
+        event_log::latest_recovery_load_artifact_by_hash_target_binding_reference(),
+        event_log::latest_recovery_memory_write_authority_reference(),
+        event_log::latest_durable_audit_rollback_write_authority_reference(),
+        event_log::latest_recovery_service_inventory_side_effect_boundary_reference(),
+        event_log::latest_recovery_lifeline_command_dispatch_behavior_reference(),
+        event_log::latest_recovery_lifeline_command_executor_capability_table_reference(),
+        event_log::latest_recovery_lifeline_command_side_effect_gate_reference(),
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE.reference_schema,
+        ),
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE.reference_schema,
+        ),
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE.reference_schema,
+        ),
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE.reference_schema,
+        ),
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE.reference_schema,
+        ),
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE.reference_schema,
+        ),
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE.reference_schema,
+        ),
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE.reference_schema,
+        ),
+    );
+    (
+        evaluate_recovery_lifeline_command_dispatch(candidate),
+        retained_status_handler,
+    )
+}
+
+fn event_id_hash_string(event_id: event_log::EventId) -> alloc::string::String {
+    format!("event.current_boot.{:08}", event_id.sequence())
+}
+
+fn recovery_lifeline_status_execution_result_reference_from_readiness(
+    check: &RecoveryLifelineCommandDispatchCheck,
+    retained_status_handler: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineStatusReadHandlerReference,
+    )>,
+) -> Option<event_log::RecoveryLifelineStatusExecutionResultReference> {
+    if !recovery_lifeline_status_execution_readiness_ready(
+        check,
+        retained_status_handler.is_some(),
+    ) {
+        return None;
+    }
+
+    let (retained_status_read_handler_event_id, status_handler) = retained_status_handler?;
+    let (retained_execution_completion_denial_event_id, completion_denial) =
+        check.execution_completion_denial_reference?;
+
+    if !method_eq(status_handler.command_id, completion_denial.command_id)
+        || !method_eq(status_handler.argument_schema, completion_denial.argument_schema)
+        || status_handler.argument_hash != completion_denial.argument_hash
+        || status_handler.target_locator != completion_denial.target_locator
+        || status_handler.command_envelope_reference_hash
+            != completion_denial.command_envelope_reference_hash
+        || status_handler.command_body_canonicalization_hash
+            != completion_denial.command_body_canonicalization_hash
+        || status_handler.handler_binding_hash != completion_denial.handler_binding_hash
+        || status_handler.status_read_handler_hash != completion_denial.status_read_handler_hash
+        || !method_eq(
+            status_handler.command_dispatch_boundary_id,
+            completion_denial.command_dispatch_boundary_id,
+        )
+    {
+        return None;
+    }
+
+    let execution_enablement_hash = completion_denial.execution_enablement_hash?;
+    let execution_preflight_hash = completion_denial.execution_preflight_hash?;
+    let execution_intent_hash = completion_denial.execution_intent_hash?;
+    let execution_commit_gate_hash = completion_denial.execution_commit_gate_hash?;
+    let execution_result_denial_hash = completion_denial.execution_result_denial_hash?;
+    let execution_audit_denial_hash = completion_denial.execution_audit_denial_hash?;
+    let execution_observation_denial_hash =
+        completion_denial.execution_observation_denial_hash?;
+
+    let status_handler_event_id = event_id_hash_string(retained_status_read_handler_event_id);
+    let completion_event_id = event_id_hash_string(retained_execution_completion_denial_event_id);
+    let status_execution_result_hash =
+        module_evidence::computed_recovery_lifeline_status_execution_result_hash(
+            module_evidence::RecoveryLifelineStatusExecutionResultHashInput {
+                retained_status_read_handler_event_id: status_handler_event_id.as_str(),
+                retained_execution_completion_denial_event_id: completion_event_id.as_str(),
+                command_id: status_handler.command_id,
+                argument_schema: status_handler.argument_schema,
+                argument_hash: status_handler.argument_hash,
+                target_locator: status_handler.target_locator.as_str(),
+                command_envelope_reference_hash: status_handler.command_envelope_reference_hash,
+                command_body_canonicalization_hash: status_handler
+                    .command_body_canonicalization_hash,
+                handler_binding_hash: status_handler.handler_binding_hash,
+                status_read_handler_hash: status_handler.status_read_handler_hash,
+                status_read_projection_hash: status_handler.status_read_projection_hash,
+                command_dispatch_behavior_hash: completion_denial.command_dispatch_behavior_hash,
+                executor_capability_table_hash: completion_denial.executor_capability_table_hash,
+                side_effect_gate_hash: completion_denial.side_effect_gate_hash,
+                source_rollback_apply_denial_hash: completion_denial
+                    .source_rollback_apply_denial_hash,
+                source_durable_policy_write_authority_decision_hash: completion_denial
+                    .source_durable_policy_write_authority_decision_hash,
+                source_recovery_rollback_inspect_source_reference_hash: completion_denial
+                    .source_recovery_rollback_inspect_source_reference_hash,
+                execution_enablement_hash,
+                execution_preflight_hash,
+                execution_intent_hash,
+                execution_commit_gate_hash,
+                execution_result_denial_hash,
+                execution_audit_denial_hash,
+                execution_observation_denial_hash,
+                execution_completion_denial_hash: completion_denial.execution_stage_hash,
+                command_dispatch_boundary_id: status_handler.command_dispatch_boundary_id,
+                status_execution_result_id: RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_ID,
+            },
+        );
+
+    Some(event_log::RecoveryLifelineStatusExecutionResultReference {
+        status_execution_result_hash,
+        retained_status_read_handler_event_id,
+        retained_execution_completion_denial_event_id,
+        command_id: status_handler.command_id,
+        argument_schema: status_handler.argument_schema,
+        argument_hash: status_handler.argument_hash,
+        target_locator: status_handler.target_locator,
+        command_envelope_reference_hash: status_handler.command_envelope_reference_hash,
+        command_body_canonicalization_hash: status_handler.command_body_canonicalization_hash,
+        handler_binding_hash: status_handler.handler_binding_hash,
+        status_read_handler_hash: status_handler.status_read_handler_hash,
+        status_read_projection_hash: status_handler.status_read_projection_hash,
+        command_dispatch_behavior_hash: completion_denial.command_dispatch_behavior_hash,
+        executor_capability_table_hash: completion_denial.executor_capability_table_hash,
+        side_effect_gate_hash: completion_denial.side_effect_gate_hash,
+        source_rollback_apply_denial_hash: completion_denial.source_rollback_apply_denial_hash,
+        source_durable_policy_write_authority_decision_hash: completion_denial
+            .source_durable_policy_write_authority_decision_hash,
+        source_recovery_rollback_inspect_source_reference_hash: completion_denial
+            .source_recovery_rollback_inspect_source_reference_hash,
+        execution_enablement_hash,
+        execution_preflight_hash,
+        execution_intent_hash,
+        execution_commit_gate_hash,
+        execution_result_denial_hash,
+        execution_audit_denial_hash,
+        execution_observation_denial_hash,
+        execution_completion_denial_hash: completion_denial.execution_stage_hash,
+        command_dispatch_boundary_id: status_handler.command_dispatch_boundary_id,
+        status_execution_result_id: RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_ID,
+    })
+}
 
 pub(crate) fn parse_recovery_lifeline_command_execution_stage_reference(
     arg: &str,
@@ -551,6 +749,9 @@ pub(crate) fn parse_recovery_lifeline_command_execution_stage_reference(
     let command_dispatch_behavior_hash = parts.next();
     let executor_capability_table_hash = parts.next();
     let side_effect_gate_hash = parts.next();
+    let source_rollback_apply_denial_hash = parts.next();
+    let source_durable_policy_write_authority_decision_hash = parts.next();
+    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
     let execution_enablement_hash = if descriptor.index >= 1 {
         parts.next()
     } else {
@@ -615,6 +816,9 @@ pub(crate) fn parse_recovery_lifeline_command_execution_stage_reference(
             && command_dispatch_behavior_hash.is_some()
             && executor_capability_table_hash.is_some()
             && side_effect_gate_hash.is_some()
+            && source_rollback_apply_denial_hash.is_some()
+            && source_durable_policy_write_authority_decision_hash.is_some()
+            && source_recovery_rollback_inspect_source_reference_hash.is_some()
             && (descriptor.index < 1 || execution_enablement_hash.is_some())
             && (descriptor.index < 2 || execution_preflight_hash.is_some())
             && (descriptor.index < 3 || execution_intent_hash.is_some())
@@ -657,6 +861,11 @@ pub(crate) fn parse_recovery_lifeline_command_execution_stage_reference(
         command_dispatch_behavior_hash: command_dispatch_behavior_hash.and_then(parse_sha256_ref),
         executor_capability_table_hash: executor_capability_table_hash.and_then(parse_sha256_ref),
         side_effect_gate_hash: side_effect_gate_hash.and_then(parse_sha256_ref),
+        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash.and_then(parse_sha256_ref),
+        source_durable_policy_write_authority_decision_hash:
+            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
+        source_recovery_rollback_inspect_source_reference_hash:
+            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
         execution_enablement_hash: execution_enablement_hash.and_then(parse_sha256_ref),
         execution_preflight_hash: execution_preflight_hash.and_then(parse_sha256_ref),
         execution_intent_hash: execution_intent_hash.and_then(parse_sha256_ref),
@@ -755,6 +964,19 @@ pub(crate) fn evaluate_recovery_lifeline_command_execution_stage_reference(
         return recovery_lifeline_command_execution_stage_invalid(input);
     };
     let Some(side_effect_gate_hash) = input.side_effect_gate_hash else {
+        return recovery_lifeline_command_execution_stage_invalid(input);
+    };
+    let Some(source_rollback_apply_denial_hash) = input.source_rollback_apply_denial_hash else {
+        return recovery_lifeline_command_execution_stage_invalid(input);
+    };
+    let Some(source_durable_policy_write_authority_decision_hash) =
+        input.source_durable_policy_write_authority_decision_hash
+    else {
+        return recovery_lifeline_command_execution_stage_invalid(input);
+    };
+    let Some(source_recovery_rollback_inspect_source_reference_hash) =
+        input.source_recovery_rollback_inspect_source_reference_hash
+    else {
         return recovery_lifeline_command_execution_stage_invalid(input);
     };
     if descriptor.index >= 1 && input.execution_enablement_hash.is_none() {
@@ -907,6 +1129,9 @@ pub(crate) fn evaluate_recovery_lifeline_command_execution_stage_reference(
             command_dispatch_behavior_hash,
             executor_capability_table_hash,
             side_effect_gate_hash,
+            source_rollback_apply_denial_hash,
+            source_durable_policy_write_authority_decision_hash,
+            source_recovery_rollback_inspect_source_reference_hash,
             execution_enablement_hash: input.execution_enablement_hash,
             execution_preflight_hash: input.execution_preflight_hash,
             execution_intent_hash: input.execution_intent_hash,
@@ -1010,6 +1235,11 @@ fn recovery_lifeline_command_execution_stage_reference_check<'a>(
         command_dispatch_behavior_hash: input.command_dispatch_behavior_hash,
         executor_capability_table_hash: input.executor_capability_table_hash,
         side_effect_gate_hash: input.side_effect_gate_hash,
+        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
+        source_durable_policy_write_authority_decision_hash: input
+            .source_durable_policy_write_authority_decision_hash,
+        source_recovery_rollback_inspect_source_reference_hash: input
+            .source_recovery_rollback_inspect_source_reference_hash,
         execution_enablement_hash: input.execution_enablement_hash,
         execution_preflight_hash: input.execution_preflight_hash,
         execution_intent_hash: input.execution_intent_hash,
@@ -1110,6 +1340,11 @@ fn recovery_lifeline_command_execution_stage_matches_side_effect(
         && input.command_dispatch_behavior_hash == Some(previous.command_dispatch_behavior_hash)
         && input.executor_capability_table_hash == Some(previous.executor_capability_table_hash)
         && input.side_effect_gate_hash == Some(previous.side_effect_gate_hash)
+        && input.source_rollback_apply_denial_hash == Some(previous.source_rollback_apply_denial_hash)
+        && input.source_durable_policy_write_authority_decision_hash
+            == Some(previous.source_durable_policy_write_authority_decision_hash)
+        && input.source_recovery_rollback_inspect_source_reference_hash
+            == Some(previous.source_recovery_rollback_inspect_source_reference_hash)
         && method_eq(target_locator, previous.target_locator.as_str())
         && method_eq(
             command_dispatch_boundary_id,
@@ -1160,6 +1395,11 @@ fn recovery_lifeline_command_execution_stage_matches_previous_stage(
         && input.command_dispatch_behavior_hash == Some(previous.command_dispatch_behavior_hash)
         && input.executor_capability_table_hash == Some(previous.executor_capability_table_hash)
         && input.side_effect_gate_hash == Some(previous.side_effect_gate_hash)
+        && input.source_rollback_apply_denial_hash == Some(previous.source_rollback_apply_denial_hash)
+        && input.source_durable_policy_write_authority_decision_hash
+            == Some(previous.source_durable_policy_write_authority_decision_hash)
+        && input.source_recovery_rollback_inspect_source_reference_hash
+            == Some(previous.source_recovery_rollback_inspect_source_reference_hash)
         && input.execution_enablement_hash == previous.execution_enablement_hash
         && input.execution_preflight_hash == previous.execution_preflight_hash
         && input.execution_intent_hash == previous.execution_intent_hash
@@ -1207,6 +1447,11 @@ pub(crate) fn recovery_lifeline_command_execution_stage_reference_matches_side_e
         && stage.command_dispatch_behavior_hash == previous.command_dispatch_behavior_hash
         && stage.executor_capability_table_hash == previous.executor_capability_table_hash
         && stage.side_effect_gate_hash == previous.side_effect_gate_hash
+        && stage.source_rollback_apply_denial_hash == previous.source_rollback_apply_denial_hash
+        && stage.source_durable_policy_write_authority_decision_hash
+            == previous.source_durable_policy_write_authority_decision_hash
+        && stage.source_recovery_rollback_inspect_source_reference_hash
+            == previous.source_recovery_rollback_inspect_source_reference_hash
         && stage.execution_enablement_hash == Some(stage.execution_stage_hash)
         && stage.execution_preflight_hash.is_none()
         && stage.execution_intent_hash.is_none()
@@ -1314,6 +1559,11 @@ pub(crate) fn recovery_lifeline_command_execution_stage_reference_matches_previo
         && stage.command_dispatch_behavior_hash == previous.command_dispatch_behavior_hash
         && stage.executor_capability_table_hash == previous.executor_capability_table_hash
         && stage.side_effect_gate_hash == previous.side_effect_gate_hash
+        && stage.source_rollback_apply_denial_hash == previous.source_rollback_apply_denial_hash
+        && stage.source_durable_policy_write_authority_decision_hash
+            == previous.source_durable_policy_write_authority_decision_hash
+        && stage.source_recovery_rollback_inspect_source_reference_hash
+            == previous.source_recovery_rollback_inspect_source_reference_hash
         && method_eq(
             stage.command_dispatch_boundary_id,
             RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
@@ -1614,6 +1864,11 @@ pub(crate) fn recovery_lifeline_command_execution_stage_from_check(
         command_dispatch_behavior_hash: check.command_dispatch_behavior_hash?,
         executor_capability_table_hash: check.executor_capability_table_hash?,
         side_effect_gate_hash: check.side_effect_gate_hash?,
+        source_rollback_apply_denial_hash: check.source_rollback_apply_denial_hash?,
+        source_durable_policy_write_authority_decision_hash: check
+            .source_durable_policy_write_authority_decision_hash?,
+        source_recovery_rollback_inspect_source_reference_hash: check
+            .source_recovery_rollback_inspect_source_reference_hash?,
         execution_enablement_hash,
         execution_preflight_hash,
         execution_intent_hash,
@@ -1688,6 +1943,9 @@ pub(crate) fn recovery_lifeline_command_execution_stage_selftest_cases(
         command_dispatch_behavior_hash: Some([0xbe; 32]),
         executor_capability_table_hash: Some([0xbf; 32]),
         side_effect_gate_hash: Some([0xc0; 32]),
+        source_rollback_apply_denial_hash: Some([0xd0; 32]),
+        source_durable_policy_write_authority_decision_hash: Some([0xd1; 32]),
+        source_recovery_rollback_inspect_source_reference_hash: Some([0xd2; 32]),
         execution_enablement_hash: if descriptor.index >= 1 {
             Some([0xc1; 32])
         } else {
@@ -1754,6 +2012,9 @@ pub(crate) fn recovery_lifeline_command_execution_stage_selftest_cases(
             command_dispatch_behavior_hash: [0xbe; 32],
             executor_capability_table_hash: [0xbf; 32],
             side_effect_gate_hash: [0xc0; 32],
+            source_rollback_apply_denial_hash: [0xd0; 32],
+            source_durable_policy_write_authority_decision_hash: [0xd1; 32],
+            source_recovery_rollback_inspect_source_reference_hash: [0xd2; 32],
             execution_enablement_hash: valid_input.execution_enablement_hash,
             execution_preflight_hash: valid_input.execution_preflight_hash,
             execution_intent_hash: valid_input.execution_intent_hash,
@@ -1962,6 +2223,8 @@ pub(crate) fn emit_recovery_lifeline_command_execution_stage_diagnostic(
     json_str(descriptor.stage_id);
     raw_line("");
     raw_line("      },");
+    emit_recovery_artifact_load_denial_source_evidence();
+    raw_line(",");
     emit_recovery_lifeline_command_execution_stage_reference_object(&check);
     raw_line(",");
     raw_line("      \"execution_stage_requirements\": [");
@@ -2134,6 +2397,15 @@ fn emit_recovery_lifeline_command_execution_stage_reference_object(
     raw("        \"side_effect_gate_hash\": ");
     json_sha256_option(check.side_effect_gate_hash);
     raw_line(",");
+    raw("        \"source_rollback_apply_denial_hash\": ");
+    json_sha256_option(check.source_rollback_apply_denial_hash);
+    raw_line(",");
+    raw("        \"source_durable_policy_write_authority_decision_hash\": ");
+    json_sha256_option(check.source_durable_policy_write_authority_decision_hash);
+    raw_line(",");
+    raw("        \"source_recovery_rollback_inspect_source_reference_hash\": ");
+    json_sha256_option(check.source_recovery_rollback_inspect_source_reference_hash);
+    raw_line(",");
     raw("        \"execution_enablement_hash\": ");
     json_sha256_option(check.execution_enablement_hash);
     raw_line(",");
@@ -2234,6 +2506,27 @@ fn emit_recovery_lifeline_command_execution_stage_retained_reference(
     raw("        \"latest_execution_stage_hash\": ");
     if let Some((_, reference)) = retained {
         json_sha256(reference.execution_stage_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_source_rollback_apply_denial_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.source_rollback_apply_denial_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_source_durable_policy_write_authority_decision_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.source_durable_policy_write_authority_decision_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_source_recovery_rollback_inspect_source_reference_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.source_recovery_rollback_inspect_source_reference_hash);
     } else {
         raw("null");
     }
@@ -2424,6 +2717,132 @@ pub(crate) fn recovery_lifeline_command_execution_completion_denial_diagnostic_s
     )
 }
 
+pub(crate) fn recovery_lifeline_status_execution_result_diagnostic_method(method: &str) -> bool {
+    method_eq(
+        method,
+        "recovery.lifeline_status_execution_result_diagnostic",
+    ) || method_eq(method, "recovery.lifeline_status_execution_result")
+}
+
+pub(crate) fn recovery_lifeline_status_result_read_method(method: &str) -> bool {
+    method_eq(method, "recovery.lifeline_status_result_read")
+        || method_eq(method, "recovery.lifeline.status")
+}
+
+pub(crate) fn recovery_lifeline_status_result_read_response_method(method: &str) -> &'static str {
+    if method_eq(method, "recovery.lifeline.status") {
+        "recovery.lifeline.status"
+    } else {
+        "recovery.lifeline_status_result_read"
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RecoveryLifelineStatusResultReadState {
+    pub(crate) retained_result:
+        Option<(event_log::EventId, event_log::RecoveryLifelineStatusExecutionResultReference)>,
+    pub(crate) accepted: bool,
+    pub(crate) reason: &'static str,
+}
+
+impl RecoveryLifelineStatusResultReadState {
+    pub(crate) fn status(self) -> &'static str {
+        if self.accepted {
+            "available_read_only_current_boot"
+        } else if self.retained_result.is_some() {
+            "denied_mismatched_retained_result"
+        } else {
+            "denied_missing_retained_result"
+        }
+    }
+
+    pub(crate) fn context_status(self) -> &'static str {
+        if self.accepted {
+            "available_read_only_current_boot"
+        } else if self.retained_result.is_some() {
+            "unavailable_mismatched_retained_result"
+        } else {
+            "unavailable_missing_retained_result"
+        }
+    }
+
+    pub(crate) fn source_status(self) -> &'static str {
+        if self.accepted {
+            "accepted_read_only_source"
+        } else if self.retained_result.is_some() {
+            "present_but_not_accepted"
+        } else {
+            "missing"
+        }
+    }
+}
+
+pub(crate) fn recovery_lifeline_status_result_read_state() -> RecoveryLifelineStatusResultReadState {
+    let retained_result = event_log::latest_recovery_lifeline_status_execution_result_reference();
+    let retained_status_handler =
+        event_log::latest_recovery_lifeline_status_read_handler_reference();
+    let retained_completion_denial =
+        event_log::latest_recovery_lifeline_command_execution_stage_reference(
+            RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE.reference_schema,
+        );
+
+    let mut accepted = false;
+    let mut reason = "recovery_lifeline_status_execution_result_missing";
+    if let Some((_, result)) = retained_result {
+        if !method_eq(result.command_id, "recovery.lifeline.status")
+            || !method_eq(
+                result.argument_schema,
+                "raios.recovery_lifeline_command.status_args.v0",
+            )
+            || !method_eq(
+                result.command_dispatch_boundary_id,
+                RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+            )
+            || !method_eq(
+                result.status_execution_result_id,
+                RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_ID,
+            )
+        {
+            reason = "retained_recovery_lifeline_status_execution_result_identity_mismatch";
+        } else if let Some((status_event_id, status_handler)) = retained_status_handler {
+            if result.retained_status_read_handler_event_id != status_event_id
+                || result.status_read_handler_hash != status_handler.status_read_handler_hash
+                || result.status_read_projection_hash != status_handler.status_read_projection_hash
+            {
+                reason = "retained_recovery_lifeline_status_read_handler_result_mismatch";
+            } else if let Some((completion_event_id, completion_denial)) =
+                retained_completion_denial
+            {
+                if result.retained_execution_completion_denial_event_id != completion_event_id
+                    || result.execution_completion_denial_hash
+                        != completion_denial.execution_stage_hash
+                    || result.command_dispatch_behavior_hash
+                        != completion_denial.command_dispatch_behavior_hash
+                    || result.executor_capability_table_hash
+                        != completion_denial.executor_capability_table_hash
+                    || result.side_effect_gate_hash != completion_denial.side_effect_gate_hash
+                {
+                    reason =
+                        "retained_recovery_lifeline_completion_denial_result_mismatch";
+                } else {
+                    accepted = true;
+                    reason = "recovery_lifeline_status_result_read_available";
+                }
+            } else {
+                reason = "retained_recovery_lifeline_command_execution_completion_denial_missing";
+            }
+        } else {
+            reason = "retained_recovery_lifeline_status_read_handler_missing";
+        }
+    }
+
+    RecoveryLifelineStatusResultReadState {
+        retained_result,
+        accepted,
+        reason,
+    }
+}
+
 pub(crate) fn emit_recovery_lifeline_command_execution_enablement_diagnostic(method: &str) {
     emit_recovery_lifeline_command_execution_stage_diagnostic(
         method,
@@ -2526,4 +2945,316 @@ pub(crate) fn emit_recovery_lifeline_command_execution_completion_denial_diagnos
     emit_recovery_lifeline_command_execution_stage_diagnostic_selftest(
         RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
     );
+}
+
+pub(crate) fn emit_recovery_lifeline_status_execution_result_diagnostic() {
+    let (check, retained_status_handler) = latest_recovery_lifeline_command_dispatch_check();
+    let retained_status_handler_present = retained_status_handler.is_some();
+    let readiness_ready = recovery_lifeline_status_execution_readiness_ready(
+        &check,
+        retained_status_handler_present,
+    );
+    let readiness_reason = recovery_lifeline_status_execution_readiness_reason(
+        &check,
+        retained_status_handler_present,
+    );
+    let reference =
+        recovery_lifeline_status_execution_result_reference_from_readiness(&check, retained_status_handler);
+    let recorded_event_id =
+        reference.map(event_log::record_recovery_lifeline_status_execution_result_reference);
+    let retained_result = event_log::latest_recovery_lifeline_status_execution_result_reference();
+    let result_available = reference.is_some();
+
+    begin_response("recovery.lifeline_status_execution_result_diagnostic");
+    raw_line("      \"schema\": \"raios.recovery_lifeline_status_execution_result_diagnostic.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(if result_available {
+        "retained_read_only_result_command_still_denied"
+    } else {
+        "blocked_missing_evidence"
+    });
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(if result_available {
+        "recovery_lifeline_status_execution_result_retained_command_execution_disabled"
+    } else {
+        readiness_reason
+    });
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"mutates_global_event_log\": ");
+    raw_bool(result_available);
+    raw_line(",");
+    raw("      \"global_event_log_mutation\": ");
+    json_str(if result_available {
+        "valid_hash_reference_retention_only"
+    } else {
+        "none"
+    });
+    raw_line(",");
+    raw("      \"creates_retained_recovery_lifeline_status_execution_result_records\": ");
+    raw_bool(result_available);
+    raw_line(",");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"executes_lifeline_status\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"authorizes_recovery_load\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"request\": {");
+    raw_line("        \"read_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"requested_capability\": \"cap.recovery.command.read\",");
+    raw_line("        \"load_mode\": \"recovery_only\",");
+    raw_line("        \"subject\": \"agent.session.serial\",");
+    raw_line("        \"resource\": \"recovery_lifeline_status_execution_result\",");
+    raw_line("        \"command_id\": \"recovery.lifeline.status\",");
+    raw_line(
+        "        \"result_schema\": \"raios.recovery_lifeline_status_execution_result.v0\"",
+    );
+    raw_line("      },");
+    raw_line("      \"status_execution_readiness\": {");
+    raw_line("        \"schema\": \"raios.recovery_lifeline_status_execution_readiness.v0\",");
+    raw("        \"status\": ");
+    json_str(if readiness_ready {
+        "available_read_only_non_authorizing"
+    } else {
+        "blocked_missing_evidence"
+    });
+    raw_line(",");
+    raw("        \"reason\": ");
+    json_str(readiness_reason);
+    raw_line(",");
+    raw_line("        \"command_id\": \"recovery.lifeline.status\",");
+    raw_line("        \"argument_schema\": \"raios.recovery_lifeline_command.status_args.v0\",");
+    raw("        \"retained_status_read_handler_event_id\": ");
+    if let Some((event_id, _)) = retained_status_handler {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"retained_execution_completion_denial_event_id\": ");
+    if let Some((event_id, _)) = check.execution_completion_denial_reference {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"execution_completion_denial_present\": ");
+    raw_bool(check.execution_completion_denial_present);
+    raw_line(",");
+    raw("        \"would_execute_lifeline_status_read\": ");
+    raw_bool(readiness_ready);
+    raw_line("");
+    raw_line("      },");
+    raw_line("      \"retained_status_execution_result_reference\": {");
+    raw("        \"status\": ");
+    json_str(if let Some((_, _)) = retained_result {
+        if result_available {
+            "retained_read_only_result_command_still_denied"
+        } else {
+            "previous_retained_read_only_result_present"
+        }
+    } else {
+        "missing"
+    });
+    raw_line(",");
+    raw("        \"recorded_event_id\": ");
+    json_event_id_option(recorded_event_id);
+    raw_line(",");
+    raw("        \"latest_event_id\": ");
+    if let Some((event_id, _)) = retained_result {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw_line("        \"scope\": \"current_boot\",");
+    raw_line("        \"classification\": \"local_only\",");
+    raw_line("        \"command_id\": \"recovery.lifeline.status\",");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"executes_lifeline_status\": false,");
+    raw_line("        \"load_attempted\": false,");
+    raw("        \"status_execution_result_hash\": ");
+    if let Some((_, result)) = retained_result {
+        json_sha256(result.status_execution_result_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"status_read_handler_hash\": ");
+    if let Some((_, result)) = retained_result {
+        json_sha256(result.status_read_handler_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"status_read_projection_hash\": ");
+    if let Some((_, result)) = retained_result {
+        json_sha256(result.status_read_projection_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"execution_completion_denial_hash\": ");
+    if let Some((_, result)) = retained_result {
+        json_sha256(result.execution_completion_denial_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"command_dispatch_behavior_hash\": ");
+    if let Some((_, result)) = retained_result {
+        json_sha256(result.command_dispatch_behavior_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"executor_capability_table_hash\": ");
+    if let Some((_, result)) = retained_result {
+        json_sha256(result.executor_capability_table_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"side_effect_gate_hash\": ");
+    if let Some((_, result)) = retained_result {
+        json_sha256(result.side_effect_gate_hash);
+    } else {
+        raw("null");
+    }
+    raw_line("");
+    raw_line("      },");
+    raw_line("      \"policy_result\": {");
+    raw("        \"status_execution_result_record_present\": ");
+    raw_bool(result_available);
+    raw_line(",");
+    raw("        \"status_execution_readiness_available\": ");
+    raw_bool(readiness_ready);
+    raw_line(",");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"executes_lifeline_status\": false,");
+    raw_line("        \"writes_recovery_memory\": false,");
+    raw_line("        \"writes_durable_audit_log\": false,");
+    raw_line("        \"writes_rollback_store\": false,");
+    raw_line("        \"creates_service_inventory_records\": false,");
+    raw_line("        \"service_inventory_change\": \"none\",");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response("recovery.lifeline_status_execution_result_diagnostic");
+}
+
+pub(crate) fn emit_recovery_lifeline_status_result_read(response_method: &'static str) {
+    let command_envelope_facing = method_eq(response_method, "recovery.lifeline.status");
+    let state = recovery_lifeline_status_result_read_state();
+
+    begin_response(response_method);
+    raw_line("      \"schema\": \"raios.recovery_lifeline_status_result_read.v0\",");
+    raw_line("      \"scope\": \"current_boot\",");
+    raw_line("      \"classification\": \"local_only\",");
+    raw("      \"status\": ");
+    json_str(state.status());
+    raw_line(",");
+    raw("      \"reason\": ");
+    json_str(state.reason);
+    raw_line(",");
+    raw_line("      \"test_infrastructure\": false,");
+    raw("      \"command_envelope_facing\": ");
+    raw_bool(command_envelope_facing);
+    raw_line(",");
+    raw_line("      \"command_id\": \"recovery.lifeline.status\",");
+    raw_line("      \"mutates_global_event_log\": false,");
+    raw_line("      \"creates_retained_recovery_lifeline_status_execution_result_records\": false,");
+    raw_line("      \"accepts_raw_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_body\": false,");
+    raw_line("      \"accepts_lifeline_command_envelope\": false,");
+    raw_line("      \"dispatches_lifeline_command\": false,");
+    raw_line("      \"command_execution_enabled\": false,");
+    raw_line("      \"executes_lifeline_status\": false,");
+    raw_line("      \"writes_recovery_memory\": false,");
+    raw_line("      \"writes_durable_audit_log\": false,");
+    raw_line("      \"writes_rollback_store\": false,");
+    raw_line("      \"creates_durable_records\": false,");
+    raw_line("      \"installs_rollback_plan\": false,");
+    raw_line("      \"loads_recovery_artifact\": false,");
+    raw_line("      \"authorizes_recovery_load\": false,");
+    raw_line("      \"allocates_service_slot\": false,");
+    raw_line("      \"creates_service_inventory_records\": false,");
+    raw_line("      \"service_inventory_change\": \"none\",");
+    raw_line("      \"load_attempted\": false,");
+    raw_line("      \"retained_status_execution_result_reference\": {");
+    raw("        \"status\": ");
+    json_str(state.source_status());
+    raw_line(",");
+    raw("        \"event_id\": ");
+    if let Some((event_id, _)) = state.retained_result {
+        json_event_id(event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"status_execution_result_hash\": ");
+    if let Some((_, result)) = state.retained_result {
+        json_sha256(result.status_execution_result_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"retained_status_read_handler_event_id\": ");
+    if let Some((_, result)) = state.retained_result {
+        json_event_id(result.retained_status_read_handler_event_id);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"retained_execution_completion_denial_event_id\": ");
+    if let Some((_, result)) = state.retained_result {
+        json_event_id(result.retained_execution_completion_denial_event_id);
+    } else {
+        raw("null");
+    }
+    raw_line("");
+    raw_line("      },");
+    raw_line("      \"recovery_status\": {");
+    raw_line("        \"schema\": \"raios.recovery_lifeline_status_projection.v0\",");
+    raw("        \"status\": ");
+    json_str(state.context_status());
+    raw_line(",");
+    raw_line("        \"command_id\": \"recovery.lifeline.status\",");
+    raw("        \"bounded_current_boot_projection\": ");
+    raw_bool(state.accepted);
+    raw_line(",");
+    raw("        \"source_retained_result_verified\": ");
+    raw_bool(state.accepted);
+    raw_line(",");
+    raw_line("        \"recovery_core_alive\": true,");
+    raw_line("        \"provider_recovery_route_enabled\": false,");
+    raw_line("        \"dispatches_lifeline_command\": false,");
+    raw_line("        \"command_execution_enabled\": false,");
+    raw_line("        \"executes_lifeline_status\": false,");
+    raw_line("        \"module_disable_enabled\": false,");
+    raw_line("        \"restart_last_good_enabled\": false,");
+    raw_line("        \"recovery_artifact_load_enabled\": false,");
+    raw_line("        \"recovery_memory_writes_enabled\": false,");
+    raw_line("        \"durable_audit_writes_enabled\": false,");
+    raw_line("        \"rollback_store_writes_enabled\": false,");
+    raw_line("        \"service_inventory_mutation_enabled\": false,");
+    raw_line("        \"load_attempted\": false");
+    raw_line("      }");
+    end_response(response_method);
 }

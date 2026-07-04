@@ -1,5 +1,7 @@
 param(
     [string]$Image = "$PSScriptRoot\..\release\raios-stage0.img",
+    [string]$ScratchImage = "",
+    [string]$AuditRollbackTargetImage = "",
     [string]$SerialLog = "$env:TEMP\raios-stage0.serial.txt",
     [ValidateSet("file", "tcp")]
     [string]$SerialMode = "file",
@@ -54,6 +56,20 @@ $qemuArgs = @(
     "-drive", "if=pflash,format=raw,file=$Vars",
     "-drive", "file=$((Resolve-Path $Image).Path),format=raw,if=ide"
 )
+
+if ($ScratchImage) {
+    $qemuArgs += @(
+        "-drive", "file=$((Resolve-Path $ScratchImage).Path),format=raw,if=none,id=raiosscratch0",
+        "-device", "ide-hd,drive=raiosscratch0,bus=ide.1,unit=0"
+    )
+}
+
+if ($AuditRollbackTargetImage) {
+    $qemuArgs += @(
+        "-drive", "file=$((Resolve-Path $AuditRollbackTargetImage).Path),format=raw,if=none,id=raiosauditrollback0",
+        "-device", "ide-hd,drive=raiosauditrollback0,bus=ide.2,unit=0"
+    )
+}
 
 if ($Cpu) {
     $qemuArgs += @("-cpu", $Cpu)

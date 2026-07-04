@@ -43,6 +43,14 @@
     Assert-LogContains -Name "protocol:memory_context_snapshot_source" -Needle "system.snapshot.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_service_source" -Needle "service.inventory.v0" -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_problem_source" -Needle "problem.list.v0" -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_recovery_status_source" -Needle '"raios.recovery_lifeline_status_projection.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_recovery_status_record" -Needle '"id": "recovery.lifeline.status.current_boot"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_recovery_status_missing" -Needle '"status": "unavailable_missing_retained_result"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_recovery_status_reason" -Needle '"reason": "recovery_lifeline_status_execution_result_missing"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_recovery_status_unverified" -Needle '"source_retained_result_verified": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_recovery_status_no_dispatch" -Needle '"dispatches_lifeline_command": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_recovery_status_no_execution" -Needle '"command_execution_enabled": false' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_recovery_status_no_provider_export" -Needle '"provider_export": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_trust_problem" -Needle "provider.tls_pin_config_missing" -TimeoutSeconds 1
 
     Send-AgentCommand -Command "agent memory.context provider_minimal" -ExpectedMarker "RAIOS_AGENT_END memory.context"
@@ -71,8 +79,26 @@
     Assert-LogContains -Name "protocol:memory_context_provider_included_pin_rotation" -Needle '"field": "current.provider.pin_rotation_policy"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_omits_raw_snapshot" -Needle '"field": "system.snapshot.raw"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_omits_secret_prompt" -Needle '"field": "provider.direct_last_prompt"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_provider_omits_recovery_status_fact" -Needle '"field": "current.recovery_lifeline_status"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:memory_context_provider_omits_recovery_status_locator" -Needle '"field": "recovery.lifeline.status.current_boot"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_packet_purpose" -Needle '"purpose": "current_boot_provider_context"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:memory_context_provider_snapshot_projection_record" -Needle "snapshot.current.provider_minimal" -TimeoutSeconds 1
+    $providerMinimalContext = Get-LastAgentResponseJson -Method "memory.context"
+    $providerMinimalProjection = $providerMinimalContext.body.result.provider_projection
+    $providerMinimalOmittedFields = @($providerMinimalProjection.omitted_fields | ForEach-Object { $_.field })
+    $providerMinimalPacketIncludedCurrent = @($providerMinimalProjection.packet.included.current)
+    $providerMinimalPacketOmittedFields = @($providerMinimalProjection.packet.omitted | ForEach-Object { $_.field })
+    $providerMinimalOmittedRecoveryStatus = (
+        $providerMinimalOmittedFields -contains "current.recovery_lifeline_status" -and
+        $providerMinimalOmittedFields -contains "recovery.lifeline.status.current_boot" -and
+        $providerMinimalPacketOmittedFields -contains "current.recovery_lifeline_status" -and
+        $providerMinimalPacketOmittedFields -contains "recovery.lifeline.status.current_boot" -and
+        -not ($providerMinimalPacketIncludedCurrent -contains "recovery.lifeline.status.current_boot")
+    )
+    Add-Predicate -Name "protocol:memory_context_provider_recovery_status_omitted_from_packet" -Expected "provider_minimal_omits_recovery_status_local_only_fact" -Passed $providerMinimalOmittedRecoveryStatus -Actual $(if ($providerMinimalOmittedRecoveryStatus) { "omitted" } else { "included_or_missing_omission" })
+    if (-not $providerMinimalOmittedRecoveryStatus) {
+        throw "Expected provider_minimal packet to omit the local-only recovery lifeline status fact"
+    }
 
     Send-AgentCommand -Command "agent provider.context_export provider_minimal" -ExpectedMarker "RAIOS_AGENT_END provider.context_export"
     Assert-LogContains -Name "protocol:provider_context_export_schema" -Needle '"schema": "raios.provider_context_export.v0"' -TimeoutSeconds 1
@@ -118,6 +144,22 @@
     Assert-LogContains -Name "protocol:provider_context_export_denial_audit_not_gate" -Needle '"export_denial_audit_satisfies_export_gate": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_export_denial_not_binding" -Needle '"denial_event_is_export_binding": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_export_projection_locator" -Needle '"local_projection_locator": "snapshot.current.provider_minimal"' -TimeoutSeconds 1
+    $providerContextExport = Get-LastAgentResponseJson -Method "provider.context_export"
+    $providerContextExportOmission = $providerContextExport.body.evidence.recovery_status_omission
+    $providerContextExportOmissionOk = (
+        $providerContextExportOmission.schema -eq "raios.provider_minimal.local_only_omission.v0" -and
+        $providerContextExportOmission.status -eq "omitted_from_provider_context" -and
+        $providerContextExportOmission.fact_field -eq "current.recovery_lifeline_status" -and
+        $providerContextExportOmission.locator -eq "recovery.lifeline.status.current_boot" -and
+        $providerContextExportOmission.classification -eq "local_only" -and
+        $providerContextExportOmission.provider_export -eq $false -and
+        $providerContextExportOmission.context_attached_to_provider_body -eq $false -and
+        $providerContextExportOmission.provider_write -eq "not_attempted"
+    )
+    Add-Predicate -Name "protocol:provider_context_export_recovery_status_omission_evidence" -Expected "provider_context_export_recovery_status_omitted" -Passed $providerContextExportOmissionOk -Actual $(if ($providerContextExportOmissionOk) { "omitted" } else { "missing_or_exportable" })
+    if (-not $providerContextExportOmissionOk) {
+        throw "Expected provider.context_export to expose recovery status omission evidence without export"
+    }
     Assert-LogDoesNotContain -Name "protocol:provider_context_export_did_not_fake_request_envelope" -Needle "raios.provider_request_envelope.v0"
 
     Send-AgentCommand -Command "agent provider.context_gate provider_minimal" -ExpectedMarker "RAIOS_AGENT_END provider.context_gate"
@@ -131,3 +173,19 @@
     Assert-LogContains -Name "protocol:provider_context_gate_audit_binding_missing" -Needle '"provider_export_audit_binding": "missing"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_current_boot_gate_false" -Needle '"satisfies_current_boot_export_gate": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:provider_context_gate_can_export_false" -Needle '"can_export": false' -TimeoutSeconds 1
+    $providerContextGate = Get-LastAgentResponseJson -Method "provider.context_gate"
+    $providerContextGateOmission = $providerContextGate.body.result.evidence.recovery_status_omission
+    $providerContextGateOmissionOk = (
+        $providerContextGateOmission.schema -eq "raios.provider_minimal.local_only_omission.v0" -and
+        $providerContextGateOmission.status -eq "omitted_from_provider_context" -and
+        $providerContextGateOmission.fact_field -eq "current.recovery_lifeline_status" -and
+        $providerContextGateOmission.locator -eq "recovery.lifeline.status.current_boot" -and
+        $providerContextGateOmission.classification -eq "local_only" -and
+        $providerContextGateOmission.provider_export -eq $false -and
+        $providerContextGateOmission.context_attached_to_provider_body -eq $false -and
+        $providerContextGateOmission.provider_write -eq "not_attempted"
+    )
+    Add-Predicate -Name "protocol:provider_context_gate_recovery_status_omission_evidence" -Expected "provider_context_gate_recovery_status_omitted" -Passed $providerContextGateOmissionOk -Actual $(if ($providerContextGateOmissionOk) { "omitted" } else { "missing_or_exportable" })
+    if (-not $providerContextGateOmissionOk) {
+        throw "Expected provider.context_gate to expose recovery status omission evidence without export"
+    }

@@ -1118,6 +1118,7 @@ pub(crate) fn recovery_lifeline_command_dispatch_candidate_from_retained(
     candidate.execution_audit_denial_present = false;
     candidate.execution_observation_denial_present = false;
     candidate.execution_completion_denial_present = false;
+    candidate.execution_completion_denial_reference = None;
 
     let Some((envelope_event_id, envelope)) = retained_envelope else {
         candidate.command_envelope_reference_available = false;
@@ -1815,6 +1816,12 @@ pub(crate) fn recovery_lifeline_command_dispatch_candidate_from_retained(
         execution_stage_presence.execution_observation_denial_present;
     candidate.execution_completion_denial_present =
         execution_stage_presence.execution_completion_denial_present;
+    candidate.execution_completion_denial_reference =
+        if execution_stage_presence.execution_completion_denial_present {
+            retained_execution_completion_denial
+        } else {
+            None
+        };
     candidate
 }
 
@@ -2122,6 +2129,7 @@ pub(crate) fn recovery_lifeline_command_dispatch_check(
         execution_audit_denial_present: candidate.execution_audit_denial_present,
         execution_observation_denial_present: candidate.execution_observation_denial_present,
         execution_completion_denial_present: candidate.execution_completion_denial_present,
+        execution_completion_denial_reference: candidate.execution_completion_denial_reference,
         accepts_lifeline_command_body: false,
         accepts_lifeline_command_envelope: false,
         dispatches_lifeline_command: false,
@@ -2141,6 +2149,50 @@ pub(crate) fn recovery_lifeline_command_dispatch_check(
         allocates_service_slot: false,
         service_inventory_change: "none",
         load_attempted: false,
+    }
+}
+
+const RECOVERY_LIFELINE_STATUS_READ_READY_REASON: &str =
+    "recovery_lifeline_status_read_ready_command_execution_disabled";
+
+pub(crate) fn recovery_lifeline_status_execution_readiness_ready(
+    check: &RecoveryLifelineCommandDispatchCheck,
+    retained_status_handler_present: bool,
+) -> bool {
+    check.command_envelope_reference_accepted
+        && check.command_body_canonicalization_present
+        && check.command_handler_binding_present
+        && check.status_read_handler_present
+        && check.rollback_preview_authorization_present
+        && check.rollback_apply_authorization_present
+        && check.disable_module_target_binding_present
+        && check.restart_last_good_target_binding_present
+        && check.load_artifact_by_hash_target_binding_present
+        && check.recovery_memory_write_authority_present
+        && check.durable_audit_rollback_write_authority_present
+        && check.service_inventory_side_effect_boundary_present
+        && check.command_dispatch_behavior_present
+        && check.executor_capability_table_present
+        && check.side_effect_gate_present
+        && check.execution_enablement_present
+        && check.execution_preflight_present
+        && check.execution_intent_present
+        && check.execution_commit_gate_present
+        && check.execution_result_denial_present
+        && check.execution_audit_denial_present
+        && check.execution_observation_denial_present
+        && check.execution_completion_denial_present
+        && retained_status_handler_present
+}
+
+pub(crate) fn recovery_lifeline_status_execution_readiness_reason(
+    check: &RecoveryLifelineCommandDispatchCheck,
+    retained_status_handler_present: bool,
+) -> &'static str {
+    if recovery_lifeline_status_execution_readiness_ready(check, retained_status_handler_present) {
+        RECOVERY_LIFELINE_STATUS_READ_READY_REASON
+    } else {
+        check.reason
     }
 }
 
@@ -2177,6 +2229,7 @@ pub(crate) fn recovery_lifeline_command_dispatch_valid_candidate(
         execution_audit_denial_present: true,
         execution_observation_denial_present: true,
         execution_completion_denial_present: true,
+        execution_completion_denial_reference: None,
     }
 }
 

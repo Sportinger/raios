@@ -46,6 +46,7 @@ pub(crate) fn provider_context_injection_gate_selftest(
         selftest_stale_dropped_final_authorization_event_id(context),
         selftest_final_authorization_schema_substitution(context),
         selftest_substituted_positive_final_authorization_record(context),
+        selftest_final_authorization_omitted_field_list_hash_mismatch(context),
         selftest_final_authorization_body_hash_mismatch(context),
         selftest_final_authorization_trust_downgrade(context),
         selftest_body_attachment_without_final_authorization(context),
@@ -541,6 +542,26 @@ fn selftest_substituted_positive_final_authorization_record(
 
     injection_selftest_case(
         "substituted_positive_final_authorization_record",
+        "rejected",
+        "final_injection_authorization_substituted_record",
+        log.check_provider_context_injection_gate(context, "pinned_spki_verified"),
+    )
+}
+
+fn selftest_final_authorization_omitted_field_list_hash_mismatch(
+    context: ProviderContextHashes,
+) -> ProviderContextInjectionGateSelfTestCase {
+    let mut log = EventLog::new();
+    let chain = record_selftest_injection_chain(&mut log, context);
+    let mut tampered_context = context;
+    tampered_context.omitted_field_list_hash = tagged_hash(91);
+    record_selftest_injection_authorization(
+        &mut log,
+        selftest_injection_authorization(chain, tampered_context),
+    );
+
+    injection_selftest_case(
+        "final_authorization_omitted_field_list_hash_mismatch",
         "rejected",
         "final_injection_authorization_substituted_record",
         log.check_provider_context_injection_gate(context, "pinned_spki_verified"),

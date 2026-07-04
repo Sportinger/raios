@@ -52,6 +52,9 @@
         "target_locator=$recoveryCommandTargetLocator",
         "durable_audit_rollback_write_authority_hash=$durableAuditRollbackWriteAuthorityHash",
         "recovery_memory_write_authority_hash=$recoveryMemoryWriteAuthorityHash",
+        "source_rollback_apply_denial_hash=$recoveryRollbackApplySourceDenialHash",
+        "source_durable_policy_write_authority_decision_hash=$recoveryRollbackApplySourceDurablePolicyDecisionHash",
+        "source_recovery_rollback_inspect_source_reference_hash=$recoveryRollbackApplySourceInspectReferenceHash",
         "load_artifact_by_hash_target_binding_hash=$recoveryLoadArtifactByHashTargetBindingHash",
         "restart_last_good_target_binding_hash=$recoveryRestartLastGoodTargetBindingHash",
         "disable_module_target_binding_hash=$recoveryDisableModuleTargetBindingHash",
@@ -86,6 +89,9 @@
         "load_artifact_by_hash_target_binding_sha256=$recoveryLoadArtifactByHashTargetBindingHash",
         "recovery_memory_write_authority_sha256=$recoveryMemoryWriteAuthorityHash",
         "durable_audit_rollback_write_authority_sha256=$durableAuditRollbackWriteAuthorityHash",
+        "source_rollback_apply_denial_sha256=$recoveryRollbackApplySourceDenialHash",
+        "source_durable_policy_write_authority_decision_sha256=$recoveryRollbackApplySourceDurablePolicyDecisionHash",
+        "source_recovery_rollback_inspect_source_reference_sha256=$recoveryRollbackApplySourceInspectReferenceHash",
         "command_dispatch_boundary_id=$recoveryCommandDispatchBoundaryId",
         "service_inventory_side_effect_boundary_id=$serviceInventorySideEffectBoundaryId",
         "service_inventory_projection_sha256=$serviceInventoryProjectionHash",
@@ -112,7 +118,7 @@
         "load_attempted=false"
     ) -join "`n"
     $serviceInventorySideEffectBoundaryHash = Get-TextSha256 -Text $serviceInventorySideEffectBoundaryCanonical
-    $serviceInventorySideEffectBoundaryCommand = "agent recovery.service_inventory_side_effect_boundary_diagnostic $serviceInventorySideEffectBoundaryHash $durableAuditRollbackWriteAuthorityEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryRestartLastGoodTargetBindingHash $recoveryLoadArtifactByHashTargetBindingHash $recoveryMemoryWriteAuthorityHash $durableAuditRollbackWriteAuthorityHash $recoveryCommandDispatchBoundaryId $serviceInventorySideEffectBoundaryId $serviceInventoryProjectionHash"
+    $serviceInventorySideEffectBoundaryCommand = "agent recovery.service_inventory_side_effect_boundary_diagnostic $serviceInventorySideEffectBoundaryHash $durableAuditRollbackWriteAuthorityEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryRestartLastGoodTargetBindingHash $recoveryLoadArtifactByHashTargetBindingHash $recoveryMemoryWriteAuthorityHash $durableAuditRollbackWriteAuthorityHash $recoveryRollbackApplySourceDenialHash $recoveryRollbackApplySourceDurablePolicyDecisionHash $recoveryRollbackApplySourceInspectReferenceHash $recoveryCommandDispatchBoundaryId $serviceInventorySideEffectBoundaryId $serviceInventoryProjectionHash"
 
     Send-AgentCommand -Command $serviceInventorySideEffectBoundaryCommand -ExpectedMarker "RAIOS_AGENT_END recovery.service_inventory_side_effect_boundary_diagnostic"
     Assert-LogContainsFields -NamePrefix "protocol:service_inventory_side_effect_boundary_valid_" -TimeoutSeconds 1 -Fields @(
@@ -127,6 +133,12 @@
         @{ Suffix = "argument_hash"; Needle = "`"argument_hash`": `"sha256:$recoveryLifelineStatusArgumentHash`"" },
         @{ Suffix = "durable_hash"; Needle = "`"durable_audit_rollback_write_authority_hash`": `"sha256:$durableAuditRollbackWriteAuthorityHash`"" },
         @{ Suffix = "memory_hash"; Needle = "`"recovery_memory_write_authority_hash`": `"sha256:$recoveryMemoryWriteAuthorityHash`"" },
+        @{ Suffix = "source_denial_hash"; Needle = "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" },
+        @{ Suffix = "source_policy_hash"; Needle = "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" },
+        @{ Suffix = "source_inspect_hash"; Needle = "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" },
+        @{ Suffix = "latest_source_denial_hash"; Needle = "`"latest_source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" },
+        @{ Suffix = "latest_source_policy_hash"; Needle = "`"latest_source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" },
+        @{ Suffix = "latest_source_inspect_hash"; Needle = "`"latest_source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" },
         @{ Suffix = "projection_hash"; Needle = "`"service_inventory_projection_hash`": `"sha256:$serviceInventoryProjectionHash`"" },
         @{ Suffix = "boundary_hash"; Needle = "`"service_inventory_side_effect_boundary_hash`": `"sha256:$serviceInventorySideEffectBoundaryHash`"" },
         @{ Suffix = "valid_hash"; Needle = '"valid_hash_reference": true' },
@@ -213,6 +225,9 @@
         "command_id=recovery.lifeline.status",
         "target_locator=$recoveryCommandTargetLocator",
         "service_inventory_side_effect_boundary_hash=$serviceInventorySideEffectBoundaryHash",
+        "source_rollback_apply_denial_hash=$recoveryRollbackApplySourceDenialHash",
+        "source_durable_policy_write_authority_decision_hash=$recoveryRollbackApplySourceDurablePolicyDecisionHash",
+        "source_recovery_rollback_inspect_source_reference_hash=$recoveryRollbackApplySourceInspectReferenceHash",
         "durable_audit_rollback_write_authority_hash=$durableAuditRollbackWriteAuthorityHash",
         "recovery_memory_write_authority_hash=$recoveryMemoryWriteAuthorityHash",
         "load_artifact_by_hash_target_binding_hash=$recoveryLoadArtifactByHashTargetBindingHash",
@@ -250,6 +265,9 @@
         "recovery_memory_write_authority_sha256=$recoveryMemoryWriteAuthorityHash",
         "durable_audit_rollback_write_authority_sha256=$durableAuditRollbackWriteAuthorityHash",
         "service_inventory_side_effect_boundary_sha256=$serviceInventorySideEffectBoundaryHash",
+        "source_rollback_apply_denial_sha256=$recoveryRollbackApplySourceDenialHash",
+        "source_durable_policy_write_authority_decision_sha256=$recoveryRollbackApplySourceDurablePolicyDecisionHash",
+        "source_recovery_rollback_inspect_source_reference_sha256=$recoveryRollbackApplySourceInspectReferenceHash",
         "command_dispatch_boundary_id=$recoveryCommandDispatchBoundaryId",
         "command_dispatch_behavior_id=$recoveryCommandDispatchBehaviorId",
         "command_dispatch_behavior_projection_sha256=$recoveryCommandDispatchBehaviorProjectionHash",
@@ -277,7 +295,7 @@
         "load_attempted=false"
     ) -join "`n"
     $recoveryCommandDispatchBehaviorHash = Get-TextSha256 -Text $recoveryCommandDispatchBehaviorCanonical
-    $recoveryCommandDispatchBehaviorCommand = "agent recovery.lifeline_command_dispatch_behavior_diagnostic $recoveryCommandDispatchBehaviorHash $serviceInventorySideEffectBoundaryEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryRestartLastGoodTargetBindingHash $recoveryLoadArtifactByHashTargetBindingHash $recoveryMemoryWriteAuthorityHash $durableAuditRollbackWriteAuthorityHash $serviceInventorySideEffectBoundaryHash $recoveryCommandDispatchBoundaryId $recoveryCommandDispatchBehaviorId $recoveryCommandDispatchBehaviorProjectionHash"
+    $recoveryCommandDispatchBehaviorCommand = "agent recovery.lifeline_command_dispatch_behavior_diagnostic $recoveryCommandDispatchBehaviorHash $serviceInventorySideEffectBoundaryEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryRestartLastGoodTargetBindingHash $recoveryLoadArtifactByHashTargetBindingHash $recoveryMemoryWriteAuthorityHash $durableAuditRollbackWriteAuthorityHash $serviceInventorySideEffectBoundaryHash $recoveryRollbackApplySourceDenialHash $recoveryRollbackApplySourceDurablePolicyDecisionHash $recoveryRollbackApplySourceInspectReferenceHash $recoveryCommandDispatchBoundaryId $recoveryCommandDispatchBehaviorId $recoveryCommandDispatchBehaviorProjectionHash"
 
     Send-AgentCommand -Command $recoveryCommandDispatchBehaviorCommand -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_dispatch_behavior_diagnostic"
     Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_dispatch_behavior_valid_" -TimeoutSeconds 1 -Fields @(
@@ -290,6 +308,12 @@
         @{ Suffix = "behavior_id"; Needle = "`"command_dispatch_behavior_id`": `"$recoveryCommandDispatchBehaviorId`"" },
         @{ Suffix = "service_event_id"; Needle = "`"retained_service_inventory_side_effect_boundary_event_id`": `"$serviceInventorySideEffectBoundaryEventId`"" },
         @{ Suffix = "service_hash"; Needle = "`"service_inventory_side_effect_boundary_hash`": `"sha256:$serviceInventorySideEffectBoundaryHash`"" },
+        @{ Suffix = "source_denial_hash"; Needle = "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" },
+        @{ Suffix = "source_policy_hash"; Needle = "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" },
+        @{ Suffix = "source_inspect_hash"; Needle = "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" },
+        @{ Suffix = "latest_source_denial_hash"; Needle = "`"latest_source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" },
+        @{ Suffix = "latest_source_policy_hash"; Needle = "`"latest_source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" },
+        @{ Suffix = "latest_source_inspect_hash"; Needle = "`"latest_source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" },
         @{ Suffix = "projection_hash"; Needle = "`"command_dispatch_behavior_projection_hash`": `"sha256:$recoveryCommandDispatchBehaviorProjectionHash`"" },
         @{ Suffix = "behavior_hash"; Needle = "`"command_dispatch_behavior_hash`": `"sha256:$recoveryCommandDispatchBehaviorHash`"" },
         @{ Suffix = "valid_hash"; Needle = '"valid_hash_reference": true' },
@@ -372,6 +396,9 @@
         "command_id=recovery.lifeline.status",
         "target_locator=$recoveryCommandTargetLocator",
         "command_dispatch_behavior_hash=$recoveryCommandDispatchBehaviorHash",
+        "source_rollback_apply_denial_hash=$recoveryRollbackApplySourceDenialHash",
+        "source_durable_policy_write_authority_decision_hash=$recoveryRollbackApplySourceDurablePolicyDecisionHash",
+        "source_recovery_rollback_inspect_source_reference_hash=$recoveryRollbackApplySourceInspectReferenceHash",
         "service_inventory_side_effect_boundary_hash=$serviceInventorySideEffectBoundaryHash",
         "durable_audit_rollback_write_authority_hash=$durableAuditRollbackWriteAuthorityHash",
         "recovery_memory_write_authority_hash=$recoveryMemoryWriteAuthorityHash",
@@ -411,6 +438,9 @@
         "durable_audit_rollback_write_authority_sha256=$durableAuditRollbackWriteAuthorityHash",
         "service_inventory_side_effect_boundary_sha256=$serviceInventorySideEffectBoundaryHash",
         "command_dispatch_behavior_sha256=$recoveryCommandDispatchBehaviorHash",
+        "source_rollback_apply_denial_sha256=$recoveryRollbackApplySourceDenialHash",
+        "source_durable_policy_write_authority_decision_sha256=$recoveryRollbackApplySourceDurablePolicyDecisionHash",
+        "source_recovery_rollback_inspect_source_reference_sha256=$recoveryRollbackApplySourceInspectReferenceHash",
         "command_dispatch_boundary_id=$recoveryCommandDispatchBoundaryId",
         "executor_capability_table_id=$recoveryExecutorCapabilityTableId",
         "executor_capability_projection_sha256=$recoveryExecutorCapabilityProjectionHash",
@@ -438,7 +468,7 @@
         "load_attempted=false"
     ) -join "`n"
     $recoveryExecutorCapabilityTableHash = Get-TextSha256 -Text $recoveryExecutorCapabilityTableCanonical
-    $recoveryExecutorCapabilityTableCommand = "agent recovery.lifeline_command_executor_capability_table_diagnostic $recoveryExecutorCapabilityTableHash $recoveryCommandDispatchBehaviorEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryRestartLastGoodTargetBindingHash $recoveryLoadArtifactByHashTargetBindingHash $recoveryMemoryWriteAuthorityHash $durableAuditRollbackWriteAuthorityHash $serviceInventorySideEffectBoundaryHash $recoveryCommandDispatchBehaviorHash $recoveryCommandDispatchBoundaryId $recoveryExecutorCapabilityTableId $recoveryExecutorCapabilityProjectionHash"
+    $recoveryExecutorCapabilityTableCommand = "agent recovery.lifeline_command_executor_capability_table_diagnostic $recoveryExecutorCapabilityTableHash $recoveryCommandDispatchBehaviorEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryRestartLastGoodTargetBindingHash $recoveryLoadArtifactByHashTargetBindingHash $recoveryMemoryWriteAuthorityHash $durableAuditRollbackWriteAuthorityHash $serviceInventorySideEffectBoundaryHash $recoveryCommandDispatchBehaviorHash $recoveryRollbackApplySourceDenialHash $recoveryRollbackApplySourceDurablePolicyDecisionHash $recoveryRollbackApplySourceInspectReferenceHash $recoveryCommandDispatchBoundaryId $recoveryExecutorCapabilityTableId $recoveryExecutorCapabilityProjectionHash"
 
     Send-AgentCommand -Command $recoveryExecutorCapabilityTableCommand -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_executor_capability_table_diagnostic"
     Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_executor_capability_table_valid_" -TimeoutSeconds 1 -Fields @(
@@ -451,6 +481,12 @@
         @{ Suffix = "executor_id"; Needle = "`"executor_capability_table_id`": `"$recoveryExecutorCapabilityTableId`"" },
         @{ Suffix = "behavior_event_id"; Needle = "`"retained_command_dispatch_behavior_event_id`": `"$recoveryCommandDispatchBehaviorEventId`"" },
         @{ Suffix = "behavior_hash"; Needle = "`"command_dispatch_behavior_hash`": `"sha256:$recoveryCommandDispatchBehaviorHash`"" },
+        @{ Suffix = "source_denial_hash"; Needle = "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" },
+        @{ Suffix = "source_policy_hash"; Needle = "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" },
+        @{ Suffix = "source_inspect_hash"; Needle = "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" },
+        @{ Suffix = "latest_source_denial_hash"; Needle = "`"latest_source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" },
+        @{ Suffix = "latest_source_policy_hash"; Needle = "`"latest_source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" },
+        @{ Suffix = "latest_source_inspect_hash"; Needle = "`"latest_source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" },
         @{ Suffix = "projection_hash"; Needle = "`"executor_capability_projection_hash`": `"sha256:$recoveryExecutorCapabilityProjectionHash`"" },
         @{ Suffix = "executor_hash"; Needle = "`"executor_capability_table_hash`": `"sha256:$recoveryExecutorCapabilityTableHash`"" },
         @{ Suffix = "valid_hash"; Needle = '"valid_hash_reference": true' },
@@ -530,6 +566,9 @@
         "command_id=recovery.lifeline.status",
         "target_locator=$recoveryCommandTargetLocator",
         "executor_capability_table_hash=$recoveryExecutorCapabilityTableHash",
+        "source_rollback_apply_denial_hash=$recoveryRollbackApplySourceDenialHash",
+        "source_durable_policy_write_authority_decision_hash=$recoveryRollbackApplySourceDurablePolicyDecisionHash",
+        "source_recovery_rollback_inspect_source_reference_hash=$recoveryRollbackApplySourceInspectReferenceHash",
         "command_dispatch_behavior_hash=$recoveryCommandDispatchBehaviorHash",
         "service_inventory_side_effect_boundary_hash=$serviceInventorySideEffectBoundaryHash",
         "durable_audit_rollback_write_authority_hash=$durableAuditRollbackWriteAuthorityHash",
@@ -572,6 +611,9 @@
         "service_inventory_side_effect_boundary_sha256=$serviceInventorySideEffectBoundaryHash",
         "command_dispatch_behavior_sha256=$recoveryCommandDispatchBehaviorHash",
         "executor_capability_table_sha256=$recoveryExecutorCapabilityTableHash",
+        "source_rollback_apply_denial_sha256=$recoveryRollbackApplySourceDenialHash",
+        "source_durable_policy_write_authority_decision_sha256=$recoveryRollbackApplySourceDurablePolicyDecisionHash",
+        "source_recovery_rollback_inspect_source_reference_sha256=$recoveryRollbackApplySourceInspectReferenceHash",
         "command_dispatch_boundary_id=$recoveryCommandDispatchBoundaryId",
         "side_effect_gate_id=$recoverySideEffectGateId",
         "side_effect_projection_sha256=$recoverySideEffectProjectionHash",
@@ -599,7 +641,7 @@
         "load_attempted=false"
     ) -join "`n"
     $recoverySideEffectGateHash = Get-TextSha256 -Text $recoverySideEffectGateCanonical
-    $recoverySideEffectGateCommand = "agent recovery.lifeline_command_side_effect_gate_diagnostic $recoverySideEffectGateHash $recoveryExecutorCapabilityTableEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryRestartLastGoodTargetBindingHash $recoveryLoadArtifactByHashTargetBindingHash $recoveryMemoryWriteAuthorityHash $durableAuditRollbackWriteAuthorityHash $serviceInventorySideEffectBoundaryHash $recoveryCommandDispatchBehaviorHash $recoveryExecutorCapabilityTableHash $recoveryCommandDispatchBoundaryId $recoverySideEffectGateId $recoverySideEffectProjectionHash"
+    $recoverySideEffectGateCommand = "agent recovery.lifeline_command_side_effect_gate_diagnostic $recoverySideEffectGateHash $recoveryExecutorCapabilityTableEventId recovery.lifeline.status raios.recovery_lifeline_command.status_args.v0 $recoveryLifelineStatusArgumentHash $recoveryCommandTargetLocator $recoveryLifelineCommandEnvelopeReferenceHash $recoveryLifelineCommandBodyCanonicalizationHash $recoveryCommandHandlerBindingHash $recoveryStatusReadHandlerHash $recoveryRollbackPreviewAuthorizationHash $recoveryRollbackApplyAuthorizationHash $recoveryDisableModuleTargetBindingHash $recoveryRestartLastGoodTargetBindingHash $recoveryLoadArtifactByHashTargetBindingHash $recoveryMemoryWriteAuthorityHash $durableAuditRollbackWriteAuthorityHash $serviceInventorySideEffectBoundaryHash $recoveryCommandDispatchBehaviorHash $recoveryExecutorCapabilityTableHash $recoveryRollbackApplySourceDenialHash $recoveryRollbackApplySourceDurablePolicyDecisionHash $recoveryRollbackApplySourceInspectReferenceHash $recoveryCommandDispatchBoundaryId $recoverySideEffectGateId $recoverySideEffectProjectionHash"
 
     Send-AgentCommand -Command $recoverySideEffectGateCommand -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_command_side_effect_gate_diagnostic"
     Assert-LogContainsFields -NamePrefix "protocol:recovery_lifeline_command_side_effect_gate_valid_" -TimeoutSeconds 1 -Fields @(
@@ -612,6 +654,12 @@
         @{ Suffix = "side_effect_id"; Needle = "`"side_effect_gate_id`": `"$recoverySideEffectGateId`"" },
         @{ Suffix = "executor_event_id"; Needle = "`"retained_executor_capability_table_event_id`": `"$recoveryExecutorCapabilityTableEventId`"" },
         @{ Suffix = "executor_hash"; Needle = "`"executor_capability_table_hash`": `"sha256:$recoveryExecutorCapabilityTableHash`"" },
+        @{ Suffix = "source_denial_hash"; Needle = "`"source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" },
+        @{ Suffix = "source_policy_hash"; Needle = "`"source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" },
+        @{ Suffix = "source_inspect_hash"; Needle = "`"source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" },
+        @{ Suffix = "latest_source_denial_hash"; Needle = "`"latest_source_rollback_apply_denial_hash`": `"sha256:$recoveryRollbackApplySourceDenialHash`"" },
+        @{ Suffix = "latest_source_policy_hash"; Needle = "`"latest_source_durable_policy_write_authority_decision_hash`": `"sha256:$recoveryRollbackApplySourceDurablePolicyDecisionHash`"" },
+        @{ Suffix = "latest_source_inspect_hash"; Needle = "`"latest_source_recovery_rollback_inspect_source_reference_hash`": `"sha256:$recoveryRollbackApplySourceInspectReferenceHash`"" },
         @{ Suffix = "projection_hash"; Needle = "`"side_effect_projection_hash`": `"sha256:$recoverySideEffectProjectionHash`"" },
         @{ Suffix = "side_effect_hash"; Needle = "`"side_effect_gate_hash`": `"sha256:$recoverySideEffectGateHash`"" },
         @{ Suffix = "valid_hash"; Needle = '"valid_hash_reference": true' },
@@ -624,3 +672,4 @@
     $recoverySideEffectGateResponse = Get-LastAgentResponseJson -Method "recovery.lifeline_command_side_effect_gate_diagnostic"
     $recoverySideEffectGateEventId = [string]$recoverySideEffectGateResponse.body.result.retained_recovery_lifeline_command_side_effect_gate_reference.recorded_event_id
     Assert-CurrentBootEventId -Name "protocol:recovery_lifeline_command_side_effect_gate_retained_reference_event_id_captured" -Value $recoverySideEffectGateEventId
+    Send-AgentCommand -Command "agent audit.events 96" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events" -Name "command:agent.audit.events.recovery_command_effects"

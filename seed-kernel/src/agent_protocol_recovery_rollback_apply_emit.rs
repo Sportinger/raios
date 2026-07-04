@@ -68,6 +68,15 @@ pub(crate) fn emit_recovery_rollback_apply_authorization_reference_object(
     raw("        \"rollback_apply_projection_hash\": ");
     json_sha256_option(check.rollback_apply_projection_hash);
     raw_line(",");
+    raw("        \"source_rollback_apply_denial_hash\": ");
+    json_sha256_option(check.source_rollback_apply_denial_hash);
+    raw_line(",");
+    raw("        \"source_durable_policy_write_authority_decision_hash\": ");
+    json_sha256_option(check.source_durable_policy_write_authority_decision_hash);
+    raw_line(",");
+    raw("        \"source_recovery_rollback_inspect_source_reference_hash\": ");
+    json_sha256_option(check.source_recovery_rollback_inspect_source_reference_hash);
+    raw_line(",");
     raw("        \"rollback_apply_authorization_hash\": ");
     json_sha256_option(check.rollback_apply_authorization_hash);
     raw_line(",");
@@ -131,6 +140,27 @@ pub(crate) fn emit_recovery_rollback_apply_authorization_retained_reference(
     raw("        \"latest_rollback_apply_authorization_hash\": ");
     if let Some((_, reference)) = retained {
         json_sha256(reference.rollback_apply_authorization_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_source_rollback_apply_denial_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.source_rollback_apply_denial_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_source_durable_policy_write_authority_decision_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.source_durable_policy_write_authority_decision_hash);
+    } else {
+        raw("null");
+    }
+    raw_line(",");
+    raw("        \"latest_source_recovery_rollback_inspect_source_reference_hash\": ");
+    if let Some((_, reference)) = retained {
+        json_sha256(reference.source_recovery_rollback_inspect_source_reference_hash);
     } else {
         raw("null");
     }
