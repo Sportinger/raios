@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-04 (plan restructuring session, review-4).
+Updated: 2026-07-04 (M0 session 2: full profile GREEN again).
 
 ## What raiOS can actually do today
 
@@ -18,21 +18,27 @@ Updated: 2026-07-04 (plan restructuring session, review-4).
 
 ## Gate status
 
-- Full verification profile: **RED since 2026-07-02** (last green:
-  6789/6789 predicates). Two of the failures are real, unexplained
-  predicate failures — not test-infrastructure noise.
-- Working tree: ~20,500 lines uncommitted (must be committed in M0).
+- Full verification profile: **GREEN** as of 2026-07-04 — 7,814/7,814
+  checks passed in one run (report shadow-20260704-184615-9224.json,
+  hash-verified). First green since 2026-07-02. The old "mystery"
+  failures are explained: the test tooling asked for too much data at
+  once and then misread its own connection loss — no bug in the OS
+  itself.
+- Working tree: the ~36,900-line backlog was committed 2026-07-04 in
+  three honest commits; release binaries are no longer tracked in git.
+
+## Current milestone
+
+**M0 Stabilize** — almost done. Remaining: the test harness learns to
+report exactly WHY a run died (VM crashed vs connection glitch), so
+failures can never be misfiled as "flaky tests" again. Then M0 closes
+and M1 begins (fast code tests + automatic checks on every commit).
 
 ## Top risk
 
 The build loop has been producing evidence paperwork instead of new
 capability (~90% of the code governs authority that is never granted).
 See `docs/plan-reviews/review-4-deep-scope-code-and-process-2026-07.md`.
-
-## Current milestone
-
-**M0 Stabilize** — commit the working tree, fix the full test harness,
-get the gate green. Nothing else until then.
 
 ## Next milestones (docs/ROADMAP.md)
 

@@ -17,31 +17,29 @@ vocabulary).
 
 Last updated: 2026-07-04.
 
-Current milestone: **M0 Stabilize** (see Capability Milestones).
+Current milestone: **M0 Stabilize** (see Capability Milestones) — nearly
+complete.
+
+Done in M0 so far (2026-07-04): working tree committed in three honest
+commits (`0ee066e` code catch-up, `9df2044` plan restructuring, `a6a8f56`
+repo hygiene); bounded per-boundary audit scrapes verified; **full profile
+green again**: `shadow-20260704-184615-9224.json`, 7814/7814 predicates,
+334 commands, report SHA-256 `68c8e160849ca9333867ea6007013b2e49d6f39e4e7e4930b761944967ba96ee`
+— first green checkpoint since 2026-07-02. The 2026-07-03 predicate
+failures are classified as host-harness audit-window failures (no guest
+bug); see the failure classification log in `docs/PROJECT_STATUS.md`.
 
 Exact next task:
 
 ```text
-1. Commit the working tree (~20,500 uncommitted lines). Split into honest
-   commits per boundary (hello rollback gates, provider trust, docs); do not
-   label the batch as one small feature.
-2. Repair the full Shadow VM checkpoint harness around the non-terminal
-   module load-gate audit scrape: avoid depending on one giant mid-profile
-   `agent audit.events 256` response that closes the serial path before
-   recovery and Hello checks can continue. Prefer splitting audit evidence
-   by ownership boundary or moving bounded audit checks closer to the
-   records they prove. Root-cause whether the serial close is a guest-side
-   bug before classifying past failures as host flakes.
-3. Re-run the full profile until green. Do not add runtime schemas, relax
-   predicates, or grant authority. While the full profile is red, the only
-   permitted work is fixing it (Red Gate Rule, AGENTS.md).
+1. Land the harness transport instrumentation (packet M0-2): capture the
+   QEMU PID at launch; on serial reconnect failure classify structurally as
+   qemu_exited (with exit code) / listener_missing_process_alive /
+   connect_timeout_listener_present instead of burning the whole timeout;
+   record QEMU end state in every report. No auto-relaunch masking.
+2. Verify the instrumentation with a focused or quick profile.
+3. Close M0; open M1 (host-testable core library crate + minimal CI).
 ```
-
-Latest full-profile green: 6789/6789 predicates, 2026-07-02 (see
-`docs/PROJECT_STATUS.md` for report paths and hashes). All full-profile runs
-since have failed, including two real predicate failures (7005/7006
-`module_manifest_audit_source`; 7380/7381 entrypoint-boundary) that need
-guest-vs-host classification.
 
 ## Capability Milestones
 

@@ -24,6 +24,33 @@ exact next task, verification evidence, known gaps, and unabridged
 implementation history; keep `docs/DEBUGGING.md` focused on commands, smoke
 profiles, protocol probes, and failure modes.
 
+Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
+
+- 2026-07-04 `shadow-20260704-183440-16492.json` (full profile): no failing
+  predicate (200/200 reached passed, 14 commands executed); failure is
+  `Timed out connecting to QEMU serial TCP port 4565` after the guest
+  cleanly completed `memory.recent_events` (`AGENT RESPONSE WRITTEN TO
+  SERIAL` is the last serial line). Verdict: host-transport, subtype
+  suspected qemu_exited — connect attempts found no listener for the full
+  ~7-minute retry window, QEMU stderr empty, process gone; guest behavior
+  exonerated by the clean serial tail. Packet M0-2 adds harness
+  instrumentation (qemu_exited / listener_missing_process_alive /
+  connect_timeout_listener_present) so future failures self-classify.
+- 2026-07-03 `shadow-20260703-183727-11132.json` 7005/7006
+  `module_manifest_audit_source`: host-harness audit-window failure — the
+  manifest event had scrolled out of the single giant `audit.events 256`
+  window; the kernel does record it (`event_log.rs:5218`). Not transport,
+  not guest-semantic. Fixed by the bounded per-boundary scrapes now in the
+  committed harness.
+- 2026-07-03 `shadow-20260703-190659-10500.json` 7380/7381
+  `no_entrypoint_scoped` (`Expected False, got ""`): host-harness
+  audit-window failure — the parsed binding object was absent from the
+  oversized scrape response; the kernel records the entrypoint
+  source-evidence event (`event_log.rs:6278`). Not transport, not
+  guest-semantic. Same bounded-scrape fix applies.
+- 2026-07-03 `shadow-20260703-193007-17640.json`: corrupt JSON report
+  (recorded here so it is not silently ignored); superseded by later runs.
+
 Active execution memory: as of 2026-07-02, Phase 6 has its first positive
 RAM-only service vertical slice: `raios.ram_only_hello_service.v0`. The kernel
 can load/start the built-in `svc.demo.hello` test service through a typed
@@ -2321,14 +2348,25 @@ command execution, persistence, external bytes, candidate execution,
 executable mapping, provider auto-load, broad mutation, and installed rollback
 state denied.
 
-Current exact next task: repair the full Shadow VM checkpoint harness around the
-non-terminal module load-gate audit scrape without weakening the evidence. Keep
-the full-audit module source-method checks authoritative, but avoid a giant
-mid-profile `agent audit.events 256` response that closes the serial path before
-recovery/Hello checks can run. Prefer splitting the full-audit evidence scrape
-by ownership boundary or moving bounded audit checks closer to the records they
-prove; do not add runtime schemas, do not relax predicates, and do not grant new
-authority. Verify the repair with the full profile using delayed serial writes.
+RESOLVED 2026-07-04: the full Shadow VM checkpoint harness repair is verified
+green. The bounded per-boundary audit scrapes (`audit.events 24/64/96` close
+to the records they prove, no giant mid-profile `audit.events 256`) were
+committed in `0ee066e` and the full profile now completes:
+`vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 420 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10`
+passed with report `release\vm-reports\shadow-20260704-184615-9224.json`,
+`result: passed`, 7814/7814 predicates, 334 executed commands,
+`duration_ms: 1226345`, report SHA-256
+`68c8e160849ca9333867ea6007013b2e49d6f39e4e7e4930b761944967ba96ee`. This is
+the first green full checkpoint since 2026-07-02 (6789/6789); the predicate
+count grew because the bounded scrapes split checks without weakening any.
+One earlier same-day attempt failed as host-transport (see the failure
+classification log at the top of this file).
+
+Current exact next task (milestone M0, `docs/ROADMAP.md`): land the harness
+transport instrumentation packet M0-2 (structured qemu_exited /
+listener_missing_process_alive / connect_timeout_listener_present failure
+classification plus QEMU PID/exit-code capture), verify with a focused or
+quick profile, then close M0 and open M1 (host-testable core library + CI).
 Keep persistence, durable audit writes, rollback-store writes, transaction
 append, rollback application, external unsigned artifact intake, executable
 candidate-byte mapping, provider auto-load, broad mutation, and installed

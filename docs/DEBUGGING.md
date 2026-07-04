@@ -155,18 +155,22 @@ expected marker, and then closes the connection; this avoids treating a stale
 host-side TCP stream as a guest protocol failure during long full-profile runs.
 
 If a full smoke fails with a host-side TCP write exception or a truncated long
-serial command after all predicates up to the previous command passed, first
-check for stale QEMU processes or concurrent serial clients, then rerun with
-smaller chunks plus write delay before treating it as a guest regression.
-The 2026-07-03 full-checkpoint attempts
-`release\vm-reports\shadow-20260703-181303-6380.json` and
-`release\vm-reports\shadow-20260703-182424-4208.json` both passed all reached
-predicates (3522/3522, 125 commands) and then failed the next serial connection
-after the non-terminal module load-gate `agent audit.events 256` scrape. A
-diagnostic reduced-window run
-`release\vm-reports\shadow-20260703-183727-11132.json` continued further but
-failed the later full-audit module source-method check, so the repair should
-split or move the audit evidence rather than simply lowering the event limit.
+serial command after all predicates up to the previous command passed, FIRST
+classify per the AGENTS.md Failure Classification Rule (check whether the QEMU
+process is still alive and whether the serial log tail shows a cleanly
+completed response), record the verdict in `docs/PROJECT_STATUS.md`, and only
+then rerun with smaller chunks plus write delay. RESOLVED 2026-07-04: the old
+giant mid-profile `agent audit.events 256` scrape was replaced by bounded
+per-boundary scrapes (`audit.events 24/64/96` close to the records they
+prove); the full profile passed 7814/7814 predicates with 334 commands
+(`release\vm-reports\shadow-20260704-184615-9224.json`). The 2026-07-03
+failures are classified in the PROJECT_STATUS failure log as host-harness
+audit-window failures, not guest regressions. One remaining host-transport
+mode is a mid-run QEMU process exit (connect attempts find no listener; the
+same-day failed run `shadow-20260704-183440-16492.json` burned its whole
+timeout reconnecting); packet M0-2 instruments the harness to classify this
+structurally (qemu_exited / listener_missing_process_alive /
+connect_timeout_listener_present).
 The 2026-07-01 full module-loader report
 `release\vm-reports\shadow-20260701-150922-9752.json` used
 `-TimeoutSeconds 300 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10 -SerialTcpPort 4579`;
