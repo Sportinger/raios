@@ -12,6 +12,8 @@ Read these files before making changes:
 4. `docs/DEBUGGING.md`
 5. `docs/architecture-decisions/0001-raios-agent-protocol.md`
 6. `docs/architecture-decisions/0004-system-memory-and-agent-context.md`
+7. `docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md`
+8. `docs/plan-reviews/review-4-deep-scope-code-and-process-2026-07.md`
 
 Then run `git status --short` and preserve unrelated user changes.
 
@@ -73,11 +75,14 @@ not conflict, but every merged result must be a real, tested slice.
   unblocks the next positive behavior, closes a concrete trust gap, or repairs
   verification. Do not chain schema-only loader boundaries while a runtime slice
   can be built instead.
-- For Phase 6 until this file or `docs/ROADMAP.md` says otherwise, the priority
-  is a RAM-only hello service path: load/start a tiny fixed test service through
-  the real loader/registry/audit surfaces, show it in `service.inventory`, then
-  stop/start/restart/drop it. Persistence, external unsigned artifact intake,
-  durable audit, and rollback installation must remain denied.
+- Do not copy the active next slice into this file. The current engineering
+  cursor lives in `docs/ROADMAP.md` and the detailed exact task lives in
+  `docs/PROJECT_STATUS.md`; use this file for durable rules only.
+- Work is selected from the capability milestones M0-M7 in `docs/ROADMAP.md`
+  (the legacy Phase 0-10 structure is retired as the planning backbone; see
+  ADR 0005). Keep persistence, external unsigned artifact intake, durable
+  writes, rollback application, and broad mutation denied until the milestone
+  gates say the evidence chain is ready.
 - A built-in hello artifact is acceptable only as labeled test infrastructure
   for the real path. It must not fake success, bypass the service registry, or
   imply that arbitrary external modules are supported.
@@ -87,6 +92,83 @@ not conflict, but every merged result must be a real, tested slice.
   for later.
 - VM reports should prefer proving positive behavior plus the necessary
   fail-closed denials over growing denial-only predicate counts.
+
+## Verification Budget Rule
+
+Do not run the heaviest verification after every tiny evidence hop. Keep real
+verification, but match the check to the risk of the slice:
+
+- For docs-only changes, run a targeted diff/whitespace check.
+- For local UI, formatting, or refactor-only changes, run `cargo fmt --all
+  -- --check` plus the smallest relevant build or test.
+- For trust, storage, rollback, recovery, authority, descriptor, or harness
+  changes, run a focused or quick VM smoke that exercises the changed path.
+- Batch 3-5 small same-boundary, non-authorizing evidence hops before running
+  the next focused VM smoke when the prior focused/quick smoke stays green.
+  Do not batch changes that cross storage, rollback, recovery, authority,
+  provider-trust, descriptor-signing, harness, or boot-risk boundaries.
+- Before committing, handing off a release image, or claiming a durable
+  security/recovery milestone, run the relevant full/focused VM profile plus
+  secret scan.
+
+Quick often, full rarely, focused when the touched boundary is risky. Never
+skip VM evidence for changes that affect storage, rollback, recovery,
+capability authority, provider trust, descriptor signing, or boot behavior.
+
+## Capability Definition Of Done
+
+Adopted 2026-07-04 after
+`docs/plan-reviews/review-4-deep-scope-code-and-process-2026-07.md` and
+ADR 0005. These rules override older slice habits:
+
+- Every slice must state, in one sentence in its commit message and status
+  entry, what a user or agent can now DO that it could not do before. "A new
+  denial schema exists" does not qualify as a capability.
+- No new `raios.*.v0` schema may be added as hand-rolled emit/hash code.
+  While milestones M0-M2 (`docs/ROADMAP.md`) are open, no new schemas at
+  all; after M2, new schemas are typed record-model entries only.
+- At most one denial-gate or evidence-only slice per five capability slices.
+- During the M2 ceremony collapse, every slice that ports a gate must delete
+  more lines than it adds; the smoke harness proves byte-identical serial
+  output.
+- Progress reports to the owner lead with the capability sentence, never
+  predicate counts. Update `docs/OWNER_DASHBOARD.md` every session.
+
+## Red Gate Rule
+
+While the full Shadow VM profile is red, the only permitted work is fixing
+it: no new slices, no new gates, no new schemas. Every commit message must
+name the passing report file for the verification tier that was run. The
+final commit of a session requires a green full-profile report filename or
+an explicit Red Gate note naming the repair work done.
+
+## Commit Discipline
+
+- No slice ends with uncommitted source changes.
+- If more than ~2,000 lines are uncommitted, the next action is a commit,
+  not a feature.
+- Never label a catch-up commit as a single small feature; describe what it
+  actually contains, split by ownership boundary where practical.
+
+## Failure Classification Rule
+
+Every failed VM run must be classified in `docs/PROJECT_STATUS.md` with the
+failing predicate name and a one-line `host-transport` vs `guest-behavior`
+verdict before any retry. A predicate that fails and then passes on retry
+without a code change is logged as a suspected intermittent guest bug, not
+closed as a host flake.
+
+## End-Of-Session Checks
+
+Run and paste output from all three before ending a session:
+
+1. File-size check: no touched `.rs` file above 5,000 lines without a
+   documented split plan (`wc -l` the touched files until a check script
+   exists).
+2. Gate check: the newest full-profile report says `result: passed` and is
+   newer than the last commit, or the session was Red Gate repair work.
+3. `cargo fmt --all -- --check` (scoped to crates rustfmt can process until
+   M2 fixes the oversized sources).
 
 ## System Memory Architecture Rule
 
@@ -147,89 +229,41 @@ Still shape every durable slice so it can become raiOS memory later:
 
 ## Current Verified State
 
+This file intentionally keeps only durable startup facts. Do not mirror the
+active engineering cursor or per-slice implementation history here. Read
+`docs/PROJECT_STATUS.md` for the authoritative detailed current state, latest
+VM reports, known gaps, and exact next task; read `docs/ROADMAP.md` for the
+compact phase cursor and parallel work lanes.
+
+Stable facts for new agents:
+
 - Repo path: `C:\Users\admin\Documents\raios2`
 - Bootloader: Limine 10 UEFI binary in `release/esp/EFI/BOOT/BOOTX64.EFI`
 - Limine config uses `limine.conf`, not `limine.cfg`
 - Bootable image: `release/raios-stage0.img`
-- QEMU visual boot has been verified on Windows with GTK display
-- Kernel currently draws a double-buffered framebuffer UI:
-  - chat-first `AI` mode
-  - `CONSOLE` mode for debug output
-  - `SET` mode for provider/API-key setup
-  - compact status strip for network, input, USB-xHCI, and entropy
-- Serial command input exists when QEMU is run with `-SerialMode tcp`:
-  - `help`
-  - `status`
-  - `devices`
-  - `log`
-  - `provider`
-  - `openai`
-  - `setup`
-  - `ask <text>`
-- Serial log confirms:
-  - Limine loaded base revision 3
-  - framebuffer response revision 1
-  - USB-HID keyboard and mouse enumerate through xHCI in the bare-metal VM profile
-  - Intel e1000 DHCP configures in QEMU without Virtio devices
-- `module.load_ephemeral svc.demo.hello` loads the built-in current-boot Hello
-  service with validated descriptor-source evidence plus a signed built-in
-  artifact identity/trust envelope, signed content/hash binding, and signed
-  repo-local artifact-byte reference plus an accepted current-boot artifact
-  load-plan preflight that binds the descriptor source, artifact identity,
-  content binding, artifact reference, and RAM-only service-slot intent.
-  `service.artifact_reference_trust_selftest` proves valid reference evidence
-  and tampered byte/content/reference/trust cases fail closed.
-  `service.artifact_load_plan_preflight_selftest` proves valid preflight
-  evidence and tampered descriptor/artifact/slot/denial cases fail closed;
-  the same service can be stopped, started again, explicitly restarted without
-  changing its loaded generation, hot-swapped through the same signed built-in
-  evidence chain with a new loaded generation, hot-swapped to a distinct signed
-  `svc.demo.hello.v2` identity with visible version metadata while preserving a
-  tiny RAM-only Hello state counter through explicit current-boot migration
-  evidence, denies `service.hot_swap svc.demo.hello.reset_state` before
-  descriptor/generation/state mutation with rejected migration evidence, emits
-  `raios.ram_only_hello_service_hot_swap_probation.v0` evidence for accepted
-  v1/v2/v1-back hot-swaps, exposes `service.rollback_preview svc.demo.hello`
-  as a read-only rollback target/current candidate preview over retained
-  probation evidence without changing active service state, exposes
-  `service.rollback_apply svc.demo.hello` as structured `capability_denied`
-  over retained preview/probation/state hashes plus a rollback
-  transaction/durable-audit preflight, write-authority gate, and append-intent
-  availability gate without changing descriptor, generation, running state,
-  RAM-only state, durable audit, rollback-store, transaction append, or
-  persistence, then hot-swapped back to v1 and dropped while retaining RAM-only
-  lifecycle evidence;
-  `service.hot_swap external:svc.demo.hello` remains denied before service
-  mutation;
-  arbitrary external artifacts, candidate-byte execution, executable page
-  mapping, persistence, durable audit, rollback, provider auto-load, and broad
-  mutation remain denied.
-- `agent command_envelope` validates the first native serial command envelope
-  for schema `raios.agent_command_envelope.v0`, classification `local_only`,
-  and the read-only target/capability pairs `system.describe` with
-  `cap.system.describe.read`, `system.snapshot` with
-  `cap.system.snapshot.read`, `system.boot_log` with
-  `cap.system.boot_log.read`, `system.capabilities` with
-  `cap.system.capabilities.read`, `device.graph` with
-  `cap.device.graph.read`, `service.inventory` with
-  `cap.service.inventory.read`, and `problem.list` with
-  `cap.problem.list.read`, then routes accepted envelopes through the existing
-  dispatcher path. Mismatched target/capability pairs, bad-schema envelopes,
-  and over-capable envelope targets are denied before dispatch without provider
-  writes, candidate-byte loading, persistence, or broad mutation. Accepted,
-  mismatched, bad-schema, and over-capable envelope decisions are retained as
-  current-boot/local-only
-  `raios.agent_command_envelope.decision` audit events with
-  `raios.agent_command_envelope.audit_binding.v0`.
-- `ask <text>` uses the in-guest OpenAI direct transport. The old host-side
-  serial relay is no longer part of the runtime path; DNS, TCP 443, TLS 1.3,
-  HTTPS, and first `output_text` parsing work in the bare-metal VM profile.
-- The current TLS path is MVP-only but no longer a silent host relay: the
-  in-guest direct OpenAI path has a pinned certificate/SPKI verifier with
-  optional standby SPKI rotation. It still lacks WebPKI chain validation and
-  trusted time validation; do not claim either until trusted roots,
-  intermediate-chain handling, and trusted time exist.
-- Detailed current status is in `docs/PROJECT_STATUS.md`.
+- QEMU visual boot is verified on Windows with GTK display
+- The kernel draws the double-buffered framebuffer UI with `AI`, `CONSOLE`,
+  and `SET` modes plus compact device/provider status
+- Serial command input exists through the documented QEMU TCP serial path
+- `ask <text>` uses the in-guest OpenAI direct transport; the TLS path is
+  pin/SPKI based and still does not provide full WebPKI chain or trusted-time
+  validation
+- `svc.demo.hello` is the real current-boot built-in service test path. It
+  exercises signed descriptor/artifact evidence, lifecycle/inventory,
+  hot-swap/state-migration, rollback preview/apply denial, test-media
+  write/readback evidence, and recovery-lifeline bindings as recorded in
+  `docs/PROJECT_STATUS.md`.
+- Persistence, external unsigned artifact intake, executable candidate-byte
+  mapping, provider auto-load, broad mutation, durable audit writes, rollback
+  store writes, real transaction append, rollback application, and installed
+  rollback state remain denied unless `docs/PROJECT_STATUS.md` and
+  `docs/ROADMAP.md` say otherwise.
+- Latest verification evidence should be read from
+  `release/vm-reports/shadow-*.json`, not copied into this file.
+
+Routine slice progress updates should touch `docs/PROJECT_STATUS.md` and, when
+the cursor changes, `docs/ROADMAP.md`. Update `README.md` or `AGENTS.md` only
+when durable project reality, startup instructions, or standing rules change.
 
 ## Important Technical Notes
 
@@ -304,22 +338,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\openai-direct-smo
 
 Debugging and failure modes are documented in `docs/DEBUGGING.md`.
 
-## Next Engineering Steps
+## Engineering Cursor
 
-1. Continue the runtime artifact track with the smallest rollback transaction
-   payload/hash-envelope gate over the verified Hello rollback append-intent
-   gate, while real rollback application, persistence, durable audit writes,
-   rollback-store writes, transaction append, external bytes, candidate
-   execution, executable mapping, provider auto-load, and broad mutation remain
-   denied.
-2. Harden the direct OpenAI TLS path beyond pinning with real chain/time
-   validation once trusted roots, intermediate-chain handling, and trusted time
-   exist.
-3. Improve response wrapping, scrolling, and clickable settings controls in the
-   framebuffer UI.
-4. Continue bare-metal input/network bring-up while preserving the VM test path.
+Do not maintain the exact next task here. Read:
 
-The current exact next task is maintained in `docs/PROJECT_STATUS.md`.
+- `docs/ROADMAP.md` for the compact active cursor and parallel work lanes.
+- `docs/PROJECT_STATUS.md` for the detailed exact next task and latest
+  verification evidence.
+- `docs/DEBUGGING.md` for the cheapest relevant build, smoke, and diagnostic
+  command.
+
+Stable work lanes are runtime/recovery, provider trust, UI/input, VM harness,
+and bare-metal bring-up. Pick the smallest lane-local slice that advances the
+roadmap without duplicating the current cursor.
 
 ## Working Rules
 

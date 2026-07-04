@@ -1,1267 +1,251 @@
 # Roadmap
 
+This file holds direction, the capability milestones, and the compact active
+cursor. It must stay under ~250 lines. Verification history, report hashes,
+and per-slice evidence live in `docs/PROJECT_STATUS.md` and
+`release/vm-reports/`; the full pre-restructure roadmap (1,947 lines,
+including all phase definitions and archived evidence blocks) is preserved
+verbatim at `docs/archive/roadmap-2026-07-04-pre-restructure.md`.
+
+Restructured 2026-07-04 per
+`docs/plan-reviews/review-4-deep-scope-code-and-process-2026-07.md` and
+`docs/architecture-decisions/0005-bare-metal-substrate-and-wasm-isolation.md`
+(owner decisions: bare metal only, Wasm isolation first, mechanism before
+vocabulary).
+
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-02 by Codex after quick-VM-verifying the Hello rollback
-write-authority gate over the transaction/durable-audit preflight.
-Keep this section compact. The authoritative, unabridged current
-state is
-`docs/PROJECT_STATUS.md`; this file should describe direction and the next
-cursor, not repeat the full implementation history.
+Last updated: 2026-07-04.
 
-Current phase: Phase 6, Ephemeral Live Services.
-
-Active execution rule:
-
-- keep the existing evidence gates and fail-closed posture
-- stop adding loader-runtime schema-only boundaries unless they directly unblock
-  the RAM-only service path
-- prove the next slice with one real observable service lifecycle:
-  load/start/list/stop/start/restart/drop, all current-boot and non-persistent
-- treat the plan as an AI-parallel OS build, not a traditional serial
-  big-team roadmap: split independent agents by ownership boundary, then merge
-  only real verified slices
-
-Latest verified implementation slice:
-
-- positive provider request/export binding now carries a canonical
-  `provider_trust_evidence_hash` over provider host, trust state, pin kind/id,
-  and TLS-bypass state; the hash is folded into the request-binding and
-  export-audit binding hashes, retained through binding consumption and final
-  injection authorization checks, exposed in provider gate diagnostics and
-  RAM-only event bindings, and automatic context injection remains disabled
-- the trust evidence now includes explicit
-  `raios.provider_trust_verifier_metadata.v0` for the real Stage-0 OpenAI
-  pinned TLS verifier: verifier id, exact-host policy, configured leaf/SPKI pin
-  policy, TLS 1.3 P-256 CertificateVerify policy, and explicit
-  `pin_only_no_webpki_chain_validation` / `not_validated_stage0` chain/time
-  policies
-- provider snapshots and provider-minimal context now expose
-  `raios.provider_trust_verifier_decision.v0` with verifier id, stage, outcome,
-  and reason; no-pin/no-trust reports `pin_config` / `rejected` /
-  `pin_config_missing`, and positive direct OpenAI pinned-trust markers bind the
-  verified `certificate_verify` decision into request, export-audit, injection
-  gate, and trust-evidence hashes
-- the OpenAI SPKI verifier now supports one optional standby SPKI rotation pin
-  supplied by `OPENAI_SPKI_SHA256_NEXT`; malformed rotation config fails closed,
-  successful matches record the active or rotation pin id/slot, and the trust
-  metadata still labels the path as pin-only without WebPKI chain or time
-  validation
-- the full Shadow VM provider-memory slice now expects all 20 provider context
-  binding-gate selftest cases, including redaction/classification/budget/trust
-  evidence hash mismatches, and the direct OpenAI smoke harness compares the
-  trust evidence hash and verifier decision across positive request binding,
-  export-audit binding, and blocked injection-gate markers when a local
-  pinned-trust image is supplied
-- `module.load_ephemeral svc.demo.hello` now loads/starts the built-in
-  `svc.demo.hello` current-boot test service through a narrow RAM-only path
-  that consumes `raios.current_boot_load_request.v0` and
-  `raios.current_boot_load_descriptor.v0` from a validated current-image
-  descriptor-source record
-- `module.load_ephemeral host_bound:svc.demo.hello` loads/starts the same
-  built-in RAM-only service through a host-produced descriptor-source candidate
-  that binds the current-image source hash
-- descriptor-source validation now parses the built-in source text into checked
-  key/value fields for both current-image and host-bound sources instead of
-  depending on a complete source-text equality check
-- the current-image descriptor-source path now carries a repo-local
-  P-256/SHA-256 signature envelope; the build script checks the checked-in
-  public key/signature metadata, the kernel verifies the envelope before
-  selecting the descriptor source, and load/inventory/health/RAM-audit evidence
-  exposes the envelope id/hash and signature verification state
-- `service.descriptor_source_trust_selftest` proves that the accepted envelope
-  verifies and tampered payload, locator/kind, public-key hash, and signature
-  cases fail closed without accepting descriptor or artifact bytes
-- the built-in `builtin:svc.demo.hello` artifact now carries a signed
-  `raios.builtin_artifact_identity.v0` identity/trust envelope; the build script
-  checks the checked-in P-256 signature, the kernel validates it before load,
-  and load/inventory/health/RAM-audit evidence exposes the identity id/hash,
-  trust-envelope id/hash, signature verification state, and a signed
-  `raios.builtin_artifact_content_binding.v0` content/hash binding for the
-  checked-in Hello service source snapshot plus a signed repo-local artifact
-  byte/reference hash for
-  `seed-kernel/artifacts/svc.demo.hello.builtin.artifact`
-- `service.artifact_reference_trust_selftest` proves that valid artifact
-  reference evidence passes and tampered byte/content/reference/trust evidence
-  fails closed without accepting artifact bytes or mutating the event log
-- the Hello load path now emits
-  `raios.current_boot_artifact_load_plan_preflight.v0`, binding the selected
-  descriptor source, artifact identity, content binding, artifact reference,
-  artifact bytes, and `ram_only:svc.demo.hello` service-slot intent into one
-  accepted current-boot/local-only preflight hash visible in load, inventory,
-  health, and RAM-audit evidence
-- `service.artifact_load_plan_preflight_selftest` proves that valid preflight
-  evidence passes and tampered descriptor/artifact/slot/denial evidence fails
-  closed without mutating the event log
-- the Hello load path now also emits
-  `raios.ram_only_service_slot_activation.v0`, derived from the accepted
-  preflight; load/start, inventory, health, stop/drop, and RAM-audit bindings
-  expose activation id/hash/status/active state, and drop clears the current
-  boot slot while citing the same activation hash
-- the host-bound descriptor-source path remains hash-bound to the current-image
-  source and does not accept arbitrary descriptor or artifact bytes
-- `service.inventory` shows `svc.demo.hello` as healthy/running while loaded;
-  `service.health svc.demo.hello` reports healthy, stopped, or missing from the
-  same current-boot state; `service.stop svc.demo.hello` marks it stopped;
-  `service.start svc.demo.hello` starts the stopped loaded generation,
-  `service.restart svc.demo.hello` records its own restart lifecycle event while
-  preserving that generation and activation hash, `service.hot_swap
-  svc.demo.hello` validates the signed built-in v1 evidence chain before
-  mutation, `service.hot_swap svc.demo.hello.v2` selects a distinct signed v2
-  artifact identity with visible `version: "v2"` and its own
-  identity/preflight/activation hashes, both accepted hot-swaps record lifecycle
-  events and advance the loaded generation, `raios.ram_only_hello_service_state.v0`
-  exposes a tiny current-boot counter in load, inventory, health, lifecycle,
-  and audit records, and v1->v2 plus v2->v1 hot-swaps preserve that state
-  through `raios.ram_only_hello_service_state_migration.v0` records while
-  denying persistence, durable audit, and rollback install; `service.hot_swap
-  svc.demo.hello.reset_state` computes a would-reset migration with
-  `accepted: false` / `state_preserved: false`, records a local-only
-  `capability_denied` lifecycle event, and proves the active descriptor,
-  generation, state hash, and counter stay unchanged; `service.drop
-  svc.demo.hello` removes it from inventory; the inventory and health records
-  cite `load_descriptor.current_boot.svc.demo.hello.v0` plus the descriptor
-  source locator/kind/validation/hash and bound source hash when present
-- lifecycle and health actions retain
-  `raios.ram_only_hello_service.lifecycle` and
-  `raios.ram_only_hello_service.health` audit events in the current-boot RAM
-  event log with descriptor and validated source-hash evidence
-- the hello path accepts no arbitrary external artifact bytes, writes no
-  persistent state, writes no durable audit log, installs no rollback plan, and
-  grants no broad mutation
-- wrong hello targets and external-looking hello targets remain on the denied
-  module-load gate
-- denied `module.load_ephemeral` / `service.load_ephemeral` remains the live
-  policy surface for normal modules
-- retained manifest, artifact, VM-test-report, local-attestation,
-  local-approval, computed-grant, audit/rollback, service-slot, allocator, and
-  loader-runtime evidence is current-boot, local-only, and non-authorizing
-- the normal-module loader-runtime chain now reaches descriptor/artifact intake,
-  execution authorization, service-registry mutation, live-load attempt,
-  artifact-load, executable-mapping, entrypoint-transfer, service-start,
-  service-health-binding, service-running-state, service-start-audit,
-  service-unload-cleanup, live-load-commit, commit-audit, commit-rollback,
-  commit-result, descriptor-acceptance authority, descriptor-parser contract,
-  descriptor-parser result, descriptor schema-validation, descriptor
-  capability-validation, descriptor load-plan, executable load-plan authority,
-  executable load-plan result, executable image-layout, executable
-  page-mapping plan, executable page-mapping, descriptor/executable-page
-  binding, executable entrypoint binding, executable entrypoint transfer
-  authorization, executable entrypoint transfer, executable entrypoint handoff,
-  and executable entrypoint invocation boundaries
-- all lifecycle boundaries report explicit non-authorizing reasons and keep
-  descriptor intake, descriptor bytes, parsed descriptor production,
-  validated descriptor production, descriptor schema validation, descriptor
-  capability validation, capability-validated descriptor production,
-  executable load-plan authority, executable load-plan production, executable
-  image-layout production, executable page-mapping plan production, executable
-  page mapping, capability-validated descriptor binding to executable pages,
-  executable entrypoint binding, entrypoint transfer authorization, explicit
-  entrypoint transfer, executable entrypoint handoff, executable entrypoint
-  invocation, descriptor parsing, artifact bytes, artifact load, executable
-  mapping, service start, health record creation, running-state marking,
-  start-audit record writing,
-  unload/cleanup, live-load commit, load-commit audit writing, commit rollback
-  install, result recording, service inventory mutation, service-slot
-  allocation, durable audit writes, rollback install, and load attempts false
-- `agent command_envelope` now accepts schema
-  `raios.agent_command_envelope.v0`, classification `local_only`, and the
-  read-only target/capability pairs `system.describe` with
-  `cap.system.describe.read`, `system.snapshot` with
-  `cap.system.snapshot.read`, `system.boot_log` with
-  `cap.system.boot_log.read`, `system.capabilities` with
-  `cap.system.capabilities.read`, `device.graph` with
-  `cap.device.graph.read`, `service.inventory` with
-  `cap.service.inventory.read`, and `problem.list` with
-  `cap.problem.list.read`; it emits a local-only
-  `raios.agent_command_envelope.v0` response and routes to the existing
-  dispatcher path. Bad-schema and over-capable envelope attempts are denied
-  before dispatch; allowed read-only targets paired with the wrong allowed read
-  capability are denied as `requested_capability_denied` before dispatch; and
-  the boundary does not create a parallel dispatcher, provider write,
-  candidate-byte load, persistence, durable audit write, rollback install, or
-  broad mutation
-- accepted, mismatched, bad-schema, and over-capable command-envelope decisions now retain
-  current-boot/local-only `raios.agent_command_envelope.decision` events with
-  `raios.agent_command_envelope.audit_binding.v0`; the envelope response
-  carries matching `event_id`/`audit_event_id`, and `audit.events` proves the
-  ten currently verified decision shapes
-- accepted Hello hot-swaps now emit RAM-only
-  `raios.ram_only_hello_service_hot_swap_probation.v0` evidence with
-  `active_current_boot_probation` status, previous/new descriptor and artifact
-  identity hashes, previous/new generation, preserved state hash/counter, and
-  the accepted state-migration hash; the v1->v2 audit event retains the
-  matching probation hash while candidate bytes, executable mapping,
-  persistence, durable audit, rollback install, and rollback apply stay denied
-- `service.rollback_preview svc.demo.hello` now reads retained hot-swap
-  probation evidence into
-  `raios.ram_only_hello_service_rollback_preview.v0`, exposes previous/current
-  descriptor, artifact identity, generation, state hash/counter, and migration
-  facts plus a preview hash, records a RAM-only rollback-preview audit event,
-  and proves the active v2 service stays unchanged while rollback apply and
-  durable/persistent/external execution surfaces stay denied
-- `service.rollback_apply svc.demo.hello` now returns structured
-  `capability_denied`, binds the current rollback-preview hash, probation hash,
-  Hello state hash/counter, rollback target, current candidate, and migration
-  hash, and now exposes
-  `raios.ram_only_hello_service_rollback_transaction_preflight.v0` binding the
-  apply-denial hash, requested capability, missing rollback-transaction,
-  durable-audit-write, and persistent-install authorities, target/current
-  descriptor and artifact identity facts, and no-side-effect flags, plus
-  `raios.ram_only_hello_service_rollback_write_authority_gate.v0` binding the
-  preflight hash, required audit/rollback-transaction schemas, unavailable
-  durable-audit-write, rollback-store-write, and transaction-append authority,
-  and disabled write/apply side effects, plus
-  `raios.ram_only_hello_service_rollback_append_intent_gate.v0` binding the
-  write-authority gate hash, preflight hash, apply-denial hash,
-  preview/probation/state evidence, target/current candidate facts, required
-  schemas, unavailable append/durable-store authority, and disabled
-  append/write/apply side effects; the RAM-only rollback-apply denial audit
-  event retains the same preflight, write-authority gate, and append-intent gate
-  hashes and proves the active v2 descriptor, generation, running state, and
-  RAM-only state stay unchanged while real rollback application, persistence,
-  durable audit writes, rollback-store writes, transaction append, external
-  bytes, candidate execution, executable mapping, provider auto-load, and broad
-  mutation stay denied
-
-Previous full verification before the verifier-decision slice:
-
-```text
-release\vm-reports\shadow-20260702-042431-24536.json
-6632/6632 predicates, 243 executed commands, duration_ms: 609828
-```
-
-Latest full verification after the explicit hello `service.start` slice:
-
-```text
-release\vm-reports\shadow-20260702-053820-28640.json
-6640/6640 predicates, 243 executed commands, duration_ms: 610100
-```
-
-Latest focused verification after the Hello rollback append-intent gate:
-
-```text
-release\vm-reports\shadow-20260702-090105-12232.json
-263/263 quick predicates, 54 executed commands, duration_ms: 84226
-```
-
-Previous focused verification after the Hello rollback write-authority gate:
-
-```text
-release\vm-reports\shadow-20260702-085049-8956.json
-260/260 quick predicates, 54 executed commands, duration_ms: 72086
-```
-
-Previous focused verification after the Hello rollback transaction/durable-audit
-preflight:
-
-```text
-release\vm-reports\shadow-20260702-084240-14784.json
-257/257 quick predicates, 54 executed commands, duration_ms: 73613
-```
-
-Previous focused verification after the fail-closed Hello rollback-apply gate:
-
-```text
-release\vm-reports\shadow-20260702-082918-20728.json
-254/254 quick predicates, 54 executed commands, duration_ms: 77410
-```
-
-Previous focused verification after the read-only Hello rollback preview:
-
-```text
-release\vm-reports\shadow-20260702-081302-27580.json
-247/247 quick predicates, 52 executed commands, duration_ms: 81372
-```
-
-Previous focused verification after accepted Hello hot-swap probation evidence:
-
-```text
-release\vm-reports\shadow-20260702-075957-15956.json
-243/243 quick predicates, 50 executed commands, duration_ms: 77226
-```
-
-Previous focused verification after the fail-closed Hello reset-state migration gate:
-
-```text
-release\vm-reports\shadow-20260702-074900-3852.json
-241/241 quick predicates, 50 executed commands, duration_ms: 79318
-```
-
-Previous focused verification after the Hello state migration slice:
-
-```text
-release\vm-reports\shadow-20260702-073742-10256.json
-237/237 quick predicates, 48 executed commands, duration_ms: 74841
-```
-
-Previous focused verification after the signed Hello v2 hot-swap slice:
-
-```text
-release\vm-reports\shadow-20260702-072537-6980.json
-235/235 quick predicates, 48 executed commands, duration_ms: 75346
-```
-
-Previous focused verification after the Hello hot-swap slice:
-
-```text
-release\vm-reports\shadow-20260702-071540-15484.json
-231/231 quick predicates, 46 executed commands, duration_ms: 72031
-```
-
-Previous focused verification after the `system.boot_log` command-envelope slice:
-
-```text
-release\vm-reports\shadow-20260702-070530-20712.json
-226/226 quick predicates, 43 executed commands, duration_ms: 69882
-```
-
-Previous focused verification after the `device.graph` command-envelope slice:
-
-```text
-release\vm-reports\shadow-20260702-065801-25136.json
-224/224 quick predicates, 42 executed commands, duration_ms: 95235
-```
-
-Previous focused verification after the `system.capabilities` command-envelope slice:
-
-```text
-release\vm-reports\shadow-20260702-065202-7476.json
-222/222 quick predicates, 41 executed commands, duration_ms: 95768
-```
-
-Previous focused verification after the `system.snapshot` command-envelope slice:
-
-```text
-release\vm-reports\shadow-20260702-064636-24876.json
-220/220 quick predicates, 40 executed commands, duration_ms: 67908
-```
-
-Previous focused verification after the `problem.list` command-envelope slice:
-
-```text
-release\vm-reports\shadow-20260702-063508-18024.json
-219/219 quick predicates, 40 executed commands, duration_ms: 94555
-```
-
-Previous focused verification after the command-envelope mismatch denial slice:
-
-```text
-release\vm-reports\shadow-20260702-063057-5156.json
-217/217 quick predicates, 39 executed commands, duration_ms: 67751
-```
-
-Previous focused verification after the `service.inventory` command-envelope slice:
-
-```text
-release\vm-reports\shadow-20260702-062447-11572.json
-214/214 quick predicates, 38 executed commands, duration_ms: 92411
-```
-
-Previous focused verification after the agent-command envelope audit slice:
-
-```text
-release\vm-reports\shadow-20260702-061909-10304.json
-212/212 quick predicates, 37 executed commands, duration_ms: 65117
-```
-
-Older focused verification after the first agent-command envelope slice:
-
-```text
-release\vm-reports\shadow-20260702-061129-8152.json
-207/207 quick predicates, 36 executed commands, duration_ms: 64609
-```
-
-Previous focused verification after the explicit hello `service.restart` slice:
-
-```text
-release\vm-reports\shadow-20260702-055608-6288.json
-203/203 quick predicates, 33 executed commands, duration_ms: 62948
-```
-
-Previous focused verification after the explicit hello `service.start` slice:
-
-```text
-release\vm-reports\shadow-20260702-053445-10792.json
-201/201 quick predicates, 32 executed commands, duration_ms: 61451
-```
-
-Latest focused verification after the artifact identity slice:
-
-```text
-release\vm-reports\shadow-20260702-021750-7868.json
-172/172 quick predicates, 29 executed commands, duration_ms: 51268
-```
-
-Latest focused verification after the artifact content binding slice:
-
-```text
-release\vm-reports\shadow-20260702-022858-26440.json
-174/174 quick predicates, 29 executed commands, duration_ms: 51671
-```
-
-Latest focused verification after the artifact byte/reference slice:
-
-```text
-release\vm-reports\shadow-20260702-023832-25068.json
-177/177 quick predicates, 29 executed commands, duration_ms: 53786
-```
-
-Latest focused verification after the artifact-reference trust selftest:
-
-```text
-release\vm-reports\shadow-20260702-025252-23928.json
-178/178 quick predicates, 30 executed commands, duration_ms: 53295
-```
-
-Latest focused verification after the artifact load-plan preflight:
-
-```text
-release\vm-reports\shadow-20260702-030513-27840.json
-181/181 quick predicates, 30 executed commands, duration_ms: 59868
-```
-
-Latest focused verification after the artifact load-plan preflight selftest:
-
-```text
-release\vm-reports\shadow-20260702-032107-16036.json
-182/182 quick predicates, 31 executed commands, duration_ms: 38186
-```
-
-Latest focused verification after the service-slot activation slice:
-
-```text
-release\vm-reports\shadow-20260702-033352-9800.json
-185/185 quick predicates, 31 executed commands, duration_ms: 60174
-```
-
-Latest focused verification after the provider context hash-binding slice:
-
-```text
-release\vm-reports\shadow-20260702-034303-24400.json
-191/191 quick predicates, 31 executed commands, duration_ms: 60437
-```
+Current milestone: **M0 Stabilize** (see Capability Milestones).
 
 Exact next task:
 
 ```text
-Continue the runtime artifact track with the smallest rollback transaction
-payload/hash-envelope gate over the verified Hello rollback append-intent gate.
-It should bind the retained append-intent gate hash, write-authority gate hash,
-preflight hash, apply-denial hash, preview hash, probation hash, current state
-hash, rollback target, current candidate, requested capability, required
-`raios.audit_record.v0` / `raios.rollback_transaction.v0` schemas, proposed
-transaction payload schema/id, payload hash, provenance hash, and unavailable
-writer/durable-store authority into current-boot/local-only evidence while
-actual rollback application, persistent install, durable audit writes,
-rollback-store writes, transaction append, external bytes, candidate execution,
-executable mapping, provider auto-load, and broad mutation remain denied.
+1. Commit the working tree (~20,500 uncommitted lines). Split into honest
+   commits per boundary (hello rollback gates, provider trust, docs); do not
+   label the batch as one small feature.
+2. Repair the full Shadow VM checkpoint harness around the non-terminal
+   module load-gate audit scrape: avoid depending on one giant mid-profile
+   `agent audit.events 256` response that closes the serial path before
+   recovery and Hello checks can continue. Prefer splitting audit evidence
+   by ownership boundary or moving bounded audit checks closer to the
+   records they prove. Root-cause whether the serial close is a guest-side
+   bug before classifying past failures as host flakes.
+3. Re-run the full profile until green. Do not add runtime schemas, relax
+   predicates, or grant authority. While the full profile is red, the only
+   permitted work is fixing it (Red Gate Rule, AGENTS.md).
 ```
 
-AI-parallel next wave:
+Latest full-profile green: 6789/6789 predicates, 2026-07-02 (see
+`docs/PROJECT_STATUS.md` for report paths and hashes). All full-profile runs
+since have failed, including two real predicate failures (7005/7006
+`module_manifest_audit_source`; 7380/7381 entrypoint-boundary) that need
+guest-vs-host classification.
 
-1. Runtime artifact track: add the rollback transaction payload/hash-envelope
-   gate over the verified Hello rollback append-intent gate without applying
-   rollback, appending a transaction, writing durable records, or claiming
-   persistence authority.
-2. Provider trust/context track: harden the direct provider path toward
-   SPKI/WebPKI trust and keep context injection gated by typed request/export
-   authorization evidence; do not claim WebPKI/time validation before trusted
-   roots, intermediate-chain handling, and trusted time exist.
-3. Runtime artifact track: keep the Hello activation record green; only add
-   narrow follow-ups that prove cleanup or trust evidence without executing
-   candidate bytes.
-4. UI/input track: improve response wrapping, scrolling, and settings controls
-   while keeping UI state derived from typed system facts.
-5. VM harness/evidence track: keep focused smokes fast and add predicates only
-   when they prove positive behavior or necessary fail-closed denials.
-6. Recovery/persistence track: keep lifeline, durable audit, rollback, and
-   persistence designed from the final trust model; do not implement fake
-   persistence or rollback before the evidence chain exists.
+## Capability Milestones
 
-Only after provider trust/context and the live-load execution/audit/rollback
-evidence chain are real should a later integration cursor consider loading
-candidate bytes. Execution must stay built-in/current-boot until those gates
-exist.
+The roadmap's backbone is now capability milestones, not schema phases. A
+milestone is done when its capability sentence is true and verified, not when
+its evidence is described. Denial-gate and schema-only slices do not advance
+milestones (ADR 0005 §3).
 
-Documentation ownership:
+### M0 Stabilize (active)
 
-- `README.md`: product thesis, quickstart, concise current reality only.
-- `docs/ROADMAP.md`: phase direction and compact active cursor only.
-- `docs/PROJECT_STATUS.md`: authoritative detailed status, exact next task,
-  verification evidence, known gaps, and unabridged implementation history.
-- `docs/DEBUGGING.md`: commands, smoke profiles, protocol probes, and failure
-  modes.
+Capability sentence: "The project's own pre-commit gate is green and the
+repository history is truthful again."
 
-Current blockers and non-goals:
+- Working tree committed in honest, boundary-scoped commits.
+- Full Shadow VM profile green; the `audit.events 256` serial failure
+  root-caused and classified (guest bug vs host transport).
+- Recent real predicate failures (7005/7006, 7380/7381) explained.
 
-- Do not add fake persistent memory. V0 memory is `current_boot` and read-only.
-- Do not send raw `system.snapshot` or boot logs to a provider.
-- Do not grant module/service/config mutation before the evidence chain exists.
-- Do not add another non-authorizing loader boundary before the hello-service
-  slice unless it is the smallest blocker for load/start/list/stop/drop.
-- Do not treat the direct OpenAI provider path as the recovery lifeline.
-- Do not overwrite `release/raios-stage0.img` unless the replacement has booted
-  in QEMU.
+### M1 Testable Core
+
+Capability sentence: "Kernel gate/evidence logic runs and passes as ordinary
+host `cargo test` in seconds, and a second machine (CI) builds and smokes
+every commit."
+
+- Extract a `no_std` library crate from the flat binary crate: types, eval
+  logic, hash chains, descriptor parsing, behind a `ByteSink` trait (serial
+  impl in the kernel, `Vec<u8>` impl in tests).
+- Host `cargo test` coverage for gate truth tables, parse round-trips, and
+  hash-chain vectors.
+- Minimal CI (GitHub Actions): pinned-toolchain build, image packaging,
+  headless QEMU quick profile under TCG, report uploaded as artifact.
+
+### M2 Ceremony Collapse
+
+Capability sentence: "The agent layer is small enough for an agent to fully
+model again (~10x smaller), with byte-identical serial output proven by the
+existing golden-string harness."
+
+- One typed `Value`/record model + one JSON serializer + one canonical
+  hasher over the same structure (emitter/hasher divergence becomes
+  impossible).
+- Port gates slice-by-slice; every porting slice deletes more lines than it
+  adds; harness needles prove byte-identical output.
+- Table-driven method dispatch; named `key=value` command arguments;
+  shared `CommandBindings` struct replacing per-stage 25-field clones.
+- De-hello-ify: `event_log.rs` and gate constants parameterized by a
+  `ServiceDescriptor`; `hello_service.rs` split below the AGENTS.md size
+  thresholds.
+- Target: agent layer under ~20k lines; rustfmt runs clean on all sources.
+
+### M3 First Durable Write
+
+Capability sentence: "raiOS performs its first real, policy-authorized,
+durable mutation: an audit/rollback transaction append to the
+`RAIOS_AUDITRB_V0` LBA1 region — and a hello hot-swap rollback actually
+applies using it."
+
+- Grant the first narrow write authority through the existing gate chain
+  (AHCI write/readback already verified; this is authority policy, not
+  driver work).
+- Real transaction append + readback + hash verification; rollback apply
+  transitions from `capability_denied` to a real, evidenced state change
+  with the transaction as its record.
+- The existing denial edifice becomes a functioning transaction system.
+
+### M4 Wasm Isolation
+
+Capability sentence: "A service runs inside an in-kernel Wasm interpreter
+and physically cannot call an authority outside its granted host-function
+imports."
+
+- Vendored, pinned `no_std` Wasm interpreter (wasmi-class, no JIT).
+- Hello (or echo) compiled to wasm32, loaded as a real module artifact
+  through the existing descriptor/attestation chain.
+- Capability envelope = linked import surface; a deliberate
+  exceed-capability test fails at the boundary, not at a policy string.
+
+### M5 Second Service Proof
+
+Capability sentence: "Adding `svc.demo.echo` costs only a descriptor and a
+state machine — no new emitters, hash chains, or harness profiles beyond
+generated needles."
+
+This is the acceptance test that M2's refactor and M4's runtime actually
+generalize. If a second service still costs tens of thousands of lines, the
+architecture is not what the ADRs claim.
+
+### M6 Promotion Loop v0
+
+Capability sentence: "One external, AI-authored artifact travels the full
+loop: authored, Shadow-VM verified, capability-granted, promoted into the
+live system, and rolled back — with evidence at every step."
+
+This is the project's first true product milestone; everything before it is
+substrate.
+
+### M7 and beyond (direction, not yet planned in detail)
+
+Persistent image layout (GPT `SEED_ESP_A/B` + `SEED_DATA` per
+`docs/image-layout-v0.md`), durable memory records (ADR 0004 Phase D),
+recovery agent lifeline (ADR 0003), provider WebPKI + trusted time,
+provider-agnostic adapters, bare-metal Wi-Fi.
+
+## Active Execution Rules
+
+Standing rules live in `AGENTS.md` (Definition of Done, Red Gate Rule,
+Commit Discipline, Failure Classification, End-of-Session Checks). Compact
+reminders:
+
+- Every slice states what the system can now DO that it could not before.
+- No new `raios.*.v0` schemas as hand-rolled emit/hash code; after M2, new
+  schemas are record-model entries only.
+- Match verification cost to slice risk exactly as before (quick often,
+  full rarely, focused when the touched boundary is risky); never skip VM
+  evidence for trust/storage/rollback/recovery/authority/descriptor/boot
+  changes.
+- Execution model: a master agent plans from this roadmap and dispatches
+  worker agents with narrow, verifiable tasks split by ownership boundary
+  (runtime/loader, provider trust, UI/input, VM harness, docs). Workers
+  return one integrated slice with a capability sentence plus verification
+  evidence. Parallel dispatch only across non-conflicting boundaries.
 
 ## Product Thesis
 
-raiOS should be a tiny bootable environment whose primary interface is an
-AI agent host. The OS should be small enough to understand, boot quickly in a VM,
-and expose narrow, auditable capabilities to an AI provider through native
-provider adapters.
-
-This is not a Linux distribution and not a place to run the full Codex CLI in the
-kernel. Codex is useful as a development tool and as a product reference; the OS
-should implement its own minimal protocol surface.
+raiOS is a personal, self-modifying, bare-metal operating system where AI
+can change the machine only through evidence-gated, capability-scoped system
+transactions that can be rolled back. It is bonded to one machine and one
+user, small enough for an agent to fully model, and anchored in an immutable
+recovery core. It is not a Linux distribution, does not run on a Linux host
+(ADR 0005), and does not port the Codex CLI into the kernel (ADR 0001).
 
 ## North Star Architecture
-
-The long-term target is stronger than a small OS with a provider client. raiOS
-should become an always-on core plus a live-rebuildable world:
 
 ```text
 permanent core -> recovery agent lifeline -> live service graph
 -> agent workspace -> shadow VM/test world -> persistence/rollback
 ```
 
-The permanent core should only contain the survival mechanisms: minimal
-scheduling, memory/object ownership, IPC, capabilities, service loading, crash
-detection, rollback supervision, root system snapshots, and a tiny recovery
-control path.
-
-The normal OS surface should be replaceable services: UI, console, input, USB,
-networking, Wi-Fi, provider adapters, diagnostics, agent tools, builder service,
-and eventually driver experiments. The provider/OpenAI path is therefore a
-service, not the core identity of the OS.
-
-System memory is part of this north star. raiOS should not grow a large prompt
-dump or generic RAG database. It should make the system itself the memory:
-typed facts, events, decisions, problems, capability denials, service state,
-test evidence, and rollback records with provenance. Agents should receive
-task-scoped `agent_context.v0` packets selected by a local context broker under
-token, redaction, and provider-trust budgets. See
-`docs/architecture-decisions/0004-system-memory-and-agent-context.md`.
-
-For the final system, most evolution should happen without a visible reboot:
-
-```text
-load service v2 next to v1
-migrate state
-switch handles
-watch health
-rollback to v1 if needed
-persist only after tests and approval
-```
-
-If the live world crashes, the core should still be able to report a snapshot,
-disable bad modules, restart last-good services, roll back persistent state, and
-use a protected recovery agent lifeline. See
-`docs/architecture-decisions/0003-always-on-core-and-live-rebuildable-world.md`.
+The permanent core holds only survival mechanisms. Everything else —
+UI, console, input, USB, networking, provider adapters, diagnostics, agent
+tools, builder — becomes a replaceable service, first as Wasm modules
+(ADR 0005), long-term as a native service graph with versioned state and
+migrators (ADR 0003). The provider/OpenAI path is a service, not the core
+identity. The system itself is the memory: typed, classified,
+provenance-bound facts feeding budgeted `agent_context.v0` packets
+(ADR 0004).
 
 ## Planning Gates
 
-The current Stage-0 code proves that direct provider access is possible, but it
-does not yet prove the live-rebuildable architecture. The next planning gates are
-therefore intentionally narrow:
+Unchanged from the May 2026 plan-review consensus, now with the milestone
+overlay:
 
 ```text
-fail-closed TLS/provider trust
--> read-only agent protocol
--> typed system.snapshot.v0
--> static service.inventory.v0
--> capability policy v0
--> read-only memory.context over real typed facts
--> RAM-only event.log.v0 over reads and denials
--> module_manifest.v0
--> vm_test_report.v0
--> raios.local_attestation.v0
--> live loading remains denied until evidence matches
+fail-closed TLS/provider trust        (implemented, pin-only)
+-> read-only agent protocol           (implemented)
+-> typed system.snapshot.v0           (implemented)
+-> static service.inventory.v0        (implemented)
+-> capability policy v0               (implemented)
+-> read-only memory.context           (implemented)
+-> RAM-only event.log.v0              (implemented)
+-> module_manifest.v0                 (implemented, non-authorizing)
+-> vm_test_report.v0                  (implemented)
+-> raios.local_attestation.v0         (implemented, non-authorizing)
+-> live loading denied until evidence matches   (M3/M4 make this real)
 ```
 
-The direct OpenAI path is a normal provider-service candidate. It is not the
-recovery lifeline and must not become the trusted control plane for persistence,
-OTA, or recovery without the separate gates above.
-
-## Phase 0: Bootable Visual MVP
-
-Status: done for the current VM MVP.
-
-Goal:
-
-```text
-UEFI -> Limine -> Rust kernel -> framebuffer overlay -> serial diagnostics
-```
-
-Done:
-
-- Limine UEFI boot path working.
-- Higher-half kernel linking fixed.
-- Limine HHDM request available for kernel mappings.
-- Limine framebuffer request working.
-- Direct framebuffer drawing working.
-- Serial diagnostics working.
-- RDRAND entropy path working in the bare-metal-style VM profile.
-- Chat-first double-buffered framebuffer UI with compact status for entropy,
-  USB-xHCI, network, and input.
-- Minimal Windows image packaging path.
-
-## Phase 1: Minimal Agent Host UI
-
-Goal:
-
-```text
-Boot -> status UI -> command input -> visible responses
-```
-
-Scope:
-
-- framebuffer text UI
-- serial command input (`help`, `status`, `devices`, `log`)
-- optional keyboard input
-- device/status model in memory
-- commands: `help`, `status`, `devices`, `log`
-
-Definition of done:
-
-- QEMU window shows live state, not only a fixed splash.
-- Serial input can request status.
-- State transitions are mirrored in serial logs.
-
-Current status: framebuffer UI, serial commands, entropy, e1000 network
-bring-up, DHCP configuration, USB keyboard input, and USB mouse input are
-implemented. The remaining work here is mostly UI polish and richer command
-behavior.
-
-## Phase 2: Network Visibility
-
-Goal:
-
-```text
-e1000 visible -> DHCP attempt -> IP/DNS/gateway state shown
-```
-
-Scope:
-
-- network status in UI
-- DHCP progress and timeout states
-- packet counters
-- DNS stub visibility if already present in code
-
-Definition of done:
-
-- UI shows whether network is unavailable, probing, configured, or failed.
-- Serial log gives enough data to debug without a graphical screenshot.
-
-Current status: QEMU user-mode DHCP configures `10.0.2.15/24`, gateway
-`10.0.2.2`, and DNS `10.0.2.3` locally. Packet counters, failure/timeout states,
-and DNS command visibility remain.
-
-## Phase 3: Direct Provider Transport With Trust Gate
-
-Goal:
-
-```text
-VM agent protocol -> in-OS DNS/TCP/TLS/HTTPS -> provider API -> verified peer
-```
-
-Scope:
-
-- tiny provider request state machine inside Stage-0
-- DNS/TCP visibility for provider endpoints
-- TLS/HTTPS client small enough to audit
-- fail-closed certificate verification or provider/SPKI pinning
-- API key entry in RAM first, stronger storage later
-- every agent action maps to an explicit tool/capability
-
-Definition of done:
-
-- VM can submit a prompt to the provider without a host-side helper.
-- The normal provider path does not use certificate verification bypass.
-- Provider trust state is visible through status/snapshot output and VM smoke
-  tests check for a verified or pinned TLS marker.
-- The framebuffer and serial console show missing-auth, network, TLS, and
-  provider errors clearly.
-
-Current status: the host relay has been removed from the runtime path. The VM
-command `ask <text>` stays in the guest and fails closed in the normal build
-when provider trust is not positively verified. The default visible trust state
-is `pin_config_missing`, and the Shadow VM smoke checks that problem. The first
-positive verifier slice is implemented for OpenAI SPKI SHA-256 pinning: a local
-image built with `-EmbedOpenAiSpkiPinFromEnv` checks the configured pin and the
-TLS 1.3 P-256 ECDSA `CertificateVerify` proof before API key copy or HTTPS
-write, and `openai-direct-smoke.ps1 -ExpectSpkiPinnedTrust` verifies the marker.
-The earlier leaf-certificate SHA-256 pin path remains available through
-`-EmbedOpenAiCertPinFromEnv` and `-ExpectPinnedTrust` for compatibility. A local
-development image built with
-`-AllowUnverifiedOpenAiTls` can still exercise the old unverified path for
-transport debugging only. WebPKI, broader certificate algorithm support, and
-redacted context projection remain the next trust hardening gates before
-provider context injection, tool schemas, or capability policy can be treated as
-safe.
-
-## Phase 4: Provider Integration And Redacted Context
-
-Goal:
-
-```text
-Prompt + redacted read-only context -> provider adapter -> response rendered in raiOS
-```
-
-Scope:
-
-- provider config flow
-- OpenAI/ChatGPT/Codex-style adapter first
-- API key/pairing handled through a visible VM flow first, with persistence and
-  stronger secret storage later
-- rendered response in framebuffer UI
-- `system.snapshot.v0` context may be attached only after TLS trust and field
-  redaction are defined
-- no mutating provider tools in this phase
-
-Definition of done:
-
-- User can boot the VM and get one AI response rendered in the OS.
-- Failure modes are visible: missing auth, network unavailable, provider error.
-- Snapshot fields that can leave the machine are classified as `public`,
-  `local_only`, or `secret`, and provider requests include only explicitly
-  allowed redacted context.
-
-## Phase 5: Static Service Inventory And Snapshot V0
-
-Goal:
-
-```text
-running kernel facts -> typed snapshot -> static service graph -> machine-readable system model
-```
-
-Scope:
-
-- define which code belongs to the permanent core and which belongs to services
-- expose `system.snapshot.v0`
-- expose service inventory, health state, and last error per service
-- model the current statically linked kernel components as services before any
-  dynamic service loading
-- include service id, kind, health, last error, capabilities, `replaceable`, and
-  `core_owned`
-- make UI/console/provider/network status consume the same structured model
-- add capability names for observation and service lifecycle operations
-
-Definition of done:
-
-- The agent can ask what is running, what is degraded, and which capabilities
-  exist without scraping human logs.
-- The codebase has an explicit boundary between survival-core responsibilities
-  and replaceable service responsibilities.
-- Existing framebuffer and console status are derived from typed facts, not from
-  a second status source.
-
-Initial service names should be stable even while everything is still linked
-into the kernel:
-
-```text
-core.boot
-core.memory
-core.serial
-core.scheduler
-core.entropy
-core.snapshot_root
-svc.ui.framebuffer
-svc.console
-svc.input
-drv.usb.xhci
-drv.net.e1000
-svc.net.ipv4
-drv.wifi.avastar_probe
-svc.provider.openai_direct
-```
-
-The first agent protocol methods are read-only:
-
-```text
-system.describe
-system.snapshot
-system.capabilities
-system.boot_log
-device.graph
-problem.list
-service.inventory
-```
-
-Mutating methods may be documented, but they must initially return
-`capability_denied` until manifest, VM-test-report, local attestation, and audit
-records exist.
-
-## Phase 5.5: Read-Only System Memory Context
-
-Goal:
-
-```text
-typed facts -> bounded context broker -> agent_context.v0
-```
-
-Scope:
-
-- expose `memory.profile`
-- expose read-only `memory.context` over current snapshot, service inventory,
-  problem list, capabilities, boot log summaries, and ADR metadata
-- expose `memory.query` and `memory.trace` for included records
-- enforce token profiles such as `provider_minimal`, `diagnostic`, and
-  `planning`
-- make summaries and semantic/RAG hits locators only, never authority
-- keep all memory mutation denied until event log, audit, policy, persistence,
-  and rollback records exist
-
-Definition of done:
-
-- The agent can ask for task-relevant context without receiving the whole memory
-  store or raw logs.
-- Context packets report profile, budget, included records, and omitted classes.
-- Provider-bound context still obeys provider trust and redaction gates.
-
-## Phase 5.6: RAM-Only Current-Boot Event Log
-
-Goal:
-
-```text
-agent protocol behavior -> bounded event.log.v0 -> denial/event evidence ids
-```
-
-Status: implemented for agent protocol reads and known denials.
-
-Scope:
-
-- expose `memory.recent_events [limit]`
-- expose `audit.events [limit]` as an alias
-- record read-only protocol responses with method, capability, classification,
-  outcome, and compact evidence
-- record `capability_denied` outcomes for memory/module/service/config methods
-- include current-boot `event_id` and `audit_event_id` in denial responses
-- keep the log RAM-only, bounded, non-secret, and non-provider-exported
-
-Definition of done:
-
-- Shadow VM proves `event.log.v0` and `audit.event.v0` over serial.
-- Denied memory and module methods cite event ids.
-- No persistent memory, durable audit ledger, or provider export is implied.
-
-## Phase 5.7: Provider-Minimal Redaction Projection
-
-Goal:
-
-```text
-agent_context.v0 -> classified provider_minimal projection -> export still denied
-```
-
-Status: implemented as a local read-only projection.
-
-Scope:
-
-- mark `provider_minimal` available as a local projection in `memory.profile`
-- include local `context_event_id` and `audit_event_id` handles on
-  `memory.context` responses
-- emit `raios.provider_context_projection.v0` for
-  `memory.context provider_minimal`
-- classify provider-bound fields as `public`, `local_only`, or `secret`
-- include only public product/stage identity, coarse subsystem states, provider
-  state markers, capability ids, service ids, stable problem metadata, and
-  public record summaries in the nested projected packet
-- omit raw `system.snapshot`, boot logs, local-only details, provider prompt
-  text, request ids, network topology, Wi-Fi secrets, TCP diagnostics, and
-  unclassified context
-- keep provider export disabled with explicit blockers for provider trust and
-  provider export audit binding
-
-Definition of done:
-
-- Shadow VM proves the projection schema, field classification, explicit
-  omissions, local event ids, provider export denial, and query/trace locator.
-- OpenAI requests still do not receive automatic context injection.
-
-## Phase 5.8: Provider Context Export Gate
-
-Goal:
-
-```text
-provider_minimal projection -> provider_context_export gate -> provider write denied
-```
-
-Status: implemented as a denied-by-default protocol gate.
-
-Scope:
-
-- expose `provider.context_export [provider_minimal]` and
-  `provider.export_context [provider_minimal]` as provider-boundary methods
-- add `cap.provider.context_export` with risk `export` and no V0 grant
-- return `raios.provider_context_export.v0` with current-boot `event_id` and
-  `audit_event_id`
-- report provider trust state, projection presence, field-classification
-  presence, packet evidence state, missing request binding, missing export
-  audit binding, and `provider_write: not_attempted`
-- record the denial in `event.log.v0` as `cap.provider.context_export`
-- keep OpenAI requests free of automatic context attachment
-
-Definition of done:
-
-- Shadow VM proves the export schema, capability denial, export risk event,
-  missing evidence list, and no provider write attempt.
-
-## Phase 5.9: Provider Context Packet Evidence
-
-Goal:
-
-```text
-provider_minimal packet -> canonical evidence hashes -> export still denied
-```
-
-Status: implemented for the local projection and denied export gate.
-
-Scope:
-
-- define `raios.provider_minimal.packet.canonical.v0`
-- hash the canonical provider-minimal `raios.agent_context.v0` packet
-- hash the exported field list separately
-- hash the omitted field list separately
-- expose those hashes through `raios.provider_context_projection.v0`
-- expose those hashes through `raios.provider_context_export.v0`
-- report packet and field-list bindings as present while provider writes remain
-  `not_attempted`
-- keep OpenAI requests free of automatic context attachment
-
-Definition of done:
-
-- Shadow VM proves the projection and export gate both expose
-  `projected_packet_hash`, `exported_field_list_hash`, and
-  `omitted_field_list_hash`, while request binding and export audit binding
-  remain missing.
-
-## Phase 5.10: Provider Export Denial Audit
-
-Goal:
-
-```text
-failed provider export -> distinct denial evidence -> export gates still fail
-```
-
-Status: implemented for the denied `provider.context_export` path.
-
-Scope:
-
-- keep positive `raios.provider_request_binding.v0` missing until a real
-  provider request envelope exists
-- keep positive `raios.provider_context_export_audit_binding.v0` missing until
-  structured hash-valued audit evidence exists
-- emit `raios.provider_request_binding_denial.v0` for the failed binding
-  attempt
-- emit `raios.provider_context_export_denial_audit.v0` for the no-write export
-  decision
-- record separate current-boot event ids for the capability denial, request
-  binding denial, and export denial audit
-- mark denial-audit records with `satisfies_export_gate: false`
-- carry hash-valued structured `event.log.v0` bindings on the denial events
-  while keeping `satisfies_current_boot_export_gate: false`
-- keep `provider_write: not_attempted` and automatic provider context injection
-  disabled
-
-Definition of done:
-
-- Shadow VM proves the positive binding gates remain missing, denial records are
-  present but cannot satisfy export gates, and the event log contains
-  `provider_context_export.request_binding_denied` plus
-  `provider_context_export.denial_audit` with packet/field-list hashes.
-
-## Phase 5.11: Provider Request Envelope
-
-Goal:
-
-```text
-real provider request path -> local pre-write envelope -> positive binding candidate
-```
-
-Status: implemented for the real direct OpenAI `ask` path.
-
-Scope:
-
-- create `raios.provider_request_envelope.v0` only from the real OpenAI request
-  path, not from `provider.context_export`
-- bind the envelope to the exact request body hash prepared for HTTPS write
-- keep raw prompt text, API keys, Authorization values, and Content-Length out
-  of the envelope
-- keep provider-minimal context attachment blocked unless positive provider
-  trust and a positive export audit binding both exist
-- fail closed if envelope hashes, packet hashes, boot scope, or event retention
-  do not match
-
-Definition of done:
-
-- Shadow VM proves `provider.context_export` does not create a fake request
-  envelope.
-- Direct OpenAI pin-mismatch smoke proves the envelope schema appears on a real
-  provider request path, omits prompt/Content-Length/Authorization values, and
-  still fails before HTTPS write on pin mismatch.
-- Denied export remains denied until a positive request binding and positive
-  export audit binding exist.
-
-## Phase 5.12: Positive Provider Context Binding
-
-Goal:
-
-```text
-provider_minimal packet hash -> real request envelope -> positive export audit binding
-```
-
-Status: implemented for local-only current-boot binding records; automatic
-context injection remains disabled.
-
-Scope:
-
-- create `raios.provider_request_binding.v0` only for a retained current-boot
-  `raios.provider_request_envelope.v0`
-- bind request-envelope hash, request-body hash, provider-minimal packet hash,
-  exported-field-list hash, and omitted-field-list hash
-- reject denial schemas, development TLS bypass, stale or dropped event ids,
-  previous-boot ids, consumed bindings, and hash mismatches
-- create `raios.provider_context_export_audit_binding.v0` only after positive
-  provider trust and matching request binding exist
-- set `satisfies_request_binding_gate: true` only on the request binding
-- set `positive_export_authorization: true` only on the export audit binding
-- keep `satisfies_current_boot_export_gate: false`,
-  `automatic_context_injection: disabled`, and
-  `context_attached_to_provider_body: false`
-
-Definition of done:
-
-- Shadow VM proves standalone `provider.context_export` still cannot fake
-  request envelopes or positive bindings.
-- Direct OpenAI pin-mismatch smoke proves positive binding markers remain absent
-  when provider trust fails.
-- Direct OpenAI SPKI pinned-trust smoke proves the real `ask` path emits the
-  request envelope, positive request binding, and positive export audit binding
-  markers before HTTPS write.
-- The OpenAI request body still does not receive automatic provider-minimal
-  context.
-
-## Phase 5.13: Checked Current-Boot Binding Consumption Gate
-
-Goal:
-
-```text
-positive binding pair -> checked retained chain -> consumed for local gate evaluation
-```
-
-Status: implemented for local gate evaluation and negative predicate selftests;
-automatic context injection remains disabled.
-
-Scope:
-
-- expose `provider.context_gate provider_minimal` as a read-only diagnostic
-  over retained current-boot binding evidence
-- validate one `raios.provider_request_binding.v0` with one matching
-  `raios.provider_context_export_audit_binding.v0`
-- require matching request id, request-envelope event id, request-body hash,
-  request-envelope hash, request-binding hash, and provider-minimal
-  packet/exported/omitted field-list hashes plus redaction,
-  field-classification, token-budget, provider-trust evidence hashes, and
-  provider trust verifier metadata inside the retained binding pair
-- reject development TLS bypass records, non-positive trust records, stale or
-  dropped referenced events, wrong variants, already consumed pairs, and body
-  attachment records
-- expose `provider.context_gate_selftest provider_minimal` as local-only test
-  infrastructure that exercises stale/dropped ids,
-  previous-boot-or-unretained ids, substituted denial schemas, substituted
-  positive records, request/body/binding/context hash mismatches, and
-  redaction/classification/budget/trust-evidence hash mismatches without
-  mutating global event state
-- consume a valid pair once through `provider.context_export provider_minimal`
-  and record `raios.provider_context_binding_consumption.v0`
-- keep `satisfies_current_boot_export_gate: false`,
-  `automatic_context_injection: disabled`, `provider_write: not_attempted`, and
-  `context_attached_to_provider_body: false`
-
-Definition of done:
-
-- Shadow VM proves the read-only gate reports missing binding evidence without
-  creating request envelopes or positive bindings.
-- Shadow VM proves the selftest cases reject stale/dropped ids,
-  previous-boot-or-unretained ids, substituted schemas, substituted positive
-  records, mismatched request/body/binding/context/redaction/classification,
-  budget, and trust-evidence hashes, and trust-bypass records while creating no
-  provider request envelopes or positive binding records.
-- Direct OpenAI pin-mismatch smoke proves positive binding and consumption
-  remain absent when trust fails.
-- Direct OpenAI SPKI pinned-trust smoke proves marker hashes match, the retained
-  pair validates, the first export-gate evaluation consumes it without body
-  attachment, and a second attempt is rejected as `binding_already_consumed`.
-
-## Phase 5.14: Final Provider Context Injection Gate
-
-Goal:
-
-```text
-checked binding evidence -> explicit injection authorization -> one request body may attach context
-```
-
-Status: fail-closed diagnostic and negative authorization selftests implemented;
-no context injection is implemented in the current slice.
-
-Scope:
-
-- define a distinct schema for the final injection authorization, separate from
-  request binding, export-audit binding, and binding consumption
-- expose `provider.context_injection_gate provider_minimal` as a read-only
-  diagnostic over the current gate state
-- expose `provider.context_injection_gate_selftest provider_minimal` as
-  local-only test infrastructure for missing, stale, substituted, body-hash
-  mismatched, trust-downgraded, and unauthorized body-attachment final
-  authorization candidates
-- emit a blocked `OPENAI_PROVIDER_CONTEXT_INJECTION_GATE` marker on positive
-  pinned/WebPKI OpenAI request paths before API-key copy or HTTPS write
-- require positive provider trust, retained current-boot binding evidence,
-  redaction projection hashes, provider-trust evidence hash, single-use
-  consumption, and a final local policy decision before
-  `context_attached_to_provider_body` may become true
-- evaluate the current direct OpenAI gate synchronously before HTTPS write; a
-  future provider-adapter service boundary may replace that direct path after it
-  has equivalent evidence and tests
-- require fail-closed harness coverage for missing final authorization, stale
-  final authorization, hash mismatch, trust bypass, and body attachment attempts
-  without authorization
-- keep raw prompt text, API keys, Authorization values, local-only network
-  details, and unclassified memory out of all provider context
-
-Definition of done:
-
-- `context_attached_to_provider_body` becomes true only when the final injection
-  gate's own schema and evidence pass.
-- Direct and Shadow VM harnesses prove denied and positive paths separately.
-- The request body contains only the redacted `provider_minimal` projection and
-  never raw local-only or secret fields.
-
-## Phase 6: Ephemeral Live Services
-
-Status: started with a denied-by-default `raios.module_load_gate.v0`, a
-host-side `raios.computed_capability_grant.v0` diagnostic, and a guest-side
-read-only computed-grant hash-reference diagnostic. No artifact loader,
-ram-only service slot allocator, durable audit ledger, rollback state, or
-positive loading grant exists yet.
-
-Goal:
-
-```text
-AI proposes artifact -> capability check -> load for current boot -> drop/kill
-```
-
-Scope:
-
-- module/service manifest v0
-- ram-only service slot
-- service registry
-- capability grants are computed by local policy, not self-declared by modules
-- health checks and crash records
-- audit log for load, start, kill, and unload
-- denied-by-default behavior for missing manifest, missing grant, missing test
-  report, or missing local attestation
-
-Definition of done:
-
-- A low-risk service can be loaded without reboot, expose one new console command
-  or UI panel, then be removed without corrupting the rest of the system.
-- Loading requires service inventory, manifest, computed capability grants,
-  health reporting, audit records, and an explicit denial path.
-
-## Phase 7: Hot-Swap And State Migration
-
-Goal:
-
-```text
-service v1 keeps running -> service v2 loads -> state migrates -> handles switch
-```
-
-Scope:
-
-- versioned service state objects
-- first state migrator
-- handle indirection for service clients
-- atomic switch and rollback
-- watchdog during the probation period after a switch
-
-Definition of done:
-
-- A simple service can be upgraded live while preserving its state.
-- A failed upgrade rolls back to the previous service version without a full
-  system restart.
-
-## Phase 8: Recovery Agent Lifeline
-
-Goal:
-
-```text
-live world down -> core still reports state -> AI can trigger recovery actions
-```
-
-Scope:
-
-- tiny recovery control protocol
-- separate from the normal rich provider service
-- separate from the direct OpenAI chat path
-- restart last-good service set
-- disable bad module ids
-- load recovery artifact by hash
-- optional pinned minimal provider route or local physical link
-
-Definition of done:
-
-- If UI, provider service, or another non-core service crashes, the core can
-  still expose a snapshot and accept bounded recovery commands.
-- The current `svc.provider.openai_direct` path is not treated as the recovery
-  lifeline unless a separate minimal recovery protocol and trust state exist.
-
-## Phase 9: Shadow VM Acceptance
-
-Goal:
-
-```text
-candidate artifact -> shadow boot/test -> report hash -> live/persist decision
-```
-
-Scope:
-
-- machine-readable VM test report
-- image hash, artifact hash, hardware profile, and snapshot precondition binding
-- serial/protocol/screenshot predicates
-- acceptance policy by risk level
-- first implementation may extend the existing serial smoke test before adding
-  QMP, power fault injection, or screenshot diffs
-
-Definition of done:
-
-- Risky service changes and all persistent changes require a matching test
-  report before activation.
-- The first report includes image hash, QEMU args hash, hardware profile,
-  commands, predicates, result, and serial log reference.
-
-## Phase 10: Persistence, Rollback, And Core Handoff
-
-Goal:
-
-```text
-tested service set -> persist -> boot-success mark -> rollback or core generation handoff
-```
-
-Scope:
-
-- image/state layout specification before implementation
-- persistent service set
-- last-good pointer
-- safe mode that disables non-core modules and persistent writes
-- boot-success marker
-- rollback on crash or missing success mark
-- experimental core-generation handoff for deep core updates
-
-Definition of done:
-
-- raiOS can persist a tested live change, recover from a bad persistent change,
-  and eventually replace even core generations without a normal user-visible
-  reinstall cycle.
-- The current single-FAT Stage-0 image remains explicitly documented as the MVP
-  layout until an A/B or DATA-backed layout is specified and tested.
+The direct OpenAI path remains a normal provider-service candidate, never
+the recovery lifeline.
+
+## Phase Map (legacy)
+
+The former Phase 0–10 structure is retired as the planning backbone (phases
+had become taxonomy, not gates — Phase 7 scope shipped inside Phase 6 while
+Phase 6's own definition of done was unmet). Full phase definitions remain in
+`docs/archive/roadmap-2026-07-04-pre-restructure.md`. Rough mapping: Phases
+0–5.14 are the implemented substrate above; Phase 6/7 work continues inside
+M3–M5; Phase 8 (recovery lifeline) and Phase 10 (persistence/core handoff)
+live in M7+; Phase 9 (Shadow VM acceptance) is realized by M6.
+
+## Documentation Ownership
+
+- `README.md`: product thesis, quickstart, concise current reality only.
+- `AGENTS.md`: stable startup checklist, standing engineering rules, durable
+  current facts only.
+- `docs/ROADMAP.md`: this file — direction, milestones, compact cursor.
+- `docs/PROJECT_STATUS.md`: authoritative detailed status, exact next task,
+  verification evidence; entries older than two weeks move to
+  `docs/archive/`.
+- `docs/OWNER_DASHBOARD.md`: one page, plain language, updated every
+  session — current capability, gate status, top risk, next task.
+- `docs/DEBUGGING.md`: commands, smoke profiles, protocol probes, failure
+  modes.
+
+## Blockers And Non-Goals
+
+- Do not add fake persistent memory. Memory stays `current_boot` and
+  read-only until M3+ persistence exists.
+- Do not send raw `system.snapshot` or boot logs to a provider.
+- Do not grant module/service/config mutation beyond the explicit milestone
+  gates above.
+- Do not add non-authorizing loader boundaries or new denial gates while
+  M0–M2 are open.
+- Do not treat the direct OpenAI provider path as the recovery lifeline.
+- Do not overwrite `release/raios-stage0.img` unless the replacement has
+  booted in QEMU.
+- No work in `ota/`, `registry/`, `fake-cloud/` without a new ADR
+  (ADR 0005 §4).
