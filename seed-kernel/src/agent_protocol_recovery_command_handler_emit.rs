@@ -6,8 +6,8 @@ use crate::{
         RecoveryLifelineCommandHandlerBindingSelfTestCase,
     },
     agent_protocol_support::{
-        emit_inline_record_object, emit_record_property, record_event_or_null, record_sha_or_null,
-        record_str_or_null,
+        emit_record_property, emit_selftest_case, record_event_or_null, record_sha_or_null,
+        record_str_or_null, SelftestReportField::False,
     },
     event_log,
 };
@@ -117,18 +117,13 @@ pub(crate) fn emit_recovery_lifeline_command_handler_binding_selftest_case(
     case: &RecoveryLifelineCommandHandlerBindingSelfTestCase,
     comma: bool,
 ) {
-    emit_inline_record_object(
-        vec![
-            Field::new("case", Value::Str(case.name)),
-            Field::new("expected_status", Value::Str(case.expected_status)),
-            Field::new("expected_reason", Value::Str(case.expected_reason)),
-            Field::new("actual_status", Value::Str(case.actual_status)),
-            Field::new("actual_reason", Value::Str(case.actual_reason)),
-            Field::new("passed", Value::Bool(case.passed)),
-            Field::new("accepts_raw_command_body", Value::Bool(false)),
-            Field::new("dispatches_lifeline_command", Value::Bool(false)),
-            Field::new("command_execution_enabled", Value::Bool(false)),
-            Field::new("load_attempted", Value::Bool(false)),
+    emit_selftest_case(
+        case,
+        &[
+            False("accepts_raw_command_body"),
+            False("dispatches_lifeline_command"),
+            False("command_execution_enabled"),
+            False("load_attempted"),
         ],
         comma,
     );

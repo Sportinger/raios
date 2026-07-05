@@ -10,9 +10,10 @@ use crate::{
         RecoveryRestartLastGoodTargetBindingSelfTestCase,
     },
     agent_protocol_support::{
-        emit_inline_record_object, emit_record_property, extend_false_fields, record_bool as b,
+        emit_record_property, emit_selftest_case, extend_false_fields, record_bool as b,
         record_event_or_null, record_false as no, record_field as f, record_null as null,
         record_object as object, record_sha_or_null, record_str as s, record_str_or_null,
+        SelftestReportField::False,
     },
     event_log,
 };
@@ -338,9 +339,21 @@ pub(crate) fn emit_recovery_disable_module_target_binding_retained_reference(
     );
 }
 
-#[rustfmt::skip]
-pub(crate) fn emit_recovery_disable_module_target_binding_selftest_case(case: &RecoveryDisableModuleTargetBindingSelfTestCase, comma: bool) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("accepts_raw_command_body", no()), f("dispatches_lifeline_command", no()), f("disables_module", no()), f("command_execution_enabled", no()), f("load_attempted", no())], comma);
+pub(crate) fn emit_recovery_disable_module_target_binding_selftest_case(
+    case: &RecoveryDisableModuleTargetBindingSelfTestCase,
+    comma: bool,
+) {
+    emit_selftest_case(
+        case,
+        &[
+            False("accepts_raw_command_body"),
+            False("dispatches_lifeline_command"),
+            False("disables_module"),
+            False("command_execution_enabled"),
+            False("load_attempted"),
+        ],
+        comma,
+    );
 }
 
 pub(crate) fn emit_recovery_restart_last_good_target_binding_reference_object(
@@ -454,9 +467,21 @@ pub(crate) fn emit_recovery_restart_last_good_target_binding_retained_reference(
     );
 }
 
-#[rustfmt::skip]
-pub(crate) fn emit_recovery_restart_last_good_target_binding_selftest_case(case: &RecoveryRestartLastGoodTargetBindingSelfTestCase, comma: bool) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("accepts_raw_command_body", no()), f("dispatches_lifeline_command", no()), f("restarts_last_good", no()), f("command_execution_enabled", no()), f("load_attempted", no())], comma);
+pub(crate) fn emit_recovery_restart_last_good_target_binding_selftest_case(
+    case: &RecoveryRestartLastGoodTargetBindingSelfTestCase,
+    comma: bool,
+) {
+    emit_selftest_case(
+        case,
+        &[
+            False("accepts_raw_command_body"),
+            False("dispatches_lifeline_command"),
+            False("restarts_last_good"),
+            False("command_execution_enabled"),
+            False("load_attempted"),
+        ],
+        comma,
+    );
 }
 
 pub(crate) fn emit_recovery_load_artifact_by_hash_target_binding_reference_object(
@@ -580,7 +605,20 @@ pub(crate) fn emit_recovery_load_artifact_by_hash_target_binding_retained_refere
     );
 }
 
-#[rustfmt::skip]
-pub(crate) fn emit_recovery_load_artifact_by_hash_target_binding_selftest_case(case: &RecoveryLoadArtifactByHashTargetBindingSelfTestCase, comma: bool) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("accepts_raw_command_body", no()), f("dispatches_lifeline_command", no()), f("loads_recovery_artifact", no()), f("authorizes_recovery_load", no()), f("command_execution_enabled", no()), f("load_attempted", no())], comma);
+pub(crate) fn emit_recovery_load_artifact_by_hash_target_binding_selftest_case(
+    case: &RecoveryLoadArtifactByHashTargetBindingSelfTestCase,
+    comma: bool,
+) {
+    emit_selftest_case(
+        case,
+        &[
+            False("accepts_raw_command_body"),
+            False("dispatches_lifeline_command"),
+            False("loads_recovery_artifact"),
+            False("authorizes_recovery_load"),
+            False("command_execution_enabled"),
+            False("load_attempted"),
+        ],
+        comma,
+    );
 }

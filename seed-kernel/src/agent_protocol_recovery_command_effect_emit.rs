@@ -10,9 +10,10 @@ use crate::{
         RecoveryLifelineCommandSideEffectGateSelfTestCase,
     },
     agent_protocol_support::{
-        emit_inline_record_object, emit_record_property, record_bool as b, record_event_or_null,
+        emit_record_property, emit_selftest_case, record_bool as b, record_event_or_null,
         record_false as no, record_field as f, record_sha_or_null, record_str as s,
         record_str_or_null,
+        SelftestReportField::{False, Str},
     },
     event_log,
 };
@@ -199,9 +200,11 @@ pub(crate) fn emit_recovery_lifeline_command_dispatch_behavior_retained_referenc
     );
 }
 
-#[rustfmt::skip]
-pub(crate) fn emit_recovery_lifeline_command_dispatch_behavior_selftest_case(case: &RecoveryLifelineCommandDispatchBehaviorSelfTestCase, comma: bool) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("accepts_raw_command_body", no()), f("accepts_lifeline_command_body", no()), f("accepts_lifeline_command_envelope", no()), f("dispatches_lifeline_command", no()), f("command_execution_enabled", no()), f("allocates_service_slot", no()), f("creates_service_inventory_records", no()), f("service_inventory_change", s("none")), f("load_attempted", no())], comma);
+pub(crate) fn emit_recovery_lifeline_command_dispatch_behavior_selftest_case(
+    case: &RecoveryLifelineCommandDispatchBehaviorSelfTestCase,
+    comma: bool,
+) {
+    emit_selftest_case(case, EFFECT_SELFTEST_FIELDS, comma);
 }
 
 pub(crate) fn emit_recovery_lifeline_command_executor_capability_table_reference_object(
@@ -391,9 +394,11 @@ pub(crate) fn emit_recovery_lifeline_command_executor_capability_table_retained_
     );
 }
 
-#[rustfmt::skip]
-pub(crate) fn emit_recovery_lifeline_command_executor_capability_table_selftest_case(case: &RecoveryLifelineCommandExecutorCapabilityTableSelfTestCase, comma: bool) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("accepts_raw_command_body", no()), f("accepts_lifeline_command_body", no()), f("accepts_lifeline_command_envelope", no()), f("dispatches_lifeline_command", no()), f("command_execution_enabled", no()), f("allocates_service_slot", no()), f("creates_service_inventory_records", no()), f("service_inventory_change", s("none")), f("load_attempted", no())], comma);
+pub(crate) fn emit_recovery_lifeline_command_executor_capability_table_selftest_case(
+    case: &RecoveryLifelineCommandExecutorCapabilityTableSelfTestCase,
+    comma: bool,
+) {
+    emit_selftest_case(case, EFFECT_SELFTEST_FIELDS, comma);
 }
 
 pub(crate) fn emit_recovery_lifeline_command_side_effect_gate_reference_object(
@@ -587,7 +592,21 @@ pub(crate) fn emit_recovery_lifeline_command_side_effect_gate_retained_reference
     );
 }
 
-#[rustfmt::skip]
-pub(crate) fn emit_recovery_lifeline_command_side_effect_gate_selftest_case(case: &RecoveryLifelineCommandSideEffectGateSelfTestCase, comma: bool) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("accepts_raw_command_body", no()), f("accepts_lifeline_command_body", no()), f("accepts_lifeline_command_envelope", no()), f("dispatches_lifeline_command", no()), f("command_execution_enabled", no()), f("allocates_service_slot", no()), f("creates_service_inventory_records", no()), f("service_inventory_change", s("none")), f("load_attempted", no())], comma);
+pub(crate) fn emit_recovery_lifeline_command_side_effect_gate_selftest_case(
+    case: &RecoveryLifelineCommandSideEffectGateSelfTestCase,
+    comma: bool,
+) {
+    emit_selftest_case(case, EFFECT_SELFTEST_FIELDS, comma);
 }
+
+const EFFECT_SELFTEST_FIELDS: &[crate::agent_protocol_support::SelftestReportField] = &[
+    False("accepts_raw_command_body"),
+    False("accepts_lifeline_command_body"),
+    False("accepts_lifeline_command_envelope"),
+    False("dispatches_lifeline_command"),
+    False("command_execution_enabled"),
+    False("allocates_service_slot"),
+    False("creates_service_inventory_records"),
+    Str("service_inventory_change", "none"),
+    False("load_attempted"),
+];

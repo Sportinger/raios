@@ -249,17 +249,25 @@ positional parsers through the shared parser (only the shared parser
 still splits input); recovery profile byte-identical
 (`shadow-20260705-203821-18288.json`, 3644/3644).
 
+Collapse Batch 3 family 1 done (2026-07-05): generic selftest runner
+(SelftestCase/CaseSpec + run_selftest_cases + shared record-model case
+emitter in agent_protocol_support.rs); all 13 recovery command-reference
+selftest families converted to const case tables (the selftest file
+alone dropped ~1,950 lines of hand-written factories); valid base hashes
+now come from the production evaluator instead of duplicated
+construction. Recovery profile byte-identical
+(`shadow-20260705-210517-7660.json`, 3644/3644).
+
 Exact next task:
 
 ```text
-Collapse Batch 3: generic selftest runner (const CaseSpec data tables +
-one shared record-model report emitter per the collapse-map sketch),
-starting with the recovery selftest family
-(agent_protocol_recovery_command_reference_selftests.rs ~9.1k case
-data), then module load-gate (~4.7k), then write-boundary (~2k).
-Est. -12-16k total. Byte-identical; verify per family with the focused
-profile, full profile after the batch. Owner decision pending on
-batch 6.
+Collapse Batch 3 continued: convert the remaining selftest families onto
+the shared runner — recovery command envelope/body/admission selftests,
+then module load-gate selftest family (~4.7k:
+load_gate_selftest_reference_cases/eval/emit), then write-boundary
+selftests. Verify per family (recovery / module-audit-rollback / full
+for load-gate). Then full profile caps the batch. Owner decision
+pending on batch 6.
 ```
 
 ## Capability Milestones

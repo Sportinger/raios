@@ -6,9 +6,9 @@ use crate::{
         DurableAuditRollbackWriteAuthoritySelfTestCase,
     },
     agent_protocol_support::{
-        emit_inline_record_object, emit_record_property, record_bool as b, record_event_or_null,
+        emit_record_property, emit_selftest_case, record_bool as b, record_event_or_null,
         record_false as no, record_field as f, record_sha_or_null, record_str as s,
-        record_str_or_null,
+        record_str_or_null, SelftestReportField::False,
     },
     event_log,
 };
@@ -191,7 +191,21 @@ pub(crate) fn emit_durable_audit_rollback_write_authority_retained_reference(
     );
 }
 
-#[rustfmt::skip]
-pub(crate) fn emit_durable_audit_rollback_write_authority_selftest_case(case: &DurableAuditRollbackWriteAuthoritySelfTestCase, comma: bool) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("accepts_raw_command_body", no()), f("dispatches_lifeline_command", no()), f("writes_durable_audit_log", no()), f("writes_rollback_store", no()), f("creates_durable_records", no()), f("command_execution_enabled", no()), f("load_attempted", no())], comma);
+pub(crate) fn emit_durable_audit_rollback_write_authority_selftest_case(
+    case: &DurableAuditRollbackWriteAuthoritySelfTestCase,
+    comma: bool,
+) {
+    emit_selftest_case(
+        case,
+        &[
+            False("accepts_raw_command_body"),
+            False("dispatches_lifeline_command"),
+            False("writes_durable_audit_log"),
+            False("writes_rollback_store"),
+            False("creates_durable_records"),
+            False("command_execution_enabled"),
+            False("load_attempted"),
+        ],
+        comma,
+    );
 }

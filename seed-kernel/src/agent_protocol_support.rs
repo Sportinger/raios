@@ -228,6 +228,101 @@ pub(crate) fn record_selftest_case<'a>(
     ])
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct SelftestCase {
+    pub(crate) name: &'static str,
+    pub(crate) expected_status: &'static str,
+    pub(crate) expected_reason: &'static str,
+    pub(crate) actual_status: &'static str,
+    pub(crate) actual_reason: &'static str,
+    pub(crate) passed: bool,
+}
+
+impl SelftestCase {
+    pub(crate) const fn empty() -> Self {
+        Self {
+            name: "",
+            expected_status: "",
+            expected_reason: "",
+            actual_status: "",
+            actual_reason: "",
+            passed: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct CaseSpec<M: Copy> {
+    pub(crate) name: &'static str,
+    pub(crate) expected_status: &'static str,
+    pub(crate) expected_reason: &'static str,
+    pub(crate) mutation: M,
+    pub(crate) require_live_retained: bool,
+}
+
+pub(crate) fn run_selftest_cases<I: Copy, M: Copy, C, const N: usize>(
+    base_input: I,
+    specs: &[CaseSpec<M>; N],
+    apply_case: fn(&mut I, M),
+    eval: fn(I, bool) -> C,
+    actual_status: fn(&C) -> &'static str,
+    actual_reason: fn(&C) -> &'static str,
+) -> [SelftestCase; N] {
+    let mut cases = [SelftestCase::empty(); N];
+    let mut idx = 0usize;
+    while idx < N {
+        let spec = specs[idx];
+        let mut input = base_input;
+        apply_case(&mut input, spec.mutation);
+        let check = eval(input, spec.require_live_retained);
+        let status = actual_status(&check);
+        let reason = actual_reason(&check);
+        cases[idx] = SelftestCase {
+            name: spec.name,
+            expected_status: spec.expected_status,
+            expected_reason: spec.expected_reason,
+            actual_status: status,
+            actual_reason: reason,
+            passed: method_eq(status, spec.expected_status)
+                && method_eq(reason, spec.expected_reason),
+        };
+        idx += 1;
+    }
+    cases
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SelftestReportField {
+    False(&'static str),
+    Str(&'static str, &'static str),
+}
+
+pub(crate) fn emit_selftest_case(
+    case: &SelftestCase,
+    extra_fields: &[SelftestReportField],
+    comma: bool,
+) {
+    let mut fields = vec![
+        record_field("case", record_str(case.name)),
+        record_field("expected_status", record_str(case.expected_status)),
+        record_field("expected_reason", record_str(case.expected_reason)),
+        record_field("actual_status", record_str(case.actual_status)),
+        record_field("actual_reason", record_str(case.actual_reason)),
+        record_field("passed", record_bool(case.passed)),
+    ];
+    let mut idx = 0usize;
+    while idx < extra_fields.len() {
+        match extra_fields[idx] {
+            SelftestReportField::False(name) => fields.push(record_field(name, record_false())),
+            SelftestReportField::Str(name, value) => {
+                fields.push(record_field(name, record_str(value)))
+            }
+        }
+        idx += 1;
+    }
+    emit_inline_record_object(fields, comma);
+}
+
 pub(crate) fn emit_record_property(name: &str, fields: Vec<Field<'_>>) {
     emit_record_property_at(name, fields, 6);
 }

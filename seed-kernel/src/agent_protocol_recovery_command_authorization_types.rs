@@ -1,4 +1,6 @@
-use crate::agent_protocol_recovery_runtime_types::CommandBindings;
+use crate::{
+    agent_protocol_recovery_runtime_types::CommandBindings, agent_protocol_support::SelftestCase,
+};
 
 pub(crate) type RecoveryLifelineCommandHandlerBindingInput<'a> = CommandBindings<'a>;
 pub(crate) type RecoveryLifelineCommandHandlerBindingReferenceCheck<'a> = CommandBindings<'a>;
@@ -15,65 +17,10 @@ pub(crate) type RecoveryRestartLastGoodTargetBindingReferenceCheck<'a> = Command
 pub(crate) type RecoveryLoadArtifactByHashTargetBindingInput<'a> = CommandBindings<'a>;
 pub(crate) type RecoveryLoadArtifactByHashTargetBindingReferenceCheck<'a> = CommandBindings<'a>;
 
-pub(crate) struct RecoveryLifelineCommandHandlerBindingSelfTestCase {
-    pub(crate) name: &'static str,
-    pub(crate) expected_status: &'static str,
-    pub(crate) expected_reason: &'static str,
-    pub(crate) actual_status: &'static str,
-    pub(crate) actual_reason: &'static str,
-    pub(crate) passed: bool,
-}
-
-pub(crate) struct RecoveryLifelineStatusReadHandlerSelfTestCase {
-    pub(crate) name: &'static str,
-    pub(crate) expected_status: &'static str,
-    pub(crate) expected_reason: &'static str,
-    pub(crate) actual_status: &'static str,
-    pub(crate) actual_reason: &'static str,
-    pub(crate) passed: bool,
-}
-
-pub(crate) struct RecoveryRollbackPreviewAuthorizationSelfTestCase {
-    pub(crate) name: &'static str,
-    pub(crate) expected_status: &'static str,
-    pub(crate) expected_reason: &'static str,
-    pub(crate) actual_status: &'static str,
-    pub(crate) actual_reason: &'static str,
-    pub(crate) passed: bool,
-}
-
-pub(crate) struct RecoveryRollbackApplyAuthorizationSelfTestCase {
-    pub(crate) name: &'static str,
-    pub(crate) expected_status: &'static str,
-    pub(crate) expected_reason: &'static str,
-    pub(crate) actual_status: &'static str,
-    pub(crate) actual_reason: &'static str,
-    pub(crate) passed: bool,
-}
-
-pub(crate) struct RecoveryDisableModuleTargetBindingSelfTestCase {
-    pub(crate) name: &'static str,
-    pub(crate) expected_status: &'static str,
-    pub(crate) expected_reason: &'static str,
-    pub(crate) actual_status: &'static str,
-    pub(crate) actual_reason: &'static str,
-    pub(crate) passed: bool,
-}
-
-pub(crate) struct RecoveryRestartLastGoodTargetBindingSelfTestCase {
-    pub(crate) name: &'static str,
-    pub(crate) expected_status: &'static str,
-    pub(crate) expected_reason: &'static str,
-    pub(crate) actual_status: &'static str,
-    pub(crate) actual_reason: &'static str,
-    pub(crate) passed: bool,
-}
-
-pub(crate) struct RecoveryLoadArtifactByHashTargetBindingSelfTestCase {
-    pub(crate) name: &'static str,
-    pub(crate) expected_status: &'static str,
-    pub(crate) expected_reason: &'static str,
-    pub(crate) actual_status: &'static str,
-    pub(crate) actual_reason: &'static str,
-    pub(crate) passed: bool,
-}
+pub(crate) type RecoveryLifelineCommandHandlerBindingSelfTestCase = SelftestCase;
+pub(crate) type RecoveryLifelineStatusReadHandlerSelfTestCase = SelftestCase;
+pub(crate) type RecoveryRollbackPreviewAuthorizationSelfTestCase = SelftestCase;
+pub(crate) type RecoveryRollbackApplyAuthorizationSelfTestCase = SelftestCase;
+pub(crate) type RecoveryDisableModuleTargetBindingSelfTestCase = SelftestCase;
+pub(crate) type RecoveryRestartLastGoodTargetBindingSelfTestCase = SelftestCase;
+pub(crate) type RecoveryLoadArtifactByHashTargetBindingSelfTestCase = SelftestCase;
