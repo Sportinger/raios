@@ -202,15 +202,35 @@ from the generic gate-hash symbols with quoted-literal sequence proofs
 Verified: quick (`shadow-20260705-182727-22700.json`, 417/417) +
 hello-rollback-dry-run (`shadow-20260705-183114-27284.json`, 203/203).
 
+De-hello-ify Slice 5 done (2026-07-05): ServiceDescriptor introduced and
+threaded (ids, aliases, slots, inventory, small event-log constructors);
+HelloServiceLifecycleBinding + global capability table recorded as
+M5-prep. Verified quick 417/417 + hello-rollback-dry-run 203/203.
+
+**M2 midpoint evaluation (2026-07-05, honest verdict): M2 stays OPEN.**
+Full profile green over the final state
+(`shadow-20260705-184946-16520.json`, 7814/7814 — third full green of
+the day). Achieved: single record model everywhere (emitter/hasher
+divergence structurally impossible), all files below size thresholds
+(largest 4,557 lines), attested source-set chain, generic rollback
+modules, ServiceDescriptor. NOT achieved: the ~10x size target — the
+agent layer measures ~138k lines (agent_protocol* 101,763 +
+hello_service/ 22,306 + event_log* 14,296) vs the ~20k target, because
+byte-identical ports delete little by design. The remaining M2 items
+(table-driven dispatch, named key=value command arguments, shared
+CommandBindings, selftest scaffolding collapse) are where the mass
+deletion happens — the record model was the prerequisite, not the
+collapse itself.
+
 Exact next task:
 
 ```text
-De-hello-ify Slice 5: minimal ServiceDescriptor parameterization (ids,
-aliases, slot ids, event-log resource/capability fields, inventory
-append via descriptor instead of hardcodes) — keep emitted schema names
-stable; re-sign; quick + hello-rollback-dry-run. Then the M2 closure
-evaluation: full profile + capability-sentence check (agent layer size
-measurement vs the ~10x target; honest verdict).
+Collapse-phase scoping (read-only packet): measure where the 101k
+agent_protocol lines actually sit (eval vs emit vs selftest vs types per
+method family), design the table-driven method dispatch + shared
+CommandBindings + record-driven selftest generation, and estimate
+realistic deletion per step. Output: a collapse map like the porting
+map, with batch order and verification profiles.
 ```
 
 ## Capability Milestones

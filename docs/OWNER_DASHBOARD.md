@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-05 night (M2: both emit boundaries fully ported).
+Updated: 2026-07-05 late (M2 halfway: model done, mass-shrink next).
 
 ## What raiOS can actually do today
 
@@ -39,18 +39,23 @@ Updated: 2026-07-05 night (M2: both emit boundaries fully ported).
   A bonus: the signed-source protection proved itself by correctly
   rejecting a mis-configured build machine on the first CI attempt.
 
-Now active: **M2 Ceremony Collapse**. BOTH large emit boundaries
-(recovery: 22 modules; module: full porting map incl. the hash-coupled
-files) now render through ONE typed record model — roughly -2,000 kernel
-lines at byte-identical behavior, every batch proven by VM runs, twice
-capped by a green FULL profile (7,814/7,814). Remaining M2 surface: the
-22.5k-line hello service file (scoping underway).
+Now active: **M2 Ceremony Collapse — halfway, honestly assessed.**
+Done today: ONE typed record model everywhere (the emitter/checksum
+divergence bug class is structurally impossible now); the 22,705-line
+monolith split into 16 signed modules (largest 4,557 — every file now
+small enough for an agent to fully read); generic rollback machinery
+extracted for the future second service; a ServiceDescriptor replacing
+scattered hardcodes. Three FULL profiles green (7,814/7,814 each).
 
-HIGHLIGHT of the day: the tooling caught and fixed the first real kernel
-bug — a command copied 3.8 MB onto a small stack, randomly crashing the
-OS (~50% of runs, misfiled for weeks as "flaky tests"). Chain: instant
-death classification (M0) -> failure-log pattern -> checkpoint bisection
--> fix -> proven by 5/5 clean runs.
+NOT done: the ~10x shrink. The agent layer still measures ~138k lines
+vs the ~20k goal — today's ports were deliberately byte-identical, so
+they delete little. The mass deletion comes next (table-driven dispatch,
+shared command structures, selftest collapse), which today's model made
+possible. M2 stays open until that lands.
+
+Also today: first real kernel bug found and fixed by the new tooling
+(3.8 MB stack copy, ~50% random crashes, misfiled for weeks) — proven
+fixed by 5/5 clean runs.
 
 ## Top risk
 
