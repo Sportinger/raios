@@ -25,6 +25,68 @@ pub fn sha256_hex(digest: &[u8; 32]) -> [u8; 64] {
     out
 }
 
+/// Compares two protocol method names case-insensitively.
+pub fn method_eq(left: &str, right: &str) -> bool {
+    left.eq_ignore_ascii_case(right)
+}
+
+/// Returns true when `left` starts with `right` as a full method token.
+///
+/// `left` is trimmed before comparison; `right` is compared exactly.
+pub fn method_head_eq(left: &str, right: &str) -> bool {
+    let left = left.trim();
+    if left.len() < right.len() {
+        return false;
+    }
+    let (head, rest) = left.split_at(right.len());
+    method_eq(head, right) && (rest.is_empty() || rest.as_bytes()[0].is_ascii_whitespace())
+}
+
+/// Parses a SHA-256 reference with an optional case-insensitive `sha256:` prefix.
+pub fn parse_sha256_ref(value: &str) -> Option<[u8; 32]> {
+    let mut value = value.trim();
+    if value.len() >= 7 && value[..7].eq_ignore_ascii_case("sha256:") {
+        value = &value[7..];
+    }
+    if value.len() != 64 {
+        return None;
+    }
+    let bytes = value.as_bytes();
+    let mut out = [0u8; 32];
+    let mut idx = 0usize;
+    while idx < out.len() {
+        let high = hex_value(bytes[idx * 2])?;
+        let low = hex_value(bytes[idx * 2 + 1])?;
+        out[idx] = (high << 4) | low;
+        idx += 1;
+    }
+    Some(out)
+}
+
+fn hex_value(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Parses the numeric sequence from `event.current_boot.NNNNNNNN`.
+pub fn parse_current_boot_event_sequence(value: &str) -> Option<u64> {
+    let sequence = value.strip_prefix("event.current_boot.")?;
+    if sequence.len() != 8 || !sequence.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let mut parsed = 0u64;
+    for byte in sequence.bytes() {
+        parsed = parsed
+            .saturating_mul(10)
+            .saturating_add((byte - b'0') as u64);
+    }
+    Some(parsed)
+}
+
 /// Receives bytes without requiring allocation in kernel callers.
 pub trait ByteSink {
     fn write_bytes(&mut self, bytes: &[u8]);
@@ -39,7 +101,21 @@ impl ByteSink for std::vec::Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{sha256_bytes, sha256_hex, ByteSink};
+    use super::{
+        method_eq, method_head_eq, parse_current_boot_event_sequence, parse_sha256_ref,
+        sha256_bytes, sha256_hex, ByteSink,
+    };
+
+    const SHA256_HEX: &str =
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const SHA256_HEX_UPPER: &str =
+        "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+    const SHA256_HEX_NON_HEX: &str =
+        "g123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const SHA256_HEX_MIXED_PREFIX: &str =
+        "ShA256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const SHA256_HEX_WITH_WHITESPACE: &str =
+        "\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
 
     fn assert_sha256(input: &[u8], expected_hex: &[u8; 64]) {
         assert_eq!(&sha256_hex(&sha256_bytes(input)), expected_hex);
@@ -92,5 +168,74 @@ mod tests {
         sink.write_bytes(b"rai");
         sink.write_bytes(b"OS");
         assert_eq!(sink.as_slice(), b"raiOS");
+    }
+
+    #[test]
+    fn method_eq_matches_ascii_case_only() {
+        assert!(method_eq("system.snapshot", "system.snapshot"));
+        assert!(method_eq("System.Snapshot", "system.snapshot"));
+        assert!(!method_eq("system.snapshot", "system.status"));
+    }
+
+    #[test]
+    fn method_head_eq_requires_a_method_boundary() {
+        assert!(method_head_eq("system.snapshot", "system.snapshot"));
+        assert!(method_head_eq(
+            "system.snapshot provider_minimal",
+            "system.snapshot"
+        ));
+        assert!(!method_head_eq("system.snapshotx", "system.snapshot"));
+        assert!(!method_head_eq("system.snap", "system.snapshot"));
+        assert!(method_head_eq("  system.snapshot", "system.snapshot"));
+        assert!(method_head_eq("system.snapshot  ", "system.snapshot"));
+        assert!(!method_head_eq("system.snapshot", " system.snapshot"));
+    }
+
+    #[test]
+    fn parse_sha256_ref_accepts_supported_forms() {
+        let expected = parse_sha256_ref(SHA256_HEX).expect("bare hex parses");
+
+        assert_eq!(expected[0], 0x01);
+        assert_eq!(parse_sha256_ref(SHA256_HEX_MIXED_PREFIX), Some(expected));
+        assert_eq!(parse_sha256_ref(SHA256_HEX_UPPER), Some(expected));
+        assert_eq!(parse_sha256_ref(SHA256_HEX_WITH_WHITESPACE), Some(expected));
+    }
+
+    #[test]
+    fn parse_sha256_ref_rejects_wrong_length_and_non_hex() {
+        assert_eq!(parse_sha256_ref(&SHA256_HEX[..63]), None);
+        assert_eq!(parse_sha256_ref(SHA256_HEX_NON_HEX), None);
+    }
+
+    #[test]
+    fn parse_current_boot_event_sequence_accepts_exact_eight_digits() {
+        assert_eq!(
+            parse_current_boot_event_sequence("event.current_boot.00000042"),
+            Some(42)
+        );
+        assert_eq!(
+            parse_current_boot_event_sequence("event.current_boot.99999999"),
+            Some(99_999_999)
+        );
+    }
+
+    #[test]
+    fn parse_current_boot_event_sequence_rejects_invalid_ids() {
+        assert_eq!(
+            parse_current_boot_event_sequence("event.previous_boot.00000042"),
+            None
+        );
+        assert_eq!(
+            parse_current_boot_event_sequence("event.current_boot.0000042"),
+            None
+        );
+        assert_eq!(
+            parse_current_boot_event_sequence("event.current_boot.000000042"),
+            None
+        );
+        assert_eq!(
+            parse_current_boot_event_sequence("event.current_boot.00000a42"),
+            None
+        );
     }
 }

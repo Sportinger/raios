@@ -32,24 +32,28 @@ a structured `stderr_log` block; a dead VM aborts the run immediately
 instead of burning the timeout. Verified: quick profile
 `shadow-20260705-094659-19752.json`, 417/417 predicates.
 
-Done in M1 so far (2026-07-05): slice M1-1 landed — `raios-core` `no_std`
-workspace crate exists with `sha256_bytes`/`sha256_hex`/`ByteSink` and
-host tests (`cargo test --locked -p raios-core`, 3/3 in 0.16s);
-`descriptor_sources.rs` deduplicated onto it; kernel rebuilt and quick
-profile green (`shadow-20260705-100850-5584.json`, 417/417). Note: the
-`hello_service.rs` duplicate stays until M2 — replacing it invalidates the
-signed Hello source snapshot (`artifact_content_source_sha256`), so that
-dedup belongs to the M2 de-hello-ify slice with a descriptor/signature
-chain update.
+Done in M1 so far (2026-07-05): slice M1-1 — `raios-core` `no_std`
+workspace crate with `sha256_bytes`/`sha256_hex`/`ByteSink`;
+`descriptor_sources.rs` deduplicated; quick profile
+`shadow-20260705-100850-5584.json` 417/417. Slice M1-2 — the pure protocol
+parsers (`method_eq`, `method_head_eq`, `parse_sha256_ref`,
+`parse_current_boot_event_sequence`) moved into `raios-core` with
+truth-table host tests (`cargo test --locked -p raios-core`, 9/9); kernel
+keeps thin wrappers/re-exports; quick profile
+`shadow-20260705-101746-21240.json` 417/417. Note: the `hello_service.rs`
+sha256 duplicate stays until M2 — replacing it invalidates the signed
+Hello source snapshot (`artifact_content_source_sha256`); that dedup
+belongs to the M2 de-hello-ify slice.
 
 Exact next task:
 
 ```text
-Slice M1-2: move the first real logic unit into raios-core with truth-table
-host tests — pick a small pure eval/parse module with no kernel deps (e.g.
-hex/sha256 reference parsing in agent_protocol_support.rs, or a gate truth
-table), keeping serial output byte-identical. Then slice M1-3: minimal CI
-(GitHub Actions): pinned toolchain, build + cargo test -p raios-core.
+Slice M1-3: minimal CI (GitHub Actions, .github/workflows): pinned
+nightly toolchain + rust-src, cargo test --locked -p raios-core, kernel
+release build. BLOCKER to resolve first: local main is 62 ahead / 2
+behind origin/main — inspect the 2 remote-only commits with the owner
+before any push. QEMU quick profile in CI is a follow-up (M1-3b), not
+part of the minimal slice.
 ```
 
 ## Capability Milestones

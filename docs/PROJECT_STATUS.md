@@ -2403,13 +2403,25 @@ snapshot, and editing it fails the build with an
 `artifact_content_source_sha256` mismatch; that dedup moves to M2
 (de-hello-ify) together with a descriptor/signature chain update.
 
+RESOLVED 2026-07-05: slice M1-2 landed. The pure protocol parsers moved
+into `raios-core` as `pub fn method_eq`, `method_head_eq`,
+`parse_sha256_ref`, and `parse_current_boot_event_sequence` (the
+`EventId` construction stays kernel-side as a thin wrapper);
+`agent_protocol_support.rs` re-exports them (`pub(crate) use raios_core::…`)
+so no other kernel file changed. Truth-table host tests: `cargo test
+--locked -p raios-core` 9/9 (method boundary rules, sha256: prefix
+case-insensitivity, uppercase hex, length/charset rejects, 8-digit
+event-sequence edges). Kernel rebuilt unchanged; quick profile green
+(`shadow-20260705-101746-21240.json`, 417/417).
+
 Current exact next task (milestone M1 Testable Core, `docs/ROADMAP.md`):
-slice M1-2 — move the first real logic unit into `raios-core` with
-truth-table host tests: a small pure eval/parse module with no kernel
-dependencies (candidate: `parse_sha256_ref`/hex reference parsing in
-`agent_protocol_support.rs`, or a gate truth table), serial output must
-stay byte-identical (quick profile). Then slice M1-3 — minimal CI (GitHub
-Actions): pinned toolchain, workspace build, `cargo test -p raios-core`.
+slice M1-3 — minimal CI (GitHub Actions): pinned nightly toolchain +
+rust-src component, `cargo test --locked -p raios-core`, kernel release
+build (`scripts/build-seed-kernel.ps1` equivalent or direct cargo build
+with build-std). Blocker to resolve first: local `main` is 62 commits
+ahead and 2 behind `origin/main` (github.com/Sportinger/raios) — the two
+remote-only commits must be inspected with the owner before any push.
+CI QEMU quick profile is follow-up slice M1-3b.
 Keep persistence, durable audit writes, rollback-store writes, transaction
 append, rollback application, external unsigned artifact intake, executable
 candidate-byte mapping, provider auto-load, broad mutation, and installed

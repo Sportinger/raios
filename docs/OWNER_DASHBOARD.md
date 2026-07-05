@@ -34,10 +34,13 @@ run now records exactly WHY it died (VM crashed — with exit code — vs
 connection glitch), and a dead VM fails the run in seconds instead of
 wasting 7 minutes. Failures can no longer be misfiled as "flaky tests".
 
-Now active: **M1 Testable Core**. First slice landed: a new `raios-core`
-library now holds shared kernel logic and is tested on the normal PC in
-0.16 seconds (previously any logic check needed a full VM boot). Next:
-move real gate/parsing logic in, then automatic checks on every commit.
+Now active: **M1 Testable Core**, 2 of ~3 slices done. The new
+`raios-core` library holds shared kernel logic AND the protocol parsers
+(method matching, hash references, event IDs), all tested on the normal
+PC in under a second — previously any logic check needed a full VM boot.
+Last M1 step: automatic checks on every commit (CI). One decision needed
+from you first: the online copy of the repo has 2 commits your machine
+does not — I will show you what they are before anything gets pushed.
 
 ## Top risk
 
