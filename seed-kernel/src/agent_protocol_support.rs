@@ -133,16 +133,33 @@ pub(crate) fn record_event_or_null(value: Option<event_log::EventId>) -> Value<'
 }
 
 pub(crate) fn emit_record_property(name: &str, fields: Vec<Field<'_>>) {
-    let mut sink = SerialSink;
+    emit_record_property_at(name, fields, 6);
+}
 
-    sink.write_bytes(b"      ");
+pub(crate) fn emit_record_property_at(name: &str, fields: Vec<Field<'_>>, spaces: usize) {
+    let mut sink = SerialSink;
+    let mut idx = 0usize;
+
+    while idx < spaces {
+        sink.write_bytes(b" ");
+        idx += 1;
+    }
     write_json(&Value::Str(name), &mut sink, 6);
     sink.write_bytes(b": ");
-    write_json(&Value::Object(fields), &mut sink, 6);
+    write_json(&Value::Object(fields), &mut sink, spaces);
 }
 
 pub(crate) fn emit_record_property_line(name: &str, fields: Vec<Field<'_>>, comma: bool) {
-    emit_record_property(name, fields);
+    emit_record_property_line_at(name, fields, 6, comma);
+}
+
+pub(crate) fn emit_record_property_line_at(
+    name: &str,
+    fields: Vec<Field<'_>>,
+    spaces: usize,
+    comma: bool,
+) {
+    emit_record_property_at(name, fields, spaces);
     raw_line(if comma { "," } else { "" });
 }
 

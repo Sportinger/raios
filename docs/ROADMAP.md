@@ -128,14 +128,21 @@ emitters ported (emit, availability, write_policy, append_engine,
 append_intent; net -59 lines + adapter); module-audit-rollback profile
 byte-identical (`shadow-20260705-140011-21652.json`, 1626/1626).
 
+Slice M2-12 done (2026-07-05): map Batch 2 — storage_layout,
+append_contract, write_boundary_boundary ported (net -290 lines;
+raios-core gained Value::HexBytes + TrimmedAsciiBytes, 17 host tests);
+verified byte-identical by module-audit-rollback
+(`shadow-20260705-142306-4516.json`, 1626/1626) AND quick
+(`shadow-20260705-142625-22816.json`, 417/417).
+
 Exact next task:
 
 ```text
-Map Batch 2 (SAFE storage/contract): storage_layout, append_contract,
-write_boundary_boundary — verify with quick + module-audit-rollback.
-Then Batch 3 (loader/service rendering), Batch 4 (large render surfaces,
-full profile), Batch 5 (COUPLED, hash helpers untouched), per
-docs/plan-reviews/m2-module-boundary-porting-map-2026-07-05.md.
+Map Batch 3 (SAFE loader/service rendering): loader_identity,
+loader_artifact_hash_binding, loader_fact, service_slot_allocator —
+verify with module-audit-rollback (+ full later for selftests). Then
+Batch 4 (large render surfaces, full profile), Batch 5 (COUPLED, hash
+helpers untouched), per the porting map.
 ```
 
 ## Capability Milestones

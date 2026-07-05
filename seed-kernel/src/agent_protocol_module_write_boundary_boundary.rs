@@ -1,11 +1,18 @@
+use alloc::vec;
+
+use crate::agent_protocol_support::{
+    record_bool as b, record_event_or_null, record_false as no, record_field as f,
+    record_inline as inline, record_object as object, record_sha_or_null, record_str as s,
+    record_str_or_null,
+};
 use crate::{
     agent_protocol_module_types::*, agent_protocol_module_write_boundary_append_contract::*,
     agent_protocol_module_write_boundary_append_intent::*,
     agent_protocol_module_write_boundary_append_payload_hash::*,
     agent_protocol_module_write_boundary_availability::*,
-    agent_protocol_module_write_boundary_emit::*,
     agent_protocol_module_write_boundary_write_policy::*, agent_protocol_support::*, event_log,
 };
+use raios_core::record::Value as V;
 
 pub(crate) fn emit_module_audit_rollback_write_boundary() {
     let binding = event_log::module_load_gate_binding_snapshot();
@@ -41,50 +48,71 @@ pub(crate) fn emit_module_audit_rollback_write_boundary() {
     let evaluation = evaluate_module_audit_rollback_write_boundary_candidate(candidate);
 
     begin_response("module.audit_rollback_write_boundary");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_write_boundary.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"global_event_log_mutation\": \"none\",");
-    raw_line("      \"writes_enabled\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"installs_rollback_plan\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"loads_recovery_artifact\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"pre_load_write_request\": {");
-    raw_line("        \"schema\": \"raios.module_pre_load_audit_rollback_write_request.v0\",");
-    raw_line(
-        "        \"canonicalization\": \"raios.module_pre_load_audit_rollback_write_request.canonical.v0\",",
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.module_audit_rollback_write_boundary.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", no()),
+            f("global_event_log_mutation", s("none")),
+            f("writes_enabled", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("installs_rollback_plan", no()),
+            f("allocates_service_slot", no()),
+            f("loads_artifact", no()),
+            f("loads_recovery_artifact", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+        ],
+        6,
     );
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"subject\": \"agent.session.serial\",");
-    raw_line("        \"resource\": \"live_service_graph\",");
-    raw_line("        \"requested_writes\": [");
-    raw_line(
-        "          {\"target\": \"durable_audit_ledger\", \"schema\": \"raios.audit_record.v0\"},",
+    emit_record_property_line(
+        "pre_load_write_request",
+        vec![
+            f(
+                "schema",
+                s("raios.module_pre_load_audit_rollback_write_request.v0"),
+            ),
+            f(
+                "canonicalization",
+                s("raios.module_pre_load_audit_rollback_write_request.canonical.v0"),
+            ),
+            f("requested_capability", s("cap.module.load_ephemeral")),
+            f("load_mode", s("ram_only")),
+            f("subject", s("agent.session.serial")),
+            f("resource", s("live_service_graph")),
+            f(
+                "requested_writes",
+                V::Array(vec![
+                    inline(vec![
+                        f("target", s("durable_audit_ledger")),
+                        f("schema", s("raios.audit_record.v0")),
+                    ]),
+                    inline(vec![
+                        f("target", s("rollback_store")),
+                        f("schema", s("raios.rollback_transaction.v0")),
+                    ]),
+                ]),
+            ),
+            f(
+                "required_retained_references",
+                V::Array(vec![
+                    s("raios.module_manifest_reference.v0"),
+                    s("raios.module_candidate_artifact_reference.v0"),
+                    s("raios.module_vm_test_report_reference.v0"),
+                    s("raios.computed_capability_grant.v0"),
+                    s("raios.module_local_attestation_reference.v0"),
+                    s("raios.module_local_approval_reference.v0"),
+                    s("raios.module_audit_rollback_reference.v0"),
+                    s("raios.module_service_slot_reservation.v0"),
+                ]),
+            ),
+            f("recovery_artifact_loading", s("separate_capability")),
+        ],
+        true,
     );
-    raw_line(
-        "          {\"target\": \"rollback_store\", \"schema\": \"raios.rollback_transaction.v0\"}",
-    );
-    raw_line("        ],");
-    raw_line("        \"required_retained_references\": [");
-    raw_line("          \"raios.module_manifest_reference.v0\",");
-    raw_line("          \"raios.module_candidate_artifact_reference.v0\",");
-    raw_line("          \"raios.module_vm_test_report_reference.v0\",");
-    raw_line("          \"raios.computed_capability_grant.v0\",");
-    raw_line("          \"raios.module_local_attestation_reference.v0\",");
-    raw_line("          \"raios.module_local_approval_reference.v0\",");
-    raw_line("          \"raios.module_audit_rollback_reference.v0\",");
-    raw_line("          \"raios.module_service_slot_reservation.v0\"");
-    raw_line("        ],");
-    raw_line("        \"recovery_artifact_loading\": \"separate_capability\"");
-    raw_line("      },");
     emit_module_write_boundary_inputs(binding);
     raw_line(",");
     emit_module_write_boundary_availability_inputs(availability, availability_evaluation);
@@ -180,118 +208,162 @@ pub(crate) fn emit_module_audit_rollback_write_boundary() {
 }
 
 pub(crate) fn emit_module_write_boundary_inputs(binding: event_log::ModuleLoadGateBinding) {
-    raw_line("      \"retained_reference_inputs\": {");
-    emit_module_write_boundary_input_ref(
-        "module_manifest",
-        binding.manifest_reference_event_id,
-        binding.manifest_reference_status,
-        binding.manifest_reference_reason,
-        "raios.module_manifest_reference.v0",
-        true,
-    );
-    emit_module_write_boundary_input_ref(
-        "candidate_artifact",
-        binding.artifact_reference_event_id,
-        binding.artifact_reference_status,
-        binding.artifact_reference_reason,
-        "raios.module_candidate_artifact_reference.v0",
-        true,
-    );
-    emit_module_write_boundary_input_ref(
-        "vm_test_report",
-        binding.vm_report_reference_event_id,
-        binding.vm_report_reference_status,
-        binding.vm_report_reference_reason,
-        "raios.module_vm_test_report_reference.v0",
-        true,
-    );
-    emit_module_write_boundary_input_ref(
-        "computed_capability_grant",
-        binding.retained_reference_event_id,
-        computed_grant_status(binding),
-        computed_grant_reason(binding),
-        "raios.computed_capability_grant.v0",
-        true,
-    );
-    emit_module_write_boundary_input_ref(
-        "local_attestation",
-        binding.attestation_reference_event_id,
-        binding.attestation_reference_status,
-        binding.attestation_reference_reason,
-        "raios.module_local_attestation_reference.v0",
-        true,
-    );
-    emit_module_write_boundary_input_ref(
-        "local_approval",
-        binding.approval_reference_event_id,
-        binding.approval_reference_status,
-        binding.approval_reference_reason,
-        "raios.module_local_approval_reference.v0",
-        true,
-    );
-    emit_module_write_boundary_input_ref(
-        "audit_rollback",
-        binding.audit_rollback_reference_event_id,
-        binding.audit_rollback_reference_status,
-        binding.audit_rollback_reference_reason,
-        "raios.module_audit_rollback_reference.v0",
-        true,
-    );
-    emit_module_write_boundary_input_ref(
-        "service_slot_reservation",
-        binding.service_slot_reservation_event_id,
-        binding.service_slot_reservation_status,
-        binding.service_slot_reservation_reason,
-        "raios.module_service_slot_reservation.v0",
-        false,
-    );
-    raw_line("      },");
-    raw_line("      \"hash_inputs\": {");
     let retained = binding.retained_reference;
     let approval = binding.approval_reference;
     let audit = binding.audit_rollback_reference;
     let service_slot = binding.service_slot_reservation;
-    raw("        \"manifest_hash\": ");
-    json_sha256_option(retained.map(|reference| reference.manifest_hash));
-    raw_line(",");
-    raw("        \"candidate_artifact_hash\": ");
-    json_sha256_option(retained.map(|reference| reference.artifact_hash));
-    raw_line(",");
-    raw("        \"vm_test_report_hash\": ");
-    json_sha256_option(retained.map(|reference| reference.vm_report_hash));
-    raw_line(",");
-    raw("        \"local_attestation_hash\": ");
-    json_sha256_option(retained.map(|reference| reference.local_attestation_hash));
-    raw_line(",");
-    raw("        \"local_approval_hash\": ");
-    json_sha256_option(approval.map(|reference| reference.local_approval_hash));
-    raw_line(",");
-    raw("        \"computed_capability_grant_hash\": ");
-    json_sha256_option(retained.map(|reference| reference.computed_grant_hash));
-    raw_line(",");
-    raw("        \"audit_record_hash\": ");
-    json_sha256_option(audit.map(|reference| reference.audit_record_hash));
-    raw_line(",");
-    raw("        \"rollback_plan_hash\": ");
-    json_sha256_option(audit.map(|reference| reference.rollback_plan_hash));
-    raw_line(",");
-    raw("        \"pre_load_service_inventory_hash\": ");
-    json_sha256_option(audit.map(|reference| reference.pre_load_service_inventory_hash));
-    raw_line(",");
-    raw("        \"cleanup_actions_hash\": ");
-    json_sha256_option(audit.map(|reference| reference.cleanup_actions_hash));
-    raw_line(",");
-    raw("        \"service_slot_reservation_hash\": ");
-    json_sha256_option(service_slot.map(|reservation| reservation.reservation_hash));
-    raw_line(",");
-    raw("        \"ram_only_service_slot_id\": ");
-    if let Some(reference) = audit {
-        json_str(reference.ram_only_service_slot_id.as_str());
-    } else {
-        raw("null");
-    }
-    crlf();
-    raw_line("      }");
+    let ram_only_service_slot_id = audit.map(|reference| reference.ram_only_service_slot_id);
+
+    emit_record_property_line(
+        "retained_reference_inputs",
+        vec![
+            f(
+                "module_manifest",
+                module_write_boundary_input_ref_record(
+                    binding.manifest_reference_event_id,
+                    binding.manifest_reference_status,
+                    binding.manifest_reference_reason,
+                    "raios.module_manifest_reference.v0",
+                ),
+            ),
+            f(
+                "candidate_artifact",
+                module_write_boundary_input_ref_record(
+                    binding.artifact_reference_event_id,
+                    binding.artifact_reference_status,
+                    binding.artifact_reference_reason,
+                    "raios.module_candidate_artifact_reference.v0",
+                ),
+            ),
+            f(
+                "vm_test_report",
+                module_write_boundary_input_ref_record(
+                    binding.vm_report_reference_event_id,
+                    binding.vm_report_reference_status,
+                    binding.vm_report_reference_reason,
+                    "raios.module_vm_test_report_reference.v0",
+                ),
+            ),
+            f(
+                "computed_capability_grant",
+                module_write_boundary_input_ref_record(
+                    binding.retained_reference_event_id,
+                    computed_grant_status(binding),
+                    computed_grant_reason(binding),
+                    "raios.computed_capability_grant.v0",
+                ),
+            ),
+            f(
+                "local_attestation",
+                module_write_boundary_input_ref_record(
+                    binding.attestation_reference_event_id,
+                    binding.attestation_reference_status,
+                    binding.attestation_reference_reason,
+                    "raios.module_local_attestation_reference.v0",
+                ),
+            ),
+            f(
+                "local_approval",
+                module_write_boundary_input_ref_record(
+                    binding.approval_reference_event_id,
+                    binding.approval_reference_status,
+                    binding.approval_reference_reason,
+                    "raios.module_local_approval_reference.v0",
+                ),
+            ),
+            f(
+                "audit_rollback",
+                module_write_boundary_input_ref_record(
+                    binding.audit_rollback_reference_event_id,
+                    binding.audit_rollback_reference_status,
+                    binding.audit_rollback_reference_reason,
+                    "raios.module_audit_rollback_reference.v0",
+                ),
+            ),
+            f(
+                "service_slot_reservation",
+                module_write_boundary_input_ref_record(
+                    binding.service_slot_reservation_event_id,
+                    binding.service_slot_reservation_status,
+                    binding.service_slot_reservation_reason,
+                    "raios.module_service_slot_reservation.v0",
+                ),
+            ),
+        ],
+        true,
+    );
+    emit_record_property_line(
+        "hash_inputs",
+        vec![
+            f(
+                "manifest_hash",
+                record_sha_or_null(retained.map(|reference| reference.manifest_hash)),
+            ),
+            f(
+                "candidate_artifact_hash",
+                record_sha_or_null(retained.map(|reference| reference.artifact_hash)),
+            ),
+            f(
+                "vm_test_report_hash",
+                record_sha_or_null(retained.map(|reference| reference.vm_report_hash)),
+            ),
+            f(
+                "local_attestation_hash",
+                record_sha_or_null(retained.map(|reference| reference.local_attestation_hash)),
+            ),
+            f(
+                "local_approval_hash",
+                record_sha_or_null(approval.map(|reference| reference.local_approval_hash)),
+            ),
+            f(
+                "computed_capability_grant_hash",
+                record_sha_or_null(retained.map(|reference| reference.computed_grant_hash)),
+            ),
+            f(
+                "audit_record_hash",
+                record_sha_or_null(audit.map(|reference| reference.audit_record_hash)),
+            ),
+            f(
+                "rollback_plan_hash",
+                record_sha_or_null(audit.map(|reference| reference.rollback_plan_hash)),
+            ),
+            f(
+                "pre_load_service_inventory_hash",
+                record_sha_or_null(
+                    audit.map(|reference| reference.pre_load_service_inventory_hash),
+                ),
+            ),
+            f(
+                "cleanup_actions_hash",
+                record_sha_or_null(audit.map(|reference| reference.cleanup_actions_hash)),
+            ),
+            f(
+                "service_slot_reservation_hash",
+                record_sha_or_null(service_slot.map(|reservation| reservation.reservation_hash)),
+            ),
+            f(
+                "ram_only_service_slot_id",
+                record_str_or_null(ram_only_service_slot_id.as_ref().map(|id| id.as_str())),
+            ),
+        ],
+        false,
+    );
+}
+
+fn module_write_boundary_input_ref_record(
+    event_id: Option<event_log::EventId>,
+    status: &'static str,
+    reason: &'static str,
+    schema: &'static str,
+) -> V<'static> {
+    inline(vec![
+        f("event_id", record_event_or_null(event_id)),
+        f("schema", s(schema)),
+        f("status", s(status)),
+        f("reason", s(reason)),
+        f("classification", s("local_only")),
+        f("authorizes_guest_load", no()),
+    ])
 }
 
 pub(crate) fn emit_module_write_boundary_availability_inputs(
@@ -318,6 +390,7 @@ pub(crate) fn emit_module_write_boundary_availability_inputs(
     raw_line("      }");
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_write_boundary_availability_input(
     name: &'static str,
     schema: &'static str,
@@ -326,27 +399,7 @@ pub(crate) fn emit_module_write_boundary_availability_input(
     reason: &'static str,
     comma: bool,
 ) {
-    raw("        ");
-    json_str(name);
-    raw(": {\"schema\": ");
-    json_str(schema);
-    raw(", \"status\": ");
-    json_str(status);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw(", \"scope\": ");
-    json_str(fact.scope);
-    raw(", \"classification\": ");
-    json_str(fact.classification);
-    raw(", \"present\": ");
-    raw_bool(fact.present);
-    raw(", \"provenance_valid\": ");
-    raw_bool(fact.provenance_ok);
-    raw(", \"authorizes_write\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_property_at(name, vec![f("schema", s(schema)), f("status", s(status)), f("reason", s(reason)), f("scope", s(fact.scope)), f("classification", s(fact.classification)), f("present", b(fact.present)), f("provenance_valid", b(fact.provenance_ok)), f("authorizes_write", no())], 8, comma);
 }
 
 pub(crate) fn emit_module_write_boundary_policy_inputs(
@@ -373,6 +426,7 @@ pub(crate) fn emit_module_write_boundary_policy_inputs(
     raw_line("      }");
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_write_boundary_policy_input(
     name: &'static str,
     schema: &'static str,
@@ -381,29 +435,7 @@ pub(crate) fn emit_module_write_boundary_policy_input(
     reason: &'static str,
     comma: bool,
 ) {
-    raw("        ");
-    json_str(name);
-    raw(": {\"schema\": ");
-    json_str(schema);
-    raw(", \"status\": ");
-    json_str(status);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw(", \"scope\": ");
-    json_str(fact.scope);
-    raw(", \"classification\": ");
-    json_str(fact.classification);
-    raw(", \"present\": ");
-    raw_bool(fact.present);
-    raw(", \"binds_retained_evidence\": ");
-    raw_bool(fact.binds_retained_evidence);
-    raw(", \"binds_availability\": ");
-    raw_bool(fact.binds_availability);
-    raw(", \"authorizes_write\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_property_at(name, vec![f("schema", s(schema)), f("status", s(status)), f("reason", s(reason)), f("scope", s(fact.scope)), f("classification", s(fact.classification)), f("present", b(fact.present)), f("binds_retained_evidence", b(fact.binds_retained_evidence)), f("binds_availability", b(fact.binds_availability)), f("authorizes_write", no())], 8, comma);
 }
 
 pub(crate) fn emit_module_write_boundary_append_contract_inputs(
@@ -430,6 +462,7 @@ pub(crate) fn emit_module_write_boundary_append_contract_inputs(
     raw_line("      }");
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_write_boundary_append_contract_input(
     name: &'static str,
     schema: &'static str,
@@ -438,43 +471,7 @@ pub(crate) fn emit_module_write_boundary_append_contract_input(
     reason: &'static str,
     comma: bool,
 ) {
-    raw("        ");
-    json_str(name);
-    raw(": {\"schema\": ");
-    json_str(schema);
-    raw(", \"status\": ");
-    json_str(status);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw(", \"scope\": ");
-    json_str(fact.scope);
-    raw(", \"classification\": ");
-    json_str(fact.classification);
-    raw(", \"present\": ");
-    raw_bool(fact.present);
-    raw(", \"binds_write_policy\": ");
-    raw_bool(fact.binds_write_policy);
-    raw(", \"binds_availability\": ");
-    raw_bool(fact.binds_availability);
-    raw(", \"binds_storage_layout_id\": ");
-    raw_bool(fact.binds_storage_layout_id);
-    raw(", \"binds_append_engine_id\": ");
-    raw_bool(fact.binds_append_engine_id);
-    raw(", \"binds_write_policy_id\": ");
-    raw_bool(fact.binds_write_policy_id);
-    raw(", \"binds_availability_id\": ");
-    raw_bool(fact.binds_availability_id);
-    raw(", \"binds_envelope_provenance\": ");
-    raw_bool(fact.binds_envelope_provenance);
-    raw(", \"storage_layout_available\": ");
-    raw_bool(fact.storage_layout_available);
-    raw(", \"append_engine_available\": ");
-    raw_bool(fact.append_engine_available);
-    raw(", \"authorizes_write\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_property_at(name, vec![f("schema", s(schema)), f("status", s(status)), f("reason", s(reason)), f("scope", s(fact.scope)), f("classification", s(fact.classification)), f("present", b(fact.present)), f("binds_write_policy", b(fact.binds_write_policy)), f("binds_availability", b(fact.binds_availability)), f("binds_storage_layout_id", b(fact.binds_storage_layout_id)), f("binds_append_engine_id", b(fact.binds_append_engine_id)), f("binds_write_policy_id", b(fact.binds_write_policy_id)), f("binds_availability_id", b(fact.binds_availability_id)), f("binds_envelope_provenance", b(fact.binds_envelope_provenance)), f("storage_layout_available", b(fact.storage_layout_available)), f("append_engine_available", b(fact.append_engine_available)), f("authorizes_write", no())], 8, comma);
 }
 
 pub(crate) fn emit_module_write_boundary_append_payload_hash_inputs(
@@ -498,13 +495,20 @@ pub(crate) fn emit_module_write_boundary_append_payload_hash_inputs(
         evaluation.rollback_payload_reason,
         true,
     );
-    raw("        \"payload_hash_available\": ");
-    raw_bool(evaluation.payload_hash_available);
-    raw_line(",");
-    raw_line("        \"payload_hash_envelopes_are_writer_authority\": false");
+    emit_record_fields(
+        vec![
+            f(
+                "payload_hash_available",
+                b(evaluation.payload_hash_available),
+            ),
+            f("payload_hash_envelopes_are_writer_authority", no()),
+        ],
+        8,
+    );
     raw_line("      }");
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_write_boundary_append_payload_hash_input(
     name: &'static str,
     schema: &'static str,
@@ -513,37 +517,7 @@ pub(crate) fn emit_module_write_boundary_append_payload_hash_input(
     reason: &'static str,
     comma: bool,
 ) {
-    raw("        ");
-    json_str(name);
-    raw(": {\"schema\": ");
-    json_str(schema);
-    raw(", \"status\": ");
-    json_str(status);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw(", \"scope\": ");
-    json_str(fact.scope);
-    raw(", \"classification\": ");
-    json_str(fact.classification);
-    raw(", \"present\": ");
-    raw_bool(fact.present);
-    raw(", \"payload_hash\": ");
-    json_sha256_option(fact.payload_hash);
-    raw(", \"source_payload_hash\": ");
-    json_sha256_option(fact.source_payload_hash);
-    raw(", \"binds_pre_load_write_request\": ");
-    raw_bool(fact.binds_pre_load_write_request);
-    raw(", \"binds_append_contract_id\": ");
-    raw_bool(fact.binds_append_contract_id);
-    raw(", \"binds_payload_hash\": ");
-    raw_bool(fact.binds_payload_hash);
-    raw(", \"append_contract_available\": ");
-    raw_bool(fact.append_contract_available);
-    raw(", \"authorizes_write\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_property_at(name, vec![f("schema", s(schema)), f("status", s(status)), f("reason", s(reason)), f("scope", s(fact.scope)), f("classification", s(fact.classification)), f("present", b(fact.present)), f("payload_hash", record_sha_or_null(fact.payload_hash)), f("source_payload_hash", record_sha_or_null(fact.source_payload_hash)), f("binds_pre_load_write_request", b(fact.binds_pre_load_write_request)), f("binds_append_contract_id", b(fact.binds_append_contract_id)), f("binds_payload_hash", b(fact.binds_payload_hash)), f("append_contract_available", b(fact.append_contract_available)), f("authorizes_write", no())], 8, comma);
 }
 
 pub(crate) fn emit_module_write_boundary_append_intent_inputs(
@@ -567,19 +541,28 @@ pub(crate) fn emit_module_write_boundary_append_intent_inputs(
         evaluation.rollback_intent_reason,
         true,
     );
-    raw("        \"append_contract_available\": ");
-    raw_bool(evaluation.append_contract_available);
-    raw_line(",");
-    raw("        \"payload_hash_available\": ");
-    raw_bool(evaluation.payload_hash_available);
-    raw_line(",");
-    raw("        \"append_intent_available\": ");
-    raw_bool(evaluation.append_intent_available);
-    raw_line(",");
-    raw_line("        \"append_intent_facts_are_writer_authority\": false");
+    emit_record_fields(
+        vec![
+            f(
+                "append_contract_available",
+                b(evaluation.append_contract_available),
+            ),
+            f(
+                "payload_hash_available",
+                b(evaluation.payload_hash_available),
+            ),
+            f(
+                "append_intent_available",
+                b(evaluation.append_intent_available),
+            ),
+            f("append_intent_facts_are_writer_authority", no()),
+        ],
+        8,
+    );
     raw_line("      }");
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_write_boundary_append_intent_input(
     name: &'static str,
     schema: &'static str,
@@ -588,86 +571,47 @@ pub(crate) fn emit_module_write_boundary_append_intent_input(
     reason: &'static str,
     comma: bool,
 ) {
-    raw("        ");
-    json_str(name);
-    raw(": {\"schema\": ");
-    json_str(schema);
-    raw(", \"status\": ");
-    json_str(status);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw(", \"scope\": ");
-    json_str(fact.scope);
-    raw(", \"classification\": ");
-    json_str(fact.classification);
-    raw(", \"present\": ");
-    raw_bool(fact.present);
-    raw(", \"binds_append_contract_id\": ");
-    raw_bool(fact.binds_append_contract_id);
-    raw(", \"binds_append_engine_id\": ");
-    raw_bool(fact.binds_append_engine_id);
-    raw(", \"binds_storage_layout_id\": ");
-    raw_bool(fact.binds_storage_layout_id);
-    raw(", \"binds_write_policy_id\": ");
-    raw_bool(fact.binds_write_policy_id);
-    raw(", \"binds_availability_id\": ");
-    raw_bool(fact.binds_availability_id);
-    raw(", \"binds_payload_hash\": ");
-    raw_bool(fact.binds_payload_hash);
-    raw(", \"binds_intent_provenance\": ");
-    raw_bool(fact.binds_intent_provenance);
-    raw(", \"append_contract_available\": ");
-    raw_bool(fact.append_contract_available);
-    raw(", \"payload_hash_available\": ");
-    raw_bool(fact.payload_hash_available);
-    raw(", \"authorizes_write\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_property_at(name, vec![f("schema", s(schema)), f("status", s(status)), f("reason", s(reason)), f("scope", s(fact.scope)), f("classification", s(fact.classification)), f("present", b(fact.present)), f("binds_append_contract_id", b(fact.binds_append_contract_id)), f("binds_append_engine_id", b(fact.binds_append_engine_id)), f("binds_storage_layout_id", b(fact.binds_storage_layout_id)), f("binds_write_policy_id", b(fact.binds_write_policy_id)), f("binds_availability_id", b(fact.binds_availability_id)), f("binds_payload_hash", b(fact.binds_payload_hash)), f("binds_intent_provenance", b(fact.binds_intent_provenance)), f("append_contract_available", b(fact.append_contract_available)), f("payload_hash_available", b(fact.payload_hash_available)), f("authorizes_write", no())], 8, comma);
 }
 
 pub(crate) fn emit_module_write_boundary_denial_evidence(
     evaluation: ModuleAuditRollbackWriteBoundaryEvaluation,
 ) {
-    raw_line("      \"denial_evidence\": {");
-    raw_line("        \"schema\": \"raios.module_audit_rollback_write_denial_evidence.v0\",");
-    raw("        \"validation_status\": ");
-    json_str(evaluation.status);
-    raw_line(",");
-    raw("        \"validation_reason\": ");
-    json_str(evaluation.reason);
-    raw_line(",");
-    raw_line("        \"durable_audit_write\": {");
-    raw_line("          \"schema\": \"raios.audit_record.v0\",");
-    raw("          \"state\": ");
-    json_str(evaluation.durable_audit_write_state);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(evaluation.durable_audit_write_reason);
-    raw_line(",");
-    raw("          \"ledger\": ");
-    json_str(evaluation.durable_audit_write_state);
-    raw_line(",");
-    raw_line("          \"write_attempted\": false");
-    raw_line("        },");
-    raw_line("        \"rollback_install\": {");
-    raw_line("          \"schema\": \"raios.rollback_plan.v0\",");
-    raw("          \"state\": ");
-    json_str(evaluation.rollback_install_state);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(evaluation.rollback_install_reason);
-    raw_line(",");
-    raw("          \"store\": ");
-    json_str(evaluation.rollback_install_state);
-    raw_line(",");
-    raw_line("          \"install_attempted\": false");
-    raw_line("        },");
-    raw_line("        \"loads_recovery_artifact\": false,");
-    raw_line("        \"recovery_artifact_loading\": \"separate_capability\",");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      }");
+    emit_record_property_line(
+        "denial_evidence",
+        vec![
+            f(
+                "schema",
+                s("raios.module_audit_rollback_write_denial_evidence.v0"),
+            ),
+            f("validation_status", s(evaluation.status)),
+            f("validation_reason", s(evaluation.reason)),
+            f(
+                "durable_audit_write",
+                object(vec![
+                    f("schema", s("raios.audit_record.v0")),
+                    f("state", s(evaluation.durable_audit_write_state)),
+                    f("reason", s(evaluation.durable_audit_write_reason)),
+                    f("ledger", s(evaluation.durable_audit_write_state)),
+                    f("write_attempted", no()),
+                ]),
+            ),
+            f(
+                "rollback_install",
+                object(vec![
+                    f("schema", s("raios.rollback_plan.v0")),
+                    f("state", s(evaluation.rollback_install_state)),
+                    f("reason", s(evaluation.rollback_install_reason)),
+                    f("store", s(evaluation.rollback_install_state)),
+                    f("install_attempted", no()),
+                ]),
+            ),
+            f("loads_recovery_artifact", no()),
+            f("recovery_artifact_loading", s("separate_capability")),
+            f("load_attempted", no()),
+        ],
+        false,
+    );
 }
 
 pub(crate) fn emit_module_write_boundary_policy_result(
@@ -677,119 +621,133 @@ pub(crate) fn emit_module_write_boundary_policy_result(
     append_payload: ModuleAuditRollbackAppendPayloadHashEvaluation,
     append_intent: ModuleAuditRollbackAppendIntentEvaluation,
 ) {
-    raw_line("      \"policy_result\": {");
-    raw("        \"preconditions_status\": ");
-    json_str(evaluation.status);
-    raw_line(",");
-    raw("        \"preconditions_reason\": ");
-    json_str(evaluation.reason);
-    raw_line(",");
-    raw("        \"durable_write_policy_status\": ");
-    json_str(policy.durable_write_policy_status);
-    raw_line(",");
-    raw("        \"durable_write_policy_reason\": ");
-    json_str(policy.durable_write_policy_reason);
-    raw_line(",");
-    raw("        \"rollback_install_policy_status\": ");
-    json_str(policy.rollback_install_policy_status);
-    raw_line(",");
-    raw("        \"rollback_install_policy_reason\": ");
-    json_str(policy.rollback_install_policy_reason);
-    raw_line(",");
-    raw("        \"audit_append_status\": ");
-    json_str(append.audit_append_status);
-    raw_line(",");
-    raw("        \"audit_append_reason\": ");
-    json_str(append.audit_append_reason);
-    raw_line(",");
-    raw("        \"rollback_transaction_status\": ");
-    json_str(append.rollback_transaction_status);
-    raw_line(",");
-    raw("        \"rollback_transaction_reason\": ");
-    json_str(append.rollback_transaction_reason);
-    raw_line(",");
-    raw("        \"audit_append_payload_hash_status\": ");
-    json_str(append_payload.audit_payload_status);
-    raw_line(",");
-    raw("        \"audit_append_payload_hash_reason\": ");
-    json_str(append_payload.audit_payload_reason);
-    raw_line(",");
-    raw("        \"rollback_transaction_append_payload_hash_status\": ");
-    json_str(append_payload.rollback_payload_status);
-    raw_line(",");
-    raw("        \"rollback_transaction_append_payload_hash_reason\": ");
-    json_str(append_payload.rollback_payload_reason);
-    raw_line(",");
-    raw("        \"audit_append_intent_status\": ");
-    json_str(append_intent.audit_intent_status);
-    raw_line(",");
-    raw("        \"audit_append_intent_reason\": ");
-    json_str(append_intent.audit_intent_reason);
-    raw_line(",");
-    raw("        \"rollback_transaction_append_intent_status\": ");
-    json_str(append_intent.rollback_intent_status);
-    raw_line(",");
-    raw("        \"rollback_transaction_append_intent_reason\": ");
-    json_str(append_intent.rollback_intent_reason);
-    raw_line(",");
-    raw_line("        \"durable_audit_written\": false,");
-    raw_line("        \"rollback_plan_installed\": false,");
-    raw("        \"durable_audit_write_missing\": ");
-    raw_bool(method_eq(evaluation.durable_audit_write_state, "missing"));
-    raw_line(",");
-    raw("        \"rollback_install_missing\": ");
-    raw_bool(method_eq(evaluation.rollback_install_state, "missing"));
-    raw_line(",");
-    raw("        \"durable_write_policy_missing\": ");
-    raw_bool(!method_eq(policy.durable_write_policy_status, "available"));
-    raw_line(",");
-    raw("        \"rollback_install_policy_missing\": ");
-    raw_bool(!method_eq(
-        policy.rollback_install_policy_status,
-        "available",
-    ));
-    raw_line(",");
-    raw("        \"storage_layout_missing\": ");
-    raw_bool(!append.storage_layout_available);
-    raw_line(",");
-    raw("        \"append_engine_missing\": ");
-    raw_bool(!append.append_engine_available);
-    raw_line(",");
-    raw("        \"append_contract_available\": ");
-    raw_bool(append_intent.append_contract_available);
-    raw_line(",");
-    raw("        \"payload_hash_available\": ");
-    raw_bool(append_payload.payload_hash_available);
-    raw_line(",");
-    raw("        \"payload_hash_missing\": ");
-    raw_bool(!append_payload.payload_hash_available);
-    raw_line(",");
-    raw("        \"append_intent_available\": ");
-    raw_bool(append_intent.append_intent_available);
-    raw_line(",");
-    raw("        \"append_intent_missing\": ");
-    raw_bool(!append_intent.append_intent_available);
-    raw_line(",");
-    raw_line("        \"retained_hash_refs_are_durable_authority\": false,");
-    raw_line("        \"retained_hash_refs_are_append_authority\": false,");
-    raw_line("        \"retained_hash_refs_are_payload_authority\": false,");
-    raw_line("        \"retained_hash_refs_are_append_intent_authority\": false,");
-    raw_line("        \"policy_facts_are_append_authority\": false,");
-    raw_line("        \"append_contract_facts_are_append_intent_authority\": false,");
-    raw_line("        \"payload_hash_envelopes_are_writer_authority\": false,");
-    raw_line("        \"append_intent_facts_are_writer_authority\": false,");
-    raw_line("        \"recovery_artifact_loading_separate\": true,");
-    raw_line("        \"grants_capability\": false,");
-    raw_line("        \"grants_load_now\": false,");
-    raw_line("        \"authorizes_guest_load\": false,");
-    raw("        \"can_load_now\": ");
-    raw_bool(evaluation.can_load);
-    raw_line(",");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw("        \"load_attempted\": ");
-    raw_bool(evaluation.load_attempted);
-    crlf();
-    raw_line("      }");
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("preconditions_status", s(evaluation.status)),
+            f("preconditions_reason", s(evaluation.reason)),
+            f(
+                "durable_write_policy_status",
+                s(policy.durable_write_policy_status),
+            ),
+            f(
+                "durable_write_policy_reason",
+                s(policy.durable_write_policy_reason),
+            ),
+            f(
+                "rollback_install_policy_status",
+                s(policy.rollback_install_policy_status),
+            ),
+            f(
+                "rollback_install_policy_reason",
+                s(policy.rollback_install_policy_reason),
+            ),
+            f("audit_append_status", s(append.audit_append_status)),
+            f("audit_append_reason", s(append.audit_append_reason)),
+            f(
+                "rollback_transaction_status",
+                s(append.rollback_transaction_status),
+            ),
+            f(
+                "rollback_transaction_reason",
+                s(append.rollback_transaction_reason),
+            ),
+            f(
+                "audit_append_payload_hash_status",
+                s(append_payload.audit_payload_status),
+            ),
+            f(
+                "audit_append_payload_hash_reason",
+                s(append_payload.audit_payload_reason),
+            ),
+            f(
+                "rollback_transaction_append_payload_hash_status",
+                s(append_payload.rollback_payload_status),
+            ),
+            f(
+                "rollback_transaction_append_payload_hash_reason",
+                s(append_payload.rollback_payload_reason),
+            ),
+            f(
+                "audit_append_intent_status",
+                s(append_intent.audit_intent_status),
+            ),
+            f(
+                "audit_append_intent_reason",
+                s(append_intent.audit_intent_reason),
+            ),
+            f(
+                "rollback_transaction_append_intent_status",
+                s(append_intent.rollback_intent_status),
+            ),
+            f(
+                "rollback_transaction_append_intent_reason",
+                s(append_intent.rollback_intent_reason),
+            ),
+            f("durable_audit_written", no()),
+            f("rollback_plan_installed", no()),
+            f(
+                "durable_audit_write_missing",
+                b(method_eq(evaluation.durable_audit_write_state, "missing")),
+            ),
+            f(
+                "rollback_install_missing",
+                b(method_eq(evaluation.rollback_install_state, "missing")),
+            ),
+            f(
+                "durable_write_policy_missing",
+                b(!method_eq(policy.durable_write_policy_status, "available")),
+            ),
+            f(
+                "rollback_install_policy_missing",
+                b(!method_eq(
+                    policy.rollback_install_policy_status,
+                    "available",
+                )),
+            ),
+            f(
+                "storage_layout_missing",
+                b(!append.storage_layout_available),
+            ),
+            f("append_engine_missing", b(!append.append_engine_available)),
+            f(
+                "append_contract_available",
+                b(append_intent.append_contract_available),
+            ),
+            f(
+                "payload_hash_available",
+                b(append_payload.payload_hash_available),
+            ),
+            f(
+                "payload_hash_missing",
+                b(!append_payload.payload_hash_available),
+            ),
+            f(
+                "append_intent_available",
+                b(append_intent.append_intent_available),
+            ),
+            f(
+                "append_intent_missing",
+                b(!append_intent.append_intent_available),
+            ),
+            f("retained_hash_refs_are_durable_authority", no()),
+            f("retained_hash_refs_are_append_authority", no()),
+            f("retained_hash_refs_are_payload_authority", no()),
+            f("retained_hash_refs_are_append_intent_authority", no()),
+            f("policy_facts_are_append_authority", no()),
+            f("append_contract_facts_are_append_intent_authority", no()),
+            f("payload_hash_envelopes_are_writer_authority", no()),
+            f("append_intent_facts_are_writer_authority", no()),
+            f("recovery_artifact_loading_separate", b(true)),
+            f("grants_capability", no()),
+            f("grants_load_now", no()),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", b(evaluation.can_load)),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", b(evaluation.load_attempted)),
+        ],
+        false,
+    );
 }
 
 pub(crate) fn emit_module_audit_rollback_write_boundary_selftest() {
@@ -802,24 +760,28 @@ pub(crate) fn emit_module_audit_rollback_write_boundary_selftest() {
     }
 
     begin_response("module.audit_rollback_write_boundary_selftest");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_write_boundary_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"installs_rollback_plan\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"loads_recovery_artifact\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_audit_rollback_write_boundary_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("installs_rollback_plan", no()),
+            f("loads_artifact", no()),
+            f("loads_recovery_artifact", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+        ],
+        6,
+    );
     raw_line("      \"cases\": [");
     idx = 0;
     while idx < cases.len() {
@@ -838,23 +800,22 @@ pub(crate) fn emit_module_audit_rollback_write_boundary_selftest_case(
     case: &ModuleAuditRollbackWriteBoundarySelfTestCase,
     comma: bool,
 ) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"creates_durable_audit_records\": false, \"installs_rollback_plan\": false, \"loads_artifact\": false, \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_object(
+        vec![
+            f("case", s(case.name)),
+            f("expected_status", s(case.expected_status)),
+            f("expected_reason", s(case.expected_reason)),
+            f("actual_status", s(case.actual_status)),
+            f("actual_reason", s(case.actual_reason)),
+            f("passed", b(case.passed)),
+            f("creates_durable_audit_records", no()),
+            f("installs_rollback_plan", no()),
+            f("loads_artifact", no()),
+            f("can_load", no()),
+            f("load_attempted", no()),
+        ],
+        comma,
+    );
 }
 
 pub(crate) fn module_audit_rollback_write_boundary_candidate_from_binding(

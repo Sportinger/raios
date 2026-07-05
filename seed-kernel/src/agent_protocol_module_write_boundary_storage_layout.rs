@@ -1,4 +1,12 @@
+use alloc::{format, string::String, vec, vec::Vec};
+
+use crate::agent_protocol_support::{
+    emit_record_fields_trailing_comma, emit_record_property_line, record_bool as b,
+    record_false as no, record_field as f, record_null as null, record_object as object,
+    record_str as s, record_str_or_null,
+};
 use crate::{agent_protocol_module_types::*, agent_protocol_support::*, ahci, pci};
+use raios_core::record::Value as V;
 
 pub(crate) const MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_METHOD: &str =
     "module.audit_rollback_storage_layout";
@@ -134,66 +142,81 @@ pub(crate) fn emit_module_audit_rollback_storage_layout() {
     let evaluation = evaluate_module_audit_rollback_storage_layout_candidate(storage);
 
     begin_response("module.audit_rollback_storage_layout");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_storage_layout.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"global_event_log_mutation\": \"none\",");
-    raw_line("      \"writes_enabled\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"installs_rollback_plan\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.module_audit_rollback_storage_layout.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", no()),
+            f("global_event_log_mutation", s("none")),
+            f("writes_enabled", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("installs_rollback_plan", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+        ],
+        6,
+    );
     emit_module_storage_layout_facts(storage, evaluation);
     raw_line(",");
     emit_module_storage_authority_foundation(storage.persistence_device_inventory, evaluation);
     raw_line(",");
-    raw_line("      \"policy_result\": {");
-    raw("        \"storage_authority_id\": ");
-    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
-    raw_line(",");
-    raw("        \"storage_authority_owner\": ");
-    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_OWNER);
-    raw_line(",");
-    raw("        \"audit_append_target_id\": ");
-    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-    raw_line(",");
-    raw("        \"rollback_append_target_id\": ");
-    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-    raw_line(",");
-    raw("        \"transaction_writer_owner\": ");
-    json_str(AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER);
-    raw_line(",");
-    raw("        \"storage_layout_status\": ");
-    json_str(evaluation.status);
-    raw_line(",");
-    raw("        \"storage_layout_reason\": ");
-    json_str(evaluation.reason);
-    raw_line(",");
-    raw("        \"persistence_device_available\": ");
-    raw_bool(evaluation.persistence_device_available);
-    raw_line(",");
-    raw("        \"storage_layout_available\": ");
-    raw_bool(evaluation.storage_layout_available);
-    raw_line(",");
-    raw("        \"storage_layout_missing\": ");
-    raw_bool(!evaluation.storage_layout_available);
-    raw_line(",");
-    raw("        \"append_engine_available\": ");
-    raw_bool(evaluation.append_engine_available);
-    raw_line(",");
-    raw("        \"append_engine_missing\": ");
-    raw_bool(!evaluation.append_engine_available);
-    raw_line(",");
-    raw_line("        \"retained_hash_refs_are_storage_authority\": false,");
-    raw_line("        \"availability_facts_are_storage_authority\": false,");
-    raw_line("        \"write_policy_facts_are_storage_authority\": false,");
-    raw_line("        \"storage_layout_facts_are_append_authority\": false,");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      },");
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f(
+                "storage_authority_id",
+                s(AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID),
+            ),
+            f(
+                "storage_authority_owner",
+                s(AUDIT_ROLLBACK_STORAGE_AUTHORITY_OWNER),
+            ),
+            f(
+                "audit_append_target_id",
+                s(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID),
+            ),
+            f(
+                "rollback_append_target_id",
+                s(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID),
+            ),
+            f(
+                "transaction_writer_owner",
+                s(AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER),
+            ),
+            f("storage_layout_status", s(evaluation.status)),
+            f("storage_layout_reason", s(evaluation.reason)),
+            f(
+                "persistence_device_available",
+                b(evaluation.persistence_device_available),
+            ),
+            f(
+                "storage_layout_available",
+                b(evaluation.storage_layout_available),
+            ),
+            f(
+                "storage_layout_missing",
+                b(!evaluation.storage_layout_available),
+            ),
+            f(
+                "append_engine_available",
+                b(evaluation.append_engine_available),
+            ),
+            f(
+                "append_engine_missing",
+                b(!evaluation.append_engine_available),
+            ),
+            f("retained_hash_refs_are_storage_authority", no()),
+            f("availability_facts_are_storage_authority", no()),
+            f("write_policy_facts_are_storage_authority", no()),
+            f("storage_layout_facts_are_append_authority", no()),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ],
+        true,
+    );
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     emit_export_gate(
@@ -229,22 +252,26 @@ pub(crate) fn emit_module_audit_rollback_storage_layout_selftest() {
     }
 
     begin_response("module.audit_rollback_storage_layout_selftest");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_storage_layout_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"installs_rollback_plan\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_audit_rollback_storage_layout_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("installs_rollback_plan", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+        ],
+        6,
+    );
     raw_line("      \"cases\": [");
     idx = 0;
     while idx < cases.len() {
@@ -263,23 +290,21 @@ pub(crate) fn emit_module_audit_rollback_storage_layout_selftest_case(
     case: &ModuleAuditRollbackStorageLayoutSelfTestCase,
     comma: bool,
 ) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"writes_enabled\": false, \"installs_rollback_plan\": false, \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_object(
+        vec![
+            f("case", s(case.name)),
+            f("expected_status", s(case.expected_status)),
+            f("expected_reason", s(case.expected_reason)),
+            f("actual_status", s(case.actual_status)),
+            f("actual_reason", s(case.actual_reason)),
+            f("passed", b(case.passed)),
+            f("writes_enabled", no()),
+            f("installs_rollback_plan", no()),
+            f("can_load", no()),
+            f("load_attempted", no()),
+        ],
+        comma,
+    );
 }
 
 pub(crate) fn module_audit_rollback_storage_layout_snapshot(
@@ -613,144 +638,153 @@ pub(crate) fn emit_module_storage_authority_foundation(
 ) {
     let target_region_discovery = audit_rollback_target_region_discovery(persistence_device);
     raw_line("      \"storage_authority_foundation\": {");
-    raw("        \"schema\": ");
-    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_SCHEMA);
-    raw_line(",");
-    raw("        \"id\": ");
-    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
-    raw_line(",");
-    raw("        \"owner_method\": ");
-    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_OWNER);
-    raw_line(",");
-    raw("        \"source_method\": ");
-    json_str(MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_METHOD);
-    raw_line(",");
-    raw_line("        \"scope\": \"current_boot\",");
-    raw_line("        \"classification\": \"local_only\",");
-    raw_line("        \"persistence\": \"none\",");
-    raw("        \"status\": ");
-    json_str(evaluation.status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(evaluation.reason);
-    raw_line(",");
-    raw("        \"available\": ");
-    raw_bool(evaluation.storage_layout_available);
-    raw_line(",");
-    raw_line("        \"authorizes_append\": false,");
-    raw_line("        \"writes_enabled\": false,");
-    raw_line("        \"write_attempted\": false,");
-    raw_line("        \"append_targets\": {");
-    raw("          \"audit_ledger\": {\"id\": ");
-    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
-    raw(", \"schema\": ");
-    json_str(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-    raw(", \"available\": false},");
-    crlf();
-    raw("          \"rollback_store\": {\"id\": ");
-    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
-    raw(", \"schema\": ");
-    json_str(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-    raw(", \"available\": false}");
-    crlf();
-    raw_line("        },");
-    raw_line("        \"required_authorities\": {");
-    raw_line("          \"persistence_device_inventory\": true,");
-    raw_line("          \"audit_rollback_storage_layout\": true,");
-    raw_line("          \"append_engine\": true,");
-    raw("          \"transaction_writer_owner\": ");
-    json_str(AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER);
-    crlf();
-    raw_line("        },");
-    raw_line("        \"observed_boot_storage\": {");
-    raw("          \"persistence_device_available\": ");
-    raw_bool(evaluation.persistence_device_available);
-    raw_line(",");
-    raw("          \"storage_layout_available\": ");
-    raw_bool(evaluation.storage_layout_available);
-    raw_line(",");
-    raw("          \"append_engine_available\": ");
-    raw_bool(evaluation.append_engine_available);
-    raw_line(",");
-    raw("          \"storage_controller_observed\": ");
-    raw_bool(evaluation.storage_controller_observed);
-    raw_line(",");
-    raw("          \"block_driver_available\": ");
-    raw_bool(evaluation.block_driver_available);
-    raw_line(",");
-    raw("          \"ahci_register_probe_available\": ");
-    raw_bool(evaluation.ahci_register_probe_available);
-    raw_line(",");
-    raw("          \"block_device_identity_available\": ");
-    raw_bool(evaluation.block_device_identity_available);
-    raw_line(",");
-    raw("          \"sector_read_available\": ");
-    raw_bool(evaluation.sector_read_available);
-    raw_line(",");
-    raw("          \"partition_inventory_available\": ");
-    raw_bool(evaluation.partition_inventory_available);
-    raw_line(",");
-    raw("          \"block_write_path_available\": ");
-    raw_bool(evaluation.block_write_path_available);
-    raw_line(",");
-    raw("          \"scratch_write_path_available\": ");
-    raw_bool(persistence_device.ahci_probe.scratch_write_path_available);
-    raw_line(",");
-    raw("          \"scratch_block_write_authority_available\": ");
-    raw_bool(
-        persistence_device
-            .ahci_probe
-            .scratch_write_readback
-            .block_write_authority_available,
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s(AUDIT_ROLLBACK_STORAGE_AUTHORITY_SCHEMA)),
+            f("id", s(AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID)),
+            f("owner_method", s(AUDIT_ROLLBACK_STORAGE_AUTHORITY_OWNER)),
+            f(
+                "source_method",
+                s(MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_METHOD),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("persistence", s("none")),
+            f("status", s(evaluation.status)),
+            f("reason", s(evaluation.reason)),
+            f("available", b(evaluation.storage_layout_available)),
+            f("authorizes_append", no()),
+            f("writes_enabled", no()),
+            f("write_attempted", no()),
+            f(
+                "append_targets",
+                object(vec![
+                    f(
+                        "audit_ledger",
+                        record_inline(vec![
+                            f("id", s(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID)),
+                            f("schema", s(AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA)),
+                            f("available", no()),
+                        ]),
+                    ),
+                    f(
+                        "rollback_store",
+                        record_inline(vec![
+                            f("id", s(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID)),
+                            f("schema", s(AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA)),
+                            f("available", no()),
+                        ]),
+                    ),
+                ]),
+            ),
+            f(
+                "required_authorities",
+                object(vec![
+                    f("persistence_device_inventory", b(true)),
+                    f("audit_rollback_storage_layout", b(true)),
+                    f("append_engine", b(true)),
+                    f(
+                        "transaction_writer_owner",
+                        s(AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER),
+                    ),
+                ]),
+            ),
+            f(
+                "observed_boot_storage",
+                object(vec![
+                    f(
+                        "persistence_device_available",
+                        b(evaluation.persistence_device_available),
+                    ),
+                    f(
+                        "storage_layout_available",
+                        b(evaluation.storage_layout_available),
+                    ),
+                    f(
+                        "append_engine_available",
+                        b(evaluation.append_engine_available),
+                    ),
+                    f(
+                        "storage_controller_observed",
+                        b(evaluation.storage_controller_observed),
+                    ),
+                    f(
+                        "block_driver_available",
+                        b(evaluation.block_driver_available),
+                    ),
+                    f(
+                        "ahci_register_probe_available",
+                        b(evaluation.ahci_register_probe_available),
+                    ),
+                    f(
+                        "block_device_identity_available",
+                        b(evaluation.block_device_identity_available),
+                    ),
+                    f("sector_read_available", b(evaluation.sector_read_available)),
+                    f(
+                        "partition_inventory_available",
+                        b(evaluation.partition_inventory_available),
+                    ),
+                    f(
+                        "block_write_path_available",
+                        b(evaluation.block_write_path_available),
+                    ),
+                    f(
+                        "scratch_write_path_available",
+                        b(persistence_device.ahci_probe.scratch_write_path_available),
+                    ),
+                    f(
+                        "scratch_block_write_authority_available",
+                        b(persistence_device
+                            .ahci_probe
+                            .scratch_write_readback
+                            .block_write_authority_available),
+                    ),
+                    f(
+                        "scratch_region_within_device_bounds",
+                        b(persistence_device
+                            .ahci_probe
+                            .scratch_write_readback
+                            .region_within_device_bounds),
+                    ),
+                    f(
+                        "scratch_region_no_boot_or_partition_metadata_overlap",
+                        b(persistence_device
+                            .ahci_probe
+                            .scratch_write_readback
+                            .no_boot_or_partition_metadata_overlap),
+                    ),
+                    f("scratch_region_authorizes_audit_rollback", no()),
+                    f(
+                        "audit_rollback_target_region_available",
+                        b(persistence_device
+                            .ahci_probe
+                            .audit_rollback_target_region
+                            .available),
+                    ),
+                    f(
+                        "audit_rollback_target_region_within_device_bounds",
+                        b(persistence_device
+                            .ahci_probe
+                            .audit_rollback_target_region
+                            .region_within_device_bounds),
+                    ),
+                    f(
+                        "audit_rollback_target_region_no_boot_or_partition_metadata_overlap",
+                        b(persistence_device
+                            .ahci_probe
+                            .audit_rollback_target_region
+                            .no_boot_or_partition_metadata_overlap),
+                    ),
+                    f(
+                        "block_write_path_reason",
+                        s(evaluation.block_write_path_reason),
+                    ),
+                ]),
+            ),
+        ],
+        8,
     );
-    raw_line(",");
-    raw("          \"scratch_region_within_device_bounds\": ");
-    raw_bool(
-        persistence_device
-            .ahci_probe
-            .scratch_write_readback
-            .region_within_device_bounds,
-    );
-    raw_line(",");
-    raw("          \"scratch_region_no_boot_or_partition_metadata_overlap\": ");
-    raw_bool(
-        persistence_device
-            .ahci_probe
-            .scratch_write_readback
-            .no_boot_or_partition_metadata_overlap,
-    );
-    raw_line(",");
-    raw("          \"scratch_region_authorizes_audit_rollback\": ");
-    raw_bool(false);
-    raw_line(",");
-    raw("          \"audit_rollback_target_region_available\": ");
-    raw_bool(
-        persistence_device
-            .ahci_probe
-            .audit_rollback_target_region
-            .available,
-    );
-    raw_line(",");
-    raw("          \"audit_rollback_target_region_within_device_bounds\": ");
-    raw_bool(
-        persistence_device
-            .ahci_probe
-            .audit_rollback_target_region
-            .region_within_device_bounds,
-    );
-    raw_line(",");
-    raw("          \"audit_rollback_target_region_no_boot_or_partition_metadata_overlap\": ");
-    raw_bool(
-        persistence_device
-            .ahci_probe
-            .audit_rollback_target_region
-            .no_boot_or_partition_metadata_overlap,
-    );
-    raw_line(",");
-    raw("          \"block_write_path_reason\": ");
-    json_str(evaluation.block_write_path_reason);
-    crlf();
-    raw_line("        },");
     emit_audit_rollback_target_region_discovery(target_region_discovery);
     raw_line(",");
     emit_module_block_write_path_authority_gate(persistence_device, evaluation);
@@ -760,87 +794,89 @@ pub(crate) fn emit_module_storage_authority_foundation(
 pub(crate) fn emit_audit_rollback_target_region_discovery(
     discovery: AuditRollbackTargetRegionDiscovery,
 ) {
-    raw_line("        \"audit_rollback_target_region_discovery\": {");
-    raw("          \"schema\": ");
-    json_str(discovery.schema);
-    raw_line(",");
-    raw("          \"id\": ");
-    json_str(discovery.id);
-    raw_line(",");
-    raw_line("          \"scope\": \"current_boot\",");
-    raw_line("          \"classification\": \"local_only\",");
-    raw_line("          \"persistence\": \"none\",");
-    raw("          \"status\": ");
-    json_str(discovery.status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(discovery.reason);
-    raw_line(",");
-    raw("          \"source\": ");
-    json_str(discovery.source);
-    raw_line(",");
-    raw("          \"storage_authority_id\": ");
-    json_str(discovery.storage_authority_id);
-    raw_line(",");
-    raw("          \"partition_inventory_available\": ");
-    raw_bool(discovery.partition_inventory_available);
-    raw_line(",");
-    raw("          \"partition_inventory_scheme\": ");
-    json_str(discovery.partition_inventory_scheme);
-    raw_line(",");
-    raw("          \"partition_inventory_source_lba\": ");
-    raw_fmt(format_args!("{}", discovery.partition_inventory_source_lba));
-    raw_line(",");
-    raw("          \"partition_entry_count\": ");
-    raw_fmt(format_args!("{}", discovery.partition_entry_count));
-    raw_line(",");
-    raw("          \"mbr_signature_valid\": ");
-    raw_bool(discovery.mbr_signature_valid);
-    raw_line(",");
-    raw("          \"boot_metadata_lba\": ");
-    raw_fmt(format_args!("{}", discovery.boot_metadata_lba));
-    raw_line(",");
-    raw("          \"candidate_region_present\": ");
-    raw_bool(discovery.candidate_region_present);
-    raw_line(",");
-    raw("          \"candidate_region_start_lba\": ");
-    raw_fmt(format_args!("{}", discovery.candidate_region_start_lba));
-    raw_line(",");
-    raw("          \"candidate_region_lba_count\": ");
-    raw_fmt(format_args!("{}", discovery.candidate_region_lba_count));
-    raw_line(",");
-    raw("          \"candidate_region_is_scratch\": ");
-    raw_bool(discovery.candidate_region_is_scratch);
-    raw_line(",");
-    raw("          \"candidate_overlaps_boot_metadata\": ");
-    raw_bool(discovery.candidate_overlaps_boot_metadata);
-    raw_line(",");
-    raw("          \"candidate_overlaps_scratch\": ");
-    raw_bool(discovery.candidate_overlaps_scratch);
-    raw_line(",");
-    raw("          \"scratch_region_id\": ");
-    json_str(discovery.scratch_region_id);
-    raw_line(",");
-    raw("          \"scratch_region_available\": ");
-    raw_bool(discovery.scratch_region_available);
-    raw_line(",");
-    raw("          \"scratch_region_start_lba\": ");
-    raw_fmt(format_args!("{}", discovery.scratch_region_start_lba));
-    raw_line(",");
-    raw("          \"scratch_region_lba_count\": ");
-    raw_fmt(format_args!("{}", discovery.scratch_region_lba_count));
-    raw_line(",");
-    raw("          \"scratch_rejected_as_durable_authority\": ");
-    raw_bool(discovery.scratch_rejected_as_durable_authority);
-    raw_line(",");
-    raw("          \"durable_region_available\": ");
-    raw_bool(discovery.durable_region_available);
-    raw_line(",");
-    raw_line("          \"authorizes_append\": false,");
-    raw_line("          \"writes_durable_audit_log\": false,");
-    raw_line("          \"writes_rollback_store\": false,");
-    raw_line("          \"write_attempted\": false");
-    raw_line("        }");
+    emit_record_property_line_at(
+        "audit_rollback_target_region_discovery",
+        vec![
+            f("schema", s(discovery.schema)),
+            f("id", s(discovery.id)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("persistence", s("none")),
+            f("status", s(discovery.status)),
+            f("reason", s(discovery.reason)),
+            f("source", s(discovery.source)),
+            f("storage_authority_id", s(discovery.storage_authority_id)),
+            f(
+                "partition_inventory_available",
+                b(discovery.partition_inventory_available),
+            ),
+            f(
+                "partition_inventory_scheme",
+                s(discovery.partition_inventory_scheme),
+            ),
+            f(
+                "partition_inventory_source_lba",
+                V::U64(discovery.partition_inventory_source_lba),
+            ),
+            f(
+                "partition_entry_count",
+                V::U64(discovery.partition_entry_count as u64),
+            ),
+            f("mbr_signature_valid", b(discovery.mbr_signature_valid)),
+            f("boot_metadata_lba", V::U64(discovery.boot_metadata_lba)),
+            f(
+                "candidate_region_present",
+                b(discovery.candidate_region_present),
+            ),
+            f(
+                "candidate_region_start_lba",
+                V::U64(discovery.candidate_region_start_lba),
+            ),
+            f(
+                "candidate_region_lba_count",
+                V::U64(discovery.candidate_region_lba_count),
+            ),
+            f(
+                "candidate_region_is_scratch",
+                b(discovery.candidate_region_is_scratch),
+            ),
+            f(
+                "candidate_overlaps_boot_metadata",
+                b(discovery.candidate_overlaps_boot_metadata),
+            ),
+            f(
+                "candidate_overlaps_scratch",
+                b(discovery.candidate_overlaps_scratch),
+            ),
+            f("scratch_region_id", s(discovery.scratch_region_id)),
+            f(
+                "scratch_region_available",
+                b(discovery.scratch_region_available),
+            ),
+            f(
+                "scratch_region_start_lba",
+                V::U64(discovery.scratch_region_start_lba),
+            ),
+            f(
+                "scratch_region_lba_count",
+                V::U64(discovery.scratch_region_lba_count),
+            ),
+            f(
+                "scratch_rejected_as_durable_authority",
+                b(discovery.scratch_rejected_as_durable_authority),
+            ),
+            f(
+                "durable_region_available",
+                b(discovery.durable_region_available),
+            ),
+            f("authorizes_append", no()),
+            f("writes_durable_audit_log", no()),
+            f("writes_rollback_store", no()),
+            f("write_attempted", no()),
+        ],
+        8,
+        false,
+    );
 }
 
 pub(crate) fn emit_module_block_write_path_authority_gate(
@@ -848,82 +884,93 @@ pub(crate) fn emit_module_block_write_path_authority_gate(
     evaluation: ModuleAuditRollbackStorageLayoutEvaluation,
 ) {
     let probe = persistence_device.ahci_probe;
-    raw_line("        \"block_write_path_authority_gate\": {");
-    raw("          \"schema\": ");
-    json_str(AUDIT_ROLLBACK_BLOCK_WRITE_PATH_AUTHORITY_GATE_SCHEMA);
-    raw_line(",");
-    raw("          \"id\": ");
-    json_str(AUDIT_ROLLBACK_BLOCK_WRITE_PATH_AUTHORITY_GATE_ID);
-    raw_line(",");
-    raw_line("          \"scope\": \"current_boot\",");
-    raw_line("          \"classification\": \"local_only\",");
-    raw("          \"storage_authority_id\": ");
-    json_str(AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(audit_rollback_block_write_path_gate_status(
-        evaluation.block_write_path_available,
-    ));
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(evaluation.block_write_path_reason);
-    raw_line(",");
-    raw("          \"available\": ");
-    raw_bool(evaluation.block_write_path_available);
-    raw_line(",");
-    raw("          \"read_only_block_driver_id\": ");
-    json_str(probe.block_driver.driver_id);
-    raw_line(",");
-    raw("          \"read_only_block_driver_available\": ");
-    raw_bool(probe.block_driver.available);
-    raw_line(",");
-    raw("          \"read_only_block_driver_supports_read\": ");
-    raw_bool(probe.block_driver.supports_read);
-    raw_line(",");
-    raw("          \"read_only_block_driver_supports_write\": ");
-    raw_bool(probe.block_driver.supports_write);
-    raw_line(",");
-    raw("          \"partition_inventory_available\": ");
-    raw_bool(probe.partition_inventory.available);
-    raw_line(",");
-    raw("          \"partition_inventory_scheme\": ");
-    json_str(probe.partition_inventory.scheme);
-    raw_line(",");
-    raw("          \"scratch_write_path_available\": ");
-    raw_bool(probe.scratch_write_path_available);
-    raw_line(",");
-    raw("          \"scratch_block_write_authority_available\": ");
-    raw_bool(probe.scratch_write_readback.block_write_authority_available);
-    raw_line(",");
-    raw("          \"scratch_block_write_authority_id\": ");
-    json_str(ahci::SCRATCH_BLOCK_WRITE_AUTHORITY_ID);
-    raw_line(",");
-    raw("          \"scratch_region_within_device_bounds\": ");
-    raw_bool(probe.scratch_write_readback.region_within_device_bounds);
-    raw_line(",");
-    raw("          \"scratch_region_no_boot_or_partition_metadata_overlap\": ");
-    raw_bool(
-        probe
-            .scratch_write_readback
-            .no_boot_or_partition_metadata_overlap,
+    emit_record_property_line_at(
+        "block_write_path_authority_gate",
+        vec![
+            f(
+                "schema",
+                s(AUDIT_ROLLBACK_BLOCK_WRITE_PATH_AUTHORITY_GATE_SCHEMA),
+            ),
+            f("id", s(AUDIT_ROLLBACK_BLOCK_WRITE_PATH_AUTHORITY_GATE_ID)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f(
+                "storage_authority_id",
+                s(AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID),
+            ),
+            f(
+                "status",
+                s(audit_rollback_block_write_path_gate_status(
+                    evaluation.block_write_path_available,
+                )),
+            ),
+            f("reason", s(evaluation.block_write_path_reason)),
+            f("available", b(evaluation.block_write_path_available)),
+            f("read_only_block_driver_id", s(probe.block_driver.driver_id)),
+            f(
+                "read_only_block_driver_available",
+                b(probe.block_driver.available),
+            ),
+            f(
+                "read_only_block_driver_supports_read",
+                b(probe.block_driver.supports_read),
+            ),
+            f(
+                "read_only_block_driver_supports_write",
+                b(probe.block_driver.supports_write),
+            ),
+            f(
+                "partition_inventory_available",
+                b(probe.partition_inventory.available),
+            ),
+            f(
+                "partition_inventory_scheme",
+                s(probe.partition_inventory.scheme),
+            ),
+            f(
+                "scratch_write_path_available",
+                b(probe.scratch_write_path_available),
+            ),
+            f(
+                "scratch_block_write_authority_available",
+                b(probe.scratch_write_readback.block_write_authority_available),
+            ),
+            f(
+                "scratch_block_write_authority_id",
+                s(ahci::SCRATCH_BLOCK_WRITE_AUTHORITY_ID),
+            ),
+            f(
+                "scratch_region_within_device_bounds",
+                b(probe.scratch_write_readback.region_within_device_bounds),
+            ),
+            f(
+                "scratch_region_no_boot_or_partition_metadata_overlap",
+                b(probe
+                    .scratch_write_readback
+                    .no_boot_or_partition_metadata_overlap),
+            ),
+            f(
+                "scratch_region_id",
+                s(probe.scratch_write_readback.region_id),
+            ),
+            f(
+                "scratch_region_status",
+                s(probe.scratch_write_readback.status),
+            ),
+            f(
+                "scratch_region_reason",
+                s(probe.scratch_write_readback.reason),
+            ),
+            f("scratch_region_authorizes_audit_rollback", no()),
+            f("requires_media_write_path", b(true)),
+            f("authorizes_media_write", no()),
+            f("authorizes_append", no()),
+            f("writes_enabled", no()),
+            f("write_attempted", no()),
+        ],
+        8,
+        false,
     );
-    raw_line(",");
-    raw("          \"scratch_region_id\": ");
-    json_str(probe.scratch_write_readback.region_id);
-    raw_line(",");
-    raw("          \"scratch_region_status\": ");
-    json_str(probe.scratch_write_readback.status);
-    raw_line(",");
-    raw("          \"scratch_region_reason\": ");
-    json_str(probe.scratch_write_readback.reason);
-    raw_line(",");
-    raw_line("          \"scratch_region_authorizes_audit_rollback\": false,");
-    raw_line("          \"requires_media_write_path\": true,");
-    raw_line("          \"authorizes_media_write\": false,");
-    raw_line("          \"authorizes_append\": false,");
-    raw_line("          \"writes_enabled\": false,");
-    raw_line("          \"write_attempted\": false");
-    raw_line("        }");
 }
 
 pub(crate) fn emit_module_persistence_device_fact(
@@ -932,744 +979,466 @@ pub(crate) fn emit_module_persistence_device_fact(
     reason: &'static str,
     comma: bool,
 ) {
-    raw_line("        \"persistence_device_inventory\": {");
-    raw_line("          \"schema\": \"raios.persistence_device_inventory.v0\",");
-    raw_line("          \"id\": \"storage.persistence_device_inventory.current_boot\",");
-    raw_line("          \"device_class\": \"persistence_device\",");
-    raw_line("          \"device_id\": null,");
-    raw("          \"scope\": ");
-    json_str(fact.scope);
-    raw_line(",");
-    raw("          \"classification\": ");
-    json_str(fact.classification);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(fact.present);
-    raw_line(",");
-    raw("          \"schema_valid\": ");
-    raw_bool(fact.schema_ok);
-    raw_line(",");
-    raw_line("          \"boot_storage_probe\": {");
-    raw_line("            \"schema\": \"raios.pci_mass_storage_controller_probe.v0\",");
-    raw_line("            \"scope\": \"current_boot\",");
-    raw_line("            \"classification\": \"local_only\",");
-    raw_line("            \"source\": \"pci_config_space\",");
-    raw("            \"observed\": ");
-    raw_bool(fact.storage_controller_observed);
-    raw_line(",");
-    raw("            \"controller_address\": ");
-    if fact.storage_controller_observed {
-        raw("\"");
-        raw_fmt(format_args!(
+    let controller_address: Option<String> = if fact.storage_controller_observed {
+        Some(format!(
             "{:02x}:{:02x}.{}",
             fact.controller_bus, fact.controller_device, fact.controller_function
+        ))
+    } else {
+        None
+    };
+
+    emit_record_property_line_at(
+        "persistence_device_inventory",
+        vec![
+            f("schema", s("raios.persistence_device_inventory.v0")),
+            f("id", s("storage.persistence_device_inventory.current_boot")),
+            f("device_class", s("persistence_device")),
+            f("device_id", null()),
+            f("scope", s(fact.scope)),
+            f("classification", s(fact.classification)),
+            f("status", s(status)),
+            f("reason", s(reason)),
+            f("present", b(fact.present)),
+            f("schema_valid", b(fact.schema_ok)),
+            f(
+                "boot_storage_probe",
+                module_boot_storage_probe_record(fact, controller_address.as_deref()),
+            ),
+            f(
+                "ahci_controller_probe",
+                module_ahci_controller_probe_record(&fact.ahci_probe),
+            ),
+            f("provenance_valid", b(fact.provenance_ok)),
+            f("stable_identity", b(fact.stable_identity)),
+            f(
+                "block_device_identity_available",
+                b(fact.block_device_identity_available),
+            ),
+            f("sector_read_available", b(fact.sector_read_available)),
+            f(
+                "partition_inventory_available",
+                b(fact.partition_inventory_available),
+            ),
+            f("write_path_available", b(fact.write_path_available)),
+            f("authority", s("current_snapshot")),
+            f("persistence", s("none")),
+            f("durable", no()),
+            f("authorizes_layout", no()),
+            f("write_attempted", no()),
+            f(
+                "provenance",
+                object(vec![
+                    f("source_method", s("module.audit_rollback_storage_layout")),
+                    f("source_transport", s("serial-console")),
+                    f("event_scope", s("current_boot")),
+                    f("record_id", null()),
+                ]),
+            ),
+        ],
+        8,
+        comma,
+    );
+}
+
+fn module_boot_storage_probe_record<'a>(
+    fact: ModuleAuditRollbackPersistenceDeviceFact,
+    controller_address: Option<&'a str>,
+) -> V<'a> {
+    object(vec![
+        f("schema", s("raios.pci_mass_storage_controller_probe.v0")),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("source", s("pci_config_space")),
+        f("observed", b(fact.storage_controller_observed)),
+        f("controller_address", record_str_or_null(controller_address)),
+        f(
+            "pci_class",
+            V::U64(if fact.storage_controller_observed {
+                1
+            } else {
+                0
+            }),
+        ),
+        f("pci_subclass", V::U64(fact.controller_subclass as u64)),
+        f("pci_prog_if", V::U64(fact.controller_prog_if as u64)),
+        f("vendor_id", V::U64(fact.controller_vendor_id as u64)),
+        f("device_id", V::U64(fact.controller_device_id as u64)),
+        f("block_driver_available", b(fact.block_driver_available)),
+        f("write_path_available", b(fact.write_path_available)),
+        f("write_attempted", no()),
+    ])
+}
+
+fn module_ahci_controller_probe_record(probe: &ahci::AhciReadOnlyProbe) -> V<'_> {
+    let mut partition_entries = Vec::new();
+    let mut idx = 0usize;
+    while idx < probe.partition_inventory.entries.len() {
+        partition_entries.push(module_ahci_partition_entry_record(
+            idx,
+            probe.partition_inventory.entries[idx],
         ));
-        raw("\"");
-    } else {
-        raw("null");
+        idx += 1;
     }
-    raw_line(",");
-    raw("            \"pci_class\": ");
-    raw_fmt(format_args!(
-        "{}",
-        if fact.storage_controller_observed {
-            1
-        } else {
-            0
-        }
-    ));
-    raw_line(",");
-    raw("            \"pci_subclass\": ");
-    raw_fmt(format_args!("{}", fact.controller_subclass));
-    raw_line(",");
-    raw("            \"pci_prog_if\": ");
-    raw_fmt(format_args!("{}", fact.controller_prog_if));
-    raw_line(",");
-    raw("            \"vendor_id\": ");
-    raw_fmt(format_args!("{}", fact.controller_vendor_id));
-    raw_line(",");
-    raw("            \"device_id\": ");
-    raw_fmt(format_args!("{}", fact.controller_device_id));
-    raw_line(",");
-    raw("            \"block_driver_available\": ");
-    raw_bool(fact.block_driver_available);
-    raw_line(",");
-    raw("            \"write_path_available\": ");
-    raw_bool(fact.write_path_available);
-    raw_line(",");
-    raw_line("            \"write_attempted\": false");
-    raw_line("          },");
-    emit_module_ahci_controller_probe(fact.ahci_probe);
-    raw_line(",");
-    raw("          \"provenance_valid\": ");
-    raw_bool(fact.provenance_ok);
-    raw_line(",");
-    raw("          \"stable_identity\": ");
-    raw_bool(fact.stable_identity);
-    raw_line(",");
-    raw("          \"block_device_identity_available\": ");
-    raw_bool(fact.block_device_identity_available);
-    raw_line(",");
-    raw("          \"sector_read_available\": ");
-    raw_bool(fact.sector_read_available);
-    raw_line(",");
-    raw("          \"partition_inventory_available\": ");
-    raw_bool(fact.partition_inventory_available);
-    raw_line(",");
-    raw("          \"write_path_available\": ");
-    raw_bool(fact.write_path_available);
-    raw_line(",");
-    raw_line("          \"authority\": \"current_snapshot\",");
-    raw_line("          \"persistence\": \"none\",");
-    raw_line("          \"durable\": false,");
-    raw_line("          \"authorizes_layout\": false,");
-    raw_line("          \"write_attempted\": false,");
-    raw_line("          \"provenance\": {");
-    raw_line("            \"source_method\": \"module.audit_rollback_storage_layout\",");
-    raw_line("            \"source_transport\": \"serial-console\",");
-    raw_line("            \"event_scope\": \"current_boot\",");
-    raw_line("            \"record_id\": null");
-    raw_line("          }");
-    raw("        }");
-    if comma {
-        raw(",");
-    }
-    crlf();
+
+    object(vec![
+        f("schema", s("raios.ahci_controller_probe.v0")),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f(
+            "source",
+            s("ahci_abar_mmio_identify_sector0_partition_read_only_scratch_write_readback_target_label_scan"),
+        ),
+        f("observed", b(probe.observed)),
+        f("controller_is_ahci", b(probe.controller_is_ahci)),
+        f("abar_available", b(probe.abar_available)),
+        f("abar_base", V::U64(probe.abar_base)),
+        f("abar_size", V::U64(probe.abar_size)),
+        f("registers_mapped", b(probe.registers_mapped)),
+        f("ahci_version", V::U64(probe.version as u64)),
+        f("capabilities", V::U64(probe.capabilities as u64)),
+        f("ports_implemented_mask", V::U64(probe.ports_implemented_mask as u64)),
+        f("implemented_port_count", V::U64(probe.implemented_port_count as u64)),
+        f("command_slots", V::U64(probe.command_slots as u64)),
+        f("supports_64bit", b(probe.supports_64bit)),
+        f("supports_ncq", b(probe.supports_ncq)),
+        f(
+            "first_port",
+            object(vec![
+                f(
+                    "index",
+                    if probe.first_port_implemented {
+                        V::U64(probe.first_port_index as u64)
+                    } else {
+                        null()
+                    },
+                ),
+                f("implemented", b(probe.first_port_implemented)),
+                f("device_present", b(probe.first_port_device_present)),
+                f("interface_active", b(probe.first_port_interface_active)),
+                f("signature", V::U64(probe.first_port_signature as u64)),
+                f("ssts", V::U64(probe.first_port_ssts as u64)),
+                f("tfd", V::U64(probe.first_port_tfd as u64)),
+                f("cmd", V::U64(probe.first_port_cmd as u64)),
+            ]),
+        ),
+        f(
+            "block_device_identity_available",
+            b(probe.block_device_identity_available),
+        ),
+        f("sector_read_available", b(probe.sector_read_available)),
+        f(
+            "partition_inventory_available",
+            b(probe.partition_inventory_available),
+        ),
+        f("block_driver_available", b(probe.block_driver_available)),
+        f("write_path_available", b(probe.write_path_available)),
+        f("identify_command_issued", b(probe.identify_command_issued)),
+        f(
+            "controller_register_write_attempted",
+            b(probe.controller_register_write_attempted),
+        ),
+        f("dma_started", b(probe.dma_started)),
+        f("identify_completed", b(probe.identify_completed)),
+        f("identify_status", s(probe.identify_status)),
+        f("sector_read_attempted", b(probe.sector_read_attempted)),
+        f("sector_read_completed", b(probe.sector_read_completed)),
+        f("sector_read_status", s(probe.sector_read_status)),
+        f(
+            "block_device_identity",
+            object(vec![
+                f("available", b(probe.identity.available)),
+                f(
+                    "logical_sector_size_bytes",
+                    V::U64(probe.identity.logical_sector_size_bytes as u64),
+                ),
+                f("lba28_sector_count", V::U64(probe.identity.lba28_sector_count as u64)),
+                f("lba48_sector_count", V::U64(probe.identity.lba48_sector_count)),
+                f("serial", V::TrimmedAsciiBytes(&probe.identity.serial)),
+                f("firmware", V::TrimmedAsciiBytes(&probe.identity.firmware)),
+                f("model", V::TrimmedAsciiBytes(&probe.identity.model)),
+            ]),
+        ),
+        f(
+            "sector0_read",
+            object(vec![
+                f("available", b(probe.sector0.available)),
+                f("lba", V::U64(probe.sector0.lba)),
+                f("byte_count", V::U64(probe.sector0.byte_count as u64)),
+                f("mbr_signature", V::U64(probe.sector0.mbr_signature as u64)),
+                f(
+                    "mbr_signature_valid",
+                    b(probe.sector0.mbr_signature == 0xaa55),
+                ),
+                f("first16_hex", V::HexBytes(&probe.sector0.first16)),
+            ]),
+        ),
+        f(
+            "partition_inventory",
+            object(vec![
+                f("schema", s("raios.boot_partition_inventory.v0")),
+                f("scope", s("current_boot")),
+                f("classification", s("local_only")),
+                f("source", s("sector0_mbr_partition_table")),
+                f("available", b(probe.partition_inventory.available)),
+                f("source_lba", V::U64(probe.partition_inventory.source_lba)),
+                f("scheme", s(probe.partition_inventory.scheme)),
+                f(
+                    "mbr_signature_valid",
+                    b(probe.partition_inventory.mbr_signature_valid),
+                ),
+                f("entry_count", V::U64(probe.partition_inventory.entry_count as u64)),
+                f(
+                    "bootable_entry_count",
+                    V::U64(probe.partition_inventory.bootable_entry_count as u64),
+                ),
+                f("entries", V::Array(partition_entries)),
+                f("authorizes_partition_write", no()),
+                f("writes_enabled", no()),
+                f("write_attempted", no()),
+            ]),
+        ),
+        f("scratch_block_region", scratch_block_region_record(probe)),
+        f(
+            "scratch_block_write_authority",
+            scratch_block_write_authority_record(probe),
+        ),
+        f(
+            "audit_rollback_target_region",
+            audit_rollback_target_region_record(probe),
+        ),
+        f("block_driver", block_driver_record(probe)),
+        f("write_attempted", b(probe.media_write_attempted)),
+        f("reason", s(probe.reason)),
+    ])
 }
 
-pub(crate) fn emit_module_ahci_controller_probe(probe: ahci::AhciReadOnlyProbe) {
-    raw_line("          \"ahci_controller_probe\": {");
-    raw_line("            \"schema\": \"raios.ahci_controller_probe.v0\",");
-    raw_line("            \"scope\": \"current_boot\",");
-    raw_line("            \"classification\": \"local_only\",");
-    raw_line("            \"source\": \"ahci_abar_mmio_identify_sector0_partition_read_only_scratch_write_readback_target_label_scan\",");
-    raw("            \"observed\": ");
-    raw_bool(probe.observed);
-    raw_line(",");
-    raw("            \"controller_is_ahci\": ");
-    raw_bool(probe.controller_is_ahci);
-    raw_line(",");
-    raw("            \"abar_available\": ");
-    raw_bool(probe.abar_available);
-    raw_line(",");
-    raw("            \"abar_base\": ");
-    raw_fmt(format_args!("{}", probe.abar_base));
-    raw_line(",");
-    raw("            \"abar_size\": ");
-    raw_fmt(format_args!("{}", probe.abar_size));
-    raw_line(",");
-    raw("            \"registers_mapped\": ");
-    raw_bool(probe.registers_mapped);
-    raw_line(",");
-    raw("            \"ahci_version\": ");
-    raw_fmt(format_args!("{}", probe.version));
-    raw_line(",");
-    raw("            \"capabilities\": ");
-    raw_fmt(format_args!("{}", probe.capabilities));
-    raw_line(",");
-    raw("            \"ports_implemented_mask\": ");
-    raw_fmt(format_args!("{}", probe.ports_implemented_mask));
-    raw_line(",");
-    raw("            \"implemented_port_count\": ");
-    raw_fmt(format_args!("{}", probe.implemented_port_count));
-    raw_line(",");
-    raw("            \"command_slots\": ");
-    raw_fmt(format_args!("{}", probe.command_slots));
-    raw_line(",");
-    raw("            \"supports_64bit\": ");
-    raw_bool(probe.supports_64bit);
-    raw_line(",");
-    raw("            \"supports_ncq\": ");
-    raw_bool(probe.supports_ncq);
-    raw_line(",");
-    raw_line("            \"first_port\": {");
-    raw("              \"index\": ");
-    if probe.first_port_implemented {
-        raw_fmt(format_args!("{}", probe.first_port_index));
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("              \"implemented\": ");
-    raw_bool(probe.first_port_implemented);
-    raw_line(",");
-    raw("              \"device_present\": ");
-    raw_bool(probe.first_port_device_present);
-    raw_line(",");
-    raw("              \"interface_active\": ");
-    raw_bool(probe.first_port_interface_active);
-    raw_line(",");
-    raw("              \"signature\": ");
-    raw_fmt(format_args!("{}", probe.first_port_signature));
-    raw_line(",");
-    raw("              \"ssts\": ");
-    raw_fmt(format_args!("{}", probe.first_port_ssts));
-    raw_line(",");
-    raw("              \"tfd\": ");
-    raw_fmt(format_args!("{}", probe.first_port_tfd));
-    raw_line(",");
-    raw("              \"cmd\": ");
-    raw_fmt(format_args!("{}", probe.first_port_cmd));
-    crlf();
-    raw_line("            },");
-    raw("            \"block_device_identity_available\": ");
-    raw_bool(probe.block_device_identity_available);
-    raw_line(",");
-    raw("            \"sector_read_available\": ");
-    raw_bool(probe.sector_read_available);
-    raw_line(",");
-    raw("            \"partition_inventory_available\": ");
-    raw_bool(probe.partition_inventory_available);
-    raw_line(",");
-    raw("            \"block_driver_available\": ");
-    raw_bool(probe.block_driver_available);
-    raw_line(",");
-    raw("            \"write_path_available\": ");
-    raw_bool(probe.write_path_available);
-    raw_line(",");
-    raw("            \"identify_command_issued\": ");
-    raw_bool(probe.identify_command_issued);
-    raw_line(",");
-    raw("            \"controller_register_write_attempted\": ");
-    raw_bool(probe.controller_register_write_attempted);
-    raw_line(",");
-    raw("            \"dma_started\": ");
-    raw_bool(probe.dma_started);
-    raw_line(",");
-    raw("            \"identify_completed\": ");
-    raw_bool(probe.identify_completed);
-    raw_line(",");
-    raw("            \"identify_status\": ");
-    json_str(probe.identify_status);
-    raw_line(",");
-    raw("            \"sector_read_attempted\": ");
-    raw_bool(probe.sector_read_attempted);
-    raw_line(",");
-    raw("            \"sector_read_completed\": ");
-    raw_bool(probe.sector_read_completed);
-    raw_line(",");
-    raw("            \"sector_read_status\": ");
-    json_str(probe.sector_read_status);
-    raw_line(",");
-    raw_line("            \"block_device_identity\": {");
-    raw("              \"available\": ");
-    raw_bool(probe.identity.available);
-    raw_line(",");
-    raw("              \"logical_sector_size_bytes\": ");
-    raw_fmt(format_args!("{}", probe.identity.logical_sector_size_bytes));
-    raw_line(",");
-    raw("              \"lba28_sector_count\": ");
-    raw_fmt(format_args!("{}", probe.identity.lba28_sector_count));
-    raw_line(",");
-    raw("              \"lba48_sector_count\": ");
-    raw_fmt(format_args!("{}", probe.identity.lba48_sector_count));
-    raw_line(",");
-    raw("              \"serial\": ");
-    emit_trimmed_ata_json_string(&probe.identity.serial);
-    raw_line(",");
-    raw("              \"firmware\": ");
-    emit_trimmed_ata_json_string(&probe.identity.firmware);
-    raw_line(",");
-    raw("              \"model\": ");
-    emit_trimmed_ata_json_string(&probe.identity.model);
-    crlf();
-    raw_line("            },");
-    raw_line("            \"sector0_read\": {");
-    raw("              \"available\": ");
-    raw_bool(probe.sector0.available);
-    raw_line(",");
-    raw("              \"lba\": ");
-    raw_fmt(format_args!("{}", probe.sector0.lba));
-    raw_line(",");
-    raw("              \"byte_count\": ");
-    raw_fmt(format_args!("{}", probe.sector0.byte_count));
-    raw_line(",");
-    raw("              \"mbr_signature\": ");
-    raw_fmt(format_args!("{}", probe.sector0.mbr_signature));
-    raw_line(",");
-    raw("              \"mbr_signature_valid\": ");
-    raw_bool(probe.sector0.mbr_signature == 0xaa55);
-    raw_line(",");
-    raw("              \"first16_hex\": ");
-    emit_hex_json_string(&probe.sector0.first16);
-    crlf();
-    raw_line("            },");
-    raw_line("            \"partition_inventory\": {");
-    raw_line("              \"schema\": \"raios.boot_partition_inventory.v0\",");
-    raw_line("              \"scope\": \"current_boot\",");
-    raw_line("              \"classification\": \"local_only\",");
-    raw_line("              \"source\": \"sector0_mbr_partition_table\",");
-    raw("              \"available\": ");
-    raw_bool(probe.partition_inventory.available);
-    raw_line(",");
-    raw("              \"source_lba\": ");
-    raw_fmt(format_args!("{}", probe.partition_inventory.source_lba));
-    raw_line(",");
-    raw("              \"scheme\": ");
-    json_str(probe.partition_inventory.scheme);
-    raw_line(",");
-    raw("              \"mbr_signature_valid\": ");
-    raw_bool(probe.partition_inventory.mbr_signature_valid);
-    raw_line(",");
-    raw("              \"entry_count\": ");
-    raw_fmt(format_args!("{}", probe.partition_inventory.entry_count));
-    raw_line(",");
-    raw("              \"bootable_entry_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.partition_inventory.bootable_entry_count
-    ));
-    raw_line(",");
-    raw_line("              \"entries\": [");
-    let mut partition_entry_idx = 0usize;
-    while partition_entry_idx < probe.partition_inventory.entries.len() {
-        emit_module_ahci_partition_entry(
-            partition_entry_idx,
-            probe.partition_inventory.entries[partition_entry_idx],
-            partition_entry_idx + 1 != probe.partition_inventory.entries.len(),
-        );
-        partition_entry_idx += 1;
-    }
-    raw_line("              ],");
-    raw_line("              \"authorizes_partition_write\": false,");
-    raw_line("              \"writes_enabled\": false,");
-    raw_line("              \"write_attempted\": false");
-    raw_line("            },");
-    raw_line("            \"scratch_block_region\": {");
-    raw("              \"schema\": ");
-    json_str(ahci::SCRATCH_BLOCK_REGION_SCHEMA);
-    raw_line(",");
-    raw("              \"id\": ");
-    json_str(probe.scratch_write_readback.region_id);
-    raw_line(",");
-    raw_line("              \"scope\": \"current_boot\",");
-    raw_line("              \"classification\": \"local_only\",");
-    raw_line("              \"test_infrastructure\": true,");
-    raw_line("              \"persistence\": \"none\",");
-    raw_line("              \"source\": \"vm_harness_labeled_ahci_scratch_region\",");
-    raw("              \"available\": ");
-    raw_bool(probe.scratch_write_readback.available);
-    raw_line(",");
-    raw("              \"status\": ");
-    json_str(probe.scratch_write_readback.status);
-    raw_line(",");
-    raw("              \"reason\": ");
-    json_str(probe.scratch_write_readback.reason);
-    raw_line(",");
-    raw("              \"marker\": ");
-    json_str("RAIOS_SCRATCH_V0");
-    raw_line(",");
-    raw("              \"marker_lba\": ");
-    raw_fmt(format_args!("{}", probe.scratch_write_readback.marker_lba));
-    raw_line(",");
-    raw("              \"test_lba\": ");
-    raw_fmt(format_args!("{}", probe.scratch_write_readback.test_lba));
-    raw_line(",");
-    raw("              \"region_start_lba\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.scratch_write_readback.region_start_lba
-    ));
-    raw_line(",");
-    raw("              \"region_lba_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.scratch_write_readback.region_lba_count
-    ));
-    raw_line(",");
-    raw("              \"byte_count\": ");
-    raw_fmt(format_args!("{}", probe.scratch_write_readback.byte_count));
-    raw_line(",");
-    raw("              \"port_index\": ");
-    raw_fmt(format_args!("{}", probe.scratch_write_readback.port_index));
-    raw_line(",");
-    raw("              \"device_identity_available\": ");
-    raw_bool(probe.scratch_write_readback.device_identity.available);
-    raw_line(",");
-    raw("              \"logical_sector_size_bytes\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe
-            .scratch_write_readback
-            .device_identity
-            .logical_sector_size_bytes
-    ));
-    raw_line(",");
-    raw("              \"lba28_sector_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe
-            .scratch_write_readback
-            .device_identity
-            .lba28_sector_count
-    ));
-    raw_line(",");
-    raw("              \"lba48_sector_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe
-            .scratch_write_readback
-            .device_identity
-            .lba48_sector_count
-    ));
-    raw_line(",");
-    raw("              \"serial\": ");
-    emit_trimmed_ata_json_string(&probe.scratch_write_readback.device_identity.serial);
-    raw_line(",");
-    raw("              \"model\": ");
-    emit_trimmed_ata_json_string(&probe.scratch_write_readback.device_identity.model);
-    raw_line(",");
-    raw("              \"label_found\": ");
-    raw_bool(probe.scratch_write_readback.label_found);
-    raw_line(",");
-    raw("              \"region_within_device_bounds\": ");
-    raw_bool(probe.scratch_write_readback.region_within_device_bounds);
-    raw_line(",");
-    raw("              \"boot_port_overlap\": ");
-    raw_bool(probe.scratch_write_readback.boot_port_overlap);
-    raw_line(",");
-    raw("              \"metadata_lba_overlap\": ");
-    raw_bool(probe.scratch_write_readback.metadata_lba_overlap);
-    raw_line(",");
-    raw("              \"no_boot_or_partition_metadata_overlap\": ");
-    raw_bool(
-        probe
-            .scratch_write_readback
-            .no_boot_or_partition_metadata_overlap,
-    );
-    raw_line(",");
-    raw("              \"block_write_authority_available\": ");
-    raw_bool(probe.scratch_write_readback.block_write_authority_available);
-    raw_line(",");
-    raw("              \"write_attempted\": ");
-    raw_bool(probe.scratch_write_readback.write_attempted);
-    raw_line(",");
-    raw("              \"write_completed\": ");
-    raw_bool(probe.scratch_write_readback.write_completed);
-    raw_line(",");
-    raw("              \"readback_completed\": ");
-    raw_bool(probe.scratch_write_readback.readback_completed);
-    raw_line(",");
-    raw("              \"readback_matches\": ");
-    raw_bool(probe.scratch_write_readback.readback_matches);
-    raw_line(",");
-    raw("              \"readback_first16_hex\": ");
-    emit_hex_json_string(&probe.scratch_write_readback.readback_first16);
-    raw_line(",");
-    raw_line("              \"authorizes_audit_rollback\": false,");
-    raw_line("              \"authorizes_append\": false,");
-    raw("              \"test_write_exercised\": ");
-    raw_bool(probe.scratch_write_readback.write_attempted);
-    raw_line(",");
-    raw_line("              \"writes_enabled\": false");
-    raw_line("            },");
-    raw_line("            \"scratch_block_write_authority\": {");
-    raw("              \"schema\": ");
-    json_str(ahci::SCRATCH_BLOCK_WRITE_AUTHORITY_SCHEMA);
-    raw_line(",");
-    raw("              \"id\": ");
-    json_str(ahci::SCRATCH_BLOCK_WRITE_AUTHORITY_ID);
-    raw_line(",");
-    raw_line("              \"scope\": \"current_boot\",");
-    raw_line("              \"classification\": \"local_only\",");
-    raw_line("              \"test_infrastructure\": true,");
-    raw_line("              \"persistence\": \"none\",");
-    raw("              \"source_region_id\": ");
-    json_str(probe.scratch_write_readback.region_id);
-    raw_line(",");
-    raw_line("              \"owner\": \"vm_harness.scratch_region.current_boot\",");
-    raw("              \"available\": ");
-    raw_bool(probe.scratch_write_readback.block_write_authority_available);
-    raw_line(",");
-    raw("              \"status\": ");
-    json_str(probe.scratch_write_readback.status);
-    raw_line(",");
-    raw("              \"reason\": ");
-    json_str(probe.scratch_write_readback.reason);
-    raw_line(",");
-    raw("              \"region_start_lba\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.scratch_write_readback.region_start_lba
-    ));
-    raw_line(",");
-    raw("              \"region_lba_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.scratch_write_readback.region_lba_count
-    ));
-    raw_line(",");
-    raw("              \"byte_count\": ");
-    raw_fmt(format_args!("{}", probe.scratch_write_readback.byte_count));
-    raw_line(",");
-    raw("              \"device_identity_available\": ");
-    raw_bool(probe.scratch_write_readback.device_identity.available);
-    raw_line(",");
-    raw("              \"region_within_device_bounds\": ");
-    raw_bool(probe.scratch_write_readback.region_within_device_bounds);
-    raw_line(",");
-    raw("              \"no_boot_or_partition_metadata_overlap\": ");
-    raw_bool(
-        probe
-            .scratch_write_readback
-            .no_boot_or_partition_metadata_overlap,
-    );
-    raw_line(",");
-    raw("              \"authorizes_scratch_write_readback\": ");
-    raw_bool(probe.scratch_write_readback.block_write_authority_available);
-    raw_line(",");
-    raw_line("              \"authorizes_audit_rollback\": false,");
-    raw_line("              \"authorizes_append\": false,");
-    raw_line("              \"writes_enabled\": false");
-    raw_line("            },");
-    raw_line("            \"audit_rollback_target_region\": {");
-    raw("              \"schema\": ");
-    json_str(AUDIT_ROLLBACK_TARGET_REGION_DISCOVERY_SCHEMA);
-    raw_line(",");
-    raw("              \"id\": ");
-    json_str(probe.audit_rollback_target_region.region_id);
-    raw_line(",");
-    raw_line("              \"scope\": \"current_boot\",");
-    raw_line("              \"classification\": \"local_only\",");
-    raw_line("              \"test_infrastructure\": true,");
-    raw_line("              \"persistence\": \"none\",");
-    raw_line("              \"source\": \"vm_harness_labeled_ahci_audit_rollback_target_region\",");
-    raw("              \"available\": ");
-    raw_bool(probe.audit_rollback_target_region.available);
-    raw_line(",");
-    raw("              \"status\": ");
-    json_str(probe.audit_rollback_target_region.status);
-    raw_line(",");
-    raw("              \"reason\": ");
-    json_str(probe.audit_rollback_target_region.reason);
-    raw_line(",");
-    raw("              \"marker\": ");
-    json_str(ahci::AUDIT_ROLLBACK_TARGET_REGION_MARKER);
-    raw_line(",");
-    raw("              \"marker_lba\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.audit_rollback_target_region.marker_lba
-    ));
-    raw_line(",");
-    raw("              \"region_start_lba\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.audit_rollback_target_region.region_start_lba
-    ));
-    raw_line(",");
-    raw("              \"region_lba_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.audit_rollback_target_region.region_lba_count
-    ));
-    raw_line(",");
-    raw("              \"byte_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.audit_rollback_target_region.byte_count
-    ));
-    raw_line(",");
-    raw("              \"port_index\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.audit_rollback_target_region.port_index
-    ));
-    raw_line(",");
-    raw("              \"device_identity_available\": ");
-    raw_bool(probe.audit_rollback_target_region.device_identity.available);
-    raw_line(",");
-    raw("              \"logical_sector_size_bytes\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe
-            .audit_rollback_target_region
-            .device_identity
-            .logical_sector_size_bytes
-    ));
-    raw_line(",");
-    raw("              \"lba28_sector_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe
-            .audit_rollback_target_region
-            .device_identity
-            .lba28_sector_count
-    ));
-    raw_line(",");
-    raw("              \"lba48_sector_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe
-            .audit_rollback_target_region
-            .device_identity
-            .lba48_sector_count
-    ));
-    raw_line(",");
-    raw("              \"serial\": ");
-    emit_trimmed_ata_json_string(&probe.audit_rollback_target_region.device_identity.serial);
-    raw_line(",");
-    raw("              \"model\": ");
-    emit_trimmed_ata_json_string(&probe.audit_rollback_target_region.device_identity.model);
-    raw_line(",");
-    raw("              \"label_found\": ");
-    raw_bool(probe.audit_rollback_target_region.label_found);
-    raw_line(",");
-    raw("              \"read_attempted\": ");
-    raw_bool(probe.audit_rollback_target_region.read_attempted);
-    raw_line(",");
-    raw("              \"read_completed\": ");
-    raw_bool(probe.audit_rollback_target_region.read_completed);
-    raw_line(",");
-    raw("              \"read_first16_hex\": ");
-    emit_hex_json_string(&probe.audit_rollback_target_region.read_first16);
-    raw_line(",");
-    raw("              \"region_within_device_bounds\": ");
-    raw_bool(
-        probe
-            .audit_rollback_target_region
-            .region_within_device_bounds,
-    );
-    raw_line(",");
-    raw("              \"boot_port_overlap\": ");
-    raw_bool(probe.audit_rollback_target_region.boot_port_overlap);
-    raw_line(",");
-    raw("              \"metadata_lba_overlap\": ");
-    raw_bool(probe.audit_rollback_target_region.metadata_lba_overlap);
-    raw_line(",");
-    raw("              \"scratch_region_overlap\": ");
-    raw_bool(probe.audit_rollback_target_region.scratch_region_overlap);
-    raw_line(",");
-    raw("              \"no_boot_or_partition_metadata_overlap\": ");
-    raw_bool(
-        probe
-            .audit_rollback_target_region
-            .no_boot_or_partition_metadata_overlap,
-    );
-    raw_line(",");
-    raw_line("              \"read_only\": true,");
-    raw_line("              \"authorizes_audit_rollback\": false,");
-    raw_line("              \"authorizes_append\": false,");
-    raw_line("              \"writes_enabled\": false,");
-    raw_line("              \"write_attempted\": false");
-    raw_line("            },");
-    raw_line("            \"block_driver\": {");
-    raw_line("              \"schema\": \"raios.read_only_block_driver.v0\",");
-    raw_line("              \"scope\": \"current_boot\",");
-    raw_line("              \"classification\": \"local_only\",");
-    raw("              \"id\": ");
-    json_str(probe.block_driver.driver_id);
-    raw_line(",");
-    raw("              \"source\": ");
-    json_str(probe.block_driver.source);
-    raw_line(",");
-    raw("              \"available\": ");
-    raw_bool(probe.block_driver.available);
-    raw_line(",");
-    raw("              \"logical_sector_size_bytes\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.block_driver.logical_sector_size_bytes
-    ));
-    raw_line(",");
-    raw("              \"lba28_sector_count\": ");
-    raw_fmt(format_args!("{}", probe.block_driver.lba28_sector_count));
-    raw_line(",");
-    raw("              \"lba48_sector_count\": ");
-    raw_fmt(format_args!("{}", probe.block_driver.lba48_sector_count));
-    raw_line(",");
-    raw("              \"verified_read_lba\": ");
-    raw_fmt(format_args!("{}", probe.block_driver.verified_read_lba));
-    raw_line(",");
-    raw("              \"verified_read_byte_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        probe.block_driver.verified_read_byte_count
-    ));
-    raw_line(",");
-    raw("              \"binds_partition_inventory\": ");
-    raw_bool(probe.block_driver.binds_partition_inventory);
-    raw_line(",");
-    raw("              \"supports_read\": ");
-    raw_bool(probe.block_driver.supports_read);
-    raw_line(",");
-    raw("              \"supports_write\": ");
-    raw_bool(probe.block_driver.supports_write);
-    raw_line(",");
-    raw_line("              \"writes_enabled\": false,");
-    raw_line("              \"write_attempted\": false");
-    raw_line("            },");
-    raw("            \"write_attempted\": ");
-    raw_bool(probe.media_write_attempted);
-    raw_line(",");
-    raw("            \"reason\": ");
-    json_str(probe.reason);
-    crlf();
-    raw_line("          }");
-}
-
-fn emit_module_ahci_partition_entry(
+fn module_ahci_partition_entry_record(
     slot: usize,
     entry: ahci::AhciPartitionEntryEvidence,
-    comma: bool,
-) {
-    raw("                {\"slot\": ");
-    raw_fmt(format_args!("{}", slot));
-    raw(", \"available\": ");
-    raw_bool(entry.available);
-    raw(", \"boot_indicator\": ");
-    raw_fmt(format_args!("{}", entry.boot_indicator));
-    raw(", \"partition_type\": ");
-    raw_fmt(format_args!("{}", entry.partition_type));
-    raw(", \"first_lba\": ");
-    raw_fmt(format_args!("{}", entry.first_lba));
-    raw(", \"sector_count\": ");
-    raw_fmt(format_args!("{}", entry.sector_count));
-    raw(", \"authorizes_write\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+) -> V<'static> {
+    record_inline(vec![
+        f("slot", V::U64(slot as u64)),
+        f("available", b(entry.available)),
+        f("boot_indicator", V::U64(entry.boot_indicator as u64)),
+        f("partition_type", V::U64(entry.partition_type as u64)),
+        f("first_lba", V::U64(entry.first_lba as u64)),
+        f("sector_count", V::U64(entry.sector_count as u64)),
+        f("authorizes_write", no()),
+    ])
 }
 
-fn emit_hex_json_string(bytes: &[u8]) {
-    raw("\"");
-    let mut idx = 0usize;
-    while idx < bytes.len() {
-        raw_fmt(format_args!("{:02x}", bytes[idx]));
-        idx += 1;
-    }
-    raw("\"");
+fn scratch_block_region_record(probe: &ahci::AhciReadOnlyProbe) -> V<'_> {
+    let scratch = &probe.scratch_write_readback;
+    object(vec![
+        f("schema", s(ahci::SCRATCH_BLOCK_REGION_SCHEMA)),
+        f("id", s(scratch.region_id)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("test_infrastructure", b(true)),
+        f("persistence", s("none")),
+        f("source", s("vm_harness_labeled_ahci_scratch_region")),
+        f("available", b(scratch.available)),
+        f("status", s(scratch.status)),
+        f("reason", s(scratch.reason)),
+        f("marker", s("RAIOS_SCRATCH_V0")),
+        f("marker_lba", V::U64(scratch.marker_lba)),
+        f("test_lba", V::U64(scratch.test_lba)),
+        f("region_start_lba", V::U64(scratch.region_start_lba)),
+        f("region_lba_count", V::U64(scratch.region_lba_count)),
+        f("byte_count", V::U64(scratch.byte_count as u64)),
+        f("port_index", V::U64(scratch.port_index as u64)),
+        f(
+            "device_identity_available",
+            b(scratch.device_identity.available),
+        ),
+        f(
+            "logical_sector_size_bytes",
+            V::U64(scratch.device_identity.logical_sector_size_bytes as u64),
+        ),
+        f(
+            "lba28_sector_count",
+            V::U64(scratch.device_identity.lba28_sector_count as u64),
+        ),
+        f(
+            "lba48_sector_count",
+            V::U64(scratch.device_identity.lba48_sector_count),
+        ),
+        f(
+            "serial",
+            V::TrimmedAsciiBytes(&scratch.device_identity.serial),
+        ),
+        f(
+            "model",
+            V::TrimmedAsciiBytes(&scratch.device_identity.model),
+        ),
+        f("label_found", b(scratch.label_found)),
+        f(
+            "region_within_device_bounds",
+            b(scratch.region_within_device_bounds),
+        ),
+        f("boot_port_overlap", b(scratch.boot_port_overlap)),
+        f("metadata_lba_overlap", b(scratch.metadata_lba_overlap)),
+        f(
+            "no_boot_or_partition_metadata_overlap",
+            b(scratch.no_boot_or_partition_metadata_overlap),
+        ),
+        f(
+            "block_write_authority_available",
+            b(scratch.block_write_authority_available),
+        ),
+        f("write_attempted", b(scratch.write_attempted)),
+        f("write_completed", b(scratch.write_completed)),
+        f("readback_completed", b(scratch.readback_completed)),
+        f("readback_matches", b(scratch.readback_matches)),
+        f(
+            "readback_first16_hex",
+            V::HexBytes(&scratch.readback_first16),
+        ),
+        f("authorizes_audit_rollback", no()),
+        f("authorizes_append", no()),
+        f("test_write_exercised", b(scratch.write_attempted)),
+        f("writes_enabled", no()),
+    ])
 }
 
-fn emit_trimmed_ata_json_string(bytes: &[u8]) {
-    let mut start = 0usize;
-    let mut end = bytes.len();
-    while start < end && (bytes[start] == 0 || bytes[start] == b' ') {
-        start += 1;
-    }
-    while end > start && (bytes[end - 1] == 0 || bytes[end - 1] == b' ') {
-        end -= 1;
-    }
+fn scratch_block_write_authority_record(probe: &ahci::AhciReadOnlyProbe) -> V<'_> {
+    let scratch = &probe.scratch_write_readback;
+    object(vec![
+        f("schema", s(ahci::SCRATCH_BLOCK_WRITE_AUTHORITY_SCHEMA)),
+        f("id", s(ahci::SCRATCH_BLOCK_WRITE_AUTHORITY_ID)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("test_infrastructure", b(true)),
+        f("persistence", s("none")),
+        f("source_region_id", s(scratch.region_id)),
+        f("owner", s("vm_harness.scratch_region.current_boot")),
+        f("available", b(scratch.block_write_authority_available)),
+        f("status", s(scratch.status)),
+        f("reason", s(scratch.reason)),
+        f("region_start_lba", V::U64(scratch.region_start_lba)),
+        f("region_lba_count", V::U64(scratch.region_lba_count)),
+        f("byte_count", V::U64(scratch.byte_count as u64)),
+        f(
+            "device_identity_available",
+            b(scratch.device_identity.available),
+        ),
+        f(
+            "region_within_device_bounds",
+            b(scratch.region_within_device_bounds),
+        ),
+        f(
+            "no_boot_or_partition_metadata_overlap",
+            b(scratch.no_boot_or_partition_metadata_overlap),
+        ),
+        f(
+            "authorizes_scratch_write_readback",
+            b(scratch.block_write_authority_available),
+        ),
+        f("authorizes_audit_rollback", no()),
+        f("authorizes_append", no()),
+        f("writes_enabled", no()),
+    ])
+}
 
-    raw("\"");
-    let mut idx = start;
-    while idx < end {
-        match bytes[idx] {
-            b'"' => raw("\\\""),
-            b'\\' => raw("\\\\"),
-            0x20..=0x7e => raw_fmt(format_args!("{}", bytes[idx] as char)),
-            _ => raw(" "),
-        }
-        idx += 1;
-    }
-    raw("\"");
+fn audit_rollback_target_region_record(probe: &ahci::AhciReadOnlyProbe) -> V<'_> {
+    let target = &probe.audit_rollback_target_region;
+    object(vec![
+        f("schema", s(AUDIT_ROLLBACK_TARGET_REGION_DISCOVERY_SCHEMA)),
+        f("id", s(target.region_id)),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("test_infrastructure", b(true)),
+        f("persistence", s("none")),
+        f(
+            "source",
+            s("vm_harness_labeled_ahci_audit_rollback_target_region"),
+        ),
+        f("available", b(target.available)),
+        f("status", s(target.status)),
+        f("reason", s(target.reason)),
+        f("marker", s(ahci::AUDIT_ROLLBACK_TARGET_REGION_MARKER)),
+        f("marker_lba", V::U64(target.marker_lba)),
+        f("region_start_lba", V::U64(target.region_start_lba)),
+        f("region_lba_count", V::U64(target.region_lba_count)),
+        f("byte_count", V::U64(target.byte_count as u64)),
+        f("port_index", V::U64(target.port_index as u64)),
+        f(
+            "device_identity_available",
+            b(target.device_identity.available),
+        ),
+        f(
+            "logical_sector_size_bytes",
+            V::U64(target.device_identity.logical_sector_size_bytes as u64),
+        ),
+        f(
+            "lba28_sector_count",
+            V::U64(target.device_identity.lba28_sector_count as u64),
+        ),
+        f(
+            "lba48_sector_count",
+            V::U64(target.device_identity.lba48_sector_count),
+        ),
+        f(
+            "serial",
+            V::TrimmedAsciiBytes(&target.device_identity.serial),
+        ),
+        f("model", V::TrimmedAsciiBytes(&target.device_identity.model)),
+        f("label_found", b(target.label_found)),
+        f("read_attempted", b(target.read_attempted)),
+        f("read_completed", b(target.read_completed)),
+        f("read_first16_hex", V::HexBytes(&target.read_first16)),
+        f(
+            "region_within_device_bounds",
+            b(target.region_within_device_bounds),
+        ),
+        f("boot_port_overlap", b(target.boot_port_overlap)),
+        f("metadata_lba_overlap", b(target.metadata_lba_overlap)),
+        f("scratch_region_overlap", b(target.scratch_region_overlap)),
+        f(
+            "no_boot_or_partition_metadata_overlap",
+            b(target.no_boot_or_partition_metadata_overlap),
+        ),
+        f("read_only", b(true)),
+        f("authorizes_audit_rollback", no()),
+        f("authorizes_append", no()),
+        f("writes_enabled", no()),
+        f("write_attempted", no()),
+    ])
+}
+
+fn block_driver_record(probe: &ahci::AhciReadOnlyProbe) -> V<'_> {
+    let block = &probe.block_driver;
+    object(vec![
+        f("schema", s("raios.read_only_block_driver.v0")),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("id", s(block.driver_id)),
+        f("source", s(block.source)),
+        f("available", b(block.available)),
+        f(
+            "logical_sector_size_bytes",
+            V::U64(block.logical_sector_size_bytes as u64),
+        ),
+        f(
+            "lba28_sector_count",
+            V::U64(block.lba28_sector_count as u64),
+        ),
+        f("lba48_sector_count", V::U64(block.lba48_sector_count)),
+        f("verified_read_lba", V::U64(block.verified_read_lba)),
+        f(
+            "verified_read_byte_count",
+            V::U64(block.verified_read_byte_count as u64),
+        ),
+        f(
+            "binds_partition_inventory",
+            b(block.binds_partition_inventory),
+        ),
+        f("supports_read", b(block.supports_read)),
+        f("supports_write", b(block.supports_write)),
+        f("writes_enabled", no()),
+        f("write_attempted", no()),
+    ])
 }
 
 pub(crate) fn emit_module_storage_layout_fact(
@@ -1678,65 +1447,47 @@ pub(crate) fn emit_module_storage_layout_fact(
     reason: &'static str,
     comma: bool,
 ) {
-    raw_line("        \"audit_rollback_storage_layout\": {");
-    raw("          \"schema\": ");
-    json_str(AUDIT_ROLLBACK_STORAGE_LAYOUT_SCHEMA);
-    raw_line(",");
-    raw("          \"id\": ");
-    json_str(AUDIT_ROLLBACK_STORAGE_LAYOUT_ID);
-    raw_line(",");
-    raw("          \"scope\": ");
-    json_str(fact.scope);
-    raw_line(",");
-    raw("          \"classification\": ");
-    json_str(fact.classification);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(fact.present);
-    raw_line(",");
-    raw("          \"schema_valid\": ");
-    raw_bool(fact.schema_ok);
-    raw_line(",");
-    raw("          \"provenance_valid\": ");
-    raw_bool(fact.provenance_ok);
-    raw_line(",");
-    raw("          \"binds_persistence_device\": ");
-    raw_bool(fact.binds_persistence_device);
-    raw_line(",");
-    raw("          \"has_audit_ledger_region\": ");
-    raw_bool(fact.has_audit_ledger_region);
-    raw_line(",");
-    raw("          \"has_rollback_store_region\": ");
-    raw_bool(fact.has_rollback_store_region);
-    raw_line(",");
-    raw("          \"append_slots_available\": ");
-    raw_bool(fact.append_slots_available);
-    raw_line(",");
-    raw("          \"recovery_region_separated\": ");
-    raw_bool(fact.recovery_region_separated);
-    raw_line(",");
-    raw_line("          \"authority\": \"current_snapshot\",");
-    raw_line("          \"persistence\": \"none\",");
-    raw_line("          \"durable\": false,");
-    raw_line("          \"authorizes_append\": false,");
-    raw_line("          \"write_attempted\": false,");
-    raw_line("          \"provenance\": {");
-    raw_line("            \"source_method\": \"module.audit_rollback_storage_layout\",");
-    raw_line("            \"source_transport\": \"serial-console\",");
-    raw_line("            \"event_scope\": \"current_boot\",");
-    raw_line("            \"record_id\": null");
-    raw_line("          }");
-    raw("        }");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_record_property_line_at(
+        "audit_rollback_storage_layout",
+        vec![
+            f("schema", s(AUDIT_ROLLBACK_STORAGE_LAYOUT_SCHEMA)),
+            f("id", s(AUDIT_ROLLBACK_STORAGE_LAYOUT_ID)),
+            f("scope", s(fact.scope)),
+            f("classification", s(fact.classification)),
+            f("status", s(status)),
+            f("reason", s(reason)),
+            f("present", b(fact.present)),
+            f("schema_valid", b(fact.schema_ok)),
+            f("provenance_valid", b(fact.provenance_ok)),
+            f("binds_persistence_device", b(fact.binds_persistence_device)),
+            f("has_audit_ledger_region", b(fact.has_audit_ledger_region)),
+            f(
+                "has_rollback_store_region",
+                b(fact.has_rollback_store_region),
+            ),
+            f("append_slots_available", b(fact.append_slots_available)),
+            f(
+                "recovery_region_separated",
+                b(fact.recovery_region_separated),
+            ),
+            f("authority", s("current_snapshot")),
+            f("persistence", s("none")),
+            f("durable", no()),
+            f("authorizes_append", no()),
+            f("write_attempted", no()),
+            f(
+                "provenance",
+                object(vec![
+                    f("source_method", s("module.audit_rollback_storage_layout")),
+                    f("source_transport", s("serial-console")),
+                    f("event_scope", s("current_boot")),
+                    f("record_id", null()),
+                ]),
+            ),
+        ],
+        8,
+        comma,
+    );
 }
 
 pub(crate) fn module_audit_rollback_storage_layout_selftest_cases(

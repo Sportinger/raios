@@ -15,6 +15,8 @@ pub enum Value<'a> {
     Bool(bool),
     U64(u64),
     Str(&'a str),
+    HexBytes(&'a [u8]),
+    TrimmedAsciiBytes(&'a [u8]),
     Sha256([u8; 32]),
     EventSequence(u64),
     Array(Vec<Value<'a>>),
@@ -40,6 +42,8 @@ pub fn write_json<S: ByteSink>(value: &Value<'_>, sink: &mut S, indent: usize) {
         Value::Bool(value) => sink.write_bytes(if *value { b"true" } else { b"false" }),
         Value::U64(value) => write_u64(*value, sink),
         Value::Str(value) => write_json_str(value, sink),
+        Value::HexBytes(value) => write_hex_bytes(value, sink),
+        Value::TrimmedAsciiBytes(value) => write_trimmed_ascii_bytes(value, sink),
         Value::Sha256(value) => write_sha256(*value, sink),
         Value::EventSequence(value) => write_event_sequence(*value, sink),
         Value::Array(values) => write_array(values, sink, indent),
@@ -153,6 +157,40 @@ fn write_json_str<S: ByteSink>(value: &str, sink: &mut S) {
             0x20..=0x7e => sink.write_bytes(&[byte]),
             _ => sink.write_bytes(b" "),
         }
+    }
+    sink.write_bytes(b"\"");
+}
+
+fn write_hex_bytes<S: ByteSink>(value: &[u8], sink: &mut S) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    sink.write_bytes(b"\"");
+    for byte in value {
+        sink.write_bytes(&[HEX[(byte >> 4) as usize], HEX[(byte & 0x0f) as usize]]);
+    }
+    sink.write_bytes(b"\"");
+}
+
+fn write_trimmed_ascii_bytes<S: ByteSink>(value: &[u8], sink: &mut S) {
+    let mut start = 0usize;
+    let mut end = value.len();
+    while start < end && (value[start] == 0 || value[start] == b' ') {
+        start += 1;
+    }
+    while end > start && (value[end - 1] == 0 || value[end - 1] == b' ') {
+        end -= 1;
+    }
+
+    sink.write_bytes(b"\"");
+    let mut idx = start;
+    while idx < end {
+        match value[idx] {
+            b'"' => sink.write_bytes(b"\\\""),
+            b'\\' => sink.write_bytes(b"\\\\"),
+            0x20..=0x7e => sink.write_bytes(&[value[idx]]),
+            _ => sink.write_bytes(b" "),
+        }
+        idx += 1;
     }
     sink.write_bytes(b"\"");
 }
@@ -317,6 +355,18 @@ mod tests {
         assert_eq!(
             render(&Value::EventSequence(42)),
             b"\"event.current_boot.00000042\""
+        );
+    }
+
+    #[test]
+    fn byte_string_forms_match_kernel_rendering() {
+        assert_eq!(
+            render(&Value::HexBytes(&[0x00, 0xab, 0xcd, 0xef])),
+            b"\"00abcdef\""
+        );
+        assert_eq!(
+            render(&Value::TrimmedAsciiBytes(b"\0  QEMU \\\"disk\x01  \0")),
+            b"\"QEMU \\\\\\\"disk \""
         );
     }
 }
