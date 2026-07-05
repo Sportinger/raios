@@ -9,10 +9,12 @@ use crate::{
         recovery_lifeline_status_execution_readiness_reason,
     },
     agent_protocol_support::{
-        emit_inline_record_object, emit_record_fields, emit_record_property, record_bool as b,
-        record_event_or_null, record_false as no, record_field as f, record_inline as inline,
-        record_null as null, record_object as object, record_sha as sha, record_sha_or_null,
-        record_str as s, record_str_or_null,
+        emit_inline_record_object, emit_record_fields, emit_record_property,
+        emit_selftest_case_fields_split, record_bool as b, record_event_or_null,
+        record_false as no, record_field as f, record_inline as inline, record_null as null,
+        record_object as object, record_sha as sha, record_sha_or_null, record_str as s,
+        record_str_or_null,
+        SelftestReportField::{Bool, False, Str},
     },
     event_log,
 };
@@ -448,7 +450,57 @@ pub(crate) fn emit_recovery_lifeline_status_execution_readiness(
     );
 }
 
-#[rustfmt::skip]
-pub(crate) fn emit_recovery_lifeline_command_dispatch_selftest_case(case: &RecoveryLifelineCommandDispatchSelfTestCase, comma: bool) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("actual_envelope_status", s(case.actual_envelope_status)), f("actual_envelope_reason", s(case.actual_envelope_reason)), f("command_envelope_reference_accepted", b(case.command_envelope_reference_accepted)), f("command_body_canonicalization_present", b(case.command_body_canonicalization_present)), f("command_handler_binding_present", b(case.command_handler_binding_present)), f("passed", b(case.passed)), f("accepts_lifeline_command_body", no()), f("accepts_lifeline_command_envelope", no()), f("dispatches_lifeline_command", b(case.dispatches_lifeline_command)), f("command_execution_enabled", b(case.command_execution_enabled)), f("memory_writes_enabled", no()), f("provider_export_enabled", no()), f("durable_writes_enabled", no()), f("rollback_replay_enabled", no()), f("rollback_preview_enabled", no()), f("rollback_apply_enabled", no()), f("authorizes_recovery_load", no()), f("can_move_beyond_denial", no()), f("loads_recovery_loader", no()), f("loads_recovery_artifact", no()), f("creates_durable_records", no()), f("installs_rollback_plan", no()), f("allocates_service_slot", no()), f("service_inventory_change", s("none")), f("load_attempted", b(case.load_attempted))], comma);
+pub(crate) fn emit_recovery_lifeline_command_dispatch_selftest_case(
+    case: &RecoveryLifelineCommandDispatchSelfTestCase,
+    comma: bool,
+) {
+    emit_selftest_case_fields_split(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        &[
+            Str("actual_envelope_status", case.actual_envelope_status),
+            Str("actual_envelope_reason", case.actual_envelope_reason),
+            Bool(
+                "command_envelope_reference_accepted",
+                case.command_envelope_reference_accepted,
+            ),
+            Bool(
+                "command_body_canonicalization_present",
+                case.command_body_canonicalization_present,
+            ),
+            Bool(
+                "command_handler_binding_present",
+                case.command_handler_binding_present,
+            ),
+        ],
+        case.passed,
+        &[
+            False("accepts_lifeline_command_body"),
+            False("accepts_lifeline_command_envelope"),
+            Bool(
+                "dispatches_lifeline_command",
+                case.dispatches_lifeline_command,
+            ),
+            Bool("command_execution_enabled", case.command_execution_enabled),
+            False("memory_writes_enabled"),
+            False("provider_export_enabled"),
+            False("durable_writes_enabled"),
+            False("rollback_replay_enabled"),
+            False("rollback_preview_enabled"),
+            False("rollback_apply_enabled"),
+            False("authorizes_recovery_load"),
+            False("can_move_beyond_denial"),
+            False("loads_recovery_loader"),
+            False("loads_recovery_artifact"),
+            False("creates_durable_records"),
+            False("installs_rollback_plan"),
+            False("allocates_service_slot"),
+            Str("service_inventory_change", "none"),
+            Bool("load_attempted", case.load_attempted),
+        ],
+        comma,
+    );
 }

@@ -6,9 +6,10 @@ use crate::{
     },
     agent_protocol_recovery_lifeline::RecoveryLifelineCommandSpec,
     agent_protocol_support::{
-        emit_inline_record_object, emit_record_object, emit_record_property, record_bool as b,
-        record_event_or_null, record_false as no, record_field as f, record_sha_or_null,
-        record_str as s, record_str_or_null,
+        emit_record_object, emit_record_property, emit_selftest_case_fields_split,
+        record_bool as b, record_event_or_null, record_false as no, record_field as f,
+        record_sha_or_null, record_str as s, record_str_or_null,
+        SelftestReportField::{Bool, False, Str},
     },
     event_log,
 };
@@ -145,64 +146,63 @@ pub(crate) fn emit_recovery_lifeline_command_envelope_selftest_case(
     case: &RecoveryLifelineCommandEnvelopeSelfTestCase,
     comma: bool,
 ) {
-    emit_inline_record_object(
-        vec![
-            f("case", s(case.name)),
-            f("expected_status", s(case.expected_status)),
-            f("expected_reason", s(case.expected_reason)),
-            f("actual_status", s(case.actual_status)),
-            f("actual_reason", s(case.actual_reason)),
-            f("actual_admission_status", s(case.actual_admission_status)),
-            f("actual_admission_reason", s(case.actual_admission_reason)),
-            f(
+    emit_selftest_case_fields_split(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        &[
+            Str("actual_admission_status", case.actual_admission_status),
+            Str("actual_admission_reason", case.actual_admission_reason),
+            Bool(
                 "command_admission_boundary_exposed",
-                b(case.command_admission_boundary_exposed),
+                case.command_admission_boundary_exposed,
             ),
-            f(
+            Bool(
                 "command_admission_accepted",
-                b(case.command_admission_accepted),
+                case.command_admission_accepted,
             ),
-            f(
+            Bool(
                 "command_envelope_reference_present",
-                b(case.command_envelope_reference_present),
+                case.command_envelope_reference_present,
             ),
-            f("command_id_supported", b(case.command_id_supported)),
-            f("argument_schema_matches", b(case.argument_schema_matches)),
-            f("argument_hash_present", b(case.argument_hash_present)),
-            f(
+            Bool("command_id_supported", case.command_id_supported),
+            Bool("argument_schema_matches", case.argument_schema_matches),
+            Bool("argument_hash_present", case.argument_hash_present),
+            Bool(
                 "required_capability_matches",
-                b(case.required_capability_matches),
+                case.required_capability_matches,
             ),
-            f("target_locator_present", b(case.target_locator_present)),
-            f("reference_hash_matches", b(case.reference_hash_matches)),
-            f("passed", b(case.passed)),
-            f(
-                "command_execution_enabled",
-                b(case.command_execution_enabled),
-            ),
-            f(
+            Bool("target_locator_present", case.target_locator_present),
+            Bool("reference_hash_matches", case.reference_hash_matches),
+        ],
+        case.passed,
+        &[
+            Bool("command_execution_enabled", case.command_execution_enabled),
+            Bool(
                 "accepts_lifeline_command_envelope",
-                b(case.accepts_lifeline_command_envelope),
+                case.accepts_lifeline_command_envelope,
             ),
-            f(
+            Bool(
                 "dispatches_lifeline_command",
-                b(case.dispatches_lifeline_command),
+                case.dispatches_lifeline_command,
             ),
-            f("memory_writes_enabled", no()),
-            f("provider_export_enabled", no()),
-            f("durable_writes_enabled", no()),
-            f("rollback_replay_enabled", no()),
-            f("rollback_preview_enabled", no()),
-            f("rollback_apply_enabled", no()),
-            f("authorizes_recovery_load", b(case.authorizes_recovery_load)),
-            f("can_move_beyond_denial", b(case.can_move_beyond_denial)),
-            f("loads_recovery_loader", b(case.loads_recovery_loader)),
-            f("loads_recovery_artifact", b(case.loads_recovery_artifact)),
-            f("creates_durable_records", b(case.creates_durable_records)),
-            f("installs_rollback_plan", b(case.installs_rollback_plan)),
-            f("allocates_service_slot", b(case.allocates_service_slot)),
-            f("service_inventory_change", s(case.service_inventory_change)),
-            f("load_attempted", b(case.load_attempted)),
+            False("memory_writes_enabled"),
+            False("provider_export_enabled"),
+            False("durable_writes_enabled"),
+            False("rollback_replay_enabled"),
+            False("rollback_preview_enabled"),
+            False("rollback_apply_enabled"),
+            Bool("authorizes_recovery_load", case.authorizes_recovery_load),
+            Bool("can_move_beyond_denial", case.can_move_beyond_denial),
+            Bool("loads_recovery_loader", case.loads_recovery_loader),
+            Bool("loads_recovery_artifact", case.loads_recovery_artifact),
+            Bool("creates_durable_records", case.creates_durable_records),
+            Bool("installs_rollback_plan", case.installs_rollback_plan),
+            Bool("allocates_service_slot", case.allocates_service_slot),
+            Str("service_inventory_change", case.service_inventory_change),
+            Bool("load_attempted", case.load_attempted),
         ],
         comma,
     );

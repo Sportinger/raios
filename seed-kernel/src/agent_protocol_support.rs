@@ -291,8 +291,24 @@ pub(crate) fn run_selftest_cases<I: Copy, M: Copy, C, const N: usize>(
     cases
 }
 
+pub(crate) fn run_selftest_cases_with<I: Copy, M: Copy, C, O, const N: usize>(
+    base_input: I,
+    specs: &[CaseSpec<M>; N],
+    apply_case: fn(&mut I, M),
+    eval: fn(I, bool) -> C,
+    make_case: fn(&CaseSpec<M>, C) -> O,
+) -> [O; N] {
+    core::array::from_fn(|idx| {
+        let spec = specs[idx];
+        let mut input = base_input;
+        apply_case(&mut input, spec.mutation);
+        make_case(&spec, eval(input, spec.require_live_retained))
+    })
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum SelftestReportField {
+    Bool(&'static str, bool),
     False(&'static str),
     Str(&'static str, &'static str),
 }
@@ -302,25 +318,81 @@ pub(crate) fn emit_selftest_case(
     extra_fields: &[SelftestReportField],
     comma: bool,
 ) {
+    emit_selftest_case_fields(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        case.passed,
+        extra_fields,
+        comma,
+    );
+}
+
+pub(crate) fn emit_selftest_case_fields(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    passed: bool,
+    extra_fields: &[SelftestReportField],
+    comma: bool,
+) {
+    emit_selftest_case_fields_split(
+        name,
+        expected_status,
+        expected_reason,
+        actual_status,
+        actual_reason,
+        &[],
+        passed,
+        extra_fields,
+        comma,
+    );
+}
+
+pub(crate) fn emit_selftest_case_fields_split(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    before_passed_fields: &[SelftestReportField],
+    passed: bool,
+    after_passed_fields: &[SelftestReportField],
+    comma: bool,
+) {
     let mut fields = vec![
-        record_field("case", record_str(case.name)),
-        record_field("expected_status", record_str(case.expected_status)),
-        record_field("expected_reason", record_str(case.expected_reason)),
-        record_field("actual_status", record_str(case.actual_status)),
-        record_field("actual_reason", record_str(case.actual_reason)),
-        record_field("passed", record_bool(case.passed)),
+        record_field("case", record_str(name)),
+        record_field("expected_status", record_str(expected_status)),
+        record_field("expected_reason", record_str(expected_reason)),
+        record_field("actual_status", record_str(actual_status)),
+        record_field("actual_reason", record_str(actual_reason)),
     ];
     let mut idx = 0usize;
-    while idx < extra_fields.len() {
-        match extra_fields[idx] {
-            SelftestReportField::False(name) => fields.push(record_field(name, record_false())),
-            SelftestReportField::Str(name, value) => {
-                fields.push(record_field(name, record_str(value)))
-            }
-        }
+    while idx < before_passed_fields.len() {
+        push_selftest_report_field(&mut fields, before_passed_fields[idx]);
+        idx += 1;
+    }
+    fields.push(record_field("passed", record_bool(passed)));
+    idx = 0;
+    while idx < after_passed_fields.len() {
+        push_selftest_report_field(&mut fields, after_passed_fields[idx]);
         idx += 1;
     }
     emit_inline_record_object(fields, comma);
+}
+
+fn push_selftest_report_field<'a>(fields: &mut Vec<Field<'a>>, field: SelftestReportField) {
+    match field {
+        SelftestReportField::Bool(name, value) => {
+            fields.push(record_field(name, record_bool(value)))
+        }
+        SelftestReportField::False(name) => fields.push(record_field(name, record_false())),
+        SelftestReportField::Str(name, value) => fields.push(record_field(name, record_str(value))),
+    }
 }
 
 pub(crate) fn emit_record_property(name: &str, fields: Vec<Field<'_>>) {

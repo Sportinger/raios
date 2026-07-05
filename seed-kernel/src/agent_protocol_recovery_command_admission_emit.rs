@@ -6,9 +6,10 @@ use crate::{
         RecoveryLifelineCommandAdmissionSelfTestCase, RecoveryMemoryProvenanceCheck,
     },
     agent_protocol_support::{
-        emit_inline_record_object, emit_record_fields, emit_record_object,
-        emit_record_property_line, record_bool as b, record_false as no, record_field as f,
+        emit_record_fields, emit_record_object, emit_record_property_line,
+        emit_selftest_case_fields, record_bool as b, record_false as no, record_field as f,
         record_null as null, record_object as object, record_str as s,
+        SelftestReportField::{False, Str},
     },
 };
 use raios_core::record::Value as V;
@@ -299,7 +300,38 @@ pub(crate) fn emit_recovery_lifeline_command_admission_check(
     );
 }
 
-#[rustfmt::skip]
-pub(crate) fn emit_recovery_lifeline_command_admission_selftest_case(case: &RecoveryLifelineCommandAdmissionSelfTestCase, comma: bool) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("command_execution_enabled", no()), f("accepts_lifeline_command_envelope", no()), f("dispatches_lifeline_command", no()), f("memory_writes_enabled", no()), f("provider_export_enabled", no()), f("durable_writes_enabled", no()), f("rollback_replay_enabled", no()), f("recovery_memory_writes_enabled", no()), f("rollback_preview_enabled", no()), f("rollback_apply_enabled", no()), f("authorizes_recovery_load", no()), f("can_move_beyond_denial", no()), f("loads_recovery_loader", no()), f("loads_recovery_artifact", no()), f("creates_durable_records", no()), f("installs_rollback_plan", no()), f("allocates_service_slot", no()), f("service_inventory_change", s("none")), f("load_attempted", no())], comma);
+pub(crate) fn emit_recovery_lifeline_command_admission_selftest_case(
+    case: &RecoveryLifelineCommandAdmissionSelfTestCase,
+    comma: bool,
+) {
+    emit_selftest_case_fields(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        case.passed,
+        &[
+            False("command_execution_enabled"),
+            False("accepts_lifeline_command_envelope"),
+            False("dispatches_lifeline_command"),
+            False("memory_writes_enabled"),
+            False("provider_export_enabled"),
+            False("durable_writes_enabled"),
+            False("rollback_replay_enabled"),
+            False("recovery_memory_writes_enabled"),
+            False("rollback_preview_enabled"),
+            False("rollback_apply_enabled"),
+            False("authorizes_recovery_load"),
+            False("can_move_beyond_denial"),
+            False("loads_recovery_loader"),
+            False("loads_recovery_artifact"),
+            False("creates_durable_records"),
+            False("installs_rollback_plan"),
+            False("allocates_service_slot"),
+            Str("service_inventory_change", "none"),
+            False("load_attempted"),
+        ],
+        comma,
+    );
 }
