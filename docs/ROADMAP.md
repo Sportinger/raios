@@ -187,14 +187,22 @@ v1/v2 re-signed. Verified: quick (`shadow-20260705-173919-20792.json`,
 417/417) + hello-rollback-dry-run (`shadow-20260705-174304-16956.json`,
 203/203).
 
+De-hello-ify Slice 4 done (2026-07-05, pulled ahead of Slice 3): Hello
+emitters ported to the record model (-233 lines; only the hash-adjacent
+staged evidence writer stays manual; hash-module diff verified empty);
+re-signed; verified quick (`shadow-20260705-181004-22820.json`, 417/417)
++ hello-rollback-dry-run (`shadow-20260705-181324-8968.json`, 203/203).
+
 Exact next task:
 
 ```text
-De-hello-ify Slices 3-5 per the plan: (3) move generic rollback
-writer/storage gate machinery out of Hello names, (4) port Hello
-emitters (emitters.rs 4.6k) to raios_core::record (hash inputs
-untouched), (5) minimal ServiceDescriptor parameterization. Each slice:
-re-sign, quick + hello-rollback-dry-run; full profile at M2 closure.
+De-hello-ify Slice 3: move generic rollback writer/storage gate
+machinery out of Hello names (keep files in the attestation source set;
+byte-identical hashes), then Slice 5: minimal ServiceDescriptor
+parameterization (ids, aliases, slot ids, event-log fields, inventory
+append). Each slice: re-sign, quick + hello-rollback-dry-run. Then the
+M2 closure evaluation: full profile + capability-sentence check
+(~10x target vs actual; agent layer size measurement).
 ```
 
 ## Capability Milestones

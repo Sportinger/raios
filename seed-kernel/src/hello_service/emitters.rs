@@ -1,4 +1,79 @@
+use alloc::{vec, vec::Vec};
+
 use super::*;
+use crate::agent_protocol_support::{
+    begin_error, emit_record_fields, emit_record_fields_trailing_comma, emit_record_value_fragment,
+    end_error,
+};
+use raios_core::record::{Field, Value as V};
+
+macro_rules! j {
+    ($key:literal => $value:expr,) => {
+        Field::new($key, $value)
+    };
+    ($key:literal => $value:expr) => {
+        Field::new($key, $value)
+    };
+}
+
+fn s(value: &'static str) -> V<'static> {
+    V::Str(value)
+}
+
+fn s_opt(value: Option<&'static str>) -> V<'static> {
+    match value {
+        Some(value) => s(value),
+        None => V::Null,
+    }
+}
+
+fn b(value: bool) -> V<'static> {
+    V::Bool(value)
+}
+
+fn u(value: u64) -> V<'static> {
+    V::U64(value)
+}
+
+fn sha(value: [u8; 32]) -> V<'static> {
+    V::Sha256(value)
+}
+
+fn sha_opt(value: Option<[u8; 32]>) -> V<'static> {
+    match value {
+        Some(value) => sha(value),
+        None => V::Null,
+    }
+}
+
+fn event_opt(value: Option<event_log::EventId>) -> V<'static> {
+    match value {
+        Some(value) => V::EventSequence(value.sequence()),
+        None => V::Null,
+    }
+}
+
+fn inline(fields: Vec<Field<'static>>) -> V<'static> {
+    V::InlineObject(fields)
+}
+
+fn object(fields: Vec<Field<'static>>) -> V<'static> {
+    V::Object(fields)
+}
+
+fn inline_str_array(values: &[&'static str]) -> V<'static> {
+    let mut out = Vec::new();
+    let mut idx = 0usize;
+    while idx < values.len() {
+        out.push(s(values[idx]));
+        idx += 1;
+    }
+    V::InlineArray(out)
+}
+
+fn emit_inline_value(value: V<'static>) {
+    emit_record_value_fragment(value, 0);
+}
 
 pub(crate) fn emit_health_response(
     method: &'static str,
@@ -9,123 +84,95 @@ pub(crate) fn emit_health_response(
     let activation_status = service_slot_activation_status(snapshot);
     let activation_active = service_slot_activation_active(snapshot);
     begin_response(method);
-    raw_line("      \"schema\": \"raios.ram_only_hello_service.health.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw_line("      \"action\": \"health_probe\",");
-    raw("      \"event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("      \"audit_event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("      \"service_slot_activation\": ");
-    emit_service_slot_activation(descriptor, activation_status, activation_active);
-    raw_line(",");
-    raw("      \"state\": ");
-    emit_hello_state(snapshot);
-    raw_line(",");
-    raw("      \"state_migration\": ");
-    emit_hello_state_migration_option(snapshot.state_migration);
-    raw_line(",");
-    raw("      \"hot_swap_probation\": ");
-    emit_hello_hot_swap_probation_option(snapshot.hot_swap_probation);
-    raw_line(",");
-    raw_line("      \"service\": {");
-    raw("        \"id\": ");
-    json_str(SERVICE_ID);
-    raw_line(",");
-    raw_line("        \"kind\": \"service\",");
-    raw("        \"version\": ");
-    json_str(service_version(descriptor));
-    raw_line(",");
-    raw("        \"loaded\": ");
-    raw_bool(snapshot.loaded);
-    raw_line(",");
-    raw("        \"running\": ");
-    raw_bool(snapshot.running);
-    raw_line(",");
-    raw("        \"health\": ");
-    json_str(health_state(snapshot));
-    raw_line(",");
-    raw("        \"generation\": ");
-    raw_fmt(format_args!("{}", snapshot.generation));
-    raw_line(",");
-    raw("        \"state\": ");
-    emit_hello_state(snapshot);
-    raw_line(",");
-    raw("        \"last_action\": ");
-    json_str(snapshot.last_action);
-    raw_line(",");
-    raw("        \"last_reason\": ");
-    json_str(snapshot.last_reason);
-    raw_line(",");
-    raw("        \"service_slot_activation_id\": ");
-    json_str(SERVICE_SLOT_ACTIVATION_ID);
-    raw_line(",");
-    raw("        \"service_slot_activation_hash\": ");
-    json_sha256(service_slot_activation_hash(descriptor));
-    raw_line(",");
-    raw("        \"service_slot_activation_status\": ");
-    json_str(activation_status);
-    raw_line(",");
-    raw("        \"service_slot_activation_active\": ");
-    raw_bool(activation_active);
-    raw_line(",");
-    raw("        \"capabilities\": [");
-    emit_inline_string_array(CAPABILITIES);
-    raw_line("]");
-    raw_line("      },");
-    raw_line("      \"load_descriptor\": {");
-    raw("        \"schema\": ");
-    json_str(descriptor.schema);
-    raw_line(",");
-    raw("        \"id\": ");
-    json_str(descriptor.id);
-    raw_line(",");
-    raw_line("        \"source\": {");
-    raw("          \"locator\": ");
-    json_str(descriptor.source_locator);
-    raw_line(",");
-    raw("          \"kind\": ");
-    json_str(descriptor.source_kind);
-    raw_line(",");
-    raw_line("          \"validated\": true,");
-    raw("          \"sha256\": ");
-    json_sha256(descriptor_source_hash(descriptor));
-    raw_line(",");
-    raw("          \"binds_source_locator\": ");
-    json_opt_str(descriptor.binds_source_locator);
-    raw_line(",");
-    raw("          \"binds_source_kind\": ");
-    json_opt_str(descriptor.binds_source_kind);
-    raw_line(",");
-    raw("          \"binds_source_hash\": ");
-    json_sha256_option(descriptor.binds_source_hash);
-    raw_line(",");
-    raw("          \"signature_envelope\": ");
-    emit_descriptor_source_signature_envelope(descriptor);
-    raw_line("");
-    raw_line("        },");
-    raw("        \"artifact_identity\": ");
-    emit_artifact_identity(descriptor);
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight\": ");
-    emit_artifact_load_plan_preflight(descriptor);
-    raw_line(",");
-    raw("        \"service_slot_activation\": ");
-    emit_service_slot_activation(descriptor, activation_status, activation_active);
-    raw_line("");
-    raw_line("      },");
-    raw_line("      \"denied_surfaces\": {");
-    raw_line("        \"external_artifact_load\": \"denied\",");
-    raw_line("        \"persistent_install\": \"denied\",");
-    raw_line("        \"durable_audit\": \"denied\",");
-    raw_line("        \"rollback_install\": \"denied\",");
-    raw_line("        \"broad_mutation\": \"denied\"");
-    raw_line("      }");
+    emit_record_fields(
+        vec![
+            j!("schema" => s("raios.ram_only_hello_service.health.v0")),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("action" => s("health_probe")),
+            j!("event_id" => event_opt(Some(event_id))),
+            j!("audit_event_id" => event_opt(Some(event_id))),
+            j!("service_slot_activation" => service_slot_activation_value(descriptor, activation_status, activation_active),
+            ),
+            j!("state" => hello_state_value(snapshot)),
+            j!("state_migration" => hello_state_migration_value(snapshot.state_migration),
+            ),
+            j!("hot_swap_probation" => hello_hot_swap_probation_value(snapshot.hot_swap_probation),
+            ),
+            j!("service" => health_service_value(snapshot, descriptor, activation_status, activation_active),
+            ),
+            j!("load_descriptor" => health_load_descriptor_value(descriptor, activation_status, activation_active),
+            ),
+            j!("denied_surfaces" => hello_basic_denied_surfaces_value()),
+        ],
+        6,
+    );
     end_response(method);
+}
+
+fn health_service_value(
+    snapshot: Snapshot,
+    descriptor: LoadDescriptor,
+    activation_status: &'static str,
+    activation_active: bool,
+) -> V<'static> {
+    object(vec![
+        j!("id" => s(SERVICE_ID)),
+        j!("kind" => s("service")),
+        j!("version" => s(service_version(descriptor))),
+        j!("loaded" => b(snapshot.loaded)),
+        j!("running" => b(snapshot.running)),
+        j!("health" => s(health_state(snapshot))),
+        j!("generation" => u(snapshot.generation)),
+        j!("state" => hello_state_value(snapshot)),
+        j!("last_action" => s(snapshot.last_action)),
+        j!("last_reason" => s(snapshot.last_reason)),
+        j!("service_slot_activation_id" => s(SERVICE_SLOT_ACTIVATION_ID)),
+        j!("service_slot_activation_hash" => sha(service_slot_activation_hash(descriptor))),
+        j!("service_slot_activation_status" => s(activation_status)),
+        j!("service_slot_activation_active" => b(activation_active)),
+        j!("capabilities" => inline_str_array(CAPABILITIES)),
+    ])
+}
+
+fn health_load_descriptor_value(
+    descriptor: LoadDescriptor,
+    activation_status: &'static str,
+    activation_active: bool,
+) -> V<'static> {
+    object(vec![
+        j!("schema" => s(descriptor.schema)),
+        j!("id" => s(descriptor.id)),
+        j!("source" => object(vec![
+                j!("locator" => s(descriptor.source_locator)),
+                j!("kind" => s(descriptor.source_kind)),
+                j!("validated" => b(true)),
+                j!("sha256" => sha(descriptor_source_hash(descriptor))),
+                j!("binds_source_locator" => s_opt(descriptor.binds_source_locator),
+                ),
+                j!("binds_source_kind" => s_opt(descriptor.binds_source_kind)),
+                j!("binds_source_hash" => sha_opt(descriptor.binds_source_hash)),
+                j!("signature_envelope" => descriptor_source_signature_envelope_value(descriptor),
+                ),
+            ]),
+        ),
+        j!("artifact_identity" => artifact_identity_value(descriptor)),
+        j!("artifact_load_plan_preflight" => artifact_load_plan_preflight_value(descriptor),
+        ),
+        j!("service_slot_activation" => service_slot_activation_value(descriptor, activation_status, activation_active),
+        ),
+    ])
+}
+
+fn hello_basic_denied_surfaces_value() -> V<'static> {
+    object(vec![
+        j!("external_artifact_load" => s("denied")),
+        j!("persistent_install" => s("denied")),
+        j!("durable_audit" => s("denied")),
+        j!("rollback_install" => s("denied")),
+        j!("broad_mutation" => s("denied")),
+    ])
 }
 
 pub(crate) fn emit_hot_swap_state_migration_denied(
@@ -134,359 +181,420 @@ pub(crate) fn emit_hot_swap_state_migration_denied(
     event_id: event_log::EventId,
     migration: HelloStateMigrationRecord,
 ) {
-    raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
-    raw_line("{");
-    raw_line("  \"v\": \"raios.agent.v0\",");
-    raw_line("  \"t\": \"error\",");
-    raw_line("  \"id\": \"serial\",");
-    raw_line("  \"body\": {");
-    raw("    \"method\": ");
-    json_str(method);
-    raw_line(",");
-    raw("    \"event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("    \"audit_event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw_line("    \"code\": \"capability_denied\",");
-    raw("    \"reason\": ");
-    json_str("state_migration_would_reset_state");
-    raw_line(",");
-    raw("    \"message\": ");
-    json_str("hello hot-swap denied because the candidate would reset RAM-only service state before a rollback-capable migrator exists");
-    raw_line(",");
-    raw("    \"service_id\": ");
-    json_str(SERVICE_ID);
-    raw_line(",");
-    raw("    \"target\": ");
-    json_str("svc.demo.hello.reset_state");
-    raw_line(",");
-    raw("    \"active_generation\": ");
-    raw_fmt(format_args!("{}", snapshot.generation));
-    raw_line(",");
-    raw("    \"active_descriptor_id\": ");
-    json_str(snapshot.load_descriptor.id);
-    raw_line(",");
-    raw("    \"state\": ");
-    emit_hello_state(snapshot);
-    raw_line(",");
-    raw("    \"state_migration\": ");
-    emit_hello_state_migration_option(Some(migration));
-    raw_line(",");
-    raw_line("    \"required\": [");
-    raw_line("      \"state_preserving_migrator\",");
-    raw_line("      \"raios.audit_record.v0\",");
-    raw_line("      \"rollback_plan\"");
-    raw_line("    ],");
-    raw_line("    \"denied_surfaces\": {");
-    raw_line("      \"descriptor_mutation\": \"not_attempted\",");
-    raw_line("      \"state_reset\": \"denied\",");
-    raw_line("      \"external_artifact_load\": \"denied\",");
-    raw_line("      \"candidate_artifact_execution\": \"denied\",");
-    raw_line("      \"executable_mapping\": \"denied\",");
-    raw_line("      \"persistent_install\": \"denied\",");
-    raw_line("      \"durable_audit\": \"denied\",");
-    raw_line("      \"rollback_install\": \"denied\",");
-    raw_line("      \"broad_mutation\": \"denied\"");
-    raw_line("    }");
-    raw_line("  }");
-    raw_line("}");
-    raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
+    begin_error(method);
+    emit_record_fields(
+        vec![
+            j!("method" => s(method)),
+            j!("event_id" => event_opt(Some(event_id))),
+            j!("audit_event_id" => event_opt(Some(event_id))),
+            j!("code" => s("capability_denied")),
+            j!("reason" => s("state_migration_would_reset_state")),
+            j!("message" => s("hello hot-swap denied because the candidate would reset RAM-only service state before a rollback-capable migrator exists")),
+            j!("service_id" => s(SERVICE_ID)),
+            j!("target" => s("svc.demo.hello.reset_state")),
+            j!("active_generation" => u(snapshot.generation)),
+            j!("active_descriptor_id" => s(snapshot.load_descriptor.id)),
+            j!("state" => hello_state_value(snapshot)),
+            j!("state_migration" => hello_state_migration_value(Some(migration))),
+            j!("required" => V::Array(vec![
+                    s("state_preserving_migrator"),
+                    s("raios.audit_record.v0"),
+                    s("rollback_plan"),
+                ]),
+            ),
+            j!("denied_surfaces" => object(vec![
+                    j!("descriptor_mutation" => s("not_attempted")),
+                    j!("state_reset" => s("denied")),
+                    j!("external_artifact_load" => s("denied")),
+                    j!("candidate_artifact_execution" => s("denied")),
+                    j!("executable_mapping" => s("denied")),
+                    j!("persistent_install" => s("denied")),
+                    j!("durable_audit" => s("denied")),
+                    j!("rollback_install" => s("denied")),
+                    j!("broad_mutation" => s("denied")),
+                ]),
+            ),
+        ],
+        4,
+    );
+    end_error(method);
 }
 
 pub(crate) fn emit_rollback_transaction_preflight(
     snapshot: Snapshot,
     probation: Option<HelloHotSwapProbationRecord>,
 ) {
-    if let Some(probation) = probation {
-        raw("{\"schema\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_STATUS);
-        raw(", \"service_id\": ");
-        json_str(SERVICE_ID);
-        raw(", \"requested_capability\": ");
-        json_str(HELLO_ROLLBACK_APPLY_CAPABILITY);
-        raw(", \"preflight_hash\": ");
-        json_sha256(hello_rollback_transaction_preflight_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_apply_hash\": ");
-        json_sha256(hello_rollback_apply_denial_hash(snapshot, probation));
-        raw(", \"rollback_preview_hash\": ");
-        json_sha256(hello_rollback_preview_hash(snapshot, probation));
-        raw(", \"source_probation_hash\": ");
-        json_sha256(probation.probation_hash);
-        raw(", \"current_state_hash\": ");
-        json_sha256(hello_state_hash(snapshot.state_counter));
-        raw(", \"current_state_counter\": ");
-        raw_fmt(format_args!("{}", snapshot.state_counter));
-        raw(", \"rollback_target_descriptor_id\": ");
-        json_str(probation.previous_descriptor_id);
-        raw(", \"rollback_target_descriptor_source_hash\": ");
-        json_sha256(probation.previous_descriptor_source_hash);
-        raw(", \"rollback_target_artifact_identity_id\": ");
-        json_str(probation.previous_artifact_identity_id);
-        raw(", \"rollback_target_artifact_identity_hash\": ");
-        json_sha256(probation.previous_artifact_identity_hash);
-        raw(", \"rollback_target_generation\": ");
-        raw_fmt(format_args!("{}", probation.previous_generation));
-        raw(", \"rollback_target_state_hash\": ");
-        json_sha256(probation.previous_state_hash);
-        raw(", \"rollback_target_state_counter\": ");
-        raw_fmt(format_args!("{}", probation.previous_state_counter));
-        raw(", \"current_candidate_descriptor_id\": ");
-        json_str(probation.new_descriptor_id);
-        raw(", \"current_candidate_descriptor_source_hash\": ");
-        json_sha256(probation.new_descriptor_source_hash);
-        raw(", \"current_candidate_artifact_identity_id\": ");
-        json_str(probation.new_artifact_identity_id);
-        raw(", \"current_candidate_artifact_identity_hash\": ");
-        json_sha256(probation.new_artifact_identity_hash);
-        raw(", \"current_candidate_generation\": ");
-        raw_fmt(format_args!("{}", probation.new_generation));
-        raw(", \"current_candidate_state_hash\": ");
-        json_sha256(probation.new_state_hash);
-        raw(", \"current_candidate_state_counter\": ");
-        raw_fmt(format_args!("{}", probation.new_state_counter));
-        raw(", \"state_migration_hash\": ");
-        json_sha256(probation.state_migration_hash);
-        raw(", \"missing_authorities\": {\"rollback_apply_authority\": true, \"rollback_transaction_authority\": true, \"durable_audit_write_authority\": true, \"persistent_install_authority\": true}");
-        raw(", \"side_effects\": {\"mutates_service_state\": false, \"applies_rollback\": false, \"writes_persistent_state\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"installs_rollback_plan\": false, \"accepts_external_artifact_bytes\": false, \"loads_candidate_bytes\": false, \"maps_executable_pages\": false, \"provider_auto_load\": false, \"grants_broad_mutation\": false}");
-        raw("}");
-    } else {
-        raw("null");
-    }
+    emit_inline_value(rollback_transaction_preflight_value(snapshot, probation));
+}
+
+fn rollback_transaction_preflight_value(
+    snapshot: Snapshot,
+    probation: Option<HelloHotSwapProbationRecord>,
+) -> V<'static> {
+    let Some(probation) = probation else {
+        return V::Null;
+    };
+    inline(vec![
+        j!("schema" => s(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_SCHEMA)),
+        j!("id" => s(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_ID)),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("persistence" => s("none")),
+        j!("status" => s(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_STATUS)),
+        j!("service_id" => s(SERVICE_ID)),
+        j!("requested_capability" => s(HELLO_ROLLBACK_APPLY_CAPABILITY)),
+        j!("preflight_hash" => sha(hello_rollback_transaction_preflight_hash(
+                snapshot, probation,
+            )),
+        ),
+        j!("rollback_apply_hash" => sha(hello_rollback_apply_denial_hash(snapshot, probation)),
+        ),
+        j!("rollback_preview_hash" => sha(hello_rollback_preview_hash(snapshot, probation)),
+        ),
+        j!("source_probation_hash" => sha(probation.probation_hash)),
+        j!("current_state_hash" => sha(hello_state_hash(snapshot.state_counter)),
+        ),
+        j!("current_state_counter" => u(snapshot.state_counter)),
+        j!("rollback_target_descriptor_id" => s(probation.previous_descriptor_id),
+        ),
+        j!("rollback_target_descriptor_source_hash" => sha(probation.previous_descriptor_source_hash),
+        ),
+        j!("rollback_target_artifact_identity_id" => s(probation.previous_artifact_identity_id),
+        ),
+        j!("rollback_target_artifact_identity_hash" => sha(probation.previous_artifact_identity_hash),
+        ),
+        j!("rollback_target_generation" => u(probation.previous_generation),
+        ),
+        j!("rollback_target_state_hash" => sha(probation.previous_state_hash),
+        ),
+        j!("rollback_target_state_counter" => u(probation.previous_state_counter),
+        ),
+        j!("current_candidate_descriptor_id" => s(probation.new_descriptor_id),
+        ),
+        j!("current_candidate_descriptor_source_hash" => sha(probation.new_descriptor_source_hash),
+        ),
+        j!("current_candidate_artifact_identity_id" => s(probation.new_artifact_identity_id),
+        ),
+        j!("current_candidate_artifact_identity_hash" => sha(probation.new_artifact_identity_hash),
+        ),
+        j!("current_candidate_generation" => u(probation.new_generation)),
+        j!("current_candidate_state_hash" => sha(probation.new_state_hash),
+        ),
+        j!("current_candidate_state_counter" => u(probation.new_state_counter),
+        ),
+        j!("state_migration_hash" => sha(probation.state_migration_hash)),
+        j!("missing_authorities" => inline(vec![
+                j!("rollback_apply_authority" => b(true)),
+                j!("rollback_transaction_authority" => b(true)),
+                j!("durable_audit_write_authority" => b(true)),
+                j!("persistent_install_authority" => b(true)),
+            ]),
+        ),
+        j!("side_effects" => inline(vec![
+                j!("mutates_service_state" => b(false)),
+                j!("applies_rollback" => b(false)),
+                j!("writes_persistent_state" => b(false)),
+                j!("writes_durable_audit_log" => b(false)),
+                j!("writes_rollback_store" => b(false)),
+                j!("installs_rollback_plan" => b(false)),
+                j!("accepts_external_artifact_bytes" => b(false)),
+                j!("loads_candidate_bytes" => b(false)),
+                j!("maps_executable_pages" => b(false)),
+                j!("provider_auto_load" => b(false)),
+                j!("grants_broad_mutation" => b(false)),
+            ]),
+        ),
+    ])
 }
 
 pub(crate) fn emit_rollback_write_authority_gate(
     snapshot: Snapshot,
     probation: Option<HelloHotSwapProbationRecord>,
 ) {
-    if let Some(probation) = probation {
-        raw("{\"schema\": ");
-        json_str(HELLO_ROLLBACK_WRITE_AUTHORITY_GATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_WRITE_AUTHORITY_GATE_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_WRITE_AUTHORITY_GATE_STATUS);
-        raw(", \"service_id\": ");
-        json_str(SERVICE_ID);
-        raw(", \"requested_capability\": ");
-        json_str(HELLO_ROLLBACK_APPLY_CAPABILITY);
-        raw(", \"gate_hash\": ");
-        json_sha256(hello_rollback_write_authority_gate_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_transaction_preflight_hash\": ");
-        json_sha256(hello_rollback_transaction_preflight_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_apply_hash\": ");
-        json_sha256(hello_rollback_apply_denial_hash(snapshot, probation));
-        raw(", \"rollback_preview_hash\": ");
-        json_sha256(hello_rollback_preview_hash(snapshot, probation));
-        raw(", \"source_probation_hash\": ");
-        json_sha256(probation.probation_hash);
-        raw(", \"current_state_hash\": ");
-        json_sha256(hello_state_hash(snapshot.state_counter));
-        raw(", \"current_state_counter\": ");
-        raw_fmt(format_args!("{}", snapshot.state_counter));
-        raw(", \"rollback_target_artifact_identity_hash\": ");
-        json_sha256(probation.previous_artifact_identity_hash);
-        raw(", \"current_candidate_artifact_identity_hash\": ");
-        json_sha256(probation.new_artifact_identity_hash);
-        raw(", \"state_migration_hash\": ");
-        json_sha256(probation.state_migration_hash);
-        raw(", \"required_schemas\": {\"audit_record\": \"raios.audit_record.v0\", \"rollback_transaction\": \"raios.rollback_transaction.v0\"}");
-        raw(", \"unavailable_authorities\": {\"durable_audit_write_authority\": true, \"rollback_store_write_authority\": true, \"rollback_transaction_append\": true}");
-        raw(", \"side_effects\": {\"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"installs_rollback_plan\": false, \"applies_rollback\": false}");
-        raw("}");
-    } else {
-        raw("null");
-    }
+    emit_inline_value(rollback_write_authority_gate_value(snapshot, probation));
+}
+
+fn rollback_write_authority_gate_value(
+    snapshot: Snapshot,
+    probation: Option<HelloHotSwapProbationRecord>,
+) -> V<'static> {
+    let Some(probation) = probation else {
+        return V::Null;
+    };
+    inline(vec![
+        j!("schema" => s(HELLO_ROLLBACK_WRITE_AUTHORITY_GATE_SCHEMA)),
+        j!("id" => s(HELLO_ROLLBACK_WRITE_AUTHORITY_GATE_ID)),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("persistence" => s("none")),
+        j!("status" => s(HELLO_ROLLBACK_WRITE_AUTHORITY_GATE_STATUS)),
+        j!("service_id" => s(SERVICE_ID)),
+        j!("requested_capability" => s(HELLO_ROLLBACK_APPLY_CAPABILITY)),
+        j!("gate_hash" => sha(hello_rollback_write_authority_gate_hash(
+                snapshot, probation,
+            )),
+        ),
+        j!("rollback_transaction_preflight_hash" => sha(hello_rollback_transaction_preflight_hash(
+                snapshot, probation,
+            )),
+        ),
+        j!("rollback_apply_hash" => sha(hello_rollback_apply_denial_hash(snapshot, probation)),
+        ),
+        j!("rollback_preview_hash" => sha(hello_rollback_preview_hash(snapshot, probation)),
+        ),
+        j!("source_probation_hash" => sha(probation.probation_hash)),
+        j!("current_state_hash" => sha(hello_state_hash(snapshot.state_counter)),
+        ),
+        j!("current_state_counter" => u(snapshot.state_counter)),
+        j!("rollback_target_artifact_identity_hash" => sha(probation.previous_artifact_identity_hash),
+        ),
+        j!("current_candidate_artifact_identity_hash" => sha(probation.new_artifact_identity_hash),
+        ),
+        j!("state_migration_hash" => sha(probation.state_migration_hash)),
+        j!("required_schemas" => inline(vec![
+                j!("audit_record" => s("raios.audit_record.v0")),
+                j!("rollback_transaction" => s("raios.rollback_transaction.v0")),
+            ]),
+        ),
+        j!("unavailable_authorities" => inline(vec![
+                j!("durable_audit_write_authority" => b(true)),
+                j!("rollback_store_write_authority" => b(true)),
+                j!("rollback_transaction_append" => b(true)),
+            ]),
+        ),
+        j!("side_effects" => inline(vec![
+                j!("writes_durable_audit_log" => b(false)),
+                j!("writes_rollback_store" => b(false)),
+                j!("appends_rollback_transaction" => b(false)),
+                j!("installs_rollback_plan" => b(false)),
+                j!("applies_rollback" => b(false)),
+            ]),
+        ),
+    ])
 }
 
 pub(crate) fn emit_rollback_append_intent_gate(
     snapshot: Snapshot,
     probation: Option<HelloHotSwapProbationRecord>,
 ) {
-    if let Some(probation) = probation {
-        raw("{\"schema\": ");
-        json_str(HELLO_ROLLBACK_APPEND_INTENT_GATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_APPEND_INTENT_GATE_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_APPEND_INTENT_GATE_STATUS);
-        raw(", \"service_id\": ");
-        json_str(SERVICE_ID);
-        raw(", \"requested_capability\": ");
-        json_str(HELLO_ROLLBACK_APPLY_CAPABILITY);
-        raw(", \"gate_hash\": ");
-        json_sha256(hello_rollback_append_intent_gate_hash(snapshot, probation));
-        raw(", \"rollback_write_authority_gate_hash\": ");
-        json_sha256(hello_rollback_write_authority_gate_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_transaction_preflight_hash\": ");
-        json_sha256(hello_rollback_transaction_preflight_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_apply_hash\": ");
-        json_sha256(hello_rollback_apply_denial_hash(snapshot, probation));
-        raw(", \"rollback_preview_hash\": ");
-        json_sha256(hello_rollback_preview_hash(snapshot, probation));
-        raw(", \"source_probation_hash\": ");
-        json_sha256(probation.probation_hash);
-        raw(", \"current_state_hash\": ");
-        json_sha256(hello_state_hash(snapshot.state_counter));
-        raw(", \"current_state_counter\": ");
-        raw_fmt(format_args!("{}", snapshot.state_counter));
-        raw(", \"rollback_target_descriptor_source_hash\": ");
-        json_sha256(probation.previous_descriptor_source_hash);
-        raw(", \"rollback_target_artifact_identity_hash\": ");
-        json_sha256(probation.previous_artifact_identity_hash);
-        raw(", \"current_candidate_descriptor_source_hash\": ");
-        json_sha256(probation.new_descriptor_source_hash);
-        raw(", \"current_candidate_artifact_identity_hash\": ");
-        json_sha256(probation.new_artifact_identity_hash);
-        raw(", \"state_migration_hash\": ");
-        json_sha256(probation.state_migration_hash);
-        raw(", \"required_schemas\": {\"audit_record\": \"raios.audit_record.v0\", \"rollback_transaction\": \"raios.rollback_transaction.v0\"}");
-        raw(", \"unavailable_authorities\": {\"append_intent\": true, \"rollback_transaction_append\": true, \"durable_audit_store\": true, \"rollback_store\": true}");
-        raw(", \"side_effects\": {\"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"installs_rollback_plan\": false, \"applies_rollback\": false}");
-        raw("}");
-    } else {
-        raw("null");
-    }
+    emit_inline_value(rollback_append_intent_gate_value(snapshot, probation));
+}
+
+fn rollback_append_intent_gate_value(
+    snapshot: Snapshot,
+    probation: Option<HelloHotSwapProbationRecord>,
+) -> V<'static> {
+    let Some(probation) = probation else {
+        return V::Null;
+    };
+    inline(vec![
+        j!("schema" => s(HELLO_ROLLBACK_APPEND_INTENT_GATE_SCHEMA)),
+        j!("id" => s(HELLO_ROLLBACK_APPEND_INTENT_GATE_ID)),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("persistence" => s("none")),
+        j!("status" => s(HELLO_ROLLBACK_APPEND_INTENT_GATE_STATUS)),
+        j!("service_id" => s(SERVICE_ID)),
+        j!("requested_capability" => s(HELLO_ROLLBACK_APPLY_CAPABILITY)),
+        j!("gate_hash" => sha(hello_rollback_append_intent_gate_hash(snapshot, probation)),
+        ),
+        j!("rollback_write_authority_gate_hash" => sha(hello_rollback_write_authority_gate_hash(
+                snapshot, probation,
+            )),
+        ),
+        j!("rollback_transaction_preflight_hash" => sha(hello_rollback_transaction_preflight_hash(
+                snapshot, probation,
+            )),
+        ),
+        j!("rollback_apply_hash" => sha(hello_rollback_apply_denial_hash(snapshot, probation)),
+        ),
+        j!("rollback_preview_hash" => sha(hello_rollback_preview_hash(snapshot, probation)),
+        ),
+        j!("source_probation_hash" => sha(probation.probation_hash)),
+        j!("current_state_hash" => sha(hello_state_hash(snapshot.state_counter)),
+        ),
+        j!("current_state_counter" => u(snapshot.state_counter)),
+        j!("rollback_target_descriptor_source_hash" => sha(probation.previous_descriptor_source_hash),
+        ),
+        j!("rollback_target_artifact_identity_hash" => sha(probation.previous_artifact_identity_hash),
+        ),
+        j!("current_candidate_descriptor_source_hash" => sha(probation.new_descriptor_source_hash),
+        ),
+        j!("current_candidate_artifact_identity_hash" => sha(probation.new_artifact_identity_hash),
+        ),
+        j!("state_migration_hash" => sha(probation.state_migration_hash)),
+        j!("required_schemas" => inline(vec![
+                j!("audit_record" => s("raios.audit_record.v0")),
+                j!("rollback_transaction" => s("raios.rollback_transaction.v0")),
+            ]),
+        ),
+        j!("unavailable_authorities" => inline(vec![
+                j!("append_intent" => b(true)),
+                j!("rollback_transaction_append" => b(true)),
+                j!("durable_audit_store" => b(true)),
+                j!("rollback_store" => b(true)),
+            ]),
+        ),
+        j!("side_effects" => inline(vec![
+                j!("writes_durable_audit_log" => b(false)),
+                j!("writes_rollback_store" => b(false)),
+                j!("appends_rollback_transaction" => b(false)),
+                j!("installs_rollback_plan" => b(false)),
+                j!("applies_rollback" => b(false)),
+            ]),
+        ),
+    ])
 }
 
 pub(crate) fn emit_rollback_payload_envelope_gate(
     snapshot: Snapshot,
     probation: Option<HelloHotSwapProbationRecord>,
 ) {
-    if let Some(probation) = probation {
-        raw("{\"schema\": ");
-        json_str(HELLO_ROLLBACK_PAYLOAD_ENVELOPE_GATE_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_PAYLOAD_ENVELOPE_GATE_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_PAYLOAD_ENVELOPE_GATE_STATUS);
-        raw(", \"service_id\": ");
-        json_str(SERVICE_ID);
-        raw(", \"requested_capability\": ");
-        json_str(HELLO_ROLLBACK_APPLY_CAPABILITY);
-        raw(", \"gate_hash\": ");
-        json_sha256(hello_rollback_payload_envelope_gate_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_append_intent_gate_hash\": ");
-        json_sha256(hello_rollback_append_intent_gate_hash(snapshot, probation));
-        raw(", \"rollback_write_authority_gate_hash\": ");
-        json_sha256(hello_rollback_write_authority_gate_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_transaction_preflight_hash\": ");
-        json_sha256(hello_rollback_transaction_preflight_hash(
-            snapshot, probation,
-        ));
-        raw(", \"rollback_apply_hash\": ");
-        json_sha256(hello_rollback_apply_denial_hash(snapshot, probation));
-        raw(", \"rollback_preview_hash\": ");
-        json_sha256(hello_rollback_preview_hash(snapshot, probation));
-        raw(", \"source_probation_hash\": ");
-        json_sha256(probation.probation_hash);
-        raw(", \"current_state_hash\": ");
-        json_sha256(hello_state_hash(snapshot.state_counter));
-        raw(", \"current_state_counter\": ");
-        raw_fmt(format_args!("{}", snapshot.state_counter));
-        raw(", \"rollback_target_descriptor_source_hash\": ");
-        json_sha256(probation.previous_descriptor_source_hash);
-        raw(", \"rollback_target_artifact_identity_hash\": ");
-        json_sha256(probation.previous_artifact_identity_hash);
-        raw(", \"current_candidate_descriptor_source_hash\": ");
-        json_sha256(probation.new_descriptor_source_hash);
-        raw(", \"current_candidate_artifact_identity_hash\": ");
-        json_sha256(probation.new_artifact_identity_hash);
-        raw(", \"state_migration_hash\": ");
-        json_sha256(probation.state_migration_hash);
-        raw(", \"proposed_transaction\": {\"schema\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_PAYLOAD_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_PAYLOAD_ID);
-        raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-        json_str(HELLO_ROLLBACK_TRANSACTION_PAYLOAD_STATUS);
-        raw(", \"payload_hash\": ");
-        json_sha256(hello_rollback_transaction_payload_hash(snapshot, probation));
-        raw(", \"provenance_hash\": ");
-        json_sha256(hello_rollback_transaction_payload_provenance_hash(
-            snapshot, probation,
-        ));
-        raw(", \"appended_to_rollback_log\": false}");
-        raw(", \"required_schemas\": {\"audit_record\": \"raios.audit_record.v0\", \"rollback_transaction\": \"raios.rollback_transaction.v0\"}");
-        raw(", \"unavailable_authorities\": {\"transaction_writer\": true, \"rollback_transaction_append\": true, \"durable_audit_store\": true, \"rollback_store\": true}");
-        raw(", \"side_effects\": {\"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"installs_rollback_plan\": false, \"applies_rollback\": false}");
-        raw("}");
-    } else {
-        raw("null");
-    }
+    emit_inline_value(rollback_payload_envelope_gate_value(snapshot, probation));
+}
+
+fn rollback_payload_envelope_gate_value(
+    snapshot: Snapshot,
+    probation: Option<HelloHotSwapProbationRecord>,
+) -> V<'static> {
+    let Some(probation) = probation else {
+        return V::Null;
+    };
+    inline(vec![
+        j!("schema" => s(HELLO_ROLLBACK_PAYLOAD_ENVELOPE_GATE_SCHEMA)),
+        j!("id" => s(HELLO_ROLLBACK_PAYLOAD_ENVELOPE_GATE_ID)),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("persistence" => s("none")),
+        j!("status" => s(HELLO_ROLLBACK_PAYLOAD_ENVELOPE_GATE_STATUS)),
+        j!("service_id" => s(SERVICE_ID)),
+        j!("requested_capability" => s(HELLO_ROLLBACK_APPLY_CAPABILITY)),
+        j!("gate_hash" => sha(hello_rollback_payload_envelope_gate_hash(
+                snapshot, probation,
+            )),
+        ),
+        j!("rollback_append_intent_gate_hash" => sha(hello_rollback_append_intent_gate_hash(snapshot, probation)),
+        ),
+        j!("rollback_write_authority_gate_hash" => sha(hello_rollback_write_authority_gate_hash(
+                snapshot, probation,
+            )),
+        ),
+        j!("rollback_transaction_preflight_hash" => sha(hello_rollback_transaction_preflight_hash(
+                snapshot, probation,
+            )),
+        ),
+        j!("rollback_apply_hash" => sha(hello_rollback_apply_denial_hash(snapshot, probation)),
+        ),
+        j!("rollback_preview_hash" => sha(hello_rollback_preview_hash(snapshot, probation)),
+        ),
+        j!("source_probation_hash" => sha(probation.probation_hash)),
+        j!("current_state_hash" => sha(hello_state_hash(snapshot.state_counter)),
+        ),
+        j!("current_state_counter" => u(snapshot.state_counter)),
+        j!("rollback_target_descriptor_source_hash" => sha(probation.previous_descriptor_source_hash),
+        ),
+        j!("rollback_target_artifact_identity_hash" => sha(probation.previous_artifact_identity_hash),
+        ),
+        j!("current_candidate_descriptor_source_hash" => sha(probation.new_descriptor_source_hash),
+        ),
+        j!("current_candidate_artifact_identity_hash" => sha(probation.new_artifact_identity_hash),
+        ),
+        j!("state_migration_hash" => sha(probation.state_migration_hash)),
+        j!("proposed_transaction" => inline(vec![
+                j!("schema" => s(HELLO_ROLLBACK_TRANSACTION_PAYLOAD_SCHEMA)),
+                j!("id" => s(HELLO_ROLLBACK_TRANSACTION_PAYLOAD_ID)),
+                j!("scope" => s("current_boot")),
+                j!("classification" => s("local_only")),
+                j!("persistence" => s("none")),
+                j!("status" => s(HELLO_ROLLBACK_TRANSACTION_PAYLOAD_STATUS)),
+                j!("payload_hash" => sha(hello_rollback_transaction_payload_hash(snapshot, probation)),
+                ),
+                j!("provenance_hash" => sha(hello_rollback_transaction_payload_provenance_hash(
+                        snapshot, probation,
+                    )),
+                ),
+                j!("appended_to_rollback_log" => b(false)),
+            ]),
+        ),
+        j!("required_schemas" => inline(vec![
+                j!("audit_record" => s("raios.audit_record.v0")),
+                j!("rollback_transaction" => s("raios.rollback_transaction.v0")),
+            ]),
+        ),
+        j!("unavailable_authorities" => inline(vec![
+                j!("transaction_writer" => b(true)),
+                j!("rollback_transaction_append" => b(true)),
+                j!("durable_audit_store" => b(true)),
+                j!("rollback_store" => b(true)),
+            ]),
+        ),
+        j!("side_effects" => inline(vec![
+                j!("writes_durable_audit_log" => b(false)),
+                j!("writes_rollback_store" => b(false)),
+                j!("appends_rollback_transaction" => b(false)),
+                j!("installs_rollback_plan" => b(false)),
+                j!("applies_rollback" => b(false)),
+            ]),
+        ),
+    ])
 }
 
 pub(crate) fn emit_audit_rollback_target_region_discovery_inline(
     discovery: rollback_storage_layout::AuditRollbackTargetRegionDiscovery,
 ) {
-    raw("{\"schema\": ");
-    json_str(discovery.schema);
-    raw(", \"id\": ");
-    json_str(discovery.id);
-    raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-    json_str(discovery.status);
-    raw(", \"reason\": ");
-    json_str(discovery.reason);
-    raw(", \"source\": ");
-    json_str(discovery.source);
-    raw(", \"storage_authority_id\": ");
-    json_str(discovery.storage_authority_id);
-    raw(", \"partition_inventory_available\": ");
-    raw_bool(discovery.partition_inventory_available);
-    raw(", \"partition_inventory_scheme\": ");
-    json_str(discovery.partition_inventory_scheme);
-    raw(", \"partition_inventory_source_lba\": ");
-    raw_fmt(format_args!("{}", discovery.partition_inventory_source_lba));
-    raw(", \"partition_entry_count\": ");
-    raw_fmt(format_args!("{}", discovery.partition_entry_count));
-    raw(", \"mbr_signature_valid\": ");
-    raw_bool(discovery.mbr_signature_valid);
-    raw(", \"boot_metadata_lba\": ");
-    raw_fmt(format_args!("{}", discovery.boot_metadata_lba));
-    raw(", \"candidate_region_present\": ");
-    raw_bool(discovery.candidate_region_present);
-    raw(", \"candidate_region_start_lba\": ");
-    raw_fmt(format_args!("{}", discovery.candidate_region_start_lba));
-    raw(", \"candidate_region_lba_count\": ");
-    raw_fmt(format_args!("{}", discovery.candidate_region_lba_count));
-    raw(", \"candidate_region_is_scratch\": ");
-    raw_bool(discovery.candidate_region_is_scratch);
-    raw(", \"candidate_overlaps_boot_metadata\": ");
-    raw_bool(discovery.candidate_overlaps_boot_metadata);
-    raw(", \"candidate_overlaps_scratch\": ");
-    raw_bool(discovery.candidate_overlaps_scratch);
-    raw(", \"scratch_region_id\": ");
-    json_str(discovery.scratch_region_id);
-    raw(", \"scratch_region_available\": ");
-    raw_bool(discovery.scratch_region_available);
-    raw(", \"scratch_region_start_lba\": ");
-    raw_fmt(format_args!("{}", discovery.scratch_region_start_lba));
-    raw(", \"scratch_region_lba_count\": ");
-    raw_fmt(format_args!("{}", discovery.scratch_region_lba_count));
-    raw(", \"scratch_rejected_as_durable_authority\": ");
-    raw_bool(discovery.scratch_rejected_as_durable_authority);
-    raw(", \"durable_region_available\": ");
-    raw_bool(discovery.durable_region_available);
-    raw(", \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"write_attempted\": false}");
+    emit_inline_value(audit_rollback_target_region_discovery_value(discovery));
+}
+
+fn audit_rollback_target_region_discovery_value(
+    discovery: rollback_storage_layout::AuditRollbackTargetRegionDiscovery,
+) -> V<'static> {
+    inline(vec![
+        j!("schema" => s(discovery.schema)),
+        j!("id" => s(discovery.id)),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("persistence" => s("none")),
+        j!("status" => s(discovery.status)),
+        j!("reason" => s(discovery.reason)),
+        j!("source" => s(discovery.source)),
+        j!("storage_authority_id" => s(discovery.storage_authority_id)),
+        j!("partition_inventory_available" => b(discovery.partition_inventory_available),
+        ),
+        j!("partition_inventory_scheme" => s(discovery.partition_inventory_scheme),
+        ),
+        j!("partition_inventory_source_lba" => u(discovery.partition_inventory_source_lba),
+        ),
+        j!("partition_entry_count" => u(discovery.partition_entry_count.into())),
+        j!("mbr_signature_valid" => b(discovery.mbr_signature_valid)),
+        j!("boot_metadata_lba" => u(discovery.boot_metadata_lba)),
+        j!("candidate_region_present" => b(discovery.candidate_region_present),
+        ),
+        j!("candidate_region_start_lba" => u(discovery.candidate_region_start_lba),
+        ),
+        j!("candidate_region_lba_count" => u(discovery.candidate_region_lba_count),
+        ),
+        j!("candidate_region_is_scratch" => b(discovery.candidate_region_is_scratch),
+        ),
+        j!("candidate_overlaps_boot_metadata" => b(discovery.candidate_overlaps_boot_metadata),
+        ),
+        j!("candidate_overlaps_scratch" => b(discovery.candidate_overlaps_scratch),
+        ),
+        j!("scratch_region_id" => s(discovery.scratch_region_id)),
+        j!("scratch_region_available" => b(discovery.scratch_region_available),
+        ),
+        j!("scratch_region_start_lba" => u(discovery.scratch_region_start_lba),
+        ),
+        j!("scratch_region_lba_count" => u(discovery.scratch_region_lba_count),
+        ),
+        j!("scratch_rejected_as_durable_authority" => b(discovery.scratch_rejected_as_durable_authority),
+        ),
+        j!("durable_region_available" => b(discovery.durable_region_available),
+        ),
+        j!("authorizes_append" => b(false)),
+        j!("writes_durable_audit_log" => b(false)),
+        j!("writes_rollback_store" => b(false)),
+        j!("write_attempted" => b(false)),
+    ])
 }
 
 pub(crate) fn emit_rollback_transaction_writer_storage_authority_gate(
@@ -2855,169 +2963,317 @@ pub(crate) fn materialized_target_region_sector_available(
 pub(crate) fn emit_target_region_write_readback_inline(
     target_region_write: RollbackTargetRegionWriteReadbackDryRun,
 ) {
-    raw("{\"schema\": ");
-    json_str(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_SCHEMA);
-    raw(", \"id\": ");
-    json_str(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_ID);
-    raw(", \"status\": ");
-    json_str(target_region_write.status);
-    raw(", \"reason\": ");
-    json_str(target_region_write.reason);
-    raw(", \"dry_run_hash\": ");
-    json_sha256(target_region_write.dry_run_hash);
-    raw(", \"source_sector_plan_hash\": ");
-    json_sha256(target_region_write.source_sector_plan_hash);
-    raw(", \"source_policy_preflight_hash\": ");
-    json_sha256(target_region_write.source_policy_preflight_hash);
-    raw(", \"planned_sector_image_hash\": ");
-    json_sha256(target_region_write.planned_sector_image_hash);
-    raw(", \"readback_sector_image_hash\": ");
-    json_sha256(target_region_write.readback_sector_image_hash);
-    raw(", \"target_region_id\": ");
-    json_str(ahci::AUDIT_ROLLBACK_TARGET_REGION_ID);
-    raw(", \"target_start_lba\": ");
-    raw_fmt(format_args!("{}", target_region_write.target_start_lba));
-    raw(", \"target_lba_count\": ");
-    raw_fmt(format_args!("{}", target_region_write.target_lba_count));
-    raw(", \"target_byte_count\": ");
-    raw_fmt(format_args!("{}", target_region_write.target_byte_count));
-    raw(", \"label_found\": ");
-    raw_bool(target_region_write.label_found);
-    raw(", \"target_range_ready\": ");
-    raw_bool(target_region_write.target_range_ready);
-    raw(", \"test_infrastructure_media_write_authority_available\": ");
-    raw_bool(target_region_write.test_infrastructure_media_write_authority_available);
-    raw(", \"write_attempted\": ");
-    raw_bool(target_region_write.write_attempted);
-    raw(", \"write_completed\": ");
-    raw_bool(target_region_write.write_completed);
-    raw(", \"readback_completed\": ");
-    raw_bool(target_region_write.readback_completed);
-    raw(", \"readback_matches_planned_image\": ");
-    raw_bool(target_region_write.readback_matches_planned_image);
-    raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"installs_rollback_state\": false, \"applies_rollback\": false}");
+    emit_inline_value(target_region_write_readback_value(target_region_write));
+}
+
+fn target_region_write_readback_value(
+    target_region_write: RollbackTargetRegionWriteReadbackDryRun,
+) -> V<'static> {
+    inline(vec![
+        j!("schema" => s(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_SCHEMA),
+        ),
+        j!("id" => s(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_ID),
+        ),
+        j!("status" => s(target_region_write.status)),
+        j!("reason" => s(target_region_write.reason)),
+        j!("dry_run_hash" => sha(target_region_write.dry_run_hash)),
+        j!("source_sector_plan_hash" => sha(target_region_write.source_sector_plan_hash),
+        ),
+        j!("source_policy_preflight_hash" => sha(target_region_write.source_policy_preflight_hash),
+        ),
+        j!("planned_sector_image_hash" => sha(target_region_write.planned_sector_image_hash),
+        ),
+        j!("readback_sector_image_hash" => sha(target_region_write.readback_sector_image_hash),
+        ),
+        j!("target_region_id" => s(ahci::AUDIT_ROLLBACK_TARGET_REGION_ID)),
+        j!("target_start_lba" => u(target_region_write.target_start_lba)),
+        j!("target_lba_count" => u(target_region_write.target_lba_count)),
+        j!("target_byte_count" => u(target_region_write.target_byte_count),
+        ),
+        j!("label_found" => b(target_region_write.label_found)),
+        j!("target_range_ready" => b(target_region_write.target_range_ready),
+        ),
+        j!("test_infrastructure_media_write_authority_available" => b(target_region_write.test_infrastructure_media_write_authority_available),
+        ),
+        j!("write_attempted" => b(target_region_write.write_attempted)),
+        j!("write_completed" => b(target_region_write.write_completed)),
+        j!("readback_completed" => b(target_region_write.readback_completed),
+        ),
+        j!("readback_matches_planned_image" => b(target_region_write.readback_matches_planned_image),
+        ),
+        j!("authorizes_media_write" => b(false)),
+        j!("authorizes_append" => b(false)),
+        j!("writes_durable_audit_log" => b(false)),
+        j!("writes_rollback_store" => b(false)),
+        j!("appends_rollback_transaction" => b(false)),
+        j!("installs_rollback_state" => b(false)),
+        j!("applies_rollback" => b(false)),
+    ])
 }
 
 pub(crate) fn emit_target_region_sector_inspection_inline(
     inspection: RollbackTargetRegionSectorInspection,
 ) {
-    raw("{\"schema\": ");
-    json_str(HELLO_ROLLBACK_TARGET_REGION_SECTOR_INSPECTION_SCHEMA);
-    raw(", \"id\": ");
-    json_str(HELLO_ROLLBACK_TARGET_REGION_SECTOR_INSPECTION_ID);
-    raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-    json_str(inspection.status);
-    raw(", \"reason\": ");
-    json_str(inspection.reason);
-    raw(", \"inspection_hash\": ");
-    json_sha256(inspection.inspection_hash);
-    raw(", \"source_sector_plan_hash\": ");
-    json_sha256(inspection.source_sector_plan_hash);
-    raw(", \"source_target_region_write_readback_hash\": ");
-    json_sha256(inspection.source_target_region_write_readback_hash);
-    raw(", \"expected_sector_image_hash\": ");
-    json_sha256(inspection.expected_sector_image_hash);
-    raw(", \"sector_image_hash\": ");
-    json_sha256(inspection.sector_image_hash);
-    raw(", \"audit_record_schema\": ");
-    json_str(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
-    raw(", \"audit_record_image_hash\": ");
-    json_sha256(inspection.audit_record_image_hash);
-    raw(", \"rollback_transaction_schema\": ");
-    json_str(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
-    raw(", \"rollback_transaction_image_hash\": ");
-    json_sha256(inspection.rollback_transaction_image_hash);
-    raw(", \"target_start_lba\": ");
-    raw_fmt(format_args!("{}", inspection.target_start_lba));
-    raw(", \"target_lba_count\": ");
-    raw_fmt(format_args!("{}", inspection.target_lba_count));
-    raw(", \"target_byte_count\": ");
-    raw_fmt(format_args!("{}", inspection.target_byte_count));
-    raw(", \"audit_record_offset\": ");
-    raw_fmt(format_args!("{}", inspection.audit_record_offset));
-    raw(", \"audit_record_byte_length\": ");
-    raw_fmt(format_args!("{}", inspection.audit_record_byte_length));
-    raw(", \"rollback_transaction_offset\": ");
-    raw_fmt(format_args!("{}", inspection.rollback_transaction_offset));
-    raw(", \"rollback_transaction_byte_length\": ");
-    raw_fmt(format_args!(
-        "{}",
-        inspection.rollback_transaction_byte_length
-    ));
-    raw(", \"padding_offset\": ");
-    raw_fmt(format_args!("{}", inspection.padding_offset));
-    raw(", \"padding_byte_length\": ");
-    raw_fmt(format_args!("{}", inspection.padding_byte_length));
-    raw(", \"label_found\": ");
-    raw_bool(inspection.label_found);
-    raw(", \"read_attempted\": ");
-    raw_bool(inspection.read_attempted);
-    raw(", \"read_completed\": ");
-    raw_bool(inspection.read_completed);
-    raw(", \"sector_hash_verified\": ");
-    raw_bool(inspection.sector_hash_verified);
-    raw(", \"audit_record_hash_verified\": ");
-    raw_bool(inspection.audit_record_hash_verified);
-    raw(", \"rollback_transaction_hash_verified\": ");
-    raw_bool(inspection.rollback_transaction_hash_verified);
-    raw(", \"offsets_verified\": ");
-    raw_bool(inspection.offsets_verified);
-    raw(", \"padding_zeroed\": ");
-    raw_bool(inspection.padding_zeroed);
-    raw(", \"target_span_verified\": ");
-    raw_bool(inspection.target_span_verified);
-    raw(", \"target_region_write_readback_verified\": ");
-    raw_bool(inspection.target_region_write_readback_verified);
-    raw(", \"inspection_verified\": ");
-    raw_bool(inspection.inspection_verified);
-    raw(", \"authorizes_media_write\": false, \"authorizes_append\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"appends_rollback_transaction\": false, \"installs_rollback_state\": false, \"applies_rollback\": false}");
+    emit_inline_value(target_region_sector_inspection_value(inspection));
+}
+
+fn target_region_sector_inspection_value(
+    inspection: RollbackTargetRegionSectorInspection,
+) -> V<'static> {
+    inline(vec![
+        j!("schema" => s(HELLO_ROLLBACK_TARGET_REGION_SECTOR_INSPECTION_SCHEMA),
+        ),
+        j!("id" => s(HELLO_ROLLBACK_TARGET_REGION_SECTOR_INSPECTION_ID)),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("persistence" => s("none")),
+        j!("status" => s(inspection.status)),
+        j!("reason" => s(inspection.reason)),
+        j!("inspection_hash" => sha(inspection.inspection_hash)),
+        j!("source_sector_plan_hash" => sha(inspection.source_sector_plan_hash),
+        ),
+        j!("source_target_region_write_readback_hash" => sha(inspection.source_target_region_write_readback_hash),
+        ),
+        j!("expected_sector_image_hash" => sha(inspection.expected_sector_image_hash),
+        ),
+        j!("sector_image_hash" => sha(inspection.sector_image_hash)),
+        j!("audit_record_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA),
+        ),
+        j!("audit_record_image_hash" => sha(inspection.audit_record_image_hash),
+        ),
+        j!("rollback_transaction_schema" => s(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA),
+        ),
+        j!("rollback_transaction_image_hash" => sha(inspection.rollback_transaction_image_hash),
+        ),
+        j!("target_start_lba" => u(inspection.target_start_lba)),
+        j!("target_lba_count" => u(inspection.target_lba_count)),
+        j!("target_byte_count" => u(inspection.target_byte_count)),
+        j!("audit_record_offset" => u(inspection.audit_record_offset)),
+        j!("audit_record_byte_length" => u(inspection.audit_record_byte_length),
+        ),
+        j!("rollback_transaction_offset" => u(inspection.rollback_transaction_offset),
+        ),
+        j!("rollback_transaction_byte_length" => u(inspection.rollback_transaction_byte_length),
+        ),
+        j!("padding_offset" => u(inspection.padding_offset)),
+        j!("padding_byte_length" => u(inspection.padding_byte_length)),
+        j!("label_found" => b(inspection.label_found)),
+        j!("read_attempted" => b(inspection.read_attempted)),
+        j!("read_completed" => b(inspection.read_completed)),
+        j!("sector_hash_verified" => b(inspection.sector_hash_verified)),
+        j!("audit_record_hash_verified" => b(inspection.audit_record_hash_verified),
+        ),
+        j!("rollback_transaction_hash_verified" => b(inspection.rollback_transaction_hash_verified),
+        ),
+        j!("offsets_verified" => b(inspection.offsets_verified)),
+        j!("padding_zeroed" => b(inspection.padding_zeroed)),
+        j!("target_span_verified" => b(inspection.target_span_verified)),
+        j!("target_region_write_readback_verified" => b(inspection.target_region_write_readback_verified),
+        ),
+        j!("inspection_verified" => b(inspection.inspection_verified)),
+        j!("authorizes_media_write" => b(false)),
+        j!("authorizes_append" => b(false)),
+        j!("writes_durable_audit_log" => b(false)),
+        j!("writes_rollback_store" => b(false)),
+        j!("appends_rollback_transaction" => b(false)),
+        j!("installs_rollback_state" => b(false)),
+        j!("applies_rollback" => b(false)),
+    ])
 }
 
 pub(crate) fn emit_recovery_rollback_inspect_source_reference_inline(
     inspection: RollbackTargetRegionSectorInspection,
 ) {
+    emit_inline_value(recovery_rollback_inspect_source_reference_value(inspection));
+}
+
+fn recovery_rollback_inspect_source_reference_value(
+    inspection: RollbackTargetRegionSectorInspection,
+) -> V<'static> {
     let state = recovery_rollback_inspect_source_reference_state(inspection);
     let reference = state.reference;
     let source_matches_sector_inspection = state.ram_audit_validated;
-    raw("{\"schema\": ");
-    json_str(HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SCHEMA);
-    raw(", \"id\": ");
-    json_str(HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_ID);
-    raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\", \"status\": ");
-    json_str(state.status);
-    raw(", \"reason\": ");
-    json_str(state.reason);
-    raw(", \"source_method\": \"recovery.rollback_inspect\", \"source_event_id\": ");
-    json_event_id_option(reference.map(|reference| reference.event_id));
-    raw(", \"source_audit_event_id\": ");
-    json_event_id_option(reference.map(|reference| reference.audit_event_id));
-    raw(", \"source_available\": ");
-    raw_bool(source_matches_sector_inspection);
-    raw(", \"source_matches_sector_inspection\": ");
-    raw_bool(source_matches_sector_inspection);
-    raw(", \"source_event_retained\": ");
-    raw_bool(state.source_event_retained);
-    raw(", \"source_audit_event_retained\": ");
-    raw_bool(state.audit_event_retained);
-    raw(", \"ram_audit_status\": ");
-    json_str(state.ram_audit_status);
-    raw(", \"ram_audit_reason\": ");
-    json_str(state.ram_audit_reason);
-    raw(", \"ram_audit_validated\": ");
-    raw_bool(state.ram_audit_validated);
-    raw(", \"reference_hash\": ");
-    json_sha256_option(reference.map(|reference| reference.reference_hash));
-    raw(", \"source_inspection_hash\": ");
-    json_sha256_option(reference.map(|reference| reference.inspection_hash));
-    raw(", \"target_region_sector_inspection_hash\": ");
-    json_sha256(inspection.inspection_hash);
-    raw(", \"source_sector_plan_hash\": ");
-    json_sha256_option(reference.map(|reference| reference.source_sector_plan_hash));
-    raw(", \"source_target_region_write_readback_hash\": ");
-    json_sha256_option(
-        reference.map(|reference| reference.source_target_region_write_readback_hash),
-    );
-    raw(", \"authorizes_rollback_apply\": false}");
+    inline(vec![
+        j!("schema" => s(HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SCHEMA),
+        ),
+        j!("id" => s(HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_ID)),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("persistence" => s("none")),
+        j!("status" => s(state.status)),
+        j!("reason" => s(state.reason)),
+        j!("source_method" => s("recovery.rollback_inspect")),
+        j!("source_event_id" => event_opt(reference.map(|reference| reference.event_id)),
+        ),
+        j!("source_audit_event_id" => event_opt(reference.map(|reference| reference.audit_event_id)),
+        ),
+        j!("source_available" => b(source_matches_sector_inspection)),
+        j!("source_matches_sector_inspection" => b(source_matches_sector_inspection),
+        ),
+        j!("source_event_retained" => b(state.source_event_retained)),
+        j!("source_audit_event_retained" => b(state.audit_event_retained)),
+        j!("ram_audit_status" => s(state.ram_audit_status)),
+        j!("ram_audit_reason" => s(state.ram_audit_reason)),
+        j!("ram_audit_validated" => b(state.ram_audit_validated)),
+        j!("reference_hash" => sha_opt(reference.map(|reference| reference.reference_hash)),
+        ),
+        j!("source_inspection_hash" => sha_opt(reference.map(|reference| reference.inspection_hash)),
+        ),
+        j!("target_region_sector_inspection_hash" => sha(inspection.inspection_hash),
+        ),
+        j!("source_sector_plan_hash" => sha_opt(reference.map(|reference| reference.source_sector_plan_hash)),
+        ),
+        j!("source_target_region_write_readback_hash" => sha_opt(reference.map(|reference| reference.source_target_region_write_readback_hash)),
+        ),
+        j!("authorizes_rollback_apply" => b(false)),
+    ])
+}
+
+fn append_record_dry_run_summary_value(record: Option<RollbackAppendRecordDryRun>) -> V<'static> {
+    let Some(record) = record else {
+        return V::Null;
+    };
+    inline(vec![
+        j!("schema" => s(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_SCHEMA)),
+        j!("id" => s(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_ID)),
+        j!("dry_run_hash" => sha(record.dry_run_hash)),
+        j!("audit_record_image_hash" => sha(record.audit_record_image_hash),
+        ),
+        j!("rollback_transaction_image_hash" => sha(record.rollback_transaction_image_hash),
+        ),
+        j!("audit_record_byte_length" => u(record.audit_record_byte_length),
+        ),
+        j!("rollback_transaction_byte_length" => u(record.rollback_transaction_byte_length),
+        ),
+        j!("total_record_byte_length" => u(record.total_record_byte_length),
+        ),
+        j!("target_start_lba" => u(record.target_start_lba)),
+        j!("target_lba_count" => u(record.target_lba_count)),
+        j!("target_byte_count" => u(record.target_byte_count)),
+        j!("target_range_ready" => b(record.target_range_ready)),
+    ])
+}
+
+fn sector_plan_dry_run_summary_value(record: Option<RollbackAppendSectorPlanDryRun>) -> V<'static> {
+    let Some(record) = record else {
+        return V::Null;
+    };
+    inline(vec![
+        j!("schema" => s(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_SCHEMA),
+        ),
+        j!("id" => s(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_ID)),
+        j!("plan_hash" => sha(record.plan_hash)),
+        j!("sector_image_hash" => sha(record.sector_image_hash)),
+        j!("sector_size_bytes" => u(record.sector_size_bytes)),
+        j!("audit_record_offset" => u(record.audit_record_offset)),
+        j!("audit_record_byte_length" => u(record.audit_record_byte_length),
+        ),
+        j!("rollback_transaction_offset" => u(record.rollback_transaction_offset),
+        ),
+        j!("rollback_transaction_byte_length" => u(record.rollback_transaction_byte_length),
+        ),
+        j!("padding_offset" => u(record.padding_offset)),
+        j!("padding_byte_length" => u(record.padding_byte_length)),
+        j!("target_start_lba" => u(record.target_start_lba)),
+        j!("target_lba_count" => u(record.target_lba_count)),
+        j!("target_byte_count" => u(record.target_byte_count)),
+        j!("target_range_ready" => b(record.target_range_ready)),
+    ])
+}
+
+fn recovery_materialize_denied_surfaces_value() -> V<'static> {
+    object(vec![
+        j!("mutates_service_state" => b(false)),
+        j!("descriptor_mutation" => s("not_attempted")),
+        j!("generation_mutation" => s("not_attempted")),
+        j!("running_state_mutation" => s("not_attempted")),
+        j!("ram_only_state_mutation" => s("not_attempted")),
+        j!("authorizes_media_write" => b(false)),
+        j!("authorizes_append" => b(false)),
+        j!("authorizes_transaction_append" => b(false)),
+        j!("writes_durable_audit_log" => b(false)),
+        j!("writes_rollback_store" => b(false)),
+        j!("appends_rollback_transaction" => b(false)),
+        j!("applies_rollback" => b(false)),
+        j!("installs_rollback_state" => b(false)),
+        j!("persistence" => s("denied")),
+        j!("external_artifact_load" => s("denied")),
+        j!("candidate_artifact_execution" => s("denied")),
+        j!("executable_mapping" => s("denied")),
+        j!("provider_auto_load" => s("denied")),
+        j!("broad_mutation" => s("denied")),
+    ])
+}
+
+fn recovery_inspect_denied_surfaces_value() -> V<'static> {
+    object(vec![
+        j!("authorizes_media_write" => b(false)),
+        j!("authorizes_append" => b(false)),
+        j!("authorizes_transaction_append" => b(false)),
+        j!("writes_durable_audit_log" => b(false)),
+        j!("writes_rollback_store" => b(false)),
+        j!("appends_rollback_transaction" => b(false)),
+        j!("applies_rollback" => b(false)),
+        j!("installs_rollback_state" => b(false)),
+        j!("persistence" => s("denied")),
+        j!("external_artifact_load" => s("denied")),
+        j!("candidate_artifact_execution" => s("denied")),
+        j!("executable_mapping" => s("denied")),
+        j!("provider_auto_load" => s("denied")),
+        j!("broad_mutation" => s("denied")),
+    ])
+}
+
+fn probation_target_value(record: Option<HelloHotSwapProbationRecord>) -> V<'static> {
+    let Some(record) = record else {
+        return V::Null;
+    };
+    inline(vec![
+        j!("version" => s(record.previous_version)),
+        j!("descriptor_id" => s(record.previous_descriptor_id)),
+        j!("descriptor_source_hash" => sha(record.previous_descriptor_source_hash),
+        ),
+        j!("artifact_identity_id" => s(record.previous_artifact_identity_id),
+        ),
+        j!("artifact_identity_hash" => sha(record.previous_artifact_identity_hash),
+        ),
+        j!("generation" => u(record.previous_generation)),
+        j!("state_hash" => sha(record.previous_state_hash)),
+        j!("state_counter" => u(record.previous_state_counter)),
+    ])
+}
+
+fn probation_candidate_value(record: Option<HelloHotSwapProbationRecord>) -> V<'static> {
+    let Some(record) = record else {
+        return V::Null;
+    };
+    inline(vec![
+        j!("version" => s(record.new_version)),
+        j!("descriptor_id" => s(record.new_descriptor_id)),
+        j!("descriptor_source_hash" => sha(record.new_descriptor_source_hash),
+        ),
+        j!("artifact_identity_id" => s(record.new_artifact_identity_id)),
+        j!("artifact_identity_hash" => sha(record.new_artifact_identity_hash),
+        ),
+        j!("generation" => u(record.new_generation)),
+        j!("state_hash" => sha(record.new_state_hash)),
+        j!("state_counter" => u(record.new_state_counter)),
+    ])
+}
+
+fn rollback_preview_denied_surfaces_value() -> V<'static> {
+    object(vec![
+        j!("mutates_service_state" => b(false)),
+        j!("applies_rollback" => b(false)),
+        j!("installs_rollback_plan" => b(false)),
+        j!("persistent_install" => s("denied")),
+        j!("durable_audit_write" => s("denied")),
+        j!("external_artifact_load" => s("denied")),
+        j!("candidate_artifact_execution" => s("denied")),
+        j!("executable_mapping" => s("denied")),
+        j!("provider_auto_load" => s("denied")),
+        j!("broad_mutation" => s("denied")),
+    ])
 }
 
 pub(crate) fn emit_recovery_rollback_materialize_dry_run_response(
@@ -3051,146 +3307,45 @@ pub(crate) fn emit_recovery_rollback_materialize_dry_run_response(
     };
 
     begin_response(method);
-    raw("      \"schema\": ");
-    json_str(HELLO_RECOVERY_ROLLBACK_MATERIALIZE_DRY_RUN_SCHEMA);
-    raw_line(",");
-    raw("      \"id\": ");
-    json_str(HELLO_RECOVERY_ROLLBACK_MATERIALIZE_DRY_RUN_ID);
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw_line("      \"read_only\": false,");
-    raw_line("      \"test_infrastructure\": true,");
-    raw("      \"event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("      \"audit_event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("      \"status\": ");
-    json_str(status);
-    raw_line(",");
-    raw("      \"reason\": ");
-    json_str(reason);
-    raw_line(",");
-    raw("      \"service_id\": ");
-    json_str(SERVICE_ID);
-    raw_line(",");
-    raw("      \"requested_capability\": ");
-    json_str("cap.recovery.rollback_materialize_dry_run.current_boot");
-    raw_line(",");
-    raw("      \"active_generation\": ");
-    raw_fmt(format_args!("{}", snapshot.generation));
-    raw_line(",");
-    raw("      \"source_probation\": ");
-    emit_hello_hot_swap_probation_option(snapshot.hot_swap_probation);
-    raw_line(",");
-    raw("      \"append_record_dry_run\": ");
-    if let Some((append_record, _, _)) = evidence {
-        raw("{\"schema\": ");
-        json_str(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_ID);
-        raw(", \"dry_run_hash\": ");
-        json_sha256(append_record.dry_run_hash);
-        raw(", \"audit_record_image_hash\": ");
-        json_sha256(append_record.audit_record_image_hash);
-        raw(", \"rollback_transaction_image_hash\": ");
-        json_sha256(append_record.rollback_transaction_image_hash);
-        raw(", \"audit_record_byte_length\": ");
-        raw_fmt(format_args!("{}", append_record.audit_record_byte_length));
-        raw(", \"rollback_transaction_byte_length\": ");
-        raw_fmt(format_args!(
-            "{}",
-            append_record.rollback_transaction_byte_length
-        ));
-        raw(", \"total_record_byte_length\": ");
-        raw_fmt(format_args!("{}", append_record.total_record_byte_length));
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!("{}", append_record.target_start_lba));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!("{}", append_record.target_lba_count));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!("{}", append_record.target_byte_count));
-        raw(", \"target_range_ready\": ");
-        raw_bool(append_record.target_range_ready);
-        raw("}");
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("      \"sector_plan_dry_run\": ");
-    if let Some((_, sector_plan, _)) = evidence {
-        raw("{\"schema\": ");
-        json_str(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_ID);
-        raw(", \"plan_hash\": ");
-        json_sha256(sector_plan.plan_hash);
-        raw(", \"sector_image_hash\": ");
-        json_sha256(sector_plan.sector_image_hash);
-        raw(", \"sector_size_bytes\": ");
-        raw_fmt(format_args!("{}", sector_plan.sector_size_bytes));
-        raw(", \"audit_record_offset\": ");
-        raw_fmt(format_args!("{}", sector_plan.audit_record_offset));
-        raw(", \"audit_record_byte_length\": ");
-        raw_fmt(format_args!("{}", sector_plan.audit_record_byte_length));
-        raw(", \"rollback_transaction_offset\": ");
-        raw_fmt(format_args!("{}", sector_plan.rollback_transaction_offset));
-        raw(", \"rollback_transaction_byte_length\": ");
-        raw_fmt(format_args!(
-            "{}",
-            sector_plan.rollback_transaction_byte_length
-        ));
-        raw(", \"padding_offset\": ");
-        raw_fmt(format_args!("{}", sector_plan.padding_offset));
-        raw(", \"padding_byte_length\": ");
-        raw_fmt(format_args!("{}", sector_plan.padding_byte_length));
-        raw(", \"target_start_lba\": ");
-        raw_fmt(format_args!("{}", sector_plan.target_start_lba));
-        raw(", \"target_lba_count\": ");
-        raw_fmt(format_args!("{}", sector_plan.target_lba_count));
-        raw(", \"target_byte_count\": ");
-        raw_fmt(format_args!("{}", sector_plan.target_byte_count));
-        raw(", \"target_range_ready\": ");
-        raw_bool(sector_plan.target_range_ready);
-        raw("}");
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("      \"target_region_write_readback\": ");
-    if let Some((_, _, target_region_write)) = evidence {
-        emit_target_region_write_readback_inline(target_region_write);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("      \"materialized_sector_evidence_available\": ");
-    raw_bool(materialized_sector_evidence_available);
-    raw_line(",");
-    raw_line("      \"denied_surfaces\": {");
-    raw_line("        \"mutates_service_state\": false,");
-    raw_line("        \"descriptor_mutation\": \"not_attempted\",");
-    raw_line("        \"generation_mutation\": \"not_attempted\",");
-    raw_line("        \"running_state_mutation\": \"not_attempted\",");
-    raw_line("        \"ram_only_state_mutation\": \"not_attempted\",");
-    raw_line("        \"authorizes_media_write\": false,");
-    raw_line("        \"authorizes_append\": false,");
-    raw_line("        \"authorizes_transaction_append\": false,");
-    raw_line("        \"writes_durable_audit_log\": false,");
-    raw_line("        \"writes_rollback_store\": false,");
-    raw_line("        \"appends_rollback_transaction\": false,");
-    raw_line("        \"applies_rollback\": false,");
-    raw_line("        \"installs_rollback_state\": false,");
-    raw_line("        \"persistence\": \"denied\",");
-    raw_line("        \"external_artifact_load\": \"denied\",");
-    raw_line("        \"candidate_artifact_execution\": \"denied\",");
-    raw_line("        \"executable_mapping\": \"denied\",");
-    raw_line("        \"provider_auto_load\": \"denied\",");
-    raw_line("        \"broad_mutation\": \"denied\"");
-    raw_line("      }");
+    emit_record_fields(
+        vec![
+            j!("schema" => s(HELLO_RECOVERY_ROLLBACK_MATERIALIZE_DRY_RUN_SCHEMA),
+            ),
+            j!("id" => s(HELLO_RECOVERY_ROLLBACK_MATERIALIZE_DRY_RUN_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("read_only" => b(false)),
+            j!("test_infrastructure" => b(true)),
+            j!("event_id" => event_opt(Some(event_id))),
+            j!("audit_event_id" => event_opt(Some(event_id))),
+            j!("status" => s(status)),
+            j!("reason" => s(reason)),
+            j!("service_id" => s(SERVICE_ID)),
+            j!("requested_capability" => s("cap.recovery.rollback_materialize_dry_run.current_boot"),
+            ),
+            j!("active_generation" => u(snapshot.generation)),
+            j!("source_probation" => hello_hot_swap_probation_value(snapshot.hot_swap_probation),
+            ),
+            j!("append_record_dry_run" => append_record_dry_run_summary_value(
+                    evidence.map(|(append_record, _, _)| append_record),
+                ),
+            ),
+            j!("sector_plan_dry_run" => sector_plan_dry_run_summary_value(evidence.map(|(_, sector_plan, _)| sector_plan)),
+            ),
+            j!("target_region_write_readback" => evidence
+                    .map(|(_, _, target_region_write)| {
+                        target_region_write_readback_value(target_region_write)
+                    })
+                    .unwrap_or(V::Null),
+            ),
+            j!("materialized_sector_evidence_available" => b(materialized_sector_evidence_available),
+            ),
+            j!("denied_surfaces" => recovery_materialize_denied_surfaces_value(),
+            ),
+        ],
+        6,
+    );
     end_response(method);
 }
 
@@ -3235,81 +3390,105 @@ pub(crate) fn emit_recovery_rollback_inspect_response(
     }
 
     begin_response(method);
-    raw("      \"schema\": ");
-    json_str(HELLO_RECOVERY_ROLLBACK_INSPECT_SCHEMA);
-    raw_line(",");
-    raw("      \"id\": ");
-    json_str(HELLO_RECOVERY_ROLLBACK_INSPECT_ID);
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw_line("      \"read_only\": true,");
-    raw("      \"event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("      \"status\": ");
-    json_str(status);
-    raw_line(",");
-    raw("      \"reason\": ");
-    json_str(reason);
-    raw_line(",");
-    raw("      \"service_id\": ");
-    json_str(SERVICE_ID);
-    raw_line(",");
-    raw("      \"requested_capability\": ");
-    json_str("cap.recovery.rollback_inspect.read");
-    raw_line(",");
-    raw("      \"active_generation\": ");
-    raw_fmt(format_args!("{}", snapshot.generation));
-    raw_line(",");
-    raw("      \"source_probation\": ");
-    emit_hello_hot_swap_probation_option(snapshot.hot_swap_probation);
-    raw_line(",");
-    raw("      \"materialized_sector_evidence_available\": ");
-    raw_bool(materialized_sector_evidence_available);
-    raw_line(",");
-    raw("      \"inspection_available\": ");
-    raw_bool(inspection_available);
-    raw_line(",");
-    raw("      \"target_region_write_readback\": ");
-    if let Some((target_region_write, _)) = evidence {
-        emit_target_region_write_readback_inline(target_region_write);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("      \"target_region_sector_inspection\": ");
-    if let Some((_, inspection)) = evidence {
-        emit_target_region_sector_inspection_inline(inspection);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("      \"retained_recovery_rollback_inspect_source\": ");
-    if let Some((_, inspection)) = evidence {
-        emit_recovery_rollback_inspect_source_reference_inline(inspection);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw_line("      \"denied_surfaces\": {");
-    raw_line("        \"authorizes_media_write\": false,");
-    raw_line("        \"authorizes_append\": false,");
-    raw_line("        \"authorizes_transaction_append\": false,");
-    raw_line("        \"writes_durable_audit_log\": false,");
-    raw_line("        \"writes_rollback_store\": false,");
-    raw_line("        \"appends_rollback_transaction\": false,");
-    raw_line("        \"applies_rollback\": false,");
-    raw_line("        \"installs_rollback_state\": false,");
-    raw_line("        \"persistence\": \"denied\",");
-    raw_line("        \"external_artifact_load\": \"denied\",");
-    raw_line("        \"candidate_artifact_execution\": \"denied\",");
-    raw_line("        \"executable_mapping\": \"denied\",");
-    raw_line("        \"provider_auto_load\": \"denied\",");
-    raw_line("        \"broad_mutation\": \"denied\"");
-    raw_line("      }");
+    emit_record_fields(
+        vec![
+            j!("schema" => s(HELLO_RECOVERY_ROLLBACK_INSPECT_SCHEMA)),
+            j!("id" => s(HELLO_RECOVERY_ROLLBACK_INSPECT_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("read_only" => b(true)),
+            j!("event_id" => event_opt(Some(event_id))),
+            j!("status" => s(status)),
+            j!("reason" => s(reason)),
+            j!("service_id" => s(SERVICE_ID)),
+            j!("requested_capability" => s("cap.recovery.rollback_inspect.read"),
+            ),
+            j!("active_generation" => u(snapshot.generation)),
+            j!("source_probation" => hello_hot_swap_probation_value(snapshot.hot_swap_probation),
+            ),
+            j!("materialized_sector_evidence_available" => b(materialized_sector_evidence_available),
+            ),
+            j!("inspection_available" => b(inspection_available)),
+            j!("target_region_write_readback" => evidence
+                    .map(|(target_region_write, _)| {
+                        target_region_write_readback_value(target_region_write)
+                    })
+                    .unwrap_or(V::Null),
+            ),
+            j!("target_region_sector_inspection" => evidence
+                    .map(|(_, inspection)| target_region_sector_inspection_value(inspection))
+                    .unwrap_or(V::Null),
+            ),
+            j!("retained_recovery_rollback_inspect_source" => evidence
+                    .map(|(_, inspection)| {
+                        recovery_rollback_inspect_source_reference_value(inspection)
+                    })
+                    .unwrap_or(V::Null),
+            ),
+            j!("denied_surfaces" => recovery_inspect_denied_surfaces_value()),
+        ],
+        6,
+    );
     end_response(method);
+}
+
+fn rollback_apply_required_preview_value(
+    snapshot: Snapshot,
+    probation: Option<HelloHotSwapProbationRecord>,
+) -> V<'static> {
+    let Some(probation) = probation else {
+        return V::Null;
+    };
+    inline(vec![
+        j!("schema" => s(HELLO_ROLLBACK_PREVIEW_SCHEMA)),
+        j!("id" => s(HELLO_ROLLBACK_PREVIEW_ID)),
+        j!("status" => s(HELLO_ROLLBACK_PREVIEW_STATUS)),
+        j!("preview_hash" => sha(hello_rollback_preview_hash(snapshot, probation)),
+        ),
+    ])
+}
+
+fn rollback_apply_denial_hash_value(
+    snapshot: Snapshot,
+    probation: Option<HelloHotSwapProbationRecord>,
+    retained_sources: Option<(
+        RollbackDurablePolicyWriteAuthorityDecision,
+        RecoveryRollbackInspectSourceReferenceState,
+    )>,
+) -> V<'static> {
+    let Some(probation) = probation else {
+        return V::Null;
+    };
+    let hash = if let Some((decision, source)) = retained_sources {
+        hello_rollback_apply_denial_hash_with_retained_sources(
+            snapshot,
+            probation,
+            Some(decision),
+            Some(source),
+        )
+    } else {
+        hello_rollback_apply_denial_hash(snapshot, probation)
+    };
+    sha(hash)
+}
+
+fn rollback_apply_denied_surfaces_value() -> V<'static> {
+    object(vec![
+        j!("mutates_service_state" => b(false)),
+        j!("applies_rollback" => b(false)),
+        j!("descriptor_mutation" => s("not_attempted")),
+        j!("generation_mutation" => s("not_attempted")),
+        j!("running_state_mutation" => s("not_attempted")),
+        j!("ram_only_state_mutation" => s("not_attempted")),
+        j!("persistent_install" => s("denied")),
+        j!("durable_audit_write" => s("denied")),
+        j!("external_artifact_load" => s("denied")),
+        j!("candidate_artifact_execution" => s("denied")),
+        j!("executable_mapping" => s("denied")),
+        j!("provider_auto_load" => s("denied")),
+        j!("broad_mutation" => s("denied")),
+    ])
 }
 
 pub(crate) fn emit_rollback_apply_denied(
@@ -3320,226 +3499,94 @@ pub(crate) fn emit_rollback_apply_denied(
     let probation = snapshot.hot_swap_probation;
     let retained_denial_sources = probation
         .map(|probation| hello_rollback_apply_retained_denial_sources(snapshot, probation));
-    raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
-    raw_line("{");
-    raw_line("  \"v\": \"raios.agent.v0\",");
-    raw_line("  \"t\": \"error\",");
-    raw_line("  \"id\": \"serial\",");
-    raw_line("  \"body\": {");
-    raw("    \"method\": ");
-    json_str(method);
-    raw_line(",");
-    raw("    \"event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("    \"audit_event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw_line("    \"code\": \"capability_denied\",");
-    raw("    \"schema\": ");
-    json_str(HELLO_ROLLBACK_APPLY_SCHEMA);
-    raw_line(",");
-    raw("    \"id\": ");
-    json_str(HELLO_ROLLBACK_APPLY_ID);
-    raw_line(",");
-    raw_line("    \"scope\": \"current_boot\",");
-    raw_line("    \"classification\": \"local_only\",");
-    raw_line("    \"persistence\": \"none\",");
-    raw("    \"status\": ");
-    json_str(HELLO_ROLLBACK_APPLY_STATUS);
-    raw_line(",");
-    raw("    \"reason\": ");
-    json_str(if probation.is_some() {
-        "rollback_apply_authority_missing"
-    } else if snapshot.loaded {
-        "rollback_preview_or_probation_missing"
-    } else {
-        "service_not_loaded"
-    });
-    raw_line(",");
-    raw("    \"message\": ");
-    json_str("hello rollback apply is denied until rollback apply authority, durable audit, and rollback transaction evidence exist");
-    raw_line(",");
-    raw("    \"service_id\": ");
-    json_str(SERVICE_ID);
-    raw_line(",");
-    raw("    \"active_generation\": ");
-    raw_fmt(format_args!("{}", snapshot.generation));
-    raw_line(",");
-    raw("    \"active_descriptor_id\": ");
-    json_str(snapshot.load_descriptor.id);
-    raw_line(",");
-    raw("    \"current_state\": ");
-    emit_hello_state(snapshot);
-    raw_line(",");
-    raw("    \"source_probation\": ");
-    emit_hello_hot_swap_probation_option(probation);
-    raw_line(",");
-    raw("    \"required_preview\": ");
-    if let Some(probation) = probation {
-        raw("{\"schema\": ");
-        json_str(HELLO_ROLLBACK_PREVIEW_SCHEMA);
-        raw(", \"id\": ");
-        json_str(HELLO_ROLLBACK_PREVIEW_ID);
-        raw(", \"status\": ");
-        json_str(HELLO_ROLLBACK_PREVIEW_STATUS);
-        raw(", \"preview_hash\": ");
-        json_sha256(hello_rollback_preview_hash(snapshot, probation));
-        raw("}");
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("    \"rollback_apply_hash\": ");
-    if let Some(probation) = probation {
-        if let Some((durable_policy_write_authority_decision, recovery_inspect_source_state)) =
-            retained_denial_sources
-        {
-            json_sha256(hello_rollback_apply_denial_hash_with_retained_sources(
-                snapshot,
-                probation,
-                Some(durable_policy_write_authority_decision),
-                Some(recovery_inspect_source_state),
-            ));
-        } else {
-            json_sha256(hello_rollback_apply_denial_hash(snapshot, probation));
-        }
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("    \"source_durable_policy_write_authority_decision_hash\": ");
-    if let Some((durable_policy_write_authority_decision, _)) = retained_denial_sources {
-        json_sha256(durable_policy_write_authority_decision.decision_hash);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("    \"source_recovery_rollback_inspect_source_reference_hash\": ");
-    if let Some((_, recovery_inspect_source_state)) = retained_denial_sources {
-        json_sha256_option(
-            recovery_inspect_source_state
-                .reference
-                .map(|reference| reference.reference_hash),
-        );
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("    \"retained_durable_policy_write_authority_decision_verified\": ");
-    if let Some((durable_policy_write_authority_decision, _)) = retained_denial_sources {
-        raw_bool(
-            durable_policy_write_authority_decision.transaction_append_dry_run_verified
-                && durable_policy_write_authority_decision.target_region_sector_inspection_verified
-                && durable_policy_write_authority_decision.write_authority_evidence_verified
-                && durable_policy_write_authority_decision
-                    .audit_policy_availability_evidence_verified
-                && durable_policy_write_authority_decision
-                    .durable_append_authority_availability_evidence_verified
-                && durable_policy_write_authority_decision.target_span_verified,
-        );
-    } else {
-        raw_bool(false);
-    }
-    raw_line(",");
-    raw("    \"retained_recovery_rollback_inspect_source_reference_validated\": ");
-    if let Some((_, recovery_inspect_source_state)) = retained_denial_sources {
-        raw_bool(recovery_inspect_source_state.ram_audit_validated);
-    } else {
-        raw_bool(false);
-    }
-    raw_line(",");
-    raw("    \"rollback_transaction_preflight\": ");
-    emit_rollback_transaction_preflight(snapshot, probation);
-    raw_line(",");
-    raw("    \"rollback_write_authority_gate\": ");
-    emit_rollback_write_authority_gate(snapshot, probation);
-    raw_line(",");
-    raw("    \"rollback_append_intent_gate\": ");
-    emit_rollback_append_intent_gate(snapshot, probation);
-    raw_line(",");
-    raw("    \"rollback_payload_envelope_gate\": ");
-    emit_rollback_payload_envelope_gate(snapshot, probation);
-    raw_line(",");
+    begin_error(method);
+    emit_record_fields_trailing_comma(
+        vec![
+            j!("method" => s(method)),
+            j!("event_id" => event_opt(Some(event_id))),
+            j!("audit_event_id" => event_opt(Some(event_id))),
+            j!("code" => s("capability_denied")),
+            j!("schema" => s(HELLO_ROLLBACK_APPLY_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_APPLY_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("status" => s(HELLO_ROLLBACK_APPLY_STATUS)),
+            j!("reason" => s(if probation.is_some() {
+                    "rollback_apply_authority_missing"
+                } else if snapshot.loaded {
+                    "rollback_preview_or_probation_missing"
+                } else {
+                    "service_not_loaded"
+                }),
+            ),
+            j!("message" => s("hello rollback apply is denied until rollback apply authority, durable audit, and rollback transaction evidence exist")),
+            j!("service_id" => s(SERVICE_ID)),
+            j!("active_generation" => u(snapshot.generation)),
+            j!("active_descriptor_id" => s(snapshot.load_descriptor.id)),
+            j!("current_state" => hello_state_value(snapshot)),
+            j!("source_probation" => hello_hot_swap_probation_value(probation)),
+            j!("required_preview" => rollback_apply_required_preview_value(snapshot, probation)),
+            j!("rollback_apply_hash" => rollback_apply_denial_hash_value(snapshot, probation, retained_denial_sources),
+            ),
+            j!("source_durable_policy_write_authority_decision_hash" => retained_denial_sources
+                    .map(|(decision, _)| sha(decision.decision_hash))
+                    .unwrap_or(V::Null),
+            ),
+            j!("source_recovery_rollback_inspect_source_reference_hash" => retained_denial_sources
+                    .map(|(_, source)| sha_opt(source.reference.map(|reference| reference.reference_hash)))
+                    .unwrap_or(V::Null),
+            ),
+            j!("retained_durable_policy_write_authority_decision_verified" => b(retained_denial_sources
+                    .map(|(decision, _)| {
+                        decision.transaction_append_dry_run_verified
+                            && decision.target_region_sector_inspection_verified
+                            && decision.write_authority_evidence_verified
+                            && decision.audit_policy_availability_evidence_verified
+                            && decision.durable_append_authority_availability_evidence_verified
+                            && decision.target_span_verified
+                    })
+                    .unwrap_or(false)),
+            ),
+            j!("retained_recovery_rollback_inspect_source_reference_validated" => b(retained_denial_sources
+                    .map(|(_, source)| source.ram_audit_validated)
+                    .unwrap_or(false)),
+            ),
+            j!("rollback_transaction_preflight" => rollback_transaction_preflight_value(snapshot, probation),
+            ),
+            j!("rollback_write_authority_gate" => rollback_write_authority_gate_value(snapshot, probation),
+            ),
+            j!("rollback_append_intent_gate" => rollback_append_intent_gate_value(snapshot, probation),
+            ),
+            j!("rollback_payload_envelope_gate" => rollback_payload_envelope_gate_value(snapshot, probation),
+            ),
+        ],
+        4,
+    );
     raw("    \"rollback_transaction_writer_storage_authority_gate\": ");
     emit_rollback_transaction_writer_storage_authority_gate(snapshot, probation);
     raw_line(",");
-    raw("    \"rollback_target\": ");
-    if let Some(probation) = probation {
-        raw("{\"version\": ");
-        json_str(probation.previous_version);
-        raw(", \"descriptor_id\": ");
-        json_str(probation.previous_descriptor_id);
-        raw(", \"descriptor_source_hash\": ");
-        json_sha256(probation.previous_descriptor_source_hash);
-        raw(", \"artifact_identity_id\": ");
-        json_str(probation.previous_artifact_identity_id);
-        raw(", \"artifact_identity_hash\": ");
-        json_sha256(probation.previous_artifact_identity_hash);
-        raw(", \"generation\": ");
-        raw_fmt(format_args!("{}", probation.previous_generation));
-        raw(", \"state_hash\": ");
-        json_sha256(probation.previous_state_hash);
-        raw(", \"state_counter\": ");
-        raw_fmt(format_args!("{}", probation.previous_state_counter));
-        raw("}");
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("    \"current_candidate\": ");
-    if let Some(probation) = probation {
-        raw("{\"version\": ");
-        json_str(probation.new_version);
-        raw(", \"descriptor_id\": ");
-        json_str(probation.new_descriptor_id);
-        raw(", \"descriptor_source_hash\": ");
-        json_sha256(probation.new_descriptor_source_hash);
-        raw(", \"artifact_identity_id\": ");
-        json_str(probation.new_artifact_identity_id);
-        raw(", \"artifact_identity_hash\": ");
-        json_sha256(probation.new_artifact_identity_hash);
-        raw(", \"generation\": ");
-        raw_fmt(format_args!("{}", probation.new_generation));
-        raw(", \"state_hash\": ");
-        json_sha256(probation.new_state_hash);
-        raw(", \"state_counter\": ");
-        raw_fmt(format_args!("{}", probation.new_state_counter));
-        raw("}");
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("    \"state_migration\": ");
-    emit_hello_state_migration_option(snapshot.state_migration);
-    raw_line(",");
-    raw_line("    \"required\": [");
-    raw_line("      \"rollback_apply_authority\",");
-    raw_line("      \"rollback_transaction_authority\",");
-    raw_line("      \"durable_audit_write_authority\",");
-    raw_line("      \"persistent_install_authority\",");
-    raw_line("      \"raios.audit_record.v0\",");
-    raw_line("      \"raios.rollback_transaction.v0\",");
-    raw_line("      \"durable_audit_rollback_store\"");
-    raw_line("    ],");
-    raw_line("    \"denied_surfaces\": {");
-    raw_line("      \"mutates_service_state\": false,");
-    raw_line("      \"applies_rollback\": false,");
-    raw_line("      \"descriptor_mutation\": \"not_attempted\",");
-    raw_line("      \"generation_mutation\": \"not_attempted\",");
-    raw_line("      \"running_state_mutation\": \"not_attempted\",");
-    raw_line("      \"ram_only_state_mutation\": \"not_attempted\",");
-    raw_line("      \"persistent_install\": \"denied\",");
-    raw_line("      \"durable_audit_write\": \"denied\",");
-    raw_line("      \"external_artifact_load\": \"denied\",");
-    raw_line("      \"candidate_artifact_execution\": \"denied\",");
-    raw_line("      \"executable_mapping\": \"denied\",");
-    raw_line("      \"provider_auto_load\": \"denied\",");
-    raw_line("      \"broad_mutation\": \"denied\"");
-    raw_line("    }");
-    raw_line("  }");
-    raw_line("}");
-    raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
+    emit_record_fields(
+        vec![
+            j!("rollback_target" => probation_target_value(probation)),
+            j!("current_candidate" => probation_candidate_value(probation)),
+            j!("state_migration" => hello_state_migration_value(snapshot.state_migration),
+            ),
+            j!("required" => V::Array(vec![
+                    s("rollback_apply_authority"),
+                    s("rollback_transaction_authority"),
+                    s("durable_audit_write_authority"),
+                    s("persistent_install_authority"),
+                    s("raios.audit_record.v0"),
+                    s("raios.rollback_transaction.v0"),
+                    s("durable_audit_rollback_store"),
+                ]),
+            ),
+            j!("denied_surfaces" => rollback_apply_denied_surfaces_value()),
+        ],
+        4,
+    );
+    end_error(method);
 }
 
 pub(crate) fn emit_rollback_preview_response(
@@ -3549,110 +3596,41 @@ pub(crate) fn emit_rollback_preview_response(
 ) {
     let probation = snapshot.hot_swap_probation;
     begin_response(method);
-    raw_line("      \"schema\": \"raios.ram_only_hello_service_rollback_preview.v0\",");
-    raw("      \"id\": ");
-    json_str(HELLO_ROLLBACK_PREVIEW_ID);
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw_line("      \"read_only\": true,");
-    raw("      \"status\": ");
-    json_str(if probation.is_some() {
-        HELLO_ROLLBACK_PREVIEW_STATUS
-    } else {
-        "missing_hot_swap_probation"
-    });
-    raw_line(",");
-    raw("      \"preview_available\": ");
-    raw_bool(probation.is_some());
-    raw_line(",");
-    raw("      \"event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("      \"audit_event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("      \"service_id\": ");
-    json_str(SERVICE_ID);
-    raw_line(",");
-    raw("      \"current_generation\": ");
-    raw_fmt(format_args!("{}", snapshot.generation));
-    raw_line(",");
-    raw("      \"current_state\": ");
-    emit_hello_state(snapshot);
-    raw_line(",");
-    raw("      \"source_probation\": ");
-    emit_hello_hot_swap_probation_option(probation);
-    raw_line(",");
-    raw("      \"preview_hash\": ");
-    if let Some(probation) = probation {
-        json_sha256(hello_rollback_preview_hash(snapshot, probation));
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("      \"rollback_target\": ");
-    if let Some(probation) = probation {
-        raw("{\"version\": ");
-        json_str(probation.previous_version);
-        raw(", \"descriptor_id\": ");
-        json_str(probation.previous_descriptor_id);
-        raw(", \"descriptor_source_hash\": ");
-        json_sha256(probation.previous_descriptor_source_hash);
-        raw(", \"artifact_identity_id\": ");
-        json_str(probation.previous_artifact_identity_id);
-        raw(", \"artifact_identity_hash\": ");
-        json_sha256(probation.previous_artifact_identity_hash);
-        raw(", \"generation\": ");
-        raw_fmt(format_args!("{}", probation.previous_generation));
-        raw(", \"state_hash\": ");
-        json_sha256(probation.previous_state_hash);
-        raw(", \"state_counter\": ");
-        raw_fmt(format_args!("{}", probation.previous_state_counter));
-        raw("}");
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("      \"current_candidate\": ");
-    if let Some(probation) = probation {
-        raw("{\"version\": ");
-        json_str(probation.new_version);
-        raw(", \"descriptor_id\": ");
-        json_str(probation.new_descriptor_id);
-        raw(", \"descriptor_source_hash\": ");
-        json_sha256(probation.new_descriptor_source_hash);
-        raw(", \"artifact_identity_id\": ");
-        json_str(probation.new_artifact_identity_id);
-        raw(", \"artifact_identity_hash\": ");
-        json_sha256(probation.new_artifact_identity_hash);
-        raw(", \"generation\": ");
-        raw_fmt(format_args!("{}", probation.new_generation));
-        raw(", \"state_hash\": ");
-        json_sha256(probation.new_state_hash);
-        raw(", \"state_counter\": ");
-        raw_fmt(format_args!("{}", probation.new_state_counter));
-        raw("}");
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("      \"state_migration\": ");
-    emit_hello_state_migration_option(snapshot.state_migration);
-    raw_line(",");
-    raw_line("      \"denied_surfaces\": {");
-    raw_line("        \"mutates_service_state\": false,");
-    raw_line("        \"applies_rollback\": false,");
-    raw_line("        \"installs_rollback_plan\": false,");
-    raw_line("        \"persistent_install\": \"denied\",");
-    raw_line("        \"durable_audit_write\": \"denied\",");
-    raw_line("        \"external_artifact_load\": \"denied\",");
-    raw_line("        \"candidate_artifact_execution\": \"denied\",");
-    raw_line("        \"executable_mapping\": \"denied\",");
-    raw_line("        \"provider_auto_load\": \"denied\",");
-    raw_line("        \"broad_mutation\": \"denied\"");
-    raw_line("      }");
+    emit_record_fields(
+        vec![
+            j!("schema" => s("raios.ram_only_hello_service_rollback_preview.v0"),
+            ),
+            j!("id" => s(HELLO_ROLLBACK_PREVIEW_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("read_only" => b(true)),
+            j!("status" => s(if probation.is_some() {
+                    HELLO_ROLLBACK_PREVIEW_STATUS
+                } else {
+                    "missing_hot_swap_probation"
+                }),
+            ),
+            j!("preview_available" => b(probation.is_some())),
+            j!("event_id" => event_opt(Some(event_id))),
+            j!("audit_event_id" => event_opt(Some(event_id))),
+            j!("service_id" => s(SERVICE_ID)),
+            j!("current_generation" => u(snapshot.generation)),
+            j!("current_state" => hello_state_value(snapshot)),
+            j!("source_probation" => hello_hot_swap_probation_value(probation),
+            ),
+            j!("preview_hash" => probation
+                    .map(|probation| sha(hello_rollback_preview_hash(snapshot, probation)))
+                    .unwrap_or(V::Null),
+            ),
+            j!("rollback_target" => probation_target_value(probation)),
+            j!("current_candidate" => probation_candidate_value(probation)),
+            j!("state_migration" => hello_state_migration_value(snapshot.state_migration),
+            ),
+            j!("denied_surfaces" => rollback_preview_denied_surfaces_value()),
+        ],
+        6,
+    );
     end_response(method);
 }
 
@@ -3665,538 +3643,366 @@ pub(crate) fn emit_response(
     let activation_status = service_slot_activation_status(snapshot);
     let activation_active = service_slot_activation_active(snapshot);
     begin_response(method);
-    raw_line("      \"schema\": \"raios.ram_only_hello_service.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"persistence\": \"none\",");
-    raw("      \"action\": ");
-    json_str(action);
-    raw_line(",");
-    raw("      \"event_id\": ");
-    json_event_id_option(snapshot.last_event_id);
-    raw_line(",");
-    raw("      \"audit_event_id\": ");
-    json_event_id_option(snapshot.last_event_id);
-    raw_line(",");
-    emit_load_request(descriptor);
-    raw_line(",");
-    emit_load_descriptor(descriptor);
-    raw_line(",");
-    raw("      \"artifact_load_plan_preflight\": ");
-    emit_artifact_load_plan_preflight(descriptor);
-    raw_line(",");
-    raw("      \"service_slot_activation\": ");
-    emit_service_slot_activation(descriptor, activation_status, activation_active);
-    raw_line(",");
-    raw("      \"state\": ");
-    emit_hello_state(snapshot);
-    raw_line(",");
-    raw("      \"state_migration\": ");
-    emit_hello_state_migration_option(snapshot.state_migration);
-    raw_line(",");
-    raw("      \"hot_swap_probation\": ");
-    emit_hello_hot_swap_probation_option(snapshot.hot_swap_probation);
-    raw_line(",");
-    raw_line("      \"service\": {");
-    raw("        \"id\": ");
-    json_str(descriptor.service_id);
-    raw_line(",");
-    raw("        \"artifact_id\": ");
-    json_str(descriptor.artifact_id);
-    raw_line(",");
-    raw("        \"version\": ");
-    json_str(service_version(descriptor));
-    raw_line(",");
-    raw("        \"artifact_identity_id\": ");
-    json_str(descriptor.artifact_identity.id);
-    raw_line(",");
-    raw("        \"artifact_identity_hash\": ");
-    json_sha256(artifact_identity_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_identity_signature_envelope\": ");
-    emit_artifact_identity_signature_envelope(descriptor);
-    raw_line(",");
-    raw("        \"artifact_content_binding_id\": ");
-    json_str(descriptor.artifact_identity.artifact_content_binding_id);
-    raw_line(",");
-    raw("        \"artifact_content_binding_hash\": ");
-    json_sha256(artifact_content_binding_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_content_source_hash\": ");
-    json_sha256(descriptor.artifact_identity.artifact_content_source_hash);
-    raw_line(",");
-    raw("        \"artifact_content_trust_envelope_id\": ");
-    json_str(descriptor.artifact_identity.signed_envelope.id);
-    raw_line(",");
-    raw("        \"artifact_content_trust_envelope_hash\": ");
-    json_sha256(descriptor.artifact_identity.signed_envelope.envelope_hash);
-    raw_line(",");
-    raw("        \"artifact_reference_id\": ");
-    json_str(descriptor.artifact_identity.artifact_reference_id);
-    raw_line(",");
-    raw("        \"artifact_reference_hash\": ");
-    json_sha256(artifact_reference_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_bytes_sha256\": ");
-    json_sha256(artifact_reference_bytes_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_reference_content_binding_hash\": ");
-    json_sha256(
-        descriptor
-            .artifact_identity
-            .artifact_reference_content_binding_hash,
+    emit_record_fields(
+        vec![
+            j!("schema" => s("raios.ram_only_hello_service.v0")),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("none")),
+            j!("action" => s(action)),
+            j!("event_id" => event_opt(snapshot.last_event_id)),
+            j!("audit_event_id" => event_opt(snapshot.last_event_id)),
+            j!("load_request" => load_request_value(descriptor)),
+            j!("load_descriptor" => load_descriptor_value(descriptor)),
+            j!("artifact_load_plan_preflight" => artifact_load_plan_preflight_value(descriptor),
+            ),
+            j!("service_slot_activation" => service_slot_activation_value(descriptor, activation_status, activation_active),
+            ),
+            j!("state" => hello_state_value(snapshot)),
+            j!("state_migration" => hello_state_migration_value(snapshot.state_migration),
+            ),
+            j!("hot_swap_probation" => hello_hot_swap_probation_value(snapshot.hot_swap_probation),
+            ),
+            j!("service" => hello_response_service_value(
+                    snapshot,
+                    descriptor,
+                    activation_status,
+                    activation_active,
+                ),
+            ),
+            j!("lifecycle" => hello_response_lifecycle_value(snapshot)),
+            j!("loader" => hello_response_loader_value(descriptor, activation_status, activation_active),
+            ),
+            j!("denied_surfaces" => hello_response_denied_surfaces_value()),
+        ],
+        6,
     );
-    raw_line(",");
-    raw("        \"artifact_reference_trust_envelope_id\": ");
-    json_str(descriptor.artifact_identity.signed_envelope.id);
-    raw_line(",");
-    raw("        \"artifact_reference_trust_envelope_hash\": ");
-    json_sha256(descriptor.artifact_identity.signed_envelope.envelope_hash);
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight_id\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight_hash\": ");
-    json_sha256(artifact_load_plan_preflight_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight_status\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
-    raw_line(",");
-    raw("        \"service_slot_activation_id\": ");
-    json_str(SERVICE_SLOT_ACTIVATION_ID);
-    raw_line(",");
-    raw("        \"service_slot_activation_hash\": ");
-    json_sha256(service_slot_activation_hash(descriptor));
-    raw_line(",");
-    raw("        \"service_slot_activation_status\": ");
-    json_str(activation_status);
-    raw_line(",");
-    raw("        \"service_slot_activation_active\": ");
-    raw_bool(activation_active);
-    raw_line(",");
-    raw("        \"ram_only_service_slot_id\": ");
-    json_str(RAM_ONLY_SERVICE_SLOT_ID);
-    raw_line(",");
-    raw("        \"load_descriptor_id\": ");
-    json_str(descriptor.id);
-    raw_line(",");
-    raw("        \"load_descriptor_source_kind\": ");
-    json_str(descriptor.source_kind);
-    raw_line(",");
-    raw_line("        \"load_descriptor_source_validated\": true,");
-    raw("        \"load_descriptor_source_hash\": ");
-    json_sha256(descriptor_source_hash(descriptor));
-    raw_line(",");
-    raw("        \"load_descriptor_source_signature_envelope\": ");
-    emit_descriptor_source_signature_envelope(descriptor);
-    raw_line(",");
-    raw_line("        \"kind\": \"service\",");
-    raw("        \"loaded\": ");
-    raw_bool(snapshot.loaded);
-    raw_line(",");
-    raw("        \"running\": ");
-    raw_bool(snapshot.running);
-    raw_line(",");
-    raw("        \"generation\": ");
-    raw_fmt(format_args!("{}", snapshot.generation));
-    raw_line(",");
-    raw("        \"state\": ");
-    emit_hello_state(snapshot);
-    raw_line(",");
-    raw("        \"health\": ");
-    json_str(if snapshot.running {
-        "healthy"
-    } else if snapshot.loaded {
-        "stopped"
-    } else {
-        "missing"
-    });
-    raw_line(",");
-    raw("        \"capabilities\": [");
-    emit_inline_string_array(CAPABILITIES);
-    raw_line("]");
-    raw_line("      },");
-    raw_line("      \"lifecycle\": {");
-    raw("        \"last_action\": ");
-    json_str(snapshot.last_action);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(snapshot.last_reason);
-    raw_line(",");
-    raw("        \"service_inventory_change\": ");
-    json_str(snapshot.last_inventory_change);
-    raw_line(",");
-    raw("        \"load_event_id\": ");
-    json_event_id_option(snapshot.load_event_id);
-    raw_line(",");
-    raw("        \"start_event_id\": ");
-    json_event_id_option(snapshot.start_event_id);
-    raw_line(",");
-    raw("        \"hot_swap_event_id\": ");
-    json_event_id_option(snapshot.hot_swap_event_id);
-    raw_line(",");
-    raw("        \"stop_event_id\": ");
-    json_event_id_option(snapshot.stop_event_id);
-    raw_line(",");
-    raw("        \"drop_event_id\": ");
-    json_event_id_option(snapshot.drop_event_id);
-    raw_line("");
-    raw_line("      },");
-    raw_line("      \"loader\": {");
-    raw("        \"kind\": ");
-    json_str(descriptor.artifact_kind);
-    raw_line(",");
-    raw("        \"descriptor_id\": ");
-    json_str(descriptor.id);
-    raw_line(",");
-    raw("        \"descriptor_source_locator\": ");
-    json_str(descriptor.source_locator);
-    raw_line(",");
-    raw("        \"descriptor_source_kind\": ");
-    json_str(descriptor.source_kind);
-    raw_line(",");
-    raw_line("        \"descriptor_source_validated\": true,");
-    raw("        \"descriptor_source_hash\": ");
-    json_sha256(descriptor_source_hash(descriptor));
-    raw_line(",");
-    raw("        \"descriptor_source_signature_envelope\": ");
-    emit_descriptor_source_signature_envelope(descriptor);
-    raw_line(",");
-    raw("        \"artifact_identity_id\": ");
-    json_str(descriptor.artifact_identity.id);
-    raw_line(",");
-    raw("        \"artifact_identity_hash\": ");
-    json_sha256(artifact_identity_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_identity_signature_envelope\": ");
-    emit_artifact_identity_signature_envelope(descriptor);
-    raw_line(",");
-    raw("        \"artifact_content_binding_id\": ");
-    json_str(descriptor.artifact_identity.artifact_content_binding_id);
-    raw_line(",");
-    raw("        \"artifact_content_binding_hash\": ");
-    json_sha256(artifact_content_binding_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_content_source_hash\": ");
-    json_sha256(descriptor.artifact_identity.artifact_content_source_hash);
-    raw_line(",");
-    raw("        \"artifact_content_trust_envelope_id\": ");
-    json_str(descriptor.artifact_identity.signed_envelope.id);
-    raw_line(",");
-    raw("        \"artifact_content_trust_envelope_hash\": ");
-    json_sha256(descriptor.artifact_identity.signed_envelope.envelope_hash);
-    raw_line(",");
-    raw("        \"artifact_reference_id\": ");
-    json_str(descriptor.artifact_identity.artifact_reference_id);
-    raw_line(",");
-    raw("        \"artifact_reference_hash\": ");
-    json_sha256(artifact_reference_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_bytes_sha256\": ");
-    json_sha256(artifact_reference_bytes_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_reference_content_binding_hash\": ");
-    json_sha256(
-        descriptor
-            .artifact_identity
-            .artifact_reference_content_binding_hash,
-    );
-    raw_line(",");
-    raw("        \"artifact_reference_trust_envelope_id\": ");
-    json_str(descriptor.artifact_identity.signed_envelope.id);
-    raw_line(",");
-    raw("        \"artifact_reference_trust_envelope_hash\": ");
-    json_sha256(descriptor.artifact_identity.signed_envelope.envelope_hash);
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight_id\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight_hash\": ");
-    json_sha256(artifact_load_plan_preflight_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight_status\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
-    raw_line(",");
-    raw("        \"service_slot_activation_id\": ");
-    json_str(SERVICE_SLOT_ACTIVATION_ID);
-    raw_line(",");
-    raw("        \"service_slot_activation_hash\": ");
-    json_sha256(service_slot_activation_hash(descriptor));
-    raw_line(",");
-    raw("        \"service_slot_activation_status\": ");
-    json_str(activation_status);
-    raw_line(",");
-    raw("        \"service_slot_activation_active\": ");
-    raw_bool(activation_active);
-    raw_line(",");
-    raw("        \"service_slot_intent_id\": ");
-    json_str(SERVICE_SLOT_INTENT_ID);
-    raw_line(",");
-    raw("        \"ram_only_service_slot_id\": ");
-    json_str(RAM_ONLY_SERVICE_SLOT_ID);
-    raw_line(",");
-    raw("        \"binds_source_locator\": ");
-    json_opt_str(descriptor.binds_source_locator);
-    raw_line(",");
-    raw("        \"binds_source_kind\": ");
-    json_opt_str(descriptor.binds_source_kind);
-    raw_line(",");
-    raw("        \"binds_source_hash\": ");
-    json_sha256_option(descriptor.binds_source_hash);
-    raw_line(",");
-    raw_line("        \"accepts_external_artifact_bytes\": false,");
-    raw_line("        \"loads_external_artifact\": false,");
-    raw_line("        \"maps_executable_pages\": false,");
-    raw_line("        \"writes_persistent_state\": false,");
-    raw_line("        \"writes_durable_audit_log\": false,");
-    raw_line("        \"installs_rollback_plan\": false,");
-    raw_line("        \"grants_broad_mutation\": false");
-    raw_line("      },");
-    raw_line("      \"denied_surfaces\": {");
-    raw_line("        \"general_module_load\": \"unchanged_denied\",");
-    raw_line("        \"external_artifact_load\": \"denied\",");
-    raw_line("        \"persistent_install\": \"denied\",");
-    raw_line("        \"durable_audit\": \"denied\",");
-    raw_line("        \"rollback_install\": \"denied\",");
-    raw_line("        \"broad_mutation\": \"denied\"");
-    raw_line("      }");
     end_response(method);
 }
 
+fn hello_response_service_value(
+    snapshot: Snapshot,
+    descriptor: LoadDescriptor,
+    activation_status: &'static str,
+    activation_active: bool,
+) -> V<'static> {
+    object(vec![
+        j!("id" => s(descriptor.service_id)),
+        j!("artifact_id" => s(descriptor.artifact_id)),
+        j!("version" => s(service_version(descriptor))),
+        j!("artifact_identity_id" => s(descriptor.artifact_identity.id)),
+        j!("artifact_identity_hash" => sha(artifact_identity_hash(descriptor)),
+        ),
+        j!("artifact_identity_signature_envelope" => artifact_identity_signature_envelope_value(descriptor),
+        ),
+        j!("artifact_content_binding_id" => s(descriptor.artifact_identity.artifact_content_binding_id),
+        ),
+        j!("artifact_content_binding_hash" => sha(artifact_content_binding_hash(descriptor)),
+        ),
+        j!("artifact_content_source_hash" => sha(descriptor.artifact_identity.artifact_content_source_hash),
+        ),
+        j!("artifact_content_trust_envelope_id" => s(descriptor.artifact_identity.signed_envelope.id),
+        ),
+        j!("artifact_content_trust_envelope_hash" => sha(descriptor.artifact_identity.signed_envelope.envelope_hash),
+        ),
+        j!("artifact_reference_id" => s(descriptor.artifact_identity.artifact_reference_id),
+        ),
+        j!("artifact_reference_hash" => sha(artifact_reference_hash(descriptor)),
+        ),
+        j!("artifact_bytes_sha256" => sha(artifact_reference_bytes_hash(descriptor)),
+        ),
+        j!("artifact_reference_content_binding_hash" => sha(descriptor
+                .artifact_identity
+                .artifact_reference_content_binding_hash),
+        ),
+        j!("artifact_reference_trust_envelope_id" => s(descriptor.artifact_identity.signed_envelope.id),
+        ),
+        j!("artifact_reference_trust_envelope_hash" => sha(descriptor.artifact_identity.signed_envelope.envelope_hash),
+        ),
+        j!("artifact_load_plan_preflight_id" => s(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID),
+        ),
+        j!("artifact_load_plan_preflight_hash" => sha(artifact_load_plan_preflight_hash(descriptor)),
+        ),
+        j!("artifact_load_plan_preflight_status" => s(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS),
+        ),
+        j!("service_slot_activation_id" => s(SERVICE_SLOT_ACTIVATION_ID)),
+        j!("service_slot_activation_hash" => sha(service_slot_activation_hash(descriptor)),
+        ),
+        j!("service_slot_activation_status" => s(activation_status)),
+        j!("service_slot_activation_active" => b(activation_active)),
+        j!("ram_only_service_slot_id" => s(RAM_ONLY_SERVICE_SLOT_ID)),
+        j!("load_descriptor_id" => s(descriptor.id)),
+        j!("load_descriptor_source_kind" => s(descriptor.source_kind)),
+        j!("load_descriptor_source_validated" => b(true)),
+        j!("load_descriptor_source_hash" => sha(descriptor_source_hash(descriptor)),
+        ),
+        j!("load_descriptor_source_signature_envelope" => descriptor_source_signature_envelope_value(descriptor),
+        ),
+        j!("kind" => s("service")),
+        j!("loaded" => b(snapshot.loaded)),
+        j!("running" => b(snapshot.running)),
+        j!("generation" => u(snapshot.generation)),
+        j!("state" => hello_state_value(snapshot)),
+        j!("health" => s(if snapshot.running {
+                "healthy"
+            } else if snapshot.loaded {
+                "stopped"
+            } else {
+                "missing"
+            }),
+        ),
+        j!("capabilities" => inline_str_array(CAPABILITIES)),
+    ])
+}
+
+fn hello_response_lifecycle_value(snapshot: Snapshot) -> V<'static> {
+    object(vec![
+        j!("last_action" => s(snapshot.last_action)),
+        j!("reason" => s(snapshot.last_reason)),
+        j!("service_inventory_change" => s(snapshot.last_inventory_change),
+        ),
+        j!("load_event_id" => event_opt(snapshot.load_event_id)),
+        j!("start_event_id" => event_opt(snapshot.start_event_id)),
+        j!("hot_swap_event_id" => event_opt(snapshot.hot_swap_event_id)),
+        j!("stop_event_id" => event_opt(snapshot.stop_event_id)),
+        j!("drop_event_id" => event_opt(snapshot.drop_event_id)),
+    ])
+}
+
+fn hello_response_loader_value(
+    descriptor: LoadDescriptor,
+    activation_status: &'static str,
+    activation_active: bool,
+) -> V<'static> {
+    object(vec![
+        j!("kind" => s(descriptor.artifact_kind)),
+        j!("descriptor_id" => s(descriptor.id)),
+        j!("descriptor_source_locator" => s(descriptor.source_locator)),
+        j!("descriptor_source_kind" => s(descriptor.source_kind)),
+        j!("descriptor_source_validated" => b(true)),
+        j!("descriptor_source_hash" => sha(descriptor_source_hash(descriptor)),
+        ),
+        j!("descriptor_source_signature_envelope" => descriptor_source_signature_envelope_value(descriptor),
+        ),
+        j!("artifact_identity_id" => s(descriptor.artifact_identity.id)),
+        j!("artifact_identity_hash" => sha(artifact_identity_hash(descriptor)),
+        ),
+        j!("artifact_identity_signature_envelope" => artifact_identity_signature_envelope_value(descriptor),
+        ),
+        j!("artifact_content_binding_id" => s(descriptor.artifact_identity.artifact_content_binding_id),
+        ),
+        j!("artifact_content_binding_hash" => sha(artifact_content_binding_hash(descriptor)),
+        ),
+        j!("artifact_content_source_hash" => sha(descriptor.artifact_identity.artifact_content_source_hash),
+        ),
+        j!("artifact_content_trust_envelope_id" => s(descriptor.artifact_identity.signed_envelope.id),
+        ),
+        j!("artifact_content_trust_envelope_hash" => sha(descriptor.artifact_identity.signed_envelope.envelope_hash),
+        ),
+        j!("artifact_reference_id" => s(descriptor.artifact_identity.artifact_reference_id),
+        ),
+        j!("artifact_reference_hash" => sha(artifact_reference_hash(descriptor)),
+        ),
+        j!("artifact_bytes_sha256" => sha(artifact_reference_bytes_hash(descriptor)),
+        ),
+        j!("artifact_reference_content_binding_hash" => sha(descriptor
+                .artifact_identity
+                .artifact_reference_content_binding_hash),
+        ),
+        j!("artifact_reference_trust_envelope_id" => s(descriptor.artifact_identity.signed_envelope.id),
+        ),
+        j!("artifact_reference_trust_envelope_hash" => sha(descriptor.artifact_identity.signed_envelope.envelope_hash),
+        ),
+        j!("artifact_load_plan_preflight_id" => s(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID),
+        ),
+        j!("artifact_load_plan_preflight_hash" => sha(artifact_load_plan_preflight_hash(descriptor)),
+        ),
+        j!("artifact_load_plan_preflight_status" => s(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS),
+        ),
+        j!("service_slot_activation_id" => s(SERVICE_SLOT_ACTIVATION_ID)),
+        j!("service_slot_activation_hash" => sha(service_slot_activation_hash(descriptor)),
+        ),
+        j!("service_slot_activation_status" => s(activation_status)),
+        j!("service_slot_activation_active" => b(activation_active)),
+        j!("service_slot_intent_id" => s(SERVICE_SLOT_INTENT_ID)),
+        j!("ram_only_service_slot_id" => s(RAM_ONLY_SERVICE_SLOT_ID)),
+        j!("binds_source_locator" => s_opt(descriptor.binds_source_locator),
+        ),
+        j!("binds_source_kind" => s_opt(descriptor.binds_source_kind)),
+        j!("binds_source_hash" => sha_opt(descriptor.binds_source_hash)),
+        j!("accepts_external_artifact_bytes" => b(false)),
+        j!("loads_external_artifact" => b(false)),
+        j!("maps_executable_pages" => b(false)),
+        j!("writes_persistent_state" => b(false)),
+        j!("writes_durable_audit_log" => b(false)),
+        j!("installs_rollback_plan" => b(false)),
+        j!("grants_broad_mutation" => b(false)),
+    ])
+}
+
+fn hello_response_denied_surfaces_value() -> V<'static> {
+    object(vec![
+        j!("general_module_load" => s("unchanged_denied")),
+        j!("external_artifact_load" => s("denied")),
+        j!("persistent_install" => s("denied")),
+        j!("durable_audit" => s("denied")),
+        j!("rollback_install" => s("denied")),
+        j!("broad_mutation" => s("denied")),
+    ])
+}
+
 pub(crate) fn emit_load_request(descriptor: LoadDescriptor) {
-    raw_line("      \"load_request\": {");
-    raw_line("        \"schema\": \"raios.current_boot_load_request.v0\",");
-    raw_line("        \"scope\": \"current_boot\",");
-    raw_line("        \"classification\": \"local_only\",");
-    raw("        \"descriptor_schema\": ");
-    json_str(descriptor.schema);
-    raw_line(",");
-    raw("        \"descriptor_id\": ");
-    json_str(descriptor.id);
-    raw_line(",");
-    raw("        \"descriptor_source_locator\": ");
-    json_str(descriptor.source_locator);
-    raw_line(",");
-    raw("        \"descriptor_source_kind\": ");
-    json_str(descriptor.source_kind);
-    raw_line(",");
-    raw_line("        \"descriptor_source_validated\": true,");
-    raw("        \"descriptor_source_hash\": ");
-    json_sha256(descriptor_source_hash(descriptor));
-    raw_line(",");
-    raw("        \"descriptor_source_signature_envelope\": ");
-    emit_descriptor_source_signature_envelope(descriptor);
-    raw_line(",");
-    raw("        \"artifact_identity_id\": ");
-    json_str(descriptor.artifact_identity.id);
-    raw_line(",");
-    raw("        \"artifact_identity_hash\": ");
-    json_sha256(artifact_identity_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_identity_signature_envelope\": ");
-    emit_artifact_identity_signature_envelope(descriptor);
-    raw_line(",");
-    raw("        \"artifact_content_binding_id\": ");
-    json_str(descriptor.artifact_identity.artifact_content_binding_id);
-    raw_line(",");
-    raw("        \"artifact_content_binding_hash\": ");
-    json_sha256(artifact_content_binding_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_content_source_hash\": ");
-    json_sha256(descriptor.artifact_identity.artifact_content_source_hash);
-    raw_line(",");
-    raw("        \"artifact_content_trust_envelope_id\": ");
-    json_str(descriptor.artifact_identity.signed_envelope.id);
-    raw_line(",");
-    raw("        \"artifact_content_trust_envelope_hash\": ");
-    json_sha256(descriptor.artifact_identity.signed_envelope.envelope_hash);
-    raw_line(",");
-    raw("        \"artifact_reference_id\": ");
-    json_str(descriptor.artifact_identity.artifact_reference_id);
-    raw_line(",");
-    raw("        \"artifact_reference_hash\": ");
-    json_sha256(artifact_reference_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_bytes_sha256\": ");
-    json_sha256(artifact_reference_bytes_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_reference_content_binding_hash\": ");
-    json_sha256(
-        descriptor
-            .artifact_identity
-            .artifact_reference_content_binding_hash,
-    );
-    raw_line(",");
-    raw("        \"artifact_reference_trust_envelope_id\": ");
-    json_str(descriptor.artifact_identity.signed_envelope.id);
-    raw_line(",");
-    raw("        \"artifact_reference_trust_envelope_hash\": ");
-    json_sha256(descriptor.artifact_identity.signed_envelope.envelope_hash);
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight_id\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID);
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight_hash\": ");
-    json_sha256(artifact_load_plan_preflight_hash(descriptor));
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight_status\": ");
-    json_str(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS);
-    raw_line(",");
-    raw("        \"service_slot_intent_id\": ");
-    json_str(SERVICE_SLOT_INTENT_ID);
-    raw_line(",");
-    raw("        \"ram_only_service_slot_id\": ");
-    json_str(RAM_ONLY_SERVICE_SLOT_ID);
-    raw_line(",");
-    raw("        \"binds_source_locator\": ");
-    json_opt_str(descriptor.binds_source_locator);
-    raw_line(",");
-    raw("        \"binds_source_kind\": ");
-    json_opt_str(descriptor.binds_source_kind);
-    raw_line(",");
-    raw("        \"binds_source_hash\": ");
-    json_sha256_option(descriptor.binds_source_hash);
-    raw_line(",");
-    raw("        \"service_id\": ");
-    json_str(descriptor.service_id);
-    raw_line(",");
-    raw_line("        \"accepted\": true");
-    raw("      }");
+    raw("      \"load_request\": ");
+    emit_record_value_fragment(load_request_value(descriptor), 6);
+}
+
+fn load_request_value(descriptor: LoadDescriptor) -> V<'static> {
+    object(vec![
+        j!("schema" => s("raios.current_boot_load_request.v0")),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("descriptor_schema" => s(descriptor.schema)),
+        j!("descriptor_id" => s(descriptor.id)),
+        j!("descriptor_source_locator" => s(descriptor.source_locator)),
+        j!("descriptor_source_kind" => s(descriptor.source_kind)),
+        j!("descriptor_source_validated" => b(true)),
+        j!("descriptor_source_hash" => sha(descriptor_source_hash(descriptor)),
+        ),
+        j!("descriptor_source_signature_envelope" => descriptor_source_signature_envelope_value(descriptor),
+        ),
+        j!("artifact_identity_id" => s(descriptor.artifact_identity.id)),
+        j!("artifact_identity_hash" => sha(artifact_identity_hash(descriptor)),
+        ),
+        j!("artifact_identity_signature_envelope" => artifact_identity_signature_envelope_value(descriptor),
+        ),
+        j!("artifact_content_binding_id" => s(descriptor.artifact_identity.artifact_content_binding_id),
+        ),
+        j!("artifact_content_binding_hash" => sha(artifact_content_binding_hash(descriptor)),
+        ),
+        j!("artifact_content_source_hash" => sha(descriptor.artifact_identity.artifact_content_source_hash),
+        ),
+        j!("artifact_content_trust_envelope_id" => s(descriptor.artifact_identity.signed_envelope.id),
+        ),
+        j!("artifact_content_trust_envelope_hash" => sha(descriptor.artifact_identity.signed_envelope.envelope_hash),
+        ),
+        j!("artifact_reference_id" => s(descriptor.artifact_identity.artifact_reference_id),
+        ),
+        j!("artifact_reference_hash" => sha(artifact_reference_hash(descriptor)),
+        ),
+        j!("artifact_bytes_sha256" => sha(artifact_reference_bytes_hash(descriptor)),
+        ),
+        j!("artifact_reference_content_binding_hash" => sha(descriptor
+                .artifact_identity
+                .artifact_reference_content_binding_hash),
+        ),
+        j!("artifact_reference_trust_envelope_id" => s(descriptor.artifact_identity.signed_envelope.id),
+        ),
+        j!("artifact_reference_trust_envelope_hash" => sha(descriptor.artifact_identity.signed_envelope.envelope_hash),
+        ),
+        j!("artifact_load_plan_preflight_id" => s(ARTIFACT_LOAD_PLAN_PREFLIGHT_ID),
+        ),
+        j!("artifact_load_plan_preflight_hash" => sha(artifact_load_plan_preflight_hash(descriptor)),
+        ),
+        j!("artifact_load_plan_preflight_status" => s(ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS),
+        ),
+        j!("service_slot_intent_id" => s(SERVICE_SLOT_INTENT_ID)),
+        j!("ram_only_service_slot_id" => s(RAM_ONLY_SERVICE_SLOT_ID)),
+        j!("binds_source_locator" => s_opt(descriptor.binds_source_locator),
+        ),
+        j!("binds_source_kind" => s_opt(descriptor.binds_source_kind)),
+        j!("binds_source_hash" => sha_opt(descriptor.binds_source_hash)),
+        j!("service_id" => s(descriptor.service_id)),
+        j!("accepted" => b(true)),
+    ])
 }
 
 pub(crate) fn emit_load_descriptor(descriptor: LoadDescriptor) {
-    raw_line("      \"load_descriptor\": {");
-    raw("        \"schema\": ");
-    json_str(descriptor.schema);
-    raw_line(",");
-    raw("        \"id\": ");
-    json_str(descriptor.id);
-    raw_line(",");
-    raw_line("        \"source\": {");
-    raw("          \"canonicalization\": ");
-    json_str(descriptor.canonicalization);
-    raw_line(",");
-    raw("          \"locator\": ");
-    json_str(descriptor.source_locator);
-    raw_line(",");
-    raw("          \"kind\": ");
-    json_str(descriptor.source_kind);
-    raw_line(",");
-    raw_line("          \"validated\": true,");
-    raw("          \"sha256\": ");
-    json_sha256(descriptor_source_hash(descriptor));
-    raw_line(",");
-    raw("          \"binds_source_locator\": ");
-    json_opt_str(descriptor.binds_source_locator);
-    raw_line(",");
-    raw("          \"binds_source_kind\": ");
-    json_opt_str(descriptor.binds_source_kind);
-    raw_line(",");
-    raw("          \"binds_source_hash\": ");
-    json_sha256_option(descriptor.binds_source_hash);
-    raw_line(",");
-    raw("          \"signature_envelope\": ");
-    emit_descriptor_source_signature_envelope(descriptor);
-    raw_line(",");
-    raw("          \"text\": ");
-    json_str(descriptor.source_text);
-    raw_line("");
-    raw_line("        },");
-    raw("        \"service_id\": ");
-    json_str(descriptor.service_id);
-    raw_line(",");
-    raw("        \"artifact_id\": ");
-    json_str(descriptor.artifact_id);
-    raw_line(",");
-    raw("        \"artifact_kind\": ");
-    json_str(descriptor.artifact_kind);
-    raw_line(",");
-    raw("        \"artifact_identity\": ");
-    emit_artifact_identity(descriptor);
-    raw_line(",");
-    raw("        \"artifact_load_plan_preflight\": ");
-    emit_artifact_load_plan_preflight(descriptor);
-    raw_line(",");
-    raw("        \"scope\": ");
-    json_str(descriptor.scope);
-    raw_line(",");
-    raw("        \"classification\": ");
-    json_str(descriptor.classification);
-    raw_line(",");
-    raw("        \"persistence\": ");
-    json_str(descriptor.persistence);
-    raw_line(",");
-    raw_line("        \"accepts_external_artifact_bytes\": false,");
-    raw_line("        \"loads_external_artifact\": false,");
-    raw_line("        \"maps_executable_pages\": false,");
-    raw_line("        \"writes_persistent_state\": false");
-    raw("      }");
+    raw("      \"load_descriptor\": ");
+    emit_record_value_fragment(load_descriptor_value(descriptor), 6);
+}
+
+fn load_descriptor_value(descriptor: LoadDescriptor) -> V<'static> {
+    object(vec![
+        j!("schema" => s(descriptor.schema)),
+        j!("id" => s(descriptor.id)),
+        j!("source" => object(vec![
+                j!("canonicalization" => s(descriptor.canonicalization)),
+                j!("locator" => s(descriptor.source_locator)),
+                j!("kind" => s(descriptor.source_kind)),
+                j!("validated" => b(true)),
+                j!("sha256" => sha(descriptor_source_hash(descriptor))),
+                j!("binds_source_locator" => s_opt(descriptor.binds_source_locator),
+                ),
+                j!("binds_source_kind" => s_opt(descriptor.binds_source_kind)),
+                j!("binds_source_hash" => sha_opt(descriptor.binds_source_hash)),
+                j!("signature_envelope" => descriptor_source_signature_envelope_value(descriptor),
+                ),
+                j!("text" => s(descriptor.source_text)),
+            ]),
+        ),
+        j!("service_id" => s(descriptor.service_id)),
+        j!("artifact_id" => s(descriptor.artifact_id)),
+        j!("artifact_kind" => s(descriptor.artifact_kind)),
+        j!("artifact_identity" => artifact_identity_value(descriptor)),
+        j!("artifact_load_plan_preflight" => artifact_load_plan_preflight_value(descriptor),
+        ),
+        j!("scope" => s(descriptor.scope)),
+        j!("classification" => s(descriptor.classification)),
+        j!("persistence" => s(descriptor.persistence)),
+        j!("accepts_external_artifact_bytes" => b(false)),
+        j!("loads_external_artifact" => b(false)),
+        j!("maps_executable_pages" => b(false)),
+        j!("writes_persistent_state" => b(false)),
+    ])
 }
 
 pub(crate) fn emit_artifact_load_plan_preflight(descriptor: LoadDescriptor) {
+    emit_inline_value(artifact_load_plan_preflight_value(descriptor));
+}
+
+fn artifact_load_plan_preflight_value(descriptor: LoadDescriptor) -> V<'static> {
     let record = artifact_load_plan_preflight_record(descriptor);
-    raw("{");
-    raw("\"schema\": ");
-    json_str(record.schema);
-    raw(", \"id\": ");
-    json_str(record.id);
-    raw(", \"scope\": ");
-    json_str(record.scope);
-    raw(", \"classification\": ");
-    json_str(record.classification);
-    raw(", \"status\": ");
-    json_str(record.status);
-    raw(", \"preflight_hash\": ");
-    json_sha256(record.preflight_hash);
-    raw(", \"service_id\": ");
-    json_str(record.service_id);
-    raw(", \"artifact_id\": ");
-    json_str(record.artifact_id);
-    raw(", \"load_descriptor_id\": ");
-    json_str(record.load_descriptor_id);
-    raw(", \"descriptor_source_locator\": ");
-    json_str(record.descriptor_source_locator);
-    raw(", \"descriptor_source_hash\": ");
-    json_sha256(record.descriptor_source_hash);
-    raw(", \"artifact_identity_id\": ");
-    json_str(record.artifact_identity_id);
-    raw(", \"artifact_identity_hash\": ");
-    json_sha256(record.artifact_identity_hash);
-    raw(", \"artifact_content_binding_hash\": ");
-    json_sha256(record.artifact_content_binding_hash);
-    raw(", \"artifact_reference_id\": ");
-    json_str(record.artifact_reference_id);
-    raw(", \"artifact_reference_hash\": ");
-    json_sha256(record.artifact_reference_hash);
-    raw(", \"artifact_bytes_sha256\": ");
-    json_sha256(record.artifact_bytes_sha256);
-    raw(", \"service_slot_intent_schema\": ");
-    json_str(record.service_slot_intent_schema);
-    raw(", \"service_slot_intent_id\": ");
-    json_str(record.service_slot_intent_id);
-    raw(", \"ram_only_service_slot_id\": ");
-    json_str(record.ram_only_service_slot_id);
-    raw(", \"accepted\": ");
-    raw_bool(record.accepted);
-    raw(", \"authorizes_builtin_current_boot_start\": ");
-    raw_bool(record.authorizes_builtin_current_boot_start);
-    raw(", \"authorizes_candidate_artifact_execution\": ");
-    raw_bool(record.authorizes_candidate_artifact_execution);
-    raw(", \"accepts_external_artifact_bytes\": ");
-    raw_bool(record.accepts_external_artifact_bytes);
-    raw(", \"loads_candidate_bytes\": ");
-    raw_bool(record.loads_candidate_bytes);
-    raw(", \"maps_executable_pages\": ");
-    raw_bool(record.maps_executable_pages);
-    raw(", \"writes_persistent_state\": ");
-    raw_bool(record.writes_persistent_state);
-    raw(", \"writes_durable_audit_log\": ");
-    raw_bool(record.writes_durable_audit_log);
-    raw(", \"installs_rollback_plan\": ");
-    raw_bool(record.installs_rollback_plan);
-    raw(", \"grants_broad_mutation\": ");
-    raw_bool(record.grants_broad_mutation);
-    raw("}");
+    inline(vec![
+        j!("schema" => s(record.schema)),
+        j!("id" => s(record.id)),
+        j!("scope" => s(record.scope)),
+        j!("classification" => s(record.classification)),
+        j!("status" => s(record.status)),
+        j!("preflight_hash" => sha(record.preflight_hash)),
+        j!("service_id" => s(record.service_id)),
+        j!("artifact_id" => s(record.artifact_id)),
+        j!("load_descriptor_id" => s(record.load_descriptor_id)),
+        j!("descriptor_source_locator" => s(record.descriptor_source_locator),
+        ),
+        j!("descriptor_source_hash" => sha(record.descriptor_source_hash)),
+        j!("artifact_identity_id" => s(record.artifact_identity_id)),
+        j!("artifact_identity_hash" => sha(record.artifact_identity_hash)),
+        j!("artifact_content_binding_hash" => sha(record.artifact_content_binding_hash),
+        ),
+        j!("artifact_reference_id" => s(record.artifact_reference_id)),
+        j!("artifact_reference_hash" => sha(record.artifact_reference_hash),
+        ),
+        j!("artifact_bytes_sha256" => sha(record.artifact_bytes_sha256)),
+        j!("service_slot_intent_schema" => s(record.service_slot_intent_schema),
+        ),
+        j!("service_slot_intent_id" => s(record.service_slot_intent_id)),
+        j!("ram_only_service_slot_id" => s(record.ram_only_service_slot_id),
+        ),
+        j!("accepted" => b(record.accepted)),
+        j!("authorizes_builtin_current_boot_start" => b(record.authorizes_builtin_current_boot_start),
+        ),
+        j!("authorizes_candidate_artifact_execution" => b(record.authorizes_candidate_artifact_execution),
+        ),
+        j!("accepts_external_artifact_bytes" => b(record.accepts_external_artifact_bytes),
+        ),
+        j!("loads_candidate_bytes" => b(record.loads_candidate_bytes)),
+        j!("maps_executable_pages" => b(record.maps_executable_pages)),
+        j!("writes_persistent_state" => b(record.writes_persistent_state)),
+        j!("writes_durable_audit_log" => b(record.writes_durable_audit_log),
+        ),
+        j!("installs_rollback_plan" => b(record.installs_rollback_plan)),
+        j!("grants_broad_mutation" => b(record.grants_broad_mutation)),
+    ])
 }
 
 pub(crate) fn emit_service_slot_activation(
@@ -4204,387 +4010,315 @@ pub(crate) fn emit_service_slot_activation(
     status: &'static str,
     active: bool,
 ) {
+    emit_inline_value(service_slot_activation_value(descriptor, status, active));
+}
+
+fn service_slot_activation_value(
+    descriptor: LoadDescriptor,
+    status: &'static str,
+    active: bool,
+) -> V<'static> {
     let record = service_slot_activation_record(descriptor, status, active);
-    raw("{");
-    raw("\"schema\": ");
-    json_str(record.schema);
-    raw(", \"id\": ");
-    json_str(record.id);
-    raw(", \"scope\": ");
-    json_str(record.scope);
-    raw(", \"classification\": ");
-    json_str(record.classification);
-    raw(", \"persistence\": ");
-    json_str(record.persistence);
-    raw(", \"status\": ");
-    json_str(record.status);
-    raw(", \"activation_hash\": ");
-    json_sha256(record.activation_hash);
-    raw(", \"service_id\": ");
-    json_str(record.service_id);
-    raw(", \"artifact_id\": ");
-    json_str(record.artifact_id);
-    raw(", \"load_descriptor_id\": ");
-    json_str(record.load_descriptor_id);
-    raw(", \"descriptor_source_hash\": ");
-    json_sha256(record.descriptor_source_hash);
-    raw(", \"artifact_load_plan_preflight_id\": ");
-    json_str(record.artifact_load_plan_preflight_id);
-    raw(", \"artifact_load_plan_preflight_hash\": ");
-    json_sha256(record.artifact_load_plan_preflight_hash);
-    raw(", \"artifact_load_plan_preflight_status\": ");
-    json_str(record.artifact_load_plan_preflight_status);
-    raw(", \"service_slot_intent_id\": ");
-    json_str(record.service_slot_intent_id);
-    raw(", \"ram_only_service_slot_id\": ");
-    json_str(record.ram_only_service_slot_id);
-    raw(", \"active\": ");
-    raw_bool(record.active);
-    raw(", \"accepted_preflight\": ");
-    raw_bool(record.accepted_preflight);
-    raw(", \"authorizes_builtin_current_boot_start\": ");
-    raw_bool(record.authorizes_builtin_current_boot_start);
-    raw(", \"authorizes_candidate_artifact_execution\": ");
-    raw_bool(record.authorizes_candidate_artifact_execution);
-    raw(", \"writes_persistent_state\": ");
-    raw_bool(record.writes_persistent_state);
-    raw("}");
+    inline(vec![
+        j!("schema" => s(record.schema)),
+        j!("id" => s(record.id)),
+        j!("scope" => s(record.scope)),
+        j!("classification" => s(record.classification)),
+        j!("persistence" => s(record.persistence)),
+        j!("status" => s(record.status)),
+        j!("activation_hash" => sha(record.activation_hash)),
+        j!("service_id" => s(record.service_id)),
+        j!("artifact_id" => s(record.artifact_id)),
+        j!("load_descriptor_id" => s(record.load_descriptor_id)),
+        j!("descriptor_source_hash" => sha(record.descriptor_source_hash)),
+        j!("artifact_load_plan_preflight_id" => s(record.artifact_load_plan_preflight_id),
+        ),
+        j!("artifact_load_plan_preflight_hash" => sha(record.artifact_load_plan_preflight_hash),
+        ),
+        j!("artifact_load_plan_preflight_status" => s(record.artifact_load_plan_preflight_status),
+        ),
+        j!("service_slot_intent_id" => s(record.service_slot_intent_id)),
+        j!("ram_only_service_slot_id" => s(record.ram_only_service_slot_id),
+        ),
+        j!("active" => b(record.active)),
+        j!("accepted_preflight" => b(record.accepted_preflight)),
+        j!("authorizes_builtin_current_boot_start" => b(record.authorizes_builtin_current_boot_start),
+        ),
+        j!("authorizes_candidate_artifact_execution" => b(record.authorizes_candidate_artifact_execution),
+        ),
+        j!("writes_persistent_state" => b(record.writes_persistent_state)),
+    ])
 }
 
 pub(crate) fn emit_hello_state(snapshot: Snapshot) {
-    raw("{");
-    raw("\"schema\": ");
-    json_str(HELLO_STATE_SCHEMA);
-    raw(", \"id\": ");
-    json_str(HELLO_STATE_ID);
-    raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"persistence\": \"none\"");
-    raw(", \"service_id\": ");
-    json_str(SERVICE_ID);
-    raw(", \"version\": ");
-    json_str(service_version(snapshot.load_descriptor));
-    raw(", \"ram_only_service_slot_id\": ");
-    json_str(RAM_ONLY_SERVICE_SLOT_ID);
-    raw(", \"state_counter\": ");
-    raw_fmt(format_args!("{}", snapshot.state_counter));
-    raw(", \"state_hash\": ");
-    json_sha256(hello_state_hash(snapshot.state_counter));
-    raw(", \"loaded\": ");
-    raw_bool(snapshot.loaded);
-    raw(", \"running\": ");
-    raw_bool(snapshot.running);
-    raw(", \"writes_persistent_state\": false");
-    raw("}");
+    emit_inline_value(hello_state_value(snapshot));
+}
+
+fn hello_state_value(snapshot: Snapshot) -> V<'static> {
+    inline(vec![
+        j!("schema" => s(HELLO_STATE_SCHEMA)),
+        j!("id" => s(HELLO_STATE_ID)),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("persistence" => s("none")),
+        j!("service_id" => s(SERVICE_ID)),
+        j!("version" => s(service_version(snapshot.load_descriptor))),
+        j!("ram_only_service_slot_id" => s(RAM_ONLY_SERVICE_SLOT_ID)),
+        j!("state_counter" => u(snapshot.state_counter)),
+        j!("state_hash" => sha(hello_state_hash(snapshot.state_counter))),
+        j!("loaded" => b(snapshot.loaded)),
+        j!("running" => b(snapshot.running)),
+        j!("writes_persistent_state" => b(false)),
+    ])
 }
 
 pub(crate) fn emit_hello_state_migration_option(record: Option<HelloStateMigrationRecord>) {
+    emit_inline_value(hello_state_migration_value(record));
+}
+
+fn hello_state_migration_value(record: Option<HelloStateMigrationRecord>) -> V<'static> {
     let Some(record) = record else {
-        raw("null");
-        return;
+        return V::Null;
     };
-    raw("{");
-    raw("\"schema\": ");
-    json_str(record.schema);
-    raw(", \"id\": ");
-    json_str(record.id);
-    raw(", \"scope\": ");
-    json_str(record.scope);
-    raw(", \"classification\": ");
-    json_str(record.classification);
-    raw(", \"persistence\": ");
-    json_str(record.persistence);
-    raw(", \"migration_hash\": ");
-    json_sha256(record.migration_hash);
-    raw(", \"service_id\": ");
-    json_str(record.service_id);
-    raw(", \"ram_only_service_slot_id\": ");
-    json_str(record.ram_only_service_slot_id);
-    raw(", \"from_version\": ");
-    json_str(record.from_version);
-    raw(", \"to_version\": ");
-    json_str(record.to_version);
-    raw(", \"pre_state_hash\": ");
-    json_sha256(record.pre_state_hash);
-    raw(", \"post_state_hash\": ");
-    json_sha256(record.post_state_hash);
-    raw(", \"pre_state_counter\": ");
-    raw_fmt(format_args!("{}", record.pre_state_counter));
-    raw(", \"post_state_counter\": ");
-    raw_fmt(format_args!("{}", record.post_state_counter));
-    raw(", \"state_preserved\": ");
-    raw_bool(record.state_preserved);
-    raw(", \"accepted\": ");
-    raw_bool(record.accepted);
-    raw(", \"writes_persistent_state\": ");
-    raw_bool(record.writes_persistent_state);
-    raw(", \"writes_durable_audit_log\": ");
-    raw_bool(record.writes_durable_audit_log);
-    raw(", \"installs_rollback_plan\": ");
-    raw_bool(record.installs_rollback_plan);
-    raw("}");
+    inline(vec![
+        j!("schema" => s(record.schema)),
+        j!("id" => s(record.id)),
+        j!("scope" => s(record.scope)),
+        j!("classification" => s(record.classification)),
+        j!("persistence" => s(record.persistence)),
+        j!("migration_hash" => sha(record.migration_hash)),
+        j!("service_id" => s(record.service_id)),
+        j!("ram_only_service_slot_id" => s(record.ram_only_service_slot_id),
+        ),
+        j!("from_version" => s(record.from_version)),
+        j!("to_version" => s(record.to_version)),
+        j!("pre_state_hash" => sha(record.pre_state_hash)),
+        j!("post_state_hash" => sha(record.post_state_hash)),
+        j!("pre_state_counter" => u(record.pre_state_counter)),
+        j!("post_state_counter" => u(record.post_state_counter)),
+        j!("state_preserved" => b(record.state_preserved)),
+        j!("accepted" => b(record.accepted)),
+        j!("writes_persistent_state" => b(record.writes_persistent_state)),
+        j!("writes_durable_audit_log" => b(record.writes_durable_audit_log),
+        ),
+        j!("installs_rollback_plan" => b(record.installs_rollback_plan)),
+    ])
 }
 
 pub(crate) fn emit_hello_hot_swap_probation_option(record: Option<HelloHotSwapProbationRecord>) {
+    emit_inline_value(hello_hot_swap_probation_value(record));
+}
+
+fn hello_hot_swap_probation_value(record: Option<HelloHotSwapProbationRecord>) -> V<'static> {
     let Some(record) = record else {
-        raw("null");
-        return;
+        return V::Null;
     };
-    raw("{");
-    raw("\"schema\": ");
-    json_str(record.schema);
-    raw(", \"id\": ");
-    json_str(record.id);
-    raw(", \"scope\": ");
-    json_str(record.scope);
-    raw(", \"classification\": ");
-    json_str(record.classification);
-    raw(", \"persistence\": ");
-    json_str(record.persistence);
-    raw(", \"status\": ");
-    json_str(record.status);
-    raw(", \"probation_hash\": ");
-    json_sha256(record.probation_hash);
-    raw(", \"service_id\": ");
-    json_str(record.service_id);
-    raw(", \"ram_only_service_slot_id\": ");
-    json_str(record.ram_only_service_slot_id);
-    raw(", \"previous_version\": ");
-    json_str(record.previous_version);
-    raw(", \"new_version\": ");
-    json_str(record.new_version);
-    raw(", \"previous_descriptor_id\": ");
-    json_str(record.previous_descriptor_id);
-    raw(", \"new_descriptor_id\": ");
-    json_str(record.new_descriptor_id);
-    raw(", \"previous_descriptor_source_hash\": ");
-    json_sha256(record.previous_descriptor_source_hash);
-    raw(", \"new_descriptor_source_hash\": ");
-    json_sha256(record.new_descriptor_source_hash);
-    raw(", \"previous_artifact_identity_id\": ");
-    json_str(record.previous_artifact_identity_id);
-    raw(", \"new_artifact_identity_id\": ");
-    json_str(record.new_artifact_identity_id);
-    raw(", \"previous_artifact_identity_hash\": ");
-    json_sha256(record.previous_artifact_identity_hash);
-    raw(", \"new_artifact_identity_hash\": ");
-    json_sha256(record.new_artifact_identity_hash);
-    raw(", \"previous_generation\": ");
-    raw_fmt(format_args!("{}", record.previous_generation));
-    raw(", \"new_generation\": ");
-    raw_fmt(format_args!("{}", record.new_generation));
-    raw(", \"previous_state_hash\": ");
-    json_sha256(record.previous_state_hash);
-    raw(", \"new_state_hash\": ");
-    json_sha256(record.new_state_hash);
-    raw(", \"previous_state_counter\": ");
-    raw_fmt(format_args!("{}", record.previous_state_counter));
-    raw(", \"new_state_counter\": ");
-    raw_fmt(format_args!("{}", record.new_state_counter));
-    raw(", \"state_migration_hash\": ");
-    json_sha256(record.state_migration_hash);
-    raw(", \"accepted\": ");
-    raw_bool(record.accepted);
-    raw(", \"loads_candidate_bytes\": ");
-    raw_bool(record.loads_candidate_bytes);
-    raw(", \"maps_executable_pages\": ");
-    raw_bool(record.maps_executable_pages);
-    raw(", \"writes_persistent_state\": ");
-    raw_bool(record.writes_persistent_state);
-    raw(", \"writes_durable_audit_log\": ");
-    raw_bool(record.writes_durable_audit_log);
-    raw(", \"installs_rollback_plan\": ");
-    raw_bool(record.installs_rollback_plan);
-    raw(", \"applies_rollback\": ");
-    raw_bool(record.applies_rollback);
-    raw("}");
+    inline(vec![
+        j!("schema" => s(record.schema)),
+        j!("id" => s(record.id)),
+        j!("scope" => s(record.scope)),
+        j!("classification" => s(record.classification)),
+        j!("persistence" => s(record.persistence)),
+        j!("status" => s(record.status)),
+        j!("probation_hash" => sha(record.probation_hash)),
+        j!("service_id" => s(record.service_id)),
+        j!("ram_only_service_slot_id" => s(record.ram_only_service_slot_id),
+        ),
+        j!("previous_version" => s(record.previous_version)),
+        j!("new_version" => s(record.new_version)),
+        j!("previous_descriptor_id" => s(record.previous_descriptor_id)),
+        j!("new_descriptor_id" => s(record.new_descriptor_id)),
+        j!("previous_descriptor_source_hash" => sha(record.previous_descriptor_source_hash),
+        ),
+        j!("new_descriptor_source_hash" => sha(record.new_descriptor_source_hash),
+        ),
+        j!("previous_artifact_identity_id" => s(record.previous_artifact_identity_id),
+        ),
+        j!("new_artifact_identity_id" => s(record.new_artifact_identity_id),
+        ),
+        j!("previous_artifact_identity_hash" => sha(record.previous_artifact_identity_hash),
+        ),
+        j!("new_artifact_identity_hash" => sha(record.new_artifact_identity_hash),
+        ),
+        j!("previous_generation" => u(record.previous_generation)),
+        j!("new_generation" => u(record.new_generation)),
+        j!("previous_state_hash" => sha(record.previous_state_hash)),
+        j!("new_state_hash" => sha(record.new_state_hash)),
+        j!("previous_state_counter" => u(record.previous_state_counter)),
+        j!("new_state_counter" => u(record.new_state_counter)),
+        j!("state_migration_hash" => sha(record.state_migration_hash)),
+        j!("accepted" => b(record.accepted)),
+        j!("loads_candidate_bytes" => b(record.loads_candidate_bytes)),
+        j!("maps_executable_pages" => b(record.maps_executable_pages)),
+        j!("writes_persistent_state" => b(record.writes_persistent_state)),
+        j!("writes_durable_audit_log" => b(record.writes_durable_audit_log),
+        ),
+        j!("installs_rollback_plan" => b(record.installs_rollback_plan)),
+        j!("applies_rollback" => b(record.applies_rollback)),
+    ])
 }
 
 pub(crate) fn emit_descriptor_source_signature_envelope(descriptor: LoadDescriptor) {
+    emit_inline_value(descriptor_source_signature_envelope_value(descriptor));
+}
+
+fn descriptor_source_signature_envelope_value(descriptor: LoadDescriptor) -> V<'static> {
     let Some(envelope) = descriptor.source_envelope else {
-        raw("null");
-        return;
+        return V::Null;
     };
-    raw("{");
-    raw("\"schema\": ");
-    json_str(envelope.schema);
-    raw(", \"id\": ");
-    json_str(envelope.id);
-    raw(", \"algorithm\": ");
-    json_str(envelope.algorithm);
-    raw(", \"verification_phase\": ");
-    json_str(envelope.verification_phase);
-    raw(", \"trust_scope\": ");
-    json_str(envelope.trust_scope);
-    raw(", \"envelope_hash\": ");
-    json_sha256(envelope.envelope_hash);
-    raw(", \"payload_sha256\": ");
-    json_sha256(envelope.payload_hash);
-    raw(", \"public_key_sha256\": ");
-    json_sha256(envelope.public_key_hash);
-    raw(", \"signature_sha256\": ");
-    json_sha256(envelope.signature_hash);
-    raw(", \"signature_verified\": ");
-    raw_bool(descriptor_source_signature_verified(descriptor));
-    raw(", \"authorizes_external_artifact_load\": ");
-    raw_bool(envelope.authorizes_external_artifact_load);
-    raw(", \"authorizes_persistent_install\": ");
-    raw_bool(envelope.authorizes_persistent_install);
-    raw("}");
+    inline(vec![
+        j!("schema" => s(envelope.schema)),
+        j!("id" => s(envelope.id)),
+        j!("algorithm" => s(envelope.algorithm)),
+        j!("verification_phase" => s(envelope.verification_phase)),
+        j!("trust_scope" => s(envelope.trust_scope)),
+        j!("envelope_hash" => sha(envelope.envelope_hash)),
+        j!("payload_sha256" => sha(envelope.payload_hash)),
+        j!("public_key_sha256" => sha(envelope.public_key_hash)),
+        j!("signature_sha256" => sha(envelope.signature_hash)),
+        j!("signature_verified" => b(descriptor_source_signature_verified(descriptor)),
+        ),
+        j!("authorizes_external_artifact_load" => b(envelope.authorizes_external_artifact_load),
+        ),
+        j!("authorizes_persistent_install" => b(envelope.authorizes_persistent_install),
+        ),
+    ])
 }
 
 pub(crate) fn emit_artifact_identity(descriptor: LoadDescriptor) {
+    emit_inline_value(artifact_identity_value(descriptor));
+}
+
+fn artifact_identity_value(descriptor: LoadDescriptor) -> V<'static> {
     let identity = descriptor.artifact_identity;
-    raw("{");
-    raw("\"schema\": ");
-    json_str(identity.schema);
-    raw(", \"id\": ");
-    json_str(identity.id);
-    raw(", \"canonicalization\": ");
-    json_str(identity.canonicalization);
-    raw(", \"sha256\": ");
-    json_sha256(artifact_identity_hash(descriptor));
-    raw(", \"service_id\": ");
-    json_str(identity.service_id);
-    raw(", \"artifact_id\": ");
-    json_str(identity.artifact_id);
-    raw(", \"artifact_kind\": ");
-    json_str(identity.artifact_kind);
-    raw(", \"load_descriptor_id\": ");
-    json_str(identity.load_descriptor_id);
-    raw(", \"scope\": ");
-    json_str(identity.scope);
-    raw(", \"classification\": ");
-    json_str(identity.classification);
-    raw(", \"persistence\": ");
-    json_str(identity.persistence);
-    raw(", \"content_binding\": ");
-    emit_artifact_content_binding(descriptor);
-    raw(", \"artifact_reference\": ");
-    emit_artifact_reference(descriptor);
-    raw(", \"signature_envelope\": ");
-    emit_artifact_identity_signature_envelope(descriptor);
-    raw(", \"validated\": ");
-    raw_bool(descriptor_sources::validate_builtin_hello_artifact_identity(identity));
-    raw(", \"accepts_external_artifact_bytes\": ");
-    raw_bool(identity.accepts_external_artifact_bytes);
-    raw(", \"loads_external_artifact\": ");
-    raw_bool(identity.loads_external_artifact);
-    raw(", \"maps_executable_pages\": ");
-    raw_bool(identity.maps_executable_pages);
-    raw(", \"writes_persistent_state\": ");
-    raw_bool(identity.writes_persistent_state);
-    raw(", \"authorizes_external_artifact_load\": ");
-    raw_bool(identity.authorizes_external_artifact_load);
-    raw(", \"authorizes_persistent_install\": ");
-    raw_bool(identity.authorizes_persistent_install);
-    raw(", \"authorizes_rollback_install\": ");
-    raw_bool(identity.authorizes_rollback_install);
-    raw("}");
+    inline(vec![
+        j!("schema" => s(identity.schema)),
+        j!("id" => s(identity.id)),
+        j!("canonicalization" => s(identity.canonicalization)),
+        j!("sha256" => sha(artifact_identity_hash(descriptor))),
+        j!("service_id" => s(identity.service_id)),
+        j!("artifact_id" => s(identity.artifact_id)),
+        j!("artifact_kind" => s(identity.artifact_kind)),
+        j!("load_descriptor_id" => s(identity.load_descriptor_id)),
+        j!("scope" => s(identity.scope)),
+        j!("classification" => s(identity.classification)),
+        j!("persistence" => s(identity.persistence)),
+        j!("content_binding" => artifact_content_binding_value(descriptor),
+        ),
+        j!("artifact_reference" => artifact_reference_value(descriptor)),
+        j!("signature_envelope" => artifact_identity_signature_envelope_value(descriptor),
+        ),
+        j!("validated" => b(descriptor_sources::validate_builtin_hello_artifact_identity(identity)),
+        ),
+        j!("accepts_external_artifact_bytes" => b(identity.accepts_external_artifact_bytes),
+        ),
+        j!("loads_external_artifact" => b(identity.loads_external_artifact),
+        ),
+        j!("maps_executable_pages" => b(identity.maps_executable_pages)),
+        j!("writes_persistent_state" => b(identity.writes_persistent_state),
+        ),
+        j!("authorizes_external_artifact_load" => b(identity.authorizes_external_artifact_load),
+        ),
+        j!("authorizes_persistent_install" => b(identity.authorizes_persistent_install),
+        ),
+        j!("authorizes_rollback_install" => b(identity.authorizes_rollback_install),
+        ),
+    ])
 }
 
 pub(crate) fn emit_artifact_content_binding(descriptor: LoadDescriptor) {
+    emit_inline_value(artifact_content_binding_value(descriptor));
+}
+
+fn artifact_content_binding_value(descriptor: LoadDescriptor) -> V<'static> {
     let identity = descriptor.artifact_identity;
-    raw("{");
-    raw("\"schema\": ");
-    json_str(identity.artifact_content_binding_schema);
-    raw(", \"id\": ");
-    json_str(identity.artifact_content_binding_id);
-    raw(", \"artifact_id\": ");
-    json_str(identity.artifact_id);
-    raw(", \"content_kind\": ");
-    json_str(identity.artifact_content_kind);
-    raw(", \"source_locator\": ");
-    json_str(identity.artifact_content_source_locator);
-    raw(", \"source_sha256\": ");
-    json_sha256(identity.artifact_content_source_hash);
-    raw(", \"binding_hash\": ");
-    json_sha256(artifact_content_binding_hash(descriptor));
-    raw(", \"trusted_by_envelope_id\": ");
-    json_str(identity.signed_envelope.id);
-    raw(", \"trusted_by_envelope_hash\": ");
-    json_sha256(identity.signed_envelope.envelope_hash);
-    raw(", \"trust_signature_verified\": ");
-    raw_bool(artifact_identity_signature_verified(descriptor));
-    raw(", \"validated\": ");
-    raw_bool(descriptor_sources::validate_builtin_hello_artifact_identity(identity));
-    raw(", \"accepts_external_artifact_bytes\": ");
-    raw_bool(identity.artifact_content_accepts_external_artifact_bytes);
-    raw(", \"loads_external_artifact\": ");
-    raw_bool(identity.artifact_content_loads_external_artifact);
-    raw(", \"maps_executable_pages\": ");
-    raw_bool(identity.artifact_content_maps_executable_pages);
-    raw(", \"writes_persistent_state\": ");
-    raw_bool(identity.artifact_content_writes_persistent_state);
-    raw("}");
+    inline(vec![
+        j!("schema" => s(identity.artifact_content_binding_schema)),
+        j!("id" => s(identity.artifact_content_binding_id)),
+        j!("artifact_id" => s(identity.artifact_id)),
+        j!("content_kind" => s(identity.artifact_content_kind)),
+        j!("source_locator" => s(identity.artifact_content_source_locator),
+        ),
+        j!("source_sha256" => sha(identity.artifact_content_source_hash)),
+        j!("binding_hash" => sha(artifact_content_binding_hash(descriptor)),
+        ),
+        j!("trusted_by_envelope_id" => s(identity.signed_envelope.id)),
+        j!("trusted_by_envelope_hash" => sha(identity.signed_envelope.envelope_hash),
+        ),
+        j!("trust_signature_verified" => b(artifact_identity_signature_verified(descriptor)),
+        ),
+        j!("validated" => b(descriptor_sources::validate_builtin_hello_artifact_identity(identity)),
+        ),
+        j!("accepts_external_artifact_bytes" => b(identity.artifact_content_accepts_external_artifact_bytes),
+        ),
+        j!("loads_external_artifact" => b(identity.artifact_content_loads_external_artifact),
+        ),
+        j!("maps_executable_pages" => b(identity.artifact_content_maps_executable_pages),
+        ),
+        j!("writes_persistent_state" => b(identity.artifact_content_writes_persistent_state),
+        ),
+    ])
 }
 
 pub(crate) fn emit_artifact_reference(descriptor: LoadDescriptor) {
+    emit_inline_value(artifact_reference_value(descriptor));
+}
+
+fn artifact_reference_value(descriptor: LoadDescriptor) -> V<'static> {
     let identity = descriptor.artifact_identity;
-    raw("{");
-    raw("\"schema\": ");
-    json_str(identity.artifact_reference_schema);
-    raw(", \"id\": ");
-    json_str(identity.artifact_reference_id);
-    raw(", \"artifact_id\": ");
-    json_str(identity.artifact_id);
-    raw(", \"service_id\": ");
-    json_str(identity.service_id);
-    raw(", \"reference_kind\": ");
-    json_str(identity.artifact_reference_kind);
-    raw(", \"artifact_locator\": ");
-    json_str(identity.artifact_reference_locator);
-    raw(", \"artifact_bytes_sha256\": ");
-    json_sha256(identity.artifact_reference_bytes_hash);
-    raw(", \"content_binding_hash\": ");
-    json_sha256(identity.artifact_reference_content_binding_hash);
-    raw(", \"reference_hash\": ");
-    json_sha256(artifact_reference_hash(descriptor));
-    raw(", \"trusted_by_envelope_id\": ");
-    json_str(identity.signed_envelope.id);
-    raw(", \"trusted_by_envelope_hash\": ");
-    json_sha256(identity.signed_envelope.envelope_hash);
-    raw(", \"trust_signature_verified\": ");
-    raw_bool(artifact_identity_signature_verified(descriptor));
-    raw(", \"validated\": ");
-    raw_bool(descriptor_sources::validate_builtin_hello_artifact_identity(identity));
-    raw(", \"accepts_external_artifact_bytes\": ");
-    raw_bool(identity.artifact_reference_accepts_external_artifact_bytes);
-    raw(", \"loads_artifact_as_code\": ");
-    raw_bool(identity.artifact_reference_loads_artifact_as_code);
-    raw(", \"maps_executable_pages\": ");
-    raw_bool(identity.artifact_reference_maps_executable_pages);
-    raw(", \"writes_persistent_state\": ");
-    raw_bool(identity.artifact_reference_writes_persistent_state);
-    raw("}");
+    inline(vec![
+        j!("schema" => s(identity.artifact_reference_schema)),
+        j!("id" => s(identity.artifact_reference_id)),
+        j!("artifact_id" => s(identity.artifact_id)),
+        j!("service_id" => s(identity.service_id)),
+        j!("reference_kind" => s(identity.artifact_reference_kind)),
+        j!("artifact_locator" => s(identity.artifact_reference_locator)),
+        j!("artifact_bytes_sha256" => sha(identity.artifact_reference_bytes_hash),
+        ),
+        j!("content_binding_hash" => sha(identity.artifact_reference_content_binding_hash),
+        ),
+        j!("reference_hash" => sha(artifact_reference_hash(descriptor))),
+        j!("trusted_by_envelope_id" => s(identity.signed_envelope.id)),
+        j!("trusted_by_envelope_hash" => sha(identity.signed_envelope.envelope_hash),
+        ),
+        j!("trust_signature_verified" => b(artifact_identity_signature_verified(descriptor)),
+        ),
+        j!("validated" => b(descriptor_sources::validate_builtin_hello_artifact_identity(identity)),
+        ),
+        j!("accepts_external_artifact_bytes" => b(identity.artifact_reference_accepts_external_artifact_bytes),
+        ),
+        j!("loads_artifact_as_code" => b(identity.artifact_reference_loads_artifact_as_code),
+        ),
+        j!("maps_executable_pages" => b(identity.artifact_reference_maps_executable_pages),
+        ),
+        j!("writes_persistent_state" => b(identity.artifact_reference_writes_persistent_state),
+        ),
+    ])
 }
 
 pub(crate) fn emit_artifact_identity_signature_envelope(descriptor: LoadDescriptor) {
+    emit_inline_value(artifact_identity_signature_envelope_value(descriptor));
+}
+
+fn artifact_identity_signature_envelope_value(descriptor: LoadDescriptor) -> V<'static> {
     let envelope = descriptor.artifact_identity.signed_envelope;
-    raw("{");
-    raw("\"schema\": ");
-    json_str(envelope.schema);
-    raw(", \"id\": ");
-    json_str(envelope.id);
-    raw(", \"algorithm\": ");
-    json_str(envelope.algorithm);
-    raw(", \"verification_phase\": ");
-    json_str(envelope.verification_phase);
-    raw(", \"trust_scope\": ");
-    json_str(envelope.trust_scope);
-    raw(", \"envelope_hash\": ");
-    json_sha256(envelope.envelope_hash);
-    raw(", \"payload_sha256\": ");
-    json_sha256(envelope.payload_hash);
-    raw(", \"public_key_sha256\": ");
-    json_sha256(envelope.public_key_hash);
-    raw(", \"signature_sha256\": ");
-    json_sha256(envelope.signature_hash);
-    raw(", \"signature_verified\": ");
-    raw_bool(artifact_identity_signature_verified(descriptor));
-    raw(", \"authorizes_external_artifact_load\": ");
-    raw_bool(envelope.authorizes_external_artifact_load);
-    raw(", \"authorizes_persistent_install\": ");
-    raw_bool(envelope.authorizes_persistent_install);
-    raw(", \"authorizes_rollback_install\": ");
-    raw_bool(envelope.authorizes_rollback_install);
-    raw("}");
+    inline(vec![
+        j!("schema" => s(envelope.schema)),
+        j!("id" => s(envelope.id)),
+        j!("algorithm" => s(envelope.algorithm)),
+        j!("verification_phase" => s(envelope.verification_phase)),
+        j!("trust_scope" => s(envelope.trust_scope)),
+        j!("envelope_hash" => sha(envelope.envelope_hash)),
+        j!("payload_sha256" => sha(envelope.payload_hash)),
+        j!("public_key_sha256" => sha(envelope.public_key_hash)),
+        j!("signature_sha256" => sha(envelope.signature_hash)),
+        j!("signature_verified" => b(artifact_identity_signature_verified(descriptor)),
+        ),
+        j!("authorizes_external_artifact_load" => b(envelope.authorizes_external_artifact_load),
+        ),
+        j!("authorizes_persistent_install" => b(envelope.authorizes_persistent_install),
+        ),
+        j!("authorizes_rollback_install" => b(envelope.authorizes_rollback_install),
+        ),
+    ])
 }

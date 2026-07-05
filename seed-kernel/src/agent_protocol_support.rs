@@ -317,6 +317,12 @@ pub(crate) fn emit_record_fields(fields: Vec<Field<'_>>, spaces: usize) {
     write_json_fields(&fields, &mut sink, spaces);
 }
 
+pub(crate) fn emit_record_value_fragment(value: Value<'_>, indent: usize) {
+    let mut sink = SerialSink;
+
+    write_json(&value, &mut sink, indent);
+}
+
 pub(crate) fn emit_record_fields_trailing_comma(fields: Vec<Field<'_>>, spaces: usize) {
     let mut sink = SerialSink;
     let mut idx = 0usize;
@@ -539,6 +545,21 @@ pub(crate) fn begin_response(method: &'static str) {
 
 pub(crate) fn end_response(method: &'static str) {
     raw_line("    }");
+    raw_line("  }");
+    raw_line("}");
+    raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
+}
+
+pub(crate) fn begin_error(method: &'static str) {
+    raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
+    raw_line("{");
+    raw_line("  \"v\": \"raios.agent.v0\",");
+    raw_line("  \"t\": \"error\",");
+    raw_line("  \"id\": \"serial\",");
+    raw_line("  \"body\": {");
+}
+
+pub(crate) fn end_error(method: &'static str) {
     raw_line("  }");
     raw_line("}");
     raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));

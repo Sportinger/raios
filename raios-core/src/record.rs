@@ -69,6 +69,43 @@ pub fn write_json_fields<S: ByteSink>(fields: &[Field<'_>], sink: &mut S, indent
     }
 }
 
+pub struct InlineObjectWriter<'a, S: ByteSink> {
+    sink: &'a mut S,
+    first: bool,
+    indent: usize,
+}
+
+impl<'a, S: ByteSink> InlineObjectWriter<'a, S> {
+    pub fn new(sink: &'a mut S, indent: usize) -> Self {
+        sink.write_bytes(b"{");
+        Self {
+            sink,
+            first: true,
+            indent,
+        }
+    }
+
+    pub fn field(&mut self, key: &str, value: &Value<'_>) {
+        let indent = self.indent;
+        self.field_with(key, |sink| write_json(value, sink, indent));
+    }
+
+    pub fn field_with(&mut self, key: &str, write_value: impl FnOnce(&mut S)) {
+        if self.first {
+            self.first = false;
+        } else {
+            self.sink.write_bytes(b", ");
+        }
+        write_json_str(key, self.sink);
+        self.sink.write_bytes(b": ");
+        write_value(self.sink);
+    }
+
+    pub fn finish(self) {
+        self.sink.write_bytes(b"}");
+    }
+}
+
 pub fn sha256_of_json(value: &Value<'_>) -> [u8; 32] {
     let mut sink = Sha256Sink(Sha256::new());
     write_json(value, &mut sink, 0);
@@ -259,7 +296,7 @@ fn write_indent<S: ByteSink>(sink: &mut S, spaces: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{sha256_of_json, write_json, Field, Value};
+    use super::{sha256_of_json, write_json, Field, InlineObjectWriter, Value};
     use crate::sha256_bytes;
 
     fn render(value: &Value<'_>) -> std::vec::Vec<u8> {
@@ -394,6 +431,29 @@ mod tests {
         assert_eq!(
             render(&Value::TrimmedAsciiBytes(b"\0  QEMU \\\"disk\x01  \0")),
             b"\"QEMU \\\\\\\"disk \""
+        );
+    }
+
+    #[test]
+    fn inline_object_writer_streams_same_inline_shape() {
+        let mut out = std::vec::Vec::new();
+        let mut object = InlineObjectWriter::new(&mut out, 0);
+        object.field("schema", &Value::Str("raios.test.v0"));
+        object.field("count", &Value::U64(3));
+        object.field_with("nested", |sink| {
+            let mut nested = InlineObjectWriter::new(sink, 0);
+            nested.field("ok", &Value::Bool(true));
+            nested.field(
+                "items",
+                &Value::InlineArray(vec![Value::Str("a"), Value::Null]),
+            );
+            nested.finish();
+        });
+        object.finish();
+
+        assert_eq!(
+            out,
+            b"{\"schema\": \"raios.test.v0\", \"count\": 3, \"nested\": {\"ok\": true, \"items\": [\"a\", null]}}"
         );
     }
 }
