@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-05 late (M2 halfway: model done, mass-shrink next).
+Updated: 2026-07-06 (byte-identical collapse complete; decision needed).
 
 ## What raiOS can actually do today
 
@@ -39,23 +39,25 @@ Updated: 2026-07-05 late (M2 halfway: model done, mass-shrink next).
   A bonus: the signed-source protection proved itself by correctly
   rejecting a mis-configured build machine on the first CI attempt.
 
-Now active: **M2 Ceremony Collapse — halfway, honestly assessed.**
-Done today: ONE typed record model everywhere (the emitter/checksum
-divergence bug class is structurally impossible now); the 22,705-line
-monolith split into 16 signed modules (largest 4,557 — every file now
-small enough for an agent to fully read); generic rollback machinery
-extracted for the future second service; a ServiceDescriptor replacing
-scattered hardcodes. Three FULL profiles green (7,814/7,814 each).
+Now active: **M2 — the byte-identical collapse program is COMPLETE**
+(Batches 1-5: one dispatch table, shared command structures, one
+selftest runner, descriptor-table event bindings, table-built hash
+inputs). Agent layer: 138k -> ~126.5k lines with PROVEN identical
+behavior — eight green FULL profiles (7,814/7,814 each) along the way.
+Structure quality is transformed: one record model, one dispatch, one
+selftest runner, all files under 5k lines, zero-warning build, all
+attested.
 
-NOT done: the ~10x shrink. The agent layer still measures ~138k lines
-vs the ~20k goal — today's ports were deliberately byte-identical, so
-they delete little. The mass deletion comes next (table-driven dispatch,
-shared command structures, selftest collapse), which today's model made
-possible. M2 stays open until that lands.
+DECISION NEEDED FROM YOU (no rush): reaching the original ~20k-line M2
+goal requires changing what the OS actually outputs (compacting the
+evidence vocabulary, moving negative selftests to PC-side tests). That
+is safe but heavier: test needles must be updated and an architecture
+decision (ADR) recorded. Option A: accept ~126k as the M2 result and
+re-scope the milestone sentence honestly. Option B: authorize the
+vocabulary compaction (est. -30k+ more, gets near the goal).
 
-Also today: first real kernel bug found and fixed by the new tooling
-(3.8 MB stack copy, ~50% random crashes, misfiled for weeks) — proven
-fixed by 5/5 clean runs.
+Also this session: first real kernel bug found and fixed by the new
+tooling (3.8 MB stack copy, ~50% random crashes) — proven by 5/5 runs.
 
 ## Top risk
 
