@@ -103,16 +103,23 @@ a time. Proof: 5/5 recovery runs green + final clean run
 `shadow-20260705-125828-3624.json` (3644/3644). Details in the failure
 classification log (PROJECT_STATUS).
 
+Slice M2-8 done (2026-07-05): batch port of command_body_emit,
+rollback_apply_emit, memory_write_emit, durable_write_emit,
+service_inventory_effect_emit (net -124 lines) + dead EventSnapshot
+struct deleted; recovery profile byte-identical
+(`shadow-20260705-131513-9748.json`, 3644/3644). 18 recovery emit
+modules now render through the record model.
+
 Exact next task:
 
 ```text
-Resume batch-porting the remaining recovery emit modules
-(command_body_emit, rollback_apply_emit, memory_write_emit,
-durable_write_emit, service_inventory_effect_emit, lifeline_*_emit,
-target_binding_emit, artifact_reference_emit); each slice deletes more
-than it adds and passes the recovery profile byte-identical. Include
-deleting the now-dead EventSnapshot struct (event_log_types.rs:3902)
-in the next suitable slice.
+Finish the recovery emitter ports: lifeline_command_vocabulary_emit,
+lifeline_protocol_emit, command_dispatch already done — remaining:
+target_binding_emit (~683), artifact_reference_emit (~1217),
+artifact_selftest already done, command_admission already done. Then
+move to the bigger emit surfaces (module_* boundary) or start
+de-hello-ify scoping. Each slice: delete more than added, recovery (or
+matching) profile byte-identical.
 ```
 
 ## Capability Milestones

@@ -3897,13 +3897,3 @@ pub struct Event {
     pub evidence: &'static [&'static str],
     pub bindings: EventBindings,
 }
-
-#[derive(Clone, Copy)]
-pub struct EventSnapshot {
-    pub events: [Option<Event>; EVENT_CAPACITY],
-    pub len: usize,
-    pub limit: usize,
-    pub capacity: usize,
-    pub total_count: u64,
-    pub dropped_before_sequence: u64,
-}
