@@ -163,6 +163,32 @@ pub(crate) fn emit_record_property_line_at(
     raw_line(if comma { "," } else { "" });
 }
 
+pub(crate) fn emit_record_value_property_line(name: &str, value: Value<'_>, comma: bool) {
+    emit_record_value_property_line_at(name, value, 6, comma);
+}
+
+pub(crate) fn emit_record_value_property_line_at(
+    name: &str,
+    value: Value<'_>,
+    spaces: usize,
+    comma: bool,
+) {
+    let mut sink = SerialSink;
+    let mut idx = 0usize;
+
+    while idx < spaces {
+        sink.write_bytes(b" ");
+        idx += 1;
+    }
+    write_json(&Value::Str(name), &mut sink, 6);
+    sink.write_bytes(b": ");
+    write_json(&value, &mut sink, spaces);
+    if comma {
+        sink.write_bytes(b",");
+    }
+    sink.write_bytes(b"\r\n");
+}
+
 pub(crate) fn emit_inline_record_property(name: &str, fields: Vec<Field<'_>>, comma: bool) {
     emit_inline_record_property_at(name, fields, 6, comma);
 }

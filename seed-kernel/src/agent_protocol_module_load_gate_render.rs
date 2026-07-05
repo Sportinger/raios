@@ -1,3 +1,5 @@
+use alloc::{vec, vec::Vec};
+
 use crate::{
     agent_protocol_module_service_slot_allocator_projection::{
         latest_module_service_slot_allocator_readiness_projection,
@@ -5,11 +7,15 @@ use crate::{
     },
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        crlf, json_event_id, json_event_id_option, json_sha256, json_str, method_eq, raw, raw_bool,
-        raw_fmt, raw_line,
+        crlf, emit_inline_record_object_fragment, emit_record_fields_trailing_comma,
+        emit_record_property_at, emit_record_property_line_at, json_event_id, json_event_id_option,
+        json_sha256, json_str, method_eq, raw, raw_bool, raw_fmt, raw_line, record_bool as b,
+        record_event_or_null, record_false as no, record_field as f, record_sha_or_null,
+        record_str as s, record_str_or_null,
     },
     event_log, serial,
 };
+use raios_core::record::{Field, Value as V};
 fn module_load_gate_manifest_state(binding: event_log::ModuleLoadGateBinding) -> &'static str {
     if module_load_gate_manifest_reference_valid(binding) {
         "retained_hash_reference_only"
@@ -4325,20 +4331,12 @@ fn emit_module_load_gate_loader_live_load_boundary(
 fn emit_module_load_gate_loader_runtime_source_fact_map() {
     let mut idx = 0usize;
     while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
-        raw("        {\"fact\": ");
-        json_str(source.name);
-        raw(", \"schema\": ");
-        json_str(source.schema);
-        raw(", \"id\": ");
-        json_str(source.id);
-        raw(", \"source_method\": ");
-        json_str(source.source_method);
-        raw(", \"source_fact_locator\": ");
-        json_str(source.source_fact_locator);
-        raw(", \"missing_reason\": ");
-        json_str(source.missing_reason);
-        raw(", \"status\": \"missing\", \"present\": false, \"authorizes_load\": false}");
+        emit_inline_record_object_fragment(
+            module_load_gate_loader_runtime_source_fact_fields(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[idx],
+            ),
+            8,
+        );
         if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
             raw(",");
         }
@@ -4348,342 +4346,298 @@ fn emit_module_load_gate_loader_runtime_source_fact_map() {
 }
 
 fn emit_module_load_gate_loader_runtime_fact(source: ModuleLoaderRuntimeFactSource, comma: bool) {
-    raw("        ");
-    json_str(source.name);
-    raw_line(": {");
-    raw("          \"schema\": ");
-    json_str(source.schema);
-    raw_line(",");
-    raw("          \"id\": ");
-    json_str(source.id);
-    raw_line(",");
-    raw("          \"source_method\": ");
-    json_str(source.source_method);
-    raw_line(",");
-    raw("          \"source_fact_locator\": ");
-    json_str(source.source_fact_locator);
-    raw_line(",");
-    raw_line("          \"scope\": \"current_boot\",");
-    raw_line("          \"classification\": \"local_only\",");
-    raw_line("          \"status\": \"missing\",");
-    raw("          \"reason\": ");
-    json_str(source.missing_reason);
-    raw_line(",");
-    raw_line("          \"present\": false,");
-    raw_line("          \"authorizes_load\": false");
-    raw("        }");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_record_property_line_at(
+        source.name,
+        vec![
+            f("schema", s(source.schema)),
+            f("id", s(source.id)),
+            f("source_method", s(source.source_method)),
+            f("source_fact_locator", s(source.source_fact_locator)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("status", s("missing")),
+            f("reason", s(source.missing_reason)),
+            f("present", no()),
+            f("authorizes_load", no()),
+        ],
+        8,
+        comma,
+    );
 }
 
 fn emit_module_load_gate_evidence_hashes(binding: event_log::ModuleLoadGateBinding) {
-    if let Some(reference) = binding.retained_reference {
-        raw("      \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw_line(",");
-    } else {
-        raw_line("      \"computed_capability_grant_hash\": null,");
-    }
-    if let Some(reference) = binding
-        .attestation_reference
-        .filter(|_| module_load_gate_local_attestation_reference_valid(binding))
-    {
-        raw("      \"local_attestation_reference_hash\": ");
-        json_sha256(reference.attestation_reference_hash);
-        raw_line(",");
-        raw("      \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        raw_line(",");
-    } else {
-        raw_line("      \"local_attestation_reference_hash\": null,");
-        raw_line("      \"local_attestation_hash\": null,");
-    }
-    if let Some(reference) = binding
-        .approval_reference
-        .filter(|_| module_load_gate_local_approval_reference_valid(binding))
-    {
-        raw("      \"local_approval_reference_hash\": ");
-        json_sha256(reference.approval_reference_hash);
-        raw_line(",");
-        raw("      \"local_approval_hash\": ");
-        json_sha256(reference.local_approval_hash);
-        raw_line(",");
-    } else {
-        raw_line("      \"local_approval_reference_hash\": null,");
-        raw_line("      \"local_approval_hash\": null,");
-    }
-    if let Some(reference) = binding
-        .vm_report_reference
-        .filter(|_| module_load_gate_vm_test_report_reference_valid(binding))
-    {
-        raw("      \"vm_test_report_reference_hash\": ");
-        json_sha256(reference.report_reference_hash);
-        raw_line(",");
-        raw("      \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw_line(",");
-    } else {
-        raw_line("      \"vm_test_report_reference_hash\": null,");
-        raw_line("      \"vm_test_report_hash\": null,");
-    }
-    if let Some(reference) = binding
-        .artifact_reference
-        .filter(|_| module_load_gate_candidate_artifact_reference_valid(binding))
-    {
-        raw("      \"artifact_reference_hash\": ");
-        json_sha256(reference.artifact_reference_hash);
-        raw_line(",");
-        raw("      \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw_line(",");
-    } else {
-        raw_line("      \"artifact_reference_hash\": null,");
-        raw_line("      \"artifact_hash\": null,");
-    }
-    if let Some(reference) = binding
-        .manifest_reference
-        .filter(|_| module_load_gate_manifest_reference_valid(binding))
-    {
-        raw("      \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw_line(",");
-        raw("      \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw_line(",");
-    } else {
-        raw_line("      \"manifest_reference_hash\": null,");
-        raw_line("      \"manifest_hash\": null,");
-    }
-    if let Some(reference) = binding
-        .audit_rollback_reference
-        .filter(|_| module_load_gate_audit_rollback_reference_valid(binding))
-    {
-        raw("      \"audit_record_hash\": ");
-        json_sha256(reference.audit_record_hash);
-        raw_line(",");
-        raw("      \"rollback_plan_hash\": ");
-        json_sha256(reference.rollback_plan_hash);
-        raw_line(",");
-        raw("      \"pre_load_service_inventory_hash\": ");
-        json_sha256(reference.pre_load_service_inventory_hash);
-        raw_line(",");
-        raw("      \"cleanup_actions_hash\": ");
-        json_sha256(reference.cleanup_actions_hash);
-        raw_line(",");
-        raw("      \"ram_only_service_slot_id\": ");
-        json_str(reference.ram_only_service_slot_id.as_str());
-        raw_line(",");
-    } else {
-        raw_line("      \"audit_record_hash\": null,");
-        raw_line("      \"rollback_plan_hash\": null,");
-        raw_line("      \"pre_load_service_inventory_hash\": null,");
-        raw_line("      \"cleanup_actions_hash\": null,");
-        raw_line("      \"ram_only_service_slot_id\": null,");
-    }
-    if let Some(reservation) = binding
-        .service_slot_reservation
-        .filter(|_| module_load_gate_service_slot_reservation_valid(binding))
-    {
-        raw("      \"service_slot_reservation_hash\": ");
-        json_sha256(reservation.reservation_hash);
-        raw_line(",");
-    } else {
-        raw_line("      \"service_slot_reservation_hash\": null,");
-    }
+    emit_record_fields_trailing_comma(module_load_gate_hash_fields(&binding), 6);
 }
 
 fn emit_module_load_gate_audit_rollback_requirements(binding: event_log::ModuleLoadGateBinding) {
-    raw_line("    \"audit_rollback_requirements\": {");
-    raw_line("      \"schema\": \"raios.module_load_gate_audit_rollback_requirements.v0\",");
-    raw_line("      \"classification\": \"public\",");
-    raw_line("      \"status\": \"required_missing\",");
-    raw_line("      \"writes_enabled\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"durable_audit_record\": {");
-    raw_line("        \"schema\": \"raios.audit_record.v0\",");
-    raw("        \"state\": ");
-    json_str(module_load_gate_durable_audit_state(binding));
-    raw_line(",");
-    raw_line("        \"durability\": \"required_before_load\",");
-    raw_line("        \"required_bindings\": [");
-    raw_line("          \"denial_event_id\",");
-    raw_line("          \"retained_computed_grant_reference_event_id\",");
-    raw_line("          \"computed_capability_grant_hash\",");
-    raw_line("          \"manifest_hash\",");
-    raw_line("          \"artifact_hash\",");
-    raw_line("          \"vm_test_report_hash\",");
-    raw_line("          \"local_attestation_hash\",");
-    raw_line("          \"local_approval_hash\",");
-    raw_line("          \"rollback_plan_hash\",");
-    raw_line("          \"ram_only_service_slot_id\"");
-    raw_line("        ]");
-    raw_line("      },");
-    raw_line("      \"rollback_plan\": {");
-    raw_line("        \"schema\": \"raios.rollback_plan.v0\",");
-    raw("        \"state\": ");
-    json_str(module_load_gate_rollback_state(binding));
-    raw_line(",");
-    raw_line("        \"must_preexist_load\": true,");
-    raw_line("        \"required_bindings\": [");
-    raw_line("          \"artifact_hash\",");
-    raw_line("          \"pre_load_service_inventory_hash\",");
-    raw_line("          \"ram_only_service_slot_id\",");
-    raw_line("          \"cleanup_actions_hash\"");
-    raw_line("        ]");
-    raw_line("      },");
-    raw_line("      \"required_hashes\": {");
-    emit_module_load_gate_required_hashes(binding);
-    raw_line("      },");
-    raw("      \"retained_reference_event_id\": ");
-    json_event_id_option(binding.retained_reference_event_id);
-    raw_line(",");
-    raw("      \"retained_manifest_reference_event_id\": ");
-    json_event_id_option(binding.manifest_reference_event_id);
-    raw_line(",");
-    raw("      \"retained_local_attestation_reference_event_id\": ");
-    json_event_id_option(binding.attestation_reference_event_id);
-    raw_line(",");
-    raw("      \"retained_local_approval_reference_event_id\": ");
-    json_event_id_option(binding.approval_reference_event_id);
-    raw_line(",");
-    raw("      \"retained_audit_rollback_reference_event_id\": ");
-    json_event_id_option(binding.audit_rollback_reference_event_id);
-    raw_line(",");
-    raw("      \"retained_service_slot_reservation_event_id\": ");
-    json_event_id_option(binding.service_slot_reservation_event_id);
-    raw_line(",");
-    raw("      \"local_approval\": {\"state\": ");
-    json_str(module_load_gate_local_approval_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_local_approval_reason(binding));
-    raw_line(", \"required\": true, \"authorizes_guest_load\": false},");
-    raw("      \"ram_only_service_slot\": {\"state\": ");
-    json_str(module_load_gate_service_slot_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_service_slot_reason(binding));
-    raw_line(", \"required\": true, \"allocates_service_slot\": false},");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"can_load\": false");
-    raw("    }");
+    emit_record_property_at(
+        "audit_rollback_requirements",
+        module_load_gate_audit_rollback_requirement_fields(&binding, false),
+        4,
+    );
 }
 
-fn emit_module_load_gate_required_hashes(binding: event_log::ModuleLoadGateBinding) {
-    if let Some(reference) = binding.retained_reference {
-        raw("        \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw_line(",");
-    } else {
-        raw_line("        \"computed_capability_grant_hash\": null,");
-    }
-    if let Some(reference) = binding
+fn module_load_gate_loader_runtime_source_fact_fields(
+    source: ModuleLoaderRuntimeFactSource,
+) -> Vec<Field<'static>> {
+    vec![
+        f("fact", s(source.name)),
+        f("schema", s(source.schema)),
+        f("id", s(source.id)),
+        f("source_method", s(source.source_method)),
+        f("source_fact_locator", s(source.source_fact_locator)),
+        f("missing_reason", s(source.missing_reason)),
+        f("status", s("missing")),
+        f("present", no()),
+        f("authorizes_load", no()),
+    ]
+}
+
+fn module_load_gate_audit_rollback_requirement_fields<'a>(
+    binding: &'a event_log::ModuleLoadGateBinding,
+    compact: bool,
+) -> Vec<Field<'a>> {
+    vec![
+        f(
+            "schema",
+            s("raios.module_load_gate_audit_rollback_requirements.v0"),
+        ),
+        f("classification", s("public")),
+        f("status", s("required_missing")),
+        f("writes_enabled", no()),
+        f("creates_durable_audit_records", no()),
+        f("creates_rollback_plans", no()),
+        f(
+            "durable_audit_record",
+            record_object_for(
+                vec![
+                    f("schema", s("raios.audit_record.v0")),
+                    f("state", s(module_load_gate_durable_audit_state(*binding))),
+                    f("durability", s("required_before_load")),
+                    f(
+                        "required_bindings",
+                        static_str_array(
+                            &[
+                                "denial_event_id",
+                                "retained_computed_grant_reference_event_id",
+                                "computed_capability_grant_hash",
+                                "manifest_hash",
+                                "artifact_hash",
+                                "vm_test_report_hash",
+                                "local_attestation_hash",
+                                "local_approval_hash",
+                                "rollback_plan_hash",
+                                "ram_only_service_slot_id",
+                            ],
+                            compact,
+                        ),
+                    ),
+                ],
+                compact,
+            ),
+        ),
+        f(
+            "rollback_plan",
+            record_object_for(
+                vec![
+                    f("schema", s("raios.rollback_plan.v0")),
+                    f("state", s(module_load_gate_rollback_state(*binding))),
+                    f("must_preexist_load", b(true)),
+                    f(
+                        "required_bindings",
+                        static_str_array(
+                            &[
+                                "artifact_hash",
+                                "pre_load_service_inventory_hash",
+                                "ram_only_service_slot_id",
+                                "cleanup_actions_hash",
+                            ],
+                            compact,
+                        ),
+                    ),
+                ],
+                compact,
+            ),
+        ),
+        f(
+            "required_hashes",
+            record_object_for(module_load_gate_hash_fields(binding), compact),
+        ),
+        f(
+            "retained_reference_event_id",
+            record_event_or_null(binding.retained_reference_event_id),
+        ),
+        f(
+            "retained_manifest_reference_event_id",
+            record_event_or_null(binding.manifest_reference_event_id),
+        ),
+        f(
+            "retained_local_attestation_reference_event_id",
+            record_event_or_null(binding.attestation_reference_event_id),
+        ),
+        f(
+            "retained_local_approval_reference_event_id",
+            record_event_or_null(binding.approval_reference_event_id),
+        ),
+        f(
+            "retained_audit_rollback_reference_event_id",
+            record_event_or_null(binding.audit_rollback_reference_event_id),
+        ),
+        f(
+            "retained_service_slot_reservation_event_id",
+            record_event_or_null(binding.service_slot_reservation_event_id),
+        ),
+        f(
+            "local_approval",
+            V::InlineObject(vec![
+                f("state", s(module_load_gate_local_approval_state(*binding))),
+                f(
+                    "reason",
+                    s(module_load_gate_local_approval_reason(*binding)),
+                ),
+                f("required", b(true)),
+                f("authorizes_guest_load", no()),
+            ]),
+        ),
+        f(
+            "ram_only_service_slot",
+            V::InlineObject(vec![
+                f("state", s(module_load_gate_service_slot_state(*binding))),
+                f("reason", s(module_load_gate_service_slot_reason(*binding))),
+                f("required", b(true)),
+                f("allocates_service_slot", no()),
+            ]),
+        ),
+        f("load_attempted", no()),
+        f("service_inventory_change", s("none")),
+        f("can_load", no()),
+    ]
+}
+
+fn module_load_gate_hash_fields<'a>(
+    binding: &'a event_log::ModuleLoadGateBinding,
+) -> Vec<Field<'a>> {
+    let retained = binding.retained_reference.as_ref();
+    let attestation = binding
         .attestation_reference
-        .filter(|_| module_load_gate_local_attestation_reference_valid(binding))
-    {
-        raw("        \"local_attestation_reference_hash\": ");
-        json_sha256(reference.attestation_reference_hash);
-        raw_line(",");
-        raw("        \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        raw_line(",");
-    } else {
-        raw_line("        \"local_attestation_reference_hash\": null,");
-        raw_line("        \"local_attestation_hash\": null,");
-    }
-    if let Some(reference) = binding
+        .as_ref()
+        .filter(|_| module_load_gate_local_attestation_reference_valid(*binding));
+    let approval = binding
         .approval_reference
-        .filter(|_| module_load_gate_local_approval_reference_valid(binding))
-    {
-        raw("        \"local_approval_reference_hash\": ");
-        json_sha256(reference.approval_reference_hash);
-        raw_line(",");
-        raw("        \"local_approval_hash\": ");
-        json_sha256(reference.local_approval_hash);
-        raw_line(",");
-    } else {
-        raw_line("        \"local_approval_reference_hash\": null,");
-        raw_line("        \"local_approval_hash\": null,");
-    }
-    if let Some(reference) = binding
+        .as_ref()
+        .filter(|_| module_load_gate_local_approval_reference_valid(*binding));
+    let report = binding
         .vm_report_reference
-        .filter(|_| module_load_gate_vm_test_report_reference_valid(binding))
-    {
-        raw("        \"vm_test_report_reference_hash\": ");
-        json_sha256(reference.report_reference_hash);
-        raw_line(",");
-        raw("        \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw_line(",");
-    } else {
-        raw_line("        \"vm_test_report_reference_hash\": null,");
-        raw_line("        \"vm_test_report_hash\": null,");
-    }
-    if let Some(reference) = binding
+        .as_ref()
+        .filter(|_| module_load_gate_vm_test_report_reference_valid(*binding));
+    let artifact = binding
         .artifact_reference
-        .filter(|_| module_load_gate_candidate_artifact_reference_valid(binding))
-    {
-        raw("        \"artifact_reference_hash\": ");
-        json_sha256(reference.artifact_reference_hash);
-        raw_line(",");
-        raw("        \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw_line(",");
-    } else {
-        raw_line("        \"artifact_reference_hash\": null,");
-        raw_line("        \"artifact_hash\": null,");
-    }
-    if let Some(reference) = binding
+        .as_ref()
+        .filter(|_| module_load_gate_candidate_artifact_reference_valid(*binding));
+    let manifest = binding
         .manifest_reference
-        .filter(|_| module_load_gate_manifest_reference_valid(binding))
-    {
-        raw("        \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw_line(",");
-        raw("        \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw_line(",");
-    } else {
-        raw_line("        \"manifest_reference_hash\": null,");
-        raw_line("        \"manifest_hash\": null,");
-    }
-    if let Some(reference) = binding
+        .as_ref()
+        .filter(|_| module_load_gate_manifest_reference_valid(*binding));
+    let audit = binding
         .audit_rollback_reference
-        .filter(|_| module_load_gate_audit_rollback_reference_valid(binding))
-    {
-        raw("        \"audit_record_hash\": ");
-        json_sha256(reference.audit_record_hash);
-        raw_line(",");
-        raw("        \"rollback_plan_hash\": ");
-        json_sha256(reference.rollback_plan_hash);
-        raw_line(",");
-        raw("        \"pre_load_service_inventory_hash\": ");
-        json_sha256(reference.pre_load_service_inventory_hash);
-        raw_line(",");
-        raw("        \"cleanup_actions_hash\": ");
-        json_sha256(reference.cleanup_actions_hash);
-        raw_line(",");
-        raw("        \"ram_only_service_slot_id\": ");
-        json_str(reference.ram_only_service_slot_id.as_str());
-        raw_line(",");
-    } else {
-        raw_line("        \"audit_record_hash\": null,");
-        raw_line("        \"rollback_plan_hash\": null,");
-        raw_line("        \"pre_load_service_inventory_hash\": null,");
-        raw_line("        \"cleanup_actions_hash\": null,");
-        raw_line("        \"ram_only_service_slot_id\": null,");
-    }
-    if let Some(reservation) = binding
+        .as_ref()
+        .filter(|_| module_load_gate_audit_rollback_reference_valid(*binding));
+    let reservation = binding
         .service_slot_reservation
-        .filter(|_| module_load_gate_service_slot_reservation_valid(binding))
-    {
-        raw("        \"service_slot_reservation_hash\": ");
-        json_sha256(reservation.reservation_hash);
-        crlf();
+        .as_ref()
+        .filter(|_| module_load_gate_service_slot_reservation_valid(*binding));
+
+    vec![
+        f(
+            "computed_capability_grant_hash",
+            record_sha_or_null(retained.map(|reference| reference.computed_grant_hash)),
+        ),
+        f(
+            "local_attestation_reference_hash",
+            record_sha_or_null(attestation.map(|reference| reference.attestation_reference_hash)),
+        ),
+        f(
+            "local_attestation_hash",
+            record_sha_or_null(attestation.map(|reference| reference.local_attestation_hash)),
+        ),
+        f(
+            "local_approval_reference_hash",
+            record_sha_or_null(approval.map(|reference| reference.approval_reference_hash)),
+        ),
+        f(
+            "local_approval_hash",
+            record_sha_or_null(approval.map(|reference| reference.local_approval_hash)),
+        ),
+        f(
+            "vm_test_report_reference_hash",
+            record_sha_or_null(report.map(|reference| reference.report_reference_hash)),
+        ),
+        f(
+            "vm_test_report_hash",
+            record_sha_or_null(report.map(|reference| reference.vm_report_hash)),
+        ),
+        f(
+            "artifact_reference_hash",
+            record_sha_or_null(artifact.map(|reference| reference.artifact_reference_hash)),
+        ),
+        f(
+            "artifact_hash",
+            record_sha_or_null(artifact.map(|reference| reference.artifact_hash)),
+        ),
+        f(
+            "manifest_reference_hash",
+            record_sha_or_null(manifest.map(|reference| reference.manifest_reference_hash)),
+        ),
+        f(
+            "manifest_hash",
+            record_sha_or_null(manifest.map(|reference| reference.manifest_hash)),
+        ),
+        f(
+            "audit_record_hash",
+            record_sha_or_null(audit.map(|reference| reference.audit_record_hash)),
+        ),
+        f(
+            "rollback_plan_hash",
+            record_sha_or_null(audit.map(|reference| reference.rollback_plan_hash)),
+        ),
+        f(
+            "pre_load_service_inventory_hash",
+            record_sha_or_null(audit.map(|reference| reference.pre_load_service_inventory_hash)),
+        ),
+        f(
+            "cleanup_actions_hash",
+            record_sha_or_null(audit.map(|reference| reference.cleanup_actions_hash)),
+        ),
+        f(
+            "ram_only_service_slot_id",
+            record_str_or_null(audit.map(|reference| reference.ram_only_service_slot_id.as_str())),
+        ),
+        f(
+            "service_slot_reservation_hash",
+            record_sha_or_null(reservation.map(|reservation| reservation.reservation_hash)),
+        ),
+    ]
+}
+
+fn record_object_for<'a>(fields: Vec<Field<'a>>, compact: bool) -> V<'a> {
+    if compact {
+        V::InlineObject(fields)
     } else {
-        raw_line("        \"service_slot_reservation_hash\": null");
+        V::Object(fields)
+    }
+}
+
+fn static_str_array(values: &[&'static str], compact: bool) -> V<'static> {
+    let mut out = Vec::new();
+    let mut idx = 0usize;
+    while idx < values.len() {
+        out.push(s(values[idx]));
+        idx += 1;
+    }
+    if compact {
+        V::InlineArray(out)
+    } else {
+        V::Array(out)
     }
 }
 
@@ -6011,20 +5965,12 @@ fn emit_module_load_gate_loader_live_load_boundary_compact(
 fn emit_module_load_gate_loader_runtime_source_fact_map_compact() {
     let mut idx = 0usize;
     while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
-        raw("{\"fact\": ");
-        json_str(source.name);
-        raw(", \"schema\": ");
-        json_str(source.schema);
-        raw(", \"id\": ");
-        json_str(source.id);
-        raw(", \"source_method\": ");
-        json_str(source.source_method);
-        raw(", \"source_fact_locator\": ");
-        json_str(source.source_fact_locator);
-        raw(", \"missing_reason\": ");
-        json_str(source.missing_reason);
-        raw(", \"status\": \"missing\", \"present\": false, \"authorizes_load\": false}");
+        emit_inline_record_object_fragment(
+            module_load_gate_loader_runtime_source_fact_fields(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[idx],
+            ),
+            0,
+        );
         if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
             raw(", ");
         }
@@ -6125,121 +6071,8 @@ fn emit_module_load_gate_evidence_hashes_compact(binding: event_log::ModuleLoadG
 fn emit_module_load_gate_audit_rollback_requirements_compact(
     binding: event_log::ModuleLoadGateBinding,
 ) {
-    raw("{\"schema\": \"raios.module_load_gate_audit_rollback_requirements.v0\", \"classification\": \"public\", \"status\": \"required_missing\", \"writes_enabled\": false, \"creates_durable_audit_records\": false, \"creates_rollback_plans\": false, \"durable_audit_record\": {\"schema\": \"raios.audit_record.v0\", \"state\": ");
-    json_str(module_load_gate_durable_audit_state(binding));
-    raw(", \"durability\": \"required_before_load\", \"required_bindings\": [\"denial_event_id\", \"retained_computed_grant_reference_event_id\", \"computed_capability_grant_hash\", \"manifest_hash\", \"artifact_hash\", \"vm_test_report_hash\", \"local_attestation_hash\", \"local_approval_hash\", \"rollback_plan_hash\", \"ram_only_service_slot_id\"]}, \"rollback_plan\": {\"schema\": \"raios.rollback_plan.v0\", \"state\": ");
-    json_str(module_load_gate_rollback_state(binding));
-    raw(", \"must_preexist_load\": true, \"required_bindings\": [\"artifact_hash\", \"pre_load_service_inventory_hash\", \"ram_only_service_slot_id\", \"cleanup_actions_hash\"]}, \"required_hashes\": {");
-    emit_module_load_gate_required_hashes_compact(binding);
-    raw("}, \"retained_reference_event_id\": ");
-    json_event_id_option(binding.retained_reference_event_id);
-    raw(", \"retained_manifest_reference_event_id\": ");
-    json_event_id_option(binding.manifest_reference_event_id);
-    raw(", \"retained_local_attestation_reference_event_id\": ");
-    json_event_id_option(binding.attestation_reference_event_id);
-    raw(", \"retained_local_approval_reference_event_id\": ");
-    json_event_id_option(binding.approval_reference_event_id);
-    raw(", \"retained_audit_rollback_reference_event_id\": ");
-    json_event_id_option(binding.audit_rollback_reference_event_id);
-    raw(", \"retained_service_slot_reservation_event_id\": ");
-    json_event_id_option(binding.service_slot_reservation_event_id);
-    raw(", \"local_approval\": {\"state\": ");
-    json_str(module_load_gate_local_approval_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_local_approval_reason(binding));
-    raw(", \"required\": true, \"authorizes_guest_load\": false}, \"ram_only_service_slot\": {\"state\": ");
-    json_str(module_load_gate_service_slot_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_service_slot_reason(binding));
-    raw(", \"required\": true, \"allocates_service_slot\": false}, \"load_attempted\": false, \"service_inventory_change\": \"none\", \"can_load\": false}");
-}
-
-fn emit_module_load_gate_required_hashes_compact(binding: event_log::ModuleLoadGateBinding) {
-    if let Some(reference) = binding.retained_reference {
-        raw("\"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-    } else {
-        raw("\"computed_capability_grant_hash\": null");
-    }
-    if let Some(reference) = binding
-        .attestation_reference
-        .filter(|_| module_load_gate_local_attestation_reference_valid(binding))
-    {
-        raw(", \"local_attestation_reference_hash\": ");
-        json_sha256(reference.attestation_reference_hash);
-        raw(", \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-    } else {
-        raw(", \"local_attestation_reference_hash\": null, \"local_attestation_hash\": null");
-    }
-    if let Some(reference) = binding
-        .approval_reference
-        .filter(|_| module_load_gate_local_approval_reference_valid(binding))
-    {
-        raw(", \"local_approval_reference_hash\": ");
-        json_sha256(reference.approval_reference_hash);
-        raw(", \"local_approval_hash\": ");
-        json_sha256(reference.local_approval_hash);
-    } else {
-        raw(", \"local_approval_reference_hash\": null, \"local_approval_hash\": null");
-    }
-    if let Some(reference) = binding
-        .vm_report_reference
-        .filter(|_| module_load_gate_vm_test_report_reference_valid(binding))
-    {
-        raw(", \"vm_test_report_reference_hash\": ");
-        json_sha256(reference.report_reference_hash);
-        raw(", \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-    } else {
-        raw(", \"vm_test_report_reference_hash\": null, \"vm_test_report_hash\": null");
-    }
-    if let Some(reference) = binding
-        .artifact_reference
-        .filter(|_| module_load_gate_candidate_artifact_reference_valid(binding))
-    {
-        raw(", \"artifact_reference_hash\": ");
-        json_sha256(reference.artifact_reference_hash);
-        raw(", \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-    } else {
-        raw(", \"artifact_reference_hash\": null, \"artifact_hash\": null");
-    }
-    if let Some(reference) = binding
-        .manifest_reference
-        .filter(|_| module_load_gate_manifest_reference_valid(binding))
-    {
-        raw(", \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw(", \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-    } else {
-        raw(", \"manifest_reference_hash\": null, \"manifest_hash\": null");
-    }
-    if let Some(reference) = binding
-        .audit_rollback_reference
-        .filter(|_| module_load_gate_audit_rollback_reference_valid(binding))
-    {
-        raw(", \"audit_record_hash\": ");
-        json_sha256(reference.audit_record_hash);
-        raw(", \"rollback_plan_hash\": ");
-        json_sha256(reference.rollback_plan_hash);
-        raw(", \"pre_load_service_inventory_hash\": ");
-        json_sha256(reference.pre_load_service_inventory_hash);
-        raw(", \"cleanup_actions_hash\": ");
-        json_sha256(reference.cleanup_actions_hash);
-        raw(", \"ram_only_service_slot_id\": ");
-        json_str(reference.ram_only_service_slot_id.as_str());
-    } else {
-        raw(", \"audit_record_hash\": null, \"rollback_plan_hash\": null, \"pre_load_service_inventory_hash\": null, \"cleanup_actions_hash\": null, \"ram_only_service_slot_id\": null");
-    }
-    if let Some(reservation) = binding
-        .service_slot_reservation
-        .filter(|_| module_load_gate_service_slot_reservation_valid(binding))
-    {
-        raw(", \"service_slot_reservation_hash\": ");
-        json_sha256(reservation.reservation_hash);
-    } else {
-        raw(", \"service_slot_reservation_hash\": null");
-    }
+    emit_inline_record_object_fragment(
+        module_load_gate_audit_rollback_requirement_fields(&binding, true),
+        0,
+    );
 }

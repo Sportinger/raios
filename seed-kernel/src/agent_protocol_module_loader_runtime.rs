@@ -1,7 +1,22 @@
+use alloc::{vec, vec::Vec};
+
+use raios_core::record::{Field, Value as V};
+
+use crate::agent_protocol_support::{
+    record_bool as b, record_event_or_null, record_false as no, record_field as f,
+    record_null as null, record_str as s,
+};
 use crate::{
     agent_protocol_module_service_slot_allocator_projection::latest_module_service_slot_allocator_readiness_projection,
     agent_protocol_module_types::*, agent_protocol_support::*, event_log,
 };
+
+macro_rules! push_status_reason {
+    ($fields:expr, $prefix:literal, $status:expr, $reason:expr $(,)?) => {{
+        $fields.push(f(concat!($prefix, "_status"), s($status)));
+        $fields.push(f(concat!($prefix, "_reason"), s($reason)));
+    }};
+}
 
 pub(crate) fn module_loader_runtime_method(method: &str) -> bool {
     method_head_eq(method, "module.loader_runtime")
@@ -744,46 +759,7 @@ pub(crate) fn emit_module_loader_runtime() {
     let evaluation = evaluate_module_loader_runtime_candidate(candidate);
 
     begin_response("module.loader_runtime");
-    raw_line("      \"schema\": \"raios.module_loader_runtime_readiness.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": true,");
-    raw_line(
-        "      \"global_event_log_mutation\": \"retained_current_boot_source_evidence_only\",",
-    );
-    raw_line("      \"accepts_loader_descriptor\": false,");
-    raw_line("      \"accepts_descriptor_bytes\": false,");
-    raw_line("      \"produces_parsed_descriptor\": false,");
-    raw_line("      \"validates_descriptor_schema\": false,");
-    raw_line("      \"produces_validated_descriptor\": false,");
-    raw_line("      \"validates_descriptor_capabilities\": false,");
-    raw_line("      \"produces_capability_validated_descriptor\": false,");
-    raw_line("      \"authorizes_executable_load_plan\": false,");
-    raw_line("      \"produces_executable_load_plan\": false,");
-    raw_line("      \"produces_executable_image_layout\": false,");
-    raw_line("      \"produces_executable_page_mapping_plan\": false,");
-    raw_line("      \"maps_executable_pages\": false,");
-    raw_line("      \"binds_capability_validated_descriptor_to_executable_pages\": false,");
-    raw_line("      \"parses_descriptor_bytes\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"creates_service_inventory_records\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"starts_service\": false,");
-    raw_line("      \"marks_service_running\": false,");
-    raw_line("      \"creates_service_health_records\": false,");
-    raw_line("      \"writes_service_start_audit_record\": false,");
-    raw_line("      \"unloads_service\": false,");
-    raw_line("      \"cleans_up_service_slot\": false,");
-    raw_line("      \"commits_live_load\": false,");
-    raw_line("      \"writes_load_commit_audit_record\": false,");
-    raw_line("      \"installs_commit_rollback_record\": false,");
-    raw_line("      \"records_load_result\": false,");
-    raw_line("      \"can_load_now\": false,");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"authorizes_guest_load\": false,");
+    emit_record_fields_trailing_comma(module_loader_runtime_header_fields(), 6);
     emit_module_loader_runtime_retained_evidence(
         manifest.as_ref().map(|(event_id, _)| *event_id),
         artifact.as_ref().map(|(event_id, _)| *event_id),
@@ -1079,587 +1055,16 @@ pub(crate) fn emit_module_loader_runtime() {
     raw_line(",");
     emit_module_loader_runtime_facts(candidate, evaluation);
     raw_line(",");
-    raw_line("      \"policy_result\": {");
-    raw("        \"readiness_status\": ");
-    json_str(evaluation.status);
-    raw_line(",");
-    raw("        \"readiness_reason\": ");
-    json_str(evaluation.reason);
-    raw_line(",");
-    raw("        \"retained_module_evidence_complete\": ");
-    raw_bool(module_loader_runtime_retained_evidence_complete(candidate));
-    raw_line(",");
-    raw("        \"service_slot_allocator_readiness_present\": ");
-    raw_bool(candidate.service_slot_allocator_readiness_present);
-    raw_line(",");
-    raw("        \"service_slot_allocator_ready\": ");
-    raw_bool(candidate.service_slot_allocator_ready);
-    raw_line(",");
-    raw("        \"loader_runtime_facts_complete\": ");
-    raw_bool(module_loader_runtime_facts_complete(evaluation));
-    raw_line(",");
-    raw("        \"execution_commit_gate_status\": ");
-    json_str(evaluation.execution_commit_gate_status);
-    raw_line(",");
-    raw("        \"execution_commit_gate_reason\": ");
-    json_str(evaluation.execution_commit_gate_reason);
-    raw_line(",");
-    raw("        \"descriptor_intake_boundary_status\": ");
-    json_str(evaluation.descriptor_intake_boundary_status);
-    raw_line(",");
-    raw("        \"descriptor_intake_boundary_reason\": ");
-    json_str(evaluation.descriptor_intake_boundary_reason);
-    raw_line(",");
-    raw("        \"artifact_byte_intake_boundary_status\": ");
-    json_str(evaluation.artifact_byte_intake_boundary_status);
-    raw_line(",");
-    raw("        \"artifact_byte_intake_boundary_reason\": ");
-    json_str(evaluation.artifact_byte_intake_boundary_reason);
-    raw_line(",");
-    raw("        \"execution_authorization_boundary_status\": ");
-    json_str(evaluation.execution_authorization_boundary_status);
-    raw_line(",");
-    raw("        \"execution_authorization_boundary_reason\": ");
-    json_str(evaluation.execution_authorization_boundary_reason);
-    raw_line(",");
-    raw("        \"service_registry_mutation_boundary_status\": ");
-    json_str(evaluation.service_registry_mutation_boundary_status);
-    raw_line(",");
-    raw("        \"service_registry_mutation_boundary_reason\": ");
-    json_str(evaluation.service_registry_mutation_boundary_reason);
-    raw_line(",");
-    raw("        \"load_attempt_boundary_status\": ");
-    json_str(evaluation.load_attempt_boundary_status);
-    raw_line(",");
-    raw("        \"load_attempt_boundary_reason\": ");
-    json_str(evaluation.load_attempt_boundary_reason);
-    raw_line(",");
-    raw("        \"artifact_load_boundary_status\": ");
-    json_str(evaluation.artifact_load_boundary_status);
-    raw_line(",");
-    raw("        \"artifact_load_boundary_reason\": ");
-    json_str(evaluation.artifact_load_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_mapping_boundary_status\": ");
-    json_str(evaluation.executable_mapping_boundary_status);
-    raw_line(",");
-    raw("        \"executable_mapping_boundary_reason\": ");
-    json_str(evaluation.executable_mapping_boundary_reason);
-    raw_line(",");
-    raw("        \"entrypoint_transfer_boundary_status\": ");
-    json_str(evaluation.entrypoint_transfer_boundary_status);
-    raw_line(",");
-    raw("        \"entrypoint_transfer_boundary_reason\": ");
-    json_str(evaluation.entrypoint_transfer_boundary_reason);
-    raw_line(",");
-    raw("        \"service_start_boundary_status\": ");
-    json_str(evaluation.service_start_boundary_status);
-    raw_line(",");
-    raw("        \"service_start_boundary_reason\": ");
-    json_str(evaluation.service_start_boundary_reason);
-    raw_line(",");
-    raw("        \"service_health_binding_boundary_status\": ");
-    json_str(evaluation.service_health_binding_boundary_status);
-    raw_line(",");
-    raw("        \"service_health_binding_boundary_reason\": ");
-    json_str(evaluation.service_health_binding_boundary_reason);
-    raw_line(",");
-    raw("        \"service_running_state_boundary_status\": ");
-    json_str(evaluation.service_running_state_boundary_status);
-    raw_line(",");
-    raw("        \"service_running_state_boundary_reason\": ");
-    json_str(evaluation.service_running_state_boundary_reason);
-    raw_line(",");
-    raw("        \"service_start_audit_boundary_status\": ");
-    json_str(evaluation.service_start_audit_boundary_status);
-    raw_line(",");
-    raw("        \"service_start_audit_boundary_reason\": ");
-    json_str(evaluation.service_start_audit_boundary_reason);
-    raw_line(",");
-    raw("        \"service_unload_cleanup_boundary_status\": ");
-    json_str(evaluation.service_unload_cleanup_boundary_status);
-    raw_line(",");
-    raw("        \"service_unload_cleanup_boundary_reason\": ");
-    json_str(evaluation.service_unload_cleanup_boundary_reason);
-    raw_line(",");
-    raw("        \"live_load_commit_boundary_status\": ");
-    json_str(evaluation.live_load_commit_boundary_status);
-    raw_line(",");
-    raw("        \"live_load_commit_boundary_reason\": ");
-    json_str(evaluation.live_load_commit_boundary_reason);
-    raw_line(",");
-    raw("        \"commit_audit_boundary_status\": ");
-    json_str(evaluation.commit_audit_boundary_status);
-    raw_line(",");
-    raw("        \"commit_audit_boundary_reason\": ");
-    json_str(evaluation.commit_audit_boundary_reason);
-    raw_line(",");
-    raw("        \"commit_rollback_boundary_status\": ");
-    json_str(evaluation.commit_rollback_boundary_status);
-    raw_line(",");
-    raw("        \"commit_rollback_boundary_reason\": ");
-    json_str(evaluation.commit_rollback_boundary_reason);
-    raw_line(",");
-    raw("        \"commit_result_boundary_status\": ");
-    json_str(evaluation.commit_result_boundary_status);
-    raw_line(",");
-    raw("        \"commit_result_boundary_reason\": ");
-    json_str(evaluation.commit_result_boundary_reason);
-    raw_line(",");
-    raw("        \"descriptor_acceptance_authority_boundary_status\": ");
-    json_str(evaluation.descriptor_acceptance_authority_boundary_status);
-    raw_line(",");
-    raw("        \"descriptor_acceptance_authority_boundary_reason\": ");
-    json_str(evaluation.descriptor_acceptance_authority_boundary_reason);
-    raw_line(",");
-    raw("        \"descriptor_parser_contract_boundary_status\": ");
-    json_str(evaluation.descriptor_parser_contract_boundary_status);
-    raw_line(",");
-    raw("        \"descriptor_parser_contract_boundary_reason\": ");
-    json_str(evaluation.descriptor_parser_contract_boundary_reason);
-    raw_line(",");
-    raw("        \"descriptor_parser_result_boundary_status\": ");
-    json_str(evaluation.descriptor_parser_result_boundary_status);
-    raw_line(",");
-    raw("        \"descriptor_parser_result_boundary_reason\": ");
-    json_str(evaluation.descriptor_parser_result_boundary_reason);
-    raw_line(",");
-    raw("        \"descriptor_schema_validation_boundary_status\": ");
-    json_str(evaluation.descriptor_schema_validation_boundary_status);
-    raw_line(",");
-    raw("        \"descriptor_schema_validation_boundary_reason\": ");
-    json_str(evaluation.descriptor_schema_validation_boundary_reason);
-    raw_line(",");
-    raw("        \"descriptor_capability_validation_boundary_status\": ");
-    json_str(evaluation.descriptor_capability_validation_boundary_status);
-    raw_line(",");
-    raw("        \"descriptor_capability_validation_boundary_reason\": ");
-    json_str(evaluation.descriptor_capability_validation_boundary_reason);
-    raw_line(",");
-    raw("        \"descriptor_load_plan_boundary_status\": ");
-    json_str(evaluation.descriptor_load_plan_boundary_status);
-    raw_line(",");
-    raw("        \"descriptor_load_plan_boundary_reason\": ");
-    json_str(evaluation.descriptor_load_plan_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_load_plan_authority_boundary_status\": ");
-    json_str(evaluation.executable_load_plan_authority_boundary_status);
-    raw_line(",");
-    raw("        \"executable_load_plan_authority_boundary_reason\": ");
-    json_str(evaluation.executable_load_plan_authority_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_load_plan_result_boundary_status\": ");
-    json_str(evaluation.executable_load_plan_result_boundary_status);
-    raw_line(",");
-    raw("        \"executable_load_plan_result_boundary_reason\": ");
-    json_str(evaluation.executable_load_plan_result_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_image_layout_boundary_status\": ");
-    json_str(evaluation.executable_image_layout_boundary_status);
-    raw_line(",");
-    raw("        \"executable_image_layout_boundary_reason\": ");
-    json_str(evaluation.executable_image_layout_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_page_mapping_plan_boundary_status\": ");
-    json_str(evaluation.executable_page_mapping_plan_boundary_status);
-    raw_line(",");
-    raw("        \"executable_page_mapping_plan_boundary_reason\": ");
-    json_str(evaluation.executable_page_mapping_plan_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_page_mapping_boundary_status\": ");
-    json_str(evaluation.executable_page_mapping_boundary_status);
-    raw_line(",");
-    raw("        \"executable_page_mapping_boundary_reason\": ");
-    json_str(evaluation.executable_page_mapping_boundary_reason);
-    raw_line(",");
-    raw("        \"descriptor_executable_page_binding_boundary_status\": ");
-    json_str(evaluation.descriptor_executable_page_binding_boundary_status);
-    raw_line(",");
-    raw("        \"descriptor_executable_page_binding_boundary_reason\": ");
-    json_str(evaluation.descriptor_executable_page_binding_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_entrypoint_binding_boundary_status\": ");
-    json_str(evaluation.executable_entrypoint_binding_boundary_status);
-    raw_line(",");
-    raw("        \"executable_entrypoint_binding_boundary_reason\": ");
-    json_str(evaluation.executable_entrypoint_binding_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_entrypoint_transfer_authorization_boundary_status\": ");
-    json_str(evaluation.executable_entrypoint_transfer_authorization_boundary_status);
-    raw_line(",");
-    raw("        \"executable_entrypoint_transfer_authorization_boundary_reason\": ");
-    json_str(evaluation.executable_entrypoint_transfer_authorization_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_entrypoint_transfer_boundary_status\": ");
-    json_str(evaluation.executable_entrypoint_transfer_boundary_status);
-    raw_line(",");
-    raw("        \"executable_entrypoint_transfer_boundary_reason\": ");
-    json_str(evaluation.executable_entrypoint_transfer_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_entrypoint_handoff_boundary_status\": ");
-    json_str(evaluation.executable_entrypoint_handoff_boundary_status);
-    raw_line(",");
-    raw("        \"executable_entrypoint_handoff_boundary_reason\": ");
-    json_str(evaluation.executable_entrypoint_handoff_boundary_reason);
-    raw_line(",");
-    raw("        \"executable_entrypoint_invocation_boundary_status\": ");
-    json_str(evaluation.executable_entrypoint_invocation_boundary_status);
-    raw_line(",");
-    raw("        \"executable_entrypoint_invocation_boundary_reason\": ");
-    json_str(evaluation.executable_entrypoint_invocation_boundary_reason);
-    raw_line(",");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"starts_service\": false,");
-    raw_line("        \"marks_service_running\": false,");
-    raw_line("        \"creates_service_health_records\": false,");
-    raw_line("        \"writes_service_start_audit_record\": false,");
-    raw_line("        \"unloads_service\": false,");
-    raw_line("        \"cleans_up_service_slot\": false,");
-    raw_line("        \"commits_live_load\": false,");
-    raw_line("        \"writes_load_commit_audit_record\": false,");
-    raw_line("        \"installs_commit_rollback_record\": false,");
-    raw_line("        \"records_load_result\": false,");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false,");
-    raw_line("        \"authorizes_guest_load\": false");
-    raw_line("      },");
-    raw_line("      \"blocked_by\": [");
-    let mut wrote = false;
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "retained_module_manifest_reference",
-        evaluation.manifest_reference_status,
-        evaluation.manifest_reference_reason,
+    emit_record_property_line(
+        "policy_result",
+        module_loader_runtime_policy_result_fields(candidate, evaluation),
+        true,
     );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "retained_module_candidate_artifact_reference",
-        evaluation.artifact_reference_status,
-        evaluation.artifact_reference_reason,
+    emit_record_value_property_line(
+        "blocked_by",
+        module_loader_runtime_blocked_by(evaluation),
+        false,
     );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "retained_module_vm_test_report_reference",
-        evaluation.vm_report_reference_status,
-        evaluation.vm_report_reference_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "retained_module_local_attestation_reference",
-        evaluation.local_attestation_reference_status,
-        evaluation.local_attestation_reference_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "retained_module_local_approval_reference",
-        evaluation.local_approval_reference_status,
-        evaluation.local_approval_reference_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "retained_module_computed_grant_reference",
-        evaluation.computed_grant_reference_status,
-        evaluation.computed_grant_reference_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "retained_module_audit_rollback_reference",
-        evaluation.audit_rollback_reference_status,
-        evaluation.audit_rollback_reference_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "retained_module_service_slot_reservation",
-        evaluation.service_slot_reservation_status,
-        evaluation.service_slot_reservation_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "service_slot_allocator_readiness",
-        evaluation.service_slot_allocator_readiness_status,
-        evaluation.service_slot_allocator_readiness_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "service_slot_allocator_runtime",
-        evaluation.service_slot_allocator_runtime_status,
-        evaluation.service_slot_allocator_runtime_reason,
-    );
-    emit_module_loader_runtime_fact_gate(
-        &mut wrote,
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[0],
-        evaluation.loader_identity_status,
-        evaluation.loader_identity_reason,
-    );
-    emit_module_loader_runtime_fact_gate(
-        &mut wrote,
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[1],
-        evaluation.artifact_hash_binding_status,
-        evaluation.artifact_hash_binding_reason,
-    );
-    emit_module_loader_runtime_fact_gate(
-        &mut wrote,
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
-        evaluation.entrypoint_abi_status,
-        evaluation.entrypoint_abi_reason,
-    );
-    emit_module_loader_runtime_fact_gate(
-        &mut wrote,
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
-        evaluation.address_space_boundary_status,
-        evaluation.address_space_boundary_reason,
-    );
-    emit_module_loader_runtime_fact_gate(
-        &mut wrote,
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
-        evaluation.memory_map_constraints_status,
-        evaluation.memory_map_constraints_reason,
-    );
-    emit_module_loader_runtime_fact_gate(
-        &mut wrote,
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
-        evaluation.capability_import_table_status,
-        evaluation.capability_import_table_reason,
-    );
-    emit_module_loader_runtime_fact_gate(
-        &mut wrote,
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
-        evaluation.service_slot_binding_status,
-        evaluation.service_slot_binding_reason,
-    );
-    emit_module_loader_runtime_fact_gate(
-        &mut wrote,
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
-        evaluation.health_state_hooks_status,
-        evaluation.health_state_hooks_reason,
-    );
-    emit_module_loader_runtime_fact_gate(
-        &mut wrote,
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
-        evaluation.rollback_hooks_status,
-        evaluation.rollback_hooks_reason,
-    );
-    emit_module_loader_runtime_fact_gate(
-        &mut wrote,
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
-        evaluation.audit_rollback_write_boundary_binding_status,
-        evaluation.audit_rollback_write_boundary_binding_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "execution_commit_gate",
-        evaluation.execution_commit_gate_status,
-        evaluation.execution_commit_gate_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "descriptor_intake_boundary",
-        evaluation.descriptor_intake_boundary_status,
-        evaluation.descriptor_intake_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "artifact_byte_intake_boundary",
-        evaluation.artifact_byte_intake_boundary_status,
-        evaluation.artifact_byte_intake_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "execution_authorization_boundary",
-        evaluation.execution_authorization_boundary_status,
-        evaluation.execution_authorization_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "service_registry_mutation_boundary",
-        evaluation.service_registry_mutation_boundary_status,
-        evaluation.service_registry_mutation_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "load_attempt_boundary",
-        evaluation.load_attempt_boundary_status,
-        evaluation.load_attempt_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "artifact_load_boundary",
-        evaluation.artifact_load_boundary_status,
-        evaluation.artifact_load_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_mapping_boundary",
-        evaluation.executable_mapping_boundary_status,
-        evaluation.executable_mapping_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "entrypoint_transfer_boundary",
-        evaluation.entrypoint_transfer_boundary_status,
-        evaluation.entrypoint_transfer_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "service_start_boundary",
-        evaluation.service_start_boundary_status,
-        evaluation.service_start_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "service_health_binding_boundary",
-        evaluation.service_health_binding_boundary_status,
-        evaluation.service_health_binding_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "service_running_state_boundary",
-        evaluation.service_running_state_boundary_status,
-        evaluation.service_running_state_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "service_start_audit_boundary",
-        evaluation.service_start_audit_boundary_status,
-        evaluation.service_start_audit_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "service_unload_cleanup_boundary",
-        evaluation.service_unload_cleanup_boundary_status,
-        evaluation.service_unload_cleanup_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "live_load_commit_boundary",
-        evaluation.live_load_commit_boundary_status,
-        evaluation.live_load_commit_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "commit_audit_boundary",
-        evaluation.commit_audit_boundary_status,
-        evaluation.commit_audit_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "commit_rollback_boundary",
-        evaluation.commit_rollback_boundary_status,
-        evaluation.commit_rollback_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "commit_result_boundary",
-        evaluation.commit_result_boundary_status,
-        evaluation.commit_result_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "descriptor_acceptance_authority_boundary",
-        evaluation.descriptor_acceptance_authority_boundary_status,
-        evaluation.descriptor_acceptance_authority_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "descriptor_parser_contract_boundary",
-        evaluation.descriptor_parser_contract_boundary_status,
-        evaluation.descriptor_parser_contract_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "descriptor_parser_result_boundary",
-        evaluation.descriptor_parser_result_boundary_status,
-        evaluation.descriptor_parser_result_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "descriptor_schema_validation_boundary",
-        evaluation.descriptor_schema_validation_boundary_status,
-        evaluation.descriptor_schema_validation_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "descriptor_capability_validation_boundary",
-        evaluation.descriptor_capability_validation_boundary_status,
-        evaluation.descriptor_capability_validation_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "descriptor_load_plan_boundary",
-        evaluation.descriptor_load_plan_boundary_status,
-        evaluation.descriptor_load_plan_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_load_plan_authority_boundary",
-        evaluation.executable_load_plan_authority_boundary_status,
-        evaluation.executable_load_plan_authority_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_load_plan_result_boundary",
-        evaluation.executable_load_plan_result_boundary_status,
-        evaluation.executable_load_plan_result_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_image_layout_boundary",
-        evaluation.executable_image_layout_boundary_status,
-        evaluation.executable_image_layout_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_page_mapping_plan_boundary",
-        evaluation.executable_page_mapping_plan_boundary_status,
-        evaluation.executable_page_mapping_plan_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_page_mapping_boundary",
-        evaluation.executable_page_mapping_boundary_status,
-        evaluation.executable_page_mapping_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "descriptor_executable_page_binding_boundary",
-        evaluation.descriptor_executable_page_binding_boundary_status,
-        evaluation.descriptor_executable_page_binding_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_entrypoint_binding_boundary",
-        evaluation.executable_entrypoint_binding_boundary_status,
-        evaluation.executable_entrypoint_binding_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_entrypoint_transfer_authorization_boundary",
-        evaluation.executable_entrypoint_transfer_authorization_boundary_status,
-        evaluation.executable_entrypoint_transfer_authorization_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_entrypoint_transfer_boundary",
-        evaluation.executable_entrypoint_transfer_boundary_status,
-        evaluation.executable_entrypoint_transfer_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_entrypoint_handoff_boundary",
-        evaluation.executable_entrypoint_handoff_boundary_status,
-        evaluation.executable_entrypoint_handoff_boundary_reason,
-    );
-    emit_module_loader_runtime_gate(
-        &mut wrote,
-        "executable_entrypoint_invocation_boundary",
-        evaluation.executable_entrypoint_invocation_boundary_status,
-        evaluation.executable_entrypoint_invocation_boundary_reason,
-    );
-    crlf();
-    raw_line("      ]");
     end_response("module.loader_runtime");
 }
 
@@ -1674,43 +1079,45 @@ pub(crate) fn emit_module_loader_runtime_selftest() {
     }
     passed = passed && source_fact_map_complete;
 
-    begin_response("module.loader_runtime_selftest");
-    raw_line("      \"schema\": \"raios.module_loader_runtime_readiness_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"accepts_loader_descriptor\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"creates_service_inventory_records\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"can_load_now\": false,");
-    raw_line("      \"load_attempted\": false,");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
-    raw("      \"source_fact_count\": ");
-    raw_fmt(format_args!("{}", MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT));
-    raw_line(",");
-    raw("      \"source_fact_map_complete\": ");
-    raw_bool(source_fact_map_complete);
-    raw_line(",");
-    raw_line("      \"source_fact_map\": [");
-    emit_module_loader_runtime_source_fact_map();
-    raw_line("      ],");
-    raw_line("      \"cases\": [");
+    let mut case_values = Vec::new();
     idx = 0;
     while idx < cases.len() {
-        emit_module_loader_runtime_selftest_case(&cases[idx], idx + 1 != cases.len());
+        case_values.push(module_loader_runtime_selftest_case_value(&cases[idx]));
         idx += 1;
     }
-    raw_line("      ],");
-    raw_line("      \"can_load\": false");
+
+    begin_response("module.loader_runtime_selftest");
+    emit_record_fields(
+        vec![
+            f(
+                "schema",
+                s("raios.module_loader_runtime_readiness_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("accepts_loader_descriptor", no()),
+            f("accepts_artifact_bytes", no()),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f(
+                "source_fact_count",
+                V::U64(MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT as u64),
+            ),
+            f("source_fact_map_complete", b(source_fact_map_complete)),
+            f("source_fact_map", module_loader_runtime_source_fact_map()),
+            f("cases", V::Array(case_values)),
+            f("can_load", no()),
+        ],
+        6,
+    );
     end_response("module.loader_runtime_selftest");
 }
 
@@ -1724,125 +1131,976 @@ fn emit_module_loader_runtime_retained_evidence(
     audit_rollback_event_id: Option<event_log::EventId>,
     service_slot_event_id: Option<event_log::EventId>,
 ) {
-    raw_line("      \"retained_module_evidence\": {");
-    emit_module_loader_runtime_retained_evidence_item(
-        "manifest_reference",
-        "raios.module_manifest_reference.v0",
-        manifest_event_id,
-        "retained_module_manifest_reference_available",
-        "retained_module_manifest_reference_missing",
-        true,
-    );
-    emit_module_loader_runtime_retained_evidence_item(
-        "candidate_artifact_reference",
-        "raios.module_candidate_artifact_reference.v0",
-        artifact_event_id,
-        "retained_module_candidate_artifact_reference_available",
-        "retained_module_candidate_artifact_reference_missing",
-        true,
-    );
-    emit_module_loader_runtime_retained_evidence_item(
-        "vm_test_report_reference",
-        "raios.module_vm_test_report_reference.v0",
-        vm_report_event_id,
-        "retained_module_vm_test_report_reference_available",
-        "retained_module_vm_test_report_reference_missing",
-        true,
-    );
-    emit_module_loader_runtime_retained_evidence_item(
-        "local_attestation_reference",
-        "raios.module_local_attestation_reference.v0",
-        local_attestation_event_id,
-        "retained_module_local_attestation_reference_available",
-        "retained_module_local_attestation_reference_missing",
-        true,
-    );
-    emit_module_loader_runtime_retained_evidence_item(
-        "local_approval_reference",
-        "raios.module_local_approval_reference.v0",
-        local_approval_event_id,
-        "retained_module_local_approval_reference_available",
-        "retained_module_local_approval_reference_missing",
-        true,
-    );
-    emit_module_loader_runtime_retained_evidence_item(
-        "computed_grant_reference",
-        "raios.module_computed_grant_reference.v0",
-        computed_grant_event_id,
-        "retained_module_computed_grant_reference_available",
-        "retained_module_computed_grant_reference_missing",
-        true,
-    );
-    emit_module_loader_runtime_retained_evidence_item(
-        "audit_rollback_reference",
-        "raios.module_audit_rollback_reference.v0",
-        audit_rollback_event_id,
-        "retained_module_audit_rollback_reference_available",
-        "retained_module_audit_rollback_reference_missing",
-        true,
-    );
-    emit_module_loader_runtime_retained_evidence_item(
-        "service_slot_reservation",
-        "raios.module_service_slot_reservation.v0",
-        service_slot_event_id,
-        "retained_module_service_slot_reservation_available",
-        "retained_module_service_slot_reservation_missing",
+    emit_record_property_line(
+        "retained_module_evidence",
+        vec![
+            module_loader_runtime_retained_evidence_item(
+                "manifest_reference",
+                "raios.module_manifest_reference.v0",
+                manifest_event_id,
+                "retained_module_manifest_reference_available",
+                "retained_module_manifest_reference_missing",
+            ),
+            module_loader_runtime_retained_evidence_item(
+                "candidate_artifact_reference",
+                "raios.module_candidate_artifact_reference.v0",
+                artifact_event_id,
+                "retained_module_candidate_artifact_reference_available",
+                "retained_module_candidate_artifact_reference_missing",
+            ),
+            module_loader_runtime_retained_evidence_item(
+                "vm_test_report_reference",
+                "raios.module_vm_test_report_reference.v0",
+                vm_report_event_id,
+                "retained_module_vm_test_report_reference_available",
+                "retained_module_vm_test_report_reference_missing",
+            ),
+            module_loader_runtime_retained_evidence_item(
+                "local_attestation_reference",
+                "raios.module_local_attestation_reference.v0",
+                local_attestation_event_id,
+                "retained_module_local_attestation_reference_available",
+                "retained_module_local_attestation_reference_missing",
+            ),
+            module_loader_runtime_retained_evidence_item(
+                "local_approval_reference",
+                "raios.module_local_approval_reference.v0",
+                local_approval_event_id,
+                "retained_module_local_approval_reference_available",
+                "retained_module_local_approval_reference_missing",
+            ),
+            module_loader_runtime_retained_evidence_item(
+                "computed_grant_reference",
+                "raios.module_computed_grant_reference.v0",
+                computed_grant_event_id,
+                "retained_module_computed_grant_reference_available",
+                "retained_module_computed_grant_reference_missing",
+            ),
+            module_loader_runtime_retained_evidence_item(
+                "audit_rollback_reference",
+                "raios.module_audit_rollback_reference.v0",
+                audit_rollback_event_id,
+                "retained_module_audit_rollback_reference_available",
+                "retained_module_audit_rollback_reference_missing",
+            ),
+            module_loader_runtime_retained_evidence_item(
+                "service_slot_reservation",
+                "raios.module_service_slot_reservation.v0",
+                service_slot_event_id,
+                "retained_module_service_slot_reservation_available",
+                "retained_module_service_slot_reservation_missing",
+            ),
+        ],
         false,
     );
-    raw_line("      }");
 }
 
-fn emit_module_loader_runtime_retained_evidence_item(
+fn module_loader_runtime_retained_evidence_item(
     name: &'static str,
     schema: &'static str,
     event_id: Option<event_log::EventId>,
     available_reason: &'static str,
     missing_reason: &'static str,
-    comma: bool,
-) {
-    raw("        ");
-    json_str(name);
-    raw_line(": {");
-    raw("          \"schema\": ");
-    json_str(schema);
-    raw_line(",");
-    raw_line("          \"scope\": \"current_boot\",");
-    raw_line("          \"classification\": \"local_only\",");
-    raw("          \"state\": ");
-    json_str(if event_id.is_some() {
-        "present"
-    } else {
-        "missing"
-    });
-    raw_line(",");
-    raw("          \"event_id\": ");
-    json_event_id_option(event_id);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(if event_id.is_some() {
-        "available"
-    } else {
-        "missing"
-    });
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(if event_id.is_some() {
-        available_reason
-    } else {
-        missing_reason
-    });
-    raw_line(",");
-    raw_line("          \"authority\": \"retained_hash_reference_only\",");
-    raw_line("          \"loads_artifact\": false,");
-    raw_line("          \"allocates_service_slot\": false,");
-    raw_line("          \"service_inventory_change\": \"none\",");
-    raw_line("          \"can_load_now\": false,");
-    raw_line("          \"load_attempted\": false");
-    raw("        }");
-    if comma {
-        raw(",");
+) -> Field<'static> {
+    f(
+        name,
+        V::Object(vec![
+            f("schema", s(schema)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f(
+                "state",
+                s(if event_id.is_some() {
+                    "present"
+                } else {
+                    "missing"
+                }),
+            ),
+            f("event_id", record_event_or_null(event_id)),
+            f(
+                "status",
+                s(if event_id.is_some() {
+                    "available"
+                } else {
+                    "missing"
+                }),
+            ),
+            f(
+                "reason",
+                s(if event_id.is_some() {
+                    available_reason
+                } else {
+                    missing_reason
+                }),
+            ),
+            f("authority", s("retained_hash_reference_only")),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ]),
+    )
+}
+
+fn push_false_fields(fields: &mut Vec<Field<'static>>, names: &[&'static str]) {
+    let mut idx = 0usize;
+    while idx < names.len() {
+        fields.push(f(names[idx], no()));
+        idx += 1;
     }
-    crlf();
+}
+
+macro_rules! bf {
+    ($fields:expr, $key:literal => $value:expr;) => {{
+        $fields.push(f($key, b($value)));
+    }};
+}
+
+fn push_request_target_fields(fields: &mut Vec<Field<'static>>) {
+    fields.push(f("requested_capability", s("cap.module.load_ephemeral")));
+    fields.push(f("load_mode", s("ram_only")));
+    fields.push(f("target", s("live_service_graph")));
+}
+
+fn module_loader_runtime_header_fields() -> Vec<Field<'static>> {
+    let mut fields = vec![
+        f("schema", s("raios.module_loader_runtime_readiness.v0")),
+        f("scope", s("current_boot")),
+        f("classification", s("local_only")),
+        f("test_infrastructure", no()),
+        f("mutates_global_event_log", b(true)),
+        f(
+            "global_event_log_mutation",
+            s("retained_current_boot_source_evidence_only"),
+        ),
+    ];
+    push_false_fields(
+        &mut fields,
+        &[
+            "accepts_loader_descriptor",
+            "accepts_descriptor_bytes",
+            "produces_parsed_descriptor",
+            "validates_descriptor_schema",
+            "produces_validated_descriptor",
+            "validates_descriptor_capabilities",
+            "produces_capability_validated_descriptor",
+            "authorizes_executable_load_plan",
+            "produces_executable_load_plan",
+            "produces_executable_image_layout",
+            "produces_executable_page_mapping_plan",
+            "maps_executable_pages",
+            "binds_capability_validated_descriptor_to_executable_pages",
+            "parses_descriptor_bytes",
+            "accepts_artifact_bytes",
+            "loads_artifact",
+            "allocates_service_slot",
+            "creates_service_inventory_records",
+        ],
+    );
+    fields.push(f("service_inventory_change", s("none")));
+    push_false_fields(
+        &mut fields,
+        &[
+            "starts_service",
+            "marks_service_running",
+            "creates_service_health_records",
+            "writes_service_start_audit_record",
+            "unloads_service",
+            "cleans_up_service_slot",
+            "commits_live_load",
+            "writes_load_commit_audit_record",
+            "installs_commit_rollback_record",
+            "records_load_result",
+            "can_load_now",
+            "load_attempted",
+            "authorizes_guest_load",
+        ],
+    );
+    fields
+}
+
+fn module_loader_runtime_policy_result_fields(
+    candidate: ModuleLoaderRuntimeCandidate,
+    evaluation: ModuleLoaderRuntimeEvaluation,
+) -> Vec<Field<'static>> {
+    let mut fields = vec![
+        f("readiness_status", s(evaluation.status)),
+        f("readiness_reason", s(evaluation.reason)),
+        f(
+            "retained_module_evidence_complete",
+            b(module_loader_runtime_retained_evidence_complete(candidate)),
+        ),
+        f(
+            "service_slot_allocator_readiness_present",
+            b(candidate.service_slot_allocator_readiness_present),
+        ),
+        f(
+            "service_slot_allocator_ready",
+            b(candidate.service_slot_allocator_ready),
+        ),
+        f(
+            "loader_runtime_facts_complete",
+            b(module_loader_runtime_facts_complete(evaluation)),
+        ),
+    ];
+    push_status_reason!(
+        &mut fields,
+        "execution_commit_gate",
+        evaluation.execution_commit_gate_status,
+        evaluation.execution_commit_gate_reason,
+    );
+    push_status_reason!(
+        &mut fields,
+        "descriptor_intake_boundary",
+        evaluation.descriptor_intake_boundary_status,
+        evaluation.descriptor_intake_boundary_reason,
+    );
+    push_status_reason!(
+        &mut fields,
+        "artifact_byte_intake_boundary",
+        evaluation.artifact_byte_intake_boundary_status,
+        evaluation.artifact_byte_intake_boundary_reason,
+    );
+    push_status_reason!(
+        &mut fields,
+        "execution_authorization_boundary",
+        evaluation.execution_authorization_boundary_status,
+        evaluation.execution_authorization_boundary_reason,
+    );
+    push_status_reason!(
+        &mut fields,
+        "service_registry_mutation_boundary",
+        evaluation.service_registry_mutation_boundary_status,
+        evaluation.service_registry_mutation_boundary_reason,
+    );
+    push_live_load_status_reason_fields(&mut fields, evaluation);
+    push_false_fields(
+        &mut fields,
+        &[
+            "loads_artifact",
+            "allocates_service_slot",
+            "creates_service_inventory_records",
+        ],
+    );
+    fields.push(f("service_inventory_change", s("none")));
+    push_false_fields(
+        &mut fields,
+        &[
+            "starts_service",
+            "marks_service_running",
+            "creates_service_health_records",
+            "writes_service_start_audit_record",
+            "unloads_service",
+            "cleans_up_service_slot",
+            "commits_live_load",
+            "writes_load_commit_audit_record",
+            "installs_commit_rollback_record",
+            "records_load_result",
+            "can_load_now",
+            "load_attempted",
+            "authorizes_guest_load",
+        ],
+    );
+    fields
+}
+
+fn push_live_load_status_reason_fields(
+    fields: &mut Vec<Field<'static>>,
+    evaluation: ModuleLoaderRuntimeEvaluation,
+) {
+    push_status_reason!(
+        fields,
+        "load_attempt_boundary",
+        evaluation.load_attempt_boundary_status,
+        evaluation.load_attempt_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "artifact_load_boundary",
+        evaluation.artifact_load_boundary_status,
+        evaluation.artifact_load_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_mapping_boundary",
+        evaluation.executable_mapping_boundary_status,
+        evaluation.executable_mapping_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "entrypoint_transfer_boundary",
+        evaluation.entrypoint_transfer_boundary_status,
+        evaluation.entrypoint_transfer_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "service_start_boundary",
+        evaluation.service_start_boundary_status,
+        evaluation.service_start_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "service_health_binding_boundary",
+        evaluation.service_health_binding_boundary_status,
+        evaluation.service_health_binding_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "service_running_state_boundary",
+        evaluation.service_running_state_boundary_status,
+        evaluation.service_running_state_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "service_start_audit_boundary",
+        evaluation.service_start_audit_boundary_status,
+        evaluation.service_start_audit_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "service_unload_cleanup_boundary",
+        evaluation.service_unload_cleanup_boundary_status,
+        evaluation.service_unload_cleanup_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "live_load_commit_boundary",
+        evaluation.live_load_commit_boundary_status,
+        evaluation.live_load_commit_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "commit_audit_boundary",
+        evaluation.commit_audit_boundary_status,
+        evaluation.commit_audit_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "commit_rollback_boundary",
+        evaluation.commit_rollback_boundary_status,
+        evaluation.commit_rollback_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "commit_result_boundary",
+        evaluation.commit_result_boundary_status,
+        evaluation.commit_result_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "descriptor_acceptance_authority_boundary",
+        evaluation.descriptor_acceptance_authority_boundary_status,
+        evaluation.descriptor_acceptance_authority_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "descriptor_parser_contract_boundary",
+        evaluation.descriptor_parser_contract_boundary_status,
+        evaluation.descriptor_parser_contract_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "descriptor_parser_result_boundary",
+        evaluation.descriptor_parser_result_boundary_status,
+        evaluation.descriptor_parser_result_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "descriptor_schema_validation_boundary",
+        evaluation.descriptor_schema_validation_boundary_status,
+        evaluation.descriptor_schema_validation_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "descriptor_capability_validation_boundary",
+        evaluation.descriptor_capability_validation_boundary_status,
+        evaluation.descriptor_capability_validation_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "descriptor_load_plan_boundary",
+        evaluation.descriptor_load_plan_boundary_status,
+        evaluation.descriptor_load_plan_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_load_plan_authority_boundary",
+        evaluation.executable_load_plan_authority_boundary_status,
+        evaluation.executable_load_plan_authority_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_load_plan_result_boundary",
+        evaluation.executable_load_plan_result_boundary_status,
+        evaluation.executable_load_plan_result_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_image_layout_boundary",
+        evaluation.executable_image_layout_boundary_status,
+        evaluation.executable_image_layout_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_page_mapping_plan_boundary",
+        evaluation.executable_page_mapping_plan_boundary_status,
+        evaluation.executable_page_mapping_plan_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_page_mapping_boundary",
+        evaluation.executable_page_mapping_boundary_status,
+        evaluation.executable_page_mapping_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "descriptor_executable_page_binding_boundary",
+        evaluation.descriptor_executable_page_binding_boundary_status,
+        evaluation.descriptor_executable_page_binding_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_entrypoint_binding_boundary",
+        evaluation.executable_entrypoint_binding_boundary_status,
+        evaluation.executable_entrypoint_binding_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_entrypoint_transfer_authorization_boundary",
+        evaluation.executable_entrypoint_transfer_authorization_boundary_status,
+        evaluation.executable_entrypoint_transfer_authorization_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_entrypoint_transfer_boundary",
+        evaluation.executable_entrypoint_transfer_boundary_status,
+        evaluation.executable_entrypoint_transfer_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_entrypoint_handoff_boundary",
+        evaluation.executable_entrypoint_handoff_boundary_status,
+        evaluation.executable_entrypoint_handoff_boundary_reason,
+    );
+    push_status_reason!(
+        fields,
+        "executable_entrypoint_invocation_boundary",
+        evaluation.executable_entrypoint_invocation_boundary_status,
+        evaluation.executable_entrypoint_invocation_boundary_reason,
+    );
+}
+
+fn module_loader_runtime_blocked_by(evaluation: ModuleLoaderRuntimeEvaluation) -> V<'static> {
+    let mut values = Vec::new();
+    push_block_gate(
+        &mut values,
+        "retained_module_manifest_reference",
+        evaluation.manifest_reference_status,
+        evaluation.manifest_reference_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "retained_module_candidate_artifact_reference",
+        evaluation.artifact_reference_status,
+        evaluation.artifact_reference_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "retained_module_vm_test_report_reference",
+        evaluation.vm_report_reference_status,
+        evaluation.vm_report_reference_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "retained_module_local_attestation_reference",
+        evaluation.local_attestation_reference_status,
+        evaluation.local_attestation_reference_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "retained_module_local_approval_reference",
+        evaluation.local_approval_reference_status,
+        evaluation.local_approval_reference_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "retained_module_computed_grant_reference",
+        evaluation.computed_grant_reference_status,
+        evaluation.computed_grant_reference_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "retained_module_audit_rollback_reference",
+        evaluation.audit_rollback_reference_status,
+        evaluation.audit_rollback_reference_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "retained_module_service_slot_reservation",
+        evaluation.service_slot_reservation_status,
+        evaluation.service_slot_reservation_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "service_slot_allocator_readiness",
+        evaluation.service_slot_allocator_readiness_status,
+        evaluation.service_slot_allocator_readiness_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "service_slot_allocator_runtime",
+        evaluation.service_slot_allocator_runtime_status,
+        evaluation.service_slot_allocator_runtime_reason,
+    );
+    push_block_fact_gate(
+        &mut values,
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[0],
+        evaluation.loader_identity_status,
+        evaluation.loader_identity_reason,
+    );
+    push_block_fact_gate(
+        &mut values,
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[1],
+        evaluation.artifact_hash_binding_status,
+        evaluation.artifact_hash_binding_reason,
+    );
+    push_block_fact_gate(
+        &mut values,
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
+        evaluation.entrypoint_abi_status,
+        evaluation.entrypoint_abi_reason,
+    );
+    push_block_fact_gate(
+        &mut values,
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
+        evaluation.address_space_boundary_status,
+        evaluation.address_space_boundary_reason,
+    );
+    push_block_fact_gate(
+        &mut values,
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
+        evaluation.memory_map_constraints_status,
+        evaluation.memory_map_constraints_reason,
+    );
+    push_block_fact_gate(
+        &mut values,
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
+        evaluation.capability_import_table_status,
+        evaluation.capability_import_table_reason,
+    );
+    push_block_fact_gate(
+        &mut values,
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
+        evaluation.service_slot_binding_status,
+        evaluation.service_slot_binding_reason,
+    );
+    push_block_fact_gate(
+        &mut values,
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
+        evaluation.health_state_hooks_status,
+        evaluation.health_state_hooks_reason,
+    );
+    push_block_fact_gate(
+        &mut values,
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
+        evaluation.rollback_hooks_status,
+        evaluation.rollback_hooks_reason,
+    );
+    push_block_fact_gate(
+        &mut values,
+        MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
+        evaluation.audit_rollback_write_boundary_binding_status,
+        evaluation.audit_rollback_write_boundary_binding_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "execution_commit_gate",
+        evaluation.execution_commit_gate_status,
+        evaluation.execution_commit_gate_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "descriptor_intake_boundary",
+        evaluation.descriptor_intake_boundary_status,
+        evaluation.descriptor_intake_boundary_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "artifact_byte_intake_boundary",
+        evaluation.artifact_byte_intake_boundary_status,
+        evaluation.artifact_byte_intake_boundary_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "execution_authorization_boundary",
+        evaluation.execution_authorization_boundary_status,
+        evaluation.execution_authorization_boundary_reason,
+    );
+    push_block_gate(
+        &mut values,
+        "service_registry_mutation_boundary",
+        evaluation.service_registry_mutation_boundary_status,
+        evaluation.service_registry_mutation_boundary_reason,
+    );
+    push_live_load_block_gates(&mut values, evaluation);
+    V::Array(values)
+}
+
+fn push_block_gate(
+    values: &mut Vec<V<'static>>,
+    gate: &'static str,
+    state: &'static str,
+    reason: &'static str,
+) {
+    values.push(V::InlineObject(vec![
+        f("gate", s(gate)),
+        f("state", s(state)),
+        f("reason", s(reason)),
+    ]));
+}
+
+fn push_block_fact_gate(
+    values: &mut Vec<V<'static>>,
+    source: ModuleLoaderRuntimeFactSource,
+    state: &'static str,
+    reason: &'static str,
+) {
+    values.push(V::InlineObject(vec![
+        f("gate", s(source.name)),
+        f("state", s(state)),
+        f("reason", s(reason)),
+        f("schema", s(source.schema)),
+        f("fact_id", s(source.id)),
+        f("source_method", s(source.source_method)),
+        f("source_fact_locator", s(source.source_fact_locator)),
+    ]));
+}
+
+fn push_live_load_block_gates(
+    values: &mut Vec<V<'static>>,
+    evaluation: ModuleLoaderRuntimeEvaluation,
+) {
+    push_block_gate(
+        values,
+        "load_attempt_boundary",
+        evaluation.load_attempt_boundary_status,
+        evaluation.load_attempt_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "artifact_load_boundary",
+        evaluation.artifact_load_boundary_status,
+        evaluation.artifact_load_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_mapping_boundary",
+        evaluation.executable_mapping_boundary_status,
+        evaluation.executable_mapping_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "entrypoint_transfer_boundary",
+        evaluation.entrypoint_transfer_boundary_status,
+        evaluation.entrypoint_transfer_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "service_start_boundary",
+        evaluation.service_start_boundary_status,
+        evaluation.service_start_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "service_health_binding_boundary",
+        evaluation.service_health_binding_boundary_status,
+        evaluation.service_health_binding_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "service_running_state_boundary",
+        evaluation.service_running_state_boundary_status,
+        evaluation.service_running_state_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "service_start_audit_boundary",
+        evaluation.service_start_audit_boundary_status,
+        evaluation.service_start_audit_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "service_unload_cleanup_boundary",
+        evaluation.service_unload_cleanup_boundary_status,
+        evaluation.service_unload_cleanup_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "live_load_commit_boundary",
+        evaluation.live_load_commit_boundary_status,
+        evaluation.live_load_commit_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "commit_audit_boundary",
+        evaluation.commit_audit_boundary_status,
+        evaluation.commit_audit_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "commit_rollback_boundary",
+        evaluation.commit_rollback_boundary_status,
+        evaluation.commit_rollback_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "commit_result_boundary",
+        evaluation.commit_result_boundary_status,
+        evaluation.commit_result_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "descriptor_acceptance_authority_boundary",
+        evaluation.descriptor_acceptance_authority_boundary_status,
+        evaluation.descriptor_acceptance_authority_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "descriptor_parser_contract_boundary",
+        evaluation.descriptor_parser_contract_boundary_status,
+        evaluation.descriptor_parser_contract_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "descriptor_parser_result_boundary",
+        evaluation.descriptor_parser_result_boundary_status,
+        evaluation.descriptor_parser_result_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "descriptor_schema_validation_boundary",
+        evaluation.descriptor_schema_validation_boundary_status,
+        evaluation.descriptor_schema_validation_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "descriptor_capability_validation_boundary",
+        evaluation.descriptor_capability_validation_boundary_status,
+        evaluation.descriptor_capability_validation_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "descriptor_load_plan_boundary",
+        evaluation.descriptor_load_plan_boundary_status,
+        evaluation.descriptor_load_plan_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_load_plan_authority_boundary",
+        evaluation.executable_load_plan_authority_boundary_status,
+        evaluation.executable_load_plan_authority_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_load_plan_result_boundary",
+        evaluation.executable_load_plan_result_boundary_status,
+        evaluation.executable_load_plan_result_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_image_layout_boundary",
+        evaluation.executable_image_layout_boundary_status,
+        evaluation.executable_image_layout_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_page_mapping_plan_boundary",
+        evaluation.executable_page_mapping_plan_boundary_status,
+        evaluation.executable_page_mapping_plan_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_page_mapping_boundary",
+        evaluation.executable_page_mapping_boundary_status,
+        evaluation.executable_page_mapping_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "descriptor_executable_page_binding_boundary",
+        evaluation.descriptor_executable_page_binding_boundary_status,
+        evaluation.descriptor_executable_page_binding_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_entrypoint_binding_boundary",
+        evaluation.executable_entrypoint_binding_boundary_status,
+        evaluation.executable_entrypoint_binding_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_entrypoint_transfer_authorization_boundary",
+        evaluation.executable_entrypoint_transfer_authorization_boundary_status,
+        evaluation.executable_entrypoint_transfer_authorization_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_entrypoint_transfer_boundary",
+        evaluation.executable_entrypoint_transfer_boundary_status,
+        evaluation.executable_entrypoint_transfer_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_entrypoint_handoff_boundary",
+        evaluation.executable_entrypoint_handoff_boundary_status,
+        evaluation.executable_entrypoint_handoff_boundary_reason,
+    );
+    push_block_gate(
+        values,
+        "executable_entrypoint_invocation_boundary",
+        evaluation.executable_entrypoint_invocation_boundary_status,
+        evaluation.executable_entrypoint_invocation_boundary_reason,
+    );
+}
+
+fn module_loader_runtime_source_evidence_array(
+    event_ids: [Option<event_log::EventId>; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    source_present: [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+    fact_present: [bool; MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT],
+) -> V<'static> {
+    let mut values = Vec::new();
+    let mut idx = 0usize;
+    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
+        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
+        values.push(V::InlineObject(vec![
+            f("fact", s(source.name)),
+            f("schema", s(source.schema)),
+            f(
+                "source_evidence_event_id",
+                record_event_or_null(event_ids[idx]),
+            ),
+            f("source_evidence_present", b(source_present[idx])),
+            f("fact_present", b(fact_present[idx])),
+        ]));
+        idx += 1;
+    }
+    V::Array(values)
+}
+
+fn module_loader_runtime_common_boundary_fields(
+    schema: &'static str,
+    id: &'static str,
+    source_evidence_schema: &'static str,
+    source_evidence_event_id: Option<event_log::EventId>,
+    source_evidence_state: &'static str,
+    source_evidence_status: &'static str,
+    source_evidence_reason: &'static str,
+    source_method: &'static str,
+    source_fact_locator: &'static str,
+    status: &'static str,
+    reason: &'static str,
+    present: bool,
+    source_chain_complete: bool,
+) -> Vec<Field<'static>> {
+    vec![
+        f("schema", s(schema)),
+        f("id", s(id)),
+        f("source_evidence_schema", s(source_evidence_schema)),
+        f(
+            "source_evidence_event_id",
+            record_event_or_null(source_evidence_event_id),
+        ),
+        f("source_evidence_state", s(source_evidence_state)),
+        f("source_evidence_status", s(source_evidence_status)),
+        f("source_evidence_reason", s(source_evidence_reason)),
+        f("source_method", s(source_method)),
+        f("source_fact_locator", s(source_fact_locator)),
+        f("status", s(status)),
+        f("reason", s(reason)),
+        f("present", b(present)),
+        f("source_chain_complete", b(source_chain_complete)),
+    ]
+}
+
+fn push_live_load_presence_fields(
+    fields: &mut Vec<Field<'static>>,
+    boundary: ModuleLoaderLiveLoadBoundary,
+) {
+    bf! { fields, "load_attempt_boundary_present" => boundary.load_attempt_boundary_present; }
+    bf! { fields, "load_attempt_boundary_source_chain_complete" => boundary.load_attempt_boundary_source_chain_complete; }
+    bf! { fields, "artifact_load_boundary_present" => boundary.artifact_load_boundary_present; }
+    bf! { fields, "artifact_load_boundary_source_chain_complete" => boundary.artifact_load_boundary_source_chain_complete; }
+    bf! { fields, "executable_mapping_boundary_present" => boundary.executable_mapping_boundary_present; }
+    bf! { fields, "executable_mapping_boundary_source_chain_complete" => boundary.executable_mapping_boundary_source_chain_complete; }
+    bf! { fields, "entrypoint_transfer_boundary_present" => boundary.entrypoint_transfer_boundary_present; }
+    bf! { fields, "entrypoint_transfer_boundary_source_chain_complete" => boundary.entrypoint_transfer_boundary_source_chain_complete; }
+    bf! { fields, "service_start_boundary_present" => boundary.service_start_boundary_present; }
+    bf! { fields, "service_start_boundary_source_chain_complete" => boundary.service_start_boundary_source_chain_complete; }
+    bf! { fields, "service_health_binding_boundary_present" => boundary.service_health_binding_boundary_present; }
+    bf! { fields, "service_health_binding_boundary_source_chain_complete" => boundary.service_health_binding_boundary_source_chain_complete; }
+    bf! { fields, "service_running_state_boundary_present" => boundary.service_running_state_boundary_present; }
+    bf! { fields, "service_running_state_boundary_source_chain_complete" => boundary.service_running_state_boundary_source_chain_complete; }
+    bf! { fields, "service_start_audit_boundary_present" => boundary.service_start_audit_boundary_present; }
+    bf! { fields, "service_start_audit_boundary_source_chain_complete" => boundary.service_start_audit_boundary_source_chain_complete; }
+    bf! { fields, "service_unload_cleanup_boundary_present" => boundary.service_unload_cleanup_boundary_present; }
+    bf! { fields, "service_unload_cleanup_boundary_source_chain_complete" => boundary.service_unload_cleanup_boundary_source_chain_complete; }
+    bf! { fields, "live_load_commit_boundary_present" => boundary.live_load_commit_boundary_present; }
+    bf! { fields, "live_load_commit_boundary_source_chain_complete" => boundary.live_load_commit_boundary_source_chain_complete; }
+    bf! { fields, "commit_audit_boundary_present" => boundary.commit_audit_boundary_present; }
+    bf! { fields, "commit_audit_boundary_source_chain_complete" => boundary.commit_audit_boundary_source_chain_complete; }
+    bf! { fields, "commit_rollback_boundary_present" => boundary.commit_rollback_boundary_present; }
+    bf! { fields, "commit_rollback_boundary_source_chain_complete" => boundary.commit_rollback_boundary_source_chain_complete; }
+    bf! { fields, "commit_result_boundary_present" => boundary.commit_result_boundary_present; }
+    bf! { fields, "commit_result_boundary_source_chain_complete" => boundary.commit_result_boundary_source_chain_complete; }
+    bf! { fields, "descriptor_acceptance_authority_boundary_present" => boundary.descriptor_acceptance_authority_boundary_present; }
+    bf! { fields, "descriptor_acceptance_authority_boundary_source_chain_complete" => boundary.descriptor_acceptance_authority_boundary_source_chain_complete; }
+    bf! { fields, "descriptor_parser_contract_boundary_present" => boundary.descriptor_parser_contract_boundary_present; }
+    bf! { fields, "descriptor_parser_contract_boundary_source_chain_complete" => boundary.descriptor_parser_contract_boundary_source_chain_complete; }
+    bf! { fields, "descriptor_parser_result_boundary_present" => boundary.descriptor_parser_result_boundary_present; }
+    bf! { fields, "descriptor_parser_result_boundary_source_chain_complete" => boundary.descriptor_parser_result_boundary_source_chain_complete; }
+    bf! { fields, "descriptor_schema_validation_boundary_present" => boundary.descriptor_schema_validation_boundary_present; }
+    bf! { fields, "descriptor_schema_validation_boundary_source_chain_complete" => boundary.descriptor_schema_validation_boundary_source_chain_complete; }
+    bf! { fields, "descriptor_capability_validation_boundary_present" => boundary.descriptor_capability_validation_boundary_present; }
+    bf! { fields, "descriptor_capability_validation_boundary_source_chain_complete" => boundary.descriptor_capability_validation_boundary_source_chain_complete; }
+    bf! { fields, "descriptor_load_plan_boundary_present" => boundary.descriptor_load_plan_boundary_present; }
+    bf! { fields, "descriptor_load_plan_boundary_source_chain_complete" => boundary.descriptor_load_plan_boundary_source_chain_complete; }
+    bf! { fields, "executable_load_plan_authority_boundary_present" => boundary.executable_load_plan_authority_boundary_present; }
+    bf! { fields, "executable_load_plan_authority_boundary_source_chain_complete" => boundary.executable_load_plan_authority_boundary_source_chain_complete; }
+    bf! { fields, "executable_load_plan_result_boundary_present" => boundary.executable_load_plan_result_boundary_present; }
+    bf! { fields, "executable_load_plan_result_boundary_source_chain_complete" => boundary.executable_load_plan_result_boundary_source_chain_complete; }
+    bf! { fields, "executable_image_layout_boundary_present" => boundary.executable_image_layout_boundary_present; }
+    bf! { fields, "executable_image_layout_boundary_source_chain_complete" => boundary.executable_image_layout_boundary_source_chain_complete; }
+    bf! { fields, "executable_page_mapping_plan_boundary_present" => boundary.executable_page_mapping_plan_boundary_present; }
+    bf! { fields, "executable_page_mapping_plan_boundary_source_chain_complete" => boundary.executable_page_mapping_plan_boundary_source_chain_complete; }
+    bf! { fields, "executable_page_mapping_boundary_present" => boundary.executable_page_mapping_boundary_present; }
+    bf! { fields, "executable_page_mapping_boundary_source_chain_complete" => boundary.executable_page_mapping_boundary_source_chain_complete; }
+    bf! { fields, "descriptor_executable_page_binding_boundary_present" => boundary.descriptor_executable_page_binding_boundary_present; }
+    bf! { fields, "descriptor_executable_page_binding_boundary_source_chain_complete" => boundary.descriptor_executable_page_binding_boundary_source_chain_complete; }
+    bf! { fields, "executable_entrypoint_binding_boundary_present" => boundary.executable_entrypoint_binding_boundary_present; }
+    bf! { fields, "executable_entrypoint_binding_boundary_source_chain_complete" => boundary.executable_entrypoint_binding_boundary_source_chain_complete; }
+    bf! { fields, "executable_entrypoint_transfer_authorization_boundary_present" => boundary.executable_entrypoint_transfer_authorization_boundary_present; }
+    bf! { fields, "executable_entrypoint_transfer_authorization_boundary_source_chain_complete" => boundary.executable_entrypoint_transfer_authorization_boundary_source_chain_complete; }
+    bf! { fields, "executable_entrypoint_transfer_boundary_present" => boundary.executable_entrypoint_transfer_boundary_present; }
+    bf! { fields, "executable_entrypoint_transfer_boundary_source_chain_complete" => boundary.executable_entrypoint_transfer_boundary_source_chain_complete; }
+    bf! { fields, "executable_entrypoint_handoff_boundary_present" => boundary.executable_entrypoint_handoff_boundary_present; }
+    bf! { fields, "executable_entrypoint_handoff_boundary_source_chain_complete" => boundary.executable_entrypoint_handoff_boundary_source_chain_complete; }
+    bf! { fields, "artifact_byte_intake_boundary_present" => boundary.artifact_byte_intake_boundary_present; }
+    bf! { fields, "artifact_byte_intake_boundary_source_chain_complete" => boundary.artifact_byte_intake_boundary_source_chain_complete; }
+    bf! { fields, "execution_authorization_boundary_present" => boundary.execution_authorization_boundary_present; }
+    bf! { fields, "execution_authorization_boundary_source_chain_complete" => boundary.execution_authorization_boundary_source_chain_complete; }
+    bf! { fields, "service_registry_mutation_boundary_present" => boundary.service_registry_mutation_boundary_present; }
+    bf! { fields, "service_registry_mutation_boundary_source_chain_complete" => boundary.service_registry_mutation_boundary_source_chain_complete; }
+    bf! { fields, "service_slot_binding_source_evidence_present" => boundary.service_slot_binding_source_evidence_present; }
+    bf! { fields, "health_state_hooks_source_evidence_present" => boundary.health_state_hooks_source_evidence_present; }
+    bf! { fields, "artifact_hash_binding_present" => boundary.artifact_hash_binding_present; }
+    bf! { fields, "entrypoint_abi_source_evidence_present" => boundary.entrypoint_abi_source_evidence_present; }
+    bf! { fields, "address_space_source_evidence_present" => boundary.address_space_source_evidence_present; }
+    bf! { fields, "memory_map_source_evidence_present" => boundary.memory_map_source_evidence_present; }
+    bf! { fields, "capability_import_table_source_evidence_present" => boundary.capability_import_table_source_evidence_present; }
+    bf! { fields, "audit_rollback_write_boundary_source_evidence_present" => boundary.audit_rollback_write_boundary_source_evidence_present; }
+    bf! { fields, "retained_module_evidence_present" => boundary.retained_module_evidence_present; }
+    bf! { fields, "retained_artifact_reference_present" => boundary.retained_artifact_reference_present; }
+    bf! { fields, "retained_service_slot_reservation_present" => boundary.retained_service_slot_reservation_present; }
 }
 
 fn emit_module_loader_runtime_service_slot_allocator_readiness(
@@ -1853,184 +2111,193 @@ fn emit_module_loader_runtime_service_slot_allocator_readiness(
     let allocator_projection = latest_module_service_slot_allocator_readiness_projection(
         service_slot.as_ref().map(|(event_id, _)| *event_id),
     );
-    raw_line("      \"service_slot_allocator_readiness\": {");
-    raw_line("        \"schema\": \"raios.module_service_slot_allocator_readiness.v0\",");
-    raw_line("        \"scope\": \"current_boot\",");
-    raw_line("        \"classification\": \"local_only\",");
-    raw_line("        \"source_method\": \"module.service_slot_allocator\",");
-    raw_line("        \"state\": \"read_only_diagnostic_defined\",");
-    raw("        \"retained_service_slot_reservation_present\": ");
-    raw_bool(candidate.service_slot_reservation_present);
-    raw_line(",");
-    raw("        \"readiness_present\": ");
-    raw_bool(candidate.service_slot_allocator_readiness_present);
-    raw_line(",");
-    raw("        \"readiness_status\": ");
-    json_str(evaluation.service_slot_allocator_readiness_status);
-    raw_line(",");
-    raw("        \"readiness_reason\": ");
-    json_str(evaluation.service_slot_allocator_readiness_reason);
-    raw_line(",");
-    raw_line("        \"allocator_authority_boundary\": {");
-    raw("          \"schema\": ");
-    json_str(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SCHEMA);
-    raw_line(",");
-    raw("          \"source_evidence_event_id\": ");
-    json_event_id_option(allocator_projection.authority_source_evidence_event_id);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(allocator_projection.authority_status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(allocator_projection.authority_reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(allocator_projection.authority_present);
-    raw_line(",");
-    raw_line("          \"allocates_service_slot\": false,");
-    raw_line("          \"creates_service_inventory_records\": false,");
-    raw_line("          \"service_inventory_change\": \"none\",");
-    raw_line("          \"load_attempted\": false");
-    raw_line("        },");
-    raw_line("        \"allocation_intent_boundary\": {");
-    raw("          \"schema\": ");
-    json_str(MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SCHEMA);
-    raw_line(",");
-    raw("          \"id\": ");
-    json_str(MODULE_SERVICE_SLOT_ALLOCATION_INTENT_ID);
-    raw_line(",");
-    raw("          \"source_evidence_event_id\": ");
-    json_event_id_option(allocator_projection.allocation_intent_source_evidence_event_id);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(allocator_projection.allocation_intent_status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(allocator_projection.allocation_intent_reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(allocator_projection.allocation_intent_present);
-    raw_line(",");
-    raw_line("          \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("          \"load_mode\": \"ram_only\",");
-    raw_line("          \"target\": \"live_service_graph\",");
-    raw_line("          \"allocates_service_slot\": false,");
-    raw_line("          \"creates_service_inventory_records\": false,");
-    raw_line("          \"service_inventory_change\": \"none\",");
-    raw_line("          \"load_attempted\": false");
-    raw_line("        },");
-    raw_line("        \"authority_input_boundaries\": {");
+    let mut authority_inputs = Vec::new();
     let mut input_idx = 0usize;
     while input_idx < MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT {
         let input = allocator_projection.authority_inputs[input_idx];
-        raw("          ");
-        json_str(input.name);
-        raw_line(": {");
-        raw("            \"schema\": ");
-        json_str(input.schema);
-        raw_line(",");
-        raw("            \"source_evidence_event_id\": ");
-        json_event_id_option(input.source_evidence_event_id);
-        raw_line(",");
-        raw("            \"status\": ");
-        json_str(input.status);
-        raw_line(",");
-        raw("            \"reason\": ");
-        json_str(input.reason);
-        raw_line(",");
-        raw("            \"present\": ");
-        raw_bool(input.present);
-        raw_line(",");
-        raw_line("            \"allocates_service_slot\": false,");
-        raw_line("            \"creates_service_inventory_records\": false,");
-        raw_line("            \"service_inventory_change\": \"none\",");
-        raw_line("            \"load_attempted\": false");
-        raw("          }");
-        if input_idx + 1 != MODULE_SERVICE_SLOT_AUTHORITY_INPUT_COUNT {
-            raw(",");
-        }
-        crlf();
+        authority_inputs.push(f(
+            input.name,
+            V::Object(vec![
+                f("schema", s(input.schema)),
+                f(
+                    "source_evidence_event_id",
+                    record_event_or_null(input.source_evidence_event_id),
+                ),
+                f("status", s(input.status)),
+                f("reason", s(input.reason)),
+                f("present", b(input.present)),
+                f("allocates_service_slot", no()),
+                f("creates_service_inventory_records", no()),
+                f("service_inventory_change", s("none")),
+                f("load_attempted", no()),
+            ]),
+        ));
         input_idx += 1;
     }
-    raw_line("        },");
-    raw_line("        \"authority_decision\": {");
-    raw("          \"schema\": ");
-    json_str(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SCHEMA);
-    raw_line(",");
-    raw("          \"id\": ");
-    json_str(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_ID);
-    raw_line(",");
-    raw("          \"source_evidence_event_id\": ");
-    json_event_id_option(allocator_projection.authority_decision_source_evidence_event_id);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(allocator_projection.authority_decision_status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(allocator_projection.authority_decision_reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(allocator_projection.authority_decision_present);
-    raw_line(",");
-    raw_line("          \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("          \"load_mode\": \"ram_only\",");
-    raw_line("          \"target\": \"live_service_graph\",");
-    raw_line("          \"authorizes_allocation\": false,");
-    raw_line("          \"authorizes_load\": false,");
-    raw_line("          \"allocates_service_slot\": false,");
-    raw_line("          \"creates_service_inventory_records\": false,");
-    raw_line("          \"service_inventory_change\": \"none\",");
-    raw_line("          \"load_attempted\": false");
-    raw_line("        },");
-    raw_line("        \"registry_write_commit_gate\": {");
-    raw("          \"schema\": ");
-    json_str(MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SCHEMA);
-    raw_line(",");
-    raw("          \"id\": ");
-    json_str(MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_ID);
-    raw_line(",");
-    raw("          \"source_evidence_event_id\": ");
-    json_event_id_option(allocator_projection.registry_write_commit_gate_source_evidence_event_id);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(allocator_projection.registry_write_commit_gate_status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(allocator_projection.registry_write_commit_gate_reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(allocator_projection.registry_write_commit_gate_present);
-    raw_line(",");
-    raw_line("          \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("          \"load_mode\": \"ram_only\",");
-    raw_line("          \"target\": \"live_service_graph\",");
-    raw_line("          \"authorizes_registry_write\": false,");
-    raw_line("          \"mutates_service_registry\": false,");
-    raw_line("          \"writes_durable_audit_state\": false,");
-    raw_line("          \"installs_rollback_state\": false,");
-    raw_line("          \"authorizes_allocation\": false,");
-    raw_line("          \"authorizes_load\": false,");
-    raw_line("          \"allocates_service_slot\": false,");
-    raw_line("          \"creates_service_inventory_records\": false,");
-    raw_line("          \"service_inventory_change\": \"none\",");
-    raw_line("          \"loads_artifact\": false,");
-    raw_line("          \"load_attempted\": false");
-    raw_line("        },");
-    raw("        \"runtime_status\": ");
-    json_str(evaluation.service_slot_allocator_runtime_status);
-    raw_line(",");
-    raw("        \"runtime_reason\": ");
-    json_str(evaluation.service_slot_allocator_runtime_reason);
-    raw_line(",");
-    raw("        \"service_slot_allocator_ready\": ");
-    raw_bool(candidate.service_slot_allocator_ready);
-    raw_line(",");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      }");
+    emit_record_property_line(
+        "service_slot_allocator_readiness",
+        vec![
+            f(
+                "schema",
+                s("raios.module_service_slot_allocator_readiness.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("source_method", s("module.service_slot_allocator")),
+            f("state", s("read_only_diagnostic_defined")),
+            f(
+                "retained_service_slot_reservation_present",
+                b(candidate.service_slot_reservation_present),
+            ),
+            f(
+                "readiness_present",
+                b(candidate.service_slot_allocator_readiness_present),
+            ),
+            f(
+                "readiness_status",
+                s(evaluation.service_slot_allocator_readiness_status),
+            ),
+            f(
+                "readiness_reason",
+                s(evaluation.service_slot_allocator_readiness_reason),
+            ),
+            f(
+                "allocator_authority_boundary",
+                V::Object(vec![
+                    f("schema", s(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SCHEMA)),
+                    f(
+                        "source_evidence_event_id",
+                        record_event_or_null(
+                            allocator_projection.authority_source_evidence_event_id,
+                        ),
+                    ),
+                    f("status", s(allocator_projection.authority_status)),
+                    f("reason", s(allocator_projection.authority_reason)),
+                    f("present", b(allocator_projection.authority_present)),
+                    f("allocates_service_slot", no()),
+                    f("creates_service_inventory_records", no()),
+                    f("service_inventory_change", s("none")),
+                    f("load_attempted", no()),
+                ]),
+            ),
+            f(
+                "allocation_intent_boundary",
+                V::Object(vec![
+                    f("schema", s(MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SCHEMA)),
+                    f("id", s(MODULE_SERVICE_SLOT_ALLOCATION_INTENT_ID)),
+                    f(
+                        "source_evidence_event_id",
+                        record_event_or_null(
+                            allocator_projection.allocation_intent_source_evidence_event_id,
+                        ),
+                    ),
+                    f("status", s(allocator_projection.allocation_intent_status)),
+                    f("reason", s(allocator_projection.allocation_intent_reason)),
+                    f("present", b(allocator_projection.allocation_intent_present)),
+                    f("requested_capability", s("cap.module.load_ephemeral")),
+                    f("load_mode", s("ram_only")),
+                    f("target", s("live_service_graph")),
+                    f("allocates_service_slot", no()),
+                    f("creates_service_inventory_records", no()),
+                    f("service_inventory_change", s("none")),
+                    f("load_attempted", no()),
+                ]),
+            ),
+            f("authority_input_boundaries", V::Object(authority_inputs)),
+            f(
+                "authority_decision",
+                V::Object(vec![
+                    f(
+                        "schema",
+                        s(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SCHEMA),
+                    ),
+                    f("id", s(MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_ID)),
+                    f(
+                        "source_evidence_event_id",
+                        record_event_or_null(
+                            allocator_projection.authority_decision_source_evidence_event_id,
+                        ),
+                    ),
+                    f("status", s(allocator_projection.authority_decision_status)),
+                    f("reason", s(allocator_projection.authority_decision_reason)),
+                    f(
+                        "present",
+                        b(allocator_projection.authority_decision_present),
+                    ),
+                    f("requested_capability", s("cap.module.load_ephemeral")),
+                    f("load_mode", s("ram_only")),
+                    f("target", s("live_service_graph")),
+                    f("authorizes_allocation", no()),
+                    f("authorizes_load", no()),
+                    f("allocates_service_slot", no()),
+                    f("creates_service_inventory_records", no()),
+                    f("service_inventory_change", s("none")),
+                    f("load_attempted", no()),
+                ]),
+            ),
+            f(
+                "registry_write_commit_gate",
+                V::Object(vec![
+                    f(
+                        "schema",
+                        s(MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SCHEMA),
+                    ),
+                    f("id", s(MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_ID)),
+                    f(
+                        "source_evidence_event_id",
+                        record_event_or_null(
+                            allocator_projection
+                                .registry_write_commit_gate_source_evidence_event_id,
+                        ),
+                    ),
+                    f(
+                        "status",
+                        s(allocator_projection.registry_write_commit_gate_status),
+                    ),
+                    f(
+                        "reason",
+                        s(allocator_projection.registry_write_commit_gate_reason),
+                    ),
+                    f(
+                        "present",
+                        b(allocator_projection.registry_write_commit_gate_present),
+                    ),
+                    f("requested_capability", s("cap.module.load_ephemeral")),
+                    f("load_mode", s("ram_only")),
+                    f("target", s("live_service_graph")),
+                    f("authorizes_registry_write", no()),
+                    f("mutates_service_registry", no()),
+                    f("writes_durable_audit_state", no()),
+                    f("installs_rollback_state", no()),
+                    f("authorizes_allocation", no()),
+                    f("authorizes_load", no()),
+                    f("allocates_service_slot", no()),
+                    f("creates_service_inventory_records", no()),
+                    f("service_inventory_change", s("none")),
+                    f("loads_artifact", no()),
+                    f("load_attempted", no()),
+                ]),
+            ),
+            f(
+                "runtime_status",
+                s(evaluation.service_slot_allocator_runtime_status),
+            ),
+            f(
+                "runtime_reason",
+                s(evaluation.service_slot_allocator_runtime_reason),
+            ),
+            f(
+                "service_slot_allocator_ready",
+                b(candidate.service_slot_allocator_ready),
+            ),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ],
+        false,
+    );
 }
 
 fn emit_module_loader_runtime_execution_commit_gate(
@@ -2038,107 +2305,54 @@ fn emit_module_loader_runtime_execution_commit_gate(
     evaluation: ModuleLoaderRuntimeEvaluation,
 ) {
     let gate = candidate.execution_commit_gate;
-    raw_line("      \"execution_commit_gate\": {");
-    raw("        \"schema\": ");
-    json_str(MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SCHEMA);
-    raw_line(",");
-    raw("        \"id\": ");
-    json_str(MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_ID);
-    raw_line(",");
-    raw("        \"source_evidence_schema\": ");
-    json_str(gate.source_evidence_schema);
-    raw_line(",");
-    raw("        \"source_evidence_event_id\": ");
-    json_event_id_option(gate.source_evidence_event_id);
-    raw_line(",");
-    raw("        \"source_evidence_state\": ");
-    json_str(gate.source_evidence_state);
-    raw_line(",");
-    raw("        \"source_evidence_status\": ");
-    json_str(gate.source_evidence_status);
-    raw_line(",");
-    raw("        \"source_evidence_reason\": ");
-    json_str(gate.source_evidence_reason);
-    raw_line(",");
-    raw("        \"source_method\": ");
-    json_str(gate.source_evidence_method);
-    raw_line(",");
-    raw("        \"source_fact_locator\": ");
-    json_str(gate.source_evidence_fact_locator);
-    raw_line(",");
-    raw("        \"status\": ");
-    json_str(evaluation.execution_commit_gate_status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(evaluation.execution_commit_gate_reason);
-    raw_line(",");
-    raw("        \"present\": ");
-    raw_bool(gate.present);
-    raw_line(",");
-    raw("        \"source_chain_complete\": ");
-    raw_bool(gate.source_chain_complete);
-    raw_line(",");
-    raw("        \"authority_decision_present\": ");
-    raw_bool(gate.authority_decision_present);
-    raw_line(",");
-    raw("        \"loader_runtime_contract_present\": ");
-    raw_bool(gate.loader_runtime_contract_present);
-    raw_line(",");
-    raw("        \"loader_runtime_source_evidence_complete\": ");
-    raw_bool(gate.loader_runtime_source_evidence_complete);
-    raw_line(",");
-    raw("        \"service_slot_binding_source_evidence_present\": ");
-    raw_bool(gate.service_slot_binding_source_evidence_present);
-    raw_line(",");
-    raw("        \"service_slot_binding_fact_present\": ");
-    raw_bool(gate.service_slot_binding_fact_present);
-    raw_line(",");
-    raw("        \"audit_rollback_write_boundary_source_evidence_present\": ");
-    raw_bool(gate.audit_rollback_write_boundary_source_evidence_present);
-    raw_line(",");
-    raw("        \"audit_rollback_write_boundary_fact_present\": ");
-    raw_bool(gate.audit_rollback_write_boundary_fact_present);
-    raw_line(",");
-    raw("        \"retained_service_slot_reservation_present\": ");
-    raw_bool(gate.retained_service_slot_reservation_present);
-    raw_line(",");
-    raw_line("        \"loader_runtime_source_evidence\": [");
-    let mut idx = 0usize;
-    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
-        raw("          {\"fact\": ");
-        json_str(source.name);
-        raw(", \"schema\": ");
-        json_str(source.schema);
-        raw(", \"source_evidence_event_id\": ");
-        json_event_id_option(gate.loader_runtime_source_evidence_event_ids[idx]);
-        raw(", \"source_evidence_present\": ");
-        raw_bool(gate.loader_runtime_source_evidence_present[idx]);
-        raw(", \"fact_present\": ");
-        raw_bool(gate.loader_runtime_fact_present[idx]);
-        raw("}");
-        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-            raw(",");
-        }
-        crlf();
-        idx += 1;
-    }
-    raw_line("        ],");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"target\": \"live_service_graph\",");
-    raw_line("        \"accepts_loader_descriptor\": false,");
-    raw_line("        \"accepts_artifact_bytes\": false,");
-    raw_line("        \"authorizes_execution\": false,");
-    raw_line("        \"mutates_service_registry\": false,");
-    raw_line("        \"writes_durable_audit_state\": false,");
-    raw_line("        \"installs_rollback_state\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      }");
+    let mut fields = module_loader_runtime_common_boundary_fields(
+        MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SCHEMA,
+        MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_ID,
+        gate.source_evidence_schema,
+        gate.source_evidence_event_id,
+        gate.source_evidence_state,
+        gate.source_evidence_status,
+        gate.source_evidence_reason,
+        gate.source_evidence_method,
+        gate.source_evidence_fact_locator,
+        evaluation.execution_commit_gate_status,
+        evaluation.execution_commit_gate_reason,
+        gate.present,
+        gate.source_chain_complete,
+    );
+    bf! { fields, "authority_decision_present" => gate.authority_decision_present; }
+    bf! { fields, "loader_runtime_contract_present" => gate.loader_runtime_contract_present; }
+    bf! { fields, "loader_runtime_source_evidence_complete" => gate.loader_runtime_source_evidence_complete; }
+    bf! { fields, "service_slot_binding_source_evidence_present" => gate.service_slot_binding_source_evidence_present; }
+    bf! { fields, "service_slot_binding_fact_present" => gate.service_slot_binding_fact_present; }
+    bf! { fields, "audit_rollback_write_boundary_source_evidence_present" => gate.audit_rollback_write_boundary_source_evidence_present; }
+    bf! { fields, "audit_rollback_write_boundary_fact_present" => gate.audit_rollback_write_boundary_fact_present; }
+    bf! { fields, "retained_service_slot_reservation_present" => gate.retained_service_slot_reservation_present; }
+    fields.push(f(
+        "loader_runtime_source_evidence",
+        module_loader_runtime_source_evidence_array(
+            gate.loader_runtime_source_evidence_event_ids,
+            gate.loader_runtime_source_evidence_present,
+            gate.loader_runtime_fact_present,
+        ),
+    ));
+    push_request_target_fields(&mut fields);
+    push_false_fields(
+        &mut fields,
+        &[
+            "accepts_loader_descriptor",
+            "accepts_artifact_bytes",
+            "authorizes_execution",
+            "mutates_service_registry",
+            "writes_durable_audit_state",
+            "installs_rollback_state",
+            "allocates_service_slot",
+            "creates_service_inventory_records",
+        ],
+    );
+    fields.push(f("service_inventory_change", s("none")));
+    push_false_fields(&mut fields, &["loads_artifact", "load_attempted"]);
+    emit_record_property_line("execution_commit_gate", fields, false);
 }
 
 fn emit_module_loader_descriptor_intake_boundary(
@@ -2146,111 +2360,64 @@ fn emit_module_loader_descriptor_intake_boundary(
     evaluation: ModuleLoaderRuntimeEvaluation,
 ) {
     let boundary = candidate.descriptor_intake_boundary;
-    raw_line("      \"descriptor_intake_boundary\": {");
-    raw("        \"schema\": ");
-    json_str(MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SCHEMA);
-    raw_line(",");
-    raw("        \"id\": ");
-    json_str(MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_ID);
-    raw_line(",");
-    raw("        \"source_evidence_schema\": ");
-    json_str(boundary.source_evidence_schema);
-    raw_line(",");
-    raw("        \"source_evidence_event_id\": ");
-    json_event_id_option(boundary.source_evidence_event_id);
-    raw_line(",");
-    raw("        \"source_evidence_state\": ");
-    json_str(boundary.source_evidence_state);
-    raw_line(",");
-    raw("        \"source_evidence_status\": ");
-    json_str(boundary.source_evidence_status);
-    raw_line(",");
-    raw("        \"source_evidence_reason\": ");
-    json_str(boundary.source_evidence_reason);
-    raw_line(",");
-    raw("        \"source_method\": ");
-    json_str(boundary.source_evidence_method);
-    raw_line(",");
-    raw("        \"source_fact_locator\": ");
-    json_str(boundary.source_evidence_fact_locator);
-    raw_line(",");
-    raw("        \"status\": ");
-    json_str(evaluation.descriptor_intake_boundary_status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(evaluation.descriptor_intake_boundary_reason);
-    raw_line(",");
-    raw("        \"present\": ");
-    raw_bool(boundary.present);
-    raw_line(",");
-    raw("        \"source_chain_complete\": ");
-    raw_bool(boundary.source_chain_complete);
-    raw_line(",");
-    raw("        \"registry_write_commit_gate_present\": ");
-    raw_bool(boundary.registry_write_commit_gate_present);
-    raw_line(",");
-    raw("        \"execution_commit_gate_present\": ");
-    raw_bool(boundary.execution_commit_gate_present);
-    raw_line(",");
-    raw("        \"loader_runtime_source_evidence_complete\": ");
-    raw_bool(boundary.loader_runtime_source_evidence_complete);
-    raw_line(",");
-    raw("        \"retained_module_evidence_present\": ");
-    raw_bool(boundary.retained_module_evidence_present);
-    raw_line(",");
-    raw("        \"retained_service_slot_reservation_present\": ");
-    raw_bool(boundary.retained_service_slot_reservation_present);
-    raw_line(",");
-    raw_line("        \"loader_runtime_source_evidence\": [");
-    let mut idx = 0usize;
-    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
-        raw("          {\"fact\": ");
-        json_str(source.name);
-        raw(", \"schema\": ");
-        json_str(source.schema);
-        raw(", \"source_evidence_event_id\": ");
-        json_event_id_option(boundary.loader_runtime_source_evidence_event_ids[idx]);
-        raw(", \"source_evidence_present\": ");
-        raw_bool(boundary.loader_runtime_source_evidence_present[idx]);
-        raw(", \"fact_present\": ");
-        raw_bool(boundary.loader_runtime_fact_present[idx]);
-        raw("}");
-        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-            raw(",");
-        }
-        crlf();
-        idx += 1;
-    }
-    raw_line("        ],");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"target\": \"live_service_graph\",");
-    raw_line("        \"accepts_loader_descriptor\": false,");
-    raw_line("        \"accepts_descriptor_bytes\": false,");
-    raw_line("        \"produces_parsed_descriptor\": false,");
-    raw_line("        \"validates_descriptor_schema\": false,");
-    raw_line("        \"produces_validated_descriptor\": false,");
-    raw_line("        \"validates_descriptor_capabilities\": false,");
-    raw_line("        \"produces_capability_validated_descriptor\": false,");
-    raw_line("        \"authorizes_executable_load_plan\": false,");
-    raw_line("        \"produces_executable_load_plan\": false,");
-    raw_line("        \"produces_executable_image_layout\": false,");
-    raw_line("        \"produces_executable_page_mapping_plan\": false,");
-    raw_line("        \"binds_capability_validated_descriptor_to_executable_pages\": false,");
-    raw_line("        \"parses_descriptor_bytes\": false,");
-    raw_line("        \"accepts_artifact_bytes\": false,");
-    raw_line("        \"authorizes_descriptor_intake\": false,");
-    raw_line("        \"authorizes_execution\": false,");
-    raw_line("        \"mutates_service_registry\": false,");
-    raw_line("        \"writes_durable_audit_state\": false,");
-    raw_line("        \"installs_rollback_state\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      }");
+    let mut fields = module_loader_runtime_common_boundary_fields(
+        MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SCHEMA,
+        MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_ID,
+        boundary.source_evidence_schema,
+        boundary.source_evidence_event_id,
+        boundary.source_evidence_state,
+        boundary.source_evidence_status,
+        boundary.source_evidence_reason,
+        boundary.source_evidence_method,
+        boundary.source_evidence_fact_locator,
+        evaluation.descriptor_intake_boundary_status,
+        evaluation.descriptor_intake_boundary_reason,
+        boundary.present,
+        boundary.source_chain_complete,
+    );
+    bf! { fields, "registry_write_commit_gate_present" => boundary.registry_write_commit_gate_present; }
+    bf! { fields, "execution_commit_gate_present" => boundary.execution_commit_gate_present; }
+    bf! { fields, "loader_runtime_source_evidence_complete" => boundary.loader_runtime_source_evidence_complete; }
+    bf! { fields, "retained_module_evidence_present" => boundary.retained_module_evidence_present; }
+    bf! { fields, "retained_service_slot_reservation_present" => boundary.retained_service_slot_reservation_present; }
+    fields.push(f(
+        "loader_runtime_source_evidence",
+        module_loader_runtime_source_evidence_array(
+            boundary.loader_runtime_source_evidence_event_ids,
+            boundary.loader_runtime_source_evidence_present,
+            boundary.loader_runtime_fact_present,
+        ),
+    ));
+    push_request_target_fields(&mut fields);
+    push_false_fields(
+        &mut fields,
+        &[
+            "accepts_loader_descriptor",
+            "accepts_descriptor_bytes",
+            "produces_parsed_descriptor",
+            "validates_descriptor_schema",
+            "produces_validated_descriptor",
+            "validates_descriptor_capabilities",
+            "produces_capability_validated_descriptor",
+            "authorizes_executable_load_plan",
+            "produces_executable_load_plan",
+            "produces_executable_image_layout",
+            "produces_executable_page_mapping_plan",
+            "binds_capability_validated_descriptor_to_executable_pages",
+            "parses_descriptor_bytes",
+            "accepts_artifact_bytes",
+            "authorizes_descriptor_intake",
+            "authorizes_execution",
+            "mutates_service_registry",
+            "writes_durable_audit_state",
+            "installs_rollback_state",
+            "allocates_service_slot",
+            "creates_service_inventory_records",
+        ],
+    );
+    fields.push(f("service_inventory_change", s("none")));
+    push_false_fields(&mut fields, &["loads_artifact", "load_attempted"]);
+    emit_record_property_line("descriptor_intake_boundary", fields, false);
 }
 
 fn emit_module_loader_artifact_byte_intake_boundary(
@@ -2258,118 +2425,67 @@ fn emit_module_loader_artifact_byte_intake_boundary(
     evaluation: ModuleLoaderRuntimeEvaluation,
 ) {
     let boundary = candidate.artifact_byte_intake_boundary;
-    raw_line("      \"artifact_byte_intake_boundary\": {");
-    raw("        \"schema\": ");
-    json_str(MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SCHEMA);
-    raw_line(",");
-    raw("        \"id\": ");
-    json_str(MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_ID);
-    raw_line(",");
-    raw("        \"source_evidence_schema\": ");
-    json_str(boundary.source_evidence_schema);
-    raw_line(",");
-    raw("        \"source_evidence_event_id\": ");
-    json_event_id_option(boundary.source_evidence_event_id);
-    raw_line(",");
-    raw("        \"source_evidence_state\": ");
-    json_str(boundary.source_evidence_state);
-    raw_line(",");
-    raw("        \"source_evidence_status\": ");
-    json_str(boundary.source_evidence_status);
-    raw_line(",");
-    raw("        \"source_evidence_reason\": ");
-    json_str(boundary.source_evidence_reason);
-    raw_line(",");
-    raw("        \"source_method\": ");
-    json_str(boundary.source_evidence_method);
-    raw_line(",");
-    raw("        \"source_fact_locator\": ");
-    json_str(boundary.source_evidence_fact_locator);
-    raw_line(",");
-    raw("        \"status\": ");
-    json_str(evaluation.artifact_byte_intake_boundary_status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(evaluation.artifact_byte_intake_boundary_reason);
-    raw_line(",");
-    raw("        \"present\": ");
-    raw_bool(boundary.present);
-    raw_line(",");
-    raw("        \"source_chain_complete\": ");
-    raw_bool(boundary.source_chain_complete);
-    raw_line(",");
-    raw("        \"descriptor_intake_boundary_present\": ");
-    raw_bool(boundary.descriptor_intake_boundary_present);
-    raw_line(",");
-    raw("        \"descriptor_intake_boundary_source_chain_complete\": ");
-    raw_bool(boundary.descriptor_intake_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"execution_commit_gate_present\": ");
-    raw_bool(boundary.execution_commit_gate_present);
-    raw_line(",");
-    raw("        \"artifact_hash_binding_present\": ");
-    raw_bool(boundary.artifact_hash_binding_present);
-    raw_line(",");
-    raw("        \"retained_artifact_reference_present\": ");
-    raw_bool(boundary.retained_artifact_reference_present);
-    raw_line(",");
-    raw("        \"retained_module_evidence_present\": ");
-    raw_bool(boundary.retained_module_evidence_present);
-    raw_line(",");
-    raw("        \"retained_service_slot_reservation_present\": ");
-    raw_bool(boundary.retained_service_slot_reservation_present);
-    raw_line(",");
-    raw_line("        \"loader_runtime_source_evidence\": [");
-    let mut idx = 0usize;
-    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
-        raw("          {\"fact\": ");
-        json_str(source.name);
-        raw(", \"schema\": ");
-        json_str(source.schema);
-        raw(", \"source_evidence_event_id\": ");
-        json_event_id_option(boundary.loader_runtime_source_evidence_event_ids[idx]);
-        raw(", \"source_evidence_present\": ");
-        raw_bool(boundary.loader_runtime_source_evidence_present[idx]);
-        raw(", \"fact_present\": ");
-        raw_bool(boundary.loader_runtime_fact_present[idx]);
-        raw("}");
-        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-            raw(",");
-        }
-        crlf();
-        idx += 1;
-    }
-    raw_line("        ],");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"target\": \"live_service_graph\",");
-    raw_line("        \"accepts_loader_descriptor\": false,");
-    raw_line("        \"accepts_descriptor_bytes\": false,");
-    raw_line("        \"produces_parsed_descriptor\": false,");
-    raw_line("        \"validates_descriptor_schema\": false,");
-    raw_line("        \"produces_validated_descriptor\": false,");
-    raw_line("        \"validates_descriptor_capabilities\": false,");
-    raw_line("        \"produces_capability_validated_descriptor\": false,");
-    raw_line("        \"authorizes_executable_load_plan\": false,");
-    raw_line("        \"produces_executable_load_plan\": false,");
-    raw_line("        \"produces_executable_image_layout\": false,");
-    raw_line("        \"produces_executable_page_mapping_plan\": false,");
-    raw_line("        \"binds_capability_validated_descriptor_to_executable_pages\": false,");
-    raw_line("        \"parses_descriptor_bytes\": false,");
-    raw_line("        \"accepts_artifact_bytes\": false,");
-    raw_line("        \"authorizes_descriptor_intake\": false,");
-    raw_line("        \"authorizes_artifact_byte_intake\": false,");
-    raw_line("        \"authorizes_execution\": false,");
-    raw_line("        \"mutates_service_registry\": false,");
-    raw_line("        \"writes_durable_audit_state\": false,");
-    raw_line("        \"installs_rollback_state\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      }");
+    let mut fields = module_loader_runtime_common_boundary_fields(
+        MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SCHEMA,
+        MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_ID,
+        boundary.source_evidence_schema,
+        boundary.source_evidence_event_id,
+        boundary.source_evidence_state,
+        boundary.source_evidence_status,
+        boundary.source_evidence_reason,
+        boundary.source_evidence_method,
+        boundary.source_evidence_fact_locator,
+        evaluation.artifact_byte_intake_boundary_status,
+        evaluation.artifact_byte_intake_boundary_reason,
+        boundary.present,
+        boundary.source_chain_complete,
+    );
+    bf! { fields, "descriptor_intake_boundary_present" => boundary.descriptor_intake_boundary_present; }
+    bf! { fields, "descriptor_intake_boundary_source_chain_complete" => boundary.descriptor_intake_boundary_source_chain_complete; }
+    bf! { fields, "execution_commit_gate_present" => boundary.execution_commit_gate_present; }
+    bf! { fields, "artifact_hash_binding_present" => boundary.artifact_hash_binding_present; }
+    bf! { fields, "retained_artifact_reference_present" => boundary.retained_artifact_reference_present; }
+    bf! { fields, "retained_module_evidence_present" => boundary.retained_module_evidence_present; }
+    bf! { fields, "retained_service_slot_reservation_present" => boundary.retained_service_slot_reservation_present; }
+    fields.push(f(
+        "loader_runtime_source_evidence",
+        module_loader_runtime_source_evidence_array(
+            boundary.loader_runtime_source_evidence_event_ids,
+            boundary.loader_runtime_source_evidence_present,
+            boundary.loader_runtime_fact_present,
+        ),
+    ));
+    push_request_target_fields(&mut fields);
+    push_false_fields(
+        &mut fields,
+        &[
+            "accepts_loader_descriptor",
+            "accepts_descriptor_bytes",
+            "produces_parsed_descriptor",
+            "validates_descriptor_schema",
+            "produces_validated_descriptor",
+            "validates_descriptor_capabilities",
+            "produces_capability_validated_descriptor",
+            "authorizes_executable_load_plan",
+            "produces_executable_load_plan",
+            "produces_executable_image_layout",
+            "produces_executable_page_mapping_plan",
+            "binds_capability_validated_descriptor_to_executable_pages",
+            "parses_descriptor_bytes",
+            "accepts_artifact_bytes",
+            "authorizes_descriptor_intake",
+            "authorizes_artifact_byte_intake",
+            "authorizes_execution",
+            "mutates_service_registry",
+            "writes_durable_audit_state",
+            "installs_rollback_state",
+            "allocates_service_slot",
+            "creates_service_inventory_records",
+        ],
+    );
+    fields.push(f("service_inventory_change", s("none")));
+    push_false_fields(&mut fields, &["loads_artifact", "load_attempted"]);
+    emit_record_property_line("artifact_byte_intake_boundary", fields, false);
 }
 
 fn emit_module_loader_execution_authorization_boundary(
@@ -2377,132 +2493,73 @@ fn emit_module_loader_execution_authorization_boundary(
     evaluation: ModuleLoaderRuntimeEvaluation,
 ) {
     let boundary = candidate.execution_authorization_boundary;
-    raw_line("      \"execution_authorization_boundary\": {");
-    raw("        \"schema\": ");
-    json_str(MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SCHEMA);
-    raw_line(",");
-    raw("        \"id\": ");
-    json_str(MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_ID);
-    raw_line(",");
-    raw("        \"source_evidence_schema\": ");
-    json_str(boundary.source_evidence_schema);
-    raw_line(",");
-    raw("        \"source_evidence_event_id\": ");
-    json_event_id_option(boundary.source_evidence_event_id);
-    raw_line(",");
-    raw("        \"source_evidence_state\": ");
-    json_str(boundary.source_evidence_state);
-    raw_line(",");
-    raw("        \"source_evidence_status\": ");
-    json_str(boundary.source_evidence_status);
-    raw_line(",");
-    raw("        \"source_evidence_reason\": ");
-    json_str(boundary.source_evidence_reason);
-    raw_line(",");
-    raw("        \"source_method\": ");
-    json_str(boundary.source_evidence_method);
-    raw_line(",");
-    raw("        \"source_fact_locator\": ");
-    json_str(boundary.source_evidence_fact_locator);
-    raw_line(",");
-    raw("        \"status\": ");
-    json_str(evaluation.execution_authorization_boundary_status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(evaluation.execution_authorization_boundary_reason);
-    raw_line(",");
-    raw("        \"present\": ");
-    raw_bool(boundary.present);
-    raw_line(",");
-    raw("        \"source_chain_complete\": ");
-    raw_bool(boundary.source_chain_complete);
-    raw_line(",");
-    raw("        \"artifact_byte_intake_boundary_present\": ");
-    raw_bool(boundary.artifact_byte_intake_boundary_present);
-    raw_line(",");
-    raw("        \"artifact_byte_intake_boundary_source_chain_complete\": ");
-    raw_bool(boundary.artifact_byte_intake_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"descriptor_intake_boundary_present\": ");
-    raw_bool(boundary.descriptor_intake_boundary_present);
-    raw_line(",");
-    raw("        \"descriptor_intake_boundary_source_chain_complete\": ");
-    raw_bool(boundary.descriptor_intake_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"execution_commit_gate_present\": ");
-    raw_bool(boundary.execution_commit_gate_present);
-    raw_line(",");
-    raw("        \"entrypoint_abi_source_evidence_present\": ");
-    raw_bool(boundary.entrypoint_abi_source_evidence_present);
-    raw_line(",");
-    raw("        \"address_space_source_evidence_present\": ");
-    raw_bool(boundary.address_space_source_evidence_present);
-    raw_line(",");
-    raw("        \"memory_map_source_evidence_present\": ");
-    raw_bool(boundary.memory_map_source_evidence_present);
-    raw_line(",");
-    raw("        \"audit_rollback_write_boundary_source_evidence_present\": ");
-    raw_bool(boundary.audit_rollback_write_boundary_source_evidence_present);
-    raw_line(",");
-    raw("        \"retained_module_evidence_present\": ");
-    raw_bool(boundary.retained_module_evidence_present);
-    raw_line(",");
-    raw("        \"retained_service_slot_reservation_present\": ");
-    raw_bool(boundary.retained_service_slot_reservation_present);
-    raw_line(",");
-    raw_line("        \"loader_runtime_source_evidence\": [");
-    let mut idx = 0usize;
-    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
-        raw("          {\"fact\": ");
-        json_str(source.name);
-        raw(", \"schema\": ");
-        json_str(source.schema);
-        raw(", \"source_evidence_event_id\": ");
-        json_event_id_option(boundary.loader_runtime_source_evidence_event_ids[idx]);
-        raw(", \"source_evidence_present\": ");
-        raw_bool(boundary.loader_runtime_source_evidence_present[idx]);
-        raw(", \"fact_present\": ");
-        raw_bool(boundary.loader_runtime_fact_present[idx]);
-        raw("}");
-        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-            raw(",");
-        }
-        crlf();
-        idx += 1;
-    }
-    raw_line("        ],");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"target\": \"live_service_graph\",");
-    raw_line("        \"accepts_loader_descriptor\": false,");
-    raw_line("        \"accepts_descriptor_bytes\": false,");
-    raw_line("        \"produces_parsed_descriptor\": false,");
-    raw_line("        \"validates_descriptor_schema\": false,");
-    raw_line("        \"produces_validated_descriptor\": false,");
-    raw_line("        \"validates_descriptor_capabilities\": false,");
-    raw_line("        \"produces_capability_validated_descriptor\": false,");
-    raw_line("        \"authorizes_executable_load_plan\": false,");
-    raw_line("        \"produces_executable_load_plan\": false,");
-    raw_line("        \"produces_executable_image_layout\": false,");
-    raw_line("        \"produces_executable_page_mapping_plan\": false,");
-    raw_line("        \"binds_capability_validated_descriptor_to_executable_pages\": false,");
-    raw_line("        \"parses_descriptor_bytes\": false,");
-    raw_line("        \"accepts_artifact_bytes\": false,");
-    raw_line("        \"authorizes_descriptor_intake\": false,");
-    raw_line("        \"authorizes_artifact_byte_intake\": false,");
-    raw_line("        \"maps_executable_pages\": false,");
-    raw_line("        \"jumps_to_entrypoint\": false,");
-    raw_line("        \"authorizes_execution\": false,");
-    raw_line("        \"mutates_service_registry\": false,");
-    raw_line("        \"writes_durable_audit_state\": false,");
-    raw_line("        \"installs_rollback_state\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      }");
+    let mut fields = module_loader_runtime_common_boundary_fields(
+        MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SCHEMA,
+        MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_ID,
+        boundary.source_evidence_schema,
+        boundary.source_evidence_event_id,
+        boundary.source_evidence_state,
+        boundary.source_evidence_status,
+        boundary.source_evidence_reason,
+        boundary.source_evidence_method,
+        boundary.source_evidence_fact_locator,
+        evaluation.execution_authorization_boundary_status,
+        evaluation.execution_authorization_boundary_reason,
+        boundary.present,
+        boundary.source_chain_complete,
+    );
+    bf! { fields, "artifact_byte_intake_boundary_present" => boundary.artifact_byte_intake_boundary_present; }
+    bf! { fields, "artifact_byte_intake_boundary_source_chain_complete" => boundary.artifact_byte_intake_boundary_source_chain_complete; }
+    bf! { fields, "descriptor_intake_boundary_present" => boundary.descriptor_intake_boundary_present; }
+    bf! { fields, "descriptor_intake_boundary_source_chain_complete" => boundary.descriptor_intake_boundary_source_chain_complete; }
+    bf! { fields, "execution_commit_gate_present" => boundary.execution_commit_gate_present; }
+    bf! { fields, "entrypoint_abi_source_evidence_present" => boundary.entrypoint_abi_source_evidence_present; }
+    bf! { fields, "address_space_source_evidence_present" => boundary.address_space_source_evidence_present; }
+    bf! { fields, "memory_map_source_evidence_present" => boundary.memory_map_source_evidence_present; }
+    bf! { fields, "audit_rollback_write_boundary_source_evidence_present" => boundary.audit_rollback_write_boundary_source_evidence_present; }
+    bf! { fields, "retained_module_evidence_present" => boundary.retained_module_evidence_present; }
+    bf! { fields, "retained_service_slot_reservation_present" => boundary.retained_service_slot_reservation_present; }
+    fields.push(f(
+        "loader_runtime_source_evidence",
+        module_loader_runtime_source_evidence_array(
+            boundary.loader_runtime_source_evidence_event_ids,
+            boundary.loader_runtime_source_evidence_present,
+            boundary.loader_runtime_fact_present,
+        ),
+    ));
+    push_request_target_fields(&mut fields);
+    push_false_fields(
+        &mut fields,
+        &[
+            "accepts_loader_descriptor",
+            "accepts_descriptor_bytes",
+            "produces_parsed_descriptor",
+            "validates_descriptor_schema",
+            "produces_validated_descriptor",
+            "validates_descriptor_capabilities",
+            "produces_capability_validated_descriptor",
+            "authorizes_executable_load_plan",
+            "produces_executable_load_plan",
+            "produces_executable_image_layout",
+            "produces_executable_page_mapping_plan",
+            "binds_capability_validated_descriptor_to_executable_pages",
+            "parses_descriptor_bytes",
+            "accepts_artifact_bytes",
+            "authorizes_descriptor_intake",
+            "authorizes_artifact_byte_intake",
+            "maps_executable_pages",
+            "jumps_to_entrypoint",
+            "authorizes_execution",
+            "mutates_service_registry",
+            "writes_durable_audit_state",
+            "installs_rollback_state",
+            "allocates_service_slot",
+            "creates_service_inventory_records",
+        ],
+    );
+    fields.push(f("service_inventory_change", s("none")));
+    push_false_fields(&mut fields, &["loads_artifact", "load_attempted"]);
+    emit_record_property_line("execution_authorization_boundary", fields, false);
 }
 
 fn emit_module_loader_service_registry_mutation_boundary(
@@ -2510,118 +2567,69 @@ fn emit_module_loader_service_registry_mutation_boundary(
     evaluation: ModuleLoaderRuntimeEvaluation,
 ) {
     let boundary = candidate.service_registry_mutation_boundary;
-    raw_line("      \"service_registry_mutation_boundary\": {");
-    raw("        \"schema\": ");
-    json_str(MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SCHEMA);
-    raw_line(",");
-    raw("        \"id\": ");
-    json_str(MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_ID);
-    raw_line(",");
-    raw("        \"source_evidence_schema\": ");
-    json_str(boundary.source_evidence_schema);
-    raw_line(",");
-    raw("        \"source_evidence_event_id\": ");
-    json_event_id_option(boundary.source_evidence_event_id);
-    raw_line(",");
-    raw("        \"source_evidence_state\": ");
-    json_str(boundary.source_evidence_state);
-    raw_line(",");
-    raw("        \"source_evidence_status\": ");
-    json_str(boundary.source_evidence_status);
-    raw_line(",");
-    raw("        \"source_evidence_reason\": ");
-    json_str(boundary.source_evidence_reason);
-    raw_line(",");
-    raw("        \"source_method\": ");
-    json_str(boundary.source_evidence_method);
-    raw_line(",");
-    raw("        \"source_fact_locator\": ");
-    json_str(boundary.source_evidence_fact_locator);
-    raw_line(",");
-    raw("        \"status\": ");
-    json_str(evaluation.service_registry_mutation_boundary_status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(evaluation.service_registry_mutation_boundary_reason);
-    raw_line(",");
-    raw("        \"present\": ");
-    raw_bool(boundary.present);
-    raw_line(",");
-    raw("        \"source_chain_complete\": ");
-    raw_bool(boundary.source_chain_complete);
-    raw_line(",");
-    raw("        \"execution_authorization_boundary_present\": ");
-    raw_bool(boundary.execution_authorization_boundary_present);
-    raw_line(",");
-    raw("        \"execution_authorization_boundary_source_chain_complete\": ");
-    raw_bool(boundary.execution_authorization_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"registry_write_commit_gate_present\": ");
-    raw_bool(boundary.registry_write_commit_gate_present);
-    raw_line(",");
-    raw("        \"service_slot_binding_source_evidence_present\": ");
-    raw_bool(boundary.service_slot_binding_source_evidence_present);
-    raw_line(",");
-    raw("        \"retained_module_evidence_present\": ");
-    raw_bool(boundary.retained_module_evidence_present);
-    raw_line(",");
-    raw("        \"retained_service_slot_reservation_present\": ");
-    raw_bool(boundary.retained_service_slot_reservation_present);
-    raw_line(",");
-    raw_line("        \"loader_runtime_source_evidence\": [");
-    let mut idx = 0usize;
-    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
-        raw("          {\"fact\": ");
-        json_str(source.name);
-        raw(", \"schema\": ");
-        json_str(source.schema);
-        raw(", \"source_evidence_event_id\": ");
-        json_event_id_option(boundary.loader_runtime_source_evidence_event_ids[idx]);
-        raw(", \"source_evidence_present\": ");
-        raw_bool(boundary.loader_runtime_source_evidence_present[idx]);
-        raw(", \"fact_present\": ");
-        raw_bool(boundary.loader_runtime_fact_present[idx]);
-        raw("}");
-        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-            raw(",");
-        }
-        crlf();
-        idx += 1;
-    }
-    raw_line("        ],");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"target\": \"live_service_graph\",");
-    raw_line("        \"accepts_loader_descriptor\": false,");
-    raw_line("        \"accepts_descriptor_bytes\": false,");
-    raw_line("        \"produces_parsed_descriptor\": false,");
-    raw_line("        \"validates_descriptor_schema\": false,");
-    raw_line("        \"produces_validated_descriptor\": false,");
-    raw_line("        \"validates_descriptor_capabilities\": false,");
-    raw_line("        \"produces_capability_validated_descriptor\": false,");
-    raw_line("        \"authorizes_executable_load_plan\": false,");
-    raw_line("        \"produces_executable_load_plan\": false,");
-    raw_line("        \"produces_executable_image_layout\": false,");
-    raw_line("        \"produces_executable_page_mapping_plan\": false,");
-    raw_line("        \"binds_capability_validated_descriptor_to_executable_pages\": false,");
-    raw_line("        \"parses_descriptor_bytes\": false,");
-    raw_line("        \"accepts_artifact_bytes\": false,");
-    raw_line("        \"authorizes_descriptor_intake\": false,");
-    raw_line("        \"authorizes_artifact_byte_intake\": false,");
-    raw_line("        \"maps_executable_pages\": false,");
-    raw_line("        \"jumps_to_entrypoint\": false,");
-    raw_line("        \"authorizes_execution\": false,");
-    raw_line("        \"mutates_service_registry\": false,");
-    raw_line("        \"writes_durable_audit_state\": false,");
-    raw_line("        \"installs_rollback_state\": false,");
-    raw_line("        \"authorizes_load\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      }");
+    let mut fields = module_loader_runtime_common_boundary_fields(
+        MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SCHEMA,
+        MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_ID,
+        boundary.source_evidence_schema,
+        boundary.source_evidence_event_id,
+        boundary.source_evidence_state,
+        boundary.source_evidence_status,
+        boundary.source_evidence_reason,
+        boundary.source_evidence_method,
+        boundary.source_evidence_fact_locator,
+        evaluation.service_registry_mutation_boundary_status,
+        evaluation.service_registry_mutation_boundary_reason,
+        boundary.present,
+        boundary.source_chain_complete,
+    );
+    bf! { fields, "execution_authorization_boundary_present" => boundary.execution_authorization_boundary_present; }
+    bf! { fields, "execution_authorization_boundary_source_chain_complete" => boundary.execution_authorization_boundary_source_chain_complete; }
+    bf! { fields, "registry_write_commit_gate_present" => boundary.registry_write_commit_gate_present; }
+    bf! { fields, "service_slot_binding_source_evidence_present" => boundary.service_slot_binding_source_evidence_present; }
+    bf! { fields, "retained_module_evidence_present" => boundary.retained_module_evidence_present; }
+    bf! { fields, "retained_service_slot_reservation_present" => boundary.retained_service_slot_reservation_present; }
+    fields.push(f(
+        "loader_runtime_source_evidence",
+        module_loader_runtime_source_evidence_array(
+            boundary.loader_runtime_source_evidence_event_ids,
+            boundary.loader_runtime_source_evidence_present,
+            boundary.loader_runtime_fact_present,
+        ),
+    ));
+    push_request_target_fields(&mut fields);
+    push_false_fields(
+        &mut fields,
+        &[
+            "accepts_loader_descriptor",
+            "accepts_descriptor_bytes",
+            "produces_parsed_descriptor",
+            "validates_descriptor_schema",
+            "produces_validated_descriptor",
+            "validates_descriptor_capabilities",
+            "produces_capability_validated_descriptor",
+            "authorizes_executable_load_plan",
+            "produces_executable_load_plan",
+            "produces_executable_image_layout",
+            "produces_executable_page_mapping_plan",
+            "binds_capability_validated_descriptor_to_executable_pages",
+            "parses_descriptor_bytes",
+            "accepts_artifact_bytes",
+            "authorizes_descriptor_intake",
+            "authorizes_artifact_byte_intake",
+            "maps_executable_pages",
+            "jumps_to_entrypoint",
+            "authorizes_execution",
+            "mutates_service_registry",
+            "writes_durable_audit_state",
+            "installs_rollback_state",
+            "authorizes_load",
+            "allocates_service_slot",
+            "creates_service_inventory_records",
+        ],
+    );
+    fields.push(f("service_inventory_change", s("none")));
+    push_false_fields(&mut fields, &["loads_artifact", "load_attempted"]);
+    emit_record_property_line("service_registry_mutation_boundary", fields, false);
 }
 
 fn emit_module_loader_live_load_boundary(
@@ -2632,535 +2640,240 @@ fn emit_module_loader_live_load_boundary(
     status: &'static str,
     reason: &'static str,
 ) {
-    raw("      ");
-    json_str(json_name);
-    raw_line(": {");
-    raw("        \"schema\": ");
-    json_str(boundary_schema);
-    raw_line(",");
-    raw("        \"id\": ");
-    json_str(boundary_id);
-    raw_line(",");
-    raw("        \"source_evidence_schema\": ");
-    json_str(boundary.source_evidence_schema);
-    raw_line(",");
-    raw("        \"source_evidence_event_id\": ");
-    json_event_id_option(boundary.source_evidence_event_id);
-    raw_line(",");
-    raw("        \"source_evidence_state\": ");
-    json_str(boundary.source_evidence_state);
-    raw_line(",");
-    raw("        \"source_evidence_status\": ");
-    json_str(boundary.source_evidence_status);
-    raw_line(",");
-    raw("        \"source_evidence_reason\": ");
-    json_str(boundary.source_evidence_reason);
-    raw_line(",");
-    raw("        \"source_method\": ");
-    json_str(boundary.source_evidence_method);
-    raw_line(",");
-    raw("        \"source_fact_locator\": ");
-    json_str(boundary.source_evidence_fact_locator);
-    raw_line(",");
-    raw("        \"status\": ");
-    json_str(status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(reason);
-    raw_line(",");
-    raw("        \"present\": ");
-    raw_bool(boundary.present);
-    raw_line(",");
-    raw("        \"source_chain_complete\": ");
-    raw_bool(boundary.source_chain_complete);
-    raw_line(",");
-    raw("        \"load_attempt_boundary_present\": ");
-    raw_bool(boundary.load_attempt_boundary_present);
-    raw_line(",");
-    raw("        \"load_attempt_boundary_source_chain_complete\": ");
-    raw_bool(boundary.load_attempt_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"artifact_load_boundary_present\": ");
-    raw_bool(boundary.artifact_load_boundary_present);
-    raw_line(",");
-    raw("        \"artifact_load_boundary_source_chain_complete\": ");
-    raw_bool(boundary.artifact_load_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"executable_mapping_boundary_present\": ");
-    raw_bool(boundary.executable_mapping_boundary_present);
-    raw_line(",");
-    raw("        \"executable_mapping_boundary_source_chain_complete\": ");
-    raw_bool(boundary.executable_mapping_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"entrypoint_transfer_boundary_present\": ");
-    raw_bool(boundary.entrypoint_transfer_boundary_present);
-    raw_line(",");
-    raw("        \"entrypoint_transfer_boundary_source_chain_complete\": ");
-    raw_bool(boundary.entrypoint_transfer_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"service_start_boundary_present\": ");
-    raw_bool(boundary.service_start_boundary_present);
-    raw_line(",");
-    raw("        \"service_start_boundary_source_chain_complete\": ");
-    raw_bool(boundary.service_start_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"service_health_binding_boundary_present\": ");
-    raw_bool(boundary.service_health_binding_boundary_present);
-    raw_line(",");
-    raw("        \"service_health_binding_boundary_source_chain_complete\": ");
-    raw_bool(boundary.service_health_binding_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"service_running_state_boundary_present\": ");
-    raw_bool(boundary.service_running_state_boundary_present);
-    raw_line(",");
-    raw("        \"service_running_state_boundary_source_chain_complete\": ");
-    raw_bool(boundary.service_running_state_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"service_start_audit_boundary_present\": ");
-    raw_bool(boundary.service_start_audit_boundary_present);
-    raw_line(",");
-    raw("        \"service_start_audit_boundary_source_chain_complete\": ");
-    raw_bool(boundary.service_start_audit_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"service_unload_cleanup_boundary_present\": ");
-    raw_bool(boundary.service_unload_cleanup_boundary_present);
-    raw_line(",");
-    raw("        \"service_unload_cleanup_boundary_source_chain_complete\": ");
-    raw_bool(boundary.service_unload_cleanup_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"live_load_commit_boundary_present\": ");
-    raw_bool(boundary.live_load_commit_boundary_present);
-    raw_line(",");
-    raw("        \"live_load_commit_boundary_source_chain_complete\": ");
-    raw_bool(boundary.live_load_commit_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"commit_audit_boundary_present\": ");
-    raw_bool(boundary.commit_audit_boundary_present);
-    raw_line(",");
-    raw("        \"commit_audit_boundary_source_chain_complete\": ");
-    raw_bool(boundary.commit_audit_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"commit_rollback_boundary_present\": ");
-    raw_bool(boundary.commit_rollback_boundary_present);
-    raw_line(",");
-    raw("        \"commit_rollback_boundary_source_chain_complete\": ");
-    raw_bool(boundary.commit_rollback_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"commit_result_boundary_present\": ");
-    raw_bool(boundary.commit_result_boundary_present);
-    raw_line(",");
-    raw("        \"commit_result_boundary_source_chain_complete\": ");
-    raw_bool(boundary.commit_result_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"descriptor_acceptance_authority_boundary_present\": ");
-    raw_bool(boundary.descriptor_acceptance_authority_boundary_present);
-    raw_line(",");
-    raw("        \"descriptor_acceptance_authority_boundary_source_chain_complete\": ");
-    raw_bool(boundary.descriptor_acceptance_authority_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"descriptor_parser_contract_boundary_present\": ");
-    raw_bool(boundary.descriptor_parser_contract_boundary_present);
-    raw_line(",");
-    raw("        \"descriptor_parser_contract_boundary_source_chain_complete\": ");
-    raw_bool(boundary.descriptor_parser_contract_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"descriptor_parser_result_boundary_present\": ");
-    raw_bool(boundary.descriptor_parser_result_boundary_present);
-    raw_line(",");
-    raw("        \"descriptor_parser_result_boundary_source_chain_complete\": ");
-    raw_bool(boundary.descriptor_parser_result_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"descriptor_schema_validation_boundary_present\": ");
-    raw_bool(boundary.descriptor_schema_validation_boundary_present);
-    raw_line(",");
-    raw("        \"descriptor_schema_validation_boundary_source_chain_complete\": ");
-    raw_bool(boundary.descriptor_schema_validation_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"descriptor_capability_validation_boundary_present\": ");
-    raw_bool(boundary.descriptor_capability_validation_boundary_present);
-    raw_line(",");
-    raw("        \"descriptor_capability_validation_boundary_source_chain_complete\": ");
-    raw_bool(boundary.descriptor_capability_validation_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"descriptor_load_plan_boundary_present\": ");
-    raw_bool(boundary.descriptor_load_plan_boundary_present);
-    raw_line(",");
-    raw("        \"descriptor_load_plan_boundary_source_chain_complete\": ");
-    raw_bool(boundary.descriptor_load_plan_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"executable_load_plan_authority_boundary_present\": ");
-    raw_bool(boundary.executable_load_plan_authority_boundary_present);
-    raw_line(",");
-    raw("        \"executable_load_plan_authority_boundary_source_chain_complete\": ");
-    raw_bool(boundary.executable_load_plan_authority_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"executable_load_plan_result_boundary_present\": ");
-    raw_bool(boundary.executable_load_plan_result_boundary_present);
-    raw_line(",");
-    raw("        \"executable_load_plan_result_boundary_source_chain_complete\": ");
-    raw_bool(boundary.executable_load_plan_result_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"executable_image_layout_boundary_present\": ");
-    raw_bool(boundary.executable_image_layout_boundary_present);
-    raw_line(",");
-    raw("        \"executable_image_layout_boundary_source_chain_complete\": ");
-    raw_bool(boundary.executable_image_layout_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"executable_page_mapping_plan_boundary_present\": ");
-    raw_bool(boundary.executable_page_mapping_plan_boundary_present);
-    raw_line(",");
-    raw("        \"executable_page_mapping_plan_boundary_source_chain_complete\": ");
-    raw_bool(boundary.executable_page_mapping_plan_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"executable_page_mapping_boundary_present\": ");
-    raw_bool(boundary.executable_page_mapping_boundary_present);
-    raw_line(",");
-    raw("        \"executable_page_mapping_boundary_source_chain_complete\": ");
-    raw_bool(boundary.executable_page_mapping_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"descriptor_executable_page_binding_boundary_present\": ");
-    raw_bool(boundary.descriptor_executable_page_binding_boundary_present);
-    raw_line(",");
-    raw("        \"descriptor_executable_page_binding_boundary_source_chain_complete\": ");
-    raw_bool(boundary.descriptor_executable_page_binding_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"executable_entrypoint_binding_boundary_present\": ");
-    raw_bool(boundary.executable_entrypoint_binding_boundary_present);
-    raw_line(",");
-    raw("        \"executable_entrypoint_binding_boundary_source_chain_complete\": ");
-    raw_bool(boundary.executable_entrypoint_binding_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"executable_entrypoint_transfer_authorization_boundary_present\": ");
-    raw_bool(boundary.executable_entrypoint_transfer_authorization_boundary_present);
-    raw_line(",");
-    raw(
-        "        \"executable_entrypoint_transfer_authorization_boundary_source_chain_complete\": ",
+    let mut fields = module_loader_runtime_common_boundary_fields(
+        boundary_schema,
+        boundary_id,
+        boundary.source_evidence_schema,
+        boundary.source_evidence_event_id,
+        boundary.source_evidence_state,
+        boundary.source_evidence_status,
+        boundary.source_evidence_reason,
+        boundary.source_evidence_method,
+        boundary.source_evidence_fact_locator,
+        status,
+        reason,
+        boundary.present,
+        boundary.source_chain_complete,
     );
-    raw_bool(boundary.executable_entrypoint_transfer_authorization_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"executable_entrypoint_transfer_boundary_present\": ");
-    raw_bool(boundary.executable_entrypoint_transfer_boundary_present);
-    raw_line(",");
-    raw("        \"executable_entrypoint_transfer_boundary_source_chain_complete\": ");
-    raw_bool(boundary.executable_entrypoint_transfer_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"executable_entrypoint_handoff_boundary_present\": ");
-    raw_bool(boundary.executable_entrypoint_handoff_boundary_present);
-    raw_line(",");
-    raw("        \"executable_entrypoint_handoff_boundary_source_chain_complete\": ");
-    raw_bool(boundary.executable_entrypoint_handoff_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"artifact_byte_intake_boundary_present\": ");
-    raw_bool(boundary.artifact_byte_intake_boundary_present);
-    raw_line(",");
-    raw("        \"artifact_byte_intake_boundary_source_chain_complete\": ");
-    raw_bool(boundary.artifact_byte_intake_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"execution_authorization_boundary_present\": ");
-    raw_bool(boundary.execution_authorization_boundary_present);
-    raw_line(",");
-    raw("        \"execution_authorization_boundary_source_chain_complete\": ");
-    raw_bool(boundary.execution_authorization_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"service_registry_mutation_boundary_present\": ");
-    raw_bool(boundary.service_registry_mutation_boundary_present);
-    raw_line(",");
-    raw("        \"service_registry_mutation_boundary_source_chain_complete\": ");
-    raw_bool(boundary.service_registry_mutation_boundary_source_chain_complete);
-    raw_line(",");
-    raw("        \"service_slot_binding_source_evidence_present\": ");
-    raw_bool(boundary.service_slot_binding_source_evidence_present);
-    raw_line(",");
-    raw("        \"health_state_hooks_source_evidence_present\": ");
-    raw_bool(boundary.health_state_hooks_source_evidence_present);
-    raw_line(",");
-    raw("        \"artifact_hash_binding_present\": ");
-    raw_bool(boundary.artifact_hash_binding_present);
-    raw_line(",");
-    raw("        \"entrypoint_abi_source_evidence_present\": ");
-    raw_bool(boundary.entrypoint_abi_source_evidence_present);
-    raw_line(",");
-    raw("        \"address_space_source_evidence_present\": ");
-    raw_bool(boundary.address_space_source_evidence_present);
-    raw_line(",");
-    raw("        \"memory_map_source_evidence_present\": ");
-    raw_bool(boundary.memory_map_source_evidence_present);
-    raw_line(",");
-    raw("        \"capability_import_table_source_evidence_present\": ");
-    raw_bool(boundary.capability_import_table_source_evidence_present);
-    raw_line(",");
-    raw("        \"audit_rollback_write_boundary_source_evidence_present\": ");
-    raw_bool(boundary.audit_rollback_write_boundary_source_evidence_present);
-    raw_line(",");
-    raw("        \"retained_module_evidence_present\": ");
-    raw_bool(boundary.retained_module_evidence_present);
-    raw_line(",");
-    raw("        \"retained_artifact_reference_present\": ");
-    raw_bool(boundary.retained_artifact_reference_present);
-    raw_line(",");
-    raw("        \"retained_service_slot_reservation_present\": ");
-    raw_bool(boundary.retained_service_slot_reservation_present);
-    raw_line(",");
-    raw_line("        \"loader_runtime_source_evidence\": [");
-    let mut idx = 0usize;
-    while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-        let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
-        raw("          {\"fact\": ");
-        json_str(source.name);
-        raw(", \"schema\": ");
-        json_str(source.schema);
-        raw(", \"source_evidence_event_id\": ");
-        json_event_id_option(boundary.loader_runtime_source_evidence_event_ids[idx]);
-        raw(", \"source_evidence_present\": ");
-        raw_bool(boundary.loader_runtime_source_evidence_present[idx]);
-        raw(", \"fact_present\": ");
-        raw_bool(boundary.loader_runtime_fact_present[idx]);
-        raw("}");
-        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-            raw(",");
-        }
-        crlf();
-        idx += 1;
-    }
-    raw_line("        ],");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"target\": \"live_service_graph\",");
-    raw_line("        \"accepts_loader_descriptor\": false,");
-    raw_line("        \"accepts_descriptor_bytes\": false,");
-    raw_line("        \"produces_parsed_descriptor\": false,");
-    raw_line("        \"validates_descriptor_schema\": false,");
-    raw_line("        \"produces_validated_descriptor\": false,");
-    raw_line("        \"validates_descriptor_capabilities\": false,");
-    raw_line("        \"produces_capability_validated_descriptor\": false,");
-    raw_line("        \"authorizes_executable_load_plan\": false,");
-    raw_line("        \"produces_executable_load_plan\": false,");
-    raw_line("        \"produces_executable_image_layout\": false,");
-    raw_line("        \"produces_executable_page_mapping_plan\": false,");
-    raw_line("        \"binds_capability_validated_descriptor_to_executable_pages\": false,");
-    raw_line("        \"parses_descriptor_bytes\": false,");
-    raw_line("        \"accepts_artifact_bytes\": false,");
-    raw_line("        \"authorizes_descriptor_intake\": false,");
-    raw_line("        \"authorizes_artifact_byte_intake\": false,");
-    raw_line("        \"maps_executable_pages\": false,");
-    raw_line("        \"jumps_to_entrypoint\": false,");
-    raw_line("        \"authorizes_execution\": false,");
-    raw_line("        \"mutates_service_registry\": false,");
-    raw_line("        \"writes_durable_audit_state\": false,");
-    raw_line("        \"installs_rollback_state\": false,");
-    raw_line("        \"authorizes_load\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"starts_service\": false,");
-    raw_line("        \"marks_service_running\": false,");
-    raw_line("        \"creates_service_health_records\": false,");
-    raw_line("        \"writes_service_start_audit_record\": false,");
-    raw_line("        \"unloads_service\": false,");
-    raw_line("        \"cleans_up_service_slot\": false,");
-    raw_line("        \"commits_live_load\": false,");
-    raw_line("        \"writes_load_commit_audit_record\": false,");
-    raw_line("        \"installs_commit_rollback_record\": false,");
-    raw_line("        \"records_load_result\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      }");
+    push_live_load_presence_fields(&mut fields, boundary);
+    fields.push(f(
+        "loader_runtime_source_evidence",
+        module_loader_runtime_source_evidence_array(
+            boundary.loader_runtime_source_evidence_event_ids,
+            boundary.loader_runtime_source_evidence_present,
+            boundary.loader_runtime_fact_present,
+        ),
+    ));
+    push_request_target_fields(&mut fields);
+    push_false_fields(
+        &mut fields,
+        &[
+            "accepts_loader_descriptor",
+            "accepts_descriptor_bytes",
+            "produces_parsed_descriptor",
+            "validates_descriptor_schema",
+            "produces_validated_descriptor",
+            "validates_descriptor_capabilities",
+            "produces_capability_validated_descriptor",
+            "authorizes_executable_load_plan",
+            "produces_executable_load_plan",
+            "produces_executable_image_layout",
+            "produces_executable_page_mapping_plan",
+            "binds_capability_validated_descriptor_to_executable_pages",
+            "parses_descriptor_bytes",
+            "accepts_artifact_bytes",
+            "authorizes_descriptor_intake",
+            "authorizes_artifact_byte_intake",
+            "maps_executable_pages",
+            "jumps_to_entrypoint",
+            "authorizes_execution",
+            "mutates_service_registry",
+            "writes_durable_audit_state",
+            "installs_rollback_state",
+            "authorizes_load",
+            "allocates_service_slot",
+            "creates_service_inventory_records",
+        ],
+    );
+    fields.push(f("service_inventory_change", s("none")));
+    push_false_fields(
+        &mut fields,
+        &[
+            "loads_artifact",
+            "starts_service",
+            "marks_service_running",
+            "creates_service_health_records",
+            "writes_service_start_audit_record",
+            "unloads_service",
+            "cleans_up_service_slot",
+            "commits_live_load",
+            "writes_load_commit_audit_record",
+            "installs_commit_rollback_record",
+            "records_load_result",
+            "load_attempted",
+        ],
+    );
+    emit_record_property_line(json_name, fields, false);
 }
 
 fn emit_module_loader_runtime_facts(
     candidate: ModuleLoaderRuntimeCandidate,
     evaluation: ModuleLoaderRuntimeEvaluation,
 ) {
-    raw_line("      \"loader_runtime_facts\": {");
-    emit_module_loader_runtime_fact(
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[0],
-        candidate.loader_identity,
-        evaluation.loader_identity_status,
-        evaluation.loader_identity_reason,
-        true,
-    );
-    emit_module_loader_runtime_fact(
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[1],
-        candidate.artifact_hash_binding,
-        evaluation.artifact_hash_binding_status,
-        evaluation.artifact_hash_binding_reason,
-        true,
-    );
-    emit_module_loader_runtime_fact(
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
-        candidate.entrypoint_abi,
-        evaluation.entrypoint_abi_status,
-        evaluation.entrypoint_abi_reason,
-        true,
-    );
-    emit_module_loader_runtime_fact(
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
-        candidate.address_space_boundary,
-        evaluation.address_space_boundary_status,
-        evaluation.address_space_boundary_reason,
-        true,
-    );
-    emit_module_loader_runtime_fact(
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
-        candidate.memory_map_constraints,
-        evaluation.memory_map_constraints_status,
-        evaluation.memory_map_constraints_reason,
-        true,
-    );
-    emit_module_loader_runtime_fact(
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
-        candidate.capability_import_table,
-        evaluation.capability_import_table_status,
-        evaluation.capability_import_table_reason,
-        true,
-    );
-    emit_module_loader_runtime_fact(
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
-        candidate.service_slot_binding,
-        evaluation.service_slot_binding_status,
-        evaluation.service_slot_binding_reason,
-        true,
-    );
-    emit_module_loader_runtime_fact(
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
-        candidate.health_state_hooks,
-        evaluation.health_state_hooks_status,
-        evaluation.health_state_hooks_reason,
-        true,
-    );
-    emit_module_loader_runtime_fact(
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
-        candidate.rollback_hooks,
-        evaluation.rollback_hooks_status,
-        evaluation.rollback_hooks_reason,
-        true,
-    );
-    emit_module_loader_runtime_fact(
-        MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
-        candidate.audit_rollback_write_boundary_binding,
-        evaluation.audit_rollback_write_boundary_binding_status,
-        evaluation.audit_rollback_write_boundary_binding_reason,
+    emit_record_property_line(
+        "loader_runtime_facts",
+        vec![
+            module_loader_runtime_fact(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[0],
+                candidate.loader_identity,
+                evaluation.loader_identity_status,
+                evaluation.loader_identity_reason,
+            ),
+            module_loader_runtime_fact(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[1],
+                candidate.artifact_hash_binding,
+                evaluation.artifact_hash_binding_status,
+                evaluation.artifact_hash_binding_reason,
+            ),
+            module_loader_runtime_fact(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[2],
+                candidate.entrypoint_abi,
+                evaluation.entrypoint_abi_status,
+                evaluation.entrypoint_abi_reason,
+            ),
+            module_loader_runtime_fact(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[3],
+                candidate.address_space_boundary,
+                evaluation.address_space_boundary_status,
+                evaluation.address_space_boundary_reason,
+            ),
+            module_loader_runtime_fact(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[4],
+                candidate.memory_map_constraints,
+                evaluation.memory_map_constraints_status,
+                evaluation.memory_map_constraints_reason,
+            ),
+            module_loader_runtime_fact(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[5],
+                candidate.capability_import_table,
+                evaluation.capability_import_table_status,
+                evaluation.capability_import_table_reason,
+            ),
+            module_loader_runtime_fact(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[6],
+                candidate.service_slot_binding,
+                evaluation.service_slot_binding_status,
+                evaluation.service_slot_binding_reason,
+            ),
+            module_loader_runtime_fact(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[7],
+                candidate.health_state_hooks,
+                evaluation.health_state_hooks_status,
+                evaluation.health_state_hooks_reason,
+            ),
+            module_loader_runtime_fact(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[8],
+                candidate.rollback_hooks,
+                evaluation.rollback_hooks_status,
+                evaluation.rollback_hooks_reason,
+            ),
+            module_loader_runtime_fact(
+                MODULE_LOADER_RUNTIME_FACT_SOURCES[9],
+                candidate.audit_rollback_write_boundary_binding,
+                evaluation.audit_rollback_write_boundary_binding_status,
+                evaluation.audit_rollback_write_boundary_binding_reason,
+            ),
+        ],
         false,
     );
-    raw_line("      }");
 }
 
-fn emit_module_loader_runtime_fact(
+fn module_loader_runtime_fact(
     source: ModuleLoaderRuntimeFactSource,
     fact: ModuleLoaderRuntimeFact,
     status: &'static str,
     reason: &'static str,
-    comma: bool,
-) {
-    raw("        ");
-    json_str(source.name);
-    raw_line(": {");
-    raw("          \"schema\": ");
-    json_str(source.schema);
-    raw_line(",");
-    raw("          \"id\": ");
-    json_str(source.id);
-    raw_line(",");
-    raw("          \"source_method\": ");
-    json_str(source.source_method);
-    raw_line(",");
-    raw("          \"source_fact_locator\": ");
-    json_str(source.source_fact_locator);
-    raw_line(",");
+) -> Field<'static> {
+    let mut fields = vec![
+        f("schema", s(source.schema)),
+        f("id", s(source.id)),
+        f("source_method", s(source.source_method)),
+        f("source_fact_locator", s(source.source_fact_locator)),
+    ];
     if module_loader_runtime_fact_source_evidence_visible(source) {
-        raw("          \"source_evidence_event_id\": ");
-        json_event_id_option(fact.source_evidence_event_id);
-        raw_line(",");
-        raw("          \"source_evidence_schema\": ");
-        json_str(fact.source_evidence_schema);
-        raw_line(",");
-        raw("          \"source_evidence_state\": ");
-        json_str(fact.source_evidence_state);
-        raw_line(",");
-        raw("          \"source_evidence_status\": ");
-        json_str(fact.source_evidence_status);
-        raw_line(",");
-        raw("          \"source_evidence_reason\": ");
-        json_str(fact.source_evidence_reason);
-        raw_line(",");
-        raw("          \"source_evidence_method\": ");
-        json_str(fact.source_evidence_method);
-        raw_line(",");
-        raw("          \"source_evidence_fact_locator\": ");
-        json_str(fact.source_evidence_fact_locator);
-        raw_line(",");
+        fields.push(f(
+            "source_evidence_event_id",
+            record_event_or_null(fact.source_evidence_event_id),
+        ));
+        fields.push(f("source_evidence_schema", s(fact.source_evidence_schema)));
+        fields.push(f("source_evidence_state", s(fact.source_evidence_state)));
+        fields.push(f("source_evidence_status", s(fact.source_evidence_status)));
+        fields.push(f("source_evidence_reason", s(fact.source_evidence_reason)));
+        fields.push(f("source_evidence_method", s(fact.source_evidence_method)));
+        fields.push(f(
+            "source_evidence_fact_locator",
+            s(fact.source_evidence_fact_locator),
+        ));
     }
-    raw("          \"scope\": ");
-    json_str(fact.scope);
-    raw_line(",");
-    raw("          \"classification\": ");
-    json_str(fact.classification);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(fact.present);
-    raw_line(",");
-    raw("          \"schema_valid\": ");
-    raw_bool(fact.schema_ok);
-    raw_line(",");
-    raw("          \"provenance_valid\": ");
-    raw_bool(fact.provenance_ok);
-    raw_line(",");
-    raw("          \"binds_retained_module_evidence\": ");
-    raw_bool(fact.binds_retained_module_evidence);
-    raw_line(",");
-    raw("          \"binds_service_slot_allocator\": ");
-    raw_bool(fact.binds_service_slot_allocator);
-    raw_line(",");
-    raw("          \"binds_audit_rollback_write_boundary\": ");
-    raw_bool(fact.binds_audit_rollback_write_boundary);
-    raw_line(",");
-    raw_line("          \"authority\": \"current_snapshot\",");
-    raw_line("          \"persistence\": \"none\",");
-    raw_line("          \"durable\": false,");
-    raw_line("          \"loads_artifact\": false,");
-    raw_line("          \"allocates_service_slot\": false,");
-    raw_line("          \"creates_service_inventory_records\": false,");
-    raw_line("          \"service_inventory_change\": \"none\",");
-    raw_line("          \"authorizes_load\": false,");
-    raw_line("          \"required_bindings\": {");
-    raw_line("            \"retained_module_evidence\": \"current_boot_hash_references\",");
-    raw_line(
-        "            \"service_slot_allocator_readiness\": \"raios.module_service_slot_allocator_readiness.v0\",",
-    );
-    raw_line(
-        "            \"audit_write_boundary\": \"raios.module_audit_rollback_write_boundary.v0\",",
-    );
-    raw_line(
-        "            \"execution_commit_gate\": \"raios.module_loader_runtime_execution_commit_gate.v0\",",
-    );
-    raw_line(
-        "            \"descriptor_intake_boundary\": \"raios.module_loader_descriptor_intake_boundary.v0\",",
-    );
-    raw_line("            \"module_loader_runtime\": \"raios.module_loader_runtime_readiness.v0\"");
-    raw_line("          },");
-    raw_line("          \"provenance\": {");
-    raw("            \"source_method\": ");
-    json_str(source.source_method);
-    raw_line(",");
-    raw("            \"source_fact_locator\": ");
-    json_str(source.source_fact_locator);
-    raw_line(",");
-    raw_line("            \"aggregate_method\": \"module.loader_runtime\",");
-    raw_line("            \"source_transport\": \"serial-console\",");
-    raw_line("            \"event_scope\": \"current_boot\",");
-    raw_line("            \"record_id\": null");
-    raw_line("          }");
-    raw("        }");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    fields.push(f("scope", s(fact.scope)));
+    fields.push(f("classification", s(fact.classification)));
+    fields.push(f("status", s(status)));
+    fields.push(f("reason", s(reason)));
+    fields.push(f("present", b(fact.present)));
+    fields.push(f("schema_valid", b(fact.schema_ok)));
+    fields.push(f("provenance_valid", b(fact.provenance_ok)));
+    bf! { fields, "binds_retained_module_evidence" => fact.binds_retained_module_evidence; }
+    bf! { fields, "binds_service_slot_allocator" => fact.binds_service_slot_allocator; }
+    bf! { fields, "binds_audit_rollback_write_boundary" => fact.binds_audit_rollback_write_boundary; }
+    fields.push(f("authority", s("current_snapshot")));
+    fields.push(f("persistence", s("none")));
+    fields.push(f("durable", no()));
+    fields.push(f("loads_artifact", no()));
+    fields.push(f("allocates_service_slot", no()));
+    fields.push(f("creates_service_inventory_records", no()));
+    fields.push(f("service_inventory_change", s("none")));
+    fields.push(f("authorizes_load", no()));
+    fields.push(f(
+        "required_bindings",
+        V::Object(vec![
+            f(
+                "retained_module_evidence",
+                s("current_boot_hash_references"),
+            ),
+            f(
+                "service_slot_allocator_readiness",
+                s("raios.module_service_slot_allocator_readiness.v0"),
+            ),
+            f(
+                "audit_write_boundary",
+                s("raios.module_audit_rollback_write_boundary.v0"),
+            ),
+            f(
+                "execution_commit_gate",
+                s("raios.module_loader_runtime_execution_commit_gate.v0"),
+            ),
+            f(
+                "descriptor_intake_boundary",
+                s("raios.module_loader_descriptor_intake_boundary.v0"),
+            ),
+            f(
+                "module_loader_runtime",
+                s("raios.module_loader_runtime_readiness.v0"),
+            ),
+        ]),
+    ));
+    fields.push(f(
+        "provenance",
+        V::Object(vec![
+            f("source_method", s(source.source_method)),
+            f("source_fact_locator", s(source.source_fact_locator)),
+            f("aggregate_method", s("module.loader_runtime")),
+            f("source_transport", s("serial-console")),
+            f("event_scope", s("current_boot")),
+            f("record_id", null()),
+        ]),
+    ));
+    f(source.name, V::Object(fields))
 }
 
 fn module_loader_runtime_fact_source_evidence_visible(
@@ -3178,179 +2891,206 @@ fn module_loader_runtime_fact_source_evidence_visible(
         || method_eq(source.name, "audit_rollback_write_boundary_binding")
 }
 
-fn emit_module_loader_runtime_gate(
-    wrote: &mut bool,
-    gate: &'static str,
-    state: &'static str,
-    reason: &'static str,
-) {
-    if *wrote {
-        raw_line(",");
-    } else {
-        *wrote = true;
-    }
-    raw("        {\"gate\": ");
-    json_str(gate);
-    raw(", \"state\": ");
-    json_str(state);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw("}");
-}
-
-fn emit_module_loader_runtime_fact_gate(
-    wrote: &mut bool,
-    source: ModuleLoaderRuntimeFactSource,
-    state: &'static str,
-    reason: &'static str,
-) {
-    if *wrote {
-        raw_line(",");
-    } else {
-        *wrote = true;
-    }
-    raw("        {\"gate\": ");
-    json_str(source.name);
-    raw(", \"state\": ");
-    json_str(state);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw(", \"schema\": ");
-    json_str(source.schema);
-    raw(", \"fact_id\": ");
-    json_str(source.id);
-    raw(", \"source_method\": ");
-    json_str(source.source_method);
-    raw(", \"source_fact_locator\": ");
-    json_str(source.source_fact_locator);
-    raw("}");
-}
-
-fn emit_module_loader_runtime_source_fact_map() {
+fn module_loader_runtime_source_fact_map() -> V<'static> {
+    let mut values = Vec::new();
     let mut idx = 0usize;
     while idx < MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
         let source = MODULE_LOADER_RUNTIME_FACT_SOURCES[idx];
-        raw("        {\"fact\": ");
-        json_str(source.name);
-        raw(", \"schema\": ");
-        json_str(source.schema);
-        raw(", \"aggregate_fact_id\": ");
-        json_str(source.id);
-        raw(", \"source_method\": ");
-        json_str(source.source_method);
-        raw(", \"source_fact_locator\": ");
-        json_str(source.source_fact_locator);
-        raw(", \"source_evidence_schema\": ");
-        json_str(source.source_evidence_schema);
-        raw(", \"source_evidence_missing_reason\": ");
-        json_str(source.source_evidence_missing_reason);
-        raw(", \"addressable\": true, \"included_in_required_fact_list\": true}");
-        if idx + 1 != MODULE_LOADER_RUNTIME_FACT_SOURCE_COUNT {
-            raw(",");
-        }
-        crlf();
+        values.push(V::InlineObject(vec![
+            f("fact", s(source.name)),
+            f("schema", s(source.schema)),
+            f("aggregate_fact_id", s(source.id)),
+            f("source_method", s(source.source_method)),
+            f("source_fact_locator", s(source.source_fact_locator)),
+            f("source_evidence_schema", s(source.source_evidence_schema)),
+            f(
+                "source_evidence_missing_reason",
+                s(source.source_evidence_missing_reason),
+            ),
+            f("addressable", b(true)),
+            f("included_in_required_fact_list", b(true)),
+        ]));
         idx += 1;
     }
+    V::Array(values)
 }
 
-fn emit_module_loader_runtime_selftest_case(case: &ModuleLoaderRuntimeSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"actual_loader_identity_source_evidence_present\": ");
-    raw_bool(case.actual_loader_identity_source_evidence_present);
-    raw(", \"actual_loader_identity_source_evidence_state\": ");
-    json_str(case.actual_loader_identity_source_evidence_state);
-    raw(", \"actual_loader_identity_source_evidence_status\": ");
-    json_str(case.actual_loader_identity_source_evidence_status);
-    raw(", \"actual_loader_identity_source_evidence_reason\": ");
-    json_str(case.actual_loader_identity_source_evidence_reason);
-    raw(", \"actual_artifact_hash_source_evidence_present\": ");
-    raw_bool(case.actual_artifact_hash_source_evidence_present);
-    raw(", \"actual_artifact_hash_source_evidence_state\": ");
-    json_str(case.actual_artifact_hash_source_evidence_state);
-    raw(", \"actual_artifact_hash_source_evidence_status\": ");
-    json_str(case.actual_artifact_hash_source_evidence_status);
-    raw(", \"actual_artifact_hash_source_evidence_reason\": ");
-    json_str(case.actual_artifact_hash_source_evidence_reason);
-    raw(", \"actual_entrypoint_abi_source_evidence_present\": ");
-    raw_bool(case.actual_entrypoint_abi_source_evidence_present);
-    raw(", \"actual_entrypoint_abi_source_evidence_state\": ");
-    json_str(case.actual_entrypoint_abi_source_evidence_state);
-    raw(", \"actual_entrypoint_abi_source_evidence_status\": ");
-    json_str(case.actual_entrypoint_abi_source_evidence_status);
-    raw(", \"actual_entrypoint_abi_source_evidence_reason\": ");
-    json_str(case.actual_entrypoint_abi_source_evidence_reason);
-    raw(", \"actual_address_space_source_evidence_present\": ");
-    raw_bool(case.actual_address_space_source_evidence_present);
-    raw(", \"actual_address_space_source_evidence_state\": ");
-    json_str(case.actual_address_space_source_evidence_state);
-    raw(", \"actual_address_space_source_evidence_status\": ");
-    json_str(case.actual_address_space_source_evidence_status);
-    raw(", \"actual_address_space_source_evidence_reason\": ");
-    json_str(case.actual_address_space_source_evidence_reason);
-    raw(", \"actual_memory_map_source_evidence_present\": ");
-    raw_bool(case.actual_memory_map_source_evidence_present);
-    raw(", \"actual_memory_map_source_evidence_state\": ");
-    json_str(case.actual_memory_map_source_evidence_state);
-    raw(", \"actual_memory_map_source_evidence_status\": ");
-    json_str(case.actual_memory_map_source_evidence_status);
-    raw(", \"actual_memory_map_source_evidence_reason\": ");
-    json_str(case.actual_memory_map_source_evidence_reason);
-    raw(", \"actual_capability_table_source_evidence_present\": ");
-    raw_bool(case.actual_capability_table_source_evidence_present);
-    raw(", \"actual_capability_table_source_evidence_state\": ");
-    json_str(case.actual_capability_table_source_evidence_state);
-    raw(", \"actual_capability_table_source_evidence_status\": ");
-    json_str(case.actual_capability_table_source_evidence_status);
-    raw(", \"actual_capability_table_source_evidence_reason\": ");
-    json_str(case.actual_capability_table_source_evidence_reason);
-    raw(", \"actual_service_slot_source_evidence_present\": ");
-    raw_bool(case.actual_service_slot_source_evidence_present);
-    raw(", \"actual_service_slot_source_evidence_state\": ");
-    json_str(case.actual_service_slot_source_evidence_state);
-    raw(", \"actual_service_slot_source_evidence_status\": ");
-    json_str(case.actual_service_slot_source_evidence_status);
-    raw(", \"actual_service_slot_source_evidence_reason\": ");
-    json_str(case.actual_service_slot_source_evidence_reason);
-    raw(", \"actual_health_source_evidence_present\": ");
-    raw_bool(case.actual_health_source_evidence_present);
-    raw(", \"actual_health_source_evidence_state\": ");
-    json_str(case.actual_health_source_evidence_state);
-    raw(", \"actual_health_source_evidence_status\": ");
-    json_str(case.actual_health_source_evidence_status);
-    raw(", \"actual_health_source_evidence_reason\": ");
-    json_str(case.actual_health_source_evidence_reason);
-    raw(", \"actual_rollback_source_evidence_present\": ");
-    raw_bool(case.actual_rollback_source_evidence_present);
-    raw(", \"actual_rollback_source_evidence_state\": ");
-    json_str(case.actual_rollback_source_evidence_state);
-    raw(", \"actual_rollback_source_evidence_status\": ");
-    json_str(case.actual_rollback_source_evidence_status);
-    raw(", \"actual_rollback_source_evidence_reason\": ");
-    json_str(case.actual_rollback_source_evidence_reason);
-    raw(", \"actual_write_boundary_source_evidence_present\": ");
-    raw_bool(case.actual_write_boundary_source_evidence_present);
-    raw(", \"actual_write_boundary_source_evidence_state\": ");
-    json_str(case.actual_write_boundary_source_evidence_state);
-    raw(", \"actual_write_boundary_source_evidence_status\": ");
-    json_str(case.actual_write_boundary_source_evidence_status);
-    raw(", \"actual_write_boundary_source_evidence_reason\": ");
-    json_str(case.actual_write_boundary_source_evidence_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"starts_service\": false, \"marks_service_running\": false, \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+fn module_loader_runtime_selftest_case_value(case: &ModuleLoaderRuntimeSelfTestCase) -> V<'static> {
+    V::InlineObject(vec![
+        f("case", s(case.name)),
+        f("expected_status", s(case.expected_status)),
+        f("expected_reason", s(case.expected_reason)),
+        f("actual_status", s(case.actual_status)),
+        f("actual_reason", s(case.actual_reason)),
+        f(
+            "actual_loader_identity_source_evidence_present",
+            b(case.actual_loader_identity_source_evidence_present),
+        ),
+        f(
+            "actual_loader_identity_source_evidence_state",
+            s(case.actual_loader_identity_source_evidence_state),
+        ),
+        f(
+            "actual_loader_identity_source_evidence_status",
+            s(case.actual_loader_identity_source_evidence_status),
+        ),
+        f(
+            "actual_loader_identity_source_evidence_reason",
+            s(case.actual_loader_identity_source_evidence_reason),
+        ),
+        f(
+            "actual_artifact_hash_source_evidence_present",
+            b(case.actual_artifact_hash_source_evidence_present),
+        ),
+        f(
+            "actual_artifact_hash_source_evidence_state",
+            s(case.actual_artifact_hash_source_evidence_state),
+        ),
+        f(
+            "actual_artifact_hash_source_evidence_status",
+            s(case.actual_artifact_hash_source_evidence_status),
+        ),
+        f(
+            "actual_artifact_hash_source_evidence_reason",
+            s(case.actual_artifact_hash_source_evidence_reason),
+        ),
+        f(
+            "actual_entrypoint_abi_source_evidence_present",
+            b(case.actual_entrypoint_abi_source_evidence_present),
+        ),
+        f(
+            "actual_entrypoint_abi_source_evidence_state",
+            s(case.actual_entrypoint_abi_source_evidence_state),
+        ),
+        f(
+            "actual_entrypoint_abi_source_evidence_status",
+            s(case.actual_entrypoint_abi_source_evidence_status),
+        ),
+        f(
+            "actual_entrypoint_abi_source_evidence_reason",
+            s(case.actual_entrypoint_abi_source_evidence_reason),
+        ),
+        f(
+            "actual_address_space_source_evidence_present",
+            b(case.actual_address_space_source_evidence_present),
+        ),
+        f(
+            "actual_address_space_source_evidence_state",
+            s(case.actual_address_space_source_evidence_state),
+        ),
+        f(
+            "actual_address_space_source_evidence_status",
+            s(case.actual_address_space_source_evidence_status),
+        ),
+        f(
+            "actual_address_space_source_evidence_reason",
+            s(case.actual_address_space_source_evidence_reason),
+        ),
+        f(
+            "actual_memory_map_source_evidence_present",
+            b(case.actual_memory_map_source_evidence_present),
+        ),
+        f(
+            "actual_memory_map_source_evidence_state",
+            s(case.actual_memory_map_source_evidence_state),
+        ),
+        f(
+            "actual_memory_map_source_evidence_status",
+            s(case.actual_memory_map_source_evidence_status),
+        ),
+        f(
+            "actual_memory_map_source_evidence_reason",
+            s(case.actual_memory_map_source_evidence_reason),
+        ),
+        f(
+            "actual_capability_table_source_evidence_present",
+            b(case.actual_capability_table_source_evidence_present),
+        ),
+        f(
+            "actual_capability_table_source_evidence_state",
+            s(case.actual_capability_table_source_evidence_state),
+        ),
+        f(
+            "actual_capability_table_source_evidence_status",
+            s(case.actual_capability_table_source_evidence_status),
+        ),
+        f(
+            "actual_capability_table_source_evidence_reason",
+            s(case.actual_capability_table_source_evidence_reason),
+        ),
+        f(
+            "actual_service_slot_source_evidence_present",
+            b(case.actual_service_slot_source_evidence_present),
+        ),
+        f(
+            "actual_service_slot_source_evidence_state",
+            s(case.actual_service_slot_source_evidence_state),
+        ),
+        f(
+            "actual_service_slot_source_evidence_status",
+            s(case.actual_service_slot_source_evidence_status),
+        ),
+        f(
+            "actual_service_slot_source_evidence_reason",
+            s(case.actual_service_slot_source_evidence_reason),
+        ),
+        f(
+            "actual_health_source_evidence_present",
+            b(case.actual_health_source_evidence_present),
+        ),
+        f(
+            "actual_health_source_evidence_state",
+            s(case.actual_health_source_evidence_state),
+        ),
+        f(
+            "actual_health_source_evidence_status",
+            s(case.actual_health_source_evidence_status),
+        ),
+        f(
+            "actual_health_source_evidence_reason",
+            s(case.actual_health_source_evidence_reason),
+        ),
+        f(
+            "actual_rollback_source_evidence_present",
+            b(case.actual_rollback_source_evidence_present),
+        ),
+        f(
+            "actual_rollback_source_evidence_state",
+            s(case.actual_rollback_source_evidence_state),
+        ),
+        f(
+            "actual_rollback_source_evidence_status",
+            s(case.actual_rollback_source_evidence_status),
+        ),
+        f(
+            "actual_rollback_source_evidence_reason",
+            s(case.actual_rollback_source_evidence_reason),
+        ),
+        f(
+            "actual_write_boundary_source_evidence_present",
+            b(case.actual_write_boundary_source_evidence_present),
+        ),
+        f(
+            "actual_write_boundary_source_evidence_state",
+            s(case.actual_write_boundary_source_evidence_state),
+        ),
+        f(
+            "actual_write_boundary_source_evidence_status",
+            s(case.actual_write_boundary_source_evidence_status),
+        ),
+        f(
+            "actual_write_boundary_source_evidence_reason",
+            s(case.actual_write_boundary_source_evidence_reason),
+        ),
+        f("passed", b(case.passed)),
+        f("loads_artifact", no()),
+        f("allocates_service_slot", no()),
+        f("creates_service_inventory_records", no()),
+        f("starts_service", no()),
+        f("marks_service_running", no()),
+        f("can_load", no()),
+        f("load_attempted", no()),
+    ])
 }
 
 fn module_loader_runtime_execution_commit_gate_source_evidence(

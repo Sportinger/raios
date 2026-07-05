@@ -141,14 +141,22 @@ loader_artifact_hash_binding, loader_fact, service_slot_allocator ported
 module-audit-rollback byte-identical
 (`shadow-20260705-144753-8004.json`, 1626/1626).
 
+Slices M2-14/M2-15 done (2026-07-05): map Batch 4 — loader_runtime fully
+ported (-260 lines), load_gate_selftest_emit fully ported (-41),
+load_gate_render largely ported (-167; a few heavily interleaved
+streaming sections honestly left as-is). **FULL profile green over the
+entire M2 state**: `shadow-20260705-152745-17896.json`, 7814/7814
+predicates, 334 commands, 17.1 min.
+
 Exact next task:
 
 ```text
-Map Batch 4 (SAFE large render surfaces): loader_runtime (~10.3k),
-load_gate_render (~6.1k), load_gate_selftest_emit (~718) — one worker
-packet per file for the two big ones; verify with the FULL profile
-(coverage is full-only for load-gate/selftests). Then Batch 5 (COUPLED,
-hash helpers untouched), per the porting map.
+Map Batch 5 (COUPLED — extreme care): port ONLY the JSON response
+rendering of grant, service_slot, append_payload_hash, audit (first
+packet) then reference, attestation, approval (second packet); the
+key=value line-hash inputs and hash helper functions must remain
+byte-for-byte untouched. Verify each packet with module-audit-rollback +
+full. Afterwards: de-hello-ify scoping (hello_service.rs, signed chain).
 ```
 
 ## Capability Milestones
