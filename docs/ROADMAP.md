@@ -117,16 +117,19 @@ target_binding_emit, artifact_reference_emit ported (net -309 lines).
 single record model.** Recovery profile byte-identical
 (`shadow-20260705-133645-13328.json`, 3644/3644).
 
+Slice M2-10 done (2026-07-05): module-boundary porting map produced and
+saved at `docs/plan-reviews/m2-module-boundary-porting-map-2026-07-05.md`
+— 32 files classified SAFE/COUPLED/NOT-emitter with hash sites, profile
+coverage, batch order, and the hard rule that key=value line-hash inputs
+must never become JSON.
+
 Exact next task:
 
 ```text
-Move to the module_* boundary emit surface: scope which
-agent_protocol_module_* files are pure emitters vs hash-coupled
-(module_evidence.rs hashes key=value lines — those need explicit
-convention mapping), then batch-port the pure ones the same way,
-verified by the module-audit-rollback (or matching) profile. In
-parallel-safe docs work: begin de-hello-ify scoping (hello_service.rs
-22k lines, signed source snapshot chain update required).
+Work through the map's batches (M2-11 = Batch 1, small SAFE
+write-boundary emitters, verify with module-audit-rollback profile).
+Then Batches 2-4 (SAFE storage/loader/render surfaces), then the COUPLED
+batch with untouched hash helpers, per the map.
 ```
 
 ## Capability Milestones
