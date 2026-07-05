@@ -222,15 +222,24 @@ CommandBindings, selftest scaffolding collapse) are where the mass
 deletion happens — the record model was the prerequisite, not the
 collapse itself.
 
+Collapse map produced (2026-07-05):
+`docs/plan-reviews/m2-collapse-map-2026-07-05.md` — census (recovery
+40.7k is the heaviest family; top pattern: the 7.1k-line flattened event
+binding emitter), four design sketches, 6-batch plan. Reality check:
+byte-identical collapse bottoms out ~55-75k lines; ~20k requires
+output-shape/vocabulary changes (batch 6 = OWNER DECISION + needle
+updates + likely an ADR).
+
 Exact next task:
 
 ```text
-Collapse-phase scoping (read-only packet): measure where the 101k
-agent_protocol lines actually sit (eval vs emit vs selftest vs types per
-method family), design the table-driven method dispatch + shared
-CommandBindings + record-driven selftest generation, and estimate
-realistic deletion per step. Output: a collapse map like the porting
-map, with batch order and verification profiles.
+Collapse Batch 1: table-driven method dispatch (MethodEntry table
+replacing the 168-branch dispatch chain in agent_protocol.rs + console
+routing + method predicate helpers; est. -2-3k lines), byte-identical;
+verify quick. Then Batch 2 (named args + shared CommandBindings,
+recovery profile), Batch 3 (generic selftest runner, focused + full),
+per the collapse map. Owner decision pending on batch 6 (vocabulary
+compaction beyond byte-identity).
 ```
 
 ## Capability Milestones
