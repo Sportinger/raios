@@ -1,6 +1,10 @@
 #![cfg_attr(not(test), no_std)]
 
+extern crate alloc;
+
 use sha2::{Digest, Sha256};
+
+pub mod record;
 
 /// Computes the SHA-256 digest for `bytes` and returns the raw 32-byte digest.
 pub fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
@@ -106,8 +110,7 @@ mod tests {
         sha256_bytes, sha256_hex, ByteSink,
     };
 
-    const SHA256_HEX: &str =
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const SHA256_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const SHA256_HEX_UPPER: &str =
         "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
     const SHA256_HEX_NON_HEX: &str =

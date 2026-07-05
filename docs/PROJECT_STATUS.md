@@ -2437,15 +2437,29 @@ build 1m11s, VM quick profile 5m39s. M1 capability sentence verified:
 kernel logic passes as host `cargo test` in under a second, and a second
 machine builds and smokes every commit.
 
+RESOLVED 2026-07-05: slice M2-1 landed. `raios-core::record` provides the
+single typed `Value` model (Null/Bool/U64/borrowed Str/Sha256 rendered as
+`"sha256:<64hex>"`/EventSequence rendered as
+`"event.current_boot.%08d"`/Array/ordered Object), one serializer
+`write_json` matching the kernel JSON conventions byte-for-byte (CRLF,
+two-space indents, the `json_str` escaping table from
+`agent_protocol_support.rs`), and `sha256_of_json` computed through a
+hashing `ByteSink` over exactly the serialized bytes — emitter/hasher
+divergence is structurally impossible. 14/14 host tests (escaping truth
+table, exact nested rendering bytes, empty containers, hash-equals-bytes,
+rendering forms). Kernel untouched. Orchestrator review caught and fixed
+one worker bug: empty Array/Object rendered without their closing
+bracket. IMPORTANT for every M2 port: the existing kernel hashers hash
+canonical `key=value` LINES, not JSON bytes (`module_evidence.rs:4538` +
+`:542`), so each ported gate must map its old hash convention explicitly.
+
 Current exact next task (milestone M2 Ceremony Collapse,
-`docs/ROADMAP.md`): opening slice — design the single `Value`/record
-model in `raios-core` (typed record structure + one JSON serializer +
-one canonical hasher over the same structure) with host tests only; no
-kernel emitter ported yet. Subsequent slices port gates one at a time,
-must delete more lines than they add, and must keep serial output
-byte-identical (harness needles as proof). The `hello_service.rs` dedup
-and de-hello-ification (including the signed source snapshot chain
-update) belong to M2.
+`docs/ROADMAP.md`): port the first small kernel emitter to
+`raios_core::record` — pick a tiny `*_emit.rs` module (~200 lines, e.g. a
+recovery emit module), keep serial output byte-identical (proven by
+quick/focused profile needles), and delete more lines than the slice
+adds. The `hello_service.rs` dedup and de-hello-ification (with signed
+source snapshot chain update) stay inside M2.
 Keep persistence, durable audit writes, rollback-store writes, transaction
 append, rollback application, external unsigned artifact intake, executable
 candidate-byte mapping, provider auto-load, broad mutation, and installed

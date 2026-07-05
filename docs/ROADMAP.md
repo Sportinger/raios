@@ -54,17 +54,23 @@ sha256 duplicate stays until M2 — replacing it invalidates the signed
 Hello source snapshot (`artifact_content_source_sha256`); that dedup
 belongs to the M2 de-hello-ify slice.
 
+Done in M2 so far (2026-07-05): slice M2-1 — `raios-core::record` exists:
+`Value` enum (Null/Bool/U64/Str/Sha256/EventSequence/Array/ordered
+Object), ONE serializer `write_json` reproducing the kernel's exact JSON
+style (CRLF, two-space indent, kernel escaping table), and
+`sha256_of_json` implemented through a hashing `ByteSink` so serializer
+and hasher cannot diverge; 14/14 host tests. Kernel untouched. Key
+finding for all ports: today's kernel hashers hash `key=value` LINES,
+not JSON bytes (`module_evidence.rs:4538-4592`) — every ported gate must
+consciously map its old line-hash convention.
+
 Exact next task:
 
 ```text
-Open M2 with a scoping slice: define the Value/record model design (one
-typed record structure, one JSON serializer, one canonical hasher over
-the same structure) as a raios-core module with host tests, WITHOUT
-porting any kernel emitter yet. Then port the first small gate/emitter
-slice-by-slice; every porting slice must delete more lines than it adds
-and keep serial output byte-identical (golden-string harness needles are
-the proof). De-hello-ify and the hello_service.rs sha256 dedup (signed
-snapshot chain update) land inside M2.
+Port the first small kernel emitter to raios_core::record (pick a tiny
+emit module, e.g. a recovery *_emit.rs under ~200 lines), byte-identical
+serial output proven by quick/focused profile needles; the slice must
+delete more lines than it adds.
 ```
 
 ## Capability Milestones
