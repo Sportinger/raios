@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-05 evening (M2 running; first real kernel bug fixed).
+Updated: 2026-07-05 night (M2: both emit boundaries fully ported).
 
 ## What raiOS can actually do today
 
@@ -39,17 +39,18 @@ Updated: 2026-07-05 evening (M2 running; first real kernel bug fixed).
   A bonus: the signed-source protection proved itself by correctly
   rejecting a mis-configured build machine on the first CI attempt.
 
-Now active: **M2 Ceremony Collapse** — shrink the agent layer ~10x by
-replacing 535 hand-written data-format emitters with ONE typed record
-model. Progress: 13 modules ported, every one proven byte-identical by
-VM runs.
+Now active: **M2 Ceremony Collapse**. BOTH large emit boundaries
+(recovery: 22 modules; module: full porting map incl. the hash-coupled
+files) now render through ONE typed record model — roughly -2,000 kernel
+lines at byte-identical behavior, every batch proven by VM runs, twice
+capped by a green FULL profile (7,814/7,814). Remaining M2 surface: the
+22.5k-line hello service file (scoping underway).
 
-HIGHLIGHT: the new tooling caught and fixed the first real kernel bug —
-a command that copied 3.8 MB onto a small stack, randomly crashing the
-whole OS (~50% of runs, unexplained for weeks as "flaky tests"). The
-chain worked exactly as designed: instant death classification (M0) ->
-pattern in the failure log -> checkpoint bisection -> fix -> proven by
-5/5 clean runs. The OS is now measurably more stable than yesterday.
+HIGHLIGHT of the day: the tooling caught and fixed the first real kernel
+bug — a command copied 3.8 MB onto a small stack, randomly crashing the
+OS (~50% of runs, misfiled for weeks as "flaky tests"). Chain: instant
+death classification (M0) -> failure-log pattern -> checkpoint bisection
+-> fix -> proven by 5/5 clean runs.
 
 ## Top risk
 
