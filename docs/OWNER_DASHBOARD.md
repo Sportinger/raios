@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (byte-identical collapse complete; decision needed).
+Updated: 2026-07-06 (M2 closed via ADR 0006; M3 First Durable Write open).
 
 ## What raiOS can actually do today
 
@@ -39,25 +39,20 @@ Updated: 2026-07-06 (byte-identical collapse complete; decision needed).
   A bonus: the signed-source protection proved itself by correctly
   rejecting a mis-configured build machine on the first CI attempt.
 
-Now active: **M2 — the byte-identical collapse program is COMPLETE**
-(Batches 1-5: one dispatch table, shared command structures, one
-selftest runner, descriptor-table event bindings, table-built hash
-inputs). Agent layer: 138k -> ~126.5k lines with PROVEN identical
-behavior — eight green FULL profiles (7,814/7,814 each) along the way.
-Structure quality is transformed: one record model, one dispatch, one
-selftest runner, all files under 5k lines, zero-warning build, all
-attested.
+**M2 is CLOSED** (ADR 0006, provisional-overridable): the structural
+disease is cured — one record model with non-divergent hashing, one
+dispatch table, one command representation, one selftest runner, every
+file agent-readable, zero-warning build, nine green FULL profiles. Line
+count landed at ~126.5k (not the original ~20k); the optional extra
+shrink (changing output vocabulary) is deferred and remains YOUR call —
+say the word and it gets scheduled.
 
-DECISION NEEDED FROM YOU (no rush): reaching the original ~20k-line M2
-goal requires changing what the OS actually outputs (compacting the
-evidence vocabulary, moving negative selftests to PC-side tests). That
-is safe but heavier: test needles must be updated and an architecture
-decision (ADR) recorded. Option A: accept ~126k as the M2 result and
-re-scope the milestone sentence honestly. Option B: authorize the
-vocabulary compaction (est. -30k+ more, gets near the goal).
-
-Also this session: first real kernel bug found and fixed by the new
-tooling (3.8 MB stack copy, ~50% random crashes) — proven by 5/5 runs.
+Now active: **M3 First Durable Write** — raiOS performs its first real,
+policy-authorized, durable disk write: a rollback-transaction append to
+the dedicated audit region, and a hello rollback actually APPLIES using
+it. This is the moment the system graduates from "can only describe
+changes" to "can safely make one". Scoping worker is mapping the
+existing denial gates now.
 
 ## Top risk
 

@@ -17,7 +17,14 @@ vocabulary).
 
 Last updated: 2026-07-05.
 
-Current milestone: **M2 Ceremony Collapse** (see Capability Milestones).
+Current milestone: **M3 First Durable Write** (see Capability Milestones).
+
+**M2 Ceremony Collapse closed 2026-07-06** under the re-scoped capability
+sentence of ADR 0006 (byte-identical collapse floor accepted; vocabulary
+compaction is an optional later slice, owner-overridable). Evidence: the
+Batches 1–5 program (commits ad694f2..3a108c3), nine green FULL profiles
+(7,814/7,814), agent layer 138k→126.5k lines at proven identical
+behavior, zero-warning build, every file below size thresholds.
 
 **M1 Testable Core closed 2026-07-05.** Capability sentence verified:
 `raios-core` host tests pass in <1s (`cargo test --locked -p raios-core`,
@@ -311,15 +318,22 @@ behavior. Remaining to reach the ~20k target: Batch 6 (vocabulary
 compaction / host-test migration — changes output shape, needs OWNER
 DECISION + needle updates + an ADR).
 
+Checkpoint resolved via ADR 0006 (M2 closed re-scoped; batch-6
+vocabulary compaction optional/deferred, owner may still choose it).
+
 Exact next task:
 
 ```text
-M2 checkpoint: re-measure the agent layer, update the dashboard with
-the honest numbers, and put the batch-6 decision to the owner (option
-A: accept the byte-identical floor and re-scope M2's sentence; option
-B: authorize vocabulary compaction via a new ADR). Meanwhile safe
-filler: convert the ModuleLoadGate/RecoveryArtifactLoadDenied binding
-emitters (outside M2-33's write set) onto descriptor tables.
+Open M3 with a scoping slice (read-only packet): map the existing
+write-authority denial chain end to end — the RAIOS_AUDITRB_V0 LBA1
+region contract (docs/image-layout-v0.md?), the AHCI write/readback
+evidence already verified, the append-intent/payload-hash/write-policy
+gates, and exactly which policy constant(s) currently deny the
+transaction append. Output: the authority-grant design (which gate
+flips, what evidence it must cite), the transaction append + readback +
+hash verification flow, and the slice plan for making rollback apply a
+real evidenced state change. Verify profile: hello-rollback-dry-run +
+module-audit-rollback + full at closure.
 ```
 
 ## Capability Milestones
