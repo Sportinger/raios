@@ -178,6 +178,24 @@ pub(crate) fn emit_record_fields(fields: Vec<Field<'_>>, spaces: usize) {
     write_json_fields(&fields, &mut sink, spaces);
 }
 
+pub(crate) fn emit_record_fields_trailing_comma(fields: Vec<Field<'_>>, spaces: usize) {
+    let mut sink = SerialSink;
+    let mut idx = 0usize;
+
+    while idx < fields.len() {
+        let mut written = 0usize;
+        while written < spaces {
+            sink.write_bytes(b" ");
+            written += 1;
+        }
+        write_json(&Value::Str(fields[idx].key), &mut sink, spaces);
+        sink.write_bytes(b": ");
+        write_json(&fields[idx].value, &mut sink, spaces);
+        sink.write_bytes(b",\r\n");
+        idx += 1;
+    }
+}
+
 pub(crate) fn emit_record_object(fields: Vec<Field<'_>>, spaces: usize, comma: bool) {
     let mut sink = SerialSink;
     let mut idx = 0usize;
@@ -348,13 +366,14 @@ pub(crate) fn emit_export_gate(
     if *wrote {
         raw_line(",");
     }
-    raw("      {\"gate\": ");
-    json_str(gate);
-    raw(", \"state\": ");
-    json_str(state);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw("}");
+    emit_inline_record_object_fragment(
+        vec![
+            record_field("gate", record_str(gate)),
+            record_field("state", record_str(state)),
+            record_field("reason", record_str(reason)),
+        ],
+        6,
+    );
     *wrote = true;
 }
 

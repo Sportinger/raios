@@ -1,53 +1,70 @@
+use alloc::vec;
+
 use crate::{
-    agent_protocol_module_types::*, agent_protocol_module_write_boundary_emit::*,
-    agent_protocol_support::*,
+    agent_protocol_module_types::*,
+    agent_protocol_module_write_boundary_emit::*,
+    agent_protocol_support::{
+        begin_response, crlf, emit_export_gate, emit_inline_record_object,
+        emit_record_fields_trailing_comma, emit_record_property_line, end_response, method_eq,
+        raw_line, record_bool as b, record_false as no, record_field as f, record_str as s,
+    },
 };
+use raios_core::record::Value as V;
 
 pub(crate) fn emit_module_audit_rollback_availability() {
     let availability = module_audit_rollback_availability_snapshot();
     let evaluation = evaluate_module_audit_rollback_availability_candidate(availability);
 
     begin_response("module.audit_rollback_availability");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_availability.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"global_event_log_mutation\": \"none\",");
-    raw_line("      \"writes_enabled\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"installs_rollback_plan\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.module_audit_rollback_availability.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", no()),
+            f("global_event_log_mutation", s("none")),
+            f("writes_enabled", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("installs_rollback_plan", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+        ],
+        6,
+    );
     emit_module_availability_facts(availability, evaluation);
     raw_line(",");
-    raw_line("      \"policy_result\": {");
-    raw("        \"availability_status\": ");
-    json_str(evaluation.status);
-    raw_line(",");
-    raw("        \"availability_reason\": ");
-    json_str(evaluation.reason);
-    raw_line(",");
-    raw("        \"durable_audit_write_missing\": ");
-    raw_bool(!method_eq(
-        evaluation.durable_audit_ledger_status,
-        "available",
-    ));
-    raw_line(",");
-    raw("        \"rollback_install_missing\": ");
-    raw_bool(!method_eq(evaluation.rollback_store_status, "available"));
-    raw_line(",");
-    raw("        \"durable_write_policy_available\": ");
-    raw_bool(evaluation.durable_write_policy_available);
-    raw_line(",");
-    raw("        \"rollback_install_policy_available\": ");
-    raw_bool(evaluation.rollback_install_policy_available);
-    raw_line(",");
-    raw_line("        \"retained_hash_refs_are_durable_authority\": false,");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      },");
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("availability_status", s(evaluation.status)),
+            f("availability_reason", s(evaluation.reason)),
+            f(
+                "durable_audit_write_missing",
+                b(!method_eq(
+                    evaluation.durable_audit_ledger_status,
+                    "available",
+                )),
+            ),
+            f(
+                "rollback_install_missing",
+                b(!method_eq(evaluation.rollback_store_status, "available")),
+            ),
+            f(
+                "durable_write_policy_available",
+                b(evaluation.durable_write_policy_available),
+            ),
+            f(
+                "rollback_install_policy_available",
+                b(evaluation.rollback_install_policy_available),
+            ),
+            f("retained_hash_refs_are_durable_authority", no()),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ],
+        true,
+    );
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     emit_export_gate(
@@ -67,6 +84,7 @@ pub(crate) fn emit_module_audit_rollback_availability() {
     end_response("module.audit_rollback_availability");
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_audit_rollback_availability_selftest() {
     let cases = module_audit_rollback_availability_selftest_cases();
     let mut passed = true;
@@ -77,22 +95,7 @@ pub(crate) fn emit_module_audit_rollback_availability_selftest() {
     }
 
     begin_response("module.audit_rollback_availability_selftest");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_availability_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"installs_rollback_plan\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
+    emit_record_fields_trailing_comma(vec![f("schema", s("raios.module_audit_rollback_availability_selftest.v0")), f("scope", s("current_boot")), f("classification", s("local_only")), f("test_infrastructure", b(true)), f("mutates_global_event_log", no()), f("creates_durable_audit_records", no()), f("creates_rollback_plans", no()), f("installs_rollback_plan", no()), f("service_inventory_change", s("none")), f("load_attempted", no()), f("case_count", V::U64(cases.len() as u64)), f("passed", b(passed))], 6);
     raw_line("      \"cases\": [");
     idx = 0;
     while idx < cases.len() {
@@ -104,27 +107,12 @@ pub(crate) fn emit_module_audit_rollback_availability_selftest() {
     end_response("module.audit_rollback_availability_selftest");
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_audit_rollback_availability_selftest_case(
     case: &ModuleAuditRollbackAvailabilitySelfTestCase,
     comma: bool,
 ) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"writes_enabled\": false, \"installs_rollback_plan\": false, \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("writes_enabled", no()), f("installs_rollback_plan", no()), f("can_load", no()), f("load_attempted", no())], comma);
 }
 
 pub(crate) fn module_audit_rollback_availability_snapshot(

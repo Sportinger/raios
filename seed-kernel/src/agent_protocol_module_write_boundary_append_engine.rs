@@ -1,7 +1,16 @@
+use alloc::vec;
+
 use crate::{
-    agent_protocol_module_types::*, agent_protocol_module_write_boundary_storage_layout::*,
-    agent_protocol_support::*,
+    agent_protocol_module_types::*,
+    agent_protocol_module_write_boundary_storage_layout::*,
+    agent_protocol_support::{
+        begin_response, crlf, emit_export_gate, emit_inline_record_object,
+        emit_record_fields_trailing_comma, emit_record_property_line, end_response, method_eq,
+        raw_line, record_bool as b, record_false as no, record_field as f, record_object as object,
+        record_str as s,
+    },
 };
+use raios_core::record::Value as V;
 
 pub(crate) fn emit_module_audit_rollback_append_engine() {
     let storage = module_audit_rollback_storage_layout_snapshot();
@@ -10,55 +19,66 @@ pub(crate) fn emit_module_audit_rollback_append_engine() {
     let evaluation = evaluate_module_audit_rollback_append_engine_candidate(engine);
 
     begin_response("module.audit_rollback_append_engine");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_append_engine.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"global_event_log_mutation\": \"none\",");
-    raw_line("      \"writes_enabled\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"installs_rollback_plan\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.module_audit_rollback_append_engine.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", no()),
+            f("global_event_log_mutation", s("none")),
+            f("writes_enabled", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("installs_rollback_plan", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+        ],
+        6,
+    );
     emit_module_append_engine_storage_layout_inputs(storage, storage_evaluation);
     raw_line(",");
     emit_module_append_engine_facts(engine, evaluation);
     raw_line(",");
-    raw_line("      \"policy_result\": {");
-    raw("        \"append_engine_status\": ");
-    json_str(evaluation.status);
-    raw_line(",");
-    raw("        \"append_engine_reason\": ");
-    json_str(evaluation.reason);
-    raw_line(",");
-    raw("        \"audit_engine_available\": ");
-    raw_bool(evaluation.audit_engine_available);
-    raw_line(",");
-    raw("        \"rollback_engine_available\": ");
-    raw_bool(evaluation.rollback_engine_available);
-    raw_line(",");
-    raw("        \"append_engine_available\": ");
-    raw_bool(evaluation.append_engine_available);
-    raw_line(",");
-    raw("        \"append_engine_missing\": ");
-    raw_bool(!evaluation.append_engine_available);
-    raw_line(",");
-    raw("        \"storage_layout_available\": ");
-    raw_bool(storage_evaluation.storage_layout_available);
-    raw_line(",");
-    raw("        \"storage_layout_missing\": ");
-    raw_bool(!storage_evaluation.storage_layout_available);
-    raw_line(",");
-    raw_line("        \"retained_hash_refs_are_append_engine_authority\": false,");
-    raw_line("        \"availability_facts_are_append_engine_authority\": false,");
-    raw_line("        \"write_policy_facts_are_append_engine_authority\": false,");
-    raw_line("        \"storage_layout_facts_are_append_engine_authority\": false,");
-    raw_line("        \"append_engine_facts_are_append_authority\": false,");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      },");
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("append_engine_status", s(evaluation.status)),
+            f("append_engine_reason", s(evaluation.reason)),
+            f(
+                "audit_engine_available",
+                b(evaluation.audit_engine_available),
+            ),
+            f(
+                "rollback_engine_available",
+                b(evaluation.rollback_engine_available),
+            ),
+            f(
+                "append_engine_available",
+                b(evaluation.append_engine_available),
+            ),
+            f(
+                "append_engine_missing",
+                b(!evaluation.append_engine_available),
+            ),
+            f(
+                "storage_layout_available",
+                b(storage_evaluation.storage_layout_available),
+            ),
+            f(
+                "storage_layout_missing",
+                b(!storage_evaluation.storage_layout_available),
+            ),
+            f("retained_hash_refs_are_append_engine_authority", no()),
+            f("availability_facts_are_append_engine_authority", no()),
+            f("write_policy_facts_are_append_engine_authority", no()),
+            f("storage_layout_facts_are_append_engine_authority", no()),
+            f("append_engine_facts_are_append_authority", no()),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ],
+        true,
+    );
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     emit_export_gate(
@@ -94,22 +114,26 @@ pub(crate) fn emit_module_audit_rollback_append_engine_selftest() {
     }
 
     begin_response("module.audit_rollback_append_engine_selftest");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_append_engine_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"installs_rollback_plan\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_audit_rollback_append_engine_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("installs_rollback_plan", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+        ],
+        6,
+    );
     raw_line("      \"cases\": [");
     idx = 0;
     while idx < cases.len() {
@@ -125,23 +149,21 @@ pub(crate) fn emit_module_audit_rollback_append_engine_selftest_case(
     case: &ModuleAuditRollbackAppendEngineSelfTestCase,
     comma: bool,
 ) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"writes_enabled\": false, \"installs_rollback_plan\": false, \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_object(
+        vec![
+            f("case", s(case.name)),
+            f("expected_status", s(case.expected_status)),
+            f("expected_reason", s(case.expected_reason)),
+            f("actual_status", s(case.actual_status)),
+            f("actual_reason", s(case.actual_reason)),
+            f("passed", b(case.passed)),
+            f("writes_enabled", no()),
+            f("installs_rollback_plan", no()),
+            f("can_load", no()),
+            f("load_attempted", no()),
+        ],
+        comma,
+    );
 }
 
 pub(crate) fn module_audit_rollback_append_engine_snapshot(
@@ -312,178 +334,155 @@ pub(crate) fn emit_module_append_engine_storage_layout_inputs(
     storage: ModuleAuditRollbackStorageLayoutCandidate,
     evaluation: ModuleAuditRollbackStorageLayoutEvaluation,
 ) {
-    raw_line("      \"storage_layout_inputs\": {");
-    raw_line("        \"persistence_device_inventory\": {");
-    raw_line("          \"schema\": \"raios.persistence_device_inventory.v0\",");
-    raw("          \"status\": ");
-    json_str(evaluation.persistence_device_status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(evaluation.persistence_device_reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(storage.persistence_device_inventory.present);
-    raw_line(",");
-    raw("          \"stable_identity\": ");
-    raw_bool(storage.persistence_device_inventory.stable_identity);
-    raw_line(",");
-    raw("          \"partition_inventory_available\": ");
-    raw_bool(
-        storage
-            .persistence_device_inventory
-            .partition_inventory_available,
+    emit_record_property_line(
+        "storage_layout_inputs",
+        vec![
+            f(
+                "persistence_device_inventory",
+                object(vec![
+                    f("schema", s("raios.persistence_device_inventory.v0")),
+                    f("status", s(evaluation.persistence_device_status)),
+                    f("reason", s(evaluation.persistence_device_reason)),
+                    f("present", b(storage.persistence_device_inventory.present)),
+                    f(
+                        "stable_identity",
+                        b(storage.persistence_device_inventory.stable_identity),
+                    ),
+                    f(
+                        "partition_inventory_available",
+                        b(storage
+                            .persistence_device_inventory
+                            .partition_inventory_available),
+                    ),
+                    f(
+                        "write_path_available",
+                        b(storage.persistence_device_inventory.write_path_available),
+                    ),
+                    f("authorizes_append_engine", no()),
+                ]),
+            ),
+            f(
+                "audit_rollback_storage_layout",
+                object(vec![
+                    f("schema", s("raios.audit_rollback_storage_layout.v0")),
+                    f("status", s(evaluation.storage_layout_status)),
+                    f("reason", s(evaluation.storage_layout_reason)),
+                    f("present", b(storage.audit_rollback_storage_layout.present)),
+                    f(
+                        "binds_persistence_device",
+                        b(storage
+                            .audit_rollback_storage_layout
+                            .binds_persistence_device),
+                    ),
+                    f(
+                        "append_slots_available",
+                        b(storage.audit_rollback_storage_layout.append_slots_available),
+                    ),
+                    f(
+                        "recovery_region_separated",
+                        b(storage
+                            .audit_rollback_storage_layout
+                            .recovery_region_separated),
+                    ),
+                    f("authorizes_append_engine", no()),
+                ]),
+            ),
+            f(
+                "storage_layout_available",
+                b(evaluation.storage_layout_available),
+            ),
+            f("storage_layout_facts_are_append_engine_authority", no()),
+        ],
+        false,
     );
-    raw_line(",");
-    raw("          \"write_path_available\": ");
-    raw_bool(storage.persistence_device_inventory.write_path_available);
-    raw_line(",");
-    raw_line("          \"authorizes_append_engine\": false");
-    raw_line("        },");
-    raw_line("        \"audit_rollback_storage_layout\": {");
-    raw_line("          \"schema\": \"raios.audit_rollback_storage_layout.v0\",");
-    raw("          \"status\": ");
-    json_str(evaluation.storage_layout_status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(evaluation.storage_layout_reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(storage.audit_rollback_storage_layout.present);
-    raw_line(",");
-    raw("          \"binds_persistence_device\": ");
-    raw_bool(
-        storage
-            .audit_rollback_storage_layout
-            .binds_persistence_device,
-    );
-    raw_line(",");
-    raw("          \"append_slots_available\": ");
-    raw_bool(storage.audit_rollback_storage_layout.append_slots_available);
-    raw_line(",");
-    raw("          \"recovery_region_separated\": ");
-    raw_bool(
-        storage
-            .audit_rollback_storage_layout
-            .recovery_region_separated,
-    );
-    raw_line(",");
-    raw_line("          \"authorizes_append_engine\": false");
-    raw_line("        },");
-    raw("        \"storage_layout_available\": ");
-    raw_bool(evaluation.storage_layout_available);
-    raw_line(",");
-    raw_line("        \"storage_layout_facts_are_append_engine_authority\": false");
-    raw_line("      }");
 }
 
 pub(crate) fn emit_module_append_engine_facts(
     engine: ModuleAuditRollbackAppendEngineCandidate,
     evaluation: ModuleAuditRollbackAppendEngineEvaluation,
 ) {
-    raw_line("      \"append_engine_facts\": {");
-    emit_module_append_engine_fact(
-        "audit_ledger_append_engine",
-        "raios.audit_ledger_append_engine.v0",
-        "append_engine.audit_ledger.current_boot",
-        "raios.audit_record.v0",
-        engine.audit_ledger_append_engine,
-        evaluation.audit_engine_status,
-        evaluation.audit_engine_reason,
-        true,
-    );
-    emit_module_append_engine_fact(
-        "rollback_store_transaction_engine",
-        "raios.rollback_store_transaction_engine.v0",
-        "append_engine.rollback_store.current_boot",
-        "raios.rollback_plan.v0",
-        engine.rollback_store_transaction_engine,
-        evaluation.rollback_engine_status,
-        evaluation.rollback_engine_reason,
+    emit_record_property_line(
+        "append_engine_facts",
+        vec![
+            f(
+                "audit_ledger_append_engine",
+                module_append_engine_fact_record(
+                    "raios.audit_ledger_append_engine.v0",
+                    "append_engine.audit_ledger.current_boot",
+                    "raios.audit_record.v0",
+                    engine.audit_ledger_append_engine,
+                    evaluation.audit_engine_status,
+                    evaluation.audit_engine_reason,
+                ),
+            ),
+            f(
+                "rollback_store_transaction_engine",
+                module_append_engine_fact_record(
+                    "raios.rollback_store_transaction_engine.v0",
+                    "append_engine.rollback_store.current_boot",
+                    "raios.rollback_plan.v0",
+                    engine.rollback_store_transaction_engine,
+                    evaluation.rollback_engine_status,
+                    evaluation.rollback_engine_reason,
+                ),
+            ),
+        ],
         false,
     );
-    raw_line("      }");
 }
 
-pub(crate) fn emit_module_append_engine_fact(
-    name: &'static str,
+fn module_append_engine_fact_record(
     schema: &'static str,
     id: &'static str,
     target_schema: &'static str,
     fact: ModuleAuditRollbackAppendEngineFact,
     status: &'static str,
     reason: &'static str,
-    comma: bool,
-) {
-    raw("        ");
-    json_str(name);
-    raw_line(": {");
-    raw("          \"schema\": ");
-    json_str(schema);
-    raw_line(",");
-    raw("          \"id\": ");
-    json_str(id);
-    raw_line(",");
-    raw("          \"target_schema\": ");
-    json_str(target_schema);
-    raw_line(",");
-    raw_line("          \"storage_layout_schema\": \"raios.audit_rollback_storage_layout.v0\",");
-    raw_line("          \"write_policy_schema\": \"raios.durable_audit_write_policy.v0\",");
-    raw("          \"scope\": ");
-    json_str(fact.scope);
-    raw_line(",");
-    raw("          \"classification\": ");
-    json_str(fact.classification);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(fact.present);
-    raw_line(",");
-    raw("          \"schema_valid\": ");
-    raw_bool(fact.schema_ok);
-    raw_line(",");
-    raw("          \"provenance_valid\": ");
-    raw_bool(fact.provenance_ok);
-    raw_line(",");
-    raw("          \"binds_storage_layout\": ");
-    raw_bool(fact.binds_storage_layout);
-    raw_line(",");
-    raw("          \"binds_write_policy\": ");
-    raw_bool(fact.binds_write_policy);
-    raw_line(",");
-    raw("          \"supports_append_only\": ");
-    raw_bool(fact.supports_append_only);
-    raw_line(",");
-    raw("          \"supports_flush\": ");
-    raw_bool(fact.supports_flush);
-    raw_line(",");
-    raw("          \"supports_replay\": ");
-    raw_bool(fact.supports_replay);
-    raw_line(",");
-    raw("          \"recovery_separation_respected\": ");
-    raw_bool(fact.recovery_separation_respected);
-    raw_line(",");
-    raw_line("          \"authority\": \"current_snapshot\",");
-    raw_line("          \"persistence\": \"none\",");
-    raw_line("          \"durable\": false,");
-    raw_line("          \"authorizes_append\": false,");
-    raw_line("          \"authorizes_write\": false,");
-    raw_line("          \"write_attempted\": false,");
-    raw_line("          \"provenance\": {");
-    raw_line("            \"source_method\": \"module.audit_rollback_append_engine\",");
-    raw_line("            \"source_transport\": \"serial-console\",");
-    raw_line("            \"event_scope\": \"current_boot\",");
-    raw_line("            \"record_id\": null");
-    raw_line("          }");
-    raw("        }");
-    if comma {
-        raw(",");
-    }
-    crlf();
+) -> V<'static> {
+    object(vec![
+        f("schema", s(schema)),
+        f("id", s(id)),
+        f("target_schema", s(target_schema)),
+        f(
+            "storage_layout_schema",
+            s("raios.audit_rollback_storage_layout.v0"),
+        ),
+        f(
+            "write_policy_schema",
+            s("raios.durable_audit_write_policy.v0"),
+        ),
+        f("scope", s(fact.scope)),
+        f("classification", s(fact.classification)),
+        f("status", s(status)),
+        f("reason", s(reason)),
+        f("present", b(fact.present)),
+        f("schema_valid", b(fact.schema_ok)),
+        f("provenance_valid", b(fact.provenance_ok)),
+        f("binds_storage_layout", b(fact.binds_storage_layout)),
+        f("binds_write_policy", b(fact.binds_write_policy)),
+        f("supports_append_only", b(fact.supports_append_only)),
+        f("supports_flush", b(fact.supports_flush)),
+        f("supports_replay", b(fact.supports_replay)),
+        f(
+            "recovery_separation_respected",
+            b(fact.recovery_separation_respected),
+        ),
+        f("authority", s("current_snapshot")),
+        f("persistence", s("none")),
+        f("durable", no()),
+        f("authorizes_append", no()),
+        f("authorizes_write", no()),
+        f("write_attempted", no()),
+        f(
+            "provenance",
+            object(vec![
+                f("source_method", s("module.audit_rollback_append_engine")),
+                f("source_transport", s("serial-console")),
+                f("event_scope", s("current_boot")),
+                f("record_id", V::Null),
+            ]),
+        ),
+    ])
 }
 
 pub(crate) fn module_audit_rollback_append_engine_selftest_cases(

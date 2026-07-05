@@ -1,8 +1,18 @@
+use alloc::vec;
+
 use crate::{
-    agent_protocol_module_types::*, agent_protocol_module_write_boundary_append_contract::*,
-    agent_protocol_module_write_boundary_append_payload_hash::*, agent_protocol_support::*,
+    agent_protocol_module_types::*,
+    agent_protocol_module_write_boundary_append_contract::*,
+    agent_protocol_module_write_boundary_append_payload_hash::*,
+    agent_protocol_support::{
+        begin_response, crlf, emit_export_gate, emit_inline_record_object,
+        emit_record_fields_trailing_comma, emit_record_property_line, end_response, method_eq,
+        raw_line, record_bool as b, record_false as no, record_field as f, record_inline as inline,
+        record_object as object, record_sha_or_null, record_str as s,
+    },
     event_log,
 };
+use raios_core::record::Value as V;
 
 pub(crate) fn emit_module_audit_rollback_append_intent() {
     let binding = event_log::module_load_gate_binding_snapshot();
@@ -22,61 +32,74 @@ pub(crate) fn emit_module_audit_rollback_append_intent() {
     let evaluation = evaluate_module_audit_rollback_append_intent_candidate(intent);
 
     begin_response("module.audit_rollback_append_intent");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_append_intent.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"global_event_log_mutation\": \"none\",");
-    raw_line("      \"writes_enabled\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"installs_rollback_plan\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.module_audit_rollback_append_intent.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", no()),
+            f("global_event_log_mutation", s("none")),
+            f("writes_enabled", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("installs_rollback_plan", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+        ],
+        6,
+    );
     emit_module_append_intent_append_contract_inputs(append_contract, append_evaluation);
     raw_line(",");
     emit_module_append_intent_payload_hash_inputs(payload, payload_evaluation);
     raw_line(",");
     emit_module_append_intent_facts(intent, evaluation);
     raw_line(",");
-    raw_line("      \"policy_result\": {");
-    raw("        \"append_intent_status\": ");
-    json_str(evaluation.status);
-    raw_line(",");
-    raw("        \"append_intent_reason\": ");
-    json_str(evaluation.reason);
-    raw_line(",");
-    raw("        \"audit_intent_missing\": ");
-    raw_bool(!method_eq(evaluation.audit_intent_status, "available"));
-    raw_line(",");
-    raw("        \"rollback_intent_missing\": ");
-    raw_bool(!method_eq(evaluation.rollback_intent_status, "available"));
-    raw_line(",");
-    raw("        \"append_contract_available\": ");
-    raw_bool(evaluation.append_contract_available);
-    raw_line(",");
-    raw("        \"append_contract_missing\": ");
-    raw_bool(!evaluation.append_contract_available);
-    raw_line(",");
-    raw("        \"payload_hash_available\": ");
-    raw_bool(evaluation.payload_hash_available);
-    raw_line(",");
-    raw("        \"payload_hash_missing\": ");
-    raw_bool(!evaluation.payload_hash_available);
-    raw_line(",");
-    raw("        \"append_intent_available\": ");
-    raw_bool(evaluation.append_intent_available);
-    raw_line(",");
-    raw("        \"append_intent_missing\": ");
-    raw_bool(!evaluation.append_intent_available);
-    raw_line(",");
-    raw_line("        \"append_intent_facts_are_writer_authority\": false,");
-    raw_line("        \"append_contract_facts_are_append_intent_authority\": false,");
-    raw_line("        \"retained_hash_refs_are_append_intent_authority\": false,");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      },");
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("append_intent_status", s(evaluation.status)),
+            f("append_intent_reason", s(evaluation.reason)),
+            f(
+                "audit_intent_missing",
+                b(!method_eq(evaluation.audit_intent_status, "available")),
+            ),
+            f(
+                "rollback_intent_missing",
+                b(!method_eq(evaluation.rollback_intent_status, "available")),
+            ),
+            f(
+                "append_contract_available",
+                b(evaluation.append_contract_available),
+            ),
+            f(
+                "append_contract_missing",
+                b(!evaluation.append_contract_available),
+            ),
+            f(
+                "payload_hash_available",
+                b(evaluation.payload_hash_available),
+            ),
+            f(
+                "payload_hash_missing",
+                b(!evaluation.payload_hash_available),
+            ),
+            f(
+                "append_intent_available",
+                b(evaluation.append_intent_available),
+            ),
+            f(
+                "append_intent_missing",
+                b(!evaluation.append_intent_available),
+            ),
+            f("append_intent_facts_are_writer_authority", no()),
+            f("append_contract_facts_are_append_intent_authority", no()),
+            f("retained_hash_refs_are_append_intent_authority", no()),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ],
+        true,
+    );
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     let append_contract_available = evaluation.append_contract_available;
@@ -133,22 +156,26 @@ pub(crate) fn emit_module_audit_rollback_append_intent_selftest() {
     }
 
     begin_response("module.audit_rollback_append_intent_selftest");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_append_intent_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"installs_rollback_plan\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_audit_rollback_append_intent_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("installs_rollback_plan", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+        ],
+        6,
+    );
     raw_line("      \"cases\": [");
     idx = 0;
     while idx < cases.len() {
@@ -164,23 +191,21 @@ pub(crate) fn emit_module_audit_rollback_append_intent_selftest_case(
     case: &ModuleAuditRollbackAppendIntentSelfTestCase,
     comma: bool,
 ) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"writes_enabled\": false, \"installs_rollback_plan\": false, \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_object(
+        vec![
+            f("case", s(case.name)),
+            f("expected_status", s(case.expected_status)),
+            f("expected_reason", s(case.expected_reason)),
+            f("actual_status", s(case.actual_status)),
+            f("actual_reason", s(case.actual_reason)),
+            f("passed", b(case.passed)),
+            f("writes_enabled", no()),
+            f("installs_rollback_plan", no()),
+            f("can_load", no()),
+            f("load_attempted", no()),
+        ],
+        comma,
+    );
 }
 
 pub(crate) fn module_audit_rollback_append_intent_snapshot(
@@ -415,185 +440,183 @@ pub(crate) fn emit_module_append_intent_append_contract_inputs(
     append: ModuleAuditRollbackAppendContractCandidate,
     evaluation: ModuleAuditRollbackAppendContractEvaluation,
 ) {
-    raw_line("      \"append_contract_inputs\": {");
-    emit_module_append_intent_append_contract_input(
-        "audit_append_envelope",
-        "raios.audit_ledger_append_envelope.v0",
-        append.audit_append_envelope,
-        evaluation.audit_append_status,
-        evaluation.audit_append_reason,
-        true,
+    emit_record_property_line(
+        "append_contract_inputs",
+        vec![
+            f(
+                "audit_append_envelope",
+                module_append_intent_append_contract_input_record(
+                    "raios.audit_ledger_append_envelope.v0",
+                    append.audit_append_envelope,
+                    evaluation.audit_append_status,
+                    evaluation.audit_append_reason,
+                ),
+            ),
+            f(
+                "rollback_transaction_envelope",
+                module_append_intent_append_contract_input_record(
+                    "raios.rollback_store_transaction_envelope.v0",
+                    append.rollback_transaction_envelope,
+                    evaluation.rollback_transaction_status,
+                    evaluation.rollback_transaction_reason,
+                ),
+            ),
+            f(
+                "append_contract_available",
+                b(method_eq(evaluation.audit_append_status, "available")
+                    && method_eq(evaluation.rollback_transaction_status, "available")),
+            ),
+            f("append_contract_facts_are_append_intent_authority", no()),
+        ],
+        false,
     );
-    emit_module_append_intent_append_contract_input(
-        "rollback_transaction_envelope",
-        "raios.rollback_store_transaction_envelope.v0",
-        append.rollback_transaction_envelope,
-        evaluation.rollback_transaction_status,
-        evaluation.rollback_transaction_reason,
-        true,
-    );
-    raw("        \"append_contract_available\": ");
-    raw_bool(
-        method_eq(evaluation.audit_append_status, "available")
-            && method_eq(evaluation.rollback_transaction_status, "available"),
-    );
-    raw_line(",");
-    raw_line("        \"append_contract_facts_are_append_intent_authority\": false");
-    raw_line("      }");
 }
 
-pub(crate) fn emit_module_append_intent_append_contract_input(
-    name: &'static str,
+fn module_append_intent_append_contract_input_record(
     schema: &'static str,
     fact: ModuleAuditRollbackAppendContractFact,
     status: &'static str,
     reason: &'static str,
-    comma: bool,
-) {
-    raw("        ");
-    json_str(name);
-    raw(": {\"schema\": ");
-    json_str(schema);
-    raw(", \"status\": ");
-    json_str(status);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw(", \"scope\": ");
-    json_str(fact.scope);
-    raw(", \"classification\": ");
-    json_str(fact.classification);
-    raw(", \"present\": ");
-    raw_bool(fact.present);
-    raw(", \"binds_storage_layout_id\": ");
-    raw_bool(fact.binds_storage_layout_id);
-    raw(", \"binds_append_engine_id\": ");
-    raw_bool(fact.binds_append_engine_id);
-    raw(", \"binds_write_policy_id\": ");
-    raw_bool(fact.binds_write_policy_id);
-    raw(", \"binds_availability_id\": ");
-    raw_bool(fact.binds_availability_id);
-    raw(", \"binds_envelope_provenance\": ");
-    raw_bool(fact.binds_envelope_provenance);
-    raw(", \"authorizes_append_intent\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+) -> V<'static> {
+    inline(vec![
+        f("schema", s(schema)),
+        f("status", s(status)),
+        f("reason", s(reason)),
+        f("scope", s(fact.scope)),
+        f("classification", s(fact.classification)),
+        f("present", b(fact.present)),
+        f("binds_storage_layout_id", b(fact.binds_storage_layout_id)),
+        f("binds_append_engine_id", b(fact.binds_append_engine_id)),
+        f("binds_write_policy_id", b(fact.binds_write_policy_id)),
+        f("binds_availability_id", b(fact.binds_availability_id)),
+        f(
+            "binds_envelope_provenance",
+            b(fact.binds_envelope_provenance),
+        ),
+        f("authorizes_append_intent", no()),
+    ])
 }
 
 pub(crate) fn emit_module_append_intent_payload_hash_inputs(
     payload: ModuleAuditRollbackAppendPayloadHashCandidate,
     evaluation: ModuleAuditRollbackAppendPayloadHashEvaluation,
 ) {
-    raw_line("      \"append_payload_hash_inputs\": {");
-    emit_module_append_intent_payload_hash_input(
-        "audit_record_append_payload_hash",
-        "raios.audit_record_append_payload_hash_envelope.v0",
-        payload.audit_record_payload_hash,
-        evaluation.audit_payload_status,
-        evaluation.audit_payload_reason,
-        true,
+    emit_record_property_line(
+        "append_payload_hash_inputs",
+        vec![
+            f(
+                "audit_record_append_payload_hash",
+                module_append_intent_payload_hash_input_record(
+                    "raios.audit_record_append_payload_hash_envelope.v0",
+                    payload.audit_record_payload_hash,
+                    evaluation.audit_payload_status,
+                    evaluation.audit_payload_reason,
+                ),
+            ),
+            f(
+                "rollback_transaction_append_payload_hash",
+                module_append_intent_payload_hash_input_record(
+                    "raios.rollback_transaction_append_payload_hash_envelope.v0",
+                    payload.rollback_transaction_payload_hash,
+                    evaluation.rollback_payload_status,
+                    evaluation.rollback_payload_reason,
+                ),
+            ),
+            f(
+                "payload_hash_available",
+                b(evaluation.payload_hash_available),
+            ),
+            f("payload_hash_envelopes_are_append_intent_authority", no()),
+        ],
+        false,
     );
-    emit_module_append_intent_payload_hash_input(
-        "rollback_transaction_append_payload_hash",
-        "raios.rollback_transaction_append_payload_hash_envelope.v0",
-        payload.rollback_transaction_payload_hash,
-        evaluation.rollback_payload_status,
-        evaluation.rollback_payload_reason,
-        true,
-    );
-    raw("        \"payload_hash_available\": ");
-    raw_bool(evaluation.payload_hash_available);
-    raw_line(",");
-    raw_line("        \"payload_hash_envelopes_are_append_intent_authority\": false");
-    raw_line("      }");
 }
 
-pub(crate) fn emit_module_append_intent_payload_hash_input(
-    name: &'static str,
+fn module_append_intent_payload_hash_input_record(
     schema: &'static str,
     fact: ModuleAuditRollbackAppendPayloadHashFact,
     status: &'static str,
     reason: &'static str,
-    comma: bool,
-) {
-    raw("        ");
-    json_str(name);
-    raw(": {\"schema\": ");
-    json_str(schema);
-    raw(", \"status\": ");
-    json_str(status);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw(", \"scope\": ");
-    json_str(fact.scope);
-    raw(", \"classification\": ");
-    json_str(fact.classification);
-    raw(", \"present\": ");
-    raw_bool(fact.present);
-    raw(", \"payload_hash\": ");
-    json_sha256_option(fact.payload_hash);
-    raw(", \"source_payload_hash\": ");
-    json_sha256_option(fact.source_payload_hash);
-    raw(", \"binds_retained_audit_rollback\": ");
-    raw_bool(fact.binds_retained_audit_rollback);
-    raw(", \"binds_service_slot_reservation\": ");
-    raw_bool(fact.binds_service_slot_reservation);
-    raw(", \"binds_pre_load_write_request\": ");
-    raw_bool(fact.binds_pre_load_write_request);
-    raw(", \"binds_append_contract_id\": ");
-    raw_bool(fact.binds_append_contract_id);
-    raw(", \"binds_payload_hash\": ");
-    raw_bool(fact.binds_payload_hash);
-    raw(", \"append_contract_available\": ");
-    raw_bool(fact.append_contract_available);
-    raw(", \"authorizes_append_intent\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+) -> V<'static> {
+    inline(vec![
+        f("schema", s(schema)),
+        f("status", s(status)),
+        f("reason", s(reason)),
+        f("scope", s(fact.scope)),
+        f("classification", s(fact.classification)),
+        f("present", b(fact.present)),
+        f("payload_hash", record_sha_or_null(fact.payload_hash)),
+        f(
+            "source_payload_hash",
+            record_sha_or_null(fact.source_payload_hash),
+        ),
+        f(
+            "binds_retained_audit_rollback",
+            b(fact.binds_retained_audit_rollback),
+        ),
+        f(
+            "binds_service_slot_reservation",
+            b(fact.binds_service_slot_reservation),
+        ),
+        f(
+            "binds_pre_load_write_request",
+            b(fact.binds_pre_load_write_request),
+        ),
+        f("binds_append_contract_id", b(fact.binds_append_contract_id)),
+        f("binds_payload_hash", b(fact.binds_payload_hash)),
+        f(
+            "append_contract_available",
+            b(fact.append_contract_available),
+        ),
+        f("authorizes_append_intent", no()),
+    ])
 }
 
 pub(crate) fn emit_module_append_intent_facts(
     intent: ModuleAuditRollbackAppendIntentCandidate,
     evaluation: ModuleAuditRollbackAppendIntentEvaluation,
 ) {
-    raw_line("      \"append_intent_facts\": {");
-    emit_module_append_intent_fact(
-        "audit_record_append_intent",
-        "raios.audit_record_append_intent.v0",
-        "append_intent.audit_record.current_boot",
-        "raios.audit_record.v0",
-        "append.audit_ledger.current_boot",
-        "append_engine.audit_ledger.current_boot",
-        "storage.audit_rollback_layout.current_boot",
-        "policy.durable_audit_write.current_boot",
-        "availability.durable_audit_ledger.current_boot",
-        intent.audit_record_append_intent,
-        evaluation.audit_intent_status,
-        evaluation.audit_intent_reason,
-        true,
-    );
-    emit_module_append_intent_fact(
-        "rollback_transaction_append_intent",
-        "raios.rollback_transaction_append_intent.v0",
-        "append_intent.rollback_transaction.current_boot",
-        "raios.rollback_transaction.v0",
-        "append.rollback_store.current_boot",
-        "append_engine.rollback_store.current_boot",
-        "storage.audit_rollback_layout.current_boot",
-        "policy.rollback_install.current_boot",
-        "availability.rollback_store.current_boot",
-        intent.rollback_transaction_append_intent,
-        evaluation.rollback_intent_status,
-        evaluation.rollback_intent_reason,
+    emit_record_property_line(
+        "append_intent_facts",
+        vec![
+            f(
+                "audit_record_append_intent",
+                module_append_intent_fact_record(
+                    "raios.audit_record_append_intent.v0",
+                    "append_intent.audit_record.current_boot",
+                    "raios.audit_record.v0",
+                    "append.audit_ledger.current_boot",
+                    "append_engine.audit_ledger.current_boot",
+                    "storage.audit_rollback_layout.current_boot",
+                    "policy.durable_audit_write.current_boot",
+                    "availability.durable_audit_ledger.current_boot",
+                    intent.audit_record_append_intent,
+                    evaluation.audit_intent_status,
+                    evaluation.audit_intent_reason,
+                ),
+            ),
+            f(
+                "rollback_transaction_append_intent",
+                module_append_intent_fact_record(
+                    "raios.rollback_transaction_append_intent.v0",
+                    "append_intent.rollback_transaction.current_boot",
+                    "raios.rollback_transaction.v0",
+                    "append.rollback_store.current_boot",
+                    "append_engine.rollback_store.current_boot",
+                    "storage.audit_rollback_layout.current_boot",
+                    "policy.rollback_install.current_boot",
+                    "availability.rollback_store.current_boot",
+                    intent.rollback_transaction_append_intent,
+                    evaluation.rollback_intent_status,
+                    evaluation.rollback_intent_reason,
+                ),
+            ),
+        ],
         false,
     );
-    raw_line("      }");
 }
 
-pub(crate) fn emit_module_append_intent_fact(
-    name: &'static str,
+fn module_append_intent_fact_record(
     schema: &'static str,
     id: &'static str,
     target_schema: &'static str,
@@ -605,125 +628,76 @@ pub(crate) fn emit_module_append_intent_fact(
     fact: ModuleAuditRollbackAppendIntentFact,
     status: &'static str,
     reason: &'static str,
-    comma: bool,
-) {
-    raw("        ");
-    json_str(name);
-    raw_line(": {");
-    raw("          \"schema\": ");
-    json_str(schema);
-    raw_line(",");
-    raw("          \"id\": ");
-    json_str(id);
-    raw_line(",");
-    raw("          \"target_schema\": ");
-    json_str(target_schema);
-    raw_line(",");
-    raw("          \"append_contract_id\": ");
-    json_str(append_contract_id);
-    raw_line(",");
-    raw("          \"append_engine_id\": ");
-    json_str(append_engine_id);
-    raw_line(",");
-    raw("          \"storage_layout_id\": ");
-    json_str(storage_layout_id);
-    raw_line(",");
-    raw("          \"write_policy_id\": ");
-    json_str(write_policy_id);
-    raw_line(",");
-    raw("          \"availability_id\": ");
-    json_str(availability_id);
-    raw_line(",");
-    raw_line("          \"intent_provenance_schema\": \"raios.append_intent_provenance.v0\",");
-    raw_line("          \"payload_hash_schema\": \"raios.append_intent_payload_hash.v0\",");
-    raw_line("          \"payload_hash_envelope_schema\": \"raios.append_payload_hash_envelope.canonical.v0\",");
-    raw_line("          \"payload_hash\": null,");
-    raw("          \"scope\": ");
-    json_str(fact.scope);
-    raw_line(",");
-    raw("          \"classification\": ");
-    json_str(fact.classification);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(status);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(reason);
-    raw_line(",");
-    raw("          \"present\": ");
-    raw_bool(fact.present);
-    raw_line(",");
-    raw("          \"schema_valid\": ");
-    raw_bool(fact.schema_ok);
-    raw_line(",");
-    raw("          \"provenance_valid\": ");
-    raw_bool(fact.provenance_ok);
-    raw_line(",");
-    raw("          \"binds_append_contract\": ");
-    raw_bool(fact.binds_append_contract);
-    raw_line(",");
-    raw("          \"binds_append_contract_id\": ");
-    raw_bool(fact.binds_append_contract_id);
-    raw_line(",");
-    raw("          \"binds_append_engine_id\": ");
-    raw_bool(fact.binds_append_engine_id);
-    raw_line(",");
-    raw("          \"binds_storage_layout_id\": ");
-    raw_bool(fact.binds_storage_layout_id);
-    raw_line(",");
-    raw("          \"binds_write_policy_id\": ");
-    raw_bool(fact.binds_write_policy_id);
-    raw_line(",");
-    raw("          \"binds_availability_id\": ");
-    raw_bool(fact.binds_availability_id);
-    raw_line(",");
-    raw("          \"binds_payload_hash\": ");
-    raw_bool(fact.binds_payload_hash);
-    raw_line(",");
-    raw("          \"binds_intent_provenance\": ");
-    raw_bool(fact.binds_intent_provenance);
-    raw_line(",");
-    raw("          \"append_contract_available\": ");
-    raw_bool(fact.append_contract_available);
-    raw_line(",");
-    raw("          \"payload_hash_available\": ");
-    raw_bool(fact.payload_hash_available);
-    raw_line(",");
-    raw_line("          \"required_bindings\": {");
-    raw("            \"append_contract_id\": ");
-    json_str(append_contract_id);
-    raw_line(",");
-    raw("            \"append_engine_id\": ");
-    json_str(append_engine_id);
-    raw_line(",");
-    raw("            \"storage_layout_id\": ");
-    json_str(storage_layout_id);
-    raw_line(",");
-    raw("            \"write_policy_id\": ");
-    json_str(write_policy_id);
-    raw_line(",");
-    raw("            \"availability_id\": ");
-    json_str(availability_id);
-    raw_line(",");
-    raw_line("            \"payload_hash_envelope\": \"required\",");
-    raw_line("            \"provenance_schema\": \"raios.append_intent_provenance.v0\"");
-    raw_line("          },");
-    raw_line("          \"authority\": \"current_snapshot\",");
-    raw_line("          \"persistence\": \"none\",");
-    raw_line("          \"durable\": false,");
-    raw_line("          \"write_attempted\": false,");
-    raw_line("          \"install_attempted\": false,");
-    raw_line("          \"provenance\": {");
-    raw_line("            \"source_method\": \"module.audit_rollback_append_intent\",");
-    raw_line("            \"source_transport\": \"serial-console\",");
-    raw_line("            \"event_scope\": \"current_boot\",");
-    raw_line("            \"record_id\": null");
-    raw_line("          }");
-    raw("        }");
-    if comma {
-        raw(",");
-    }
-    crlf();
+) -> V<'static> {
+    object(vec![
+        f("schema", s(schema)),
+        f("id", s(id)),
+        f("target_schema", s(target_schema)),
+        f("append_contract_id", s(append_contract_id)),
+        f("append_engine_id", s(append_engine_id)),
+        f("storage_layout_id", s(storage_layout_id)),
+        f("write_policy_id", s(write_policy_id)),
+        f("availability_id", s(availability_id)),
+        f(
+            "intent_provenance_schema",
+            s("raios.append_intent_provenance.v0"),
+        ),
+        f(
+            "payload_hash_schema",
+            s("raios.append_intent_payload_hash.v0"),
+        ),
+        f(
+            "payload_hash_envelope_schema",
+            s("raios.append_payload_hash_envelope.canonical.v0"),
+        ),
+        f("payload_hash", V::Null),
+        f("scope", s(fact.scope)),
+        f("classification", s(fact.classification)),
+        f("status", s(status)),
+        f("reason", s(reason)),
+        f("present", b(fact.present)),
+        f("schema_valid", b(fact.schema_ok)),
+        f("provenance_valid", b(fact.provenance_ok)),
+        f("binds_append_contract", b(fact.binds_append_contract)),
+        f("binds_append_contract_id", b(fact.binds_append_contract_id)),
+        f("binds_append_engine_id", b(fact.binds_append_engine_id)),
+        f("binds_storage_layout_id", b(fact.binds_storage_layout_id)),
+        f("binds_write_policy_id", b(fact.binds_write_policy_id)),
+        f("binds_availability_id", b(fact.binds_availability_id)),
+        f("binds_payload_hash", b(fact.binds_payload_hash)),
+        f("binds_intent_provenance", b(fact.binds_intent_provenance)),
+        f(
+            "append_contract_available",
+            b(fact.append_contract_available),
+        ),
+        f("payload_hash_available", b(fact.payload_hash_available)),
+        f(
+            "required_bindings",
+            object(vec![
+                f("append_contract_id", s(append_contract_id)),
+                f("append_engine_id", s(append_engine_id)),
+                f("storage_layout_id", s(storage_layout_id)),
+                f("write_policy_id", s(write_policy_id)),
+                f("availability_id", s(availability_id)),
+                f("payload_hash_envelope", s("required")),
+                f("provenance_schema", s("raios.append_intent_provenance.v0")),
+            ]),
+        ),
+        f("authority", s("current_snapshot")),
+        f("persistence", s("none")),
+        f("durable", no()),
+        f("write_attempted", no()),
+        f("install_attempted", no()),
+        f(
+            "provenance",
+            object(vec![
+                f("source_method", s("module.audit_rollback_append_intent")),
+                f("source_transport", s("serial-console")),
+                f("event_scope", s("current_boot")),
+                f("record_id", V::Null),
+            ]),
+        ),
+    ])
 }
 
 pub(crate) fn module_audit_rollback_append_intent_selftest_cases(

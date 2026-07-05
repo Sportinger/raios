@@ -123,13 +123,19 @@ saved at `docs/plan-reviews/m2-module-boundary-porting-map-2026-07-05.md`
 coverage, batch order, and the hard rule that key=value line-hash inputs
 must never become JSON.
 
+Slice M2-11 done (2026-07-05): map Batch 1 — five SAFE write-boundary
+emitters ported (emit, availability, write_policy, append_engine,
+append_intent; net -59 lines + adapter); module-audit-rollback profile
+byte-identical (`shadow-20260705-140011-21652.json`, 1626/1626).
+
 Exact next task:
 
 ```text
-Work through the map's batches (M2-11 = Batch 1, small SAFE
-write-boundary emitters, verify with module-audit-rollback profile).
-Then Batches 2-4 (SAFE storage/loader/render surfaces), then the COUPLED
-batch with untouched hash helpers, per the map.
+Map Batch 2 (SAFE storage/contract): storage_layout, append_contract,
+write_boundary_boundary — verify with quick + module-audit-rollback.
+Then Batch 3 (loader/service rendering), Batch 4 (large render surfaces,
+full profile), Batch 5 (COUPLED, hash helpers untouched), per
+docs/plan-reviews/m2-module-boundary-porting-map-2026-07-05.md.
 ```
 
 ## Capability Milestones
