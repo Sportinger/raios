@@ -3,36 +3,11 @@ use alloc::vec;
 use crate::{
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        emit_inline_record_property_at, emit_record_property_line, record_bool as b,
-        record_event_or_null, record_false as no, record_field as f, record_null as null,
-        record_object as object, record_str as s,
+        emit_record_property_line, record_bool as b, record_false as no, record_field as f,
+        record_null as null, record_object as object, record_str as s,
     },
-    event_log,
 };
 use raios_core::record::Value as V;
-
-pub(crate) fn emit_module_write_boundary_input_ref(
-    name: &'static str,
-    event_id: Option<event_log::EventId>,
-    status: &'static str,
-    reason: &'static str,
-    schema: &'static str,
-    comma: bool,
-) {
-    emit_inline_record_property_at(
-        name,
-        vec![
-            f("event_id", record_event_or_null(event_id)),
-            f("schema", s(schema)),
-            f("status", s(status)),
-            f("reason", s(reason)),
-            f("classification", s("local_only")),
-            f("authorizes_guest_load", no()),
-        ],
-        8,
-        comma,
-    );
-}
 
 pub(crate) fn emit_module_availability_facts(
     availability: ModuleAuditRollbackAvailabilityCandidate,

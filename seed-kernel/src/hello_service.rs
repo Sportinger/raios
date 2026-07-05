@@ -17,9 +17,8 @@ use crate::{
         module_audit_rollback_storage_layout_snapshot,
     },
     agent_protocol_support::{
-        begin_response, emit_inline_string_array, end_response, json_event_id_option, json_opt_str,
-        json_sha256, json_sha256_option, json_str, method_eq, method_head_eq, raw, raw_bool,
-        raw_fmt, raw_line,
+        begin_response, end_response, json_sha256, json_str, method_eq, method_head_eq, raw,
+        raw_bool, raw_fmt, raw_line,
     },
     ahci, descriptor_sources, event_log, pci,
 };

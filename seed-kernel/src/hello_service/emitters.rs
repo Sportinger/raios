@@ -220,13 +220,6 @@ pub(crate) fn emit_hot_swap_state_migration_denied(
     end_error(method);
 }
 
-pub(crate) fn emit_rollback_transaction_preflight(
-    snapshot: Snapshot,
-    probation: Option<HelloHotSwapProbationRecord>,
-) {
-    emit_inline_value(rollback_transaction_preflight_value(snapshot, probation));
-}
-
 fn rollback_transaction_preflight_value(
     snapshot: Snapshot,
     probation: Option<HelloHotSwapProbationRecord>,
@@ -307,13 +300,6 @@ fn rollback_transaction_preflight_value(
     ])
 }
 
-pub(crate) fn emit_rollback_write_authority_gate(
-    snapshot: Snapshot,
-    probation: Option<HelloHotSwapProbationRecord>,
-) {
-    emit_inline_value(rollback_write_authority_gate_value(snapshot, probation));
-}
-
 fn rollback_write_authority_gate_value(
     snapshot: Snapshot,
     probation: Option<HelloHotSwapProbationRecord>,
@@ -371,13 +357,6 @@ fn rollback_write_authority_gate_value(
             ]),
         ),
     ])
-}
-
-pub(crate) fn emit_rollback_append_intent_gate(
-    snapshot: Snapshot,
-    probation: Option<HelloHotSwapProbationRecord>,
-) {
-    emit_inline_value(rollback_append_intent_gate_value(snapshot, probation));
 }
 
 fn rollback_append_intent_gate_value(
@@ -444,13 +423,6 @@ fn rollback_append_intent_gate_value(
             ]),
         ),
     ])
-}
-
-pub(crate) fn emit_rollback_payload_envelope_gate(
-    snapshot: Snapshot,
-    probation: Option<HelloHotSwapProbationRecord>,
-) {
-    emit_inline_value(rollback_payload_envelope_gate_value(snapshot, probation));
 }
 
 fn rollback_payload_envelope_gate_value(
@@ -2956,12 +2928,6 @@ pub(crate) fn materialized_target_region_sector_available(
         && target_region_write.readback_matches_planned_image
 }
 
-pub(crate) fn emit_target_region_write_readback_inline(
-    target_region_write: RollbackTargetRegionWriteReadbackDryRun,
-) {
-    emit_inline_value(target_region_write_readback_value(target_region_write));
-}
-
 fn target_region_write_readback_value(
     target_region_write: RollbackTargetRegionWriteReadbackDryRun,
 ) -> V<'static> {
@@ -3005,12 +2971,6 @@ fn target_region_write_readback_value(
         j!("installs_rollback_state" => b(false)),
         j!("applies_rollback" => b(false)),
     ])
-}
-
-pub(crate) fn emit_target_region_sector_inspection_inline(
-    inspection: RollbackTargetRegionSectorInspection,
-) {
-    emit_inline_value(target_region_sector_inspection_value(inspection));
 }
 
 fn target_region_sector_inspection_value(
@@ -3847,11 +3807,6 @@ fn hello_response_denied_surfaces_value() -> V<'static> {
     ])
 }
 
-pub(crate) fn emit_load_request(descriptor: LoadDescriptor) {
-    raw("      \"load_request\": ");
-    emit_record_value_fragment(load_request_value(descriptor), 6);
-}
-
 fn load_request_value(descriptor: LoadDescriptor) -> V<'static> {
     object(vec![
         j!("schema" => s("raios.current_boot_load_request.v0")),
@@ -3910,11 +3865,6 @@ fn load_request_value(descriptor: LoadDescriptor) -> V<'static> {
         j!("service_id" => s(descriptor.service_id)),
         j!("accepted" => b(true)),
     ])
-}
-
-pub(crate) fn emit_load_descriptor(descriptor: LoadDescriptor) {
-    raw("      \"load_descriptor\": ");
-    emit_record_value_fragment(load_descriptor_value(descriptor), 6);
 }
 
 fn load_descriptor_value(descriptor: LoadDescriptor) -> V<'static> {
@@ -4001,14 +3951,6 @@ fn artifact_load_plan_preflight_value(descriptor: LoadDescriptor) -> V<'static> 
     ])
 }
 
-pub(crate) fn emit_service_slot_activation(
-    descriptor: LoadDescriptor,
-    status: &'static str,
-    active: bool,
-) {
-    emit_inline_value(service_slot_activation_value(descriptor, status, active));
-}
-
 fn service_slot_activation_value(
     descriptor: LoadDescriptor,
     status: &'static str,
@@ -4066,10 +4008,6 @@ fn hello_state_value(snapshot: Snapshot) -> V<'static> {
         j!("running" => b(snapshot.running)),
         j!("writes_persistent_state" => b(false)),
     ])
-}
-
-pub(crate) fn emit_hello_state_migration_option(record: Option<HelloStateMigrationRecord>) {
-    emit_inline_value(hello_state_migration_value(record));
 }
 
 fn hello_state_migration_value(record: Option<HelloStateMigrationRecord>) -> V<'static> {
@@ -4181,10 +4119,6 @@ fn descriptor_source_signature_envelope_value(descriptor: LoadDescriptor) -> V<'
     ])
 }
 
-pub(crate) fn emit_artifact_identity(descriptor: LoadDescriptor) {
-    emit_inline_value(artifact_identity_value(descriptor));
-}
-
 fn artifact_identity_value(descriptor: LoadDescriptor) -> V<'static> {
     let identity = descriptor.artifact_identity;
     inline(vec![
@@ -4220,10 +4154,6 @@ fn artifact_identity_value(descriptor: LoadDescriptor) -> V<'static> {
         j!("authorizes_rollback_install" => b(identity.authorizes_rollback_install),
         ),
     ])
-}
-
-pub(crate) fn emit_artifact_content_binding(descriptor: LoadDescriptor) {
-    emit_inline_value(artifact_content_binding_value(descriptor));
 }
 
 fn artifact_content_binding_value(descriptor: LoadDescriptor) -> V<'static> {
