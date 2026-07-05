@@ -274,15 +274,27 @@ the day). Ops note: the harness never cleans its temp dirs — 356
 raios-shadow-* dirs (~23 GB) filled the disk mid-batch; cleaned
 manually; a teardown-cleanup slice is queued.
 
+Both maintenance slices done (harness temp cleanup `9b18a88`;
+zero-warning build `c490f53`). Collapse Batch 4 (emitter half) done
+(2026-07-05/06): emit_event_bindings' Hello branch (~4.6k lines of flat
+emission) collapsed to a 1,120-entry const field-descriptor table +
+one generic loop — net ~-3,365 lines in agent_protocol_memory.rs. The
+golden needles EARNED THEIR KEEP: the worker's own field comparison
+claimed 1120/1120 identical, but the quick profile caught 10 genuinely
+dropped fields (scratch no_metadata_overlap + 9 append-record/sector
+fields); orchestrator restored them at exact old positions with a
+scripted old-vs-new key-order proof (968/968, order identical).
+Verified: quick 417/417, hello-rollback-dry-run 203/203, FULL
+`shadow-20260705-235005-11568.json` 7814/7814 (sixth full green).
+
 Exact next task:
 
 ```text
-Two small slices, then Batch 4: (a) harness teardown cleanup — delete
-the run's temp dir on success, keep on failure for forensics (packet
-for vm-harness/*.ps1); (b) delete the four now-unused emitter imports
-warning. Then collapse Batch 4: event binding emitter/type collapse
-(emit_event_bindings 7.1k + HelloServiceLifecycleBinding — high risk,
-quick+hello-rollback+full). Owner decision pending on batch 6.
+Collapse Batch 4 remainder (optional, assess first): the other
+emit_event_bindings variants (non-Hello) onto the descriptor mechanism.
+Then Batch 5: Hello rollback writer/hash field tables per the collapse
+map (high risk, hello-rollback + full). Owner decision pending on
+batch 6 (vocabulary compaction beyond byte-identity).
 ```
 
 ## Capability Milestones
