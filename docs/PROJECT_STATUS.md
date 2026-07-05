@@ -51,6 +51,20 @@ Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
   (agent_protocol_memory.rs post-response path, next-command read loop,
   or heap state at that point). The M2 ports remain exonerated (first
   occurrence 2026-07-04 predates them).
+  RESOLVED 2026-07-05: root cause found and fixed. Checkpoint bisection
+  (two serial breadcrumbs) showed death BETWEEN two markers with only
+  function returns in between — the stack-overflow signature. Measured:
+  `EventSnapshot` was **3,784,744 bytes** (`[Option<Event>; 256]`, each
+  `Event` 14,784 bytes) copied by value onto the command stack on every
+  `memory.recent_events`. Fix: `snapshot_recent` removed;
+  `emit_recent_events` now iterates the ring one event at a time via
+  `event_log::recent_event` (spinlock never held across serial writes;
+  bindings borrowed, not copied). Proof: 5/5 consecutive recovery-profile
+  runs green (previously ~50% crash rate; P(5 green | old rate) ≈ 3%),
+  plus a 6th green run after breadcrumb removal
+  (`shadow-20260705-125828-3624.json`, 3644/3644). Follow-up: dead
+  `EventSnapshot` struct in `event_log_types.rs:3902` (1 dead-code
+  warning) to be deleted in an M2 de-hello-ify/cleanup slice.
 
 - 2026-07-04 `shadow-20260704-183440-16492.json` (full profile): no failing
   predicate (200/200 reached passed, 14 commands executed); failure is

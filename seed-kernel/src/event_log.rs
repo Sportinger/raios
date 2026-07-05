@@ -89,7 +89,7 @@ use crate::event_log_module_checks::{
 };
 pub use crate::event_log_types::{
     AgentCommandEnvelopeBinding, DurableAuditRollbackWriteAuthorityReference, Event, EventBindings,
-    EventId, EventSnapshot, HelloRecoveryRollbackInspectSourceReferenceBinding,
+    EventId, HelloRecoveryRollbackInspectSourceReferenceBinding,
     HelloRecoveryRollbackInspectSourceReferenceCheck,
     HelloRecoveryRollbackInspectSourceReferenceSelfTestCase, HelloServiceLifecycleBinding,
     ModuleAuditRollbackReference, ModuleCandidateArtifactReference, ModuleComputedGrantReference,
@@ -141,6 +141,16 @@ use crate::module_evidence;
 
 static LOG: Mutex<EventLog> = Mutex::new(EventLog::new());
 
+#[derive(Clone, Copy)]
+pub struct RecentEventWindow {
+    pub len: usize,
+    pub limit: usize,
+    pub capacity: usize,
+    pub total_count: u64,
+    pub dropped_before_sequence: u64,
+    first_slot: usize,
+}
+
 pub(crate) struct EventLog {
     events: [Option<Event>; EVENT_CAPACITY],
     consumed_bindings: [Option<ConsumedProviderBinding>; EVENT_CAPACITY],
@@ -190,7 +200,7 @@ impl EventLog {
         self.next_sequence = 1;
     }
 
-    fn snapshot_recent(&self, requested_limit: usize) -> EventSnapshot {
+    fn recent_events(&self, requested_limit: usize) -> RecentEventWindow {
         let limit = normalize_limit(requested_limit);
         let want = usize::min(self.len, limit);
         let skip = self.len.saturating_sub(want);
@@ -200,16 +210,6 @@ impl EventLog {
             0
         };
 
-        let mut events = [None; EVENT_CAPACITY];
-        let mut out_idx = 0usize;
-        let mut idx = skip;
-        while idx < self.len {
-            let source = (oldest + idx) % EVENT_CAPACITY;
-            events[out_idx] = self.events[source];
-            out_idx += 1;
-            idx += 1;
-        }
-
         let total_count = self.next_sequence.saturating_sub(1);
         let dropped_before_sequence = if total_count > self.len as u64 {
             total_count - self.len as u64 + 1
@@ -217,14 +217,22 @@ impl EventLog {
             0
         };
 
-        EventSnapshot {
-            events,
-            len: out_idx,
+        RecentEventWindow {
+            len: want,
             limit,
             capacity: EVENT_CAPACITY,
             total_count,
             dropped_before_sequence,
+            first_slot: (oldest + skip) % EVENT_CAPACITY,
         }
+    }
+
+    fn recent_event(&self, window: RecentEventWindow, idx: usize) -> Option<Event> {
+        if idx >= window.len {
+            return None;
+        }
+
+        self.events[(window.first_slot + idx) % EVENT_CAPACITY]
     }
 
     pub(crate) fn check_provider_context_binding_gate(
@@ -6429,8 +6437,12 @@ pub fn record_provider_context_export_denial_audit(hashes: ProviderContextHashes
     })
 }
 
-pub fn snapshot_recent(limit: usize) -> EventSnapshot {
-    LOG.lock().snapshot_recent(limit)
+pub fn recent_events(limit: usize) -> RecentEventWindow {
+    LOG.lock().recent_events(limit)
+}
+
+pub fn recent_event(window: RecentEventWindow, idx: usize) -> Option<Event> {
+    LOG.lock().recent_event(window, idx)
 }
 
 pub fn latest_module_manifest_reference() -> Option<(EventId, ModuleManifestReference)> {

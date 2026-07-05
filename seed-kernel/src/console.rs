@@ -1370,6 +1370,7 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
             command_line.trimmed_str()
         )),
     }
+
 }
 
 fn command_help() {

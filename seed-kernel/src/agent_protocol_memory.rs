@@ -372,7 +372,7 @@ pub(crate) fn emit_memory_trace(method: &str) {
 
 pub(crate) fn emit_recent_events(method: &str) {
     let limit = event_limit_arg(method);
-    let snapshot = event_log::snapshot_recent(limit);
+    let events = event_log::recent_events(limit);
 
     begin_response("memory.recent_events");
     raw_line("      \"schema\": \"event.log.v0\",");
@@ -383,26 +383,26 @@ pub(crate) fn emit_recent_events(method: &str) {
     raw_line("      \"provider_export\": \"disabled\",");
     raw_line("      \"bounded\": true,");
     raw("      \"limit\": ");
-    raw_fmt(format_args!("{}", snapshot.limit));
+    raw_fmt(format_args!("{}", events.limit));
     raw_line(",");
     raw("      \"capacity\": ");
-    raw_fmt(format_args!("{}", snapshot.capacity));
+    raw_fmt(format_args!("{}", events.capacity));
     raw_line(",");
     raw("      \"event_count\": ");
-    raw_fmt(format_args!("{}", snapshot.total_count));
+    raw_fmt(format_args!("{}", events.total_count));
     raw_line(",");
     raw("      \"returned\": ");
-    raw_fmt(format_args!("{}", snapshot.len));
+    raw_fmt(format_args!("{}", events.len));
     raw_line(",");
     raw("      \"dropped_before_sequence\": ");
-    raw_fmt(format_args!("{}", snapshot.dropped_before_sequence));
+    raw_fmt(format_args!("{}", events.dropped_before_sequence));
     raw_line(",");
     raw_line("      \"events\": [");
 
     let mut idx = 0usize;
-    while idx < snapshot.len {
-        if let Some(event) = snapshot.events[idx] {
-            emit_event(&event, idx + 1 != snapshot.len);
+    while idx < events.len {
+        if let Some(event) = event_log::recent_event(events, idx) {
+            emit_event(&event, idx + 1 != events.len);
         }
         idx += 1;
     }
@@ -473,7 +473,7 @@ fn emit_event(event: &event_log::Event, comma: bool) {
     raw(", \"evidence\": [");
     emit_inline_string_array(event.evidence);
     raw("], \"created_at\": {\"clock\": \"sequence_only\", \"millis\": null}");
-    emit_event_bindings(event.kind, event.bindings);
+    emit_event_bindings(event.kind, &event.bindings);
     raw(", \"persistence\": \"none\"}");
     if comma {
         raw(",");
@@ -481,7 +481,7 @@ fn emit_event(event: &event_log::Event, comma: bool) {
     crlf();
 }
 
-fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
+fn emit_event_bindings(kind: &str, bindings: &event_log::EventBindings) {
     match bindings {
         event_log::EventBindings::None => {}
         event_log::EventBindings::HelloServiceLifecycle(binding) => {
@@ -5315,12 +5315,12 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
         }
         event_log::EventBindings::ProviderRequestBindingDenied(hashes) => {
             raw(", \"bindings\": {\"schema\": \"raios.provider_request_binding_denial.v0\", \"status\": \"denied_not_bound\", \"satisfies_current_boot_export_gate\": false, \"provider_write\": \"not_attempted\", \"hashes\": ");
-            emit_provider_context_hashes(hashes);
+            emit_provider_context_hashes(*hashes);
             raw("}");
         }
         event_log::EventBindings::ProviderExportDenialAudit(hashes) => {
             raw(", \"bindings\": {\"schema\": \"raios.provider_context_export_denial_audit.v0\", \"status\": \"denied_no_provider_write\", \"satisfies_current_boot_export_gate\": false, \"positive_export_authorization\": false, \"provider_write\": \"not_attempted\", \"hashes\": ");
-            emit_provider_context_hashes(hashes);
+            emit_provider_context_hashes(*hashes);
             raw("}");
         }
         event_log::EventBindings::ModuleManifestReference(binding) => {
@@ -6700,10 +6700,10 @@ fn emit_event_bindings(kind: &str, bindings: event_log::EventBindings) {
             emit_module_loader_live_load_boundary_event_binding(binding);
         }
         event_log::EventBindings::ModuleLoadGate(binding) => {
-            emit_module_load_gate_event_binding(binding);
+            emit_module_load_gate_event_binding(*binding);
         }
         event_log::EventBindings::RecoveryArtifactLoadDenied(binding) => {
-            emit_recovery_artifact_load_denial_event_binding(binding);
+            emit_recovery_artifact_load_denial_event_binding(*binding);
         }
         event_log::EventBindings::RecoveryArtifactIdentityReference(binding) => {
             raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_identity.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"accepts_artifact_bytes\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"hashes\": {\"identity_reference_hash\": ");
@@ -7641,7 +7641,7 @@ fn emit_provider_trust_verifier_decision(decision: provider_trust::ProviderTrust
 }
 
 fn emit_module_loader_live_load_boundary_event_binding(
-    binding: event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
+    binding: &event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
 ) {
     raw(", \"bindings\": {\"schema\": ");
     json_str(binding.schema);

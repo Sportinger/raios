@@ -95,18 +95,24 @@ rollback_transaction_emit; recovery profile byte-identical
 (`shadow-20260705-120458-16280.json`, 3644/3644). 13 recovery emit
 modules now render through the record model.
 
-Exact next task (REPAIR PRIORITY before further ports):
+Slices M2-6/M2-7 done (2026-07-05): the silent guest crash is root-caused
+and FIXED — a 3.78 MB `EventSnapshot` stack copy on every
+`memory.recent_events` corrupted return frames (~50% crash rate).
+Checkpoint bisection localized it; the ring is now iterated one event at
+a time. Proof: 5/5 recovery runs green + final clean run
+`shadow-20260705-125828-3624.json` (3644/3644). Details in the failure
+classification log (PROJECT_STATUS).
+
+Exact next task:
 
 ```text
-Investigate the ~50%-reproducible silent guest crash directly after the
-memory.recent_events response (2x today at the identical profile
-position, 1x 2026-07-04 pre-M2; see failure classification log).
-Diagnostic slice: read agent_protocol_memory.rs post-response path and
-the serial command read loop; add a cheap serial breadcrumb if needed to
-localize; propose the fix. Then resume batch-porting the remaining
-recovery emit modules (command_body_emit, rollback_apply_emit,
-memory_write_emit, durable_write_emit, service_inventory_effect_emit,
-lifeline_*_emit, target_binding_emit, artifact_reference_emit).
+Resume batch-porting the remaining recovery emit modules
+(command_body_emit, rollback_apply_emit, memory_write_emit,
+durable_write_emit, service_inventory_effect_emit, lifeline_*_emit,
+target_binding_emit, artifact_reference_emit); each slice deletes more
+than it adds and passes the recovery profile byte-identical. Include
+deleting the now-dead EventSnapshot struct (event_log_types.rs:3902)
+in the next suitable slice.
 ```
 
 ## Capability Milestones
