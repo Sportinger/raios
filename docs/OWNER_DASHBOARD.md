@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-05 (M0 and M1 closed in one day; M2 opened).
+Updated: 2026-07-05 evening (M2 running; first real kernel bug fixed).
 
 ## What raiOS can actually do today
 
@@ -41,7 +41,15 @@ Updated: 2026-07-05 (M0 and M1 closed in one day; M2 opened).
 
 Now active: **M2 Ceremony Collapse** — shrink the agent layer ~10x by
 replacing 535 hand-written data-format emitters with ONE typed record
-model, with byte-identical output proven by the existing test needles.
+model. Progress: 13 modules ported, every one proven byte-identical by
+VM runs.
+
+HIGHLIGHT: the new tooling caught and fixed the first real kernel bug —
+a command that copied 3.8 MB onto a small stack, randomly crashing the
+whole OS (~50% of runs, unexplained for weeks as "flaky tests"). The
+chain worked exactly as designed: instant death classification (M0) ->
+pattern in the failure log -> checkpoint bisection -> fix -> proven by
+5/5 clean runs. The OS is now measurably more stable than yesterday.
 
 ## Top risk
 
