@@ -1,231 +1,209 @@
+use alloc::vec;
+
 use crate::{
     agent_protocol_recovery_lifeline_protocol_types::{
         RecoveryLifelineCommandVocabularyCheck, RecoveryLifelineCommandVocabularySelfTestCase,
     },
-    agent_protocol_support::{crlf, json_str, raw, raw_bool, raw_fmt, raw_line},
+    agent_protocol_support::{
+        emit_inline_record_object, emit_record_fields, emit_record_property_line, record_bool as b,
+        record_false as no, record_field as f, record_str as s,
+    },
 };
+use raios_core::record::Value as V;
 
 pub(crate) fn emit_recovery_lifeline_command_vocabulary_object(
     check: &RecoveryLifelineCommandVocabularyCheck,
     comma: bool,
 ) {
-    raw_line("      \"command_vocabulary\": {");
-    raw_line("        \"schema\": \"raios.recovery_lifeline_command_vocabulary.v0\",");
-    raw_line("        \"state\": \"defined_non_executable\",");
-    raw_line("        \"scope\": \"current_boot\",");
-    raw_line("        \"classification\": \"local_only\",");
-    raw("        \"exposed\": ");
-    raw_bool(check.command_vocabulary_exposed);
-    raw_line(",");
-    raw_line("        \"authority\": false,");
-    raw_line("        \"command_execution_enabled\": false,");
-    raw_line("        \"accepts_lifeline_command_envelope\": false,");
-    raw_line("        \"dispatches_commands\": false,");
-    raw_line(
-        "        \"argument_envelope_schema\": \"raios.recovery_lifeline_command_envelope.v0\",",
-    );
-    raw("        \"primary_denial_reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"command_count\": ");
-    raw_fmt(format_args!(
-        "{}",
-        if check.command_vocabulary_exposed {
-            6usize
-        } else {
-            0usize
-        }
-    ));
-    raw_line(",");
-    raw_line("        \"commands\": [");
-    if check.command_vocabulary_exposed {
-        emit_recovery_lifeline_command_definition(
-            "recovery.lifeline.status",
-            "raios.recovery_lifeline_command.status_args.v0",
-            "cap.recovery.load_artifact.read",
-            "observe",
-            "read recovery lifeline status",
-            check.reason,
-            true,
-        );
-        emit_recovery_lifeline_command_definition(
-            "recovery.lifeline.rollback_preview",
-            "raios.recovery_lifeline_command.rollback_preview_args.v0",
-            "cap.recovery.rollback.read",
-            "observe",
-            "preview rollback target and required evidence",
-            check.reason,
-            true,
-        );
-        emit_recovery_lifeline_command_definition(
-            "recovery.lifeline.rollback_apply",
-            "raios.recovery_lifeline_command.rollback_apply_args.v0",
-            "cap.recovery.rollback",
-            "persist",
-            "apply a rollback transaction",
-            check.reason,
-            true,
-        );
-        emit_recovery_lifeline_command_definition(
-            "recovery.lifeline.disable_module",
-            "raios.recovery_lifeline_command.disable_module_args.v0",
-            "cap.recovery.module.disable",
-            "persist",
-            "disable a bad retained module id",
-            check.reason,
-            true,
-        );
-        emit_recovery_lifeline_command_definition(
-            "recovery.lifeline.restart_last_good",
-            "raios.recovery_lifeline_command.restart_last_good_args.v0",
-            "cap.recovery.service.restart",
-            "recovery_modify_ram",
-            "restart the last-good service set",
-            check.reason,
-            true,
-        );
-        emit_recovery_lifeline_command_definition(
-            "recovery.lifeline.load_artifact_by_hash",
-            "raios.recovery_lifeline_command.load_artifact_by_hash_args.v0",
-            "cap.recovery.load_artifact",
-            "recovery_modify_ram",
-            "load a recovery artifact by retained hash evidence",
-            check.reason,
-            false,
-        );
-    }
-    raw_line("        ],");
-    raw_line("        \"required_before_execution\": [");
-    raw_line("          \"raios.recovery_lifeline_protocol_state.v0\",");
-    raw_line("          \"raios.recovery_loader_runtime_isolation.v0\",");
-    raw_line("          \"raios.recovery_rollback_transaction_engine.v0\",");
-    raw_line("          \"raios.durable_audit_rollback_persistence.v0\",");
-    raw_line("          \"raios.recovery_memory_provenance.v0\"");
-    raw_line("        ]");
-    raw("      }");
-    if comma {
-        raw_line(",");
+    let commands = if check.command_vocabulary_exposed {
+        V::Array(vec![
+            command_definition(
+                "recovery.lifeline.status",
+                "raios.recovery_lifeline_command.status_args.v0",
+                "cap.recovery.load_artifact.read",
+                "observe",
+                "read recovery lifeline status",
+                check.reason,
+            ),
+            command_definition(
+                "recovery.lifeline.rollback_preview",
+                "raios.recovery_lifeline_command.rollback_preview_args.v0",
+                "cap.recovery.rollback.read",
+                "observe",
+                "preview rollback target and required evidence",
+                check.reason,
+            ),
+            command_definition(
+                "recovery.lifeline.rollback_apply",
+                "raios.recovery_lifeline_command.rollback_apply_args.v0",
+                "cap.recovery.rollback",
+                "persist",
+                "apply a rollback transaction",
+                check.reason,
+            ),
+            command_definition(
+                "recovery.lifeline.disable_module",
+                "raios.recovery_lifeline_command.disable_module_args.v0",
+                "cap.recovery.module.disable",
+                "persist",
+                "disable a bad retained module id",
+                check.reason,
+            ),
+            command_definition(
+                "recovery.lifeline.restart_last_good",
+                "raios.recovery_lifeline_command.restart_last_good_args.v0",
+                "cap.recovery.service.restart",
+                "recovery_modify_ram",
+                "restart the last-good service set",
+                check.reason,
+            ),
+            command_definition(
+                "recovery.lifeline.load_artifact_by_hash",
+                "raios.recovery_lifeline_command.load_artifact_by_hash_args.v0",
+                "cap.recovery.load_artifact",
+                "recovery_modify_ram",
+                "load a recovery artifact by retained hash evidence",
+                check.reason,
+            ),
+        ])
     } else {
-        raw_line("");
-    }
+        V::Array(vec![])
+    };
+
+    emit_record_property_line(
+        "command_vocabulary",
+        vec![
+            f("schema", s("raios.recovery_lifeline_command_vocabulary.v0")),
+            f("state", s("defined_non_executable")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("exposed", b(check.command_vocabulary_exposed)),
+            f("authority", no()),
+            f("command_execution_enabled", no()),
+            f("accepts_lifeline_command_envelope", no()),
+            f("dispatches_commands", no()),
+            f(
+                "argument_envelope_schema",
+                s("raios.recovery_lifeline_command_envelope.v0"),
+            ),
+            f("primary_denial_reason", s(check.reason)),
+            f(
+                "command_count",
+                V::U64(if check.command_vocabulary_exposed {
+                    6
+                } else {
+                    0
+                }),
+            ),
+            f("commands", commands),
+            f(
+                "required_before_execution",
+                V::Array(vec![
+                    s("raios.recovery_lifeline_protocol_state.v0"),
+                    s("raios.recovery_loader_runtime_isolation.v0"),
+                    s("raios.recovery_rollback_transaction_engine.v0"),
+                    s("raios.durable_audit_rollback_persistence.v0"),
+                    s("raios.recovery_memory_provenance.v0"),
+                ]),
+            ),
+        ],
+        comma,
+    );
 }
 
-pub(crate) fn emit_recovery_lifeline_command_definition(
+fn command_definition(
     command_id: &'static str,
     args_schema: &'static str,
     required_capability: &'static str,
     risk: &'static str,
     summary: &'static str,
     denial_reason: &'static str,
-    comma: bool,
-) {
-    raw_line("          {");
-    raw("            \"id\": ");
-    json_str(command_id);
-    raw_line(",");
-    raw("            \"argument_schema\": ");
-    json_str(args_schema);
-    raw_line(",");
-    raw("            \"required_capability\": ");
-    json_str(required_capability);
-    raw_line(",");
-    raw("            \"risk\": ");
-    json_str(risk);
-    raw_line(",");
-    raw("            \"summary\": ");
-    json_str(summary);
-    raw_line(",");
-    raw_line("            \"status\": \"defined_non_executable\",");
-    raw_line("            \"accepts_envelope\": false,");
-    raw_line("            \"dispatches_command\": false,");
-    raw_line("            \"authorizes_recovery_load\": false,");
-    raw_line("            \"creates_durable_records\": false,");
-    raw_line("            \"installs_rollback_plan\": false,");
-    raw_line("            \"allocates_service_slot\": false,");
-    raw("            \"denial_reason\": ");
-    json_str(denial_reason);
-    raw_line("");
-    raw("          }");
-    if comma {
-        raw_line(",");
-    } else {
-        raw_line("");
-    }
+) -> V<'static> {
+    V::Object(vec![
+        f("id", s(command_id)),
+        f("argument_schema", s(args_schema)),
+        f("required_capability", s(required_capability)),
+        f("risk", s(risk)),
+        f("summary", s(summary)),
+        f("status", s("defined_non_executable")),
+        f("accepts_envelope", no()),
+        f("dispatches_command", no()),
+        f("authorizes_recovery_load", no()),
+        f("creates_durable_records", no()),
+        f("installs_rollback_plan", no()),
+        f("allocates_service_slot", no()),
+        f("denial_reason", s(denial_reason)),
+    ])
 }
 
 pub(crate) fn emit_recovery_lifeline_command_vocabulary_check(
     check: &RecoveryLifelineCommandVocabularyCheck,
 ) {
-    raw("        \"status\": ");
-    json_str(check.status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"request_chain_valid\": ");
-    raw_bool(check.request_chain_valid);
-    raw_line(",");
-    raw("        \"command_vocabulary_exposed\": ");
-    raw_bool(check.command_vocabulary_exposed);
-    raw_line(",");
-    raw("        \"command_execution_enabled\": ");
-    raw_bool(check.command_execution_enabled);
-    raw_line(",");
-    raw("        \"accepts_lifeline_command_envelope\": ");
-    raw_bool(check.accepts_lifeline_command_envelope);
-    raw_line(",");
-    raw("        \"authorizes_recovery_load\": ");
-    raw_bool(check.authorizes_recovery_load);
-    raw_line(",");
-    raw("        \"can_move_beyond_denial\": ");
-    raw_bool(check.can_move_beyond_denial);
-    raw_line(",");
-    raw("        \"loads_recovery_loader\": ");
-    raw_bool(check.loads_recovery_loader);
-    raw_line(",");
-    raw("        \"loads_recovery_artifact\": ");
-    raw_bool(check.loads_recovery_artifact);
-    raw_line(",");
-    raw("        \"creates_durable_records\": ");
-    raw_bool(check.creates_durable_records);
-    raw_line(",");
-    raw("        \"installs_rollback_plan\": ");
-    raw_bool(check.installs_rollback_plan);
-    raw_line(",");
-    raw("        \"allocates_service_slot\": ");
-    raw_bool(check.allocates_service_slot);
-    raw_line(",");
-    raw("        \"service_inventory_change\": ");
-    json_str(check.service_inventory_change);
-    raw_line(",");
-    raw_line("        \"durable_audit_write_attempted\": false,");
-    raw_line("        \"rollback_install_attempted\": false,");
-    raw_line("        \"service_slot_allocation_attempted\": false,");
-    raw_line("        \"direct_openai_recovery_shortcut_accepted\": false,");
-    raw("        \"load_attempted\": ");
-    raw_bool(check.load_attempted);
-    crlf();
+    emit_record_fields(
+        vec![
+            f("status", s(check.status)),
+            f("reason", s(check.reason)),
+            f("request_chain_valid", b(check.request_chain_valid)),
+            f(
+                "command_vocabulary_exposed",
+                b(check.command_vocabulary_exposed),
+            ),
+            f(
+                "command_execution_enabled",
+                b(check.command_execution_enabled),
+            ),
+            f(
+                "accepts_lifeline_command_envelope",
+                b(check.accepts_lifeline_command_envelope),
+            ),
+            f(
+                "authorizes_recovery_load",
+                b(check.authorizes_recovery_load),
+            ),
+            f("can_move_beyond_denial", b(check.can_move_beyond_denial)),
+            f("loads_recovery_loader", b(check.loads_recovery_loader)),
+            f("loads_recovery_artifact", b(check.loads_recovery_artifact)),
+            f("creates_durable_records", b(check.creates_durable_records)),
+            f("installs_rollback_plan", b(check.installs_rollback_plan)),
+            f("allocates_service_slot", b(check.allocates_service_slot)),
+            f(
+                "service_inventory_change",
+                s(check.service_inventory_change),
+            ),
+            f("durable_audit_write_attempted", no()),
+            f("rollback_install_attempted", no()),
+            f("service_slot_allocation_attempted", no()),
+            f("direct_openai_recovery_shortcut_accepted", no()),
+            f("load_attempted", b(check.load_attempted)),
+        ],
+        8,
+    );
 }
 
 pub(crate) fn emit_recovery_lifeline_command_vocabulary_selftest_case(
     case: &RecoveryLifelineCommandVocabularySelfTestCase,
     comma: bool,
 ) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"command_execution_enabled\": false, \"accepts_lifeline_command_envelope\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_object(
+        vec![
+            f("case", s(case.name)),
+            f("expected_status", s(case.expected_status)),
+            f("expected_reason", s(case.expected_reason)),
+            f("actual_status", s(case.actual_status)),
+            f("actual_reason", s(case.actual_reason)),
+            f("passed", b(case.passed)),
+            f("command_execution_enabled", no()),
+            f("accepts_lifeline_command_envelope", no()),
+            f("authorizes_recovery_load", no()),
+            f("can_move_beyond_denial", no()),
+            f("loads_recovery_loader", no()),
+            f("loads_recovery_artifact", no()),
+            f("creates_durable_records", no()),
+            f("installs_rollback_plan", no()),
+            f("allocates_service_slot", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+        ],
+        comma,
+    );
 }

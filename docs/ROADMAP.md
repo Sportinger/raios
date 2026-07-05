@@ -110,16 +110,23 @@ struct deleted; recovery profile byte-identical
 (`shadow-20260705-131513-9748.json`, 3644/3644). 18 recovery emit
 modules now render through the record model.
 
+Slice M2-9 done (2026-07-05): final recovery batch —
+lifeline_command_vocabulary_emit, lifeline_protocol_emit,
+target_binding_emit, artifact_reference_emit ported (net -309 lines).
+**The entire recovery emit surface (22 modules) now renders through the
+single record model.** Recovery profile byte-identical
+(`shadow-20260705-133645-13328.json`, 3644/3644).
+
 Exact next task:
 
 ```text
-Finish the recovery emitter ports: lifeline_command_vocabulary_emit,
-lifeline_protocol_emit, command_dispatch already done — remaining:
-target_binding_emit (~683), artifact_reference_emit (~1217),
-artifact_selftest already done, command_admission already done. Then
-move to the bigger emit surfaces (module_* boundary) or start
-de-hello-ify scoping. Each slice: delete more than added, recovery (or
-matching) profile byte-identical.
+Move to the module_* boundary emit surface: scope which
+agent_protocol_module_* files are pure emitters vs hash-coupled
+(module_evidence.rs hashes key=value lines — those need explicit
+convention mapping), then batch-port the pure ones the same way,
+verified by the module-audit-rollback (or matching) profile. In
+parallel-safe docs work: begin de-hello-ify scoping (hello_service.rs
+22k lines, signed source snapshot chain update required).
 ```
 
 ## Capability Milestones
