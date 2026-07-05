@@ -32,3 +32,25 @@ jobs:
         with:
           name: seed-kernel-release
           path: target/x86_64-seed/release/seed-kernel
+
+  vm-smoke:
+    name: shadow VM quick profile
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QEMU
+        run: choco install qemu -y --no-progress
+        shell: powershell
+      - name: Install pinned nightly toolchain
+        run: rustup toolchain install nightly-2024-10-15 --profile minimal --component rust-src --component llvm-tools-preview
+        shell: powershell
+      - name: Run quick smoke profile
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile quick -TimeoutSeconds 900 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10
+        shell: powershell
+      - name: Upload VM report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-quick-report
+          path: release/vm-reports/
