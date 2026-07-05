@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  host-tests:
+    name: raios-core host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Run raios-core tests
+        run: cargo test --locked -p raios-core
+
+  kernel-build:
+    name: seed-kernel release build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned nightly toolchain
+        run: rustup toolchain install nightly-2024-10-15 --profile minimal --component rust-src --component llvm-tools-preview
+      - name: Build seed-kernel (release, build-std)
+        env:
+          RUSTFLAGS: "-C link-arg=-Tseed-kernel/linker.ld -C relocation-model=static -C code-model=kernel -C force-frame-pointers=yes -C link-arg=--gc-sections"
+        run: cargo +nightly-2024-10-15 -Zbuild-std=core,compiler_builtins,alloc build --locked --target seed-kernel/x86_64-seed.json -p seed-kernel --release
+      - name: Upload kernel ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: seed-kernel-release
+          path: target/x86_64-seed/release/seed-kernel
