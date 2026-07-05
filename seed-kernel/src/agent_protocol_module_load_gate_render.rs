@@ -1,6 +1,9 @@
 use alloc::{vec, vec::Vec};
 
 use crate::{
+    agent_protocol_memory::{
+        define_direct_binding_fields, emit_binding_object_direct, BindingField,
+    },
     agent_protocol_module_service_slot_allocator_projection::{
         latest_module_service_slot_allocator_readiness_projection,
         ModuleServiceSlotAuthorityInputProjection,
@@ -4869,98 +4872,84 @@ pub(crate) fn emit_module_load_ephemeral_denied(
 }
 
 pub(crate) fn emit_module_load_gate_event_binding(binding: event_log::ModuleLoadGateBinding) {
-    raw(", \"bindings\": {\"schema\": \"raios.module_load_gate.v0\", \"status\": \"denied_missing_evidence\", \"load_mode\": \"ram_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"risk\": \"modify_ram\", \"target\": \"live_service_graph\", \"subject\": \"agent.session.serial\", \"gate_state\": {\"module_manifest\": ");
-    json_str(module_load_gate_manifest_state(binding));
-    raw(", \"candidate_artifact\": ");
-    json_str(module_load_gate_candidate_artifact_state(binding));
-    raw(", \"vm_test_report\": ");
-    json_str(module_load_gate_vm_test_report_state(binding));
-    raw(", \"local_attestation\": ");
-    json_str(module_load_gate_local_attestation_state(binding));
-    raw(", \"computed_capability_grant\": ");
-    json_str(module_load_gate_computed_grant_state(binding));
-    raw(", \"local_approval\": ");
-    json_str(module_load_gate_local_approval_state(binding));
-    raw(", \"rollback_plan\": ");
-    json_str(module_load_gate_rollback_state(binding));
-    raw(", \"durable_audit_record\": ");
-    json_str(module_load_gate_durable_audit_state(binding));
-    raw(", \"service_slot\": ");
-    json_str(module_load_gate_service_slot_state(binding));
-    raw(", \"service_slot_allocator\": ");
-    json_str(module_load_gate_service_slot_allocator_state(binding));
-    raw(", \"loader_runtime\": ");
-    json_str(module_load_gate_loader_runtime_state(binding));
-    raw(", \"loader\": \"unavailable\"");
-    raw(", \"artifact_loaded\": false, \"service_started\": false, \"persistence\": \"none\", \"can_load\": false}, \"retained_module_manifest_reference\": ");
-    emit_module_load_gate_manifest_reference_compact(binding);
-    raw(", \"retained_candidate_artifact_reference\": ");
-    emit_module_load_gate_artifact_reference_compact(binding);
-    raw(", \"retained_vm_test_report_reference\": ");
-    emit_module_load_gate_vm_report_reference_compact(binding);
-    raw(", \"retained_local_attestation_reference\": ");
-    emit_module_load_gate_local_attestation_reference_compact(binding);
-    raw(", \"retained_local_approval_reference\": ");
-    emit_module_load_gate_local_approval_reference_compact(binding);
-    raw(", \"retained_computed_grant_reference\": ");
-    emit_module_load_gate_retained_reference_compact(binding);
-    raw(", \"retained_audit_rollback_reference\": ");
-    emit_module_load_gate_audit_rollback_reference_compact(binding);
-    raw(", \"retained_service_slot_reservation\": ");
-    emit_module_load_gate_service_slot_reservation_compact(binding);
-    raw(", \"service_slot_allocator_readiness\": ");
-    emit_module_load_gate_service_slot_allocator_readiness_compact(binding);
-    raw(", \"loader_runtime_readiness\": ");
-    emit_module_load_gate_loader_runtime_readiness_compact(binding);
-    raw(", \"audit_rollback_requirements\": ");
-    emit_module_load_gate_audit_rollback_requirements_compact(binding);
-    raw(", \"blocked_by\": [{\"gate\": \"module_manifest\", \"state\": ");
-    json_str(module_load_gate_manifest_state(binding));
+    emit_binding_object_direct(
+        &binding,
+        "",
+        MODULE_LOAD_GATE_EVENT_BINDING_FIELDS,
+        emit_module_load_gate_event_binding_value,
+    );
+}
+
+fn emit_module_load_gate_blocker(gate: &str, state: &str, reason: &str, comma: bool) {
+    raw("{\"gate\": ");
+    json_str(gate);
+    raw(", \"state\": ");
+    json_str(state);
     raw(", \"reason\": ");
-    json_str(module_load_gate_manifest_reason(binding));
-    raw("}, {\"gate\": \"candidate_artifact\", \"state\": ");
-    json_str(module_load_gate_candidate_artifact_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_candidate_artifact_reason(binding));
-    raw("}, {\"gate\": \"vm_test_report\", \"state\": ");
-    json_str(module_load_gate_vm_test_report_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_vm_test_report_reason(binding));
-    raw("}, {\"gate\": \"local_attestation\", \"state\": ");
-    json_str(module_load_gate_local_attestation_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_local_attestation_reason(binding));
-    raw("}, {\"gate\": \"local_approval\", \"state\": ");
-    json_str(module_load_gate_local_approval_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_local_approval_reason(binding));
-    raw("}, {\"gate\": \"computed_capability_grant\", \"state\": ");
-    json_str(module_load_gate_computed_grant_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_computed_grant_reason(binding));
-    raw("}, {\"gate\": \"durable_audit_record\", \"state\": ");
-    json_str(module_load_gate_durable_audit_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_durable_audit_reason(binding));
-    raw("}, {\"gate\": \"rollback_plan\", \"state\": ");
-    json_str(module_load_gate_rollback_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_rollback_reason(binding));
-    raw("}, {\"gate\": \"service_slot\", \"state\": ");
-    json_str(module_load_gate_service_slot_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_service_slot_reason(binding));
-    raw("}, {\"gate\": \"service_slot_allocator\", \"state\": ");
-    json_str(module_load_gate_service_slot_allocator_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_service_slot_allocator_reason(binding));
-    raw("}, {\"gate\": \"loader_runtime\", \"state\": ");
-    json_str(module_load_gate_loader_runtime_state(binding));
-    raw(", \"reason\": ");
-    json_str(module_load_gate_loader_runtime_reason(binding));
-    raw("}, {\"gate\": \"loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}], \"required\": [\"raios.module_manifest.v0\", \"candidate_artifact_sha256\", \"raios.vm_test_report.v0\", \"raios.local_attestation.v0\", \"raios.computed_capability_grant.v0\", \"local_approval\", \"raios.audit_record.v0\", \"rollback_plan\", \"ram_only_service_slot\", \"raios.module_service_slot_allocator_readiness.v0\", \"raios.module_service_slot_allocator_authority.v0\", \"raios.service_slot_allocation_intent.v0\", \"raios.service_slot_allocator_policy_decision.v0\", \"raios.service_slot_registry_write_authority.v0\", \"raios.module_loader_runtime_contract.v0\", \"raios.service_health_monitor_binding.v0\", \"raios.service_unload_cleanup_authority.v0\", \"raios.module_service_slot_allocator_authority_decision.v0\", \"raios.service_slot_registry_write_commit_gate.v0\", \"raios.module_loader_runtime_execution_commit_gate.v0\", \"raios.module_loader_descriptor_intake_boundary.v0\", \"raios.module_loader_artifact_byte_intake_boundary.v0\", \"raios.module_loader_execution_authorization_boundary.v0\", \"raios.module_loader_service_registry_mutation_boundary.v0\", \"raios.module_loader_load_attempt_boundary.v0\", \"raios.module_loader_artifact_load_boundary.v0\", \"raios.module_loader_executable_mapping_boundary.v0\", \"raios.module_loader_entrypoint_transfer_boundary.v0\", \"raios.module_loader_service_start_boundary.v0\", \"raios.module_loader_service_health_binding_boundary.v0\", \"raios.module_loader_service_running_state_boundary.v0\", \"raios.module_loader_service_start_audit_boundary.v0\", \"raios.module_loader_service_unload_cleanup_boundary.v0\", \"raios.module_loader_live_load_commit_boundary.v0\", \"raios.module_loader_commit_audit_boundary.v0\", \"raios.module_loader_commit_rollback_boundary.v0\", \"raios.module_loader_commit_result_boundary.v0\", \"raios.module_loader_descriptor_acceptance_authority_boundary.v0\", \"raios.module_loader_descriptor_parser_contract_boundary.v0\", \"raios.module_loader_descriptor_parser_result_boundary.v0\", \"raios.module_loader_descriptor_schema_validation_boundary.v0\", \"raios.module_loader_descriptor_capability_validation_boundary.v0\", \"raios.module_loader_descriptor_load_plan_boundary.v0\", \"raios.module_loader_executable_load_plan_authority_boundary.v0\", \"raios.module_loader_executable_load_plan_result_boundary.v0\", \"raios.module_loader_executable_image_layout_boundary.v0\", \"raios.module_loader_executable_page_mapping_plan_boundary.v0\", \"raios.module_loader_executable_page_mapping_boundary.v0\", \"raios.module_loader_descriptor_executable_page_binding_boundary.v0\", \"raios.module_loader_executable_entrypoint_binding_boundary.v0\", \"raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0\", \"raios.module_loader_executable_entrypoint_transfer_boundary.v0\", \"raios.module_loader_executable_entrypoint_handoff_boundary.v0\", \"raios.module_loader_executable_entrypoint_invocation_boundary.v0\", \"raios.module_loader_runtime_readiness.v0\"], \"evidence\": {\"event_scope\": \"current_boot\", ");
-    emit_module_load_gate_evidence_hashes_compact(binding);
-    raw(", \"service_inventory_change\": \"none\", \"load_attempted\": false}}");
+    json_str(reason);
+    raw("}");
+    if comma {
+        raw(", ");
+    }
+}
+
+define_direct_binding_fields! { ModuleLoadGateEventBindingField, MODULE_LOAD_GATE_EVENT_BINDING_FIELDS, emit_module_load_gate_event_binding_value, event_log::ModuleLoadGateBinding, binding, _kind;
+    (Schema, "schema", { raw("\"raios.module_load_gate.v0\""); }), (Status, "status", { raw("\"denied_missing_evidence\""); }), (LoadMode, "load_mode", { raw("\"ram_only\""); }),
+    (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (Risk, "risk", { raw("\"modify_ram\""); }), (Target, "target", { raw("\"live_service_graph\""); }), (Subject, "subject", { raw("\"agent.session.serial\""); }),
+    (GateState, "gate_state", {
+            let binding = *binding;
+            raw("{\"module_manifest\": ");
+            json_str(module_load_gate_manifest_state(binding));
+            raw(", \"candidate_artifact\": ");
+            json_str(module_load_gate_candidate_artifact_state(binding));
+            raw(", \"vm_test_report\": ");
+            json_str(module_load_gate_vm_test_report_state(binding));
+            raw(", \"local_attestation\": ");
+            json_str(module_load_gate_local_attestation_state(binding));
+            raw(", \"computed_capability_grant\": ");
+            json_str(module_load_gate_computed_grant_state(binding));
+            raw(", \"local_approval\": ");
+            json_str(module_load_gate_local_approval_state(binding));
+            raw(", \"rollback_plan\": ");
+            json_str(module_load_gate_rollback_state(binding));
+            raw(", \"durable_audit_record\": ");
+            json_str(module_load_gate_durable_audit_state(binding));
+            raw(", \"service_slot\": ");
+            json_str(module_load_gate_service_slot_state(binding));
+            raw(", \"service_slot_allocator\": ");
+            json_str(module_load_gate_service_slot_allocator_state(binding));
+            raw(", \"loader_runtime\": ");
+            json_str(module_load_gate_loader_runtime_state(binding));
+            raw(", \"loader\": \"unavailable\", \"artifact_loaded\": false, \"service_started\": false, \"persistence\": \"none\", \"can_load\": false}");
+        }),
+    (RetainedModuleManifestReference, "retained_module_manifest_reference", { emit_module_load_gate_manifest_reference_compact(*binding); }), (RetainedCandidateArtifactReference, "retained_candidate_artifact_reference", { emit_module_load_gate_artifact_reference_compact(*binding); }),
+    (RetainedVmTestReportReference, "retained_vm_test_report_reference", { emit_module_load_gate_vm_report_reference_compact(*binding); }), (RetainedLocalAttestationReference, "retained_local_attestation_reference", { emit_module_load_gate_local_attestation_reference_compact(*binding); }),
+    (RetainedLocalApprovalReference, "retained_local_approval_reference", { emit_module_load_gate_local_approval_reference_compact(*binding); }), (RetainedComputedGrantReference, "retained_computed_grant_reference", { emit_module_load_gate_retained_reference_compact(*binding); }),
+    (RetainedAuditRollbackReference, "retained_audit_rollback_reference", { emit_module_load_gate_audit_rollback_reference_compact(*binding); }), (RetainedServiceSlotReservation, "retained_service_slot_reservation", { emit_module_load_gate_service_slot_reservation_compact(*binding); }),
+    (ServiceSlotAllocatorReadiness, "service_slot_allocator_readiness", { emit_module_load_gate_service_slot_allocator_readiness_compact(*binding); }), (LoaderRuntimeReadiness, "loader_runtime_readiness", { emit_module_load_gate_loader_runtime_readiness_compact(*binding); }), (AuditRollbackRequirements, "audit_rollback_requirements", { emit_module_load_gate_audit_rollback_requirements_compact(*binding); }),
+    (BlockedBy, "blocked_by", {
+            let binding = *binding;
+            raw("[");
+            emit_module_load_gate_blocker("module_manifest", module_load_gate_manifest_state(binding), module_load_gate_manifest_reason(binding), true);
+            emit_module_load_gate_blocker("candidate_artifact", module_load_gate_candidate_artifact_state(binding), module_load_gate_candidate_artifact_reason(binding), true);
+            emit_module_load_gate_blocker("vm_test_report", module_load_gate_vm_test_report_state(binding), module_load_gate_vm_test_report_reason(binding), true);
+            emit_module_load_gate_blocker("local_attestation", module_load_gate_local_attestation_state(binding), module_load_gate_local_attestation_reason(binding), true);
+            emit_module_load_gate_blocker("local_approval", module_load_gate_local_approval_state(binding), module_load_gate_local_approval_reason(binding), true);
+            emit_module_load_gate_blocker("computed_capability_grant", module_load_gate_computed_grant_state(binding), module_load_gate_computed_grant_reason(binding), true);
+            emit_module_load_gate_blocker("durable_audit_record", module_load_gate_durable_audit_state(binding), module_load_gate_durable_audit_reason(binding), true);
+            emit_module_load_gate_blocker("rollback_plan", module_load_gate_rollback_state(binding), module_load_gate_rollback_reason(binding), true);
+            emit_module_load_gate_blocker("service_slot", module_load_gate_service_slot_state(binding), module_load_gate_service_slot_reason(binding), true);
+            emit_module_load_gate_blocker("service_slot_allocator", module_load_gate_service_slot_allocator_state(binding), module_load_gate_service_slot_allocator_reason(binding), true);
+            emit_module_load_gate_blocker("loader_runtime", module_load_gate_loader_runtime_state(binding), module_load_gate_loader_runtime_reason(binding), true);
+            emit_module_load_gate_blocker("loader", "unavailable", "module_loader_unimplemented", false);
+            raw("]");
+        }),
+    (Required, "required", { raw("[\"raios.module_manifest.v0\", \"candidate_artifact_sha256\", \"raios.vm_test_report.v0\", \"raios.local_attestation.v0\", \"raios.computed_capability_grant.v0\", \"local_approval\", \"raios.audit_record.v0\", \"rollback_plan\", \"ram_only_service_slot\", \"raios.module_service_slot_allocator_readiness.v0\", \"raios.module_service_slot_allocator_authority.v0\", \"raios.service_slot_allocation_intent.v0\", \"raios.service_slot_allocator_policy_decision.v0\", \"raios.service_slot_registry_write_authority.v0\", \"raios.module_loader_runtime_contract.v0\", \"raios.service_health_monitor_binding.v0\", \"raios.service_unload_cleanup_authority.v0\", \"raios.module_service_slot_allocator_authority_decision.v0\", \"raios.service_slot_registry_write_commit_gate.v0\", \"raios.module_loader_runtime_execution_commit_gate.v0\", \"raios.module_loader_descriptor_intake_boundary.v0\", \"raios.module_loader_artifact_byte_intake_boundary.v0\", \"raios.module_loader_execution_authorization_boundary.v0\", \"raios.module_loader_service_registry_mutation_boundary.v0\", \"raios.module_loader_load_attempt_boundary.v0\", \"raios.module_loader_artifact_load_boundary.v0\", \"raios.module_loader_executable_mapping_boundary.v0\", \"raios.module_loader_entrypoint_transfer_boundary.v0\", \"raios.module_loader_service_start_boundary.v0\", \"raios.module_loader_service_health_binding_boundary.v0\", \"raios.module_loader_service_running_state_boundary.v0\", \"raios.module_loader_service_start_audit_boundary.v0\", \"raios.module_loader_service_unload_cleanup_boundary.v0\", \"raios.module_loader_live_load_commit_boundary.v0\", \"raios.module_loader_commit_audit_boundary.v0\", \"raios.module_loader_commit_rollback_boundary.v0\", \"raios.module_loader_commit_result_boundary.v0\", \"raios.module_loader_descriptor_acceptance_authority_boundary.v0\", \"raios.module_loader_descriptor_parser_contract_boundary.v0\", \"raios.module_loader_descriptor_parser_result_boundary.v0\", \"raios.module_loader_descriptor_schema_validation_boundary.v0\", \"raios.module_loader_descriptor_capability_validation_boundary.v0\", \"raios.module_loader_descriptor_load_plan_boundary.v0\", \"raios.module_loader_executable_load_plan_authority_boundary.v0\", \"raios.module_loader_executable_load_plan_result_boundary.v0\", \"raios.module_loader_executable_image_layout_boundary.v0\", \"raios.module_loader_executable_page_mapping_plan_boundary.v0\", \"raios.module_loader_executable_page_mapping_boundary.v0\", \"raios.module_loader_descriptor_executable_page_binding_boundary.v0\", \"raios.module_loader_executable_entrypoint_binding_boundary.v0\", \"raios.module_loader_executable_entrypoint_transfer_authorization_boundary.v0\", \"raios.module_loader_executable_entrypoint_transfer_boundary.v0\", \"raios.module_loader_executable_entrypoint_handoff_boundary.v0\", \"raios.module_loader_executable_entrypoint_invocation_boundary.v0\", \"raios.module_loader_runtime_readiness.v0\"]"); }),
+    (Evidence, "evidence", {
+            raw("{\"event_scope\": \"current_boot\", ");
+            emit_module_load_gate_evidence_hashes_compact(*binding);
+            raw(", \"service_inventory_change\": \"none\", \"load_attempted\": false}");
+        }),
 }
 
 fn emit_module_load_gate_manifest_reference_compact(binding: event_log::ModuleLoadGateBinding) {

@@ -1,4 +1,7 @@
 use crate::{
+    agent_protocol_memory::{
+        define_direct_binding_fields, emit_binding_object_direct, BindingField,
+    },
     agent_protocol_recovery_artifact_reference::*,
     agent_protocol_recovery_artifact_reference_emit::*,
     agent_protocol_recovery_artifact_selftest_emit::*,
@@ -78,8 +81,8 @@ use crate::{
     agent_protocol_recovery_status_handler_emit::*,
     agent_protocol_recovery_target_binding_emit::*,
     agent_protocol_support::{
-        begin_response, crlf, end_response, json_event_id, json_event_id_option, json_sha256_option,
-        json_str, raw, raw_bool, raw_fmt, raw_line,
+        begin_response, crlf, end_response, json_event_id, json_event_id_option,
+        json_sha256_option, json_str, raw, raw_bool, raw_fmt, raw_line,
     },
     event_log, module_evidence, serial,
 };
@@ -5590,11 +5593,9 @@ pub(crate) fn emit_recovery_artifact_load_binding() {
             "missing",
             "recovery_lifeline_command_execution_completion_denial_event_id_missing",
         );
-    } else if let Some(reason) =
-        recovery_load_binding_retained_execution_completion_denial_mismatch(
-            retained_execution_completion_denial,
-        )
-    {
+    } else if let Some(reason) = recovery_load_binding_retained_execution_completion_denial_mismatch(
+        retained_execution_completion_denial,
+    ) {
         emit_recovery_load_blocker(
             &mut wrote_blocker,
             "recovery_lifeline_command_execution_completion_denial_event_id",
@@ -5682,17 +5683,7 @@ pub(crate) fn emit_recovery_artifact_load_denied(
         retained_execution_completion_denial,
     ));
     let (load_denial_status, load_denial_reason) =
-        if live.status == "available_non_authorizing" {
-            (
-                "denied_recovery_load_binding_not_authorizing",
-                "recovery_load_binding_not_authorizing",
-            )
-        } else {
-            (
-                "denied_missing_recovery_artifact_evidence",
-                "missing_recovery_artifact_evidence",
-            )
-        };
+        recovery_artifact_load_denial_status_reason(live.status);
 
     serial::write_raw_fmt(format_args!("RAIOS_AGENT_BEGIN {}\r\n", method));
     raw_line("{");
@@ -5832,89 +5823,98 @@ pub(crate) fn emit_recovery_artifact_load_denied(
 pub(crate) fn emit_recovery_artifact_load_denial_event_binding(
     binding: event_log::RecoveryArtifactLoadDenialBinding,
 ) {
-    let (load_denial_status, load_denial_reason) =
-        if binding.recovery_load_binding_status == "available_non_authorizing" {
-            (
-                "denied_recovery_load_binding_not_authorizing",
-                "recovery_load_binding_not_authorizing",
-            )
-        } else {
-            (
-                "denied_missing_recovery_artifact_evidence",
-                "missing_recovery_artifact_evidence",
-            )
-        };
-    raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_load_denial_evidence.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"status\": ");
-    json_str(load_denial_status);
-    raw(", \"reason\": ");
-    json_str(load_denial_reason);
-    raw(", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"separate_from\": \"cap.module.load_ephemeral\", \"normal_module_load_path_used\": false, \"normal_module_capability_used\": false, \"recovery_artifact_identity\": ");
-    json_missing_state(binding.recovery_artifact_identity_missing);
-    raw(", \"recovery_artifact_trust\": ");
-    json_missing_state(binding.recovery_artifact_trust_missing);
-    raw(", \"recovery_vm_test\": ");
-    json_missing_state(binding.recovery_vm_test_missing);
-    raw(", \"recovery_local_approval\": ");
-    json_missing_state(binding.recovery_local_approval_missing);
-    raw(", \"recovery_loader\": ");
-    json_missing_state(binding.recovery_loader_missing);
-    raw(", \"recovery_rollback_evidence\": ");
-    json_missing_state(binding.recovery_rollback_evidence_missing);
-    raw(", \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"recovery_load_binding\": {\"schema\": \"raios.recovery_artifact_load_binding.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"status\": ");
-    json_str(binding.recovery_load_binding_status);
-    raw(", \"reason\": ");
-    json_str(binding.recovery_load_binding_reason);
-    raw(", \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
-    json_event_id_option(binding.retained_recovery_artifact_identity_event_id);
-    raw(", \"identity_reference_hash\": ");
-    json_sha256_option(binding.identity_reference_hash);
-    raw(", \"retained_recovery_artifact_trust_event_id\": ");
-    json_event_id_option(binding.retained_recovery_artifact_trust_event_id);
-    raw(", \"trust_reference_hash\": ");
-    json_sha256_option(binding.trust_reference_hash);
-    raw(", \"retained_recovery_vm_test_event_id\": ");
-    json_event_id_option(binding.retained_recovery_vm_test_event_id);
-    raw(", \"vm_test_reference_hash\": ");
-    json_sha256_option(binding.vm_test_reference_hash);
-    raw(", \"retained_recovery_local_approval_event_id\": ");
-    json_event_id_option(binding.retained_recovery_local_approval_event_id);
-    raw(", \"local_approval_reference_hash\": ");
-    json_sha256_option(binding.local_approval_reference_hash);
-    raw(", \"retained_recovery_loader_event_id\": ");
-    json_event_id_option(binding.retained_recovery_loader_event_id);
-    raw(", \"loader_reference_hash\": ");
-    json_sha256_option(binding.loader_reference_hash);
-    raw(", \"retained_recovery_rollback_evidence_event_id\": ");
-    json_event_id_option(binding.retained_recovery_rollback_evidence_event_id);
-    raw(", \"rollback_evidence_reference_hash\": ");
-    json_sha256_option(binding.rollback_evidence_reference_hash);
-    raw(", \"retained_execution_completion_denial_event_id\": ");
-    json_event_id_option(binding.retained_execution_completion_denial_event_id);
-    raw(", \"execution_completion_denial_hash\": ");
-    json_sha256_option(binding.execution_completion_denial_hash);
-    raw(", \"side_effect_gate_hash\": ");
-    json_sha256_option(binding.side_effect_gate_hash);
-    raw(", \"source_rollback_apply_denial_hash\": ");
-    json_sha256_option(binding.source_rollback_apply_denial_hash);
-    raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-    json_sha256_option(binding.source_durable_policy_write_authority_decision_hash);
-    raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-    json_sha256_option(binding.source_recovery_rollback_inspect_source_reference_hash);
-    raw(", \"execution_enablement_hash\": ");
-    json_sha256_option(binding.execution_enablement_hash);
-    raw(", \"execution_preflight_hash\": ");
-    json_sha256_option(binding.execution_preflight_hash);
-    raw(", \"execution_intent_hash\": ");
-    json_sha256_option(binding.execution_intent_hash);
-    raw(", \"execution_commit_gate_hash\": ");
-    json_sha256_option(binding.execution_commit_gate_hash);
-    raw(", \"execution_result_denial_hash\": ");
-    json_sha256_option(binding.execution_result_denial_hash);
-    raw(", \"execution_audit_denial_hash\": ");
-    json_sha256_option(binding.execution_audit_denial_hash);
-    raw(", \"execution_observation_denial_hash\": ");
-    json_sha256_option(binding.execution_observation_denial_hash);
-    raw("}, \"missing_fact_schemas\": [\"raios.recovery_artifact_identity.v0\", \"raios.recovery_artifact_trust.v0\", \"raios.recovery_artifact_vm_test.v0\", \"raios.recovery_artifact_local_approval.v0\", \"raios.recovery_artifact_loader.v0\", \"raios.recovery_artifact_rollback_evidence.v0\"]}");
+    emit_binding_object_direct(
+        &binding,
+        "",
+        RECOVERY_ARTIFACT_LOAD_DENIAL_EVENT_BINDING_FIELDS,
+        emit_recovery_artifact_load_denial_event_binding_value,
+    );
+}
+
+fn recovery_artifact_load_denial_status_reason(status: &str) -> (&'static str, &'static str) {
+    if status == "available_non_authorizing" {
+        (
+            "denied_recovery_load_binding_not_authorizing",
+            "recovery_load_binding_not_authorizing",
+        )
+    } else {
+        (
+            "denied_missing_recovery_artifact_evidence",
+            "missing_recovery_artifact_evidence",
+        )
+    }
+}
+
+fn emit_recovery_load_binding_property(key: &str) {
+    raw(", ");
+    json_str(key);
+    raw(": ");
+}
+
+fn emit_recovery_load_binding_event_hash(
+    event_key: &str,
+    event_id: Option<event_log::EventId>,
+    hash_key: &str,
+    hash: Option<[u8; 32]>,
+) {
+    emit_recovery_load_binding_property(event_key);
+    json_event_id_option(event_id);
+    emit_recovery_load_binding_property(hash_key);
+    json_sha256_option(hash);
+}
+
+fn emit_recovery_load_binding_hash(key: &str, hash: Option<[u8; 32]>) {
+    emit_recovery_load_binding_property(key);
+    json_sha256_option(hash);
+}
+
+define_direct_binding_fields! { RecoveryArtifactLoadDenialEventBindingField, RECOVERY_ARTIFACT_LOAD_DENIAL_EVENT_BINDING_FIELDS, emit_recovery_artifact_load_denial_event_binding_value, event_log::RecoveryArtifactLoadDenialBinding, binding, _kind;
+    (Schema, "schema", { raw("\"raios.recovery_artifact_load_denial_evidence.v0\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }),
+    (Status, "status", {
+        let (status, _reason) =
+            recovery_artifact_load_denial_status_reason(binding.recovery_load_binding_status);
+        json_str(status);
+    }),
+    (Reason, "reason", {
+        let (_status, reason) =
+            recovery_artifact_load_denial_status_reason(binding.recovery_load_binding_status);
+        json_str(reason);
+    }),
+    (RequestedCapability, "requested_capability", { raw("\"cap.recovery.load_artifact\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (SeparateFrom, "separate_from", { raw("\"cap.module.load_ephemeral\""); }),
+    (NormalModuleLoadPathUsed, "normal_module_load_path_used", { raw("false"); }), (NormalModuleCapabilityUsed, "normal_module_capability_used", { raw("false"); }),
+    (RecoveryArtifactIdentity, "recovery_artifact_identity", { json_missing_state(binding.recovery_artifact_identity_missing); }), (RecoveryArtifactTrust, "recovery_artifact_trust", { json_missing_state(binding.recovery_artifact_trust_missing); }),
+    (RecoveryVmTest, "recovery_vm_test", { json_missing_state(binding.recovery_vm_test_missing); }), (RecoveryLocalApproval, "recovery_local_approval", { json_missing_state(binding.recovery_local_approval_missing); }),
+    (RecoveryLoader, "recovery_loader", { json_missing_state(binding.recovery_loader_missing); }), (RecoveryRollbackEvidence, "recovery_rollback_evidence", { json_missing_state(binding.recovery_rollback_evidence_missing); }),
+    (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (LoadsNormalModule, "loads_normal_module", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }),
+    (RecoveryLoadBinding, "recovery_load_binding", {
+            raw("{\"schema\": \"raios.recovery_artifact_load_binding.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"status\": ");
+            json_str(binding.recovery_load_binding_status);
+            raw(", \"reason\": ");
+            json_str(binding.recovery_load_binding_reason);
+            raw(", \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
+            json_event_id_option(binding.retained_recovery_artifact_identity_event_id);
+            emit_recovery_load_binding_property("identity_reference_hash");
+            json_sha256_option(binding.identity_reference_hash);
+            emit_recovery_load_binding_event_hash("retained_recovery_artifact_trust_event_id", binding.retained_recovery_artifact_trust_event_id, "trust_reference_hash", binding.trust_reference_hash);
+            emit_recovery_load_binding_event_hash("retained_recovery_vm_test_event_id", binding.retained_recovery_vm_test_event_id, "vm_test_reference_hash", binding.vm_test_reference_hash);
+            emit_recovery_load_binding_event_hash("retained_recovery_local_approval_event_id", binding.retained_recovery_local_approval_event_id, "local_approval_reference_hash", binding.local_approval_reference_hash);
+            emit_recovery_load_binding_event_hash("retained_recovery_loader_event_id", binding.retained_recovery_loader_event_id, "loader_reference_hash", binding.loader_reference_hash);
+            emit_recovery_load_binding_event_hash("retained_recovery_rollback_evidence_event_id", binding.retained_recovery_rollback_evidence_event_id, "rollback_evidence_reference_hash", binding.rollback_evidence_reference_hash);
+            emit_recovery_load_binding_event_hash("retained_execution_completion_denial_event_id", binding.retained_execution_completion_denial_event_id, "execution_completion_denial_hash", binding.execution_completion_denial_hash);
+            emit_recovery_load_binding_hash("side_effect_gate_hash", binding.side_effect_gate_hash);
+            emit_recovery_load_binding_hash("source_rollback_apply_denial_hash", binding.source_rollback_apply_denial_hash);
+            emit_recovery_load_binding_hash("source_durable_policy_write_authority_decision_hash", binding.source_durable_policy_write_authority_decision_hash);
+            emit_recovery_load_binding_hash("source_recovery_rollback_inspect_source_reference_hash", binding.source_recovery_rollback_inspect_source_reference_hash);
+            emit_recovery_load_binding_hash("execution_enablement_hash", binding.execution_enablement_hash);
+            emit_recovery_load_binding_hash("execution_preflight_hash", binding.execution_preflight_hash);
+            emit_recovery_load_binding_hash("execution_intent_hash", binding.execution_intent_hash);
+            emit_recovery_load_binding_hash("execution_commit_gate_hash", binding.execution_commit_gate_hash);
+            emit_recovery_load_binding_hash("execution_result_denial_hash", binding.execution_result_denial_hash);
+            emit_recovery_load_binding_hash("execution_audit_denial_hash", binding.execution_audit_denial_hash);
+            emit_recovery_load_binding_hash("execution_observation_denial_hash", binding.execution_observation_denial_hash);
+            raw("}");
+        }),
+    (MissingFactSchemas, "missing_fact_schemas", { raw("[\"raios.recovery_artifact_identity.v0\", \"raios.recovery_artifact_trust.v0\", \"raios.recovery_artifact_vm_test.v0\", \"raios.recovery_artifact_local_approval.v0\", \"raios.recovery_artifact_loader.v0\", \"raios.recovery_artifact_rollback_evidence.v0\"]"); }),
 }
 
 fn recovery_lifeline_protocol_candidate_from_retained(

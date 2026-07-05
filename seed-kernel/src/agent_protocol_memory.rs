@@ -495,9 +495,9 @@ enum BindingValue {
 }
 
 #[derive(Clone, Copy)]
-struct BindingField<F: Copy> {
-    key: &'static str,
-    field: F,
+pub(crate) struct BindingField<F: Copy> {
+    pub(crate) key: &'static str,
+    pub(crate) field: F,
 }
 
 fn emit_binding_object<B, F: Copy>(
@@ -520,7 +520,7 @@ fn emit_binding_object<B, F: Copy>(
     raw("}");
 }
 
-fn emit_binding_object_direct<B, F: Copy>(
+pub(crate) fn emit_binding_object_direct<B, F: Copy>(
     binding: &B,
     kind: &str,
     fields: &[BindingField<F>],
@@ -569,6 +569,8 @@ macro_rules! define_direct_binding_fields {
         }
     };
 }
+
+pub(crate) use define_direct_binding_fields;
 
 fn emit_binding_value(value: BindingValue) {
     match value {
