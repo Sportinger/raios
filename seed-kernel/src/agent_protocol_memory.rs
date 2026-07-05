@@ -520,6 +520,56 @@ fn emit_binding_object<B, F: Copy>(
     raw("}");
 }
 
+fn emit_binding_object_direct<B, F: Copy>(
+    binding: &B,
+    kind: &str,
+    fields: &[BindingField<F>],
+    emit_value: fn(&B, &str, F),
+) {
+    raw(", \"bindings\": {");
+    let mut idx = 0usize;
+    while idx < fields.len() {
+        if idx != 0 {
+            raw(", ");
+        }
+        emit_record_value_fragment(raios_core::record::Value::Str(fields[idx].key), 0);
+        raw(": ");
+        emit_value(binding, kind, fields[idx].field);
+        idx += 1;
+    }
+    raw("}");
+}
+
+macro_rules! define_direct_binding_fields {
+    (
+        $field_enum:ident,
+        $fields_const:ident,
+        $emit_value:ident,
+        $binding_ty:ty,
+        $binding:ident,
+        $kind:ident;
+        $(($variant:ident, $key:literal, $body:block),)+
+    ) => {
+        #[derive(Clone, Copy)]
+        enum $field_enum {
+            $($variant),+
+        }
+
+        const $fields_const: &[BindingField<$field_enum>] = &[
+            $(BindingField {
+                key: $key,
+                field: $field_enum::$variant,
+            }),+
+        ];
+
+        fn $emit_value($binding: &$binding_ty, $kind: &str, field: $field_enum) {
+            match field {
+                $($field_enum::$variant => $body),+
+            }
+        }
+    };
+}
+
 fn emit_binding_value(value: BindingValue) {
     match value {
         BindingValue::Str(value) => {
@@ -1764,1511 +1814,100 @@ fn emit_event_bindings(kind: &str, bindings: &event_log::EventBindings) {
             emit_hello_service_lifecycle_binding(kind, binding);
         }
         event_log::EventBindings::HelloRecoveryRollbackInspectSourceReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_rollback_inspect_source_reference_binding.v0\", \"status\": \"retained_audit_event_verified\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"source_event_id\": ");
-            json_event_id(binding.source_event_id);
-            raw(", \"reference_hash\": ");
-            json_sha256(binding.reference_hash);
-            raw(", \"inspection_hash\": ");
-            json_sha256(binding.inspection_hash);
-            raw(", \"source_sector_plan_hash\": ");
-            json_sha256(binding.source_sector_plan_hash);
-            raw(", \"source_target_region_write_readback_hash\": ");
-            json_sha256(binding.source_target_region_write_readback_hash);
-            raw(", \"authorizes_rollback_apply\": ");
-            raw_bool(binding.authorizes_rollback_apply);
-            raw("}");
+            emit_hello_recovery_rollback_inspect_source_reference_binding(kind, binding);
         }
         event_log::EventBindings::AgentCommandEnvelopeDecision(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.agent_command_envelope.audit_binding.v0\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"command_schema\": \"raios.agent_command_envelope.v0\", \"schema_ok\": ");
-            raw_bool(binding.schema_ok);
-            raw(", \"target_method\": ");
-            json_opt_str(binding.target_method);
-            raw(", \"target_method_allowed\": ");
-            raw_bool(binding.target_method_allowed);
-            raw(", \"requested_capability\": ");
-            json_opt_str(binding.requested_capability);
-            raw(", \"requested_capability_allowed\": ");
-            raw_bool(binding.requested_capability_allowed);
-            raw(", \"submitted_classification\": ");
-            json_opt_str(binding.submitted_classification);
-            raw(", \"classification_allowed\": ");
-            raw_bool(binding.classification_allowed);
-            raw(", \"accepted\": ");
-            raw_bool(binding.accepted);
-            raw(", \"code\": ");
-            json_str(binding.code);
-            raw(", \"reason\": ");
-            json_str(binding.reason);
-            raw(", \"dispatches_existing_agent_method\": ");
-            raw_bool(binding.dispatches_existing_agent_method);
-            raw(", \"creates_parallel_dispatcher\": ");
-            raw_bool(binding.creates_parallel_dispatcher);
-            raw(", \"provider_write\": ");
-            json_str(binding.provider_write);
-            raw(", \"loads_candidate_bytes\": ");
-            raw_bool(binding.loads_candidate_bytes);
-            raw(", \"writes_persistent_state\": ");
-            raw_bool(binding.writes_persistent_state);
-            raw(", \"writes_durable_audit_log\": ");
-            raw_bool(binding.writes_durable_audit_log);
-            raw(", \"installs_rollback_plan\": ");
-            raw_bool(binding.installs_rollback_plan);
-            raw(", \"grants_broad_mutation\": ");
-            raw_bool(binding.grants_broad_mutation);
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\"}");
+            emit_agent_command_envelope_decision_binding(kind, binding);
         }
         event_log::EventBindings::ProviderRequestEnvelope(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.provider_request_envelope.v0\", \"status\": \"local_prewrite_envelope\", \"satisfies_current_boot_export_gate\": false, \"provider_write\": \"not_attempted\", \"context_attached_to_provider_body\": false, \"request_id\": ");
-            raw_fmt(format_args!("{}", binding.request_id));
-            raw(", \"request_body_hash\": ");
-            json_sha256(binding.request_body_hash);
-            raw(", \"envelope_hash\": ");
-            json_sha256(binding.envelope_hash);
-            raw(", \"trust_snapshot\": {\"provider_trust_state\": ");
-            json_str(binding.provider_trust_state);
-            raw(", \"provider_trust_positive\": ");
-            raw_bool(binding.provider_trust_positive);
-            raw(", \"development_tls_bypass\": ");
-            raw_bool(binding.development_tls_bypass);
-            raw("}}");
+            emit_provider_request_envelope_binding(kind, binding);
         }
         event_log::EventBindings::ProviderRequestBound(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.provider_request_binding.v0\", \"status\": \"bound\", \"satisfies_request_binding_gate\": true, \"satisfies_current_boot_export_gate\": false, \"provider_write_at_binding\": \"not_attempted\", \"context_attached_to_provider_body\": false, \"request_id\": ");
-            raw_fmt(format_args!("{}", binding.request_id));
-            raw(", \"request_envelope_event_id\": ");
-            json_event_id(binding.request_envelope_event_id);
-            raw(", \"request_body_hash\": ");
-            json_sha256(binding.request_body_hash);
-            raw(", \"request_envelope_hash\": ");
-            json_sha256(binding.request_envelope_hash);
-            raw(", \"request_binding_hash\": ");
-            json_sha256(binding.request_binding_hash);
-            raw(", \"trust_snapshot\": {\"provider_trust_state\": ");
-            json_str(binding.provider_trust_state);
-            raw(", \"provider_trust_positive\": true, \"provider_trust_pin_kind\": ");
-            json_opt_str(binding.provider_trust_pin_kind);
-            raw(", \"provider_trust_pin_id\": ");
-            json_opt_str(binding.provider_trust_pin_id);
-            raw(", \"provider_trust_pin_slot\": ");
-            json_opt_str(binding.provider_trust_pin_slot);
-            raw(", \"provider_trust_pin_rotation_policy\": ");
-            json_str(binding.provider_trust_pin_rotation_policy);
-            raw(", \"provider_trust_pin_rotation_id\": ");
-            json_opt_str(binding.provider_trust_pin_rotation_id);
-            raw(", \"provider_trust_verifier\": ");
-            emit_provider_trust_verifier_metadata(binding.provider_trust_verifier);
-            raw(", \"provider_trust_verifier_decision\": ");
-            emit_provider_trust_verifier_decision(binding.provider_trust_verifier_decision);
-            raw(", \"provider_trust_evidence_hash\": ");
-            json_sha256(binding.provider_trust_evidence_hash);
-            raw(", \"development_tls_bypass\": ");
-            raw_bool(binding.development_tls_bypass);
-            raw("}, \"hashes\": ");
-            emit_provider_context_hashes(binding.context);
-            raw("}");
+            emit_provider_request_bound_binding(kind, binding);
         }
         event_log::EventBindings::ProviderExportAuditBound(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.provider_context_export_audit_binding.v0\", \"status\": \"authorized_for_single_provider_request\", \"satisfies_export_audit_binding_gate\": true, \"satisfies_current_boot_export_gate\": false, \"positive_export_authorization\": true, \"automatic_context_injection\": \"disabled\", \"provider_write_at_binding\": \"not_attempted\", \"context_attached_to_provider_body\": ");
-            raw_bool(binding.context_attached_to_provider_body);
-            raw(", \"request_id\": ");
-            raw_fmt(format_args!("{}", binding.request_id));
-            raw(", \"request_envelope_event_id\": ");
-            json_event_id(binding.request_envelope_event_id);
-            raw(", \"request_binding_event_id\": ");
-            json_event_id(binding.request_binding_event_id);
-            raw(", \"request_body_hash\": ");
-            json_sha256(binding.request_body_hash);
-            raw(", \"request_envelope_hash\": ");
-            json_sha256(binding.request_envelope_hash);
-            raw(", \"request_binding_hash\": ");
-            json_sha256(binding.request_binding_hash);
-            raw(", \"export_audit_binding_hash\": ");
-            json_sha256(binding.export_audit_binding_hash);
-            raw(", \"trust_snapshot\": {\"provider_trust_state\": ");
-            json_str(binding.provider_trust_state);
-            raw(", \"provider_trust_positive\": true, \"provider_trust_pin_kind\": ");
-            json_opt_str(binding.provider_trust_pin_kind);
-            raw(", \"provider_trust_pin_id\": ");
-            json_opt_str(binding.provider_trust_pin_id);
-            raw(", \"provider_trust_pin_slot\": ");
-            json_opt_str(binding.provider_trust_pin_slot);
-            raw(", \"provider_trust_pin_rotation_policy\": ");
-            json_str(binding.provider_trust_pin_rotation_policy);
-            raw(", \"provider_trust_pin_rotation_id\": ");
-            json_opt_str(binding.provider_trust_pin_rotation_id);
-            raw(", \"provider_trust_verifier\": ");
-            emit_provider_trust_verifier_metadata(binding.provider_trust_verifier);
-            raw(", \"provider_trust_verifier_decision\": ");
-            emit_provider_trust_verifier_decision(binding.provider_trust_verifier_decision);
-            raw(", \"provider_trust_evidence_hash\": ");
-            json_sha256(binding.provider_trust_evidence_hash);
-            raw(", \"development_tls_bypass\": false}, \"hashes\": ");
-            emit_provider_context_hashes(binding.context);
-            raw("}");
+            emit_provider_export_audit_bound_binding(kind, binding);
         }
         event_log::EventBindings::ProviderBindingConsumption(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.provider_context_binding_consumption.v0\", \"status\": \"consumed_for_gate_evaluation\", \"satisfies_current_boot_export_gate\": false, \"automatic_context_injection\": \"disabled\", \"provider_write\": \"not_attempted\", \"context_attached_to_provider_body\": false, \"request_id\": ");
-            raw_fmt(format_args!("{}", binding.request_id));
-            raw(", \"request_envelope_event_id\": ");
-            json_event_id(binding.request_envelope_event_id);
-            raw(", \"request_binding_event_id\": ");
-            json_event_id(binding.request_binding_event_id);
-            raw(", \"export_audit_binding_event_id\": ");
-            json_event_id(binding.export_audit_binding_event_id);
-            raw(", \"request_binding_hash\": ");
-            json_sha256(binding.request_binding_hash);
-            raw(", \"export_audit_binding_hash\": ");
-            json_sha256(binding.export_audit_binding_hash);
-            raw(", \"provider_trust_evidence_hash\": ");
-            json_sha256(binding.provider_trust_evidence_hash);
-            raw(", \"hashes\": ");
-            emit_provider_context_hashes(binding.context);
-            raw("}");
+            emit_provider_binding_consumption_binding(kind, binding);
         }
         event_log::EventBindings::ProviderContextInjectionAuthorization(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.provider_context_injection_authorization.v0\", \"status\": \"authorized_for_single_provider_request\", \"satisfies_current_boot_export_gate\": false, \"automatic_context_injection\": \"disabled\", \"provider_write\": \"not_attempted\", \"context_attached_to_provider_body\": ");
-            raw_bool(binding.context_attached_to_provider_body);
-            raw(", \"request_id\": ");
-            raw_fmt(format_args!("{}", binding.request_id));
-            raw(", \"request_envelope_event_id\": ");
-            json_event_id(binding.request_envelope_event_id);
-            raw(", \"request_binding_event_id\": ");
-            json_event_id(binding.request_binding_event_id);
-            raw(", \"export_audit_binding_event_id\": ");
-            json_event_id(binding.export_audit_binding_event_id);
-            raw(", \"binding_consumption_event_id\": ");
-            json_event_id(binding.binding_consumption_event_id);
-            raw(", \"request_body_hash\": ");
-            json_sha256(binding.request_body_hash);
-            raw(", \"request_envelope_hash\": ");
-            json_sha256(binding.request_envelope_hash);
-            raw(", \"request_binding_hash\": ");
-            json_sha256(binding.request_binding_hash);
-            raw(", \"export_audit_binding_hash\": ");
-            json_sha256(binding.export_audit_binding_hash);
-            raw(", \"final_authorization_hash\": ");
-            json_sha256(binding.final_authorization_hash);
-            raw(", \"trust_snapshot\": {\"provider_trust_state\": ");
-            json_str(binding.provider_trust_state);
-            raw(", \"provider_trust_positive\": true, \"provider_trust_evidence_hash\": ");
-            json_sha256(binding.provider_trust_evidence_hash);
-            raw("}, \"hashes\": ");
-            emit_provider_context_hashes(binding.context);
-            raw("}");
+            emit_provider_context_injection_authorization_binding(kind, binding);
         }
         event_log::EventBindings::ProviderRequestBindingDenied(hashes) => {
-            raw(", \"bindings\": {\"schema\": \"raios.provider_request_binding_denial.v0\", \"status\": \"denied_not_bound\", \"satisfies_current_boot_export_gate\": false, \"provider_write\": \"not_attempted\", \"hashes\": ");
-            emit_provider_context_hashes(*hashes);
-            raw("}");
+            emit_provider_request_binding_denied_binding(kind, hashes);
         }
         event_log::EventBindings::ProviderExportDenialAudit(hashes) => {
-            raw(", \"bindings\": {\"schema\": \"raios.provider_context_export_denial_audit.v0\", \"status\": \"denied_no_provider_write\", \"satisfies_current_boot_export_gate\": false, \"positive_export_authorization\": false, \"provider_write\": \"not_attempted\", \"hashes\": ");
-            emit_provider_context_hashes(*hashes);
-            raw("}");
+            emit_provider_export_denial_audit_binding(kind, hashes);
         }
         event_log::EventBindings::ModuleManifestReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.module_manifest_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"manifest_schema\": \"raios.module_manifest.v0\", \"accepts_manifest_json\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"hashes\": {\"manifest_reference_hash\": ");
-            json_sha256(binding.manifest_reference_hash);
-            raw(", \"manifest_hash\": ");
-            json_sha256(binding.manifest_hash);
-            raw("}}");
+            emit_module_manifest_reference_binding(kind, binding);
         }
         event_log::EventBindings::ModuleCandidateArtifactReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.module_candidate_artifact_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"accepts_manifest_json\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_manifest_reference_event_id\": ");
-            json_event_id(binding.retained_manifest_reference_event_id);
-            raw(", \"retained_computed_grant_reference_event_id\": ");
-            json_event_id(binding.retained_reference_event_id);
-            raw(", \"hashes\": {\"artifact_reference_hash\": ");
-            json_sha256(binding.artifact_reference_hash);
-            raw(", \"manifest_reference_hash\": ");
-            json_sha256(binding.manifest_reference_hash);
-            raw(", \"manifest_hash\": ");
-            json_sha256(binding.manifest_hash);
-            raw(", \"computed_capability_grant_hash\": ");
-            json_sha256(binding.computed_grant_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"vm_test_report_hash\": ");
-            json_sha256(binding.vm_report_hash);
-            raw(", \"local_attestation_hash\": ");
-            json_sha256(binding.local_attestation_hash);
-            raw("}}");
+            emit_module_candidate_artifact_reference_binding(kind, binding);
         }
         event_log::EventBindings::ModuleVmTestReportReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.module_vm_test_report_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"vm_test_report_schema\": \"raios.vm_test_report.v0\", \"accepts_manifest_json\": false, \"accepts_artifact_bytes\": false, \"accepts_vm_report_json\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_manifest_reference_event_id\": ");
-            json_event_id(binding.retained_manifest_reference_event_id);
-            raw(", \"retained_candidate_artifact_reference_event_id\": ");
-            json_event_id(binding.retained_artifact_reference_event_id);
-            raw(", \"retained_computed_grant_reference_event_id\": ");
-            json_event_id(binding.retained_reference_event_id);
-            raw(", \"hashes\": {\"vm_test_report_reference_hash\": ");
-            json_sha256(binding.report_reference_hash);
-            raw(", \"manifest_reference_hash\": ");
-            json_sha256(binding.manifest_reference_hash);
-            raw(", \"artifact_reference_hash\": ");
-            json_sha256(binding.artifact_reference_hash);
-            raw(", \"manifest_hash\": ");
-            json_sha256(binding.manifest_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"computed_capability_grant_hash\": ");
-            json_sha256(binding.computed_grant_hash);
-            raw(", \"vm_test_report_hash\": ");
-            json_sha256(binding.vm_report_hash);
-            raw(", \"local_attestation_hash\": ");
-            json_sha256(binding.local_attestation_hash);
-            raw("}}");
+            emit_module_vm_test_report_reference_binding(kind, binding);
         }
         event_log::EventBindings::ModuleLocalAttestationReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.module_local_attestation_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"local_attestation_schema\": \"raios.local_attestation.v0\", \"accepts_local_attestation_json\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_manifest_reference_event_id\": ");
-            json_event_id(binding.retained_manifest_reference_event_id);
-            raw(", \"retained_candidate_artifact_reference_event_id\": ");
-            json_event_id(binding.retained_artifact_reference_event_id);
-            raw(", \"retained_vm_test_report_reference_event_id\": ");
-            json_event_id(binding.retained_vm_report_reference_event_id);
-            raw(", \"retained_computed_grant_reference_event_id\": ");
-            json_event_id(binding.retained_reference_event_id);
-            raw(", \"hashes\": {\"local_attestation_reference_hash\": ");
-            json_sha256(binding.attestation_reference_hash);
-            raw(", \"manifest_reference_hash\": ");
-            json_sha256(binding.manifest_reference_hash);
-            raw(", \"artifact_reference_hash\": ");
-            json_sha256(binding.artifact_reference_hash);
-            raw(", \"vm_test_report_reference_hash\": ");
-            json_sha256(binding.vm_report_reference_hash);
-            raw(", \"manifest_hash\": ");
-            json_sha256(binding.manifest_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"computed_capability_grant_hash\": ");
-            json_sha256(binding.computed_grant_hash);
-            raw(", \"vm_test_report_hash\": ");
-            json_sha256(binding.vm_report_hash);
-            raw(", \"local_attestation_hash\": ");
-            json_sha256(binding.local_attestation_hash);
-            raw("}}");
+            emit_module_local_attestation_reference_binding(kind, binding);
         }
         event_log::EventBindings::ModuleLocalApprovalReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.module_local_approval_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"local_approval_schema\": \"raios.local_approval.v0\", \"accepts_local_approval_text\": false, \"accepts_artifact_bytes\": false, \"accepts_unsigned_service_code\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_manifest_reference_event_id\": ");
-            json_event_id(binding.retained_manifest_reference_event_id);
-            raw(", \"retained_candidate_artifact_reference_event_id\": ");
-            json_event_id(binding.retained_artifact_reference_event_id);
-            raw(", \"retained_vm_test_report_reference_event_id\": ");
-            json_event_id(binding.retained_vm_report_reference_event_id);
-            raw(", \"retained_local_attestation_reference_event_id\": ");
-            json_event_id(binding.retained_local_attestation_reference_event_id);
-            raw(", \"retained_computed_grant_reference_event_id\": ");
-            json_event_id(binding.retained_reference_event_id);
-            raw(", \"hashes\": {\"local_approval_reference_hash\": ");
-            json_sha256(binding.approval_reference_hash);
-            raw(", \"manifest_reference_hash\": ");
-            json_sha256(binding.manifest_reference_hash);
-            raw(", \"artifact_reference_hash\": ");
-            json_sha256(binding.artifact_reference_hash);
-            raw(", \"vm_test_report_reference_hash\": ");
-            json_sha256(binding.vm_report_reference_hash);
-            raw(", \"local_attestation_reference_hash\": ");
-            json_sha256(binding.local_attestation_reference_hash);
-            raw(", \"manifest_hash\": ");
-            json_sha256(binding.manifest_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"computed_capability_grant_hash\": ");
-            json_sha256(binding.computed_grant_hash);
-            raw(", \"vm_test_report_hash\": ");
-            json_sha256(binding.vm_report_hash);
-            raw(", \"local_attestation_hash\": ");
-            json_sha256(binding.local_attestation_hash);
-            raw(", \"local_approval_hash\": ");
-            json_sha256(binding.local_approval_hash);
-            raw("}}");
+            emit_module_local_approval_reference_binding(kind, binding);
         }
         event_log::EventBindings::ModuleComputedGrantReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.module_computed_grant_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"grants_capability\": false, \"grants_load_now\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"hashes\": {\"computed_capability_grant_hash\": ");
-            json_sha256(binding.computed_grant_hash);
-            raw(", \"manifest_hash\": ");
-            json_sha256(binding.manifest_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"vm_test_report_hash\": ");
-            json_sha256(binding.vm_report_hash);
-            raw(", \"local_attestation_hash\": ");
-            json_sha256(binding.local_attestation_hash);
-            raw("}}");
+            emit_module_computed_grant_reference_binding(kind, binding);
         }
         event_log::EventBindings::ModuleAuditRollbackReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.module_audit_rollback_reference.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"durable_audit_written\": false, \"rollback_plan_installed\": false, \"grants_capability\": false, \"grants_load_now\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"denial_event_id\": ");
-            json_event_id(binding.denial_event_id);
-            raw(", \"retained_computed_grant_reference_event_id\": ");
-            json_event_id(binding.retained_reference_event_id);
-            raw(", \"ram_only_service_slot_id\": ");
-            json_str(binding.ram_only_service_slot_id.as_str());
-            raw(", \"hashes\": {\"audit_record_hash\": ");
-            json_sha256(binding.audit_record_hash);
-            raw(", \"rollback_plan_hash\": ");
-            json_sha256(binding.rollback_plan_hash);
-            raw(", \"computed_capability_grant_hash\": ");
-            json_sha256(binding.computed_grant_hash);
-            raw(", \"manifest_hash\": ");
-            json_sha256(binding.manifest_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"vm_test_report_hash\": ");
-            json_sha256(binding.vm_report_hash);
-            raw(", \"local_attestation_hash\": ");
-            json_sha256(binding.local_attestation_hash);
-            raw(", \"local_approval_hash\": ");
-            json_sha256(binding.local_approval_hash);
-            raw(", \"pre_load_service_inventory_hash\": ");
-            json_sha256(binding.pre_load_service_inventory_hash);
-            raw(", \"cleanup_actions_hash\": ");
-            json_sha256(binding.cleanup_actions_hash);
-            raw("}}");
+            emit_module_audit_rollback_reference_binding(kind, binding);
         }
         event_log::EventBindings::ModuleServiceSlotReservation(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.module_service_slot_reservation.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"load_mode\": \"ram_only\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"grants_capability\": false, \"grants_load_now\": false, \"authorizes_guest_load\": false, \"can_load_now\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_computed_grant_reference_event_id\": ");
-            json_event_id(binding.retained_reference_event_id);
-            raw(", \"retained_audit_rollback_reference_event_id\": ");
-            json_event_id(binding.retained_audit_rollback_reference_event_id);
-            raw(", \"ram_only_service_slot_id\": ");
-            json_str(binding.ram_only_service_slot_id.as_str());
-            raw(", \"hashes\": {\"reservation_hash\": ");
-            json_sha256(binding.reservation_hash);
-            raw(", \"computed_capability_grant_hash\": ");
-            json_sha256(binding.computed_grant_hash);
-            raw(", \"audit_record_hash\": ");
-            json_sha256(binding.audit_record_hash);
-            raw(", \"rollback_plan_hash\": ");
-            json_sha256(binding.rollback_plan_hash);
-            raw(", \"pre_load_service_inventory_hash\": ");
-            json_sha256(binding.pre_load_service_inventory_hash);
-            raw("}}");
+            emit_module_service_slot_reservation_binding(kind, binding);
         }
         event_log::EventBindings::ModuleServiceSlotAllocatorFactSourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"fact_schema\": ");
-            json_str(binding.fact_schema);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"fact_id\": ");
-            json_str(binding.fact_id);
-            raw(", \"fact_status\": ");
-            json_str(binding.fact_status);
-            raw(", \"fact_reason\": ");
-            json_str(binding.fact_reason);
-            raw(", \"fact_present\": ");
-            raw_bool(binding.fact_present);
-            raw(", \"retained_service_slot_reservation_present\": ");
-            raw_bool(binding.retained_service_slot_reservation_present);
-            raw(", \"allocator_runtime_source_evidence_present\": ");
-            raw_bool(binding.allocator_runtime_source_evidence_present);
-            raw(", \"retained_service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.retained_service_slot_reservation_event_id);
-            raw(", \"allocator_runtime_source_evidence_event_id\": ");
-            json_event_id_option(binding.allocator_runtime_source_evidence_event_id);
-            raw(", \"binds_retained_service_slot_reservation\": ");
-            raw_bool(binding.binds_retained_service_slot_reservation);
-            raw(", \"binds_allocator_runtime\": ");
-            raw_bool(binding.binds_allocator_runtime);
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+            emit_module_service_slot_allocator_fact_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"prerequisite_schema\": ");
-            json_str(binding.prerequisite_schema);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"prerequisite_id\": ");
-            json_str(binding.prerequisite_id);
-            raw(", \"prerequisite_status\": ");
-            json_str(binding.prerequisite_status);
-            raw(", \"prerequisite_reason\": ");
-            json_str(binding.prerequisite_reason);
-            raw(", \"prerequisite_available\": ");
-            raw_bool(binding.prerequisite_available);
-            raw(", \"retained_service_slot_reservation_present\": ");
-            raw_bool(binding.retained_service_slot_reservation_present);
-            raw(", \"allocator_runtime_available\": ");
-            raw_bool(binding.allocator_runtime_available);
-            raw(", \"registry_binding_available\": ");
-            raw_bool(binding.registry_binding_available);
-            raw(", \"health_state_available\": ");
-            raw_bool(binding.health_state_available);
-            raw(", \"unload_cleanup_available\": ");
-            raw_bool(binding.unload_cleanup_available);
-            raw(", \"allocator_runtime_source_evidence_event_id\": ");
-            json_event_id_option(binding.allocator_runtime_source_evidence_event_id);
-            raw(", \"registry_binding_source_evidence_event_id\": ");
-            json_event_id_option(binding.registry_binding_source_evidence_event_id);
-            raw(", \"health_state_source_evidence_event_id\": ");
-            json_event_id_option(binding.health_state_source_evidence_event_id);
-            raw(", \"unload_cleanup_source_evidence_event_id\": ");
-            json_event_id_option(binding.unload_cleanup_source_evidence_event_id);
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+            emit_module_service_slot_allocator_prerequisite_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleServiceSlotAllocatorAuthoritySourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"authority_schema\": ");
-            json_str(binding.authority_schema);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"authority_id\": ");
-            json_str(binding.authority_id);
-            raw(", \"authority_status\": ");
-            json_str(binding.authority_status);
-            raw(", \"authority_reason\": ");
-            json_str(binding.authority_reason);
-            raw(", \"authority_present\": ");
-            raw_bool(binding.authority_present);
-            raw(", \"source_chain_complete\": ");
-            raw_bool(binding.source_chain_complete);
-            raw(", \"allocator_runtime_source_evidence_event_id\": ");
-            json_event_id_option(binding.allocator_runtime_source_evidence_event_id);
-            raw(", \"registry_binding_source_evidence_event_id\": ");
-            json_event_id_option(binding.registry_binding_source_evidence_event_id);
-            raw(", \"health_state_source_evidence_event_id\": ");
-            json_event_id_option(binding.health_state_source_evidence_event_id);
-            raw(", \"unload_cleanup_source_evidence_event_id\": ");
-            json_event_id_option(binding.unload_cleanup_source_evidence_event_id);
-            raw(", \"durable_audit_source_evidence_event_id\": ");
-            json_event_id_option(binding.durable_audit_source_evidence_event_id);
-            raw(", \"rollback_install_source_evidence_event_id\": ");
-            json_event_id_option(binding.rollback_install_source_evidence_event_id);
-            raw(", \"module_loader_source_evidence_event_id\": ");
-            json_event_id_option(binding.module_loader_source_evidence_event_id);
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"future_authority_inputs_named\": true, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+            emit_module_service_slot_allocator_authority_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleServiceSlotAllocationIntentSourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"intent_schema\": ");
-            json_str(binding.intent_schema);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
-            json_str(binding.requested_capability);
-            raw(", \"load_mode\": ");
-            json_str(binding.load_mode);
-            raw(", \"target\": ");
-            json_str(binding.target);
-            raw(", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"intent_id\": ");
-            json_str(binding.intent_id);
-            raw(", \"intent_status\": ");
-            json_str(binding.intent_status);
-            raw(", \"intent_reason\": ");
-            json_str(binding.intent_reason);
-            raw(", \"intent_present\": ");
-            raw_bool(binding.intent_present);
-            raw(", \"intent_scope\": ");
-            json_str(binding.intent_scope);
-            raw(", \"source_chain_complete\": ");
-            raw_bool(binding.source_chain_complete);
-            raw(", \"manifest_reference_event_id\": ");
-            json_event_id_option(binding.manifest_reference_event_id);
-            raw(", \"candidate_artifact_reference_event_id\": ");
-            json_event_id_option(binding.artifact_reference_event_id);
-            raw(", \"vm_test_report_reference_event_id\": ");
-            json_event_id_option(binding.vm_report_reference_event_id);
-            raw(", \"local_attestation_reference_event_id\": ");
-            json_event_id_option(binding.local_attestation_reference_event_id);
-            raw(", \"local_approval_reference_event_id\": ");
-            json_event_id_option(binding.local_approval_reference_event_id);
-            raw(", \"computed_grant_reference_event_id\": ");
-            json_event_id_option(binding.computed_grant_reference_event_id);
-            raw(", \"audit_rollback_reference_event_id\": ");
-            json_event_id_option(binding.audit_rollback_reference_event_id);
-            raw(", \"service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw(", \"allocator_authority_source_evidence_event_id\": ");
-            json_event_id_option(binding.allocator_authority_source_evidence_event_id);
-            raw(", \"ram_only_service_slot_id\": ");
-            if let Some(id) = binding.ram_only_service_slot_id {
-                json_str(id.as_str());
-            } else {
-                raw("null");
-            }
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+            emit_module_service_slot_allocation_intent_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleServiceSlotAuthorityInputSourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"input_schema\": ");
-            json_str(binding.input_schema);
-            raw(", \"input_id\": ");
-            json_str(binding.input_id);
-            raw(", \"input_name\": ");
-            json_str(binding.input_name);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
-            json_str(binding.requested_capability);
-            raw(", \"load_mode\": ");
-            json_str(binding.load_mode);
-            raw(", \"target\": ");
-            json_str(binding.target);
-            raw(", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"input_status\": ");
-            json_str(binding.input_status);
-            raw(", \"input_reason\": ");
-            json_str(binding.input_reason);
-            raw(", \"input_present\": ");
-            raw_bool(binding.input_present);
-            raw(", \"input_scope\": ");
-            json_str(binding.input_scope);
-            raw(", \"dependency_schema\": ");
-            json_str(binding.dependency_schema);
-            raw(", \"dependency_source_evidence_event_id\": ");
-            json_event_id_option(binding.dependency_source_evidence_event_id);
-            raw(", \"dependency_present\": ");
-            raw_bool(binding.dependency_present);
-            raw(", \"retained_module_evidence_present\": ");
-            raw_bool(binding.retained_module_evidence_present);
-            raw(", \"retained_service_slot_reservation_present\": ");
-            raw_bool(binding.retained_service_slot_reservation_present);
-            raw(", \"allocator_authority_present\": ");
-            raw_bool(binding.allocator_authority_present);
-            raw(", \"allocation_intent_source_evidence_event_id\": ");
-            json_event_id_option(binding.allocation_intent_source_evidence_event_id);
-            raw(", \"source_chain_complete\": ");
-            raw_bool(binding.source_chain_complete);
-            raw(", \"service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw(", \"allocator_authority_source_evidence_event_id\": ");
-            json_event_id_option(binding.allocator_authority_source_evidence_event_id);
-            raw(", \"ram_only_service_slot_id\": ");
-            if let Some(id) = binding.ram_only_service_slot_id {
-                json_str(id.as_str());
-            } else {
-                raw("null");
-            }
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+            emit_module_service_slot_authority_input_source_evidence_binding(kind, binding);
         }
-        event_log::EventBindings::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence(
-            binding,
-        ) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"decision_schema\": ");
-            json_str(binding.decision_schema);
-            raw(", \"decision_id\": ");
-            json_str(binding.decision_id);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
-            json_str(binding.requested_capability);
-            raw(", \"load_mode\": ");
-            json_str(binding.load_mode);
-            raw(", \"target\": ");
-            json_str(binding.target);
-            raw(", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"decision_status\": ");
-            json_str(binding.decision_status);
-            raw(", \"decision_reason\": ");
-            json_str(binding.decision_reason);
-            raw(", \"decision_present\": ");
-            raw_bool(binding.decision_present);
-            raw(", \"decision_scope\": ");
-            json_str(binding.decision_scope);
-            raw(", \"allocator_authority_present\": ");
-            raw_bool(binding.allocator_authority_present);
-            raw(", \"allocation_intent_present\": ");
-            raw_bool(binding.allocation_intent_present);
-            raw(", \"authority_inputs_complete\": ");
-            raw_bool(binding.authority_inputs_complete);
-            raw(", \"source_chain_complete\": ");
-            raw_bool(binding.source_chain_complete);
-            raw(", \"allocator_authority_source_evidence_event_id\": ");
-            json_event_id_option(binding.allocator_authority_source_evidence_event_id);
-            raw(", \"allocation_intent_source_evidence_event_id\": ");
-            json_event_id_option(binding.allocation_intent_source_evidence_event_id);
-            raw(", \"authority_input_source_evidence_event_ids\": [");
-            let mut idx = 0usize;
-            while idx < binding.authority_input_source_evidence_event_ids.len() {
-                json_event_id_option(binding.authority_input_source_evidence_event_ids[idx]);
-                if idx + 1 != binding.authority_input_source_evidence_event_ids.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"authority_input_present\": [");
-            idx = 0;
-            while idx < binding.authority_input_present.len() {
-                raw_bool(binding.authority_input_present[idx]);
-                if idx + 1 != binding.authority_input_present.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"retained_module_evidence_present\": ");
-            raw_bool(binding.retained_module_evidence_present);
-            raw(", \"retained_service_slot_reservation_present\": ");
-            raw_bool(binding.retained_service_slot_reservation_present);
-            raw(", \"service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw(", \"ram_only_service_slot_id\": ");
-            if let Some(id) = binding.ram_only_service_slot_id {
-                json_str(id.as_str());
-            } else {
-                raw("null");
-            }
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false}");
+        event_log::EventBindings::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence(binding) => {
+            emit_module_service_slot_allocator_authority_decision_source_evidence_binding(kind, binding);
         }
-        event_log::EventBindings::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence(
-            binding,
-        ) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"gate_schema\": ");
-            json_str(binding.gate_schema);
-            raw(", \"gate_id\": ");
-            json_str(binding.gate_id);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
-            json_str(binding.requested_capability);
-            raw(", \"load_mode\": ");
-            json_str(binding.load_mode);
-            raw(", \"target\": ");
-            json_str(binding.target);
-            raw(", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"gate_status\": ");
-            json_str(binding.gate_status);
-            raw(", \"gate_reason\": ");
-            json_str(binding.gate_reason);
-            raw(", \"gate_present\": ");
-            raw_bool(binding.gate_present);
-            raw(", \"gate_scope\": ");
-            json_str(binding.gate_scope);
-            raw(", \"gate_schema_ok\": ");
-            raw_bool(binding.gate_schema_ok);
-            raw(", \"gate_provenance_ok\": ");
-            raw_bool(binding.gate_provenance_ok);
-            raw(", \"gate_classification\": ");
-            json_str(binding.gate_classification);
-            raw(", \"authority_decision_present\": ");
-            raw_bool(binding.authority_decision_present);
-            raw(", \"registry_write_authority_present\": ");
-            raw_bool(binding.registry_write_authority_present);
-            raw(", \"registry_binding_available\": ");
-            raw_bool(binding.registry_binding_available);
-            raw(", \"durable_audit_write_available\": ");
-            raw_bool(binding.durable_audit_write_available);
-            raw(", \"rollback_plan_install_available\": ");
-            raw_bool(binding.rollback_plan_install_available);
-            raw(", \"retained_service_slot_reservation_present\": ");
-            raw_bool(binding.retained_service_slot_reservation_present);
-            raw(", \"source_chain_complete\": ");
-            raw_bool(binding.source_chain_complete);
-            raw(", \"authority_decision_source_evidence_event_id\": ");
-            json_event_id_option(binding.authority_decision_source_evidence_event_id);
-            raw(", \"registry_write_authority_source_evidence_event_id\": ");
-            json_event_id_option(binding.registry_write_authority_source_evidence_event_id);
-            raw(", \"registry_binding_source_evidence_event_id\": ");
-            json_event_id_option(binding.registry_binding_source_evidence_event_id);
-            raw(", \"durable_audit_source_evidence_event_id\": ");
-            json_event_id_option(binding.durable_audit_source_evidence_event_id);
-            raw(", \"rollback_install_source_evidence_event_id\": ");
-            json_event_id_option(binding.rollback_install_source_evidence_event_id);
-            raw(", \"service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw(", \"ram_only_service_slot_id\": ");
-            if let Some(id) = binding.ram_only_service_slot_id {
-                json_str(id.as_str());
-            } else {
-                raw("null");
-            }
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"authorizes_registry_write\": ");
-            raw_bool(binding.authorizes_registry_write);
-            raw(", \"mutates_service_registry\": ");
-            raw_bool(binding.mutates_service_registry);
-            raw(", \"writes_durable_audit_state\": ");
-            raw_bool(binding.writes_durable_audit_state);
-            raw(", \"installs_rollback_state\": ");
-            raw_bool(binding.installs_rollback_state);
-            raw(", \"allocates_service_slot\": ");
-            raw_bool(binding.allocates_service_slot);
-            raw(", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"load_attempted\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"authorizes_load\": false}");
+        event_log::EventBindings::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence(binding) => {
+            emit_module_service_slot_registry_write_commit_gate_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleLoaderIdentitySourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"fact_schema\": ");
-            json_str(binding.fact_schema);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"fact_id\": ");
-            json_str(binding.fact_id);
-            raw(", \"identity_status\": ");
-            json_str(binding.identity_status);
-            raw(", \"identity_reason\": ");
-            json_str(binding.identity_reason);
-            raw(", \"identity_present\": ");
-            raw_bool(binding.identity_present);
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": false, \"accepts_artifact_bytes\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false, \"retained_module_evidence_present\": ");
-            raw_bool(binding.retained_module_evidence_present);
-            raw(", \"service_slot_allocator_readiness_present\": ");
-            raw_bool(binding.service_slot_allocator_readiness_present);
-            raw(", \"service_slot_allocator_ready\": ");
-            raw_bool(binding.service_slot_allocator_ready);
-            raw(", \"audit_rollback_write_boundary_present\": ");
-            raw_bool(binding.audit_rollback_write_boundary_present);
-            raw(", \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
-            json_event_id_option(binding.manifest_reference_event_id);
-            raw(", \"candidate_artifact_reference_event_id\": ");
-            json_event_id_option(binding.artifact_reference_event_id);
-            raw(", \"vm_test_report_reference_event_id\": ");
-            json_event_id_option(binding.vm_test_report_reference_event_id);
-            raw(", \"local_attestation_reference_event_id\": ");
-            json_event_id_option(binding.local_attestation_reference_event_id);
-            raw(", \"local_approval_reference_event_id\": ");
-            json_event_id_option(binding.local_approval_reference_event_id);
-            raw(", \"computed_grant_reference_event_id\": ");
-            json_event_id_option(binding.computed_grant_reference_event_id);
-            raw(", \"audit_rollback_reference_event_id\": ");
-            json_event_id_option(binding.audit_rollback_reference_event_id);
-            raw(", \"service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw("}}");
+            emit_module_loader_identity_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleLoaderArtifactHashBindingSourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"fact_schema\": ");
-            json_str(binding.fact_schema);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"fact_id\": ");
-            json_str(binding.fact_id);
-            raw(", \"artifact_hash_binding_status\": ");
-            json_str(binding.artifact_hash_binding_status);
-            raw(", \"artifact_hash_binding_reason\": ");
-            json_str(binding.artifact_hash_binding_reason);
-            raw(", \"artifact_hash_binding_present\": ");
-            raw_bool(binding.artifact_hash_binding_present);
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": false, \"accepts_artifact_bytes\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false, \"retained_module_evidence_present\": ");
-            raw_bool(binding.retained_module_evidence_present);
-            raw(", \"service_slot_allocator_readiness_present\": ");
-            raw_bool(binding.service_slot_allocator_readiness_present);
-            raw(", \"service_slot_allocator_ready\": ");
-            raw_bool(binding.service_slot_allocator_ready);
-            raw(", \"audit_rollback_write_boundary_present\": ");
-            raw_bool(binding.audit_rollback_write_boundary_present);
-            raw(", \"loader_identity_present\": ");
-            raw_bool(binding.loader_identity_present);
-            raw(", \"binds_loader_identity\": ");
-            raw_bool(binding.binds_loader_identity);
-            raw(", \"loader_identity_source_evidence_event_id\": ");
-            json_event_id_option(binding.loader_identity_source_evidence_event_id);
-            raw("}");
+            emit_module_loader_artifact_hash_binding_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleLoaderFactSourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"fact_schema\": ");
-            json_str(binding.fact_schema);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.module.load_ephemeral\", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"fact_id\": ");
-            json_str(binding.fact_id);
-            raw(", \"fact_status\": ");
-            json_str(binding.fact_status);
-            raw(", \"fact_reason\": ");
-            json_str(binding.fact_reason);
-            raw(", \"fact_present\": ");
-            raw_bool(binding.fact_present);
-            raw(", \"dependency_gate\": ");
-            json_str(binding.dependency_gate);
-            raw(", \"dependency_schema\": ");
-            json_str(binding.dependency_schema);
-            raw(", \"dependency_method\": ");
-            json_str(binding.dependency_method);
-            raw(", \"dependency_present\": ");
-            raw_bool(binding.dependency_present);
-            raw(", \"dependency_source_evidence_event_id\": ");
-            json_event_id_option(binding.dependency_source_evidence_event_id);
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": false, \"accepts_artifact_bytes\": false, \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"load_attempted\": false, \"authorizes_load\": false, \"retained_module_evidence_present\": ");
-            raw_bool(binding.retained_module_evidence_present);
-            raw(", \"service_slot_allocator_readiness_present\": ");
-            raw_bool(binding.service_slot_allocator_readiness_present);
-            raw(", \"service_slot_allocator_ready\": ");
-            raw_bool(binding.service_slot_allocator_ready);
-            raw(", \"audit_rollback_write_boundary_present\": ");
-            raw_bool(binding.audit_rollback_write_boundary_present);
-            raw(", \"binds_retained_module_evidence\": ");
-            raw_bool(binding.binds_retained_module_evidence);
-            raw(", \"binds_service_slot_allocator\": ");
-            raw_bool(binding.binds_service_slot_allocator);
-            raw(", \"binds_audit_rollback_write_boundary\": ");
-            raw_bool(binding.binds_audit_rollback_write_boundary);
-            raw(", \"binds_dependency\": ");
-            raw_bool(binding.binds_dependency);
-            raw("}");
+            emit_module_loader_fact_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleLoaderRuntimeExecutionCommitGateSourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"gate_schema\": ");
-            json_str(binding.gate_schema);
-            raw(", \"gate_id\": ");
-            json_str(binding.gate_id);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
-            json_str(binding.requested_capability);
-            raw(", \"load_mode\": ");
-            json_str(binding.load_mode);
-            raw(", \"target\": ");
-            json_str(binding.target);
-            raw(", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"gate_status\": ");
-            json_str(binding.gate_status);
-            raw(", \"gate_reason\": ");
-            json_str(binding.gate_reason);
-            raw(", \"gate_present\": ");
-            raw_bool(binding.gate_present);
-            raw(", \"gate_scope\": ");
-            json_str(binding.gate_scope);
-            raw(", \"gate_schema_ok\": ");
-            raw_bool(binding.gate_schema_ok);
-            raw(", \"gate_provenance_ok\": ");
-            raw_bool(binding.gate_provenance_ok);
-            raw(", \"gate_classification\": ");
-            json_str(binding.gate_classification);
-            raw(", \"authority_decision_present\": ");
-            raw_bool(binding.authority_decision_present);
-            raw(", \"loader_runtime_contract_present\": ");
-            raw_bool(binding.loader_runtime_contract_present);
-            raw(", \"loader_runtime_source_evidence_complete\": ");
-            raw_bool(binding.loader_runtime_source_evidence_complete);
-            raw(", \"service_slot_binding_source_evidence_present\": ");
-            raw_bool(binding.service_slot_binding_source_evidence_present);
-            raw(", \"service_slot_binding_fact_present\": ");
-            raw_bool(binding.service_slot_binding_fact_present);
-            raw(", \"audit_rollback_write_boundary_source_evidence_present\": ");
-            raw_bool(binding.audit_rollback_write_boundary_source_evidence_present);
-            raw(", \"audit_rollback_write_boundary_fact_present\": ");
-            raw_bool(binding.audit_rollback_write_boundary_fact_present);
-            raw(", \"retained_service_slot_reservation_present\": ");
-            raw_bool(binding.retained_service_slot_reservation_present);
-            raw(", \"source_chain_complete\": ");
-            raw_bool(binding.source_chain_complete);
-            raw(", \"authority_decision_source_evidence_event_id\": ");
-            json_event_id_option(binding.authority_decision_source_evidence_event_id);
-            raw(", \"loader_runtime_contract_source_evidence_event_id\": ");
-            json_event_id_option(binding.loader_runtime_contract_source_evidence_event_id);
-            raw(", \"loader_runtime_source_evidence_event_ids\": [");
-            let mut idx = 0usize;
-            while idx < binding.loader_runtime_source_evidence_event_ids.len() {
-                json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]);
-                if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"loader_runtime_source_evidence_present\": [");
-            idx = 0;
-            while idx < binding.loader_runtime_source_evidence_present.len() {
-                raw_bool(binding.loader_runtime_source_evidence_present[idx]);
-                if idx + 1 != binding.loader_runtime_source_evidence_present.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"loader_runtime_fact_present\": [");
-            idx = 0;
-            while idx < binding.loader_runtime_fact_present.len() {
-                raw_bool(binding.loader_runtime_fact_present[idx]);
-                if idx + 1 != binding.loader_runtime_fact_present.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw(", \"ram_only_service_slot_id\": ");
-            if let Some(id) = binding.ram_only_service_slot_id {
-                json_str(id.as_str());
-            } else {
-                raw("null");
-            }
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
-            raw_bool(binding.accepts_loader_descriptor);
-            raw(", \"accepts_artifact_bytes\": ");
-            raw_bool(binding.accepts_artifact_bytes);
-            raw(", \"authorizes_execution\": ");
-            raw_bool(binding.authorizes_execution);
-            raw(", \"mutates_service_registry\": ");
-            raw_bool(binding.mutates_service_registry);
-            raw(", \"writes_durable_audit_state\": ");
-            raw_bool(binding.writes_durable_audit_state);
-            raw(", \"installs_rollback_state\": ");
-            raw_bool(binding.installs_rollback_state);
-            raw(", \"allocates_service_slot\": ");
-            raw_bool(binding.allocates_service_slot);
-            raw(", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"load_attempted\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"authorizes_load\": false}");
+            emit_module_loader_runtime_execution_commit_gate_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleLoaderDescriptorIntakeBoundarySourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"boundary_schema\": ");
-            json_str(binding.boundary_schema);
-            raw(", \"boundary_id\": ");
-            json_str(binding.boundary_id);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
-            json_str(binding.requested_capability);
-            raw(", \"load_mode\": ");
-            json_str(binding.load_mode);
-            raw(", \"target\": ");
-            json_str(binding.target);
-            raw(", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"boundary_status\": ");
-            json_str(binding.boundary_status);
-            raw(", \"boundary_reason\": ");
-            json_str(binding.boundary_reason);
-            raw(", \"boundary_present\": ");
-            raw_bool(binding.boundary_present);
-            raw(", \"boundary_scope\": ");
-            json_str(binding.boundary_scope);
-            raw(", \"boundary_schema_ok\": ");
-            raw_bool(binding.boundary_schema_ok);
-            raw(", \"boundary_provenance_ok\": ");
-            raw_bool(binding.boundary_provenance_ok);
-            raw(", \"boundary_classification\": ");
-            json_str(binding.boundary_classification);
-            raw(", \"registry_write_commit_gate_present\": ");
-            raw_bool(binding.registry_write_commit_gate_present);
-            raw(", \"execution_commit_gate_present\": ");
-            raw_bool(binding.execution_commit_gate_present);
-            raw(", \"loader_runtime_source_evidence_complete\": ");
-            raw_bool(binding.loader_runtime_source_evidence_complete);
-            raw(", \"retained_module_evidence_present\": ");
-            raw_bool(binding.retained_module_evidence_present);
-            raw(", \"retained_service_slot_reservation_present\": ");
-            raw_bool(binding.retained_service_slot_reservation_present);
-            raw(", \"source_chain_complete\": ");
-            raw_bool(binding.source_chain_complete);
-            raw(", \"registry_write_commit_gate_source_evidence_event_id\": ");
-            json_event_id_option(binding.registry_write_commit_gate_source_evidence_event_id);
-            raw(", \"execution_commit_gate_source_evidence_event_id\": ");
-            json_event_id_option(binding.execution_commit_gate_source_evidence_event_id);
-            raw(", \"loader_runtime_source_evidence_event_ids\": [");
-            let mut idx = 0usize;
-            while idx < binding.loader_runtime_source_evidence_event_ids.len() {
-                json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]);
-                if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"loader_runtime_source_evidence_present\": [");
-            idx = 0;
-            while idx < binding.loader_runtime_source_evidence_present.len() {
-                raw_bool(binding.loader_runtime_source_evidence_present[idx]);
-                if idx + 1 != binding.loader_runtime_source_evidence_present.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"loader_runtime_fact_present\": [");
-            idx = 0;
-            while idx < binding.loader_runtime_fact_present.len() {
-                raw_bool(binding.loader_runtime_fact_present[idx]);
-                if idx + 1 != binding.loader_runtime_fact_present.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
-            json_event_id_option(binding.manifest_reference_event_id);
-            raw(", \"candidate_artifact_reference_event_id\": ");
-            json_event_id_option(binding.artifact_reference_event_id);
-            raw(", \"vm_test_report_reference_event_id\": ");
-            json_event_id_option(binding.vm_test_report_reference_event_id);
-            raw(", \"local_attestation_reference_event_id\": ");
-            json_event_id_option(binding.local_attestation_reference_event_id);
-            raw(", \"local_approval_reference_event_id\": ");
-            json_event_id_option(binding.local_approval_reference_event_id);
-            raw(", \"computed_grant_reference_event_id\": ");
-            json_event_id_option(binding.computed_grant_reference_event_id);
-            raw(", \"audit_rollback_reference_event_id\": ");
-            json_event_id_option(binding.audit_rollback_reference_event_id);
-            raw(", \"service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw("}, \"ram_only_service_slot_id\": ");
-            if let Some(id) = binding.ram_only_service_slot_id {
-                json_str(id.as_str());
-            } else {
-                raw("null");
-            }
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
-            raw_bool(binding.accepts_loader_descriptor);
-            raw(", \"accepts_descriptor_bytes\": ");
-            raw_bool(binding.accepts_descriptor_bytes);
-            raw(", \"accepts_artifact_bytes\": ");
-            raw_bool(binding.accepts_artifact_bytes);
-            raw(", \"authorizes_descriptor_intake\": ");
-            raw_bool(binding.authorizes_descriptor_intake);
-            raw(", \"authorizes_execution\": ");
-            raw_bool(binding.authorizes_execution);
-            raw(", \"mutates_service_registry\": ");
-            raw_bool(binding.mutates_service_registry);
-            raw(", \"writes_durable_audit_state\": ");
-            raw_bool(binding.writes_durable_audit_state);
-            raw(", \"installs_rollback_state\": ");
-            raw_bool(binding.installs_rollback_state);
-            raw(", \"allocates_service_slot\": ");
-            raw_bool(binding.allocates_service_slot);
-            raw(", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"load_attempted\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"authorizes_load\": false}");
+            emit_module_loader_descriptor_intake_boundary_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleLoaderArtifactByteIntakeBoundarySourceEvidence(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"boundary_schema\": ");
-            json_str(binding.boundary_schema);
-            raw(", \"boundary_id\": ");
-            json_str(binding.boundary_id);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
-            json_str(binding.requested_capability);
-            raw(", \"load_mode\": ");
-            json_str(binding.load_mode);
-            raw(", \"target\": ");
-            json_str(binding.target);
-            raw(", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"boundary_status\": ");
-            json_str(binding.boundary_status);
-            raw(", \"boundary_reason\": ");
-            json_str(binding.boundary_reason);
-            raw(", \"boundary_present\": ");
-            raw_bool(binding.boundary_present);
-            raw(", \"boundary_scope\": ");
-            json_str(binding.boundary_scope);
-            raw(", \"boundary_schema_ok\": ");
-            raw_bool(binding.boundary_schema_ok);
-            raw(", \"boundary_provenance_ok\": ");
-            raw_bool(binding.boundary_provenance_ok);
-            raw(", \"boundary_classification\": ");
-            json_str(binding.boundary_classification);
-            raw(", \"descriptor_intake_boundary_present\": ");
-            raw_bool(binding.descriptor_intake_boundary_present);
-            raw(", \"descriptor_intake_boundary_source_chain_complete\": ");
-            raw_bool(binding.descriptor_intake_boundary_source_chain_complete);
-            raw(", \"execution_commit_gate_present\": ");
-            raw_bool(binding.execution_commit_gate_present);
-            raw(", \"artifact_hash_binding_present\": ");
-            raw_bool(binding.artifact_hash_binding_present);
-            raw(", \"retained_artifact_reference_present\": ");
-            raw_bool(binding.retained_artifact_reference_present);
-            raw(", \"retained_module_evidence_present\": ");
-            raw_bool(binding.retained_module_evidence_present);
-            raw(", \"retained_service_slot_reservation_present\": ");
-            raw_bool(binding.retained_service_slot_reservation_present);
-            raw(", \"source_chain_complete\": ");
-            raw_bool(binding.source_chain_complete);
-            raw(", \"descriptor_intake_boundary_source_evidence_event_id\": ");
-            json_event_id_option(binding.descriptor_intake_boundary_source_evidence_event_id);
-            raw(", \"execution_commit_gate_source_evidence_event_id\": ");
-            json_event_id_option(binding.execution_commit_gate_source_evidence_event_id);
-            raw(", \"artifact_hash_binding_source_evidence_event_id\": ");
-            json_event_id_option(binding.artifact_hash_binding_source_evidence_event_id);
-            raw(", \"loader_runtime_source_evidence_event_ids\": [");
-            let mut idx = 0usize;
-            while idx < binding.loader_runtime_source_evidence_event_ids.len() {
-                json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]);
-                if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"loader_runtime_source_evidence_present\": [");
-            idx = 0;
-            while idx < binding.loader_runtime_source_evidence_present.len() {
-                raw_bool(binding.loader_runtime_source_evidence_present[idx]);
-                if idx + 1 != binding.loader_runtime_source_evidence_present.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"loader_runtime_fact_present\": [");
-            idx = 0;
-            while idx < binding.loader_runtime_fact_present.len() {
-                raw_bool(binding.loader_runtime_fact_present[idx]);
-                if idx + 1 != binding.loader_runtime_fact_present.len() {
-                    raw(", ");
-                }
-                idx += 1;
-            }
-            raw("], \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
-            json_event_id_option(binding.manifest_reference_event_id);
-            raw(", \"candidate_artifact_reference_event_id\": ");
-            json_event_id_option(binding.artifact_reference_event_id);
-            raw(", \"vm_test_report_reference_event_id\": ");
-            json_event_id_option(binding.vm_test_report_reference_event_id);
-            raw(", \"local_attestation_reference_event_id\": ");
-            json_event_id_option(binding.local_attestation_reference_event_id);
-            raw(", \"local_approval_reference_event_id\": ");
-            json_event_id_option(binding.local_approval_reference_event_id);
-            raw(", \"computed_grant_reference_event_id\": ");
-            json_event_id_option(binding.computed_grant_reference_event_id);
-            raw(", \"audit_rollback_reference_event_id\": ");
-            json_event_id_option(binding.audit_rollback_reference_event_id);
-            raw(", \"service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw("}, \"ram_only_service_slot_id\": ");
-            if let Some(id) = binding.ram_only_service_slot_id {
-                json_str(id.as_str());
-            } else {
-                raw("null");
-            }
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
-            raw_bool(binding.accepts_loader_descriptor);
-            raw(", \"accepts_descriptor_bytes\": ");
-            raw_bool(binding.accepts_descriptor_bytes);
-            raw(", \"accepts_artifact_bytes\": ");
-            raw_bool(binding.accepts_artifact_bytes);
-            raw(", \"authorizes_descriptor_intake\": ");
-            raw_bool(binding.authorizes_descriptor_intake);
-            raw(", \"authorizes_artifact_byte_intake\": ");
-            raw_bool(binding.authorizes_artifact_byte_intake);
-            raw(", \"authorizes_execution\": ");
-            raw_bool(binding.authorizes_execution);
-            raw(", \"mutates_service_registry\": ");
-            raw_bool(binding.mutates_service_registry);
-            raw(", \"writes_durable_audit_state\": ");
-            raw_bool(binding.writes_durable_audit_state);
-            raw(", \"installs_rollback_state\": ");
-            raw_bool(binding.installs_rollback_state);
-            raw(", \"allocates_service_slot\": ");
-            raw_bool(binding.allocates_service_slot);
-            raw(", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"load_attempted\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"authorizes_load\": false}");
+            emit_module_loader_artifact_byte_intake_boundary_source_evidence_binding(kind, binding);
         }
-        event_log::EventBindings::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence(
-            binding,
-        ) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"boundary_schema\": ");
-            json_str(binding.boundary_schema);
-            raw(", \"boundary_id\": ");
-            json_str(binding.boundary_id);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
-            json_str(binding.requested_capability);
-            raw(", \"load_mode\": ");
-            json_str(binding.load_mode);
-            raw(", \"target\": ");
-            json_str(binding.target);
-            raw(", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"boundary_status\": ");
-            json_str(binding.boundary_status);
-            raw(", \"boundary_reason\": ");
-            json_str(binding.boundary_reason);
-            raw(", \"boundary_present\": ");
-            raw_bool(binding.boundary_present);
-            raw(", \"boundary_scope\": ");
-            json_str(binding.boundary_scope);
-            raw(", \"boundary_schema_ok\": ");
-            raw_bool(binding.boundary_schema_ok);
-            raw(", \"boundary_provenance_ok\": ");
-            raw_bool(binding.boundary_provenance_ok);
-            raw(", \"boundary_classification\": ");
-            json_str(binding.boundary_classification);
-            raw(", \"source_chain_complete\": ");
-            raw_bool(binding.source_chain_complete);
-            raw(", \"artifact_byte_intake_boundary_present\": ");
-            raw_bool(binding.artifact_byte_intake_boundary_present);
-            raw(", \"descriptor_intake_boundary_present\": ");
-            raw_bool(binding.descriptor_intake_boundary_present);
-            raw(", \"execution_commit_gate_present\": ");
-            raw_bool(binding.execution_commit_gate_present);
-            raw(", \"entrypoint_abi_source_evidence_present\": ");
-            raw_bool(binding.entrypoint_abi_source_evidence_present);
-            raw(", \"address_space_source_evidence_present\": ");
-            raw_bool(binding.address_space_source_evidence_present);
-            raw(", \"memory_map_source_evidence_present\": ");
-            raw_bool(binding.memory_map_source_evidence_present);
-            raw(", \"audit_rollback_write_boundary_source_evidence_present\": ");
-            raw_bool(binding.audit_rollback_write_boundary_source_evidence_present);
-            raw(", \"retained_module_evidence_present\": ");
-            raw_bool(binding.retained_module_evidence_present);
-            raw(", \"retained_service_slot_reservation_present\": ");
-            raw_bool(binding.retained_service_slot_reservation_present);
-            raw(", \"artifact_byte_intake_boundary_source_evidence_event_id\": ");
-            json_event_id_option(binding.artifact_byte_intake_boundary_source_evidence_event_id);
-            raw(", \"descriptor_intake_boundary_source_evidence_event_id\": ");
-            json_event_id_option(binding.descriptor_intake_boundary_source_evidence_event_id);
-            raw(", \"execution_commit_gate_source_evidence_event_id\": ");
-            json_event_id_option(binding.execution_commit_gate_source_evidence_event_id);
-            raw(", \"entrypoint_abi_source_evidence_event_id\": ");
-            json_event_id_option(binding.entrypoint_abi_source_evidence_event_id);
-            raw(", \"address_space_source_evidence_event_id\": ");
-            json_event_id_option(binding.address_space_source_evidence_event_id);
-            raw(", \"memory_map_source_evidence_event_id\": ");
-            json_event_id_option(binding.memory_map_source_evidence_event_id);
-            raw(", \"audit_rollback_write_boundary_source_evidence_event_id\": ");
-            json_event_id_option(binding.audit_rollback_write_boundary_source_evidence_event_id);
-            raw(", \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
-            json_event_id_option(binding.manifest_reference_event_id);
-            raw(", \"candidate_artifact_reference_event_id\": ");
-            json_event_id_option(binding.artifact_reference_event_id);
-            raw(", \"vm_test_report_reference_event_id\": ");
-            json_event_id_option(binding.vm_test_report_reference_event_id);
-            raw(", \"local_attestation_reference_event_id\": ");
-            json_event_id_option(binding.local_attestation_reference_event_id);
-            raw(", \"local_approval_reference_event_id\": ");
-            json_event_id_option(binding.local_approval_reference_event_id);
-            raw(", \"computed_grant_reference_event_id\": ");
-            json_event_id_option(binding.computed_grant_reference_event_id);
-            raw(", \"audit_rollback_reference_event_id\": ");
-            json_event_id_option(binding.audit_rollback_reference_event_id);
-            raw(", \"service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw("}, \"ram_only_service_slot_id\": ");
-            if let Some(id) = binding.ram_only_service_slot_id {
-                json_str(id.as_str());
-            } else {
-                raw("null");
-            }
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
-            raw_bool(binding.accepts_loader_descriptor);
-            raw(", \"accepts_descriptor_bytes\": ");
-            raw_bool(binding.accepts_descriptor_bytes);
-            raw(", \"accepts_artifact_bytes\": ");
-            raw_bool(binding.accepts_artifact_bytes);
-            raw(", \"authorizes_descriptor_intake\": ");
-            raw_bool(binding.authorizes_descriptor_intake);
-            raw(", \"authorizes_artifact_byte_intake\": ");
-            raw_bool(binding.authorizes_artifact_byte_intake);
-            raw(", \"maps_executable_pages\": ");
-            raw_bool(binding.maps_executable_pages);
-            raw(", \"jumps_to_entrypoint\": ");
-            raw_bool(binding.jumps_to_entrypoint);
-            raw(", \"authorizes_execution\": ");
-            raw_bool(binding.authorizes_execution);
-            raw(", \"mutates_service_registry\": ");
-            raw_bool(binding.mutates_service_registry);
-            raw(", \"writes_durable_audit_state\": ");
-            raw_bool(binding.writes_durable_audit_state);
-            raw(", \"installs_rollback_state\": ");
-            raw_bool(binding.installs_rollback_state);
-            raw(", \"allocates_service_slot\": ");
-            raw_bool(binding.allocates_service_slot);
-            raw(", \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"load_attempted\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"authorizes_load\": false}");
+        event_log::EventBindings::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence(binding) => {
+            emit_module_loader_execution_authorization_boundary_source_evidence_binding(kind, binding);
         }
-        event_log::EventBindings::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence(
-            binding,
-        ) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"boundary_schema\": ");
-            json_str(binding.boundary_schema);
-            raw(", \"boundary_id\": ");
-            json_str(binding.boundary_id);
-            raw(", \"status\": ");
-            json_str(binding.readiness_status);
-            raw(", \"reason\": ");
-            json_str(binding.readiness_reason);
-            raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
-            json_str(binding.requested_capability);
-            raw(", \"load_mode\": ");
-            json_str(binding.load_mode);
-            raw(", \"target\": ");
-            json_str(binding.target);
-            raw(", \"source_method\": ");
-            json_str(binding.source_method);
-            raw(", \"source_fact_locator\": ");
-            json_str(binding.source_fact_locator);
-            raw(", \"boundary_status\": ");
-            json_str(binding.boundary_status);
-            raw(", \"boundary_reason\": ");
-            json_str(binding.boundary_reason);
-            raw(", \"boundary_present\": ");
-            raw_bool(binding.boundary_present);
-            raw(", \"boundary_scope\": ");
-            json_str(binding.boundary_scope);
-            raw(", \"boundary_schema_ok\": ");
-            raw_bool(binding.boundary_schema_ok);
-            raw(", \"boundary_provenance_ok\": ");
-            raw_bool(binding.boundary_provenance_ok);
-            raw(", \"boundary_classification\": ");
-            json_str(binding.boundary_classification);
-            raw(", \"source_chain_complete\": ");
-            raw_bool(binding.source_chain_complete);
-            raw(", \"execution_authorization_boundary_present\": ");
-            raw_bool(binding.execution_authorization_boundary_present);
-            raw(", \"execution_authorization_boundary_source_chain_complete\": ");
-            raw_bool(binding.execution_authorization_boundary_source_chain_complete);
-            raw(", \"registry_write_commit_gate_present\": ");
-            raw_bool(binding.registry_write_commit_gate_present);
-            raw(", \"service_slot_binding_source_evidence_present\": ");
-            raw_bool(binding.service_slot_binding_source_evidence_present);
-            raw(", \"retained_module_evidence_present\": ");
-            raw_bool(binding.retained_module_evidence_present);
-            raw(", \"retained_service_slot_reservation_present\": ");
-            raw_bool(binding.retained_service_slot_reservation_present);
-            raw(", \"execution_authorization_boundary_source_evidence_event_id\": ");
-            json_event_id_option(binding.execution_authorization_boundary_source_evidence_event_id);
-            raw(", \"registry_write_commit_gate_source_evidence_event_id\": ");
-            json_event_id_option(binding.registry_write_commit_gate_source_evidence_event_id);
-            raw(", \"service_slot_binding_source_evidence_event_id\": ");
-            json_event_id_option(binding.service_slot_binding_source_evidence_event_id);
-            raw(", \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
-            json_event_id_option(binding.manifest_reference_event_id);
-            raw(", \"candidate_artifact_reference_event_id\": ");
-            json_event_id_option(binding.artifact_reference_event_id);
-            raw(", \"vm_test_report_reference_event_id\": ");
-            json_event_id_option(binding.vm_test_report_reference_event_id);
-            raw(", \"local_attestation_reference_event_id\": ");
-            json_event_id_option(binding.local_attestation_reference_event_id);
-            raw(", \"local_approval_reference_event_id\": ");
-            json_event_id_option(binding.local_approval_reference_event_id);
-            raw(", \"computed_grant_reference_event_id\": ");
-            json_event_id_option(binding.computed_grant_reference_event_id);
-            raw(", \"audit_rollback_reference_event_id\": ");
-            json_event_id_option(binding.audit_rollback_reference_event_id);
-            raw(", \"service_slot_reservation_event_id\": ");
-            json_event_id_option(binding.service_slot_reservation_event_id);
-            raw("}, \"ram_only_service_slot_id\": ");
-            if let Some(id) = binding.ram_only_service_slot_id {
-                json_str(id.as_str());
-            } else {
-                raw("null");
-            }
-            raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
-            raw_bool(binding.accepts_loader_descriptor);
-            raw(", \"accepts_descriptor_bytes\": ");
-            raw_bool(binding.accepts_descriptor_bytes);
-            raw(", \"accepts_artifact_bytes\": ");
-            raw_bool(binding.accepts_artifact_bytes);
-            raw(", \"authorizes_descriptor_intake\": ");
-            raw_bool(binding.authorizes_descriptor_intake);
-            raw(", \"authorizes_artifact_byte_intake\": ");
-            raw_bool(binding.authorizes_artifact_byte_intake);
-            raw(", \"maps_executable_pages\": ");
-            raw_bool(binding.maps_executable_pages);
-            raw(", \"jumps_to_entrypoint\": ");
-            raw_bool(binding.jumps_to_entrypoint);
-            raw(", \"authorizes_execution\": ");
-            raw_bool(binding.authorizes_execution);
-            raw(", \"mutates_service_registry\": ");
-            raw_bool(binding.mutates_service_registry);
-            raw(", \"writes_durable_audit_state\": ");
-            raw_bool(binding.writes_durable_audit_state);
-            raw(", \"installs_rollback_state\": ");
-            raw_bool(binding.installs_rollback_state);
-            raw(", \"allocates_service_slot\": ");
-            raw_bool(binding.allocates_service_slot);
-            raw(", \"creates_service_inventory_records\": ");
-            raw_bool(binding.creates_service_inventory_records);
-            raw(", \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"load_attempted\": ");
-            raw_bool(binding.loads_artifact);
-            raw(", \"authorizes_load\": false}");
+        event_log::EventBindings::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence(binding) => {
+            emit_module_loader_service_registry_mutation_boundary_source_evidence_binding(kind, binding);
         }
         event_log::EventBindings::ModuleLoaderLoadAttemptBoundarySourceEvidence(binding)
         | event_log::EventBindings::ModuleLoaderArtifactLoadBoundarySourceEvidence(binding)
@@ -3340,7 +1979,7 @@ fn emit_event_bindings(kind: &str, bindings: &event_log::EventBindings) {
         | event_log::EventBindings::ModuleLoaderExecutableEntrypointInvocationBoundarySourceEvidence(
             binding,
         ) => {
-            emit_module_loader_live_load_boundary_event_binding(binding);
+            emit_module_loader_live_load_boundary_binding(kind, binding);
         }
         event_log::EventBindings::ModuleLoadGate(binding) => {
             emit_module_load_gate_event_binding(*binding);
@@ -3349,892 +1988,873 @@ fn emit_event_bindings(kind: &str, bindings: &event_log::EventBindings) {
             emit_recovery_artifact_load_denial_event_binding(*binding);
         }
         event_log::EventBindings::RecoveryArtifactIdentityReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_identity.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"accepts_artifact_bytes\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"hashes\": {\"identity_reference_hash\": ");
-            json_sha256(binding.identity_reference_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw("}}");
+            emit_recovery_artifact_identity_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryArtifactTrustReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_trust.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"accepts_artifact_bytes\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
-            json_event_id(binding.retained_identity_reference_event_id);
-            raw(", \"hashes\": {\"trust_reference_hash\": ");
-            json_sha256(binding.trust_reference_hash);
-            raw(", \"identity_reference_hash\": ");
-            json_sha256(binding.identity_reference_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"trust_hash\": ");
-            json_sha256(binding.trust_hash);
-            raw("}}");
+            emit_recovery_artifact_trust_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryArtifactVmTestReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_vm_test.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"accepts_vm_test_json\": false, \"accepts_artifact_bytes\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
-            json_event_id(binding.retained_identity_reference_event_id);
-            raw(", \"retained_recovery_artifact_trust_event_id\": ");
-            json_event_id(binding.retained_trust_reference_event_id);
-            raw(", \"hashes\": {\"vm_test_reference_hash\": ");
-            json_sha256(binding.vm_test_reference_hash);
-            raw(", \"identity_reference_hash\": ");
-            json_sha256(binding.identity_reference_hash);
-            raw(", \"trust_reference_hash\": ");
-            json_sha256(binding.trust_reference_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"trust_hash\": ");
-            json_sha256(binding.trust_hash);
-            raw(", \"vm_test_hash\": ");
-            json_sha256(binding.vm_test_hash);
-            raw("}}");
+            emit_recovery_artifact_vm_test_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryArtifactLocalApprovalReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_local_approval.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"accepts_local_approval_text\": false, \"accepts_artifact_bytes\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
-            json_event_id(binding.retained_identity_reference_event_id);
-            raw(", \"retained_recovery_artifact_trust_event_id\": ");
-            json_event_id(binding.retained_trust_reference_event_id);
-            raw(", \"retained_recovery_artifact_vm_test_event_id\": ");
-            json_event_id(binding.retained_vm_test_reference_event_id);
-            raw(", \"hashes\": {\"local_approval_reference_hash\": ");
-            json_sha256(binding.local_approval_reference_hash);
-            raw(", \"identity_reference_hash\": ");
-            json_sha256(binding.identity_reference_hash);
-            raw(", \"trust_reference_hash\": ");
-            json_sha256(binding.trust_reference_hash);
-            raw(", \"vm_test_reference_hash\": ");
-            json_sha256(binding.vm_test_reference_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"trust_hash\": ");
-            json_sha256(binding.trust_hash);
-            raw(", \"vm_test_hash\": ");
-            json_sha256(binding.vm_test_hash);
-            raw(", \"local_approval_hash\": ");
-            json_sha256(binding.local_approval_hash);
-            raw("}}");
+            emit_recovery_artifact_local_approval_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryArtifactLoaderReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_loader.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"accepts_loader_descriptor\": false, \"accepts_artifact_bytes\": false, \"loads_recovery_loader\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
-            json_event_id(binding.retained_identity_reference_event_id);
-            raw(", \"retained_recovery_artifact_trust_event_id\": ");
-            json_event_id(binding.retained_trust_reference_event_id);
-            raw(", \"retained_recovery_artifact_vm_test_event_id\": ");
-            json_event_id(binding.retained_vm_test_reference_event_id);
-            raw(", \"retained_recovery_artifact_local_approval_event_id\": ");
-            json_event_id(binding.retained_local_approval_reference_event_id);
-            raw(", \"hashes\": {\"loader_reference_hash\": ");
-            json_sha256(binding.loader_reference_hash);
-            raw(", \"identity_reference_hash\": ");
-            json_sha256(binding.identity_reference_hash);
-            raw(", \"trust_reference_hash\": ");
-            json_sha256(binding.trust_reference_hash);
-            raw(", \"vm_test_reference_hash\": ");
-            json_sha256(binding.vm_test_reference_hash);
-            raw(", \"local_approval_reference_hash\": ");
-            json_sha256(binding.local_approval_reference_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"trust_hash\": ");
-            json_sha256(binding.trust_hash);
-            raw(", \"vm_test_hash\": ");
-            json_sha256(binding.vm_test_hash);
-            raw(", \"local_approval_hash\": ");
-            json_sha256(binding.local_approval_hash);
-            raw(", \"loader_hash\": ");
-            json_sha256(binding.loader_hash);
-            raw("}}");
+            emit_recovery_artifact_loader_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryArtifactRollbackEvidenceReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_artifact_rollback_evidence.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"accepts_rollback_evidence_json\": false, \"accepts_artifact_bytes\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
-            json_event_id(binding.retained_identity_reference_event_id);
-            raw(", \"retained_recovery_artifact_trust_event_id\": ");
-            json_event_id(binding.retained_trust_reference_event_id);
-            raw(", \"retained_recovery_artifact_vm_test_event_id\": ");
-            json_event_id(binding.retained_vm_test_reference_event_id);
-            raw(", \"retained_recovery_artifact_local_approval_event_id\": ");
-            json_event_id(binding.retained_local_approval_reference_event_id);
-            raw(", \"retained_recovery_artifact_loader_event_id\": ");
-            json_event_id(binding.retained_loader_reference_event_id);
-            raw(", \"hashes\": {\"rollback_evidence_reference_hash\": ");
-            json_sha256(binding.rollback_evidence_reference_hash);
-            raw(", \"identity_reference_hash\": ");
-            json_sha256(binding.identity_reference_hash);
-            raw(", \"trust_reference_hash\": ");
-            json_sha256(binding.trust_reference_hash);
-            raw(", \"vm_test_reference_hash\": ");
-            json_sha256(binding.vm_test_reference_hash);
-            raw(", \"local_approval_reference_hash\": ");
-            json_sha256(binding.local_approval_reference_hash);
-            raw(", \"loader_reference_hash\": ");
-            json_sha256(binding.loader_reference_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"trust_hash\": ");
-            json_sha256(binding.trust_hash);
-            raw(", \"vm_test_hash\": ");
-            json_sha256(binding.vm_test_hash);
-            raw(", \"local_approval_hash\": ");
-            json_sha256(binding.local_approval_hash);
-            raw(", \"loader_hash\": ");
-            json_sha256(binding.loader_hash);
-            raw(", \"rollback_evidence_hash\": ");
-            json_sha256(binding.rollback_evidence_hash);
-            raw("}}");
+            emit_recovery_artifact_rollback_evidence_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryLifelineRequestReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_request.v0\", \"status\": \"retained_hash_reference_load_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.load_artifact\", \"load_mode\": \"recovery_only\", \"accepts_lifeline_request_json\": false, \"accepts_loader_descriptor\": false, \"accepts_artifact_bytes\": false, \"loads_recovery_loader\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"loads_normal_module\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_artifact_identity_event_id\": ");
-            json_event_id(binding.retained_identity_reference_event_id);
-            raw(", \"retained_recovery_artifact_trust_event_id\": ");
-            json_event_id(binding.retained_trust_reference_event_id);
-            raw(", \"retained_recovery_artifact_vm_test_event_id\": ");
-            json_event_id(binding.retained_vm_test_reference_event_id);
-            raw(", \"retained_recovery_artifact_local_approval_event_id\": ");
-            json_event_id(binding.retained_local_approval_reference_event_id);
-            raw(", \"retained_recovery_artifact_loader_event_id\": ");
-            json_event_id(binding.retained_loader_reference_event_id);
-            raw(", \"retained_recovery_artifact_rollback_evidence_event_id\": ");
-            json_event_id(binding.retained_rollback_evidence_reference_event_id);
-            raw(", \"hashes\": {\"lifeline_request_reference_hash\": ");
-            json_sha256(binding.lifeline_request_reference_hash);
-            raw(", \"identity_reference_hash\": ");
-            json_sha256(binding.identity_reference_hash);
-            raw(", \"trust_reference_hash\": ");
-            json_sha256(binding.trust_reference_hash);
-            raw(", \"vm_test_reference_hash\": ");
-            json_sha256(binding.vm_test_reference_hash);
-            raw(", \"local_approval_reference_hash\": ");
-            json_sha256(binding.local_approval_reference_hash);
-            raw(", \"loader_reference_hash\": ");
-            json_sha256(binding.loader_reference_hash);
-            raw(", \"rollback_evidence_reference_hash\": ");
-            json_sha256(binding.rollback_evidence_reference_hash);
-            raw(", \"artifact_hash\": ");
-            json_sha256(binding.artifact_hash);
-            raw(", \"trust_hash\": ");
-            json_sha256(binding.trust_hash);
-            raw(", \"vm_test_hash\": ");
-            json_sha256(binding.vm_test_hash);
-            raw(", \"local_approval_hash\": ");
-            json_sha256(binding.local_approval_hash);
-            raw(", \"loader_hash\": ");
-            json_sha256(binding.loader_hash);
-            raw(", \"rollback_evidence_hash\": ");
-            json_sha256(binding.rollback_evidence_hash);
-            raw("}}");
+            emit_recovery_lifeline_request_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryLifelineCommandEnvelopeReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_command_envelope_reference.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_lifeline_request_event_id\": ");
-            json_event_id(binding.retained_lifeline_request_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"required_capability\": ");
-            json_str(binding.required_capability);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_admission_boundary_id\": ");
-            json_str(binding.command_admission_boundary_id);
-            raw(", \"hashes\": {\"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"lifeline_request_reference_hash\": ");
-            json_sha256(binding.lifeline_request_reference_hash);
-            raw("}}");
+            emit_recovery_lifeline_command_envelope_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryLifelineCommandBodyCanonicalizationReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_command_body_canonicalization.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_lifeline_command_envelope_event_id\": ");
-            json_event_id(binding.retained_command_envelope_reference_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"hashes\": {\"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw("}}");
+            emit_recovery_lifeline_command_body_canonicalization_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryLifelineCommandHandlerBindingReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_command_handler_binding.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_lifeline_command_body_canonicalization_event_id\": ");
-            json_event_id(binding.retained_command_body_canonicalization_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"handler_id\": ");
-            json_str(binding.handler_id);
-            raw(", \"hashes\": {\"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_input_binding_hash\": ");
-            json_sha256(binding.handler_input_binding_hash);
-            raw("}}");
+            emit_recovery_lifeline_command_handler_binding_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryLifelineStatusReadHandlerReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_status_read_handler.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_lifeline_command_handler_binding_event_id\": ");
-            json_event_id(binding.retained_command_handler_binding_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"status_handler_id\": ");
-            json_str(binding.status_handler_id);
-            raw(", \"hashes\": {\"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_projection_hash\": ");
-            json_sha256(binding.status_read_projection_hash);
-            raw("}}");
+            emit_recovery_lifeline_status_read_handler_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryRollbackPreviewAuthorizationReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_rollback_preview_authorization.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_lifeline_status_read_handler_event_id\": ");
-            json_event_id(binding.retained_status_read_handler_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"rollback_preview_authorization_id\": ");
-            json_str(binding.rollback_preview_authorization_id);
-            raw(", \"hashes\": {\"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_projection_hash\": ");
-            json_sha256(binding.rollback_preview_projection_hash);
-            raw("}}");
+            emit_recovery_rollback_preview_authorization_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryRollbackApplyAuthorizationReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_rollback_apply_authorization.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_rollback_preview_authorization_event_id\": ");
-            json_event_id(binding.retained_rollback_preview_authorization_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"rollback_apply_authorization_id\": ");
-            json_str(binding.rollback_apply_authorization_id);
-            raw(", \"hashes\": {\"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_projection_hash\": ");
-            json_sha256(binding.rollback_apply_projection_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw("}}");
+            emit_recovery_rollback_apply_authorization_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryDisableModuleTargetBindingReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_disable_module_target_binding.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"disables_module\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_rollback_apply_authorization_event_id\": ");
-            json_event_id(binding.retained_rollback_apply_authorization_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"disable_module_target_id\": ");
-            json_str(binding.disable_module_target_id);
-            raw(", \"hashes\": {\"disable_module_target_binding_hash\": ");
-            json_sha256(binding.disable_module_target_binding_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw(", \"disable_module_target_projection_hash\": ");
-            json_sha256(binding.disable_module_target_projection_hash);
-            raw("}}");
+            emit_recovery_disable_module_target_binding_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryRestartLastGoodTargetBindingReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_restart_last_good_target_binding.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"executes_restart_last_good\": false, \"disables_module\": false, \"restarts_last_good\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_disable_module_target_binding_event_id\": ");
-            json_event_id(binding.retained_disable_module_target_binding_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"restart_last_good_target_id\": ");
-            json_str(binding.restart_last_good_target_id);
-            raw(", \"hashes\": {\"restart_last_good_target_binding_hash\": ");
-            json_sha256(binding.restart_last_good_target_binding_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"disable_module_target_binding_hash\": ");
-            json_sha256(binding.disable_module_target_binding_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw(", \"restart_last_good_target_projection_hash\": ");
-            json_sha256(binding.restart_last_good_target_projection_hash);
-            raw("}}");
+            emit_recovery_restart_last_good_target_binding_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryLoadArtifactByHashTargetBindingReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_load_artifact_by_hash_target_binding.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"executes_restart_last_good\": false, \"executes_load_recovery_artifact_by_hash\": false, \"disables_module\": false, \"restarts_last_good\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_restart_last_good_target_binding_event_id\": ");
-            json_event_id(binding.retained_restart_last_good_target_binding_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"load_artifact_by_hash_target_id\": ");
-            json_str(binding.load_artifact_by_hash_target_id);
-            raw(", \"hashes\": {\"load_artifact_by_hash_target_binding_hash\": ");
-            json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"disable_module_target_binding_hash\": ");
-            json_sha256(binding.disable_module_target_binding_hash);
-            raw(", \"restart_last_good_target_binding_hash\": ");
-            json_sha256(binding.restart_last_good_target_binding_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw(", \"load_artifact_by_hash_target_artifact_hash\": ");
-            json_sha256(binding.load_artifact_by_hash_target_artifact_hash);
-            raw(", \"load_artifact_by_hash_target_projection_hash\": ");
-            json_sha256(binding.load_artifact_by_hash_target_projection_hash);
-            raw("}}");
+            emit_recovery_load_artifact_by_hash_target_binding_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryMemoryWriteAuthorityReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_memory_write_authority.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"executes_restart_last_good\": false, \"executes_load_recovery_artifact_by_hash\": false, \"disables_module\": false, \"restarts_last_good\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"writes_recovery_memory\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_load_artifact_by_hash_target_binding_event_id\": ");
-            json_event_id(binding.retained_load_artifact_by_hash_target_binding_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"recovery_memory_write_authority_id\": ");
-            json_str(binding.recovery_memory_write_authority_id);
-            raw(", \"hashes\": {\"recovery_memory_write_authority_hash\": ");
-            json_sha256(binding.recovery_memory_write_authority_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"disable_module_target_binding_hash\": ");
-            json_sha256(binding.disable_module_target_binding_hash);
-            raw(", \"restart_last_good_target_binding_hash\": ");
-            json_sha256(binding.restart_last_good_target_binding_hash);
-            raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-            json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw(", \"recovery_memory_projection_hash\": ");
-            json_sha256(binding.recovery_memory_projection_hash);
-            raw("}}");
+            emit_recovery_memory_write_authority_reference_binding(kind, binding);
         }
         event_log::EventBindings::DurableAuditRollbackWriteAuthorityReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.durable_audit_rollback_write_authority.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"executes_restart_last_good\": false, \"executes_load_recovery_artifact_by_hash\": false, \"disables_module\": false, \"restarts_last_good\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"writes_recovery_memory\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_recovery_memory_write_authority_event_id\": ");
-            json_event_id(binding.retained_recovery_memory_write_authority_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"durable_audit_rollback_write_authority_id\": ");
-            json_str(binding.durable_audit_rollback_write_authority_id);
-            raw(", \"hashes\": {\"durable_audit_rollback_write_authority_hash\": ");
-            json_sha256(binding.durable_audit_rollback_write_authority_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"disable_module_target_binding_hash\": ");
-            json_sha256(binding.disable_module_target_binding_hash);
-            raw(", \"restart_last_good_target_binding_hash\": ");
-            json_sha256(binding.restart_last_good_target_binding_hash);
-            raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-            json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-            raw(", \"recovery_memory_write_authority_hash\": ");
-            json_sha256(binding.recovery_memory_write_authority_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw(", \"durable_audit_rollback_projection_hash\": ");
-            json_sha256(binding.durable_audit_rollback_projection_hash);
-            raw("}}");
+            emit_durable_audit_rollback_write_authority_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryServiceInventorySideEffectBoundaryReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_service_inventory_side_effect_boundary.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"executes_restart_last_good\": false, \"executes_load_recovery_artifact_by_hash\": false, \"disables_module\": false, \"restarts_last_good\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"writes_recovery_memory\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_durable_audit_rollback_write_authority_event_id\": ");
-            json_event_id(binding.retained_durable_audit_rollback_write_authority_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"service_inventory_side_effect_boundary_id\": ");
-            json_str(binding.service_inventory_side_effect_boundary_id);
-            raw(", \"hashes\": {\"service_inventory_side_effect_boundary_hash\": ");
-            json_sha256(binding.service_inventory_side_effect_boundary_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"disable_module_target_binding_hash\": ");
-            json_sha256(binding.disable_module_target_binding_hash);
-            raw(", \"restart_last_good_target_binding_hash\": ");
-            json_sha256(binding.restart_last_good_target_binding_hash);
-            raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-            json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-            raw(", \"recovery_memory_write_authority_hash\": ");
-            json_sha256(binding.recovery_memory_write_authority_hash);
-            raw(", \"durable_audit_rollback_write_authority_hash\": ");
-            json_sha256(binding.durable_audit_rollback_write_authority_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw(", \"service_inventory_projection_hash\": ");
-            json_sha256(binding.service_inventory_projection_hash);
-            raw("}}");
+            emit_recovery_service_inventory_side_effect_boundary_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryLifelineCommandDispatchBehaviorReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_command_dispatch_behavior.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"executes_restart_last_good\": false, \"executes_load_recovery_artifact_by_hash\": false, \"disables_module\": false, \"restarts_last_good\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"writes_recovery_memory\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_service_inventory_side_effect_boundary_event_id\": ");
-            json_event_id(binding.retained_service_inventory_side_effect_boundary_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"command_dispatch_behavior_id\": ");
-            json_str(binding.command_dispatch_behavior_id);
-            raw(", \"hashes\": {\"command_dispatch_behavior_hash\": ");
-            json_sha256(binding.command_dispatch_behavior_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"disable_module_target_binding_hash\": ");
-            json_sha256(binding.disable_module_target_binding_hash);
-            raw(", \"restart_last_good_target_binding_hash\": ");
-            json_sha256(binding.restart_last_good_target_binding_hash);
-            raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-            json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-            raw(", \"recovery_memory_write_authority_hash\": ");
-            json_sha256(binding.recovery_memory_write_authority_hash);
-            raw(", \"durable_audit_rollback_write_authority_hash\": ");
-            json_sha256(binding.durable_audit_rollback_write_authority_hash);
-            raw(", \"service_inventory_side_effect_boundary_hash\": ");
-            json_sha256(binding.service_inventory_side_effect_boundary_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw(", \"command_dispatch_behavior_projection_hash\": ");
-            json_sha256(binding.command_dispatch_behavior_projection_hash);
-            raw("}}");
+            emit_recovery_lifeline_command_dispatch_behavior_reference_binding(kind, binding);
         }
-        event_log::EventBindings::RecoveryLifelineCommandExecutorCapabilityTableReference(
-            binding,
-        ) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_command_executor_capability_table.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"executes_restart_last_good\": false, \"executes_load_recovery_artifact_by_hash\": false, \"disables_module\": false, \"restarts_last_good\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"writes_recovery_memory\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_command_dispatch_behavior_event_id\": ");
-            json_event_id(binding.retained_command_dispatch_behavior_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"executor_capability_table_id\": ");
-            json_str(binding.executor_capability_table_id);
-            raw(", \"hashes\": {\"executor_capability_table_hash\": ");
-            json_sha256(binding.executor_capability_table_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"disable_module_target_binding_hash\": ");
-            json_sha256(binding.disable_module_target_binding_hash);
-            raw(", \"restart_last_good_target_binding_hash\": ");
-            json_sha256(binding.restart_last_good_target_binding_hash);
-            raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-            json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-            raw(", \"recovery_memory_write_authority_hash\": ");
-            json_sha256(binding.recovery_memory_write_authority_hash);
-            raw(", \"durable_audit_rollback_write_authority_hash\": ");
-            json_sha256(binding.durable_audit_rollback_write_authority_hash);
-            raw(", \"service_inventory_side_effect_boundary_hash\": ");
-            json_sha256(binding.service_inventory_side_effect_boundary_hash);
-            raw(", \"command_dispatch_behavior_hash\": ");
-            json_sha256(binding.command_dispatch_behavior_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw(", \"executor_capability_projection_hash\": ");
-            json_sha256(binding.executor_capability_projection_hash);
-            raw("}}");
+        event_log::EventBindings::RecoveryLifelineCommandExecutorCapabilityTableReference(binding) => {
+            emit_recovery_lifeline_command_executor_capability_table_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryLifelineCommandSideEffectGateReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_command_side_effect_gate.v0\", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"executes_restart_last_good\": false, \"executes_load_recovery_artifact_by_hash\": false, \"disables_module\": false, \"restarts_last_good\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"writes_recovery_memory\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_executor_capability_table_event_id\": ");
-            json_event_id(binding.retained_executor_capability_table_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"side_effect_gate_id\": ");
-            json_str(binding.side_effect_gate_id);
-            raw(", \"hashes\": {\"side_effect_gate_hash\": ");
-            json_sha256(binding.side_effect_gate_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"disable_module_target_binding_hash\": ");
-            json_sha256(binding.disable_module_target_binding_hash);
-            raw(", \"restart_last_good_target_binding_hash\": ");
-            json_sha256(binding.restart_last_good_target_binding_hash);
-            raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-            json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-            raw(", \"recovery_memory_write_authority_hash\": ");
-            json_sha256(binding.recovery_memory_write_authority_hash);
-            raw(", \"durable_audit_rollback_write_authority_hash\": ");
-            json_sha256(binding.durable_audit_rollback_write_authority_hash);
-            raw(", \"service_inventory_side_effect_boundary_hash\": ");
-            json_sha256(binding.service_inventory_side_effect_boundary_hash);
-            raw(", \"command_dispatch_behavior_hash\": ");
-            json_sha256(binding.command_dispatch_behavior_hash);
-            raw(", \"executor_capability_table_hash\": ");
-            json_sha256(binding.executor_capability_table_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw(", \"side_effect_projection_hash\": ");
-            json_sha256(binding.side_effect_projection_hash);
-            raw("}}");
+            emit_recovery_lifeline_command_side_effect_gate_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryLifelineCommandExecutionStageReference(binding) => {
-            raw(", \"bindings\": {\"schema\": ");
-            json_str(binding.schema);
-            raw(", \"status\": \"retained_hash_reference_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"stage_name\": ");
-            json_str(binding.stage_name);
-            raw(", \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"executes_rollback_preview\": false, \"executes_rollback_apply\": false, \"executes_disable_module\": false, \"executes_restart_last_good\": false, \"executes_load_recovery_artifact_by_hash\": false, \"disables_module\": false, \"restarts_last_good\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"writes_recovery_memory\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_previous_stage_event_id\": ");
-            json_event_id(binding.retained_previous_stage_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"execution_stage_id\": ");
-            json_str(binding.execution_stage_id);
-            raw(", \"hashes\": {\"execution_stage_hash\": ");
-            json_sha256(binding.execution_stage_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"rollback_preview_authorization_hash\": ");
-            json_sha256(binding.rollback_preview_authorization_hash);
-            raw(", \"rollback_apply_authorization_hash\": ");
-            json_sha256(binding.rollback_apply_authorization_hash);
-            raw(", \"disable_module_target_binding_hash\": ");
-            json_sha256(binding.disable_module_target_binding_hash);
-            raw(", \"restart_last_good_target_binding_hash\": ");
-            json_sha256(binding.restart_last_good_target_binding_hash);
-            raw(", \"load_artifact_by_hash_target_binding_hash\": ");
-            json_sha256(binding.load_artifact_by_hash_target_binding_hash);
-            raw(", \"recovery_memory_write_authority_hash\": ");
-            json_sha256(binding.recovery_memory_write_authority_hash);
-            raw(", \"durable_audit_rollback_write_authority_hash\": ");
-            json_sha256(binding.durable_audit_rollback_write_authority_hash);
-            raw(", \"service_inventory_side_effect_boundary_hash\": ");
-            json_sha256(binding.service_inventory_side_effect_boundary_hash);
-            raw(", \"command_dispatch_behavior_hash\": ");
-            json_sha256(binding.command_dispatch_behavior_hash);
-            raw(", \"executor_capability_table_hash\": ");
-            json_sha256(binding.executor_capability_table_hash);
-            raw(", \"side_effect_gate_hash\": ");
-            json_sha256(binding.side_effect_gate_hash);
-            raw(", \"source_rollback_apply_denial_hash\": ");
-            json_sha256(binding.source_rollback_apply_denial_hash);
-            raw(", \"source_durable_policy_write_authority_decision_hash\": ");
-            json_sha256(binding.source_durable_policy_write_authority_decision_hash);
-            raw(", \"source_recovery_rollback_inspect_source_reference_hash\": ");
-            json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash);
-            raw(", \"execution_enablement_hash\": ");
-            json_sha256_option(binding.execution_enablement_hash);
-            raw(", \"execution_preflight_hash\": ");
-            json_sha256_option(binding.execution_preflight_hash);
-            raw(", \"execution_intent_hash\": ");
-            json_sha256_option(binding.execution_intent_hash);
-            raw(", \"execution_commit_gate_hash\": ");
-            json_sha256_option(binding.execution_commit_gate_hash);
-            raw(", \"execution_result_denial_hash\": ");
-            json_sha256_option(binding.execution_result_denial_hash);
-            raw(", \"execution_audit_denial_hash\": ");
-            json_sha256_option(binding.execution_audit_denial_hash);
-            raw(", \"execution_observation_denial_hash\": ");
-            json_sha256_option(binding.execution_observation_denial_hash);
-            raw(", \"execution_stage_projection_hash\": ");
-            json_sha256(binding.execution_stage_projection_hash);
-            raw("}}");
+            emit_recovery_lifeline_command_execution_stage_reference_binding(kind, binding);
         }
         event_log::EventBindings::RecoveryLifelineStatusExecutionResultReference(binding) => {
-            raw(", \"bindings\": {\"schema\": \"raios.recovery_lifeline_status_execution_result.v0\", \"status\": \"retained_read_only_result_command_still_denied\", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": \"cap.recovery.command.read\", \"load_mode\": \"recovery_only\", \"status_execution_readiness\": \"available_read_only_non_authorizing\", \"readiness_reason\": \"recovery_lifeline_status_read_ready_command_execution_disabled\", \"would_execute_lifeline_status_read\": true, \"accepts_raw_command_body\": false, \"accepts_lifeline_command_body\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"command_execution_enabled\": false, \"authorizes_recovery_load\": false, \"loads_recovery_artifact\": false, \"writes_recovery_memory\": false, \"writes_durable_audit_log\": false, \"writes_rollback_store\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false, \"retained_status_read_handler_event_id\": ");
-            json_event_id(binding.retained_status_read_handler_event_id);
-            raw(", \"retained_execution_completion_denial_event_id\": ");
-            json_event_id(binding.retained_execution_completion_denial_event_id);
-            raw(", \"command_id\": ");
-            json_str(binding.command_id);
-            raw(", \"argument_schema\": ");
-            json_str(binding.argument_schema);
-            raw(", \"target_locator\": ");
-            json_str(binding.target_locator.as_str());
-            raw(", \"command_dispatch_boundary_id\": ");
-            json_str(binding.command_dispatch_boundary_id);
-            raw(", \"status_execution_result_id\": ");
-            json_str(binding.status_execution_result_id);
-            raw(", \"hashes\": {\"status_execution_result_hash\": ");
-            json_sha256(binding.status_execution_result_hash);
-            raw(", \"argument_hash\": ");
-            json_sha256(binding.argument_hash);
-            raw(", \"command_envelope_reference_hash\": ");
-            json_sha256(binding.command_envelope_reference_hash);
-            raw(", \"command_body_canonicalization_hash\": ");
-            json_sha256(binding.command_body_canonicalization_hash);
-            raw(", \"handler_binding_hash\": ");
-            json_sha256(binding.handler_binding_hash);
-            raw(", \"status_read_handler_hash\": ");
-            json_sha256(binding.status_read_handler_hash);
-            raw(", \"status_read_projection_hash\": ");
-            json_sha256(binding.status_read_projection_hash);
-            raw(", \"command_dispatch_behavior_hash\": ");
-            json_sha256(binding.command_dispatch_behavior_hash);
-            raw(", \"executor_capability_table_hash\": ");
-            json_sha256(binding.executor_capability_table_hash);
-            raw(", \"side_effect_gate_hash\": ");
-            json_sha256(binding.side_effect_gate_hash);
-            raw(", \"execution_enablement_hash\": ");
-            json_sha256(binding.execution_enablement_hash);
-            raw(", \"execution_preflight_hash\": ");
-            json_sha256(binding.execution_preflight_hash);
-            raw(", \"execution_intent_hash\": ");
-            json_sha256(binding.execution_intent_hash);
-            raw(", \"execution_commit_gate_hash\": ");
-            json_sha256(binding.execution_commit_gate_hash);
-            raw(", \"execution_result_denial_hash\": ");
-            json_sha256(binding.execution_result_denial_hash);
-            raw(", \"execution_audit_denial_hash\": ");
-            json_sha256(binding.execution_audit_denial_hash);
-            raw(", \"execution_observation_denial_hash\": ");
-            json_sha256(binding.execution_observation_denial_hash);
-            raw(", \"execution_completion_denial_hash\": ");
-            json_sha256(binding.execution_completion_denial_hash);
-            raw("}}");
+            emit_recovery_lifeline_status_execution_result_reference_binding(kind, binding);
         }
     }
+}
+
+define_direct_binding_fields! { ModuleLoaderLiveLoadBoundaryBindingField, MODULE_LOADER_LIVE_LOAD_BOUNDARY_BINDING_FIELDS, emit_module_loader_live_load_boundary_binding_value, event_log::ModuleLoaderLiveLoadBoundarySourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (BoundarySchema, "boundary_schema", { json_str(binding.boundary_schema); }), (BoundaryId, "boundary_id", { json_str(binding.boundary_id); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { json_str(binding.requested_capability); }), (LoadMode, "load_mode", { json_str(binding.load_mode); }), (Target, "target", { json_str(binding.target); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (BoundaryStatus, "boundary_status", { json_str(binding.boundary_status); }), (BoundaryReason, "boundary_reason", { json_str(binding.boundary_reason); }), (BoundaryPresent, "boundary_present", { raw_bool(binding.boundary_present); }), (BoundaryScope, "boundary_scope", { json_str(binding.boundary_scope); }), (BoundarySchemaOk, "boundary_schema_ok", { raw_bool(binding.boundary_schema_ok); }), (BoundaryProvenanceOk, "boundary_provenance_ok", { raw_bool(binding.boundary_provenance_ok); }), (BoundaryClassification, "boundary_classification", { json_str(binding.boundary_classification); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (LoadAttemptBoundaryPresent, "load_attempt_boundary_present", { raw_bool(binding.load_attempt_boundary_present); }), (ArtifactLoadBoundaryPresent, "artifact_load_boundary_present", { raw_bool(binding.artifact_load_boundary_present); }), (ExecutableMappingBoundaryPresent, "executable_mapping_boundary_present", { raw_bool(binding.executable_mapping_boundary_present); }), (EntrypointTransferBoundaryPresent, "entrypoint_transfer_boundary_present", { raw_bool(binding.entrypoint_transfer_boundary_present); }), (ServiceStartBoundaryPresent, "service_start_boundary_present", { raw_bool(binding.service_start_boundary_present); }), (ServiceHealthBindingBoundaryPresent, "service_health_binding_boundary_present", { raw_bool(binding.service_health_binding_boundary_present); }), (ServiceRunningStateBoundaryPresent, "service_running_state_boundary_present", { raw_bool(binding.service_running_state_boundary_present); }), (ServiceStartAuditBoundaryPresent, "service_start_audit_boundary_present", { raw_bool(binding.service_start_audit_boundary_present); }), (ServiceUnloadCleanupBoundaryPresent, "service_unload_cleanup_boundary_present", { raw_bool(binding.service_unload_cleanup_boundary_present); }), (LiveLoadCommitBoundaryPresent, "live_load_commit_boundary_present", { raw_bool(binding.live_load_commit_boundary_present); }), (CommitAuditBoundaryPresent, "commit_audit_boundary_present", { raw_bool(binding.commit_audit_boundary_present); }), (CommitRollbackBoundaryPresent, "commit_rollback_boundary_present", { raw_bool(binding.commit_rollback_boundary_present); }), (CommitResultBoundaryPresent, "commit_result_boundary_present", { raw_bool(binding.commit_result_boundary_present); }), (DescriptorAcceptanceAuthorityBoundaryPresent, "descriptor_acceptance_authority_boundary_present", { raw_bool(binding.descriptor_acceptance_authority_boundary_present); }), (DescriptorParserContractBoundaryPresent, "descriptor_parser_contract_boundary_present", { raw_bool(binding.descriptor_parser_contract_boundary_present); }), (DescriptorParserResultBoundaryPresent, "descriptor_parser_result_boundary_present", { raw_bool(binding.descriptor_parser_result_boundary_present); }), (DescriptorSchemaValidationBoundaryPresent, "descriptor_schema_validation_boundary_present", { raw_bool(binding.descriptor_schema_validation_boundary_present); }), (DescriptorSchemaValidationBoundarySourceChainComplete, "descriptor_schema_validation_boundary_source_chain_complete", { raw_bool(binding.descriptor_schema_validation_boundary_source_chain_complete); }), (DescriptorCapabilityValidationBoundaryPresent, "descriptor_capability_validation_boundary_present", { raw_bool(binding.descriptor_capability_validation_boundary_present); }), (DescriptorCapabilityValidationBoundarySourceChainComplete, "descriptor_capability_validation_boundary_source_chain_complete", { raw_bool(binding.descriptor_capability_validation_boundary_source_chain_complete); }), (DescriptorLoadPlanBoundaryPresent, "descriptor_load_plan_boundary_present", { raw_bool(binding.descriptor_load_plan_boundary_present); }), (DescriptorLoadPlanBoundarySourceChainComplete, "descriptor_load_plan_boundary_source_chain_complete", { raw_bool(binding.descriptor_load_plan_boundary_source_chain_complete); }), (ExecutableLoadPlanAuthorityBoundaryPresent, "executable_load_plan_authority_boundary_present", { raw_bool(binding.executable_load_plan_authority_boundary_present); }), (ExecutableLoadPlanAuthorityBoundarySourceChainComplete, "executable_load_plan_authority_boundary_source_chain_complete", { raw_bool(binding.executable_load_plan_authority_boundary_source_chain_complete); }), (ExecutableLoadPlanResultBoundaryPresent, "executable_load_plan_result_boundary_present", { raw_bool(binding.executable_load_plan_result_boundary_present); }), (ExecutableLoadPlanResultBoundarySourceChainComplete, "executable_load_plan_result_boundary_source_chain_complete", { raw_bool(binding.executable_load_plan_result_boundary_source_chain_complete); }), (ExecutableImageLayoutBoundaryPresent, "executable_image_layout_boundary_present", { raw_bool(binding.executable_image_layout_boundary_present); }), (ExecutableImageLayoutBoundarySourceChainComplete, "executable_image_layout_boundary_source_chain_complete", { raw_bool(binding.executable_image_layout_boundary_source_chain_complete); }), (ExecutablePageMappingPlanBoundaryPresent, "executable_page_mapping_plan_boundary_present", { raw_bool(binding.executable_page_mapping_plan_boundary_present); }), (ExecutablePageMappingPlanBoundarySourceChainComplete, "executable_page_mapping_plan_boundary_source_chain_complete", { raw_bool(binding.executable_page_mapping_plan_boundary_source_chain_complete); }), (ExecutablePageMappingBoundaryPresent, "executable_page_mapping_boundary_present", { raw_bool(binding.executable_page_mapping_boundary_present); }), (ExecutablePageMappingBoundarySourceChainComplete, "executable_page_mapping_boundary_source_chain_complete", { raw_bool(binding.executable_page_mapping_boundary_source_chain_complete); }), (DescriptorExecutablePageBindingBoundaryPresent, "descriptor_executable_page_binding_boundary_present", { raw_bool(binding.descriptor_executable_page_binding_boundary_present); }), (DescriptorExecutablePageBindingBoundarySourceChainComplete, "descriptor_executable_page_binding_boundary_source_chain_complete", { raw_bool(binding.descriptor_executable_page_binding_boundary_source_chain_complete); }), (ExecutableEntrypointBindingBoundaryPresent, "executable_entrypoint_binding_boundary_present", { raw_bool(binding.executable_entrypoint_binding_boundary_present); }), (ExecutableEntrypointBindingBoundarySourceChainComplete, "executable_entrypoint_binding_boundary_source_chain_complete", { raw_bool(binding.executable_entrypoint_binding_boundary_source_chain_complete); }), (ExecutableEntrypointTransferAuthorizationBoundaryPresent, "executable_entrypoint_transfer_authorization_boundary_present", { raw_bool(binding.executable_entrypoint_transfer_authorization_boundary_present); }), (ExecutableEntrypointTransferAuthorizationBoundarySourceChainComplete, "executable_entrypoint_transfer_authorization_boundary_source_chain_complete", { raw_bool(binding.executable_entrypoint_transfer_authorization_boundary_source_chain_complete); }), (ExecutableEntrypointTransferBoundaryPresent, "executable_entrypoint_transfer_boundary_present", { raw_bool(binding.executable_entrypoint_transfer_boundary_present); }), (ExecutableEntrypointTransferBoundarySourceChainComplete, "executable_entrypoint_transfer_boundary_source_chain_complete", { raw_bool(binding.executable_entrypoint_transfer_boundary_source_chain_complete); }), (ExecutableEntrypointHandoffBoundaryPresent, "executable_entrypoint_handoff_boundary_present", { raw_bool(binding.executable_entrypoint_handoff_boundary_present); }), (ExecutableEntrypointHandoffBoundarySourceChainComplete, "executable_entrypoint_handoff_boundary_source_chain_complete", { raw_bool(binding.executable_entrypoint_handoff_boundary_source_chain_complete); }), (ArtifactByteIntakeBoundaryPresent, "artifact_byte_intake_boundary_present", { raw_bool(binding.artifact_byte_intake_boundary_present); }), (ExecutionAuthorizationBoundaryPresent, "execution_authorization_boundary_present", { raw_bool(binding.execution_authorization_boundary_present); }), (ServiceRegistryMutationBoundaryPresent, "service_registry_mutation_boundary_present", { raw_bool(binding.service_registry_mutation_boundary_present); }), (ServiceSlotBindingSourceEvidencePresent, "service_slot_binding_source_evidence_present", { raw_bool(binding.service_slot_binding_source_evidence_present); }), (HealthStateHooksSourceEvidencePresent, "health_state_hooks_source_evidence_present", { raw_bool(binding.health_state_hooks_source_evidence_present); }), (ArtifactHashBindingPresent, "artifact_hash_binding_present", { raw_bool(binding.artifact_hash_binding_present); }), (EntrypointAbiSourceEvidencePresent, "entrypoint_abi_source_evidence_present", { raw_bool(binding.entrypoint_abi_source_evidence_present); }), (AddressSpaceSourceEvidencePresent, "address_space_source_evidence_present", { raw_bool(binding.address_space_source_evidence_present); }), (MemoryMapSourceEvidencePresent, "memory_map_source_evidence_present", { raw_bool(binding.memory_map_source_evidence_present); }), (CapabilityImportTableSourceEvidencePresent, "capability_import_table_source_evidence_present", { raw_bool(binding.capability_import_table_source_evidence_present); }), (AuditRollbackWriteBoundarySourceEvidencePresent, "audit_rollback_write_boundary_source_evidence_present", { raw_bool(binding.audit_rollback_write_boundary_source_evidence_present); }), (RetainedModuleEvidencePresent, "retained_module_evidence_present", { raw_bool(binding.retained_module_evidence_present); }), (RetainedArtifactReferencePresent, "retained_artifact_reference_present", { raw_bool(binding.retained_artifact_reference_present); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (LoadAttemptBoundarySourceEvidenceEventId, "load_attempt_boundary_source_evidence_event_id", { json_event_id_option(binding.load_attempt_boundary_source_evidence_event_id); }), (ArtifactLoadBoundarySourceEvidenceEventId, "artifact_load_boundary_source_evidence_event_id", { json_event_id_option(binding.artifact_load_boundary_source_evidence_event_id); }), (ExecutableMappingBoundarySourceEvidenceEventId, "executable_mapping_boundary_source_evidence_event_id", { json_event_id_option(binding.executable_mapping_boundary_source_evidence_event_id); }), (EntrypointTransferBoundarySourceEvidenceEventId, "entrypoint_transfer_boundary_source_evidence_event_id", { json_event_id_option(binding.entrypoint_transfer_boundary_source_evidence_event_id); }), (ServiceStartBoundarySourceEvidenceEventId, "service_start_boundary_source_evidence_event_id", { json_event_id_option(binding.service_start_boundary_source_evidence_event_id); }), (ServiceHealthBindingBoundarySourceEvidenceEventId, "service_health_binding_boundary_source_evidence_event_id", { json_event_id_option(binding.service_health_binding_boundary_source_evidence_event_id); }), (ServiceRunningStateBoundarySourceEvidenceEventId, "service_running_state_boundary_source_evidence_event_id", { json_event_id_option(binding.service_running_state_boundary_source_evidence_event_id); }), (ServiceStartAuditBoundarySourceEvidenceEventId, "service_start_audit_boundary_source_evidence_event_id", { json_event_id_option(binding.service_start_audit_boundary_source_evidence_event_id); }), (ServiceUnloadCleanupBoundarySourceEvidenceEventId, "service_unload_cleanup_boundary_source_evidence_event_id", { json_event_id_option(binding.service_unload_cleanup_boundary_source_evidence_event_id); }), (LiveLoadCommitBoundarySourceEvidenceEventId, "live_load_commit_boundary_source_evidence_event_id", { json_event_id_option(binding.live_load_commit_boundary_source_evidence_event_id); }), (CommitAuditBoundarySourceEvidenceEventId, "commit_audit_boundary_source_evidence_event_id", { json_event_id_option(binding.commit_audit_boundary_source_evidence_event_id); }), (CommitRollbackBoundarySourceEvidenceEventId, "commit_rollback_boundary_source_evidence_event_id", { json_event_id_option(binding.commit_rollback_boundary_source_evidence_event_id); }), (CommitResultBoundarySourceEvidenceEventId, "commit_result_boundary_source_evidence_event_id", { json_event_id_option(binding.commit_result_boundary_source_evidence_event_id); }), (DescriptorAcceptanceAuthorityBoundarySourceEvidenceEventId, "descriptor_acceptance_authority_boundary_source_evidence_event_id", { json_event_id_option(binding.descriptor_acceptance_authority_boundary_source_evidence_event_id); }), (DescriptorParserContractBoundarySourceEvidenceEventId, "descriptor_parser_contract_boundary_source_evidence_event_id", { json_event_id_option(binding.descriptor_parser_contract_boundary_source_evidence_event_id); }), (DescriptorParserResultBoundarySourceEvidenceEventId, "descriptor_parser_result_boundary_source_evidence_event_id", { json_event_id_option(binding.descriptor_parser_result_boundary_source_evidence_event_id); }), (DescriptorSchemaValidationBoundarySourceEvidenceEventId, "descriptor_schema_validation_boundary_source_evidence_event_id", { json_event_id_option(binding.descriptor_schema_validation_boundary_source_evidence_event_id); }), (DescriptorCapabilityValidationBoundarySourceEvidenceEventId, "descriptor_capability_validation_boundary_source_evidence_event_id", { json_event_id_option( binding.descriptor_capability_validation_boundary_source_evidence_event_id, ); }), (DescriptorLoadPlanBoundarySourceEvidenceEventId, "descriptor_load_plan_boundary_source_evidence_event_id", { json_event_id_option(binding.descriptor_load_plan_boundary_source_evidence_event_id); }), (ExecutableLoadPlanAuthorityBoundarySourceEvidenceEventId, "executable_load_plan_authority_boundary_source_evidence_event_id", { json_event_id_option(binding.executable_load_plan_authority_boundary_source_evidence_event_id); }), (ExecutableLoadPlanResultBoundarySourceEvidenceEventId, "executable_load_plan_result_boundary_source_evidence_event_id", { json_event_id_option(binding.executable_load_plan_result_boundary_source_evidence_event_id); }), (ExecutableImageLayoutBoundarySourceEvidenceEventId, "executable_image_layout_boundary_source_evidence_event_id", { json_event_id_option(binding.executable_image_layout_boundary_source_evidence_event_id); }), (ExecutablePageMappingPlanBoundarySourceEvidenceEventId, "executable_page_mapping_plan_boundary_source_evidence_event_id", { json_event_id_option(binding.executable_page_mapping_plan_boundary_source_evidence_event_id); }), (ExecutablePageMappingBoundarySourceEvidenceEventId, "executable_page_mapping_boundary_source_evidence_event_id", { json_event_id_option(binding.executable_page_mapping_boundary_source_evidence_event_id); }), (DescriptorExecutablePageBindingBoundarySourceEvidenceEventId, "descriptor_executable_page_binding_boundary_source_evidence_event_id", { json_event_id_option( binding.descriptor_executable_page_binding_boundary_source_evidence_event_id, ); }), (ExecutableEntrypointBindingBoundarySourceEvidenceEventId, "executable_entrypoint_binding_boundary_source_evidence_event_id", { json_event_id_option(binding.executable_entrypoint_binding_boundary_source_evidence_event_id); }), (ExecutableEntrypointTransferAuthorizationBoundarySourceEvidenceEventId, "executable_entrypoint_transfer_authorization_boundary_source_evidence_event_id", { json_event_id_option( binding.executable_entrypoint_transfer_authorization_boundary_source_evidence_event_id, ); }), (ExecutableEntrypointTransferBoundarySourceEvidenceEventId, "executable_entrypoint_transfer_boundary_source_evidence_event_id", { json_event_id_option(binding.executable_entrypoint_transfer_boundary_source_evidence_event_id); }), (ExecutableEntrypointHandoffBoundarySourceEvidenceEventId, "executable_entrypoint_handoff_boundary_source_evidence_event_id", { json_event_id_option(binding.executable_entrypoint_handoff_boundary_source_evidence_event_id); }), (ArtifactByteIntakeBoundarySourceEvidenceEventId, "artifact_byte_intake_boundary_source_evidence_event_id", { json_event_id_option(binding.artifact_byte_intake_boundary_source_evidence_event_id); }), (ExecutionAuthorizationBoundarySourceEvidenceEventId, "execution_authorization_boundary_source_evidence_event_id", { json_event_id_option(binding.execution_authorization_boundary_source_evidence_event_id); }), (ServiceRegistryMutationBoundarySourceEvidenceEventId, "service_registry_mutation_boundary_source_evidence_event_id", { json_event_id_option(binding.service_registry_mutation_boundary_source_evidence_event_id); }), (ServiceSlotBindingSourceEvidenceEventId, "service_slot_binding_source_evidence_event_id", { json_event_id_option(binding.service_slot_binding_source_evidence_event_id); }), (HealthStateHooksSourceEvidenceEventId, "health_state_hooks_source_evidence_event_id", { json_event_id_option(binding.health_state_hooks_source_evidence_event_id); }), (ArtifactHashBindingSourceEvidenceEventId, "artifact_hash_binding_source_evidence_event_id", { json_event_id_option(binding.artifact_hash_binding_source_evidence_event_id); }), (EntrypointAbiSourceEvidenceEventId, "entrypoint_abi_source_evidence_event_id", { json_event_id_option(binding.entrypoint_abi_source_evidence_event_id); }), (AddressSpaceSourceEvidenceEventId, "address_space_source_evidence_event_id", { json_event_id_option(binding.address_space_source_evidence_event_id); }), (MemoryMapSourceEvidenceEventId, "memory_map_source_evidence_event_id", { json_event_id_option(binding.memory_map_source_evidence_event_id); }), (CapabilityImportTableSourceEvidenceEventId, "capability_import_table_source_evidence_event_id", { json_event_id_option(binding.capability_import_table_source_evidence_event_id); }), (AuditRollbackWriteBoundarySourceEvidenceEventId, "audit_rollback_write_boundary_source_evidence_event_id", { json_event_id_option(binding.audit_rollback_write_boundary_source_evidence_event_id); }), (RetainedModuleEvidenceEventIds, "retained_module_evidence_event_ids", { raw("{\"manifest_reference_event_id\": "); json_event_id_option(binding.manifest_reference_event_id); raw(", \"candidate_artifact_reference_event_id\": "); json_event_id_option(binding.artifact_reference_event_id); raw(", \"vm_test_report_reference_event_id\": "); json_event_id_option(binding.vm_test_report_reference_event_id); raw(", \"local_attestation_reference_event_id\": "); json_event_id_option(binding.local_attestation_reference_event_id); raw(", \"local_approval_reference_event_id\": "); json_event_id_option(binding.local_approval_reference_event_id); raw(", \"computed_grant_reference_event_id\": "); json_event_id_option(binding.computed_grant_reference_event_id); raw(", \"audit_rollback_reference_event_id\": "); json_event_id_option(binding.audit_rollback_reference_event_id); raw(", \"service_slot_reservation_event_id\": "); json_event_id_option(binding.service_slot_reservation_event_id); raw("}"); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str()); } else { raw("null"); } }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw_bool(binding.accepts_loader_descriptor); }), (AcceptsDescriptorBytes, "accepts_descriptor_bytes", { raw_bool(binding.accepts_descriptor_bytes); }), (ProducesParsedDescriptor, "produces_parsed_descriptor", { raw("false"); }), (ValidatesDescriptorSchema, "validates_descriptor_schema", { raw("false"); }), (ProducesValidatedDescriptor, "produces_validated_descriptor", { raw("false"); }), (ValidatesDescriptorCapabilities, "validates_descriptor_capabilities", { raw("false"); }), (ProducesCapabilityValidatedDescriptor, "produces_capability_validated_descriptor", { raw("false"); }), (AuthorizesExecutableLoadPlan, "authorizes_executable_load_plan", { raw("false"); }), (ProducesExecutableLoadPlan, "produces_executable_load_plan", { raw("false"); }), (ProducesExecutableImageLayout, "produces_executable_image_layout", { raw("false"); }), (ProducesExecutablePageMappingPlan, "produces_executable_page_mapping_plan", { raw("false"); }), (BindsCapabilityValidatedDescriptorToExecutablePages, "binds_capability_validated_descriptor_to_executable_pages", { raw("false"); }), (ParsesDescriptorBytes, "parses_descriptor_bytes", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw_bool(binding.accepts_artifact_bytes); }), (AuthorizesDescriptorIntake, "authorizes_descriptor_intake", { raw_bool(binding.authorizes_descriptor_intake); }), (AuthorizesArtifactByteIntake, "authorizes_artifact_byte_intake", { raw_bool(binding.authorizes_artifact_byte_intake); }), (MapsExecutablePages, "maps_executable_pages", { raw_bool(binding.maps_executable_pages); }), (JumpsToEntrypoint, "jumps_to_entrypoint", { raw_bool(binding.jumps_to_entrypoint); }), (AuthorizesExecution, "authorizes_execution", { raw_bool(binding.authorizes_execution); }), (MutatesServiceRegistry, "mutates_service_registry", { raw_bool(binding.mutates_service_registry); }), (WritesDurableAuditState, "writes_durable_audit_state", { raw_bool(binding.writes_durable_audit_state); }), (InstallsRollbackState, "installs_rollback_state", { raw_bool(binding.installs_rollback_state); }), (AllocatesServiceSlot, "allocates_service_slot", { raw_bool(binding.allocates_service_slot); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw_bool(binding.creates_service_inventory_records); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadsArtifact, "loads_artifact", { raw_bool(binding.loads_artifact); }), (StartsService, "starts_service", { raw_bool(binding.starts_service); }), (MarksServiceRunning, "marks_service_running", { raw_bool(binding.marks_service_running); }), (CreatesServiceHealthRecords, "creates_service_health_records", { raw_bool(binding.creates_service_health_records); }), (WritesServiceStartAuditRecord, "writes_service_start_audit_record", { raw_bool(binding.writes_service_start_audit_record); }), (UnloadsService, "unloads_service", { raw_bool(binding.unloads_service); }), (CleansUpServiceSlot, "cleans_up_service_slot", { raw_bool(binding.cleans_up_service_slot); }), (CommitsLiveLoad, "commits_live_load", { raw_bool(binding.commits_live_load); }), (WritesLoadCommitAuditRecord, "writes_load_commit_audit_record", { raw_bool(binding.writes_load_commit_audit_record); }), (InstallsCommitRollbackRecord, "installs_commit_rollback_record", { raw_bool(binding.installs_commit_rollback_record); }), (RecordsLoadResult, "records_load_result", { raw_bool(binding.records_load_result); }), (LoadAttempted, "load_attempted", { raw_bool(binding.load_attempted); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_loader_live_load_boundary_binding(
+    kind: &str,
+    binding: &event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOADER_LIVE_LOAD_BOUNDARY_BINDING_FIELDS,
+        emit_module_loader_live_load_boundary_binding_value,
+    );
+}
+
+define_direct_binding_fields! { HelloRecoveryRollbackInspectSourceReferenceBindingField, HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_BINDING_FIELDS, emit_hello_recovery_rollback_inspect_source_reference_binding_value, event_log::HelloRecoveryRollbackInspectSourceReferenceBinding, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_rollback_inspect_source_reference_binding.v0\""); }), (Status, "status", { raw("\"retained_audit_event_verified\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (SourceEventId, "source_event_id", { json_event_id(binding.source_event_id); }), (ReferenceHash, "reference_hash", { json_sha256(binding.reference_hash); }), (InspectionHash, "inspection_hash", { json_sha256(binding.inspection_hash); }), (SourceSectorPlanHash, "source_sector_plan_hash", { json_sha256(binding.source_sector_plan_hash); }), (SourceTargetRegionWriteReadbackHash, "source_target_region_write_readback_hash", { json_sha256(binding.source_target_region_write_readback_hash); }), (AuthorizesRollbackApply, "authorizes_rollback_apply", { raw_bool(binding.authorizes_rollback_apply); }), }
+
+fn emit_hello_recovery_rollback_inspect_source_reference_binding(
+    kind: &str,
+    binding: &event_log::HelloRecoveryRollbackInspectSourceReferenceBinding,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_BINDING_FIELDS,
+        emit_hello_recovery_rollback_inspect_source_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { AgentCommandEnvelopeDecisionBindingField, AGENT_COMMAND_ENVELOPE_DECISION_BINDING_FIELDS, emit_agent_command_envelope_decision_binding_value, event_log::AgentCommandEnvelopeBinding, binding, _kind; (Schema, "schema", { raw("\"raios.agent_command_envelope.audit_binding.v0\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (CommandSchema, "command_schema", { raw("\"raios.agent_command_envelope.v0\""); }), (SchemaOk, "schema_ok", { raw_bool(binding.schema_ok); }), (TargetMethod, "target_method", { json_opt_str(binding.target_method); }), (TargetMethodAllowed, "target_method_allowed", { raw_bool(binding.target_method_allowed); }), (RequestedCapability, "requested_capability", { json_opt_str(binding.requested_capability); }), (RequestedCapabilityAllowed, "requested_capability_allowed", { raw_bool(binding.requested_capability_allowed); }), (SubmittedClassification, "submitted_classification", { json_opt_str(binding.submitted_classification); }), (ClassificationAllowed, "classification_allowed", { raw_bool(binding.classification_allowed); }), (Accepted, "accepted", { raw_bool(binding.accepted); }), (Code, "code", { json_str(binding.code); }), (Reason, "reason", { json_str(binding.reason); }), (DispatchesExistingAgentMethod, "dispatches_existing_agent_method", { raw_bool(binding.dispatches_existing_agent_method); }), (CreatesParallelDispatcher, "creates_parallel_dispatcher", { raw_bool(binding.creates_parallel_dispatcher); }), (ProviderWrite, "provider_write", { json_str(binding.provider_write); }), (LoadsCandidateBytes, "loads_candidate_bytes", { raw_bool(binding.loads_candidate_bytes); }), (WritesPersistentState, "writes_persistent_state", { raw_bool(binding.writes_persistent_state); }), (WritesDurableAuditLog, "writes_durable_audit_log", { raw_bool(binding.writes_durable_audit_log); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw_bool(binding.installs_rollback_plan); }), (GrantsBroadMutation, "grants_broad_mutation", { raw_bool(binding.grants_broad_mutation); }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), }
+
+fn emit_agent_command_envelope_decision_binding(
+    kind: &str,
+    binding: &event_log::AgentCommandEnvelopeBinding,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        AGENT_COMMAND_ENVELOPE_DECISION_BINDING_FIELDS,
+        emit_agent_command_envelope_decision_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ProviderRequestEnvelopeBindingField, PROVIDER_REQUEST_ENVELOPE_BINDING_FIELDS, emit_provider_request_envelope_binding_value, event_log::ProviderRequestEnvelopeBinding, binding, _kind; (Schema, "schema", { raw("\"raios.provider_request_envelope.v0\""); }), (Status, "status", { raw("\"local_prewrite_envelope\""); }), (SatisfiesCurrentBootExportGate, "satisfies_current_boot_export_gate", { raw("false"); }), (ProviderWrite, "provider_write", { raw("\"not_attempted\""); }), (ContextAttachedToProviderBody, "context_attached_to_provider_body", { raw("false"); }), (RequestId, "request_id", { raw_fmt(format_args!("{}", binding.request_id)); }), (RequestBodyHash, "request_body_hash", { json_sha256(binding.request_body_hash); }), (EnvelopeHash, "envelope_hash", { json_sha256(binding.envelope_hash); }), (TrustSnapshot, "trust_snapshot", { raw("{\"provider_trust_state\": "); json_str(binding.provider_trust_state); raw(", \"provider_trust_positive\": "); raw_bool(binding.provider_trust_positive); raw(", \"development_tls_bypass\": "); raw_bool(binding.development_tls_bypass); raw("}"); }), }
+
+fn emit_provider_request_envelope_binding(
+    kind: &str,
+    binding: &event_log::ProviderRequestEnvelopeBinding,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        PROVIDER_REQUEST_ENVELOPE_BINDING_FIELDS,
+        emit_provider_request_envelope_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ProviderRequestBoundBindingField, PROVIDER_REQUEST_BOUND_BINDING_FIELDS, emit_provider_request_bound_binding_value, event_log::ProviderRequestBinding, binding, _kind; (Schema, "schema", { raw("\"raios.provider_request_binding.v0\""); }), (Status, "status", { raw("\"bound\""); }), (SatisfiesRequestBindingGate, "satisfies_request_binding_gate", { raw("true"); }), (SatisfiesCurrentBootExportGate, "satisfies_current_boot_export_gate", { raw("false"); }), (ProviderWriteAtBinding, "provider_write_at_binding", { raw("\"not_attempted\""); }), (ContextAttachedToProviderBody, "context_attached_to_provider_body", { raw("false"); }), (RequestId, "request_id", { raw_fmt(format_args!("{}", binding.request_id)); }), (RequestEnvelopeEventId, "request_envelope_event_id", { json_event_id(binding.request_envelope_event_id); }), (RequestBodyHash, "request_body_hash", { json_sha256(binding.request_body_hash); }), (RequestEnvelopeHash, "request_envelope_hash", { json_sha256(binding.request_envelope_hash); }), (RequestBindingHash, "request_binding_hash", { json_sha256(binding.request_binding_hash); }), (TrustSnapshot, "trust_snapshot", { raw("{\"provider_trust_state\": "); json_str(binding.provider_trust_state); raw(", \"provider_trust_positive\": true, \"provider_trust_pin_kind\": "); json_opt_str(binding.provider_trust_pin_kind); raw(", \"provider_trust_pin_id\": "); json_opt_str(binding.provider_trust_pin_id); raw(", \"provider_trust_pin_slot\": "); json_opt_str(binding.provider_trust_pin_slot); raw(", \"provider_trust_pin_rotation_policy\": "); json_str(binding.provider_trust_pin_rotation_policy); raw(", \"provider_trust_pin_rotation_id\": "); json_opt_str(binding.provider_trust_pin_rotation_id); raw(", \"provider_trust_verifier\": "); emit_provider_trust_verifier_metadata(binding.provider_trust_verifier); raw(", \"provider_trust_verifier_decision\": "); emit_provider_trust_verifier_decision(binding.provider_trust_verifier_decision); raw(", \"provider_trust_evidence_hash\": "); json_sha256(binding.provider_trust_evidence_hash); raw(", \"development_tls_bypass\": "); raw_bool(binding.development_tls_bypass); raw("}"); }), (Hashes, "hashes", { emit_provider_context_hashes(binding.context); }), }
+
+fn emit_provider_request_bound_binding(kind: &str, binding: &event_log::ProviderRequestBinding) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        PROVIDER_REQUEST_BOUND_BINDING_FIELDS,
+        emit_provider_request_bound_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ProviderExportAuditBoundBindingField, PROVIDER_EXPORT_AUDIT_BOUND_BINDING_FIELDS, emit_provider_export_audit_bound_binding_value, event_log::ProviderExportAuditBinding, binding, _kind; (Schema, "schema", { raw("\"raios.provider_context_export_audit_binding.v0\""); }), (Status, "status", { raw("\"authorized_for_single_provider_request\""); }), (SatisfiesExportAuditBindingGate, "satisfies_export_audit_binding_gate", { raw("true"); }), (SatisfiesCurrentBootExportGate, "satisfies_current_boot_export_gate", { raw("false"); }), (PositiveExportAuthorization, "positive_export_authorization", { raw("true"); }), (AutomaticContextInjection, "automatic_context_injection", { raw("\"disabled\""); }), (ProviderWriteAtBinding, "provider_write_at_binding", { raw("\"not_attempted\""); }), (ContextAttachedToProviderBody, "context_attached_to_provider_body", { raw_bool(binding.context_attached_to_provider_body); }), (RequestId, "request_id", { raw_fmt(format_args!("{}", binding.request_id)); }), (RequestEnvelopeEventId, "request_envelope_event_id", { json_event_id(binding.request_envelope_event_id); }), (RequestBindingEventId, "request_binding_event_id", { json_event_id(binding.request_binding_event_id); }), (RequestBodyHash, "request_body_hash", { json_sha256(binding.request_body_hash); }), (RequestEnvelopeHash, "request_envelope_hash", { json_sha256(binding.request_envelope_hash); }), (RequestBindingHash, "request_binding_hash", { json_sha256(binding.request_binding_hash); }), (ExportAuditBindingHash, "export_audit_binding_hash", { json_sha256(binding.export_audit_binding_hash); }), (TrustSnapshot, "trust_snapshot", { raw("{\"provider_trust_state\": "); json_str(binding.provider_trust_state); raw(", \"provider_trust_positive\": true, \"provider_trust_pin_kind\": "); json_opt_str(binding.provider_trust_pin_kind); raw(", \"provider_trust_pin_id\": "); json_opt_str(binding.provider_trust_pin_id); raw(", \"provider_trust_pin_slot\": "); json_opt_str(binding.provider_trust_pin_slot); raw(", \"provider_trust_pin_rotation_policy\": "); json_str(binding.provider_trust_pin_rotation_policy); raw(", \"provider_trust_pin_rotation_id\": "); json_opt_str(binding.provider_trust_pin_rotation_id); raw(", \"provider_trust_verifier\": "); emit_provider_trust_verifier_metadata(binding.provider_trust_verifier); raw(", \"provider_trust_verifier_decision\": "); emit_provider_trust_verifier_decision(binding.provider_trust_verifier_decision); raw(", \"provider_trust_evidence_hash\": "); json_sha256(binding.provider_trust_evidence_hash); raw(", \"development_tls_bypass\": false}"); }), (Hashes, "hashes", { emit_provider_context_hashes(binding.context); }), }
+
+fn emit_provider_export_audit_bound_binding(
+    kind: &str,
+    binding: &event_log::ProviderExportAuditBinding,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        PROVIDER_EXPORT_AUDIT_BOUND_BINDING_FIELDS,
+        emit_provider_export_audit_bound_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ProviderBindingConsumptionBindingField, PROVIDER_BINDING_CONSUMPTION_BINDING_FIELDS, emit_provider_binding_consumption_binding_value, event_log::ProviderBindingConsumption, binding, _kind; (Schema, "schema", { raw("\"raios.provider_context_binding_consumption.v0\""); }), (Status, "status", { raw("\"consumed_for_gate_evaluation\""); }), (SatisfiesCurrentBootExportGate, "satisfies_current_boot_export_gate", { raw("false"); }), (AutomaticContextInjection, "automatic_context_injection", { raw("\"disabled\""); }), (ProviderWrite, "provider_write", { raw("\"not_attempted\""); }), (ContextAttachedToProviderBody, "context_attached_to_provider_body", { raw("false"); }), (RequestId, "request_id", { raw_fmt(format_args!("{}", binding.request_id)); }), (RequestEnvelopeEventId, "request_envelope_event_id", { json_event_id(binding.request_envelope_event_id); }), (RequestBindingEventId, "request_binding_event_id", { json_event_id(binding.request_binding_event_id); }), (ExportAuditBindingEventId, "export_audit_binding_event_id", { json_event_id(binding.export_audit_binding_event_id); }), (RequestBindingHash, "request_binding_hash", { json_sha256(binding.request_binding_hash); }), (ExportAuditBindingHash, "export_audit_binding_hash", { json_sha256(binding.export_audit_binding_hash); }), (ProviderTrustEvidenceHash, "provider_trust_evidence_hash", { json_sha256(binding.provider_trust_evidence_hash); }), (Hashes, "hashes", { emit_provider_context_hashes(binding.context); }), }
+
+fn emit_provider_binding_consumption_binding(
+    kind: &str,
+    binding: &event_log::ProviderBindingConsumption,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        PROVIDER_BINDING_CONSUMPTION_BINDING_FIELDS,
+        emit_provider_binding_consumption_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ProviderContextInjectionAuthorizationBindingField, PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_BINDING_FIELDS, emit_provider_context_injection_authorization_binding_value, event_log::ProviderContextInjectionAuthorization, binding, _kind; (Schema, "schema", { raw("\"raios.provider_context_injection_authorization.v0\""); }), (Status, "status", { raw("\"authorized_for_single_provider_request\""); }), (SatisfiesCurrentBootExportGate, "satisfies_current_boot_export_gate", { raw("false"); }), (AutomaticContextInjection, "automatic_context_injection", { raw("\"disabled\""); }), (ProviderWrite, "provider_write", { raw("\"not_attempted\""); }), (ContextAttachedToProviderBody, "context_attached_to_provider_body", { raw_bool(binding.context_attached_to_provider_body); }), (RequestId, "request_id", { raw_fmt(format_args!("{}", binding.request_id)); }), (RequestEnvelopeEventId, "request_envelope_event_id", { json_event_id(binding.request_envelope_event_id); }), (RequestBindingEventId, "request_binding_event_id", { json_event_id(binding.request_binding_event_id); }), (ExportAuditBindingEventId, "export_audit_binding_event_id", { json_event_id(binding.export_audit_binding_event_id); }), (BindingConsumptionEventId, "binding_consumption_event_id", { json_event_id(binding.binding_consumption_event_id); }), (RequestBodyHash, "request_body_hash", { json_sha256(binding.request_body_hash); }), (RequestEnvelopeHash, "request_envelope_hash", { json_sha256(binding.request_envelope_hash); }), (RequestBindingHash, "request_binding_hash", { json_sha256(binding.request_binding_hash); }), (ExportAuditBindingHash, "export_audit_binding_hash", { json_sha256(binding.export_audit_binding_hash); }), (FinalAuthorizationHash, "final_authorization_hash", { json_sha256(binding.final_authorization_hash); }), (TrustSnapshot, "trust_snapshot", { raw("{\"provider_trust_state\": "); json_str(binding.provider_trust_state); raw(", \"provider_trust_positive\": true, \"provider_trust_evidence_hash\": "); json_sha256(binding.provider_trust_evidence_hash); raw("}"); }), (Hashes, "hashes", { emit_provider_context_hashes(binding.context); }), }
+
+fn emit_provider_context_injection_authorization_binding(
+    kind: &str,
+    binding: &event_log::ProviderContextInjectionAuthorization,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        PROVIDER_CONTEXT_INJECTION_AUTHORIZATION_BINDING_FIELDS,
+        emit_provider_context_injection_authorization_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ProviderRequestBindingDeniedBindingField, PROVIDER_REQUEST_BINDING_DENIED_BINDING_FIELDS, emit_provider_request_binding_denied_binding_value, event_log::ProviderContextHashes, binding, _kind; (Schema, "schema", { raw("\"raios.provider_request_binding_denial.v0\""); }), (Status, "status", { raw("\"denied_not_bound\""); }), (SatisfiesCurrentBootExportGate, "satisfies_current_boot_export_gate", { raw("false"); }), (ProviderWrite, "provider_write", { raw("\"not_attempted\""); }), (Hashes, "hashes", { emit_provider_context_hashes(*binding); }), }
+
+fn emit_provider_request_binding_denied_binding(
+    kind: &str,
+    binding: &event_log::ProviderContextHashes,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        PROVIDER_REQUEST_BINDING_DENIED_BINDING_FIELDS,
+        emit_provider_request_binding_denied_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ProviderExportDenialAuditBindingField, PROVIDER_EXPORT_DENIAL_AUDIT_BINDING_FIELDS, emit_provider_export_denial_audit_binding_value, event_log::ProviderContextHashes, binding, _kind; (Schema, "schema", { raw("\"raios.provider_context_export_denial_audit.v0\""); }), (Status, "status", { raw("\"denied_no_provider_write\""); }), (SatisfiesCurrentBootExportGate, "satisfies_current_boot_export_gate", { raw("false"); }), (PositiveExportAuthorization, "positive_export_authorization", { raw("false"); }), (ProviderWrite, "provider_write", { raw("\"not_attempted\""); }), (Hashes, "hashes", { emit_provider_context_hashes(*binding); }), }
+
+fn emit_provider_export_denial_audit_binding(
+    kind: &str,
+    binding: &event_log::ProviderContextHashes,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        PROVIDER_EXPORT_DENIAL_AUDIT_BINDING_FIELDS,
+        emit_provider_export_denial_audit_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleManifestReferenceBindingField, MODULE_MANIFEST_REFERENCE_BINDING_FIELDS, emit_module_manifest_reference_binding_value, event_log::ModuleManifestReference, binding, _kind; (Schema, "schema", { raw("\"raios.module_manifest_reference.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (LoadMode, "load_mode", { raw("\"ram_only\""); }), (ManifestSchema, "manifest_schema", { raw("\"raios.module_manifest.v0\""); }), (AcceptsManifestJson, "accepts_manifest_json", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (AcceptsUnsignedServiceCode, "accepts_unsigned_service_code", { raw("false"); }), (AuthorizesGuestLoad, "authorizes_guest_load", { raw("false"); }), (CanLoadNow, "can_load_now", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (Hashes, "hashes", { raw("{\"manifest_reference_hash\": "); json_sha256(binding.manifest_reference_hash); raw(", \"manifest_hash\": "); json_sha256(binding.manifest_hash); raw("}"); }), }
+
+fn emit_module_manifest_reference_binding(
+    kind: &str,
+    binding: &event_log::ModuleManifestReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_MANIFEST_REFERENCE_BINDING_FIELDS,
+        emit_module_manifest_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleCandidateArtifactReferenceBindingField, MODULE_CANDIDATE_ARTIFACT_REFERENCE_BINDING_FIELDS, emit_module_candidate_artifact_reference_binding_value, event_log::ModuleCandidateArtifactReference, binding, _kind; (Schema, "schema", { raw("\"raios.module_candidate_artifact_reference.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (LoadMode, "load_mode", { raw("\"ram_only\""); }), (AcceptsManifestJson, "accepts_manifest_json", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (AcceptsUnsignedServiceCode, "accepts_unsigned_service_code", { raw("false"); }), (AuthorizesGuestLoad, "authorizes_guest_load", { raw("false"); }), (CanLoadNow, "can_load_now", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedManifestReferenceEventId, "retained_manifest_reference_event_id", { json_event_id(binding.retained_manifest_reference_event_id); }), (RetainedComputedGrantReferenceEventId, "retained_computed_grant_reference_event_id", { json_event_id(binding.retained_reference_event_id); }), (Hashes, "hashes", { raw("{\"artifact_reference_hash\": "); json_sha256(binding.artifact_reference_hash); raw(", \"manifest_reference_hash\": "); json_sha256(binding.manifest_reference_hash); raw(", \"manifest_hash\": "); json_sha256(binding.manifest_hash); raw(", \"computed_capability_grant_hash\": "); json_sha256(binding.computed_grant_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"vm_test_report_hash\": "); json_sha256(binding.vm_report_hash); raw(", \"local_attestation_hash\": "); json_sha256(binding.local_attestation_hash); raw("}"); }), }
+
+fn emit_module_candidate_artifact_reference_binding(
+    kind: &str,
+    binding: &event_log::ModuleCandidateArtifactReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_CANDIDATE_ARTIFACT_REFERENCE_BINDING_FIELDS,
+        emit_module_candidate_artifact_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleVmTestReportReferenceBindingField, MODULE_VM_TEST_REPORT_REFERENCE_BINDING_FIELDS, emit_module_vm_test_report_reference_binding_value, event_log::ModuleVmTestReportReference, binding, _kind; (Schema, "schema", { raw("\"raios.module_vm_test_report_reference.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (LoadMode, "load_mode", { raw("\"ram_only\""); }), (VmTestReportSchema, "vm_test_report_schema", { raw("\"raios.vm_test_report.v0\""); }), (AcceptsManifestJson, "accepts_manifest_json", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (AcceptsVmReportJson, "accepts_vm_report_json", { raw("false"); }), (AcceptsUnsignedServiceCode, "accepts_unsigned_service_code", { raw("false"); }), (AuthorizesGuestLoad, "authorizes_guest_load", { raw("false"); }), (CanLoadNow, "can_load_now", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedManifestReferenceEventId, "retained_manifest_reference_event_id", { json_event_id(binding.retained_manifest_reference_event_id); }), (RetainedCandidateArtifactReferenceEventId, "retained_candidate_artifact_reference_event_id", { json_event_id(binding.retained_artifact_reference_event_id); }), (RetainedComputedGrantReferenceEventId, "retained_computed_grant_reference_event_id", { json_event_id(binding.retained_reference_event_id); }), (Hashes, "hashes", { raw("{\"vm_test_report_reference_hash\": "); json_sha256(binding.report_reference_hash); raw(", \"manifest_reference_hash\": "); json_sha256(binding.manifest_reference_hash); raw(", \"artifact_reference_hash\": "); json_sha256(binding.artifact_reference_hash); raw(", \"manifest_hash\": "); json_sha256(binding.manifest_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"computed_capability_grant_hash\": "); json_sha256(binding.computed_grant_hash); raw(", \"vm_test_report_hash\": "); json_sha256(binding.vm_report_hash); raw(", \"local_attestation_hash\": "); json_sha256(binding.local_attestation_hash); raw("}"); }), }
+
+fn emit_module_vm_test_report_reference_binding(
+    kind: &str,
+    binding: &event_log::ModuleVmTestReportReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_VM_TEST_REPORT_REFERENCE_BINDING_FIELDS,
+        emit_module_vm_test_report_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleLocalAttestationReferenceBindingField, MODULE_LOCAL_ATTESTATION_REFERENCE_BINDING_FIELDS, emit_module_local_attestation_reference_binding_value, event_log::ModuleLocalAttestationReference, binding, _kind; (Schema, "schema", { raw("\"raios.module_local_attestation_reference.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (LoadMode, "load_mode", { raw("\"ram_only\""); }), (LocalAttestationSchema, "local_attestation_schema", { raw("\"raios.local_attestation.v0\""); }), (AcceptsLocalAttestationJson, "accepts_local_attestation_json", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (AcceptsUnsignedServiceCode, "accepts_unsigned_service_code", { raw("false"); }), (AuthorizesGuestLoad, "authorizes_guest_load", { raw("false"); }), (CanLoadNow, "can_load_now", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedManifestReferenceEventId, "retained_manifest_reference_event_id", { json_event_id(binding.retained_manifest_reference_event_id); }), (RetainedCandidateArtifactReferenceEventId, "retained_candidate_artifact_reference_event_id", { json_event_id(binding.retained_artifact_reference_event_id); }), (RetainedVmTestReportReferenceEventId, "retained_vm_test_report_reference_event_id", { json_event_id(binding.retained_vm_report_reference_event_id); }), (RetainedComputedGrantReferenceEventId, "retained_computed_grant_reference_event_id", { json_event_id(binding.retained_reference_event_id); }), (Hashes, "hashes", { raw("{\"local_attestation_reference_hash\": "); json_sha256(binding.attestation_reference_hash); raw(", \"manifest_reference_hash\": "); json_sha256(binding.manifest_reference_hash); raw(", \"artifact_reference_hash\": "); json_sha256(binding.artifact_reference_hash); raw(", \"vm_test_report_reference_hash\": "); json_sha256(binding.vm_report_reference_hash); raw(", \"manifest_hash\": "); json_sha256(binding.manifest_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"computed_capability_grant_hash\": "); json_sha256(binding.computed_grant_hash); raw(", \"vm_test_report_hash\": "); json_sha256(binding.vm_report_hash); raw(", \"local_attestation_hash\": "); json_sha256(binding.local_attestation_hash); raw("}"); }), }
+
+fn emit_module_local_attestation_reference_binding(
+    kind: &str,
+    binding: &event_log::ModuleLocalAttestationReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOCAL_ATTESTATION_REFERENCE_BINDING_FIELDS,
+        emit_module_local_attestation_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleLocalApprovalReferenceBindingField, MODULE_LOCAL_APPROVAL_REFERENCE_BINDING_FIELDS, emit_module_local_approval_reference_binding_value, event_log::ModuleLocalApprovalReference, binding, _kind; (Schema, "schema", { raw("\"raios.module_local_approval_reference.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (LoadMode, "load_mode", { raw("\"ram_only\""); }), (LocalApprovalSchema, "local_approval_schema", { raw("\"raios.local_approval.v0\""); }), (AcceptsLocalApprovalText, "accepts_local_approval_text", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (AcceptsUnsignedServiceCode, "accepts_unsigned_service_code", { raw("false"); }), (AuthorizesGuestLoad, "authorizes_guest_load", { raw("false"); }), (CanLoadNow, "can_load_now", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedManifestReferenceEventId, "retained_manifest_reference_event_id", { json_event_id(binding.retained_manifest_reference_event_id); }), (RetainedCandidateArtifactReferenceEventId, "retained_candidate_artifact_reference_event_id", { json_event_id(binding.retained_artifact_reference_event_id); }), (RetainedVmTestReportReferenceEventId, "retained_vm_test_report_reference_event_id", { json_event_id(binding.retained_vm_report_reference_event_id); }), (RetainedLocalAttestationReferenceEventId, "retained_local_attestation_reference_event_id", { json_event_id(binding.retained_local_attestation_reference_event_id); }), (RetainedComputedGrantReferenceEventId, "retained_computed_grant_reference_event_id", { json_event_id(binding.retained_reference_event_id); }), (Hashes, "hashes", { raw("{\"local_approval_reference_hash\": "); json_sha256(binding.approval_reference_hash); raw(", \"manifest_reference_hash\": "); json_sha256(binding.manifest_reference_hash); raw(", \"artifact_reference_hash\": "); json_sha256(binding.artifact_reference_hash); raw(", \"vm_test_report_reference_hash\": "); json_sha256(binding.vm_report_reference_hash); raw(", \"local_attestation_reference_hash\": "); json_sha256(binding.local_attestation_reference_hash); raw(", \"manifest_hash\": "); json_sha256(binding.manifest_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"computed_capability_grant_hash\": "); json_sha256(binding.computed_grant_hash); raw(", \"vm_test_report_hash\": "); json_sha256(binding.vm_report_hash); raw(", \"local_attestation_hash\": "); json_sha256(binding.local_attestation_hash); raw(", \"local_approval_hash\": "); json_sha256(binding.local_approval_hash); raw("}"); }), }
+
+fn emit_module_local_approval_reference_binding(
+    kind: &str,
+    binding: &event_log::ModuleLocalApprovalReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOCAL_APPROVAL_REFERENCE_BINDING_FIELDS,
+        emit_module_local_approval_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleComputedGrantReferenceBindingField, MODULE_COMPUTED_GRANT_REFERENCE_BINDING_FIELDS, emit_module_computed_grant_reference_binding_value, event_log::ModuleComputedGrantReference, binding, _kind; (Schema, "schema", { raw("\"raios.module_computed_grant_reference.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (LoadMode, "load_mode", { raw("\"ram_only\""); }), (GrantsCapability, "grants_capability", { raw("false"); }), (GrantsLoadNow, "grants_load_now", { raw("false"); }), (AuthorizesGuestLoad, "authorizes_guest_load", { raw("false"); }), (CanLoadNow, "can_load_now", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (Hashes, "hashes", { raw("{\"computed_capability_grant_hash\": "); json_sha256(binding.computed_grant_hash); raw(", \"manifest_hash\": "); json_sha256(binding.manifest_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"vm_test_report_hash\": "); json_sha256(binding.vm_report_hash); raw(", \"local_attestation_hash\": "); json_sha256(binding.local_attestation_hash); raw("}"); }), }
+
+fn emit_module_computed_grant_reference_binding(
+    kind: &str,
+    binding: &event_log::ModuleComputedGrantReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_COMPUTED_GRANT_REFERENCE_BINDING_FIELDS,
+        emit_module_computed_grant_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleAuditRollbackReferenceBindingField, MODULE_AUDIT_ROLLBACK_REFERENCE_BINDING_FIELDS, emit_module_audit_rollback_reference_binding_value, event_log::ModuleAuditRollbackReference, binding, _kind; (Schema, "schema", { raw("\"raios.module_audit_rollback_reference.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (LoadMode, "load_mode", { raw("\"ram_only\""); }), (DurableAuditWritten, "durable_audit_written", { raw("false"); }), (RollbackPlanInstalled, "rollback_plan_installed", { raw("false"); }), (GrantsCapability, "grants_capability", { raw("false"); }), (GrantsLoadNow, "grants_load_now", { raw("false"); }), (AuthorizesGuestLoad, "authorizes_guest_load", { raw("false"); }), (CanLoadNow, "can_load_now", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (DenialEventId, "denial_event_id", { json_event_id(binding.denial_event_id); }), (RetainedComputedGrantReferenceEventId, "retained_computed_grant_reference_event_id", { json_event_id(binding.retained_reference_event_id); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { json_str(binding.ram_only_service_slot_id.as_str()); }), (Hashes, "hashes", { raw("{\"audit_record_hash\": "); json_sha256(binding.audit_record_hash); raw(", \"rollback_plan_hash\": "); json_sha256(binding.rollback_plan_hash); raw(", \"computed_capability_grant_hash\": "); json_sha256(binding.computed_grant_hash); raw(", \"manifest_hash\": "); json_sha256(binding.manifest_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"vm_test_report_hash\": "); json_sha256(binding.vm_report_hash); raw(", \"local_attestation_hash\": "); json_sha256(binding.local_attestation_hash); raw(", \"local_approval_hash\": "); json_sha256(binding.local_approval_hash); raw(", \"pre_load_service_inventory_hash\": "); json_sha256(binding.pre_load_service_inventory_hash); raw(", \"cleanup_actions_hash\": "); json_sha256(binding.cleanup_actions_hash); raw("}"); }), }
+
+fn emit_module_audit_rollback_reference_binding(
+    kind: &str,
+    binding: &event_log::ModuleAuditRollbackReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_AUDIT_ROLLBACK_REFERENCE_BINDING_FIELDS,
+        emit_module_audit_rollback_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleServiceSlotReservationBindingField, MODULE_SERVICE_SLOT_RESERVATION_BINDING_FIELDS, emit_module_service_slot_reservation_binding_value, event_log::ModuleServiceSlotReservation, binding, _kind; (Schema, "schema", { raw("\"raios.module_service_slot_reservation.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (LoadMode, "load_mode", { raw("\"ram_only\""); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (GrantsCapability, "grants_capability", { raw("false"); }), (GrantsLoadNow, "grants_load_now", { raw("false"); }), (AuthorizesGuestLoad, "authorizes_guest_load", { raw("false"); }), (CanLoadNow, "can_load_now", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedComputedGrantReferenceEventId, "retained_computed_grant_reference_event_id", { json_event_id(binding.retained_reference_event_id); }), (RetainedAuditRollbackReferenceEventId, "retained_audit_rollback_reference_event_id", { json_event_id(binding.retained_audit_rollback_reference_event_id); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { json_str(binding.ram_only_service_slot_id.as_str()); }), (Hashes, "hashes", { raw("{\"reservation_hash\": "); json_sha256(binding.reservation_hash); raw(", \"computed_capability_grant_hash\": "); json_sha256(binding.computed_grant_hash); raw(", \"audit_record_hash\": "); json_sha256(binding.audit_record_hash); raw(", \"rollback_plan_hash\": "); json_sha256(binding.rollback_plan_hash); raw(", \"pre_load_service_inventory_hash\": "); json_sha256(binding.pre_load_service_inventory_hash); raw("}"); }), }
+
+fn emit_module_service_slot_reservation_binding(
+    kind: &str,
+    binding: &event_log::ModuleServiceSlotReservation,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_SERVICE_SLOT_RESERVATION_BINDING_FIELDS,
+        emit_module_service_slot_reservation_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleServiceSlotAllocatorFactSourceEvidenceBindingField, MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_service_slot_allocator_fact_source_evidence_binding_value, event_log::ModuleServiceSlotAllocatorFactSourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (FactSchema, "fact_schema", { json_str(binding.fact_schema); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (FactId, "fact_id", { json_str(binding.fact_id); }), (FactStatus, "fact_status", { json_str(binding.fact_status); }), (FactReason, "fact_reason", { json_str(binding.fact_reason); }), (FactPresent, "fact_present", { raw_bool(binding.fact_present); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (AllocatorRuntimeSourceEvidencePresent, "allocator_runtime_source_evidence_present", { raw_bool(binding.allocator_runtime_source_evidence_present); }), (RetainedServiceSlotReservationEventId, "retained_service_slot_reservation_event_id", { json_event_id_option(binding.retained_service_slot_reservation_event_id); }), (AllocatorRuntimeSourceEvidenceEventId, "allocator_runtime_source_evidence_event_id", { json_event_id_option(binding.allocator_runtime_source_evidence_event_id); }), (BindsRetainedServiceSlotReservation, "binds_retained_service_slot_reservation", { raw_bool(binding.binds_retained_service_slot_reservation); }), (BindsAllocatorRuntime, "binds_allocator_runtime", { raw_bool(binding.binds_allocator_runtime); }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadAttempted, "load_attempted", { raw("false"); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_service_slot_allocator_fact_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleServiceSlotAllocatorFactSourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_SERVICE_SLOT_ALLOCATOR_FACT_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_service_slot_allocator_fact_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleServiceSlotAllocatorPrerequisiteSourceEvidenceBindingField, MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_service_slot_allocator_prerequisite_source_evidence_binding_value, event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (PrerequisiteSchema, "prerequisite_schema", { json_str(binding.prerequisite_schema); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (PrerequisiteId, "prerequisite_id", { json_str(binding.prerequisite_id); }), (PrerequisiteStatus, "prerequisite_status", { json_str(binding.prerequisite_status); }), (PrerequisiteReason, "prerequisite_reason", { json_str(binding.prerequisite_reason); }), (PrerequisiteAvailable, "prerequisite_available", { raw_bool(binding.prerequisite_available); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (AllocatorRuntimeAvailable, "allocator_runtime_available", { raw_bool(binding.allocator_runtime_available); }), (RegistryBindingAvailable, "registry_binding_available", { raw_bool(binding.registry_binding_available); }), (HealthStateAvailable, "health_state_available", { raw_bool(binding.health_state_available); }), (UnloadCleanupAvailable, "unload_cleanup_available", { raw_bool(binding.unload_cleanup_available); }), (AllocatorRuntimeSourceEvidenceEventId, "allocator_runtime_source_evidence_event_id", { json_event_id_option(binding.allocator_runtime_source_evidence_event_id); }), (RegistryBindingSourceEvidenceEventId, "registry_binding_source_evidence_event_id", { json_event_id_option(binding.registry_binding_source_evidence_event_id); }), (HealthStateSourceEvidenceEventId, "health_state_source_evidence_event_id", { json_event_id_option(binding.health_state_source_evidence_event_id); }), (UnloadCleanupSourceEvidenceEventId, "unload_cleanup_source_evidence_event_id", { json_event_id_option(binding.unload_cleanup_source_evidence_event_id); }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadAttempted, "load_attempted", { raw("false"); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_service_slot_allocator_prerequisite_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleServiceSlotAllocatorPrerequisiteSourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_SERVICE_SLOT_ALLOCATOR_PREREQUISITE_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_service_slot_allocator_prerequisite_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleServiceSlotAllocatorAuthoritySourceEvidenceBindingField, MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_service_slot_allocator_authority_source_evidence_binding_value, event_log::ModuleServiceSlotAllocatorAuthoritySourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (AuthoritySchema, "authority_schema", { json_str(binding.authority_schema); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (AuthorityId, "authority_id", { json_str(binding.authority_id); }), (AuthorityStatus, "authority_status", { json_str(binding.authority_status); }), (AuthorityReason, "authority_reason", { json_str(binding.authority_reason); }), (AuthorityPresent, "authority_present", { raw_bool(binding.authority_present); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (AllocatorRuntimeSourceEvidenceEventId, "allocator_runtime_source_evidence_event_id", { json_event_id_option(binding.allocator_runtime_source_evidence_event_id); }), (RegistryBindingSourceEvidenceEventId, "registry_binding_source_evidence_event_id", { json_event_id_option(binding.registry_binding_source_evidence_event_id); }), (HealthStateSourceEvidenceEventId, "health_state_source_evidence_event_id", { json_event_id_option(binding.health_state_source_evidence_event_id); }), (UnloadCleanupSourceEvidenceEventId, "unload_cleanup_source_evidence_event_id", { json_event_id_option(binding.unload_cleanup_source_evidence_event_id); }), (DurableAuditSourceEvidenceEventId, "durable_audit_source_evidence_event_id", { json_event_id_option(binding.durable_audit_source_evidence_event_id); }), (RollbackInstallSourceEvidenceEventId, "rollback_install_source_evidence_event_id", { json_event_id_option(binding.rollback_install_source_evidence_event_id); }), (ModuleLoaderSourceEvidenceEventId, "module_loader_source_evidence_event_id", { json_event_id_option(binding.module_loader_source_evidence_event_id); }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (FutureAuthorityInputsNamed, "future_authority_inputs_named", { raw("true"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadAttempted, "load_attempted", { raw("false"); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_service_slot_allocator_authority_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleServiceSlotAllocatorAuthoritySourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_service_slot_allocator_authority_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleServiceSlotAllocationIntentSourceEvidenceBindingField, MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_service_slot_allocation_intent_source_evidence_binding_value, event_log::ModuleServiceSlotAllocationIntentSourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (IntentSchema, "intent_schema", { json_str(binding.intent_schema); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { json_str(binding.requested_capability); }), (LoadMode, "load_mode", { json_str(binding.load_mode); }), (Target, "target", { json_str(binding.target); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (IntentId, "intent_id", { json_str(binding.intent_id); }), (IntentStatus, "intent_status", { json_str(binding.intent_status); }), (IntentReason, "intent_reason", { json_str(binding.intent_reason); }), (IntentPresent, "intent_present", { raw_bool(binding.intent_present); }), (IntentScope, "intent_scope", { json_str(binding.intent_scope); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (ManifestReferenceEventId, "manifest_reference_event_id", { json_event_id_option(binding.manifest_reference_event_id); }), (CandidateArtifactReferenceEventId, "candidate_artifact_reference_event_id", { json_event_id_option(binding.artifact_reference_event_id); }), (VmTestReportReferenceEventId, "vm_test_report_reference_event_id", { json_event_id_option(binding.vm_report_reference_event_id); }), (LocalAttestationReferenceEventId, "local_attestation_reference_event_id", { json_event_id_option(binding.local_attestation_reference_event_id); }), (LocalApprovalReferenceEventId, "local_approval_reference_event_id", { json_event_id_option(binding.local_approval_reference_event_id); }), (ComputedGrantReferenceEventId, "computed_grant_reference_event_id", { json_event_id_option(binding.computed_grant_reference_event_id); }), (AuditRollbackReferenceEventId, "audit_rollback_reference_event_id", { json_event_id_option(binding.audit_rollback_reference_event_id); }), (ServiceSlotReservationEventId, "service_slot_reservation_event_id", { json_event_id_option(binding.service_slot_reservation_event_id); }), (AllocatorAuthoritySourceEvidenceEventId, "allocator_authority_source_evidence_event_id", { json_event_id_option(binding.allocator_authority_source_evidence_event_id); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str()); } else { raw("null"); } }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadAttempted, "load_attempted", { raw("false"); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_service_slot_allocation_intent_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleServiceSlotAllocationIntentSourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_SERVICE_SLOT_ALLOCATION_INTENT_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_service_slot_allocation_intent_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleServiceSlotAuthorityInputSourceEvidenceBindingField, MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_service_slot_authority_input_source_evidence_binding_value, event_log::ModuleServiceSlotAuthorityInputSourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (InputSchema, "input_schema", { json_str(binding.input_schema); }), (InputId, "input_id", { json_str(binding.input_id); }), (InputName, "input_name", { json_str(binding.input_name); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { json_str(binding.requested_capability); }), (LoadMode, "load_mode", { json_str(binding.load_mode); }), (Target, "target", { json_str(binding.target); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (InputStatus, "input_status", { json_str(binding.input_status); }), (InputReason, "input_reason", { json_str(binding.input_reason); }), (InputPresent, "input_present", { raw_bool(binding.input_present); }), (InputScope, "input_scope", { json_str(binding.input_scope); }), (DependencySchema, "dependency_schema", { json_str(binding.dependency_schema); }), (DependencySourceEvidenceEventId, "dependency_source_evidence_event_id", { json_event_id_option(binding.dependency_source_evidence_event_id); }), (DependencyPresent, "dependency_present", { raw_bool(binding.dependency_present); }), (RetainedModuleEvidencePresent, "retained_module_evidence_present", { raw_bool(binding.retained_module_evidence_present); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (AllocatorAuthorityPresent, "allocator_authority_present", { raw_bool(binding.allocator_authority_present); }), (AllocationIntentSourceEvidenceEventId, "allocation_intent_source_evidence_event_id", { json_event_id_option(binding.allocation_intent_source_evidence_event_id); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (ServiceSlotReservationEventId, "service_slot_reservation_event_id", { json_event_id_option(binding.service_slot_reservation_event_id); }), (AllocatorAuthoritySourceEvidenceEventId, "allocator_authority_source_evidence_event_id", { json_event_id_option(binding.allocator_authority_source_evidence_event_id); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str()); } else { raw("null"); } }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadAttempted, "load_attempted", { raw("false"); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_service_slot_authority_input_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleServiceSlotAuthorityInputSourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_SERVICE_SLOT_AUTHORITY_INPUT_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_service_slot_authority_input_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidenceBindingField, MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_service_slot_allocator_authority_decision_source_evidence_binding_value, event_log::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (DecisionSchema, "decision_schema", { json_str(binding.decision_schema); }), (DecisionId, "decision_id", { json_str(binding.decision_id); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { json_str(binding.requested_capability); }), (LoadMode, "load_mode", { json_str(binding.load_mode); }), (Target, "target", { json_str(binding.target); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (DecisionStatus, "decision_status", { json_str(binding.decision_status); }), (DecisionReason, "decision_reason", { json_str(binding.decision_reason); }), (DecisionPresent, "decision_present", { raw_bool(binding.decision_present); }), (DecisionScope, "decision_scope", { json_str(binding.decision_scope); }), (AllocatorAuthorityPresent, "allocator_authority_present", { raw_bool(binding.allocator_authority_present); }), (AllocationIntentPresent, "allocation_intent_present", { raw_bool(binding.allocation_intent_present); }), (AuthorityInputsComplete, "authority_inputs_complete", { raw_bool(binding.authority_inputs_complete); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (AllocatorAuthoritySourceEvidenceEventId, "allocator_authority_source_evidence_event_id", { json_event_id_option(binding.allocator_authority_source_evidence_event_id); }), (AllocationIntentSourceEvidenceEventId, "allocation_intent_source_evidence_event_id", { json_event_id_option(binding.allocation_intent_source_evidence_event_id); }), (AuthorityInputSourceEvidenceEventIds, "authority_input_source_evidence_event_ids", { raw("["); let mut idx = 0usize; while idx < binding.authority_input_source_evidence_event_ids.len() { json_event_id_option(binding.authority_input_source_evidence_event_ids[idx]); if idx + 1 != binding.authority_input_source_evidence_event_ids.len() { raw(", "); } idx += 1; } raw("]"); }), (AuthorityInputPresent, "authority_input_present", { raw("["); let mut idx = 0usize; while idx < binding.authority_input_present.len() { raw_bool(binding.authority_input_present[idx]); if idx + 1 != binding.authority_input_present.len() { raw(", "); } idx += 1; } raw("]"); }), (RetainedModuleEvidencePresent, "retained_module_evidence_present", { raw_bool(binding.retained_module_evidence_present); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (ServiceSlotReservationEventId, "service_slot_reservation_event_id", { json_event_id_option(binding.service_slot_reservation_event_id); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str()); } else { raw("null"); } }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadAttempted, "load_attempted", { raw("false"); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_service_slot_allocator_authority_decision_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_SERVICE_SLOT_ALLOCATOR_AUTHORITY_DECISION_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_service_slot_allocator_authority_decision_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleServiceSlotRegistryWriteCommitGateSourceEvidenceBindingField, MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_service_slot_registry_write_commit_gate_source_evidence_binding_value, event_log::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (GateSchema, "gate_schema", { json_str(binding.gate_schema); }), (GateId, "gate_id", { json_str(binding.gate_id); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { json_str(binding.requested_capability); }), (LoadMode, "load_mode", { json_str(binding.load_mode); }), (Target, "target", { json_str(binding.target); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (GateStatus, "gate_status", { json_str(binding.gate_status); }), (GateReason, "gate_reason", { json_str(binding.gate_reason); }), (GatePresent, "gate_present", { raw_bool(binding.gate_present); }), (GateScope, "gate_scope", { json_str(binding.gate_scope); }), (GateSchemaOk, "gate_schema_ok", { raw_bool(binding.gate_schema_ok); }), (GateProvenanceOk, "gate_provenance_ok", { raw_bool(binding.gate_provenance_ok); }), (GateClassification, "gate_classification", { json_str(binding.gate_classification); }), (AuthorityDecisionPresent, "authority_decision_present", { raw_bool(binding.authority_decision_present); }), (RegistryWriteAuthorityPresent, "registry_write_authority_present", { raw_bool(binding.registry_write_authority_present); }), (RegistryBindingAvailable, "registry_binding_available", { raw_bool(binding.registry_binding_available); }), (DurableAuditWriteAvailable, "durable_audit_write_available", { raw_bool(binding.durable_audit_write_available); }), (RollbackPlanInstallAvailable, "rollback_plan_install_available", { raw_bool(binding.rollback_plan_install_available); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (AuthorityDecisionSourceEvidenceEventId, "authority_decision_source_evidence_event_id", { json_event_id_option(binding.authority_decision_source_evidence_event_id); }), (RegistryWriteAuthoritySourceEvidenceEventId, "registry_write_authority_source_evidence_event_id", { json_event_id_option(binding.registry_write_authority_source_evidence_event_id); }), (RegistryBindingSourceEvidenceEventId, "registry_binding_source_evidence_event_id", { json_event_id_option(binding.registry_binding_source_evidence_event_id); }), (DurableAuditSourceEvidenceEventId, "durable_audit_source_evidence_event_id", { json_event_id_option(binding.durable_audit_source_evidence_event_id); }), (RollbackInstallSourceEvidenceEventId, "rollback_install_source_evidence_event_id", { json_event_id_option(binding.rollback_install_source_evidence_event_id); }), (ServiceSlotReservationEventId, "service_slot_reservation_event_id", { json_event_id_option(binding.service_slot_reservation_event_id); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str()); } else { raw("null"); } }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AuthorizesRegistryWrite, "authorizes_registry_write", { raw_bool(binding.authorizes_registry_write); }), (MutatesServiceRegistry, "mutates_service_registry", { raw_bool(binding.mutates_service_registry); }), (WritesDurableAuditState, "writes_durable_audit_state", { raw_bool(binding.writes_durable_audit_state); }), (InstallsRollbackState, "installs_rollback_state", { raw_bool(binding.installs_rollback_state); }), (AllocatesServiceSlot, "allocates_service_slot", { raw_bool(binding.allocates_service_slot); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadsArtifact, "loads_artifact", { raw_bool(binding.loads_artifact); }), (LoadAttempted, "load_attempted", { raw_bool(binding.loads_artifact); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_service_slot_registry_write_commit_gate_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleServiceSlotRegistryWriteCommitGateSourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_SERVICE_SLOT_REGISTRY_WRITE_COMMIT_GATE_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_service_slot_registry_write_commit_gate_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleLoaderIdentitySourceEvidenceBindingField, MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_loader_identity_source_evidence_binding_value, event_log::ModuleLoaderIdentitySourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (FactSchema, "fact_schema", { json_str(binding.fact_schema); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (FactId, "fact_id", { json_str(binding.fact_id); }), (IdentityStatus, "identity_status", { json_str(binding.identity_status); }), (IdentityReason, "identity_reason", { json_str(binding.identity_reason); }), (IdentityPresent, "identity_present", { raw_bool(binding.identity_present); }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (LoadsArtifact, "loads_artifact", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadAttempted, "load_attempted", { raw("false"); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), (RetainedModuleEvidencePresent, "retained_module_evidence_present", { raw_bool(binding.retained_module_evidence_present); }), (ServiceSlotAllocatorReadinessPresent, "service_slot_allocator_readiness_present", { raw_bool(binding.service_slot_allocator_readiness_present); }), (ServiceSlotAllocatorReady, "service_slot_allocator_ready", { raw_bool(binding.service_slot_allocator_ready); }), (AuditRollbackWriteBoundaryPresent, "audit_rollback_write_boundary_present", { raw_bool(binding.audit_rollback_write_boundary_present); }), (RetainedModuleEvidenceEventIds, "retained_module_evidence_event_ids", { raw("{\"manifest_reference_event_id\": "); json_event_id_option(binding.manifest_reference_event_id); raw(", \"candidate_artifact_reference_event_id\": "); json_event_id_option(binding.artifact_reference_event_id); raw(", \"vm_test_report_reference_event_id\": "); json_event_id_option(binding.vm_test_report_reference_event_id); raw(", \"local_attestation_reference_event_id\": "); json_event_id_option(binding.local_attestation_reference_event_id); raw(", \"local_approval_reference_event_id\": "); json_event_id_option(binding.local_approval_reference_event_id); raw(", \"computed_grant_reference_event_id\": "); json_event_id_option(binding.computed_grant_reference_event_id); raw(", \"audit_rollback_reference_event_id\": "); json_event_id_option(binding.audit_rollback_reference_event_id); raw(", \"service_slot_reservation_event_id\": "); json_event_id_option(binding.service_slot_reservation_event_id); raw("}"); }), }
+
+fn emit_module_loader_identity_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleLoaderIdentitySourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOADER_IDENTITY_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_loader_identity_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleLoaderArtifactHashBindingSourceEvidenceBindingField, MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_loader_artifact_hash_binding_source_evidence_binding_value, event_log::ModuleLoaderArtifactHashBindingSourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (FactSchema, "fact_schema", { json_str(binding.fact_schema); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (FactId, "fact_id", { json_str(binding.fact_id); }), (ArtifactHashBindingStatus, "artifact_hash_binding_status", { json_str(binding.artifact_hash_binding_status); }), (ArtifactHashBindingReason, "artifact_hash_binding_reason", { json_str(binding.artifact_hash_binding_reason); }), (ArtifactHashBindingPresent, "artifact_hash_binding_present", { raw_bool(binding.artifact_hash_binding_present); }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (LoadsArtifact, "loads_artifact", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadAttempted, "load_attempted", { raw("false"); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), (RetainedModuleEvidencePresent, "retained_module_evidence_present", { raw_bool(binding.retained_module_evidence_present); }), (ServiceSlotAllocatorReadinessPresent, "service_slot_allocator_readiness_present", { raw_bool(binding.service_slot_allocator_readiness_present); }), (ServiceSlotAllocatorReady, "service_slot_allocator_ready", { raw_bool(binding.service_slot_allocator_ready); }), (AuditRollbackWriteBoundaryPresent, "audit_rollback_write_boundary_present", { raw_bool(binding.audit_rollback_write_boundary_present); }), (LoaderIdentityPresent, "loader_identity_present", { raw_bool(binding.loader_identity_present); }), (BindsLoaderIdentity, "binds_loader_identity", { raw_bool(binding.binds_loader_identity); }), (LoaderIdentitySourceEvidenceEventId, "loader_identity_source_evidence_event_id", { json_event_id_option(binding.loader_identity_source_evidence_event_id); }), }
+
+fn emit_module_loader_artifact_hash_binding_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleLoaderArtifactHashBindingSourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOADER_ARTIFACT_HASH_BINDING_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_loader_artifact_hash_binding_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleLoaderFactSourceEvidenceBindingField, MODULE_LOADER_FACT_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_loader_fact_source_evidence_binding_value, event_log::ModuleLoaderFactSourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (FactSchema, "fact_schema", { json_str(binding.fact_schema); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.module.load_ephemeral\""); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (FactId, "fact_id", { json_str(binding.fact_id); }), (FactStatus, "fact_status", { json_str(binding.fact_status); }), (FactReason, "fact_reason", { json_str(binding.fact_reason); }), (FactPresent, "fact_present", { raw_bool(binding.fact_present); }), (DependencyGate, "dependency_gate", { json_str(binding.dependency_gate); }), (DependencySchema, "dependency_schema", { json_str(binding.dependency_schema); }), (DependencyMethod, "dependency_method", { json_str(binding.dependency_method); }), (DependencyPresent, "dependency_present", { raw_bool(binding.dependency_present); }), (DependencySourceEvidenceEventId, "dependency_source_evidence_event_id", { json_event_id_option(binding.dependency_source_evidence_event_id); }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (LoadsArtifact, "loads_artifact", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadAttempted, "load_attempted", { raw("false"); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), (RetainedModuleEvidencePresent, "retained_module_evidence_present", { raw_bool(binding.retained_module_evidence_present); }), (ServiceSlotAllocatorReadinessPresent, "service_slot_allocator_readiness_present", { raw_bool(binding.service_slot_allocator_readiness_present); }), (ServiceSlotAllocatorReady, "service_slot_allocator_ready", { raw_bool(binding.service_slot_allocator_ready); }), (AuditRollbackWriteBoundaryPresent, "audit_rollback_write_boundary_present", { raw_bool(binding.audit_rollback_write_boundary_present); }), (BindsRetainedModuleEvidence, "binds_retained_module_evidence", { raw_bool(binding.binds_retained_module_evidence); }), (BindsServiceSlotAllocator, "binds_service_slot_allocator", { raw_bool(binding.binds_service_slot_allocator); }), (BindsAuditRollbackWriteBoundary, "binds_audit_rollback_write_boundary", { raw_bool(binding.binds_audit_rollback_write_boundary); }), (BindsDependency, "binds_dependency", { raw_bool(binding.binds_dependency); }), }
+
+fn emit_module_loader_fact_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleLoaderFactSourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOADER_FACT_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_loader_fact_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleLoaderRuntimeExecutionCommitGateSourceEvidenceBindingField, MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_loader_runtime_execution_commit_gate_source_evidence_binding_value, event_log::ModuleLoaderRuntimeExecutionCommitGateSourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (GateSchema, "gate_schema", { json_str(binding.gate_schema); }), (GateId, "gate_id", { json_str(binding.gate_id); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { json_str(binding.requested_capability); }), (LoadMode, "load_mode", { json_str(binding.load_mode); }), (Target, "target", { json_str(binding.target); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (GateStatus, "gate_status", { json_str(binding.gate_status); }), (GateReason, "gate_reason", { json_str(binding.gate_reason); }), (GatePresent, "gate_present", { raw_bool(binding.gate_present); }), (GateScope, "gate_scope", { json_str(binding.gate_scope); }), (GateSchemaOk, "gate_schema_ok", { raw_bool(binding.gate_schema_ok); }), (GateProvenanceOk, "gate_provenance_ok", { raw_bool(binding.gate_provenance_ok); }), (GateClassification, "gate_classification", { json_str(binding.gate_classification); }), (AuthorityDecisionPresent, "authority_decision_present", { raw_bool(binding.authority_decision_present); }), (LoaderRuntimeContractPresent, "loader_runtime_contract_present", { raw_bool(binding.loader_runtime_contract_present); }), (LoaderRuntimeSourceEvidenceComplete, "loader_runtime_source_evidence_complete", { raw_bool(binding.loader_runtime_source_evidence_complete); }), (ServiceSlotBindingSourceEvidencePresent, "service_slot_binding_source_evidence_present", { raw_bool(binding.service_slot_binding_source_evidence_present); }), (ServiceSlotBindingFactPresent, "service_slot_binding_fact_present", { raw_bool(binding.service_slot_binding_fact_present); }), (AuditRollbackWriteBoundarySourceEvidencePresent, "audit_rollback_write_boundary_source_evidence_present", { raw_bool(binding.audit_rollback_write_boundary_source_evidence_present); }), (AuditRollbackWriteBoundaryFactPresent, "audit_rollback_write_boundary_fact_present", { raw_bool(binding.audit_rollback_write_boundary_fact_present); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (AuthorityDecisionSourceEvidenceEventId, "authority_decision_source_evidence_event_id", { json_event_id_option(binding.authority_decision_source_evidence_event_id); }), (LoaderRuntimeContractSourceEvidenceEventId, "loader_runtime_contract_source_evidence_event_id", { json_event_id_option(binding.loader_runtime_contract_source_evidence_event_id); }), (LoaderRuntimeSourceEvidenceEventIds, "loader_runtime_source_evidence_event_ids", { raw("["); let mut idx = 0usize; while idx < binding.loader_runtime_source_evidence_event_ids.len() { json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]); if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() { raw(", "); } idx += 1; } raw("]"); }), (LoaderRuntimeSourceEvidencePresent, "loader_runtime_source_evidence_present", { raw("["); let mut idx = 0usize; while idx < binding.loader_runtime_source_evidence_present.len() { raw_bool(binding.loader_runtime_source_evidence_present[idx]); if idx + 1 != binding.loader_runtime_source_evidence_present.len() { raw(", "); } idx += 1; } raw("]"); }), (LoaderRuntimeFactPresent, "loader_runtime_fact_present", { raw("["); let mut idx = 0usize; while idx < binding.loader_runtime_fact_present.len() { raw_bool(binding.loader_runtime_fact_present[idx]); if idx + 1 != binding.loader_runtime_fact_present.len() { raw(", "); } idx += 1; } raw("]"); }), (ServiceSlotReservationEventId, "service_slot_reservation_event_id", { json_event_id_option(binding.service_slot_reservation_event_id); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str()); } else { raw("null"); } }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw_bool(binding.accepts_loader_descriptor); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw_bool(binding.accepts_artifact_bytes); }), (AuthorizesExecution, "authorizes_execution", { raw_bool(binding.authorizes_execution); }), (MutatesServiceRegistry, "mutates_service_registry", { raw_bool(binding.mutates_service_registry); }), (WritesDurableAuditState, "writes_durable_audit_state", { raw_bool(binding.writes_durable_audit_state); }), (InstallsRollbackState, "installs_rollback_state", { raw_bool(binding.installs_rollback_state); }), (AllocatesServiceSlot, "allocates_service_slot", { raw_bool(binding.allocates_service_slot); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadsArtifact, "loads_artifact", { raw_bool(binding.loads_artifact); }), (LoadAttempted, "load_attempted", { raw_bool(binding.loads_artifact); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_loader_runtime_execution_commit_gate_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleLoaderRuntimeExecutionCommitGateSourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOADER_RUNTIME_EXECUTION_COMMIT_GATE_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_loader_runtime_execution_commit_gate_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleLoaderDescriptorIntakeBoundarySourceEvidenceBindingField, MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_loader_descriptor_intake_boundary_source_evidence_binding_value, event_log::ModuleLoaderDescriptorIntakeBoundarySourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (BoundarySchema, "boundary_schema", { json_str(binding.boundary_schema); }), (BoundaryId, "boundary_id", { json_str(binding.boundary_id); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { json_str(binding.requested_capability); }), (LoadMode, "load_mode", { json_str(binding.load_mode); }), (Target, "target", { json_str(binding.target); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (BoundaryStatus, "boundary_status", { json_str(binding.boundary_status); }), (BoundaryReason, "boundary_reason", { json_str(binding.boundary_reason); }), (BoundaryPresent, "boundary_present", { raw_bool(binding.boundary_present); }), (BoundaryScope, "boundary_scope", { json_str(binding.boundary_scope); }), (BoundarySchemaOk, "boundary_schema_ok", { raw_bool(binding.boundary_schema_ok); }), (BoundaryProvenanceOk, "boundary_provenance_ok", { raw_bool(binding.boundary_provenance_ok); }), (BoundaryClassification, "boundary_classification", { json_str(binding.boundary_classification); }), (RegistryWriteCommitGatePresent, "registry_write_commit_gate_present", { raw_bool(binding.registry_write_commit_gate_present); }), (ExecutionCommitGatePresent, "execution_commit_gate_present", { raw_bool(binding.execution_commit_gate_present); }), (LoaderRuntimeSourceEvidenceComplete, "loader_runtime_source_evidence_complete", { raw_bool(binding.loader_runtime_source_evidence_complete); }), (RetainedModuleEvidencePresent, "retained_module_evidence_present", { raw_bool(binding.retained_module_evidence_present); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (RegistryWriteCommitGateSourceEvidenceEventId, "registry_write_commit_gate_source_evidence_event_id", { json_event_id_option(binding.registry_write_commit_gate_source_evidence_event_id); }), (ExecutionCommitGateSourceEvidenceEventId, "execution_commit_gate_source_evidence_event_id", { json_event_id_option(binding.execution_commit_gate_source_evidence_event_id); }), (LoaderRuntimeSourceEvidenceEventIds, "loader_runtime_source_evidence_event_ids", { raw("["); let mut idx = 0usize; while idx < binding.loader_runtime_source_evidence_event_ids.len() { json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]); if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() { raw(", "); } idx += 1; } raw("]"); }), (LoaderRuntimeSourceEvidencePresent, "loader_runtime_source_evidence_present", { raw("["); let mut idx = 0usize; while idx < binding.loader_runtime_source_evidence_present.len() { raw_bool(binding.loader_runtime_source_evidence_present[idx]); if idx + 1 != binding.loader_runtime_source_evidence_present.len() { raw(", "); } idx += 1; } raw("]"); }), (LoaderRuntimeFactPresent, "loader_runtime_fact_present", { raw("["); let mut idx = 0usize; while idx < binding.loader_runtime_fact_present.len() { raw_bool(binding.loader_runtime_fact_present[idx]); if idx + 1 != binding.loader_runtime_fact_present.len() { raw(", "); } idx += 1; } raw("]"); }), (RetainedModuleEvidenceEventIds, "retained_module_evidence_event_ids", { raw("{\"manifest_reference_event_id\": "); json_event_id_option(binding.manifest_reference_event_id); raw(", \"candidate_artifact_reference_event_id\": "); json_event_id_option(binding.artifact_reference_event_id); raw(", \"vm_test_report_reference_event_id\": "); json_event_id_option(binding.vm_test_report_reference_event_id); raw(", \"local_attestation_reference_event_id\": "); json_event_id_option(binding.local_attestation_reference_event_id); raw(", \"local_approval_reference_event_id\": "); json_event_id_option(binding.local_approval_reference_event_id); raw(", \"computed_grant_reference_event_id\": "); json_event_id_option(binding.computed_grant_reference_event_id); raw(", \"audit_rollback_reference_event_id\": "); json_event_id_option(binding.audit_rollback_reference_event_id); raw(", \"service_slot_reservation_event_id\": "); json_event_id_option(binding.service_slot_reservation_event_id); raw("}"); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str()); } else { raw("null"); } }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw_bool(binding.accepts_loader_descriptor); }), (AcceptsDescriptorBytes, "accepts_descriptor_bytes", { raw_bool(binding.accepts_descriptor_bytes); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw_bool(binding.accepts_artifact_bytes); }), (AuthorizesDescriptorIntake, "authorizes_descriptor_intake", { raw_bool(binding.authorizes_descriptor_intake); }), (AuthorizesExecution, "authorizes_execution", { raw_bool(binding.authorizes_execution); }), (MutatesServiceRegistry, "mutates_service_registry", { raw_bool(binding.mutates_service_registry); }), (WritesDurableAuditState, "writes_durable_audit_state", { raw_bool(binding.writes_durable_audit_state); }), (InstallsRollbackState, "installs_rollback_state", { raw_bool(binding.installs_rollback_state); }), (AllocatesServiceSlot, "allocates_service_slot", { raw_bool(binding.allocates_service_slot); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadsArtifact, "loads_artifact", { raw_bool(binding.loads_artifact); }), (LoadAttempted, "load_attempted", { raw_bool(binding.loads_artifact); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_loader_descriptor_intake_boundary_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleLoaderDescriptorIntakeBoundarySourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOADER_DESCRIPTOR_INTAKE_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_loader_descriptor_intake_boundary_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleLoaderArtifactByteIntakeBoundarySourceEvidenceBindingField, MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_loader_artifact_byte_intake_boundary_source_evidence_binding_value, event_log::ModuleLoaderArtifactByteIntakeBoundarySourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (BoundarySchema, "boundary_schema", { json_str(binding.boundary_schema); }), (BoundaryId, "boundary_id", { json_str(binding.boundary_id); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { json_str(binding.requested_capability); }), (LoadMode, "load_mode", { json_str(binding.load_mode); }), (Target, "target", { json_str(binding.target); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (BoundaryStatus, "boundary_status", { json_str(binding.boundary_status); }), (BoundaryReason, "boundary_reason", { json_str(binding.boundary_reason); }), (BoundaryPresent, "boundary_present", { raw_bool(binding.boundary_present); }), (BoundaryScope, "boundary_scope", { json_str(binding.boundary_scope); }), (BoundarySchemaOk, "boundary_schema_ok", { raw_bool(binding.boundary_schema_ok); }), (BoundaryProvenanceOk, "boundary_provenance_ok", { raw_bool(binding.boundary_provenance_ok); }), (BoundaryClassification, "boundary_classification", { json_str(binding.boundary_classification); }), (DescriptorIntakeBoundaryPresent, "descriptor_intake_boundary_present", { raw_bool(binding.descriptor_intake_boundary_present); }), (DescriptorIntakeBoundarySourceChainComplete, "descriptor_intake_boundary_source_chain_complete", { raw_bool(binding.descriptor_intake_boundary_source_chain_complete); }), (ExecutionCommitGatePresent, "execution_commit_gate_present", { raw_bool(binding.execution_commit_gate_present); }), (ArtifactHashBindingPresent, "artifact_hash_binding_present", { raw_bool(binding.artifact_hash_binding_present); }), (RetainedArtifactReferencePresent, "retained_artifact_reference_present", { raw_bool(binding.retained_artifact_reference_present); }), (RetainedModuleEvidencePresent, "retained_module_evidence_present", { raw_bool(binding.retained_module_evidence_present); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (DescriptorIntakeBoundarySourceEvidenceEventId, "descriptor_intake_boundary_source_evidence_event_id", { json_event_id_option(binding.descriptor_intake_boundary_source_evidence_event_id); }), (ExecutionCommitGateSourceEvidenceEventId, "execution_commit_gate_source_evidence_event_id", { json_event_id_option(binding.execution_commit_gate_source_evidence_event_id); }), (ArtifactHashBindingSourceEvidenceEventId, "artifact_hash_binding_source_evidence_event_id", { json_event_id_option(binding.artifact_hash_binding_source_evidence_event_id); }), (LoaderRuntimeSourceEvidenceEventIds, "loader_runtime_source_evidence_event_ids", { raw("["); let mut idx = 0usize; while idx < binding.loader_runtime_source_evidence_event_ids.len() { json_event_id_option(binding.loader_runtime_source_evidence_event_ids[idx]); if idx + 1 != binding.loader_runtime_source_evidence_event_ids.len() { raw(", "); } idx += 1; } raw("]"); }), (LoaderRuntimeSourceEvidencePresent, "loader_runtime_source_evidence_present", { raw("["); let mut idx = 0usize; while idx < binding.loader_runtime_source_evidence_present.len() { raw_bool(binding.loader_runtime_source_evidence_present[idx]); if idx + 1 != binding.loader_runtime_source_evidence_present.len() { raw(", "); } idx += 1; } raw("]"); }), (LoaderRuntimeFactPresent, "loader_runtime_fact_present", { raw("["); let mut idx = 0usize; while idx < binding.loader_runtime_fact_present.len() { raw_bool(binding.loader_runtime_fact_present[idx]); if idx + 1 != binding.loader_runtime_fact_present.len() { raw(", "); } idx += 1; } raw("]"); }), (RetainedModuleEvidenceEventIds, "retained_module_evidence_event_ids", { raw("{\"manifest_reference_event_id\": "); json_event_id_option(binding.manifest_reference_event_id); raw(", \"candidate_artifact_reference_event_id\": "); json_event_id_option(binding.artifact_reference_event_id); raw(", \"vm_test_report_reference_event_id\": "); json_event_id_option(binding.vm_test_report_reference_event_id); raw(", \"local_attestation_reference_event_id\": "); json_event_id_option(binding.local_attestation_reference_event_id); raw(", \"local_approval_reference_event_id\": "); json_event_id_option(binding.local_approval_reference_event_id); raw(", \"computed_grant_reference_event_id\": "); json_event_id_option(binding.computed_grant_reference_event_id); raw(", \"audit_rollback_reference_event_id\": "); json_event_id_option(binding.audit_rollback_reference_event_id); raw(", \"service_slot_reservation_event_id\": "); json_event_id_option(binding.service_slot_reservation_event_id); raw("}"); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str()); } else { raw("null"); } }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw_bool(binding.accepts_loader_descriptor); }), (AcceptsDescriptorBytes, "accepts_descriptor_bytes", { raw_bool(binding.accepts_descriptor_bytes); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw_bool(binding.accepts_artifact_bytes); }), (AuthorizesDescriptorIntake, "authorizes_descriptor_intake", { raw_bool(binding.authorizes_descriptor_intake); }), (AuthorizesArtifactByteIntake, "authorizes_artifact_byte_intake", { raw_bool(binding.authorizes_artifact_byte_intake); }), (AuthorizesExecution, "authorizes_execution", { raw_bool(binding.authorizes_execution); }), (MutatesServiceRegistry, "mutates_service_registry", { raw_bool(binding.mutates_service_registry); }), (WritesDurableAuditState, "writes_durable_audit_state", { raw_bool(binding.writes_durable_audit_state); }), (InstallsRollbackState, "installs_rollback_state", { raw_bool(binding.installs_rollback_state); }), (AllocatesServiceSlot, "allocates_service_slot", { raw_bool(binding.allocates_service_slot); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadsArtifact, "loads_artifact", { raw_bool(binding.loads_artifact); }), (LoadAttempted, "load_attempted", { raw_bool(binding.loads_artifact); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_loader_artifact_byte_intake_boundary_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleLoaderArtifactByteIntakeBoundarySourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOADER_ARTIFACT_BYTE_INTAKE_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_loader_artifact_byte_intake_boundary_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleLoaderExecutionAuthorizationBoundarySourceEvidenceBindingField, MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_loader_execution_authorization_boundary_source_evidence_binding_value, event_log::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (BoundarySchema, "boundary_schema", { json_str(binding.boundary_schema); }), (BoundaryId, "boundary_id", { json_str(binding.boundary_id); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { json_str(binding.requested_capability); }), (LoadMode, "load_mode", { json_str(binding.load_mode); }), (Target, "target", { json_str(binding.target); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (BoundaryStatus, "boundary_status", { json_str(binding.boundary_status); }), (BoundaryReason, "boundary_reason", { json_str(binding.boundary_reason); }), (BoundaryPresent, "boundary_present", { raw_bool(binding.boundary_present); }), (BoundaryScope, "boundary_scope", { json_str(binding.boundary_scope); }), (BoundarySchemaOk, "boundary_schema_ok", { raw_bool(binding.boundary_schema_ok); }), (BoundaryProvenanceOk, "boundary_provenance_ok", { raw_bool(binding.boundary_provenance_ok); }), (BoundaryClassification, "boundary_classification", { json_str(binding.boundary_classification); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (ArtifactByteIntakeBoundaryPresent, "artifact_byte_intake_boundary_present", { raw_bool(binding.artifact_byte_intake_boundary_present); }), (DescriptorIntakeBoundaryPresent, "descriptor_intake_boundary_present", { raw_bool(binding.descriptor_intake_boundary_present); }), (ExecutionCommitGatePresent, "execution_commit_gate_present", { raw_bool(binding.execution_commit_gate_present); }), (EntrypointAbiSourceEvidencePresent, "entrypoint_abi_source_evidence_present", { raw_bool(binding.entrypoint_abi_source_evidence_present); }), (AddressSpaceSourceEvidencePresent, "address_space_source_evidence_present", { raw_bool(binding.address_space_source_evidence_present); }), (MemoryMapSourceEvidencePresent, "memory_map_source_evidence_present", { raw_bool(binding.memory_map_source_evidence_present); }), (AuditRollbackWriteBoundarySourceEvidencePresent, "audit_rollback_write_boundary_source_evidence_present", { raw_bool(binding.audit_rollback_write_boundary_source_evidence_present); }), (RetainedModuleEvidencePresent, "retained_module_evidence_present", { raw_bool(binding.retained_module_evidence_present); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (ArtifactByteIntakeBoundarySourceEvidenceEventId, "artifact_byte_intake_boundary_source_evidence_event_id", { json_event_id_option(binding.artifact_byte_intake_boundary_source_evidence_event_id); }), (DescriptorIntakeBoundarySourceEvidenceEventId, "descriptor_intake_boundary_source_evidence_event_id", { json_event_id_option(binding.descriptor_intake_boundary_source_evidence_event_id); }), (ExecutionCommitGateSourceEvidenceEventId, "execution_commit_gate_source_evidence_event_id", { json_event_id_option(binding.execution_commit_gate_source_evidence_event_id); }), (EntrypointAbiSourceEvidenceEventId, "entrypoint_abi_source_evidence_event_id", { json_event_id_option(binding.entrypoint_abi_source_evidence_event_id); }), (AddressSpaceSourceEvidenceEventId, "address_space_source_evidence_event_id", { json_event_id_option(binding.address_space_source_evidence_event_id); }), (MemoryMapSourceEvidenceEventId, "memory_map_source_evidence_event_id", { json_event_id_option(binding.memory_map_source_evidence_event_id); }), (AuditRollbackWriteBoundarySourceEvidenceEventId, "audit_rollback_write_boundary_source_evidence_event_id", { json_event_id_option(binding.audit_rollback_write_boundary_source_evidence_event_id); }), (RetainedModuleEvidenceEventIds, "retained_module_evidence_event_ids", { raw("{\"manifest_reference_event_id\": "); json_event_id_option(binding.manifest_reference_event_id); raw(", \"candidate_artifact_reference_event_id\": "); json_event_id_option(binding.artifact_reference_event_id); raw(", \"vm_test_report_reference_event_id\": "); json_event_id_option(binding.vm_test_report_reference_event_id); raw(", \"local_attestation_reference_event_id\": "); json_event_id_option(binding.local_attestation_reference_event_id); raw(", \"local_approval_reference_event_id\": "); json_event_id_option(binding.local_approval_reference_event_id); raw(", \"computed_grant_reference_event_id\": "); json_event_id_option(binding.computed_grant_reference_event_id); raw(", \"audit_rollback_reference_event_id\": "); json_event_id_option(binding.audit_rollback_reference_event_id); raw(", \"service_slot_reservation_event_id\": "); json_event_id_option(binding.service_slot_reservation_event_id); raw("}"); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str()); } else { raw("null"); } }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw_bool(binding.accepts_loader_descriptor); }), (AcceptsDescriptorBytes, "accepts_descriptor_bytes", { raw_bool(binding.accepts_descriptor_bytes); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw_bool(binding.accepts_artifact_bytes); }), (AuthorizesDescriptorIntake, "authorizes_descriptor_intake", { raw_bool(binding.authorizes_descriptor_intake); }), (AuthorizesArtifactByteIntake, "authorizes_artifact_byte_intake", { raw_bool(binding.authorizes_artifact_byte_intake); }), (MapsExecutablePages, "maps_executable_pages", { raw_bool(binding.maps_executable_pages); }), (JumpsToEntrypoint, "jumps_to_entrypoint", { raw_bool(binding.jumps_to_entrypoint); }), (AuthorizesExecution, "authorizes_execution", { raw_bool(binding.authorizes_execution); }), (MutatesServiceRegistry, "mutates_service_registry", { raw_bool(binding.mutates_service_registry); }), (WritesDurableAuditState, "writes_durable_audit_state", { raw_bool(binding.writes_durable_audit_state); }), (InstallsRollbackState, "installs_rollback_state", { raw_bool(binding.installs_rollback_state); }), (AllocatesServiceSlot, "allocates_service_slot", { raw_bool(binding.allocates_service_slot); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadsArtifact, "loads_artifact", { raw_bool(binding.loads_artifact); }), (LoadAttempted, "load_attempted", { raw_bool(binding.loads_artifact); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_loader_execution_authorization_boundary_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleLoaderExecutionAuthorizationBoundarySourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOADER_EXECUTION_AUTHORIZATION_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_loader_execution_authorization_boundary_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { ModuleLoaderServiceRegistryMutationBoundarySourceEvidenceBindingField, MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS, emit_module_loader_service_registry_mutation_boundary_source_evidence_binding_value, event_log::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (BoundarySchema, "boundary_schema", { json_str(binding.boundary_schema); }), (BoundaryId, "boundary_id", { json_str(binding.boundary_id); }), (Status, "status", { json_str(binding.readiness_status); }), (Reason, "reason", { json_str(binding.readiness_reason); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { json_str(binding.requested_capability); }), (LoadMode, "load_mode", { json_str(binding.load_mode); }), (Target, "target", { json_str(binding.target); }), (SourceMethod, "source_method", { json_str(binding.source_method); }), (SourceFactLocator, "source_fact_locator", { json_str(binding.source_fact_locator); }), (BoundaryStatus, "boundary_status", { json_str(binding.boundary_status); }), (BoundaryReason, "boundary_reason", { json_str(binding.boundary_reason); }), (BoundaryPresent, "boundary_present", { raw_bool(binding.boundary_present); }), (BoundaryScope, "boundary_scope", { json_str(binding.boundary_scope); }), (BoundarySchemaOk, "boundary_schema_ok", { raw_bool(binding.boundary_schema_ok); }), (BoundaryProvenanceOk, "boundary_provenance_ok", { raw_bool(binding.boundary_provenance_ok); }), (BoundaryClassification, "boundary_classification", { json_str(binding.boundary_classification); }), (SourceChainComplete, "source_chain_complete", { raw_bool(binding.source_chain_complete); }), (ExecutionAuthorizationBoundaryPresent, "execution_authorization_boundary_present", { raw_bool(binding.execution_authorization_boundary_present); }), (ExecutionAuthorizationBoundarySourceChainComplete, "execution_authorization_boundary_source_chain_complete", { raw_bool(binding.execution_authorization_boundary_source_chain_complete); }), (RegistryWriteCommitGatePresent, "registry_write_commit_gate_present", { raw_bool(binding.registry_write_commit_gate_present); }), (ServiceSlotBindingSourceEvidencePresent, "service_slot_binding_source_evidence_present", { raw_bool(binding.service_slot_binding_source_evidence_present); }), (RetainedModuleEvidencePresent, "retained_module_evidence_present", { raw_bool(binding.retained_module_evidence_present); }), (RetainedServiceSlotReservationPresent, "retained_service_slot_reservation_present", { raw_bool(binding.retained_service_slot_reservation_present); }), (ExecutionAuthorizationBoundarySourceEvidenceEventId, "execution_authorization_boundary_source_evidence_event_id", { json_event_id_option(binding.execution_authorization_boundary_source_evidence_event_id); }), (RegistryWriteCommitGateSourceEvidenceEventId, "registry_write_commit_gate_source_evidence_event_id", { json_event_id_option(binding.registry_write_commit_gate_source_evidence_event_id); }), (ServiceSlotBindingSourceEvidenceEventId, "service_slot_binding_source_evidence_event_id", { json_event_id_option(binding.service_slot_binding_source_evidence_event_id); }), (RetainedModuleEvidenceEventIds, "retained_module_evidence_event_ids", { raw("{\"manifest_reference_event_id\": "); json_event_id_option(binding.manifest_reference_event_id); raw(", \"candidate_artifact_reference_event_id\": "); json_event_id_option(binding.artifact_reference_event_id); raw(", \"vm_test_report_reference_event_id\": "); json_event_id_option(binding.vm_test_report_reference_event_id); raw(", \"local_attestation_reference_event_id\": "); json_event_id_option(binding.local_attestation_reference_event_id); raw(", \"local_approval_reference_event_id\": "); json_event_id_option(binding.local_approval_reference_event_id); raw(", \"computed_grant_reference_event_id\": "); json_event_id_option(binding.computed_grant_reference_event_id); raw(", \"audit_rollback_reference_event_id\": "); json_event_id_option(binding.audit_rollback_reference_event_id); raw(", \"service_slot_reservation_event_id\": "); json_event_id_option(binding.service_slot_reservation_event_id); raw("}"); }), (RamOnlyServiceSlotId, "ram_only_service_slot_id", { if let Some(id) = binding.ram_only_service_slot_id { json_str(id.as_str()); } else { raw("null"); } }), (SourceEvidenceRetained, "source_evidence_retained", { raw("true"); }), (Retention, "retention", { raw("\"current_boot_ram_event_log\""); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw_bool(binding.accepts_loader_descriptor); }), (AcceptsDescriptorBytes, "accepts_descriptor_bytes", { raw_bool(binding.accepts_descriptor_bytes); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw_bool(binding.accepts_artifact_bytes); }), (AuthorizesDescriptorIntake, "authorizes_descriptor_intake", { raw_bool(binding.authorizes_descriptor_intake); }), (AuthorizesArtifactByteIntake, "authorizes_artifact_byte_intake", { raw_bool(binding.authorizes_artifact_byte_intake); }), (MapsExecutablePages, "maps_executable_pages", { raw_bool(binding.maps_executable_pages); }), (JumpsToEntrypoint, "jumps_to_entrypoint", { raw_bool(binding.jumps_to_entrypoint); }), (AuthorizesExecution, "authorizes_execution", { raw_bool(binding.authorizes_execution); }), (MutatesServiceRegistry, "mutates_service_registry", { raw_bool(binding.mutates_service_registry); }), (WritesDurableAuditState, "writes_durable_audit_state", { raw_bool(binding.writes_durable_audit_state); }), (InstallsRollbackState, "installs_rollback_state", { raw_bool(binding.installs_rollback_state); }), (AllocatesServiceSlot, "allocates_service_slot", { raw_bool(binding.allocates_service_slot); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw_bool(binding.creates_service_inventory_records); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (CanLoadNow, "can_load_now", { raw("false"); }), (LoadsArtifact, "loads_artifact", { raw_bool(binding.loads_artifact); }), (LoadAttempted, "load_attempted", { raw_bool(binding.loads_artifact); }), (AuthorizesLoad, "authorizes_load", { raw("false"); }), }
+
+fn emit_module_loader_service_registry_mutation_boundary_source_evidence_binding(
+    kind: &str,
+    binding: &event_log::ModuleLoaderServiceRegistryMutationBoundarySourceEvidence,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        MODULE_LOADER_SERVICE_REGISTRY_MUTATION_BOUNDARY_SOURCE_EVIDENCE_BINDING_FIELDS,
+        emit_module_loader_service_registry_mutation_boundary_source_evidence_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryArtifactIdentityReferenceBindingField, RECOVERY_ARTIFACT_IDENTITY_REFERENCE_BINDING_FIELDS, emit_recovery_artifact_identity_reference_binding_value, event_log::RecoveryArtifactIdentityReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_artifact_identity.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.load_artifact\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (LoadsNormalModule, "loads_normal_module", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (Hashes, "hashes", { raw("{\"identity_reference_hash\": "); json_sha256(binding.identity_reference_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw("}"); }), }
+
+fn emit_recovery_artifact_identity_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryArtifactIdentityReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_ARTIFACT_IDENTITY_REFERENCE_BINDING_FIELDS,
+        emit_recovery_artifact_identity_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryArtifactTrustReferenceBindingField, RECOVERY_ARTIFACT_TRUST_REFERENCE_BINDING_FIELDS, emit_recovery_artifact_trust_reference_binding_value, event_log::RecoveryArtifactTrustReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_artifact_trust.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.load_artifact\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (LoadsNormalModule, "loads_normal_module", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryArtifactIdentityEventId, "retained_recovery_artifact_identity_event_id", { json_event_id(binding.retained_identity_reference_event_id); }), (Hashes, "hashes", { raw("{\"trust_reference_hash\": "); json_sha256(binding.trust_reference_hash); raw(", \"identity_reference_hash\": "); json_sha256(binding.identity_reference_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"trust_hash\": "); json_sha256(binding.trust_hash); raw("}"); }), }
+
+fn emit_recovery_artifact_trust_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryArtifactTrustReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_ARTIFACT_TRUST_REFERENCE_BINDING_FIELDS,
+        emit_recovery_artifact_trust_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryArtifactVmTestReferenceBindingField, RECOVERY_ARTIFACT_VM_TEST_REFERENCE_BINDING_FIELDS, emit_recovery_artifact_vm_test_reference_binding_value, event_log::RecoveryArtifactVmTestReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_artifact_vm_test.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.load_artifact\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsVmTestJson, "accepts_vm_test_json", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (LoadsNormalModule, "loads_normal_module", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryArtifactIdentityEventId, "retained_recovery_artifact_identity_event_id", { json_event_id(binding.retained_identity_reference_event_id); }), (RetainedRecoveryArtifactTrustEventId, "retained_recovery_artifact_trust_event_id", { json_event_id(binding.retained_trust_reference_event_id); }), (Hashes, "hashes", { raw("{\"vm_test_reference_hash\": "); json_sha256(binding.vm_test_reference_hash); raw(", \"identity_reference_hash\": "); json_sha256(binding.identity_reference_hash); raw(", \"trust_reference_hash\": "); json_sha256(binding.trust_reference_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"trust_hash\": "); json_sha256(binding.trust_hash); raw(", \"vm_test_hash\": "); json_sha256(binding.vm_test_hash); raw("}"); }), }
+
+fn emit_recovery_artifact_vm_test_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryArtifactVmTestReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_ARTIFACT_VM_TEST_REFERENCE_BINDING_FIELDS,
+        emit_recovery_artifact_vm_test_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryArtifactLocalApprovalReferenceBindingField, RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_BINDING_FIELDS, emit_recovery_artifact_local_approval_reference_binding_value, event_log::RecoveryArtifactLocalApprovalReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_artifact_local_approval.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.load_artifact\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsLocalApprovalText, "accepts_local_approval_text", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (LoadsNormalModule, "loads_normal_module", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryArtifactIdentityEventId, "retained_recovery_artifact_identity_event_id", { json_event_id(binding.retained_identity_reference_event_id); }), (RetainedRecoveryArtifactTrustEventId, "retained_recovery_artifact_trust_event_id", { json_event_id(binding.retained_trust_reference_event_id); }), (RetainedRecoveryArtifactVmTestEventId, "retained_recovery_artifact_vm_test_event_id", { json_event_id(binding.retained_vm_test_reference_event_id); }), (Hashes, "hashes", { raw("{\"local_approval_reference_hash\": "); json_sha256(binding.local_approval_reference_hash); raw(", \"identity_reference_hash\": "); json_sha256(binding.identity_reference_hash); raw(", \"trust_reference_hash\": "); json_sha256(binding.trust_reference_hash); raw(", \"vm_test_reference_hash\": "); json_sha256(binding.vm_test_reference_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"trust_hash\": "); json_sha256(binding.trust_hash); raw(", \"vm_test_hash\": "); json_sha256(binding.vm_test_hash); raw(", \"local_approval_hash\": "); json_sha256(binding.local_approval_hash); raw("}"); }), }
+
+fn emit_recovery_artifact_local_approval_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryArtifactLocalApprovalReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_ARTIFACT_LOCAL_APPROVAL_REFERENCE_BINDING_FIELDS,
+        emit_recovery_artifact_local_approval_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryArtifactLoaderReferenceBindingField, RECOVERY_ARTIFACT_LOADER_REFERENCE_BINDING_FIELDS, emit_recovery_artifact_loader_reference_binding_value, event_log::RecoveryArtifactLoaderReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_artifact_loader.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.load_artifact\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (LoadsRecoveryLoader, "loads_recovery_loader", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (LoadsNormalModule, "loads_normal_module", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryArtifactIdentityEventId, "retained_recovery_artifact_identity_event_id", { json_event_id(binding.retained_identity_reference_event_id); }), (RetainedRecoveryArtifactTrustEventId, "retained_recovery_artifact_trust_event_id", { json_event_id(binding.retained_trust_reference_event_id); }), (RetainedRecoveryArtifactVmTestEventId, "retained_recovery_artifact_vm_test_event_id", { json_event_id(binding.retained_vm_test_reference_event_id); }), (RetainedRecoveryArtifactLocalApprovalEventId, "retained_recovery_artifact_local_approval_event_id", { json_event_id(binding.retained_local_approval_reference_event_id); }), (Hashes, "hashes", { raw("{\"loader_reference_hash\": "); json_sha256(binding.loader_reference_hash); raw(", \"identity_reference_hash\": "); json_sha256(binding.identity_reference_hash); raw(", \"trust_reference_hash\": "); json_sha256(binding.trust_reference_hash); raw(", \"vm_test_reference_hash\": "); json_sha256(binding.vm_test_reference_hash); raw(", \"local_approval_reference_hash\": "); json_sha256(binding.local_approval_reference_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"trust_hash\": "); json_sha256(binding.trust_hash); raw(", \"vm_test_hash\": "); json_sha256(binding.vm_test_hash); raw(", \"local_approval_hash\": "); json_sha256(binding.local_approval_hash); raw(", \"loader_hash\": "); json_sha256(binding.loader_hash); raw("}"); }), }
+
+fn emit_recovery_artifact_loader_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryArtifactLoaderReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_ARTIFACT_LOADER_REFERENCE_BINDING_FIELDS,
+        emit_recovery_artifact_loader_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryArtifactRollbackEvidenceReferenceBindingField, RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_BINDING_FIELDS, emit_recovery_artifact_rollback_evidence_reference_binding_value, event_log::RecoveryArtifactRollbackEvidenceReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_artifact_rollback_evidence.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.load_artifact\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRollbackEvidenceJson, "accepts_rollback_evidence_json", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (LoadsNormalModule, "loads_normal_module", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryArtifactIdentityEventId, "retained_recovery_artifact_identity_event_id", { json_event_id(binding.retained_identity_reference_event_id); }), (RetainedRecoveryArtifactTrustEventId, "retained_recovery_artifact_trust_event_id", { json_event_id(binding.retained_trust_reference_event_id); }), (RetainedRecoveryArtifactVmTestEventId, "retained_recovery_artifact_vm_test_event_id", { json_event_id(binding.retained_vm_test_reference_event_id); }), (RetainedRecoveryArtifactLocalApprovalEventId, "retained_recovery_artifact_local_approval_event_id", { json_event_id(binding.retained_local_approval_reference_event_id); }), (RetainedRecoveryArtifactLoaderEventId, "retained_recovery_artifact_loader_event_id", { json_event_id(binding.retained_loader_reference_event_id); }), (Hashes, "hashes", { raw("{\"rollback_evidence_reference_hash\": "); json_sha256(binding.rollback_evidence_reference_hash); raw(", \"identity_reference_hash\": "); json_sha256(binding.identity_reference_hash); raw(", \"trust_reference_hash\": "); json_sha256(binding.trust_reference_hash); raw(", \"vm_test_reference_hash\": "); json_sha256(binding.vm_test_reference_hash); raw(", \"local_approval_reference_hash\": "); json_sha256(binding.local_approval_reference_hash); raw(", \"loader_reference_hash\": "); json_sha256(binding.loader_reference_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"trust_hash\": "); json_sha256(binding.trust_hash); raw(", \"vm_test_hash\": "); json_sha256(binding.vm_test_hash); raw(", \"local_approval_hash\": "); json_sha256(binding.local_approval_hash); raw(", \"loader_hash\": "); json_sha256(binding.loader_hash); raw(", \"rollback_evidence_hash\": "); json_sha256(binding.rollback_evidence_hash); raw("}"); }), }
+
+fn emit_recovery_artifact_rollback_evidence_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryArtifactRollbackEvidenceReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_ARTIFACT_ROLLBACK_EVIDENCE_REFERENCE_BINDING_FIELDS,
+        emit_recovery_artifact_rollback_evidence_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLifelineRequestReferenceBindingField, RECOVERY_LIFELINE_REQUEST_REFERENCE_BINDING_FIELDS, emit_recovery_lifeline_request_reference_binding_value, event_log::RecoveryLifelineRequestReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_lifeline_request.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_load_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.load_artifact\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsLifelineRequestJson, "accepts_lifeline_request_json", { raw("false"); }), (AcceptsLoaderDescriptor, "accepts_loader_descriptor", { raw("false"); }), (AcceptsArtifactBytes, "accepts_artifact_bytes", { raw("false"); }), (LoadsRecoveryLoader, "loads_recovery_loader", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (LoadsNormalModule, "loads_normal_module", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryArtifactIdentityEventId, "retained_recovery_artifact_identity_event_id", { json_event_id(binding.retained_identity_reference_event_id); }), (RetainedRecoveryArtifactTrustEventId, "retained_recovery_artifact_trust_event_id", { json_event_id(binding.retained_trust_reference_event_id); }), (RetainedRecoveryArtifactVmTestEventId, "retained_recovery_artifact_vm_test_event_id", { json_event_id(binding.retained_vm_test_reference_event_id); }), (RetainedRecoveryArtifactLocalApprovalEventId, "retained_recovery_artifact_local_approval_event_id", { json_event_id(binding.retained_local_approval_reference_event_id); }), (RetainedRecoveryArtifactLoaderEventId, "retained_recovery_artifact_loader_event_id", { json_event_id(binding.retained_loader_reference_event_id); }), (RetainedRecoveryArtifactRollbackEvidenceEventId, "retained_recovery_artifact_rollback_evidence_event_id", { json_event_id(binding.retained_rollback_evidence_reference_event_id); }), (Hashes, "hashes", { raw("{\"lifeline_request_reference_hash\": "); json_sha256(binding.lifeline_request_reference_hash); raw(", \"identity_reference_hash\": "); json_sha256(binding.identity_reference_hash); raw(", \"trust_reference_hash\": "); json_sha256(binding.trust_reference_hash); raw(", \"vm_test_reference_hash\": "); json_sha256(binding.vm_test_reference_hash); raw(", \"local_approval_reference_hash\": "); json_sha256(binding.local_approval_reference_hash); raw(", \"loader_reference_hash\": "); json_sha256(binding.loader_reference_hash); raw(", \"rollback_evidence_reference_hash\": "); json_sha256(binding.rollback_evidence_reference_hash); raw(", \"artifact_hash\": "); json_sha256(binding.artifact_hash); raw(", \"trust_hash\": "); json_sha256(binding.trust_hash); raw(", \"vm_test_hash\": "); json_sha256(binding.vm_test_hash); raw(", \"local_approval_hash\": "); json_sha256(binding.local_approval_hash); raw(", \"loader_hash\": "); json_sha256(binding.loader_hash); raw(", \"rollback_evidence_hash\": "); json_sha256(binding.rollback_evidence_hash); raw("}"); }), }
+
+fn emit_recovery_lifeline_request_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLifelineRequestReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LIFELINE_REQUEST_REFERENCE_BINDING_FIELDS,
+        emit_recovery_lifeline_request_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLifelineCommandEnvelopeReferenceBindingField, RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_BINDING_FIELDS, emit_recovery_lifeline_command_envelope_reference_binding_value, event_log::RecoveryLifelineCommandEnvelopeReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_lifeline_command_envelope_reference.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryLifelineRequestEventId, "retained_recovery_lifeline_request_event_id", { json_event_id(binding.retained_lifeline_request_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (RequiredCapability, "required_capability", { json_str(binding.required_capability); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandAdmissionBoundaryId, "command_admission_boundary_id", { json_str(binding.command_admission_boundary_id); }), (Hashes, "hashes", { raw("{\"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"lifeline_request_reference_hash\": "); json_sha256(binding.lifeline_request_reference_hash); raw("}"); }), }
+
+fn emit_recovery_lifeline_command_envelope_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLifelineCommandEnvelopeReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LIFELINE_COMMAND_ENVELOPE_REFERENCE_BINDING_FIELDS,
+        emit_recovery_lifeline_command_envelope_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLifelineCommandBodyCanonicalizationReferenceBindingField, RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_REFERENCE_BINDING_FIELDS, emit_recovery_lifeline_command_body_canonicalization_reference_binding_value, event_log::RecoveryLifelineCommandBodyCanonicalizationReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_lifeline_command_body_canonicalization.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryLifelineCommandEnvelopeEventId, "retained_recovery_lifeline_command_envelope_event_id", { json_event_id(binding.retained_command_envelope_reference_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (Hashes, "hashes", { raw("{\"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw("}"); }), }
+
+fn emit_recovery_lifeline_command_body_canonicalization_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLifelineCommandBodyCanonicalizationReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LIFELINE_COMMAND_BODY_CANONICALIZATION_REFERENCE_BINDING_FIELDS,
+        emit_recovery_lifeline_command_body_canonicalization_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLifelineCommandHandlerBindingReferenceBindingField, RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_REFERENCE_BINDING_FIELDS, emit_recovery_lifeline_command_handler_binding_reference_binding_value, event_log::RecoveryLifelineCommandHandlerBindingReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_lifeline_command_handler_binding.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryLifelineCommandBodyCanonicalizationEventId, "retained_recovery_lifeline_command_body_canonicalization_event_id", { json_event_id(binding.retained_command_body_canonicalization_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (HandlerId, "handler_id", { json_str(binding.handler_id); }), (Hashes, "hashes", { raw("{\"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_input_binding_hash\": "); json_sha256(binding.handler_input_binding_hash); raw("}"); }), }
+
+fn emit_recovery_lifeline_command_handler_binding_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLifelineCommandHandlerBindingReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_REFERENCE_BINDING_FIELDS,
+        emit_recovery_lifeline_command_handler_binding_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLifelineStatusReadHandlerReferenceBindingField, RECOVERY_LIFELINE_STATUS_READ_HANDLER_REFERENCE_BINDING_FIELDS, emit_recovery_lifeline_status_read_handler_reference_binding_value, event_log::RecoveryLifelineStatusReadHandlerReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_lifeline_status_read_handler.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryLifelineCommandHandlerBindingEventId, "retained_recovery_lifeline_command_handler_binding_event_id", { json_event_id(binding.retained_command_handler_binding_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (StatusHandlerId, "status_handler_id", { json_str(binding.status_handler_id); }), (Hashes, "hashes", { raw("{\"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_projection_hash\": "); json_sha256(binding.status_read_projection_hash); raw("}"); }), }
+
+fn emit_recovery_lifeline_status_read_handler_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLifelineStatusReadHandlerReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LIFELINE_STATUS_READ_HANDLER_REFERENCE_BINDING_FIELDS,
+        emit_recovery_lifeline_status_read_handler_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryRollbackPreviewAuthorizationReferenceBindingField, RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_REFERENCE_BINDING_FIELDS, emit_recovery_rollback_preview_authorization_reference_binding_value, event_log::RecoveryRollbackPreviewAuthorizationReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_rollback_preview_authorization.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryLifelineStatusReadHandlerEventId, "retained_recovery_lifeline_status_read_handler_event_id", { json_event_id(binding.retained_status_read_handler_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (RollbackPreviewAuthorizationId, "rollback_preview_authorization_id", { json_str(binding.rollback_preview_authorization_id); }), (Hashes, "hashes", { raw("{\"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_projection_hash\": "); json_sha256(binding.rollback_preview_projection_hash); raw("}"); }), }
+
+fn emit_recovery_rollback_preview_authorization_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryRollbackPreviewAuthorizationReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_REFERENCE_BINDING_FIELDS,
+        emit_recovery_rollback_preview_authorization_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryRollbackApplyAuthorizationReferenceBindingField, RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_REFERENCE_BINDING_FIELDS, emit_recovery_rollback_apply_authorization_reference_binding_value, event_log::RecoveryRollbackApplyAuthorizationReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_rollback_apply_authorization.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryRollbackPreviewAuthorizationEventId, "retained_recovery_rollback_preview_authorization_event_id", { json_event_id(binding.retained_rollback_preview_authorization_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (RollbackApplyAuthorizationId, "rollback_apply_authorization_id", { json_str(binding.rollback_apply_authorization_id); }), (Hashes, "hashes", { raw("{\"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_projection_hash\": "); json_sha256(binding.rollback_apply_projection_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw("}"); }), }
+
+fn emit_recovery_rollback_apply_authorization_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryRollbackApplyAuthorizationReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_REFERENCE_BINDING_FIELDS,
+        emit_recovery_rollback_apply_authorization_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryDisableModuleTargetBindingReferenceBindingField, RECOVERY_DISABLE_MODULE_TARGET_BINDING_REFERENCE_BINDING_FIELDS, emit_recovery_disable_module_target_binding_reference_binding_value, event_log::RecoveryDisableModuleTargetBindingReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_disable_module_target_binding.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (ExecutesDisableModule, "executes_disable_module", { raw("false"); }), (DisablesModule, "disables_module", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryRollbackApplyAuthorizationEventId, "retained_recovery_rollback_apply_authorization_event_id", { json_event_id(binding.retained_rollback_apply_authorization_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (DisableModuleTargetId, "disable_module_target_id", { json_str(binding.disable_module_target_id); }), (Hashes, "hashes", { raw("{\"disable_module_target_binding_hash\": "); json_sha256(binding.disable_module_target_binding_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw(", \"disable_module_target_projection_hash\": "); json_sha256(binding.disable_module_target_projection_hash); raw("}"); }), }
+
+fn emit_recovery_disable_module_target_binding_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryDisableModuleTargetBindingReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_DISABLE_MODULE_TARGET_BINDING_REFERENCE_BINDING_FIELDS,
+        emit_recovery_disable_module_target_binding_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryRestartLastGoodTargetBindingReferenceBindingField, RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_REFERENCE_BINDING_FIELDS, emit_recovery_restart_last_good_target_binding_reference_binding_value, event_log::RecoveryRestartLastGoodTargetBindingReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_restart_last_good_target_binding.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (ExecutesDisableModule, "executes_disable_module", { raw("false"); }), (ExecutesRestartLastGood, "executes_restart_last_good", { raw("false"); }), (DisablesModule, "disables_module", { raw("false"); }), (RestartsLastGood, "restarts_last_good", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryDisableModuleTargetBindingEventId, "retained_recovery_disable_module_target_binding_event_id", { json_event_id(binding.retained_disable_module_target_binding_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (RestartLastGoodTargetId, "restart_last_good_target_id", { json_str(binding.restart_last_good_target_id); }), (Hashes, "hashes", { raw("{\"restart_last_good_target_binding_hash\": "); json_sha256(binding.restart_last_good_target_binding_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"disable_module_target_binding_hash\": "); json_sha256(binding.disable_module_target_binding_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw(", \"restart_last_good_target_projection_hash\": "); json_sha256(binding.restart_last_good_target_projection_hash); raw("}"); }), }
+
+fn emit_recovery_restart_last_good_target_binding_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryRestartLastGoodTargetBindingReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_REFERENCE_BINDING_FIELDS,
+        emit_recovery_restart_last_good_target_binding_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLoadArtifactByHashTargetBindingReferenceBindingField, RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_REFERENCE_BINDING_FIELDS, emit_recovery_load_artifact_by_hash_target_binding_reference_binding_value, event_log::RecoveryLoadArtifactByHashTargetBindingReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_load_artifact_by_hash_target_binding.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (ExecutesDisableModule, "executes_disable_module", { raw("false"); }), (ExecutesRestartLastGood, "executes_restart_last_good", { raw("false"); }), (ExecutesLoadRecoveryArtifactByHash, "executes_load_recovery_artifact_by_hash", { raw("false"); }), (DisablesModule, "disables_module", { raw("false"); }), (RestartsLastGood, "restarts_last_good", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryRestartLastGoodTargetBindingEventId, "retained_recovery_restart_last_good_target_binding_event_id", { json_event_id(binding.retained_restart_last_good_target_binding_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (LoadArtifactByHashTargetId, "load_artifact_by_hash_target_id", { json_str(binding.load_artifact_by_hash_target_id); }), (Hashes, "hashes", { raw("{\"load_artifact_by_hash_target_binding_hash\": "); json_sha256(binding.load_artifact_by_hash_target_binding_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"disable_module_target_binding_hash\": "); json_sha256(binding.disable_module_target_binding_hash); raw(", \"restart_last_good_target_binding_hash\": "); json_sha256(binding.restart_last_good_target_binding_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw(", \"load_artifact_by_hash_target_artifact_hash\": "); json_sha256(binding.load_artifact_by_hash_target_artifact_hash); raw(", \"load_artifact_by_hash_target_projection_hash\": "); json_sha256(binding.load_artifact_by_hash_target_projection_hash); raw("}"); }), }
+
+fn emit_recovery_load_artifact_by_hash_target_binding_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLoadArtifactByHashTargetBindingReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_REFERENCE_BINDING_FIELDS,
+        emit_recovery_load_artifact_by_hash_target_binding_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryMemoryWriteAuthorityReferenceBindingField, RECOVERY_MEMORY_WRITE_AUTHORITY_REFERENCE_BINDING_FIELDS, emit_recovery_memory_write_authority_reference_binding_value, event_log::RecoveryMemoryWriteAuthorityReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_memory_write_authority.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (ExecutesDisableModule, "executes_disable_module", { raw("false"); }), (ExecutesRestartLastGood, "executes_restart_last_good", { raw("false"); }), (ExecutesLoadRecoveryArtifactByHash, "executes_load_recovery_artifact_by_hash", { raw("false"); }), (DisablesModule, "disables_module", { raw("false"); }), (RestartsLastGood, "restarts_last_good", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (WritesRecoveryMemory, "writes_recovery_memory", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryLoadArtifactByHashTargetBindingEventId, "retained_recovery_load_artifact_by_hash_target_binding_event_id", { json_event_id(binding.retained_load_artifact_by_hash_target_binding_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (RecoveryMemoryWriteAuthorityId, "recovery_memory_write_authority_id", { json_str(binding.recovery_memory_write_authority_id); }), (Hashes, "hashes", { raw("{\"recovery_memory_write_authority_hash\": "); json_sha256(binding.recovery_memory_write_authority_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"disable_module_target_binding_hash\": "); json_sha256(binding.disable_module_target_binding_hash); raw(", \"restart_last_good_target_binding_hash\": "); json_sha256(binding.restart_last_good_target_binding_hash); raw(", \"load_artifact_by_hash_target_binding_hash\": "); json_sha256(binding.load_artifact_by_hash_target_binding_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw(", \"recovery_memory_projection_hash\": "); json_sha256(binding.recovery_memory_projection_hash); raw("}"); }), }
+
+fn emit_recovery_memory_write_authority_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryMemoryWriteAuthorityReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_MEMORY_WRITE_AUTHORITY_REFERENCE_BINDING_FIELDS,
+        emit_recovery_memory_write_authority_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { DurableAuditRollbackWriteAuthorityReferenceBindingField, DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_REFERENCE_BINDING_FIELDS, emit_durable_audit_rollback_write_authority_reference_binding_value, event_log::DurableAuditRollbackWriteAuthorityReference, binding, _kind; (Schema, "schema", { raw("\"raios.durable_audit_rollback_write_authority.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (ExecutesDisableModule, "executes_disable_module", { raw("false"); }), (ExecutesRestartLastGood, "executes_restart_last_good", { raw("false"); }), (ExecutesLoadRecoveryArtifactByHash, "executes_load_recovery_artifact_by_hash", { raw("false"); }), (DisablesModule, "disables_module", { raw("false"); }), (RestartsLastGood, "restarts_last_good", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (WritesRecoveryMemory, "writes_recovery_memory", { raw("false"); }), (WritesDurableAuditLog, "writes_durable_audit_log", { raw("false"); }), (WritesRollbackStore, "writes_rollback_store", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedRecoveryMemoryWriteAuthorityEventId, "retained_recovery_memory_write_authority_event_id", { json_event_id(binding.retained_recovery_memory_write_authority_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (DurableAuditRollbackWriteAuthorityId, "durable_audit_rollback_write_authority_id", { json_str(binding.durable_audit_rollback_write_authority_id); }), (Hashes, "hashes", { raw("{\"durable_audit_rollback_write_authority_hash\": "); json_sha256(binding.durable_audit_rollback_write_authority_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"disable_module_target_binding_hash\": "); json_sha256(binding.disable_module_target_binding_hash); raw(", \"restart_last_good_target_binding_hash\": "); json_sha256(binding.restart_last_good_target_binding_hash); raw(", \"load_artifact_by_hash_target_binding_hash\": "); json_sha256(binding.load_artifact_by_hash_target_binding_hash); raw(", \"recovery_memory_write_authority_hash\": "); json_sha256(binding.recovery_memory_write_authority_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw(", \"durable_audit_rollback_projection_hash\": "); json_sha256(binding.durable_audit_rollback_projection_hash); raw("}"); }), }
+
+fn emit_durable_audit_rollback_write_authority_reference_binding(
+    kind: &str,
+    binding: &event_log::DurableAuditRollbackWriteAuthorityReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_REFERENCE_BINDING_FIELDS,
+        emit_durable_audit_rollback_write_authority_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryServiceInventorySideEffectBoundaryReferenceBindingField, RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_REFERENCE_BINDING_FIELDS, emit_recovery_service_inventory_side_effect_boundary_reference_binding_value, event_log::RecoveryServiceInventorySideEffectBoundaryReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_service_inventory_side_effect_boundary.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (ExecutesDisableModule, "executes_disable_module", { raw("false"); }), (ExecutesRestartLastGood, "executes_restart_last_good", { raw("false"); }), (ExecutesLoadRecoveryArtifactByHash, "executes_load_recovery_artifact_by_hash", { raw("false"); }), (DisablesModule, "disables_module", { raw("false"); }), (RestartsLastGood, "restarts_last_good", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (WritesRecoveryMemory, "writes_recovery_memory", { raw("false"); }), (WritesDurableAuditLog, "writes_durable_audit_log", { raw("false"); }), (WritesRollbackStore, "writes_rollback_store", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedDurableAuditRollbackWriteAuthorityEventId, "retained_durable_audit_rollback_write_authority_event_id", { json_event_id(binding.retained_durable_audit_rollback_write_authority_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (ServiceInventorySideEffectBoundaryId, "service_inventory_side_effect_boundary_id", { json_str(binding.service_inventory_side_effect_boundary_id); }), (Hashes, "hashes", { raw("{\"service_inventory_side_effect_boundary_hash\": "); json_sha256(binding.service_inventory_side_effect_boundary_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"disable_module_target_binding_hash\": "); json_sha256(binding.disable_module_target_binding_hash); raw(", \"restart_last_good_target_binding_hash\": "); json_sha256(binding.restart_last_good_target_binding_hash); raw(", \"load_artifact_by_hash_target_binding_hash\": "); json_sha256(binding.load_artifact_by_hash_target_binding_hash); raw(", \"recovery_memory_write_authority_hash\": "); json_sha256(binding.recovery_memory_write_authority_hash); raw(", \"durable_audit_rollback_write_authority_hash\": "); json_sha256(binding.durable_audit_rollback_write_authority_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw(", \"service_inventory_projection_hash\": "); json_sha256(binding.service_inventory_projection_hash); raw("}"); }), }
+
+fn emit_recovery_service_inventory_side_effect_boundary_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryServiceInventorySideEffectBoundaryReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_REFERENCE_BINDING_FIELDS,
+        emit_recovery_service_inventory_side_effect_boundary_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLifelineCommandDispatchBehaviorReferenceBindingField, RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_REFERENCE_BINDING_FIELDS, emit_recovery_lifeline_command_dispatch_behavior_reference_binding_value, event_log::RecoveryLifelineCommandDispatchBehaviorReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_lifeline_command_dispatch_behavior.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (ExecutesDisableModule, "executes_disable_module", { raw("false"); }), (ExecutesRestartLastGood, "executes_restart_last_good", { raw("false"); }), (ExecutesLoadRecoveryArtifactByHash, "executes_load_recovery_artifact_by_hash", { raw("false"); }), (DisablesModule, "disables_module", { raw("false"); }), (RestartsLastGood, "restarts_last_good", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (WritesRecoveryMemory, "writes_recovery_memory", { raw("false"); }), (WritesDurableAuditLog, "writes_durable_audit_log", { raw("false"); }), (WritesRollbackStore, "writes_rollback_store", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedServiceInventorySideEffectBoundaryEventId, "retained_service_inventory_side_effect_boundary_event_id", { json_event_id(binding.retained_service_inventory_side_effect_boundary_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (CommandDispatchBehaviorId, "command_dispatch_behavior_id", { json_str(binding.command_dispatch_behavior_id); }), (Hashes, "hashes", { raw("{\"command_dispatch_behavior_hash\": "); json_sha256(binding.command_dispatch_behavior_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"disable_module_target_binding_hash\": "); json_sha256(binding.disable_module_target_binding_hash); raw(", \"restart_last_good_target_binding_hash\": "); json_sha256(binding.restart_last_good_target_binding_hash); raw(", \"load_artifact_by_hash_target_binding_hash\": "); json_sha256(binding.load_artifact_by_hash_target_binding_hash); raw(", \"recovery_memory_write_authority_hash\": "); json_sha256(binding.recovery_memory_write_authority_hash); raw(", \"durable_audit_rollback_write_authority_hash\": "); json_sha256(binding.durable_audit_rollback_write_authority_hash); raw(", \"service_inventory_side_effect_boundary_hash\": "); json_sha256(binding.service_inventory_side_effect_boundary_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw(", \"command_dispatch_behavior_projection_hash\": "); json_sha256(binding.command_dispatch_behavior_projection_hash); raw("}"); }), }
+
+fn emit_recovery_lifeline_command_dispatch_behavior_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLifelineCommandDispatchBehaviorReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_REFERENCE_BINDING_FIELDS,
+        emit_recovery_lifeline_command_dispatch_behavior_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLifelineCommandExecutorCapabilityTableReferenceBindingField, RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_REFERENCE_BINDING_FIELDS, emit_recovery_lifeline_command_executor_capability_table_reference_binding_value, event_log::RecoveryLifelineCommandExecutorCapabilityTableReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_lifeline_command_executor_capability_table.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (ExecutesDisableModule, "executes_disable_module", { raw("false"); }), (ExecutesRestartLastGood, "executes_restart_last_good", { raw("false"); }), (ExecutesLoadRecoveryArtifactByHash, "executes_load_recovery_artifact_by_hash", { raw("false"); }), (DisablesModule, "disables_module", { raw("false"); }), (RestartsLastGood, "restarts_last_good", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (WritesRecoveryMemory, "writes_recovery_memory", { raw("false"); }), (WritesDurableAuditLog, "writes_durable_audit_log", { raw("false"); }), (WritesRollbackStore, "writes_rollback_store", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedCommandDispatchBehaviorEventId, "retained_command_dispatch_behavior_event_id", { json_event_id(binding.retained_command_dispatch_behavior_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (ExecutorCapabilityTableId, "executor_capability_table_id", { json_str(binding.executor_capability_table_id); }), (Hashes, "hashes", { raw("{\"executor_capability_table_hash\": "); json_sha256(binding.executor_capability_table_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"disable_module_target_binding_hash\": "); json_sha256(binding.disable_module_target_binding_hash); raw(", \"restart_last_good_target_binding_hash\": "); json_sha256(binding.restart_last_good_target_binding_hash); raw(", \"load_artifact_by_hash_target_binding_hash\": "); json_sha256(binding.load_artifact_by_hash_target_binding_hash); raw(", \"recovery_memory_write_authority_hash\": "); json_sha256(binding.recovery_memory_write_authority_hash); raw(", \"durable_audit_rollback_write_authority_hash\": "); json_sha256(binding.durable_audit_rollback_write_authority_hash); raw(", \"service_inventory_side_effect_boundary_hash\": "); json_sha256(binding.service_inventory_side_effect_boundary_hash); raw(", \"command_dispatch_behavior_hash\": "); json_sha256(binding.command_dispatch_behavior_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw(", \"executor_capability_projection_hash\": "); json_sha256(binding.executor_capability_projection_hash); raw("}"); }), }
+
+fn emit_recovery_lifeline_command_executor_capability_table_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLifelineCommandExecutorCapabilityTableReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_REFERENCE_BINDING_FIELDS,
+        emit_recovery_lifeline_command_executor_capability_table_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLifelineCommandSideEffectGateReferenceBindingField, RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_REFERENCE_BINDING_FIELDS, emit_recovery_lifeline_command_side_effect_gate_reference_binding_value, event_log::RecoveryLifelineCommandSideEffectGateReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_lifeline_command_side_effect_gate.v0\""); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (ExecutesDisableModule, "executes_disable_module", { raw("false"); }), (ExecutesRestartLastGood, "executes_restart_last_good", { raw("false"); }), (ExecutesLoadRecoveryArtifactByHash, "executes_load_recovery_artifact_by_hash", { raw("false"); }), (DisablesModule, "disables_module", { raw("false"); }), (RestartsLastGood, "restarts_last_good", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (WritesRecoveryMemory, "writes_recovery_memory", { raw("false"); }), (WritesDurableAuditLog, "writes_durable_audit_log", { raw("false"); }), (WritesRollbackStore, "writes_rollback_store", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedExecutorCapabilityTableEventId, "retained_executor_capability_table_event_id", { json_event_id(binding.retained_executor_capability_table_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (SideEffectGateId, "side_effect_gate_id", { json_str(binding.side_effect_gate_id); }), (Hashes, "hashes", { raw("{\"side_effect_gate_hash\": "); json_sha256(binding.side_effect_gate_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"disable_module_target_binding_hash\": "); json_sha256(binding.disable_module_target_binding_hash); raw(", \"restart_last_good_target_binding_hash\": "); json_sha256(binding.restart_last_good_target_binding_hash); raw(", \"load_artifact_by_hash_target_binding_hash\": "); json_sha256(binding.load_artifact_by_hash_target_binding_hash); raw(", \"recovery_memory_write_authority_hash\": "); json_sha256(binding.recovery_memory_write_authority_hash); raw(", \"durable_audit_rollback_write_authority_hash\": "); json_sha256(binding.durable_audit_rollback_write_authority_hash); raw(", \"service_inventory_side_effect_boundary_hash\": "); json_sha256(binding.service_inventory_side_effect_boundary_hash); raw(", \"command_dispatch_behavior_hash\": "); json_sha256(binding.command_dispatch_behavior_hash); raw(", \"executor_capability_table_hash\": "); json_sha256(binding.executor_capability_table_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw(", \"side_effect_projection_hash\": "); json_sha256(binding.side_effect_projection_hash); raw("}"); }), }
+
+fn emit_recovery_lifeline_command_side_effect_gate_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLifelineCommandSideEffectGateReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_REFERENCE_BINDING_FIELDS,
+        emit_recovery_lifeline_command_side_effect_gate_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLifelineCommandExecutionStageReferenceBindingField, RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_REFERENCE_BINDING_FIELDS, emit_recovery_lifeline_command_execution_stage_reference_binding_value, event_log::RecoveryLifelineCommandExecutionStageReference, binding, _kind; (Schema, "schema", { json_str(binding.schema); }), (Status, "status", { raw("\"retained_hash_reference_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (StageName, "stage_name", { json_str(binding.stage_name); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (ExecutesRollbackPreview, "executes_rollback_preview", { raw("false"); }), (ExecutesRollbackApply, "executes_rollback_apply", { raw("false"); }), (ExecutesDisableModule, "executes_disable_module", { raw("false"); }), (ExecutesRestartLastGood, "executes_restart_last_good", { raw("false"); }), (ExecutesLoadRecoveryArtifactByHash, "executes_load_recovery_artifact_by_hash", { raw("false"); }), (DisablesModule, "disables_module", { raw("false"); }), (RestartsLastGood, "restarts_last_good", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (CanMoveBeyondDenial, "can_move_beyond_denial", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (WritesRecoveryMemory, "writes_recovery_memory", { raw("false"); }), (WritesDurableAuditLog, "writes_durable_audit_log", { raw("false"); }), (WritesRollbackStore, "writes_rollback_store", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedPreviousStageEventId, "retained_previous_stage_event_id", { json_event_id(binding.retained_previous_stage_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (ExecutionStageId, "execution_stage_id", { json_str(binding.execution_stage_id); }), (Hashes, "hashes", { raw("{\"execution_stage_hash\": "); json_sha256(binding.execution_stage_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"rollback_preview_authorization_hash\": "); json_sha256(binding.rollback_preview_authorization_hash); raw(", \"rollback_apply_authorization_hash\": "); json_sha256(binding.rollback_apply_authorization_hash); raw(", \"disable_module_target_binding_hash\": "); json_sha256(binding.disable_module_target_binding_hash); raw(", \"restart_last_good_target_binding_hash\": "); json_sha256(binding.restart_last_good_target_binding_hash); raw(", \"load_artifact_by_hash_target_binding_hash\": "); json_sha256(binding.load_artifact_by_hash_target_binding_hash); raw(", \"recovery_memory_write_authority_hash\": "); json_sha256(binding.recovery_memory_write_authority_hash); raw(", \"durable_audit_rollback_write_authority_hash\": "); json_sha256(binding.durable_audit_rollback_write_authority_hash); raw(", \"service_inventory_side_effect_boundary_hash\": "); json_sha256(binding.service_inventory_side_effect_boundary_hash); raw(", \"command_dispatch_behavior_hash\": "); json_sha256(binding.command_dispatch_behavior_hash); raw(", \"executor_capability_table_hash\": "); json_sha256(binding.executor_capability_table_hash); raw(", \"side_effect_gate_hash\": "); json_sha256(binding.side_effect_gate_hash); raw(", \"source_rollback_apply_denial_hash\": "); json_sha256(binding.source_rollback_apply_denial_hash); raw(", \"source_durable_policy_write_authority_decision_hash\": "); json_sha256(binding.source_durable_policy_write_authority_decision_hash); raw(", \"source_recovery_rollback_inspect_source_reference_hash\": "); json_sha256(binding.source_recovery_rollback_inspect_source_reference_hash); raw(", \"execution_enablement_hash\": "); json_sha256_option(binding.execution_enablement_hash); raw(", \"execution_preflight_hash\": "); json_sha256_option(binding.execution_preflight_hash); raw(", \"execution_intent_hash\": "); json_sha256_option(binding.execution_intent_hash); raw(", \"execution_commit_gate_hash\": "); json_sha256_option(binding.execution_commit_gate_hash); raw(", \"execution_result_denial_hash\": "); json_sha256_option(binding.execution_result_denial_hash); raw(", \"execution_audit_denial_hash\": "); json_sha256_option(binding.execution_audit_denial_hash); raw(", \"execution_observation_denial_hash\": "); json_sha256_option(binding.execution_observation_denial_hash); raw(", \"execution_stage_projection_hash\": "); json_sha256(binding.execution_stage_projection_hash); raw("}"); }), }
+
+fn emit_recovery_lifeline_command_execution_stage_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLifelineCommandExecutionStageReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_REFERENCE_BINDING_FIELDS,
+        emit_recovery_lifeline_command_execution_stage_reference_binding_value,
+    );
+}
+
+define_direct_binding_fields! { RecoveryLifelineStatusExecutionResultReferenceBindingField, RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_REFERENCE_BINDING_FIELDS, emit_recovery_lifeline_status_execution_result_reference_binding_value, event_log::RecoveryLifelineStatusExecutionResultReference, binding, _kind; (Schema, "schema", { raw("\"raios.recovery_lifeline_status_execution_result.v0\""); }), (Status, "status", { raw("\"retained_read_only_result_command_still_denied\""); }), (Scope, "scope", { raw("\"current_boot\""); }), (Classification, "classification", { raw("\"local_only\""); }), (RequestedCapability, "requested_capability", { raw("\"cap.recovery.command.read\""); }), (LoadMode, "load_mode", { raw("\"recovery_only\""); }), (StatusExecutionReadiness, "status_execution_readiness", { raw("\"available_read_only_non_authorizing\""); }), (ReadinessReason, "readiness_reason", { raw("\"recovery_lifeline_status_read_ready_command_execution_disabled\""); }), (WouldExecuteLifelineStatusRead, "would_execute_lifeline_status_read", { raw("true"); }), (AcceptsRawCommandBody, "accepts_raw_command_body", { raw("false"); }), (AcceptsLifelineCommandBody, "accepts_lifeline_command_body", { raw("false"); }), (AcceptsLifelineCommandEnvelope, "accepts_lifeline_command_envelope", { raw("false"); }), (DispatchesLifelineCommand, "dispatches_lifeline_command", { raw("false"); }), (ExecutesLifelineStatus, "executes_lifeline_status", { raw("false"); }), (CommandExecutionEnabled, "command_execution_enabled", { raw("false"); }), (AuthorizesRecoveryLoad, "authorizes_recovery_load", { raw("false"); }), (LoadsRecoveryArtifact, "loads_recovery_artifact", { raw("false"); }), (WritesRecoveryMemory, "writes_recovery_memory", { raw("false"); }), (WritesDurableAuditLog, "writes_durable_audit_log", { raw("false"); }), (WritesRollbackStore, "writes_rollback_store", { raw("false"); }), (CreatesDurableRecords, "creates_durable_records", { raw("false"); }), (InstallsRollbackPlan, "installs_rollback_plan", { raw("false"); }), (AllocatesServiceSlot, "allocates_service_slot", { raw("false"); }), (CreatesServiceInventoryRecords, "creates_service_inventory_records", { raw("false"); }), (ServiceInventoryChange, "service_inventory_change", { raw("\"none\""); }), (LoadAttempted, "load_attempted", { raw("false"); }), (RetainedStatusReadHandlerEventId, "retained_status_read_handler_event_id", { json_event_id(binding.retained_status_read_handler_event_id); }), (RetainedExecutionCompletionDenialEventId, "retained_execution_completion_denial_event_id", { json_event_id(binding.retained_execution_completion_denial_event_id); }), (CommandId, "command_id", { json_str(binding.command_id); }), (ArgumentSchema, "argument_schema", { json_str(binding.argument_schema); }), (TargetLocator, "target_locator", { json_str(binding.target_locator.as_str()); }), (CommandDispatchBoundaryId, "command_dispatch_boundary_id", { json_str(binding.command_dispatch_boundary_id); }), (StatusExecutionResultId, "status_execution_result_id", { json_str(binding.status_execution_result_id); }), (Hashes, "hashes", { raw("{\"status_execution_result_hash\": "); json_sha256(binding.status_execution_result_hash); raw(", \"argument_hash\": "); json_sha256(binding.argument_hash); raw(", \"command_envelope_reference_hash\": "); json_sha256(binding.command_envelope_reference_hash); raw(", \"command_body_canonicalization_hash\": "); json_sha256(binding.command_body_canonicalization_hash); raw(", \"handler_binding_hash\": "); json_sha256(binding.handler_binding_hash); raw(", \"status_read_handler_hash\": "); json_sha256(binding.status_read_handler_hash); raw(", \"status_read_projection_hash\": "); json_sha256(binding.status_read_projection_hash); raw(", \"command_dispatch_behavior_hash\": "); json_sha256(binding.command_dispatch_behavior_hash); raw(", \"executor_capability_table_hash\": "); json_sha256(binding.executor_capability_table_hash); raw(", \"side_effect_gate_hash\": "); json_sha256(binding.side_effect_gate_hash); raw(", \"execution_enablement_hash\": "); json_sha256(binding.execution_enablement_hash); raw(", \"execution_preflight_hash\": "); json_sha256(binding.execution_preflight_hash); raw(", \"execution_intent_hash\": "); json_sha256(binding.execution_intent_hash); raw(", \"execution_commit_gate_hash\": "); json_sha256(binding.execution_commit_gate_hash); raw(", \"execution_result_denial_hash\": "); json_sha256(binding.execution_result_denial_hash); raw(", \"execution_audit_denial_hash\": "); json_sha256(binding.execution_audit_denial_hash); raw(", \"execution_observation_denial_hash\": "); json_sha256(binding.execution_observation_denial_hash); raw(", \"execution_completion_denial_hash\": "); json_sha256(binding.execution_completion_denial_hash); raw("}"); }), }
+
+fn emit_recovery_lifeline_status_execution_result_reference_binding(
+    kind: &str,
+    binding: &event_log::RecoveryLifelineStatusExecutionResultReference,
+) {
+    emit_binding_object_direct(
+        binding,
+        kind,
+        RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_REFERENCE_BINDING_FIELDS,
+        emit_recovery_lifeline_status_execution_result_reference_binding_value,
+    );
 }
 
 fn emit_provider_trust_verifier_metadata(metadata: provider_trust::ProviderTrustVerifierMetadata) {
@@ -4273,329 +2893,6 @@ fn emit_provider_trust_verifier_decision(decision: provider_trust::ProviderTrust
     raw(", \"reason\": ");
     json_str(decision.reason);
     raw("}");
-}
-
-fn emit_module_loader_live_load_boundary_event_binding(
-    binding: &event_log::ModuleLoaderLiveLoadBoundarySourceEvidence,
-) {
-    raw(", \"bindings\": {\"schema\": ");
-    json_str(binding.schema);
-    raw(", \"boundary_schema\": ");
-    json_str(binding.boundary_schema);
-    raw(", \"boundary_id\": ");
-    json_str(binding.boundary_id);
-    raw(", \"status\": ");
-    json_str(binding.readiness_status);
-    raw(", \"reason\": ");
-    json_str(binding.readiness_reason);
-    raw(", \"scope\": \"current_boot\", \"classification\": \"local_only\", \"requested_capability\": ");
-    json_str(binding.requested_capability);
-    raw(", \"load_mode\": ");
-    json_str(binding.load_mode);
-    raw(", \"target\": ");
-    json_str(binding.target);
-    raw(", \"source_method\": ");
-    json_str(binding.source_method);
-    raw(", \"source_fact_locator\": ");
-    json_str(binding.source_fact_locator);
-    raw(", \"boundary_status\": ");
-    json_str(binding.boundary_status);
-    raw(", \"boundary_reason\": ");
-    json_str(binding.boundary_reason);
-    raw(", \"boundary_present\": ");
-    raw_bool(binding.boundary_present);
-    raw(", \"boundary_scope\": ");
-    json_str(binding.boundary_scope);
-    raw(", \"boundary_schema_ok\": ");
-    raw_bool(binding.boundary_schema_ok);
-    raw(", \"boundary_provenance_ok\": ");
-    raw_bool(binding.boundary_provenance_ok);
-    raw(", \"boundary_classification\": ");
-    json_str(binding.boundary_classification);
-    raw(", \"source_chain_complete\": ");
-    raw_bool(binding.source_chain_complete);
-    raw(", \"load_attempt_boundary_present\": ");
-    raw_bool(binding.load_attempt_boundary_present);
-    raw(", \"artifact_load_boundary_present\": ");
-    raw_bool(binding.artifact_load_boundary_present);
-    raw(", \"executable_mapping_boundary_present\": ");
-    raw_bool(binding.executable_mapping_boundary_present);
-    raw(", \"entrypoint_transfer_boundary_present\": ");
-    raw_bool(binding.entrypoint_transfer_boundary_present);
-    raw(", \"service_start_boundary_present\": ");
-    raw_bool(binding.service_start_boundary_present);
-    raw(", \"service_health_binding_boundary_present\": ");
-    raw_bool(binding.service_health_binding_boundary_present);
-    raw(", \"service_running_state_boundary_present\": ");
-    raw_bool(binding.service_running_state_boundary_present);
-    raw(", \"service_start_audit_boundary_present\": ");
-    raw_bool(binding.service_start_audit_boundary_present);
-    raw(", \"service_unload_cleanup_boundary_present\": ");
-    raw_bool(binding.service_unload_cleanup_boundary_present);
-    raw(", \"live_load_commit_boundary_present\": ");
-    raw_bool(binding.live_load_commit_boundary_present);
-    raw(", \"commit_audit_boundary_present\": ");
-    raw_bool(binding.commit_audit_boundary_present);
-    raw(", \"commit_rollback_boundary_present\": ");
-    raw_bool(binding.commit_rollback_boundary_present);
-    raw(", \"commit_result_boundary_present\": ");
-    raw_bool(binding.commit_result_boundary_present);
-    raw(", \"descriptor_acceptance_authority_boundary_present\": ");
-    raw_bool(binding.descriptor_acceptance_authority_boundary_present);
-    raw(", \"descriptor_parser_contract_boundary_present\": ");
-    raw_bool(binding.descriptor_parser_contract_boundary_present);
-    raw(", \"descriptor_parser_result_boundary_present\": ");
-    raw_bool(binding.descriptor_parser_result_boundary_present);
-    raw(", \"descriptor_schema_validation_boundary_present\": ");
-    raw_bool(binding.descriptor_schema_validation_boundary_present);
-    raw(", \"descriptor_schema_validation_boundary_source_chain_complete\": ");
-    raw_bool(binding.descriptor_schema_validation_boundary_source_chain_complete);
-    raw(", \"descriptor_capability_validation_boundary_present\": ");
-    raw_bool(binding.descriptor_capability_validation_boundary_present);
-    raw(", \"descriptor_capability_validation_boundary_source_chain_complete\": ");
-    raw_bool(binding.descriptor_capability_validation_boundary_source_chain_complete);
-    raw(", \"descriptor_load_plan_boundary_present\": ");
-    raw_bool(binding.descriptor_load_plan_boundary_present);
-    raw(", \"descriptor_load_plan_boundary_source_chain_complete\": ");
-    raw_bool(binding.descriptor_load_plan_boundary_source_chain_complete);
-    raw(", \"executable_load_plan_authority_boundary_present\": ");
-    raw_bool(binding.executable_load_plan_authority_boundary_present);
-    raw(", \"executable_load_plan_authority_boundary_source_chain_complete\": ");
-    raw_bool(binding.executable_load_plan_authority_boundary_source_chain_complete);
-    raw(", \"executable_load_plan_result_boundary_present\": ");
-    raw_bool(binding.executable_load_plan_result_boundary_present);
-    raw(", \"executable_load_plan_result_boundary_source_chain_complete\": ");
-    raw_bool(binding.executable_load_plan_result_boundary_source_chain_complete);
-    raw(", \"executable_image_layout_boundary_present\": ");
-    raw_bool(binding.executable_image_layout_boundary_present);
-    raw(", \"executable_image_layout_boundary_source_chain_complete\": ");
-    raw_bool(binding.executable_image_layout_boundary_source_chain_complete);
-    raw(", \"executable_page_mapping_plan_boundary_present\": ");
-    raw_bool(binding.executable_page_mapping_plan_boundary_present);
-    raw(", \"executable_page_mapping_plan_boundary_source_chain_complete\": ");
-    raw_bool(binding.executable_page_mapping_plan_boundary_source_chain_complete);
-    raw(", \"executable_page_mapping_boundary_present\": ");
-    raw_bool(binding.executable_page_mapping_boundary_present);
-    raw(", \"executable_page_mapping_boundary_source_chain_complete\": ");
-    raw_bool(binding.executable_page_mapping_boundary_source_chain_complete);
-    raw(", \"descriptor_executable_page_binding_boundary_present\": ");
-    raw_bool(binding.descriptor_executable_page_binding_boundary_present);
-    raw(", \"descriptor_executable_page_binding_boundary_source_chain_complete\": ");
-    raw_bool(binding.descriptor_executable_page_binding_boundary_source_chain_complete);
-    raw(", \"executable_entrypoint_binding_boundary_present\": ");
-    raw_bool(binding.executable_entrypoint_binding_boundary_present);
-    raw(", \"executable_entrypoint_binding_boundary_source_chain_complete\": ");
-    raw_bool(binding.executable_entrypoint_binding_boundary_source_chain_complete);
-    raw(", \"executable_entrypoint_transfer_authorization_boundary_present\": ");
-    raw_bool(binding.executable_entrypoint_transfer_authorization_boundary_present);
-    raw(", \"executable_entrypoint_transfer_authorization_boundary_source_chain_complete\": ");
-    raw_bool(binding.executable_entrypoint_transfer_authorization_boundary_source_chain_complete);
-    raw(", \"executable_entrypoint_transfer_boundary_present\": ");
-    raw_bool(binding.executable_entrypoint_transfer_boundary_present);
-    raw(", \"executable_entrypoint_transfer_boundary_source_chain_complete\": ");
-    raw_bool(binding.executable_entrypoint_transfer_boundary_source_chain_complete);
-    raw(", \"executable_entrypoint_handoff_boundary_present\": ");
-    raw_bool(binding.executable_entrypoint_handoff_boundary_present);
-    raw(", \"executable_entrypoint_handoff_boundary_source_chain_complete\": ");
-    raw_bool(binding.executable_entrypoint_handoff_boundary_source_chain_complete);
-    raw(", \"artifact_byte_intake_boundary_present\": ");
-    raw_bool(binding.artifact_byte_intake_boundary_present);
-    raw(", \"execution_authorization_boundary_present\": ");
-    raw_bool(binding.execution_authorization_boundary_present);
-    raw(", \"service_registry_mutation_boundary_present\": ");
-    raw_bool(binding.service_registry_mutation_boundary_present);
-    raw(", \"service_slot_binding_source_evidence_present\": ");
-    raw_bool(binding.service_slot_binding_source_evidence_present);
-    raw(", \"health_state_hooks_source_evidence_present\": ");
-    raw_bool(binding.health_state_hooks_source_evidence_present);
-    raw(", \"artifact_hash_binding_present\": ");
-    raw_bool(binding.artifact_hash_binding_present);
-    raw(", \"entrypoint_abi_source_evidence_present\": ");
-    raw_bool(binding.entrypoint_abi_source_evidence_present);
-    raw(", \"address_space_source_evidence_present\": ");
-    raw_bool(binding.address_space_source_evidence_present);
-    raw(", \"memory_map_source_evidence_present\": ");
-    raw_bool(binding.memory_map_source_evidence_present);
-    raw(", \"capability_import_table_source_evidence_present\": ");
-    raw_bool(binding.capability_import_table_source_evidence_present);
-    raw(", \"audit_rollback_write_boundary_source_evidence_present\": ");
-    raw_bool(binding.audit_rollback_write_boundary_source_evidence_present);
-    raw(", \"retained_module_evidence_present\": ");
-    raw_bool(binding.retained_module_evidence_present);
-    raw(", \"retained_artifact_reference_present\": ");
-    raw_bool(binding.retained_artifact_reference_present);
-    raw(", \"retained_service_slot_reservation_present\": ");
-    raw_bool(binding.retained_service_slot_reservation_present);
-    raw(", \"load_attempt_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.load_attempt_boundary_source_evidence_event_id);
-    raw(", \"artifact_load_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.artifact_load_boundary_source_evidence_event_id);
-    raw(", \"executable_mapping_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.executable_mapping_boundary_source_evidence_event_id);
-    raw(", \"entrypoint_transfer_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.entrypoint_transfer_boundary_source_evidence_event_id);
-    raw(", \"service_start_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.service_start_boundary_source_evidence_event_id);
-    raw(", \"service_health_binding_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.service_health_binding_boundary_source_evidence_event_id);
-    raw(", \"service_running_state_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.service_running_state_boundary_source_evidence_event_id);
-    raw(", \"service_start_audit_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.service_start_audit_boundary_source_evidence_event_id);
-    raw(", \"service_unload_cleanup_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.service_unload_cleanup_boundary_source_evidence_event_id);
-    raw(", \"live_load_commit_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.live_load_commit_boundary_source_evidence_event_id);
-    raw(", \"commit_audit_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.commit_audit_boundary_source_evidence_event_id);
-    raw(", \"commit_rollback_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.commit_rollback_boundary_source_evidence_event_id);
-    raw(", \"commit_result_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.commit_result_boundary_source_evidence_event_id);
-    raw(", \"descriptor_acceptance_authority_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.descriptor_acceptance_authority_boundary_source_evidence_event_id);
-    raw(", \"descriptor_parser_contract_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.descriptor_parser_contract_boundary_source_evidence_event_id);
-    raw(", \"descriptor_parser_result_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.descriptor_parser_result_boundary_source_evidence_event_id);
-    raw(", \"descriptor_schema_validation_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.descriptor_schema_validation_boundary_source_evidence_event_id);
-    raw(", \"descriptor_capability_validation_boundary_source_evidence_event_id\": ");
-    json_event_id_option(
-        binding.descriptor_capability_validation_boundary_source_evidence_event_id,
-    );
-    raw(", \"descriptor_load_plan_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.descriptor_load_plan_boundary_source_evidence_event_id);
-    raw(", \"executable_load_plan_authority_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.executable_load_plan_authority_boundary_source_evidence_event_id);
-    raw(", \"executable_load_plan_result_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.executable_load_plan_result_boundary_source_evidence_event_id);
-    raw(", \"executable_image_layout_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.executable_image_layout_boundary_source_evidence_event_id);
-    raw(", \"executable_page_mapping_plan_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.executable_page_mapping_plan_boundary_source_evidence_event_id);
-    raw(", \"executable_page_mapping_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.executable_page_mapping_boundary_source_evidence_event_id);
-    raw(", \"descriptor_executable_page_binding_boundary_source_evidence_event_id\": ");
-    json_event_id_option(
-        binding.descriptor_executable_page_binding_boundary_source_evidence_event_id,
-    );
-    raw(", \"executable_entrypoint_binding_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.executable_entrypoint_binding_boundary_source_evidence_event_id);
-    raw(", \"executable_entrypoint_transfer_authorization_boundary_source_evidence_event_id\": ");
-    json_event_id_option(
-        binding.executable_entrypoint_transfer_authorization_boundary_source_evidence_event_id,
-    );
-    raw(", \"executable_entrypoint_transfer_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.executable_entrypoint_transfer_boundary_source_evidence_event_id);
-    raw(", \"executable_entrypoint_handoff_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.executable_entrypoint_handoff_boundary_source_evidence_event_id);
-    raw(", \"artifact_byte_intake_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.artifact_byte_intake_boundary_source_evidence_event_id);
-    raw(", \"execution_authorization_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.execution_authorization_boundary_source_evidence_event_id);
-    raw(", \"service_registry_mutation_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.service_registry_mutation_boundary_source_evidence_event_id);
-    raw(", \"service_slot_binding_source_evidence_event_id\": ");
-    json_event_id_option(binding.service_slot_binding_source_evidence_event_id);
-    raw(", \"health_state_hooks_source_evidence_event_id\": ");
-    json_event_id_option(binding.health_state_hooks_source_evidence_event_id);
-    raw(", \"artifact_hash_binding_source_evidence_event_id\": ");
-    json_event_id_option(binding.artifact_hash_binding_source_evidence_event_id);
-    raw(", \"entrypoint_abi_source_evidence_event_id\": ");
-    json_event_id_option(binding.entrypoint_abi_source_evidence_event_id);
-    raw(", \"address_space_source_evidence_event_id\": ");
-    json_event_id_option(binding.address_space_source_evidence_event_id);
-    raw(", \"memory_map_source_evidence_event_id\": ");
-    json_event_id_option(binding.memory_map_source_evidence_event_id);
-    raw(", \"capability_import_table_source_evidence_event_id\": ");
-    json_event_id_option(binding.capability_import_table_source_evidence_event_id);
-    raw(", \"audit_rollback_write_boundary_source_evidence_event_id\": ");
-    json_event_id_option(binding.audit_rollback_write_boundary_source_evidence_event_id);
-    raw(", \"retained_module_evidence_event_ids\": {\"manifest_reference_event_id\": ");
-    json_event_id_option(binding.manifest_reference_event_id);
-    raw(", \"candidate_artifact_reference_event_id\": ");
-    json_event_id_option(binding.artifact_reference_event_id);
-    raw(", \"vm_test_report_reference_event_id\": ");
-    json_event_id_option(binding.vm_test_report_reference_event_id);
-    raw(", \"local_attestation_reference_event_id\": ");
-    json_event_id_option(binding.local_attestation_reference_event_id);
-    raw(", \"local_approval_reference_event_id\": ");
-    json_event_id_option(binding.local_approval_reference_event_id);
-    raw(", \"computed_grant_reference_event_id\": ");
-    json_event_id_option(binding.computed_grant_reference_event_id);
-    raw(", \"audit_rollback_reference_event_id\": ");
-    json_event_id_option(binding.audit_rollback_reference_event_id);
-    raw(", \"service_slot_reservation_event_id\": ");
-    json_event_id_option(binding.service_slot_reservation_event_id);
-    raw("}, \"ram_only_service_slot_id\": ");
-    if let Some(id) = binding.ram_only_service_slot_id {
-        json_str(id.as_str());
-    } else {
-        raw("null");
-    }
-    raw(", \"source_evidence_retained\": true, \"retention\": \"current_boot_ram_event_log\", \"accepts_loader_descriptor\": ");
-    raw_bool(binding.accepts_loader_descriptor);
-    raw(", \"accepts_descriptor_bytes\": ");
-    raw_bool(binding.accepts_descriptor_bytes);
-    raw(", \"produces_parsed_descriptor\": false");
-    raw(", \"validates_descriptor_schema\": false");
-    raw(", \"produces_validated_descriptor\": false");
-    raw(", \"validates_descriptor_capabilities\": false");
-    raw(", \"produces_capability_validated_descriptor\": false");
-    raw(", \"authorizes_executable_load_plan\": false");
-    raw(", \"produces_executable_load_plan\": false");
-    raw(", \"produces_executable_image_layout\": false");
-    raw(", \"produces_executable_page_mapping_plan\": false");
-    raw(", \"binds_capability_validated_descriptor_to_executable_pages\": false");
-    raw(", \"parses_descriptor_bytes\": false");
-    raw(", \"accepts_artifact_bytes\": ");
-    raw_bool(binding.accepts_artifact_bytes);
-    raw(", \"authorizes_descriptor_intake\": ");
-    raw_bool(binding.authorizes_descriptor_intake);
-    raw(", \"authorizes_artifact_byte_intake\": ");
-    raw_bool(binding.authorizes_artifact_byte_intake);
-    raw(", \"maps_executable_pages\": ");
-    raw_bool(binding.maps_executable_pages);
-    raw(", \"jumps_to_entrypoint\": ");
-    raw_bool(binding.jumps_to_entrypoint);
-    raw(", \"authorizes_execution\": ");
-    raw_bool(binding.authorizes_execution);
-    raw(", \"mutates_service_registry\": ");
-    raw_bool(binding.mutates_service_registry);
-    raw(", \"writes_durable_audit_state\": ");
-    raw_bool(binding.writes_durable_audit_state);
-    raw(", \"installs_rollback_state\": ");
-    raw_bool(binding.installs_rollback_state);
-    raw(", \"allocates_service_slot\": ");
-    raw_bool(binding.allocates_service_slot);
-    raw(", \"creates_service_inventory_records\": ");
-    raw_bool(binding.creates_service_inventory_records);
-    raw(", \"service_inventory_change\": \"none\", \"can_load_now\": false, \"loads_artifact\": ");
-    raw_bool(binding.loads_artifact);
-    raw(", \"starts_service\": ");
-    raw_bool(binding.starts_service);
-    raw(", \"marks_service_running\": ");
-    raw_bool(binding.marks_service_running);
-    raw(", \"creates_service_health_records\": ");
-    raw_bool(binding.creates_service_health_records);
-    raw(", \"writes_service_start_audit_record\": ");
-    raw_bool(binding.writes_service_start_audit_record);
-    raw(", \"unloads_service\": ");
-    raw_bool(binding.unloads_service);
-    raw(", \"cleans_up_service_slot\": ");
-    raw_bool(binding.cleans_up_service_slot);
-    raw(", \"commits_live_load\": ");
-    raw_bool(binding.commits_live_load);
-    raw(", \"writes_load_commit_audit_record\": ");
-    raw_bool(binding.writes_load_commit_audit_record);
-    raw(", \"installs_commit_rollback_record\": ");
-    raw_bool(binding.installs_commit_rollback_record);
-    raw(", \"records_load_result\": ");
-    raw_bool(binding.records_load_result);
-    raw(", \"load_attempted\": ");
-    raw_bool(binding.load_attempted);
-    raw(", \"authorizes_load\": false}");
 }
 
 fn emit_recovery_lifeline_status_context_fact() {

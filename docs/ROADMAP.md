@@ -287,14 +287,25 @@ scripted old-vs-new key-order proof (968/968, order identical).
 Verified: quick 417/417, hello-rollback-dry-run 203/203, FULL
 `shadow-20260705-235005-11568.json` 7814/7814 (sixth full green).
 
+Collapse Batch 4 fully done (2026-07-06): all 86 remaining
+emit_event_bindings variants converted to descriptor tables WITH
+per-variant scripted key-diff proofs (0 missing, order identical
+everywhere — the M2-32 lesson institutionalized); net -1,703 more lines;
+agent_protocol_memory.rs is now 3,229 lines (was 8,275 at M2 start).
+Verified: quick 417/417 + FULL `shadow-20260706-002904-24144.json`
+7814/7814 (seventh full green). Only ModuleLoadGate/
+RecoveryArtifactLoadDenied render elsewhere (out of that packet's
+scope).
+
 Exact next task:
 
 ```text
-Collapse Batch 4 remainder (optional, assess first): the other
-emit_event_bindings variants (non-Hello) onto the descriptor mechanism.
-Then Batch 5: Hello rollback writer/hash field tables per the collapse
-map (high risk, hello-rollback + full). Owner decision pending on
-batch 6 (vocabulary compaction beyond byte-identity).
+Collapse Batch 5: Hello rollback writer/hash field tables per the
+collapse map (storage_authority_gate.rs ~3.6k hash lines,
+rollback_writer_bindings.rs ~2.9k binder lines, emitters.rs residuals) —
+HIGH RISK: hash inputs must stay byte-for-byte; attested files need
+re-signing; require scripted key/hash-input diffs; verify
+hello-rollback-dry-run + full. Owner decision pending on batch 6.
 ```
 
 ## Capability Milestones
