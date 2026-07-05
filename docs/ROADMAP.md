@@ -297,15 +297,29 @@ Verified: quick 417/417 + FULL `shadow-20260706-002904-24144.json`
 RecoveryArtifactLoadDenied render elsewhere (out of that packet's
 scope).
 
+Collapse Batch 5 done (2026-07-06): the Hello hash-input construction
+collapsed to tables — 11 hash blocks in storage_authority_gate.rs and 32
+binder blocks in rollback_writer_bindings.rs, each with scripted
+byte/order-identity proofs (target/m2-34-debug/); net -4,450 lines;
+re-signed; emitters.rs residuals honestly left (irregular interleaving).
+Verified: hello-rollback-dry-run 203/203 + FULL
+`shadow-20260706-010427-24984.json` 7814/7814 (eighth full green).
+
+**The byte-identical collapse program (Batches 1-5) is complete.**
+Cumulative M2 deletion: ~-18,500 kernel lines at byte-identical
+behavior. Remaining to reach the ~20k target: Batch 6 (vocabulary
+compaction / host-test migration — changes output shape, needs OWNER
+DECISION + needle updates + an ADR).
+
 Exact next task:
 
 ```text
-Collapse Batch 5: Hello rollback writer/hash field tables per the
-collapse map (storage_authority_gate.rs ~3.6k hash lines,
-rollback_writer_bindings.rs ~2.9k binder lines, emitters.rs residuals) —
-HIGH RISK: hash inputs must stay byte-for-byte; attested files need
-re-signing; require scripted key/hash-input diffs; verify
-hello-rollback-dry-run + full. Owner decision pending on batch 6.
+M2 checkpoint: re-measure the agent layer, update the dashboard with
+the honest numbers, and put the batch-6 decision to the owner (option
+A: accept the byte-identical floor and re-scope M2's sentence; option
+B: authorize vocabulary compaction via a new ADR). Meanwhile safe
+filler: convert the ModuleLoadGate/RecoveryArtifactLoadDenied binding
+emitters (outside M2-33's write set) onto descriptor tables.
 ```
 
 ## Capability Milestones
