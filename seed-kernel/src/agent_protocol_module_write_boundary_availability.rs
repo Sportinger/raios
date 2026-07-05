@@ -4,12 +4,92 @@ use crate::{
     agent_protocol_module_types::*,
     agent_protocol_module_write_boundary_emit::*,
     agent_protocol_support::{
-        begin_response, crlf, emit_export_gate, emit_inline_record_object,
-        emit_record_fields_trailing_comma, emit_record_property_line, end_response, method_eq,
-        raw_line, record_bool as b, record_false as no, record_field as f, record_str as s,
+        begin_response, crlf, emit_export_gate, emit_record_fields_trailing_comma,
+        emit_record_property_line, emit_selftest_case_fields, end_response, method_eq, raw_line,
+        record_bool as b, record_false as no, record_field as f, record_str as s,
+        run_selftest_cases_with, CaseSpec, SelftestReportField::False,
     },
 };
 use raios_core::record::Value as V;
+
+#[derive(Clone, Copy)]
+enum AvailabilitySelftestMutation {
+    MissingPair,
+    LedgerPreviousBoot,
+    LedgerWrongSchema,
+    LedgerProvenanceMissing,
+    StorePreviousBoot,
+    StoreWrongSchema,
+    StoreProvenanceMissing,
+    AvailableFactsPolicyDenied,
+}
+
+const fn availability_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: AvailabilitySelftestMutation,
+) -> CaseSpec<AvailabilitySelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const AVAILABILITY_CASES: [CaseSpec<AvailabilitySelftestMutation>;
+    MODULE_AUDIT_ROLLBACK_AVAILABILITY_SELFTEST_CASES] = [
+    availability_case(
+        "missing_ledger_and_store_current_boot",
+        "missing",
+        "durable_audit_ledger_missing_and_rollback_store_missing",
+        AvailabilitySelftestMutation::MissingPair,
+    ),
+    availability_case(
+        "durable_audit_ledger_previous_boot",
+        "rejected",
+        "durable_audit_ledger_scope_must_be_current_boot",
+        AvailabilitySelftestMutation::LedgerPreviousBoot,
+    ),
+    availability_case(
+        "durable_audit_ledger_wrong_schema",
+        "rejected",
+        "durable_audit_ledger_schema_mismatch",
+        AvailabilitySelftestMutation::LedgerWrongSchema,
+    ),
+    availability_case(
+        "durable_audit_ledger_provenance_missing",
+        "rejected",
+        "durable_audit_ledger_provenance_missing",
+        AvailabilitySelftestMutation::LedgerProvenanceMissing,
+    ),
+    availability_case(
+        "rollback_store_previous_boot",
+        "rejected",
+        "rollback_store_scope_must_be_current_boot",
+        AvailabilitySelftestMutation::StorePreviousBoot,
+    ),
+    availability_case(
+        "rollback_store_wrong_schema",
+        "rejected",
+        "rollback_store_schema_mismatch",
+        AvailabilitySelftestMutation::StoreWrongSchema,
+    ),
+    availability_case(
+        "rollback_store_provenance_missing",
+        "rejected",
+        "rollback_store_provenance_missing",
+        AvailabilitySelftestMutation::StoreProvenanceMissing,
+    ),
+    availability_case(
+        "available_facts_policy_still_denied",
+        "denied_missing_durable_write_policy",
+        "durable_write_policy_missing",
+        AvailabilitySelftestMutation::AvailableFactsPolicyDenied,
+    ),
+];
 
 pub(crate) fn emit_module_audit_rollback_availability() {
     let availability = module_audit_rollback_availability_snapshot();
@@ -112,7 +192,7 @@ pub(crate) fn emit_module_audit_rollback_availability_selftest_case(
     case: &ModuleAuditRollbackAvailabilitySelfTestCase,
     comma: bool,
 ) {
-    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("writes_enabled", no()), f("installs_rollback_plan", no()), f("can_load", no()), f("load_attempted", no())], comma);
+    emit_selftest_case_fields(case.name, case.expected_status, case.expected_reason, case.actual_status, case.actual_reason, case.passed, &[False("writes_enabled"), False("installs_rollback_plan"), False("can_load"), False("load_attempted")], comma);
 }
 
 pub(crate) fn module_audit_rollback_availability_snapshot(
@@ -242,121 +322,118 @@ pub(crate) fn evaluate_module_availability_fact(
 pub(crate) fn module_audit_rollback_availability_selftest_cases(
 ) -> [ModuleAuditRollbackAvailabilitySelfTestCase; MODULE_AUDIT_ROLLBACK_AVAILABILITY_SELFTEST_CASES]
 {
-    let missing = module_audit_rollback_availability_snapshot();
-    let available_fact = module_audit_rollback_available_availability_fact();
-    [
-        module_audit_rollback_availability_selftest_case(
-            "missing_ledger_and_store_current_boot",
-            "missing",
-            "durable_audit_ledger_missing_and_rollback_store_missing",
-            missing,
-        ),
-        module_audit_rollback_availability_selftest_case(
-            "durable_audit_ledger_previous_boot",
-            "rejected",
-            "durable_audit_ledger_scope_must_be_current_boot",
-            ModuleAuditRollbackAvailabilityCandidate {
-                durable_audit_ledger: ModuleAuditRollbackAvailabilityFact {
-                    scope: "previous_boot",
-                    ..available_fact
-                },
-                rollback_store: available_fact,
-                ..missing
-            },
-        ),
-        module_audit_rollback_availability_selftest_case(
-            "durable_audit_ledger_wrong_schema",
-            "rejected",
-            "durable_audit_ledger_schema_mismatch",
-            ModuleAuditRollbackAvailabilityCandidate {
-                durable_audit_ledger: ModuleAuditRollbackAvailabilityFact {
-                    schema_ok: false,
-                    ..available_fact
-                },
-                rollback_store: available_fact,
-                ..missing
-            },
-        ),
-        module_audit_rollback_availability_selftest_case(
-            "durable_audit_ledger_provenance_missing",
-            "rejected",
-            "durable_audit_ledger_provenance_missing",
-            ModuleAuditRollbackAvailabilityCandidate {
-                durable_audit_ledger: ModuleAuditRollbackAvailabilityFact {
-                    provenance_ok: false,
-                    ..available_fact
-                },
-                rollback_store: available_fact,
-                ..missing
-            },
-        ),
-        module_audit_rollback_availability_selftest_case(
-            "rollback_store_previous_boot",
-            "rejected",
-            "rollback_store_scope_must_be_current_boot",
-            ModuleAuditRollbackAvailabilityCandidate {
-                durable_audit_ledger: available_fact,
-                rollback_store: ModuleAuditRollbackAvailabilityFact {
-                    scope: "previous_boot",
-                    ..available_fact
-                },
-                ..missing
-            },
-        ),
-        module_audit_rollback_availability_selftest_case(
-            "rollback_store_wrong_schema",
-            "rejected",
-            "rollback_store_schema_mismatch",
-            ModuleAuditRollbackAvailabilityCandidate {
-                durable_audit_ledger: available_fact,
-                rollback_store: ModuleAuditRollbackAvailabilityFact {
-                    schema_ok: false,
-                    ..available_fact
-                },
-                ..missing
-            },
-        ),
-        module_audit_rollback_availability_selftest_case(
-            "rollback_store_provenance_missing",
-            "rejected",
-            "rollback_store_provenance_missing",
-            ModuleAuditRollbackAvailabilityCandidate {
-                durable_audit_ledger: available_fact,
-                rollback_store: ModuleAuditRollbackAvailabilityFact {
-                    provenance_ok: false,
-                    ..available_fact
-                },
-                ..missing
-            },
-        ),
-        module_audit_rollback_availability_selftest_case(
-            "available_facts_policy_still_denied",
-            "denied_missing_durable_write_policy",
-            "durable_write_policy_missing",
-            ModuleAuditRollbackAvailabilityCandidate {
-                durable_audit_ledger: available_fact,
-                rollback_store: available_fact,
-                ..missing
-            },
-        ),
-    ]
+    run_selftest_cases_with(
+        module_audit_rollback_availability_snapshot(),
+        &AVAILABILITY_CASES,
+        apply_availability_selftest_case,
+        evaluate_availability_selftest_case,
+        module_audit_rollback_availability_selftest_case_from_spec,
+    )
 }
 
-pub(crate) fn module_audit_rollback_availability_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
+fn apply_availability_selftest_case(
+    candidate: &mut ModuleAuditRollbackAvailabilityCandidate,
+    mutation: AvailabilitySelftestMutation,
+) {
+    *candidate = module_audit_rollback_availability_selftest_candidate(mutation);
+}
+
+fn evaluate_availability_selftest_case(
     candidate: ModuleAuditRollbackAvailabilityCandidate,
+    _require_live_retained: bool,
+) -> ModuleAuditRollbackAvailabilityEvaluation {
+    evaluate_module_audit_rollback_availability_candidate(candidate)
+}
+
+fn module_audit_rollback_availability_selftest_candidate(
+    mutation: AvailabilitySelftestMutation,
+) -> ModuleAuditRollbackAvailabilityCandidate {
+    let missing = module_audit_rollback_availability_snapshot();
+    let available_fact = module_audit_rollback_available_availability_fact();
+    match mutation {
+        AvailabilitySelftestMutation::MissingPair => missing,
+        AvailabilitySelftestMutation::LedgerPreviousBoot => {
+            ModuleAuditRollbackAvailabilityCandidate {
+                durable_audit_ledger: ModuleAuditRollbackAvailabilityFact {
+                    scope: "previous_boot",
+                    ..available_fact
+                },
+                rollback_store: available_fact,
+                ..missing
+            }
+        }
+        AvailabilitySelftestMutation::LedgerWrongSchema => {
+            ModuleAuditRollbackAvailabilityCandidate {
+                durable_audit_ledger: ModuleAuditRollbackAvailabilityFact {
+                    schema_ok: false,
+                    ..available_fact
+                },
+                rollback_store: available_fact,
+                ..missing
+            }
+        }
+        AvailabilitySelftestMutation::LedgerProvenanceMissing => {
+            ModuleAuditRollbackAvailabilityCandidate {
+                durable_audit_ledger: ModuleAuditRollbackAvailabilityFact {
+                    provenance_ok: false,
+                    ..available_fact
+                },
+                rollback_store: available_fact,
+                ..missing
+            }
+        }
+        AvailabilitySelftestMutation::StorePreviousBoot => {
+            ModuleAuditRollbackAvailabilityCandidate {
+                durable_audit_ledger: available_fact,
+                rollback_store: ModuleAuditRollbackAvailabilityFact {
+                    scope: "previous_boot",
+                    ..available_fact
+                },
+                ..missing
+            }
+        }
+        AvailabilitySelftestMutation::StoreWrongSchema => {
+            ModuleAuditRollbackAvailabilityCandidate {
+                durable_audit_ledger: available_fact,
+                rollback_store: ModuleAuditRollbackAvailabilityFact {
+                    schema_ok: false,
+                    ..available_fact
+                },
+                ..missing
+            }
+        }
+        AvailabilitySelftestMutation::StoreProvenanceMissing => {
+            ModuleAuditRollbackAvailabilityCandidate {
+                durable_audit_ledger: available_fact,
+                rollback_store: ModuleAuditRollbackAvailabilityFact {
+                    provenance_ok: false,
+                    ..available_fact
+                },
+                ..missing
+            }
+        }
+        AvailabilitySelftestMutation::AvailableFactsPolicyDenied => {
+            ModuleAuditRollbackAvailabilityCandidate {
+                durable_audit_ledger: available_fact,
+                rollback_store: available_fact,
+                ..missing
+            }
+        }
+    }
+}
+
+fn module_audit_rollback_availability_selftest_case_from_spec(
+    spec: &CaseSpec<AvailabilitySelftestMutation>,
+    actual: ModuleAuditRollbackAvailabilityEvaluation,
 ) -> ModuleAuditRollbackAvailabilitySelfTestCase {
-    let actual = evaluate_module_audit_rollback_availability_candidate(candidate);
     ModuleAuditRollbackAvailabilitySelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
-        passed: method_eq(actual.status, expected_status)
-            && method_eq(actual.reason, expected_reason)
+        passed: method_eq(actual.status, spec.expected_status)
+            && method_eq(actual.reason, spec.expected_reason)
             && !actual.writes_enabled
             && !actual.installs_rollback_plan
             && !actual.can_load

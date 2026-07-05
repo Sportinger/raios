@@ -9,11 +9,106 @@ use crate::{
         parse_current_boot_event_id, parse_sha256_ref, raw_line, record_bool as b,
         record_event_or_null, record_false as no, record_field as f, record_sha_fields,
         record_sha_or_null_fields, record_static_str_array, record_str as s, record_str_or_null,
+        run_selftest_cases_with, CaseSpec,
     },
     event_log,
     module_evidence::{self, ram_only_service_slot_id_valid, ModuleAuditRecordHashInput},
 };
 use raios_core::record::Value as V;
+
+#[derive(Clone, Copy)]
+enum AuditRollbackSelftestMutation {
+    Absent,
+    Accepted,
+    Stale,
+    PreviousBootDenialEventId,
+    AuditSchemaMismatch,
+    RollbackSchemaMismatch,
+    SubstitutedAuditRecordHash,
+    MismatchedRollbackPlanHash,
+    MismatchedComputedGrantHash,
+    InvalidRamOnlyServiceSlot,
+}
+
+const fn audit_rollback_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: AuditRollbackSelftestMutation,
+) -> CaseSpec<AuditRollbackSelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const AUDIT_ROLLBACK_CASES: [CaseSpec<AuditRollbackSelftestMutation>;
+    MODULE_AUDIT_ROLLBACK_SELFTEST_CASES] = [
+    audit_rollback_case(
+        "absent_reference",
+        "missing",
+        "audit_rollback_reference_absent",
+        AuditRollbackSelftestMutation::Absent,
+    ),
+    audit_rollback_case(
+        "accepted_current_boot_reference_still_denied",
+        "valid_hash_reference_load_still_denied",
+        "audit_rollback_reference_valid_but_loader_and_slot_missing",
+        AuditRollbackSelftestMutation::Accepted,
+    ),
+    audit_rollback_case(
+        "stale_previous_boot_reference",
+        "stale_or_non_current_boot_reference",
+        "audit_rollback_reference_scope_must_be_current_boot",
+        AuditRollbackSelftestMutation::Stale,
+    ),
+    audit_rollback_case(
+        "previous_boot_denial_event_id",
+        "rejected",
+        "denial_event_id_not_current_boot",
+        AuditRollbackSelftestMutation::PreviousBootDenialEventId,
+    ),
+    audit_rollback_case(
+        "audit_record_schema_mismatch",
+        "rejected",
+        "audit_record_schema_mismatch",
+        AuditRollbackSelftestMutation::AuditSchemaMismatch,
+    ),
+    audit_rollback_case(
+        "rollback_plan_schema_mismatch",
+        "rejected",
+        "rollback_plan_schema_mismatch",
+        AuditRollbackSelftestMutation::RollbackSchemaMismatch,
+    ),
+    audit_rollback_case(
+        "substituted_audit_record_hash",
+        "mismatched_audit_record_hash",
+        "audit_record_hash_mismatch",
+        AuditRollbackSelftestMutation::SubstitutedAuditRecordHash,
+    ),
+    audit_rollback_case(
+        "mismatched_rollback_plan_hash",
+        "mismatched_rollback_plan_hash",
+        "rollback_plan_hash_mismatch",
+        AuditRollbackSelftestMutation::MismatchedRollbackPlanHash,
+    ),
+    audit_rollback_case(
+        "mismatched_computed_grant_hash",
+        "mismatched_computed_grant_hash",
+        "computed_grant_hash_mismatch",
+        AuditRollbackSelftestMutation::MismatchedComputedGrantHash,
+    ),
+    audit_rollback_case(
+        "invalid_ram_only_service_slot",
+        "rejected",
+        "ram_only_service_slot_id_invalid",
+        AuditRollbackSelftestMutation::InvalidRamOnlyServiceSlot,
+    ),
+];
+
 fn module_audit_rollback_diagnostic_arg(method: &str) -> &str {
     let method = method.trim();
     let head_len = if method_head_eq(method, "module.audit_rollback_diagnostic") {
@@ -729,112 +824,94 @@ fn module_audit_rollback_reference_check<'a>(
 
 fn module_audit_rollback_selftest_cases(
 ) -> [ModuleAuditRollbackSelfTestCase; MODULE_AUDIT_ROLLBACK_SELFTEST_CASES] {
+    run_selftest_cases_with(
+        module_audit_rollback_valid_input(),
+        &AUDIT_ROLLBACK_CASES,
+        apply_audit_rollback_selftest_case,
+        evaluate_audit_rollback_selftest_case,
+        module_audit_rollback_selftest_case_from_spec,
+    )
+}
+
+fn apply_audit_rollback_selftest_case(
+    candidate: &mut ModuleAuditRollbackReferenceInput<'static>,
+    mutation: AuditRollbackSelftestMutation,
+) {
     let valid = module_audit_rollback_valid_input();
-    [
-        module_audit_rollback_selftest_case(
-            "absent_reference",
-            "missing",
-            "audit_rollback_reference_absent",
-            ModuleAuditRollbackReferenceInput {
-                has_reference: false,
-                arity_valid: true,
-                scope: "current_boot",
-                audit_schema_ok: true,
-                rollback_schema_ok: true,
-                audit_record_hash: None,
-                rollback_plan_hash: None,
-                computed_grant_hash: None,
-                manifest_hash: None,
-                artifact_hash: None,
-                vm_report_hash: None,
-                local_attestation_hash: None,
-                local_approval_hash: None,
-                pre_load_service_inventory_hash: None,
-                cleanup_actions_hash: None,
-                denial_event_id: None,
-                retained_reference_event_id: None,
-                ram_only_service_slot_id: None,
-            },
-        ),
-        module_audit_rollback_selftest_case(
-            "accepted_current_boot_reference_still_denied",
-            "valid_hash_reference_load_still_denied",
-            "audit_rollback_reference_valid_but_loader_and_slot_missing",
-            valid,
-        ),
-        module_audit_rollback_selftest_case(
-            "stale_previous_boot_reference",
-            "stale_or_non_current_boot_reference",
-            "audit_rollback_reference_scope_must_be_current_boot",
-            ModuleAuditRollbackReferenceInput {
-                scope: "previous_boot",
-                ..valid
-            },
-        ),
-        module_audit_rollback_selftest_case(
-            "previous_boot_denial_event_id",
-            "rejected",
-            "denial_event_id_not_current_boot",
+    *candidate = match mutation {
+        AuditRollbackSelftestMutation::Absent => ModuleAuditRollbackReferenceInput {
+            has_reference: false,
+            arity_valid: true,
+            scope: "current_boot",
+            audit_schema_ok: true,
+            rollback_schema_ok: true,
+            audit_record_hash: None,
+            rollback_plan_hash: None,
+            computed_grant_hash: None,
+            manifest_hash: None,
+            artifact_hash: None,
+            vm_report_hash: None,
+            local_attestation_hash: None,
+            local_approval_hash: None,
+            pre_load_service_inventory_hash: None,
+            cleanup_actions_hash: None,
+            denial_event_id: None,
+            retained_reference_event_id: None,
+            ram_only_service_slot_id: None,
+        },
+        AuditRollbackSelftestMutation::Accepted => valid,
+        AuditRollbackSelftestMutation::Stale => ModuleAuditRollbackReferenceInput {
+            scope: "previous_boot",
+            ..valid
+        },
+        AuditRollbackSelftestMutation::PreviousBootDenialEventId => {
             ModuleAuditRollbackReferenceInput {
                 denial_event_id: Some("event.previous_boot.00000031"),
                 ..valid
-            },
-        ),
-        module_audit_rollback_selftest_case(
-            "audit_record_schema_mismatch",
-            "rejected",
-            "audit_record_schema_mismatch",
-            ModuleAuditRollbackReferenceInput {
-                audit_schema_ok: false,
-                ..valid
-            },
-        ),
-        module_audit_rollback_selftest_case(
-            "rollback_plan_schema_mismatch",
-            "rejected",
-            "rollback_plan_schema_mismatch",
+            }
+        }
+        AuditRollbackSelftestMutation::AuditSchemaMismatch => ModuleAuditRollbackReferenceInput {
+            audit_schema_ok: false,
+            ..valid
+        },
+        AuditRollbackSelftestMutation::RollbackSchemaMismatch => {
             ModuleAuditRollbackReferenceInput {
                 rollback_schema_ok: false,
                 ..valid
-            },
-        ),
-        module_audit_rollback_selftest_case(
-            "substituted_audit_record_hash",
-            "mismatched_audit_record_hash",
-            "audit_record_hash_mismatch",
+            }
+        }
+        AuditRollbackSelftestMutation::SubstitutedAuditRecordHash => {
             ModuleAuditRollbackReferenceInput {
                 audit_record_hash: Some([0x99; 32]),
                 ..valid
-            },
-        ),
-        module_audit_rollback_selftest_case(
-            "mismatched_rollback_plan_hash",
-            "mismatched_rollback_plan_hash",
-            "rollback_plan_hash_mismatch",
+            }
+        }
+        AuditRollbackSelftestMutation::MismatchedRollbackPlanHash => {
             ModuleAuditRollbackReferenceInput {
                 rollback_plan_hash: Some([0xaa; 32]),
                 ..valid
-            },
-        ),
-        module_audit_rollback_selftest_case(
-            "mismatched_computed_grant_hash",
-            "mismatched_computed_grant_hash",
-            "computed_grant_hash_mismatch",
+            }
+        }
+        AuditRollbackSelftestMutation::MismatchedComputedGrantHash => {
             ModuleAuditRollbackReferenceInput {
                 computed_grant_hash: Some([0xbb; 32]),
                 ..valid
-            },
-        ),
-        module_audit_rollback_selftest_case(
-            "invalid_ram_only_service_slot",
-            "rejected",
-            "ram_only_service_slot_id_invalid",
+            }
+        }
+        AuditRollbackSelftestMutation::InvalidRamOnlyServiceSlot => {
             ModuleAuditRollbackReferenceInput {
                 ram_only_service_slot_id: Some("svc.test.0001"),
                 ..valid
-            },
-        ),
-    ]
+            }
+        }
+    }
+}
+
+fn evaluate_audit_rollback_selftest_case(
+    candidate: ModuleAuditRollbackReferenceInput<'_>,
+    _require_live_retained: bool,
+) -> ModuleAuditRollbackReferenceCheck<'_> {
+    evaluate_module_audit_rollback_reference(candidate)
 }
 
 pub(crate) fn module_audit_rollback_valid_input<'a>() -> ModuleAuditRollbackReferenceInput<'a> {
@@ -884,21 +961,18 @@ pub(crate) fn module_audit_rollback_valid_input<'a>() -> ModuleAuditRollbackRefe
     }
 }
 
-fn module_audit_rollback_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
-    candidate: ModuleAuditRollbackReferenceInput<'_>,
+fn module_audit_rollback_selftest_case_from_spec(
+    spec: &CaseSpec<AuditRollbackSelftestMutation>,
+    actual: ModuleAuditRollbackReferenceCheck<'_>,
 ) -> ModuleAuditRollbackSelfTestCase {
-    let actual = evaluate_module_audit_rollback_reference(candidate);
     ModuleAuditRollbackSelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
-        passed: method_eq(actual.status, expected_status)
-            && method_eq(actual.reason, expected_reason)
+        passed: method_eq(actual.status, spec.expected_status)
+            && method_eq(actual.reason, spec.expected_reason)
             && !module_audit_rollback_check_can_load(&actual),
     }
 }

@@ -5,14 +5,178 @@ use crate::{
     agent_protocol_module_write_boundary_append_contract::*,
     agent_protocol_module_write_boundary_append_payload_hash::*,
     agent_protocol_support::{
-        begin_response, crlf, emit_export_gate, emit_inline_record_object,
-        emit_record_fields_trailing_comma, emit_record_property_line, end_response, method_eq,
-        raw_line, record_bool as b, record_false as no, record_field as f, record_inline as inline,
-        record_object as object, record_sha_or_null, record_str as s,
+        begin_response, crlf, emit_export_gate, emit_record_fields_trailing_comma,
+        emit_record_property_line, emit_selftest_case_fields, end_response, method_eq, raw_line,
+        record_bool as b, record_false as no, record_field as f, record_inline as inline,
+        record_object as object, record_sha_or_null, record_str as s, run_selftest_cases_with,
+        CaseSpec, SelftestReportField::False,
     },
     event_log,
 };
 use raios_core::record::Value as V;
+
+#[derive(Clone, Copy)]
+enum AppendIntentSelftestMutation {
+    MissingPair,
+    AuditPreviousBoot,
+    AuditWrongSchema,
+    AuditProvenanceMissing,
+    AuditProvenanceBindingMissing,
+    AuditAppendContractBindingMissing,
+    AuditAppendEngineBindingMissing,
+    AuditStorageLayoutBindingMissing,
+    AuditWritePolicyBindingMissing,
+    AuditAvailabilityBindingMissing,
+    AuditPayloadHashMissing,
+    AuditAppendContractMissing,
+    AuditPayloadHashEnvelopeMissing,
+    RollbackPreviousBoot,
+    RollbackWrongSchema,
+    RollbackProvenanceMissing,
+    RollbackAppendContractBindingMissing,
+    RollbackPayloadHashMissing,
+    RollbackPayloadHashEnvelopeMissing,
+    AvailableIntents,
+}
+
+const fn append_intent_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: AppendIntentSelftestMutation,
+) -> CaseSpec<AppendIntentSelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const APPEND_INTENT_CASES: [CaseSpec<AppendIntentSelftestMutation>;
+    MODULE_AUDIT_ROLLBACK_APPEND_INTENT_SELFTEST_CASES] = [
+    append_intent_case(
+        "missing_append_intent_pair_current_boot",
+        "missing",
+        "audit_record_append_intent_missing_and_rollback_transaction_append_intent_missing",
+        AppendIntentSelftestMutation::MissingPair,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_previous_boot",
+        "rejected",
+        "audit_record_append_intent_scope_must_be_current_boot",
+        AppendIntentSelftestMutation::AuditPreviousBoot,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_wrong_schema",
+        "rejected",
+        "audit_record_append_intent_schema_mismatch",
+        AppendIntentSelftestMutation::AuditWrongSchema,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_provenance_missing",
+        "rejected",
+        "audit_record_append_intent_provenance_missing",
+        AppendIntentSelftestMutation::AuditProvenanceMissing,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_provenance_binding_missing",
+        "rejected",
+        "audit_record_append_intent_provenance_binding_missing",
+        AppendIntentSelftestMutation::AuditProvenanceBindingMissing,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_append_contract_binding_missing",
+        "rejected",
+        "audit_record_append_intent_append_contract_binding_missing",
+        AppendIntentSelftestMutation::AuditAppendContractBindingMissing,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_append_engine_binding_missing",
+        "rejected",
+        "audit_record_append_intent_append_engine_binding_missing",
+        AppendIntentSelftestMutation::AuditAppendEngineBindingMissing,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_storage_layout_binding_missing",
+        "rejected",
+        "audit_record_append_intent_storage_layout_binding_missing",
+        AppendIntentSelftestMutation::AuditStorageLayoutBindingMissing,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_write_policy_binding_missing",
+        "rejected",
+        "audit_record_append_intent_write_policy_binding_missing",
+        AppendIntentSelftestMutation::AuditWritePolicyBindingMissing,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_availability_binding_missing",
+        "rejected",
+        "audit_record_append_intent_availability_binding_missing",
+        AppendIntentSelftestMutation::AuditAvailabilityBindingMissing,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_payload_hash_missing",
+        "rejected",
+        "audit_record_append_intent_payload_hash_missing",
+        AppendIntentSelftestMutation::AuditPayloadHashMissing,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_append_contract_missing",
+        "missing",
+        "audit_record_append_contract_missing",
+        AppendIntentSelftestMutation::AuditAppendContractMissing,
+    ),
+    append_intent_case(
+        "audit_record_append_intent_payload_hash_envelope_missing",
+        "missing",
+        "audit_record_append_payload_hash_envelope_missing",
+        AppendIntentSelftestMutation::AuditPayloadHashEnvelopeMissing,
+    ),
+    append_intent_case(
+        "rollback_transaction_append_intent_previous_boot",
+        "rejected",
+        "rollback_transaction_append_intent_scope_must_be_current_boot",
+        AppendIntentSelftestMutation::RollbackPreviousBoot,
+    ),
+    append_intent_case(
+        "rollback_transaction_append_intent_wrong_schema",
+        "rejected",
+        "rollback_transaction_append_intent_schema_mismatch",
+        AppendIntentSelftestMutation::RollbackWrongSchema,
+    ),
+    append_intent_case(
+        "rollback_transaction_append_intent_provenance_missing",
+        "rejected",
+        "rollback_transaction_append_intent_provenance_missing",
+        AppendIntentSelftestMutation::RollbackProvenanceMissing,
+    ),
+    append_intent_case(
+        "rollback_transaction_append_intent_append_contract_binding_missing",
+        "rejected",
+        "rollback_transaction_append_intent_append_contract_binding_missing",
+        AppendIntentSelftestMutation::RollbackAppendContractBindingMissing,
+    ),
+    append_intent_case(
+        "rollback_transaction_append_intent_payload_hash_missing",
+        "rejected",
+        "rollback_transaction_append_intent_payload_hash_missing",
+        AppendIntentSelftestMutation::RollbackPayloadHashMissing,
+    ),
+    append_intent_case(
+        "rollback_transaction_append_intent_payload_hash_envelope_missing",
+        "missing",
+        "rollback_transaction_append_payload_hash_envelope_missing",
+        AppendIntentSelftestMutation::RollbackPayloadHashEnvelopeMissing,
+    ),
+    append_intent_case(
+        "available_append_intents_still_non_authorizing",
+        "available",
+        "audit_rollback_append_intent_available",
+        AppendIntentSelftestMutation::AvailableIntents,
+    ),
+];
 
 pub(crate) fn emit_module_audit_rollback_append_intent() {
     let binding = event_log::module_load_gate_binding_snapshot();
@@ -191,18 +355,18 @@ pub(crate) fn emit_module_audit_rollback_append_intent_selftest_case(
     case: &ModuleAuditRollbackAppendIntentSelfTestCase,
     comma: bool,
 ) {
-    emit_inline_record_object(
-        vec![
-            f("case", s(case.name)),
-            f("expected_status", s(case.expected_status)),
-            f("expected_reason", s(case.expected_reason)),
-            f("actual_status", s(case.actual_status)),
-            f("actual_reason", s(case.actual_reason)),
-            f("passed", b(case.passed)),
-            f("writes_enabled", no()),
-            f("installs_rollback_plan", no()),
-            f("can_load", no()),
-            f("load_attempted", no()),
+    emit_selftest_case_fields(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        case.passed,
+        &[
+            False("writes_enabled"),
+            False("installs_rollback_plan"),
+            False("can_load"),
+            False("load_attempted"),
         ],
         comma,
     );
@@ -703,258 +867,219 @@ fn module_append_intent_fact_record(
 pub(crate) fn module_audit_rollback_append_intent_selftest_cases(
 ) -> [ModuleAuditRollbackAppendIntentSelfTestCase; MODULE_AUDIT_ROLLBACK_APPEND_INTENT_SELFTEST_CASES]
 {
+    run_selftest_cases_with(
+        module_audit_rollback_append_intent_snapshot(),
+        &APPEND_INTENT_CASES,
+        apply_append_intent_selftest_case,
+        evaluate_append_intent_selftest_case,
+        module_audit_rollback_append_intent_selftest_case_from_spec,
+    )
+}
+
+fn apply_append_intent_selftest_case(
+    candidate: &mut ModuleAuditRollbackAppendIntentCandidate,
+    mutation: AppendIntentSelftestMutation,
+) {
+    *candidate = module_audit_rollback_append_intent_selftest_candidate(mutation);
+}
+
+fn evaluate_append_intent_selftest_case(
+    candidate: ModuleAuditRollbackAppendIntentCandidate,
+    _require_live_retained: bool,
+) -> ModuleAuditRollbackAppendIntentEvaluation {
+    evaluate_module_audit_rollback_append_intent_candidate(candidate)
+}
+
+fn module_audit_rollback_append_intent_selftest_candidate(
+    mutation: AppendIntentSelftestMutation,
+) -> ModuleAuditRollbackAppendIntentCandidate {
     let missing = module_audit_rollback_append_intent_snapshot();
     let available = module_audit_rollback_available_append_intent_fact();
-    [
-        module_audit_rollback_append_intent_selftest_case(
-            "missing_append_intent_pair_current_boot",
-            "missing",
-            "audit_record_append_intent_missing_and_rollback_transaction_append_intent_missing",
-            missing,
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_previous_boot",
-            "rejected",
-            "audit_record_append_intent_scope_must_be_current_boot",
+    match mutation {
+        AppendIntentSelftestMutation::MissingPair => missing,
+        AppendIntentSelftestMutation::AuditPreviousBoot => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     scope: "previous_boot",
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_wrong_schema",
-            "rejected",
-            "audit_record_append_intent_schema_mismatch",
+            }
+        }
+        AppendIntentSelftestMutation::AuditWrongSchema => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     schema_ok: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_provenance_missing",
-            "rejected",
-            "audit_record_append_intent_provenance_missing",
+            }
+        }
+        AppendIntentSelftestMutation::AuditProvenanceMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     provenance_ok: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_provenance_binding_missing",
-            "rejected",
-            "audit_record_append_intent_provenance_binding_missing",
+            }
+        }
+        AppendIntentSelftestMutation::AuditProvenanceBindingMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     binds_intent_provenance: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_append_contract_binding_missing",
-            "rejected",
-            "audit_record_append_intent_append_contract_binding_missing",
+            }
+        }
+        AppendIntentSelftestMutation::AuditAppendContractBindingMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     binds_append_contract: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_append_engine_binding_missing",
-            "rejected",
-            "audit_record_append_intent_append_engine_binding_missing",
+            }
+        }
+        AppendIntentSelftestMutation::AuditAppendEngineBindingMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     binds_append_engine_id: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_storage_layout_binding_missing",
-            "rejected",
-            "audit_record_append_intent_storage_layout_binding_missing",
+            }
+        }
+        AppendIntentSelftestMutation::AuditStorageLayoutBindingMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     binds_storage_layout_id: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_write_policy_binding_missing",
-            "rejected",
-            "audit_record_append_intent_write_policy_binding_missing",
+            }
+        }
+        AppendIntentSelftestMutation::AuditWritePolicyBindingMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     binds_write_policy_id: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_availability_binding_missing",
-            "rejected",
-            "audit_record_append_intent_availability_binding_missing",
+            }
+        }
+        AppendIntentSelftestMutation::AuditAvailabilityBindingMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     binds_availability_id: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_payload_hash_missing",
-            "rejected",
-            "audit_record_append_intent_payload_hash_missing",
+            }
+        }
+        AppendIntentSelftestMutation::AuditPayloadHashMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     binds_payload_hash: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_append_contract_missing",
-            "missing",
-            "audit_record_append_contract_missing",
+            }
+        }
+        AppendIntentSelftestMutation::AuditAppendContractMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     append_contract_available: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "audit_record_append_intent_payload_hash_envelope_missing",
-            "missing",
-            "audit_record_append_payload_hash_envelope_missing",
+            }
+        }
+        AppendIntentSelftestMutation::AuditPayloadHashEnvelopeMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: ModuleAuditRollbackAppendIntentFact {
                     payload_hash_available: false,
                     ..available
                 },
                 rollback_transaction_append_intent: available,
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "rollback_transaction_append_intent_previous_boot",
-            "rejected",
-            "rollback_transaction_append_intent_scope_must_be_current_boot",
+            }
+        }
+        AppendIntentSelftestMutation::RollbackPreviousBoot => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: available,
                 rollback_transaction_append_intent: ModuleAuditRollbackAppendIntentFact {
                     scope: "previous_boot",
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "rollback_transaction_append_intent_wrong_schema",
-            "rejected",
-            "rollback_transaction_append_intent_schema_mismatch",
+            }
+        }
+        AppendIntentSelftestMutation::RollbackWrongSchema => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: available,
                 rollback_transaction_append_intent: ModuleAuditRollbackAppendIntentFact {
                     schema_ok: false,
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "rollback_transaction_append_intent_provenance_missing",
-            "rejected",
-            "rollback_transaction_append_intent_provenance_missing",
+            }
+        }
+        AppendIntentSelftestMutation::RollbackProvenanceMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: available,
                 rollback_transaction_append_intent: ModuleAuditRollbackAppendIntentFact {
                     provenance_ok: false,
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "rollback_transaction_append_intent_append_contract_binding_missing",
-            "rejected",
-            "rollback_transaction_append_intent_append_contract_binding_missing",
+            }
+        }
+        AppendIntentSelftestMutation::RollbackAppendContractBindingMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: available,
                 rollback_transaction_append_intent: ModuleAuditRollbackAppendIntentFact {
                     binds_append_contract_id: false,
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "rollback_transaction_append_intent_payload_hash_missing",
-            "rejected",
-            "rollback_transaction_append_intent_payload_hash_missing",
+            }
+        }
+        AppendIntentSelftestMutation::RollbackPayloadHashMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: available,
                 rollback_transaction_append_intent: ModuleAuditRollbackAppendIntentFact {
                     binds_payload_hash: false,
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "rollback_transaction_append_intent_payload_hash_envelope_missing",
-            "missing",
-            "rollback_transaction_append_payload_hash_envelope_missing",
+            }
+        }
+        AppendIntentSelftestMutation::RollbackPayloadHashEnvelopeMissing => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: available,
                 rollback_transaction_append_intent: ModuleAuditRollbackAppendIntentFact {
                     payload_hash_available: false,
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_intent_selftest_case(
-            "available_append_intents_still_non_authorizing",
-            "available",
-            "audit_rollback_append_intent_available",
+            }
+        }
+        AppendIntentSelftestMutation::AvailableIntents => {
             ModuleAuditRollbackAppendIntentCandidate {
                 audit_record_append_intent: available,
                 rollback_transaction_append_intent: available,
-            },
-        ),
-    ]
+            }
+        }
+    }
 }
 
-pub(crate) fn module_audit_rollback_append_intent_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
-    candidate: ModuleAuditRollbackAppendIntentCandidate,
+fn module_audit_rollback_append_intent_selftest_case_from_spec(
+    spec: &CaseSpec<AppendIntentSelftestMutation>,
+    actual: ModuleAuditRollbackAppendIntentEvaluation,
 ) -> ModuleAuditRollbackAppendIntentSelfTestCase {
-    let actual = evaluate_module_audit_rollback_append_intent_candidate(candidate);
     ModuleAuditRollbackAppendIntentSelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
-        passed: method_eq(actual.status, expected_status)
-            && method_eq(actual.reason, expected_reason)
+        passed: method_eq(actual.status, spec.expected_status)
+            && method_eq(actual.reason, spec.expected_reason)
             && !actual.writes_enabled
             && !actual.installs_rollback_plan
             && !actual.can_load

@@ -9,6 +9,7 @@ use crate::{
         method_head_eq, parse_current_boot_event_id, parse_sha256_ref, record_bool as b,
         record_event_or_null, record_false as no, record_field as f, record_gate,
         record_sha_fields, record_sha_or_null, record_str as s, record_str_or_null,
+        run_selftest_cases_with, CaseSpec,
     },
     event_log,
     module_evidence::{
@@ -16,6 +17,65 @@ use crate::{
     },
 };
 use raios_core::record::Value as V;
+
+#[derive(Clone, Copy)]
+enum ServiceSlotSelftestMutation {
+    Absent,
+    Accepted,
+    Stale,
+    MismatchedReservationHash,
+    InvalidRamOnlyServiceSlot,
+}
+
+const fn service_slot_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: ServiceSlotSelftestMutation,
+) -> CaseSpec<ServiceSlotSelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const SERVICE_SLOT_CASES: [CaseSpec<ServiceSlotSelftestMutation>;
+    MODULE_SERVICE_SLOT_SELFTEST_CASES] = [
+    service_slot_case(
+        "absent_reference",
+        "missing",
+        "service_slot_reservation_reference_absent",
+        ServiceSlotSelftestMutation::Absent,
+    ),
+    service_slot_case(
+        "accepted_current_boot_reservation_still_denied",
+        "valid_hash_reference_load_still_denied",
+        "service_slot_reservation_valid_but_allocator_and_loader_missing",
+        ServiceSlotSelftestMutation::Accepted,
+    ),
+    service_slot_case(
+        "stale_previous_boot_reservation",
+        "stale_or_non_current_boot_reference",
+        "service_slot_reservation_scope_must_be_current_boot",
+        ServiceSlotSelftestMutation::Stale,
+    ),
+    service_slot_case(
+        "mismatched_reservation_hash",
+        "mismatched_reservation_hash",
+        "service_slot_reservation_hash_mismatch",
+        ServiceSlotSelftestMutation::MismatchedReservationHash,
+    ),
+    service_slot_case(
+        "invalid_ram_only_service_slot",
+        "rejected",
+        "ram_only_service_slot_id_invalid",
+        ServiceSlotSelftestMutation::InvalidRamOnlyServiceSlot,
+    ),
+];
+
 fn module_service_slot_diagnostic_arg(method: &str) -> &str {
     let method = method.trim();
     let head_len = if method_head_eq(method, "module.service_slot_diagnostic") {
@@ -554,60 +614,59 @@ fn module_service_slot_reference_matches(
 
 fn module_service_slot_selftest_cases(
 ) -> [ModuleServiceSlotSelfTestCase; MODULE_SERVICE_SLOT_SELFTEST_CASES] {
+    run_selftest_cases_with(
+        module_service_slot_valid_input(),
+        &SERVICE_SLOT_CASES,
+        apply_service_slot_selftest_case,
+        evaluate_service_slot_selftest_case,
+        module_service_slot_selftest_case_from_spec,
+    )
+}
+
+fn apply_service_slot_selftest_case(
+    candidate: &mut ModuleServiceSlotReservationInput<'static>,
+    mutation: ServiceSlotSelftestMutation,
+) {
     let valid = module_service_slot_valid_input();
-    [
-        module_service_slot_selftest_case(
-            "absent_reference",
-            "missing",
-            "service_slot_reservation_reference_absent",
-            ModuleServiceSlotReservationInput {
-                has_reference: false,
-                arity_valid: true,
-                scope: "current_boot",
-                reservation_hash: None,
-                retained_reference_event_id: None,
-                retained_audit_rollback_reference_event_id: None,
-                computed_grant_hash: None,
-                audit_record_hash: None,
-                rollback_plan_hash: None,
-                pre_load_service_inventory_hash: None,
-                ram_only_service_slot_id: None,
-            },
-        ),
-        module_service_slot_selftest_case(
-            "accepted_current_boot_reservation_still_denied",
-            "valid_hash_reference_load_still_denied",
-            "service_slot_reservation_valid_but_allocator_and_loader_missing",
-            valid,
-        ),
-        module_service_slot_selftest_case(
-            "stale_previous_boot_reservation",
-            "stale_or_non_current_boot_reference",
-            "service_slot_reservation_scope_must_be_current_boot",
-            ModuleServiceSlotReservationInput {
-                scope: "previous_boot",
-                ..valid
-            },
-        ),
-        module_service_slot_selftest_case(
-            "mismatched_reservation_hash",
-            "mismatched_reservation_hash",
-            "service_slot_reservation_hash_mismatch",
+    *candidate = match mutation {
+        ServiceSlotSelftestMutation::Absent => ModuleServiceSlotReservationInput {
+            has_reference: false,
+            arity_valid: true,
+            scope: "current_boot",
+            reservation_hash: None,
+            retained_reference_event_id: None,
+            retained_audit_rollback_reference_event_id: None,
+            computed_grant_hash: None,
+            audit_record_hash: None,
+            rollback_plan_hash: None,
+            pre_load_service_inventory_hash: None,
+            ram_only_service_slot_id: None,
+        },
+        ServiceSlotSelftestMutation::Accepted => valid,
+        ServiceSlotSelftestMutation::Stale => ModuleServiceSlotReservationInput {
+            scope: "previous_boot",
+            ..valid
+        },
+        ServiceSlotSelftestMutation::MismatchedReservationHash => {
             ModuleServiceSlotReservationInput {
                 reservation_hash: Some([0x99; 32]),
                 ..valid
-            },
-        ),
-        module_service_slot_selftest_case(
-            "invalid_ram_only_service_slot",
-            "rejected",
-            "ram_only_service_slot_id_invalid",
+            }
+        }
+        ServiceSlotSelftestMutation::InvalidRamOnlyServiceSlot => {
             ModuleServiceSlotReservationInput {
                 ram_only_service_slot_id: Some("svc.test.0001"),
                 ..valid
-            },
-        ),
-    ]
+            }
+        }
+    }
+}
+
+fn evaluate_service_slot_selftest_case(
+    candidate: ModuleServiceSlotReservationInput<'_>,
+    _require_live_retained: bool,
+) -> ModuleServiceSlotReservationCheck<'_> {
+    evaluate_module_service_slot_reservation(candidate, false)
 }
 
 fn module_service_slot_valid_input<'a>() -> ModuleServiceSlotReservationInput<'a> {
@@ -646,22 +705,23 @@ fn module_service_slot_valid_input<'a>() -> ModuleServiceSlotReservationInput<'a
     }
 }
 
-fn module_service_slot_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
-    candidate: ModuleServiceSlotReservationInput<'_>,
+fn module_service_slot_selftest_case_from_spec(
+    spec: &CaseSpec<ServiceSlotSelftestMutation>,
+    actual: ModuleServiceSlotReservationCheck<'_>,
 ) -> ModuleServiceSlotSelfTestCase {
-    let actual = evaluate_module_service_slot_reservation(candidate, false);
     ModuleServiceSlotSelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
-        passed: method_eq(actual.status, expected_status)
-            && method_eq(actual.reason, expected_reason)
-            && actual.valid == method_eq(expected_status, "valid_hash_reference_load_still_denied"),
+        passed: method_eq(actual.status, spec.expected_status)
+            && method_eq(actual.reason, spec.expected_reason)
+            && actual.valid
+                == method_eq(
+                    spec.expected_status,
+                    "valid_hash_reference_load_still_denied",
+                ),
     }
 }
 

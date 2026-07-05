@@ -14,7 +14,9 @@ use crate::{
     agent_protocol_module_types::*,
     agent_protocol_support::{
         begin_response, emit_record_fields_trailing_comma, emit_record_value_property_line,
-        end_response, record_bool as b, record_false as no, record_field as f, record_str as s,
+        emit_selftest_case_fields_split, emit_selftest_case_fields_with_expected, end_response,
+        raw_line, record_bool as b, record_false as no, record_field as f, record_str as s,
+        SelftestReportField::{Bool, False, Str},
     },
 };
 use raios_core::record::Value as V;
@@ -22,10 +24,6 @@ use raios_core::record::Value as V;
 pub(crate) fn emit_module_load_gate_manifest_selftest() {
     let cases = module_load_gate_manifest_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
-    let case_records = cases
-        .iter()
-        .map(module_load_gate_manifest_selftest_case_record)
-        .collect();
 
     begin_response("module.load_gate_manifest_selftest");
     emit_record_fields_trailing_comma(
@@ -52,38 +50,37 @@ pub(crate) fn emit_module_load_gate_manifest_selftest() {
         ],
         6,
     );
-    emit_record_value_property_line("cases", V::Array(case_records), true);
+    emit_selftest_cases(&cases, emit_module_load_gate_manifest_selftest_case);
     emit_record_value_property_line("can_load", no(), false);
     end_response("module.load_gate_manifest_selftest");
 }
 
-fn module_load_gate_manifest_selftest_case_record(
+fn emit_module_load_gate_manifest_selftest_case(
     case: &ModuleLoadGateManifestSelfTestCase,
-) -> V<'static> {
-    V::InlineObject(vec![
-        f("case", s(case.name)),
-        f("expected_status", s(case.expected_status)),
-        f("expected_reason", s(case.expected_reason)),
-        f("actual_status", s(case.actual_status)),
-        f("actual_reason", s(case.actual_reason)),
-        f(
-            "actual_module_manifest_state",
-            s(case.actual_module_manifest_state),
-        ),
-        f("accepted_manifest_hash", b(case.accepted_manifest_hash)),
-        f("passed", b(case.passed)),
-        f("can_load", no()),
-        f("load_attempted", no()),
-    ])
+    comma: bool,
+) {
+    emit_selftest_case_fields_split(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        &[
+            Str(
+                "actual_module_manifest_state",
+                case.actual_module_manifest_state,
+            ),
+            Bool("accepted_manifest_hash", case.accepted_manifest_hash),
+        ],
+        case.passed,
+        &[False("can_load"), False("load_attempted")],
+        comma,
+    );
 }
 
 pub(crate) fn emit_module_load_gate_artifact_selftest() {
     let cases = module_load_gate_artifact_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
-    let case_records = cases
-        .iter()
-        .map(module_load_gate_artifact_selftest_case_record)
-        .collect();
 
     begin_response("module.load_gate_artifact_selftest");
     emit_record_fields_trailing_comma(
@@ -123,38 +120,37 @@ pub(crate) fn emit_module_load_gate_artifact_selftest() {
         ],
         6,
     );
-    emit_record_value_property_line("cases", V::Array(case_records), true);
+    emit_selftest_cases(&cases, emit_module_load_gate_artifact_selftest_case);
     emit_record_value_property_line("can_load", no(), false);
     end_response("module.load_gate_artifact_selftest");
 }
 
-fn module_load_gate_artifact_selftest_case_record(
+fn emit_module_load_gate_artifact_selftest_case(
     case: &ModuleLoadGateArtifactSelfTestCase,
-) -> V<'static> {
-    V::InlineObject(vec![
-        f("case", s(case.name)),
-        f("expected_status", s(case.expected_status)),
-        f("expected_reason", s(case.expected_reason)),
-        f("actual_status", s(case.actual_status)),
-        f("actual_reason", s(case.actual_reason)),
-        f(
-            "actual_candidate_artifact_state",
-            s(case.actual_candidate_artifact_state),
-        ),
-        f("accepted_artifact_hash", b(case.accepted_artifact_hash)),
-        f("passed", b(case.passed)),
-        f("can_load", no()),
-        f("load_attempted", no()),
-    ])
+    comma: bool,
+) {
+    emit_selftest_case_fields_split(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        &[
+            Str(
+                "actual_candidate_artifact_state",
+                case.actual_candidate_artifact_state,
+            ),
+            Bool("accepted_artifact_hash", case.accepted_artifact_hash),
+        ],
+        case.passed,
+        &[False("can_load"), False("load_attempted")],
+        comma,
+    );
 }
 
 pub(crate) fn emit_module_load_gate_vm_report_selftest() {
     let cases = module_load_gate_vm_report_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
-    let case_records = cases
-        .iter()
-        .map(module_load_gate_vm_report_selftest_case_record)
-        .collect();
 
     begin_response("module.load_gate_vm_report_selftest");
     emit_record_fields_trailing_comma(
@@ -194,7 +190,7 @@ pub(crate) fn emit_module_load_gate_vm_report_selftest() {
         ],
         6,
     );
-    emit_record_value_property_line("cases", V::Array(case_records), true);
+    emit_selftest_cases(&cases, emit_module_load_gate_vm_report_selftest_case);
     emit_record_value_property_line("can_load", no(), false);
     end_response("module.load_gate_vm_report_selftest");
 }
@@ -202,10 +198,6 @@ pub(crate) fn emit_module_load_gate_vm_report_selftest() {
 pub(crate) fn emit_module_load_gate_attestation_selftest() {
     let cases = module_load_gate_attestation_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
-    let case_records = cases
-        .iter()
-        .map(module_load_gate_attestation_selftest_case_record)
-        .collect();
 
     begin_response("module.load_gate_attestation_selftest");
     emit_record_fields_trailing_comma(
@@ -229,7 +221,7 @@ pub(crate) fn emit_module_load_gate_attestation_selftest() {
         ],
         6,
     );
-    emit_record_value_property_line("cases", V::Array(case_records), true);
+    emit_selftest_cases(&cases, emit_module_load_gate_attestation_selftest_case);
     emit_record_value_property_line("can_load", no(), false);
     end_response("module.load_gate_attestation_selftest");
 }
@@ -237,10 +229,6 @@ pub(crate) fn emit_module_load_gate_attestation_selftest() {
 pub(crate) fn emit_module_load_gate_approval_selftest() {
     let cases = module_load_gate_approval_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
-    let case_records = cases
-        .iter()
-        .map(module_load_gate_approval_selftest_case_record)
-        .collect();
 
     begin_response("module.load_gate_approval_selftest");
     emit_record_fields_trailing_comma(
@@ -264,87 +252,89 @@ pub(crate) fn emit_module_load_gate_approval_selftest() {
         ],
         6,
     );
-    emit_record_value_property_line("cases", V::Array(case_records), true);
+    emit_selftest_cases(&cases, emit_module_load_gate_approval_selftest_case);
     emit_record_value_property_line("can_load", no(), false);
     end_response("module.load_gate_approval_selftest");
 }
 
-fn module_load_gate_attestation_selftest_case_record(
+fn emit_module_load_gate_attestation_selftest_case(
     case: &ModuleLoadGateLocalAttestationSelfTestCase,
-) -> V<'static> {
-    V::InlineObject(vec![
-        f("case", s(case.name)),
-        f("expected_status", s(case.expected_status)),
-        f("expected_reason", s(case.expected_reason)),
-        f("actual_status", s(case.actual_status)),
-        f("actual_reason", s(case.actual_reason)),
-        f(
-            "actual_local_attestation_state",
-            s(case.actual_local_attestation_state),
-        ),
-        f(
-            "accepted_local_attestation_hash",
-            b(case.accepted_local_attestation_hash),
-        ),
-        f("passed", b(case.passed)),
-        f("can_load", no()),
-        f("load_attempted", no()),
-    ])
+    comma: bool,
+) {
+    emit_selftest_case_fields_split(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        &[
+            Str(
+                "actual_local_attestation_state",
+                case.actual_local_attestation_state,
+            ),
+            Bool(
+                "accepted_local_attestation_hash",
+                case.accepted_local_attestation_hash,
+            ),
+        ],
+        case.passed,
+        &[False("can_load"), False("load_attempted")],
+        comma,
+    );
 }
 
-fn module_load_gate_approval_selftest_case_record(
+fn emit_module_load_gate_approval_selftest_case(
     case: &ModuleLoadGateLocalApprovalSelfTestCase,
-) -> V<'static> {
-    V::InlineObject(vec![
-        f("case", s(case.name)),
-        f("expected_status", s(case.expected_status)),
-        f("expected_reason", s(case.expected_reason)),
-        f("actual_status", s(case.actual_status)),
-        f("actual_reason", s(case.actual_reason)),
-        f(
-            "actual_local_approval_state",
-            s(case.actual_local_approval_state),
-        ),
-        f(
-            "accepted_local_approval_hash",
-            b(case.accepted_local_approval_hash),
-        ),
-        f("passed", b(case.passed)),
-        f("can_load", no()),
-        f("load_attempted", no()),
-    ])
+    comma: bool,
+) {
+    emit_selftest_case_fields_split(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        &[
+            Str(
+                "actual_local_approval_state",
+                case.actual_local_approval_state,
+            ),
+            Bool(
+                "accepted_local_approval_hash",
+                case.accepted_local_approval_hash,
+            ),
+        ],
+        case.passed,
+        &[False("can_load"), False("load_attempted")],
+        comma,
+    );
 }
 
-fn module_load_gate_vm_report_selftest_case_record(
+fn emit_module_load_gate_vm_report_selftest_case(
     case: &ModuleLoadGateVmReportSelfTestCase,
-) -> V<'static> {
-    V::InlineObject(vec![
-        f("case", s(case.name)),
-        f("expected_status", s(case.expected_status)),
-        f("expected_reason", s(case.expected_reason)),
-        f("actual_status", s(case.actual_status)),
-        f("actual_reason", s(case.actual_reason)),
-        f(
-            "actual_vm_test_report_state",
-            s(case.actual_vm_test_report_state),
-        ),
-        f(
-            "accepted_vm_test_report_hash",
-            b(case.accepted_vm_report_hash),
-        ),
-        f("passed", b(case.passed)),
-        f("can_load", no()),
-        f("load_attempted", no()),
-    ])
+    comma: bool,
+) {
+    emit_selftest_case_fields_split(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        &[
+            Str(
+                "actual_vm_test_report_state",
+                case.actual_vm_test_report_state,
+            ),
+            Bool("accepted_vm_test_report_hash", case.accepted_vm_report_hash),
+        ],
+        case.passed,
+        &[False("can_load"), False("load_attempted")],
+        comma,
+    );
 }
 
 pub(crate) fn emit_module_load_gate_retained_selftest() {
     let cases = module_load_gate_retained_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
-    let case_records = cases
-        .iter()
-        .map(module_load_gate_retained_selftest_case_record)
-        .collect();
 
     begin_response("module.load_gate_retained_selftest");
     emit_record_fields_trailing_comma(
@@ -368,33 +358,31 @@ pub(crate) fn emit_module_load_gate_retained_selftest() {
         ],
         6,
     );
-    emit_record_value_property_line("cases", V::Array(case_records), true);
+    emit_selftest_cases(&cases, emit_module_load_gate_retained_selftest_case);
     emit_record_value_property_line("can_load", no(), false);
     end_response("module.load_gate_retained_selftest");
 }
 
-fn module_load_gate_retained_selftest_case_record(
+fn emit_module_load_gate_retained_selftest_case(
     case: &ModuleLoadGateRetainedSelfTestCase,
-) -> V<'static> {
-    V::InlineObject(vec![
-        f("case", s(case.name)),
-        f("expected_status", s(case.expected_status)),
-        f("expected_reason", s(case.expected_reason)),
-        f("actual_status", s(case.actual_status)),
-        f("actual_reason", s(case.actual_reason)),
-        f("passed", b(case.passed)),
-        f("can_load", no()),
-        f("load_attempted", no()),
-    ])
+    comma: bool,
+) {
+    emit_selftest_case_fields_split(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        &[],
+        case.passed,
+        &[False("can_load"), False("load_attempted")],
+        comma,
+    );
 }
 
 pub(crate) fn emit_module_load_gate_audit_rollback_selftest() {
     let cases = module_load_gate_audit_rollback_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
-    let case_records = cases
-        .iter()
-        .map(module_load_gate_audit_rollback_selftest_case_record)
-        .collect();
 
     begin_response("module.load_gate_audit_rollback_selftest");
     emit_record_fields_trailing_comma(
@@ -436,33 +424,31 @@ pub(crate) fn emit_module_load_gate_audit_rollback_selftest() {
         ],
         6,
     );
-    emit_record_value_property_line("cases", V::Array(case_records), true);
+    emit_selftest_cases(&cases, emit_module_load_gate_audit_rollback_selftest_case);
     emit_record_value_property_line("can_load", no(), false);
     end_response("module.load_gate_audit_rollback_selftest");
 }
 
-fn module_load_gate_audit_rollback_selftest_case_record(
+fn emit_module_load_gate_audit_rollback_selftest_case(
     case: &ModuleLoadGateAuditRollbackSelfTestCase,
-) -> V<'static> {
-    V::InlineObject(vec![
-        f("case", s(case.name)),
-        f("expected_status", s(case.expected_status)),
-        f("expected_reason", s(case.expected_reason)),
-        f("actual_status", s(case.actual_status)),
-        f("actual_reason", s(case.actual_reason)),
-        f("passed", b(case.passed)),
-        f("can_load", no()),
-        f("load_attempted", no()),
-    ])
+    comma: bool,
+) {
+    emit_selftest_case_fields_split(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        &[],
+        case.passed,
+        &[False("can_load"), False("load_attempted")],
+        comma,
+    );
 }
 
 pub(crate) fn emit_module_load_gate_service_slot_selftest() {
     let cases = module_load_gate_service_slot_selftest_cases();
     let passed = cases.iter().all(|case| case.passed);
-    let case_records = cases
-        .iter()
-        .map(module_load_gate_service_slot_selftest_case_record)
-        .collect();
 
     begin_response("module.load_gate_service_slot_selftest");
     emit_record_fields_trailing_comma(
@@ -501,33 +487,36 @@ pub(crate) fn emit_module_load_gate_service_slot_selftest() {
         ],
         6,
     );
-    emit_record_value_property_line("cases", V::Array(case_records), true);
+    emit_selftest_cases(&cases, emit_module_load_gate_service_slot_selftest_case);
     emit_record_value_property_line("can_load", no(), false);
     end_response("module.load_gate_service_slot_selftest");
 }
 
-fn module_load_gate_service_slot_selftest_case_record(
+fn emit_module_load_gate_service_slot_selftest_case(
     case: &ModuleLoadGateServiceSlotSelfTestCase,
-) -> V<'static> {
-    V::InlineObject(vec![
-        f("case", s(case.name)),
-        f("expected_status", s(case.expected_status)),
-        f("expected_reason", s(case.expected_reason)),
-        f("actual_status", s(case.actual_status)),
-        f("actual_reason", s(case.actual_reason)),
-        f(
-            "actual_service_slot_state",
-            s(case.actual_service_slot_state),
-        ),
-        f(
-            "accepted_service_slot_reservation_hash",
-            b(case.accepted_service_slot_reservation_hash),
-        ),
-        f("passed", b(case.passed)),
-        f("allocates_service_slot", no()),
-        f("can_load", no()),
-        f("load_attempted", no()),
-    ])
+    comma: bool,
+) {
+    emit_selftest_case_fields_split(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        &[
+            Str("actual_service_slot_state", case.actual_service_slot_state),
+            Bool(
+                "accepted_service_slot_reservation_hash",
+                case.accepted_service_slot_reservation_hash,
+            ),
+        ],
+        case.passed,
+        &[
+            False("allocates_service_slot"),
+            False("can_load"),
+            False("load_attempted"),
+        ],
+        comma,
+    );
 }
 
 pub(crate) fn emit_module_load_gate_loader_runtime_selftest() {
@@ -538,10 +527,6 @@ pub(crate) fn emit_module_load_gate_loader_runtime_selftest() {
         .iter()
         .copied()
         .map(module_load_gate_loader_runtime_source_fact_record)
-        .collect();
-    let case_records = cases
-        .iter()
-        .map(module_load_gate_loader_runtime_selftest_case_record)
         .collect();
 
     begin_response("module.load_gate_loader_runtime_selftest");
@@ -619,7 +604,7 @@ pub(crate) fn emit_module_load_gate_loader_runtime_selftest() {
         ],
         6,
     );
-    emit_record_value_property_line("cases", V::Array(case_records), true);
+    emit_selftest_cases(&cases, emit_module_load_gate_loader_runtime_selftest_case);
     emit_record_value_property_line("can_load", no(), false);
     end_response("module.load_gate_loader_runtime_selftest");
 }
@@ -640,58 +625,76 @@ fn module_load_gate_loader_runtime_source_fact_record(
     ])
 }
 
-fn module_load_gate_loader_runtime_selftest_case_record(
+fn emit_module_load_gate_loader_runtime_selftest_case(
     case: &ModuleLoadGateLoaderRuntimeSelfTestCase,
-) -> V<'static> {
-    V::InlineObject(vec![
-        f("case", s(case.name)),
-        f("expected_status", s(case.expected_status)),
-        f("expected_reason", s(case.expected_reason)),
-        f(
-            "expected_retained_module_evidence_state",
-            s(case.expected_retained_module_evidence_state),
-        ),
-        f(
-            "expected_service_slot_allocator_state",
-            s(case.expected_service_slot_allocator_state),
-        ),
-        f(
-            "expected_loader_runtime_state",
-            s(case.expected_loader_runtime_state),
-        ),
-        f("actual_status", s(case.actual_status)),
-        f("actual_reason", s(case.actual_reason)),
-        f(
-            "actual_retained_module_evidence_state",
-            s(case.actual_retained_module_evidence_state),
-        ),
-        f(
-            "actual_retained_module_evidence_reason",
-            s(case.actual_retained_module_evidence_reason),
-        ),
-        f(
-            "actual_service_slot_allocator_state",
-            s(case.actual_service_slot_allocator_state),
-        ),
-        f(
-            "actual_service_slot_allocator_status",
-            s(case.actual_service_slot_allocator_status),
-        ),
-        f(
-            "actual_service_slot_allocator_reason",
-            s(case.actual_service_slot_allocator_reason),
-        ),
-        f(
-            "actual_loader_runtime_state",
-            s(case.actual_loader_runtime_state),
-        ),
-        f("passed", b(case.passed)),
-        f("loads_artifact", no()),
-        f("allocates_service_slot", no()),
-        f("creates_service_inventory_records", no()),
-        f("can_load", no()),
-        f("load_attempted", no()),
-    ])
+    comma: bool,
+) {
+    emit_selftest_case_fields_with_expected(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        &[
+            Str(
+                "expected_retained_module_evidence_state",
+                case.expected_retained_module_evidence_state,
+            ),
+            Str(
+                "expected_service_slot_allocator_state",
+                case.expected_service_slot_allocator_state,
+            ),
+            Str(
+                "expected_loader_runtime_state",
+                case.expected_loader_runtime_state,
+            ),
+        ],
+        case.actual_status,
+        case.actual_reason,
+        &[
+            Str(
+                "actual_retained_module_evidence_state",
+                case.actual_retained_module_evidence_state,
+            ),
+            Str(
+                "actual_retained_module_evidence_reason",
+                case.actual_retained_module_evidence_reason,
+            ),
+            Str(
+                "actual_service_slot_allocator_state",
+                case.actual_service_slot_allocator_state,
+            ),
+            Str(
+                "actual_service_slot_allocator_status",
+                case.actual_service_slot_allocator_status,
+            ),
+            Str(
+                "actual_service_slot_allocator_reason",
+                case.actual_service_slot_allocator_reason,
+            ),
+            Str(
+                "actual_loader_runtime_state",
+                case.actual_loader_runtime_state,
+            ),
+        ],
+        case.passed,
+        &[
+            False("loads_artifact"),
+            False("allocates_service_slot"),
+            False("creates_service_inventory_records"),
+            False("can_load"),
+            False("load_attempted"),
+        ],
+        comma,
+    );
+}
+
+fn emit_selftest_cases<T>(cases: &[T], emit_case: fn(&T, bool)) {
+    raw_line("      \"cases\": [");
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        emit_case(&cases[idx], idx + 1 != cases.len());
+        idx += 1;
+    }
+    raw_line("      ],");
 }
 
 fn static_str_array(values: &[&'static str]) -> V<'static> {

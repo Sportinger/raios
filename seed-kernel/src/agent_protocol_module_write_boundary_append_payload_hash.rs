@@ -7,6 +7,169 @@ use crate::{
 };
 use raios_core::record::Value as V;
 
+#[derive(Clone, Copy)]
+enum AppendPayloadHashSelftestMutation {
+    MissingPair,
+    AuditPreviousBoot,
+    AuditWrongSchema,
+    AuditProvenanceMissing,
+    AuditRetainedBindingMissing,
+    AuditServiceSlotBindingMissing,
+    AuditWriteRequestBindingMissing,
+    AuditAppendContractBindingMissing,
+    AuditTargetSchemaBindingMissing,
+    AuditPayloadHashMissing,
+    AuditRetainedMissing,
+    AuditServiceSlotMissing,
+    AuditAppendContractMissing,
+    RollbackPreviousBoot,
+    RollbackWrongSchema,
+    RollbackProvenanceMissing,
+    RollbackAppendContractBindingMissing,
+    RollbackPayloadHashMissing,
+    RollbackAppendContractMissing,
+    AvailablePayloadHashes,
+}
+
+const fn append_payload_hash_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: AppendPayloadHashSelftestMutation,
+) -> CaseSpec<AppendPayloadHashSelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const APPEND_PAYLOAD_HASH_CASES: [CaseSpec<AppendPayloadHashSelftestMutation>;
+    MODULE_AUDIT_ROLLBACK_APPEND_PAYLOAD_HASH_SELFTEST_CASES] = [
+    append_payload_hash_case(
+        "missing_payload_hash_pair_current_boot",
+        "missing",
+        "audit_record_append_payload_hash_missing_and_rollback_transaction_append_payload_hash_missing",
+        AppendPayloadHashSelftestMutation::MissingPair,
+    ),
+    append_payload_hash_case(
+        "audit_record_payload_hash_previous_boot",
+        "rejected",
+        "audit_record_append_payload_hash_scope_must_be_current_boot",
+        AppendPayloadHashSelftestMutation::AuditPreviousBoot,
+    ),
+    append_payload_hash_case(
+        "audit_record_payload_hash_wrong_schema",
+        "rejected",
+        "audit_record_append_payload_hash_schema_mismatch",
+        AppendPayloadHashSelftestMutation::AuditWrongSchema,
+    ),
+    append_payload_hash_case(
+        "audit_record_payload_hash_provenance_missing",
+        "rejected",
+        "audit_record_append_payload_hash_provenance_missing",
+        AppendPayloadHashSelftestMutation::AuditProvenanceMissing,
+    ),
+    append_payload_hash_case(
+        "audit_record_payload_hash_retained_binding_missing",
+        "rejected",
+        "audit_record_append_payload_hash_retained_binding_missing",
+        AppendPayloadHashSelftestMutation::AuditRetainedBindingMissing,
+    ),
+    append_payload_hash_case(
+        "audit_record_payload_hash_service_slot_binding_missing",
+        "rejected",
+        "audit_record_append_payload_hash_service_slot_binding_missing",
+        AppendPayloadHashSelftestMutation::AuditServiceSlotBindingMissing,
+    ),
+    append_payload_hash_case(
+        "audit_record_payload_hash_write_request_binding_missing",
+        "rejected",
+        "audit_record_append_payload_hash_write_request_binding_missing",
+        AppendPayloadHashSelftestMutation::AuditWriteRequestBindingMissing,
+    ),
+    append_payload_hash_case(
+        "audit_record_payload_hash_append_contract_binding_missing",
+        "rejected",
+        "audit_record_append_payload_hash_append_contract_binding_missing",
+        AppendPayloadHashSelftestMutation::AuditAppendContractBindingMissing,
+    ),
+    append_payload_hash_case(
+        "audit_record_payload_hash_target_schema_binding_missing",
+        "rejected",
+        "audit_record_append_payload_hash_target_schema_binding_missing",
+        AppendPayloadHashSelftestMutation::AuditTargetSchemaBindingMissing,
+    ),
+    append_payload_hash_case(
+        "audit_record_payload_hash_missing",
+        "rejected",
+        "audit_record_append_payload_hash_missing",
+        AppendPayloadHashSelftestMutation::AuditPayloadHashMissing,
+    ),
+    append_payload_hash_case(
+        "audit_record_retained_audit_rollback_missing",
+        "missing",
+        "audit_record_retained_audit_rollback_missing",
+        AppendPayloadHashSelftestMutation::AuditRetainedMissing,
+    ),
+    append_payload_hash_case(
+        "audit_record_service_slot_reservation_missing",
+        "missing",
+        "audit_record_service_slot_reservation_missing",
+        AppendPayloadHashSelftestMutation::AuditServiceSlotMissing,
+    ),
+    append_payload_hash_case(
+        "audit_record_append_contract_missing",
+        "missing",
+        "audit_record_append_contract_missing",
+        AppendPayloadHashSelftestMutation::AuditAppendContractMissing,
+    ),
+    append_payload_hash_case(
+        "rollback_transaction_payload_hash_previous_boot",
+        "rejected",
+        "rollback_transaction_append_payload_hash_scope_must_be_current_boot",
+        AppendPayloadHashSelftestMutation::RollbackPreviousBoot,
+    ),
+    append_payload_hash_case(
+        "rollback_transaction_payload_hash_wrong_schema",
+        "rejected",
+        "rollback_transaction_append_payload_hash_schema_mismatch",
+        AppendPayloadHashSelftestMutation::RollbackWrongSchema,
+    ),
+    append_payload_hash_case(
+        "rollback_transaction_payload_hash_provenance_missing",
+        "rejected",
+        "rollback_transaction_append_payload_hash_provenance_missing",
+        AppendPayloadHashSelftestMutation::RollbackProvenanceMissing,
+    ),
+    append_payload_hash_case(
+        "rollback_transaction_payload_hash_append_contract_binding_missing",
+        "rejected",
+        "rollback_transaction_append_payload_hash_append_contract_binding_missing",
+        AppendPayloadHashSelftestMutation::RollbackAppendContractBindingMissing,
+    ),
+    append_payload_hash_case(
+        "rollback_transaction_payload_hash_missing",
+        "rejected",
+        "rollback_transaction_append_payload_hash_missing",
+        AppendPayloadHashSelftestMutation::RollbackPayloadHashMissing,
+    ),
+    append_payload_hash_case(
+        "rollback_transaction_append_contract_missing",
+        "missing",
+        "rollback_transaction_append_contract_missing",
+        AppendPayloadHashSelftestMutation::RollbackAppendContractMissing,
+    ),
+    append_payload_hash_case(
+        "available_payload_hashes_still_non_authorizing",
+        "available",
+        "audit_rollback_append_payload_hash_available",
+        AppendPayloadHashSelftestMutation::AvailablePayloadHashes,
+    ),
+];
+
 #[rustfmt::skip]
 pub(crate) fn emit_module_audit_rollback_append_payload_hash() {
     let binding = event_log::module_load_gate_binding_snapshot();
@@ -704,261 +867,226 @@ pub(crate) fn module_audit_rollback_append_payload_hash_selftest_cases(
 ) -> [ModuleAuditRollbackAppendPayloadHashSelfTestCase;
        MODULE_AUDIT_ROLLBACK_APPEND_PAYLOAD_HASH_SELFTEST_CASES] {
     let missing_fact = module_audit_rollback_missing_append_payload_hash_fact();
+    run_selftest_cases_with(
+        ModuleAuditRollbackAppendPayloadHashCandidate {
+            audit_record_payload_hash: missing_fact,
+            rollback_transaction_payload_hash: missing_fact,
+        },
+        &APPEND_PAYLOAD_HASH_CASES,
+        apply_append_payload_hash_selftest_case,
+        evaluate_append_payload_hash_selftest_case,
+        module_audit_rollback_append_payload_hash_selftest_case_from_spec,
+    )
+}
+
+fn apply_append_payload_hash_selftest_case(
+    candidate: &mut ModuleAuditRollbackAppendPayloadHashCandidate,
+    mutation: AppendPayloadHashSelftestMutation,
+) {
+    *candidate = module_audit_rollback_append_payload_hash_selftest_candidate(mutation);
+}
+
+fn evaluate_append_payload_hash_selftest_case(
+    candidate: ModuleAuditRollbackAppendPayloadHashCandidate,
+    _require_live_retained: bool,
+) -> ModuleAuditRollbackAppendPayloadHashEvaluation {
+    evaluate_module_audit_rollback_append_payload_hash_candidate(candidate)
+}
+
+fn module_audit_rollback_append_payload_hash_selftest_candidate(
+    mutation: AppendPayloadHashSelftestMutation,
+) -> ModuleAuditRollbackAppendPayloadHashCandidate {
+    let missing_fact = module_audit_rollback_missing_append_payload_hash_fact();
     let missing = ModuleAuditRollbackAppendPayloadHashCandidate {
         audit_record_payload_hash: missing_fact,
         rollback_transaction_payload_hash: missing_fact,
     };
     let available = module_audit_rollback_available_append_payload_hash_fact();
-    [
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "missing_payload_hash_pair_current_boot",
-            "missing",
-            "audit_record_append_payload_hash_missing_and_rollback_transaction_append_payload_hash_missing",
-            missing,
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_payload_hash_previous_boot",
-            "rejected",
-            "audit_record_append_payload_hash_scope_must_be_current_boot",
+    match mutation {
+        AppendPayloadHashSelftestMutation::MissingPair => missing,
+        AppendPayloadHashSelftestMutation::AuditPreviousBoot => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     scope: "previous_boot",
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_payload_hash_wrong_schema",
-            "rejected",
-            "audit_record_append_payload_hash_schema_mismatch",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditWrongSchema => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     schema_ok: false,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_payload_hash_provenance_missing",
-            "rejected",
-            "audit_record_append_payload_hash_provenance_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditProvenanceMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     provenance_ok: false,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_payload_hash_retained_binding_missing",
-            "rejected",
-            "audit_record_append_payload_hash_retained_binding_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditRetainedBindingMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     binds_retained_audit_rollback: false,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_payload_hash_service_slot_binding_missing",
-            "rejected",
-            "audit_record_append_payload_hash_service_slot_binding_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditServiceSlotBindingMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     binds_service_slot_reservation: false,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_payload_hash_write_request_binding_missing",
-            "rejected",
-            "audit_record_append_payload_hash_write_request_binding_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditWriteRequestBindingMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     binds_pre_load_write_request: false,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_payload_hash_append_contract_binding_missing",
-            "rejected",
-            "audit_record_append_payload_hash_append_contract_binding_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditAppendContractBindingMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     binds_append_contract_id: false,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_payload_hash_target_schema_binding_missing",
-            "rejected",
-            "audit_record_append_payload_hash_target_schema_binding_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditTargetSchemaBindingMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     binds_target_schema: false,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_payload_hash_missing",
-            "rejected",
-            "audit_record_append_payload_hash_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditPayloadHashMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     payload_hash: None,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_retained_audit_rollback_missing",
-            "missing",
-            "audit_record_retained_audit_rollback_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditRetainedMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     retained_audit_rollback_available: false,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_service_slot_reservation_missing",
-            "missing",
-            "audit_record_service_slot_reservation_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditServiceSlotMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     service_slot_reservation_available: false,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "audit_record_append_contract_missing",
-            "missing",
-            "audit_record_append_contract_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AuditAppendContractMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     append_contract_available: false,
                     ..available
                 },
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "rollback_transaction_payload_hash_previous_boot",
-            "rejected",
-            "rollback_transaction_append_payload_hash_scope_must_be_current_boot",
+            }
+        }
+        AppendPayloadHashSelftestMutation::RollbackPreviousBoot => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: available,
                 rollback_transaction_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     scope: "previous_boot",
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "rollback_transaction_payload_hash_wrong_schema",
-            "rejected",
-            "rollback_transaction_append_payload_hash_schema_mismatch",
+            }
+        }
+        AppendPayloadHashSelftestMutation::RollbackWrongSchema => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: available,
                 rollback_transaction_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     schema_ok: false,
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "rollback_transaction_payload_hash_provenance_missing",
-            "rejected",
-            "rollback_transaction_append_payload_hash_provenance_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::RollbackProvenanceMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: available,
                 rollback_transaction_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     provenance_ok: false,
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "rollback_transaction_payload_hash_append_contract_binding_missing",
-            "rejected",
-            "rollback_transaction_append_payload_hash_append_contract_binding_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::RollbackAppendContractBindingMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: available,
                 rollback_transaction_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     binds_append_contract_id: false,
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "rollback_transaction_payload_hash_missing",
-            "rejected",
-            "rollback_transaction_append_payload_hash_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::RollbackPayloadHashMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: available,
                 rollback_transaction_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     payload_hash: None,
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "rollback_transaction_append_contract_missing",
-            "missing",
-            "rollback_transaction_append_contract_missing",
+            }
+        }
+        AppendPayloadHashSelftestMutation::RollbackAppendContractMissing => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: available,
                 rollback_transaction_payload_hash: ModuleAuditRollbackAppendPayloadHashFact {
                     append_contract_available: false,
                     ..available
                 },
-            },
-        ),
-        module_audit_rollback_append_payload_hash_selftest_case(
-            "available_payload_hashes_still_non_authorizing",
-            "available",
-            "audit_rollback_append_payload_hash_available",
+            }
+        }
+        AppendPayloadHashSelftestMutation::AvailablePayloadHashes => {
             ModuleAuditRollbackAppendPayloadHashCandidate {
                 audit_record_payload_hash: available,
                 rollback_transaction_payload_hash: available,
-            },
-        ),
-    ]
+            }
+        }
+    }
 }
 
-pub(crate) fn module_audit_rollback_append_payload_hash_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
-    candidate: ModuleAuditRollbackAppendPayloadHashCandidate,
+fn module_audit_rollback_append_payload_hash_selftest_case_from_spec(
+    spec: &CaseSpec<AppendPayloadHashSelftestMutation>,
+    actual: ModuleAuditRollbackAppendPayloadHashEvaluation,
 ) -> ModuleAuditRollbackAppendPayloadHashSelfTestCase {
-    let actual = evaluate_module_audit_rollback_append_payload_hash_candidate(candidate);
     ModuleAuditRollbackAppendPayloadHashSelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
-        passed: method_eq(actual.status, expected_status)
-            && method_eq(actual.reason, expected_reason)
+        passed: method_eq(actual.status, spec.expected_status)
+            && method_eq(actual.reason, spec.expected_reason)
             && !actual.writes_enabled
             && !actual.installs_rollback_plan
             && !actual.can_load

@@ -7,11 +7,68 @@ use crate::{
         emit_record_property_line, emit_record_value_property_line, end_response, method_eq,
         method_head_eq, parse_sha256_ref, raw_line, record_bool as b, record_event_or_null,
         record_false as no, record_field as f, record_sha_or_null, record_static_str_array,
-        record_str as s,
+        record_str as s, run_selftest_cases_with, CaseSpec,
     },
     event_log, module_evidence,
 };
 use raios_core::record::Value as V;
+
+#[derive(Clone, Copy)]
+enum GrantSelftestMutation {
+    Absent,
+    Accepted,
+    Stale,
+    MismatchedManifestHash,
+    UnsafePolicyHash,
+}
+
+const fn grant_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: GrantSelftestMutation,
+) -> CaseSpec<GrantSelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const GRANT_CASES: [CaseSpec<GrantSelftestMutation>; MODULE_GRANT_SELFTEST_CASES] = [
+    grant_case(
+        "absent_reference",
+        "missing",
+        "computed_capability_grant_reference_absent",
+        GrantSelftestMutation::Absent,
+    ),
+    grant_case(
+        "accepted_current_boot_reference_still_denied",
+        "valid_hash_reference_load_still_denied",
+        "hash_reference_valid_but_loader_audit_rollback_and_slot_missing",
+        GrantSelftestMutation::Accepted,
+    ),
+    grant_case(
+        "stale_previous_boot_reference",
+        "stale_or_non_current_boot_reference",
+        "computed_grant_reference_scope_must_be_current_boot",
+        GrantSelftestMutation::Stale,
+    ),
+    grant_case(
+        "mismatched_manifest_hash_reference",
+        "mismatched_computed_grant_hash",
+        "computed_grant_hash_mismatch",
+        GrantSelftestMutation::MismatchedManifestHash,
+    ),
+    grant_case(
+        "grants_load_now_or_wrong_policy_hash",
+        "mismatched_computed_grant_hash",
+        "computed_grant_hash_mismatch",
+        GrantSelftestMutation::UnsafePolicyHash,
+    ),
+];
 
 #[rustfmt::skip]
 pub(crate) fn emit_module_grant_diagnostic(method: &str) {
@@ -521,102 +578,104 @@ fn evaluate_module_grant_reference<'a>(
 }
 
 fn module_grant_selftest_cases() -> [ModuleGrantSelfTestCase; MODULE_GRANT_SELFTEST_CASES] {
+    run_selftest_cases_with(
+        module_grant_selftest_check(GrantSelftestMutation::Absent),
+        &GRANT_CASES,
+        apply_module_grant_selftest_case,
+        evaluate_module_grant_selftest_case,
+        module_grant_selftest_case_from_spec,
+    )
+}
+
+fn apply_module_grant_selftest_case(
+    actual: &mut ModuleGrantReferenceCheck<'static>,
+    mutation: GrantSelftestMutation,
+) {
+    *actual = module_grant_selftest_check(mutation);
+}
+
+fn evaluate_module_grant_selftest_case(
+    actual: ModuleGrantReferenceCheck<'static>,
+    _require_live_retained: bool,
+) -> ModuleGrantReferenceCheck<'static> {
+    actual
+}
+
+fn module_grant_selftest_check(
+    mutation: GrantSelftestMutation,
+) -> ModuleGrantReferenceCheck<'static> {
     let valid_grant = computed_module_grant_hash(
         MODULE_GRANT_TEST_MANIFEST_HASH,
         MODULE_GRANT_TEST_ARTIFACT_HASH,
         MODULE_GRANT_TEST_VM_REPORT_HASH,
         MODULE_GRANT_TEST_ATTESTATION_HASH,
     );
-    let absent =
-        evaluate_module_grant_reference(false, true, "current_boot", None, None, None, None, None);
-    let valid = evaluate_module_grant_reference(
-        true,
-        true,
-        "current_boot",
-        Some(valid_grant),
-        Some(MODULE_GRANT_TEST_MANIFEST_HASH),
-        Some(MODULE_GRANT_TEST_ARTIFACT_HASH),
-        Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
-        Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
-    );
-    let stale = evaluate_module_grant_reference(
-        true,
-        true,
-        "previous_boot",
-        Some(valid_grant),
-        Some(MODULE_GRANT_TEST_MANIFEST_HASH),
-        Some(MODULE_GRANT_TEST_ARTIFACT_HASH),
-        Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
-        Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
-    );
-    let mismatch = evaluate_module_grant_reference(
-        true,
-        true,
-        "current_boot",
-        Some(valid_grant),
-        Some(MODULE_GRANT_MISMATCH_MANIFEST_HASH),
-        Some(MODULE_GRANT_TEST_ARTIFACT_HASH),
-        Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
-        Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
-    );
-    let unsafe_policy = evaluate_module_grant_reference(
-        true,
-        true,
-        "current_boot",
-        Some([0x66; 32]),
-        Some(MODULE_GRANT_TEST_MANIFEST_HASH),
-        Some(MODULE_GRANT_TEST_ARTIFACT_HASH),
-        Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
-        Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
-    );
-    [
-        module_grant_selftest_case(
-            "absent_reference",
-            "missing",
-            "computed_capability_grant_reference_absent",
-            absent,
+    match mutation {
+        GrantSelftestMutation::Absent => evaluate_module_grant_reference(
+            false,
+            true,
+            "current_boot",
+            None,
+            None,
+            None,
+            None,
+            None,
         ),
-        module_grant_selftest_case(
-            "accepted_current_boot_reference_still_denied",
-            "valid_hash_reference_load_still_denied",
-            "hash_reference_valid_but_loader_audit_rollback_and_slot_missing",
-            valid,
+        GrantSelftestMutation::Accepted => evaluate_module_grant_reference(
+            true,
+            true,
+            "current_boot",
+            Some(valid_grant),
+            Some(MODULE_GRANT_TEST_MANIFEST_HASH),
+            Some(MODULE_GRANT_TEST_ARTIFACT_HASH),
+            Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
+            Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
         ),
-        module_grant_selftest_case(
-            "stale_previous_boot_reference",
-            "stale_or_non_current_boot_reference",
-            "computed_grant_reference_scope_must_be_current_boot",
-            stale,
+        GrantSelftestMutation::Stale => evaluate_module_grant_reference(
+            true,
+            true,
+            "previous_boot",
+            Some(valid_grant),
+            Some(MODULE_GRANT_TEST_MANIFEST_HASH),
+            Some(MODULE_GRANT_TEST_ARTIFACT_HASH),
+            Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
+            Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
         ),
-        module_grant_selftest_case(
-            "mismatched_manifest_hash_reference",
-            "mismatched_computed_grant_hash",
-            "computed_grant_hash_mismatch",
-            mismatch,
+        GrantSelftestMutation::MismatchedManifestHash => evaluate_module_grant_reference(
+            true,
+            true,
+            "current_boot",
+            Some(valid_grant),
+            Some(MODULE_GRANT_MISMATCH_MANIFEST_HASH),
+            Some(MODULE_GRANT_TEST_ARTIFACT_HASH),
+            Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
+            Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
         ),
-        module_grant_selftest_case(
-            "grants_load_now_or_wrong_policy_hash",
-            "mismatched_computed_grant_hash",
-            "computed_grant_hash_mismatch",
-            unsafe_policy,
+        GrantSelftestMutation::UnsafePolicyHash => evaluate_module_grant_reference(
+            true,
+            true,
+            "current_boot",
+            Some([0x66; 32]),
+            Some(MODULE_GRANT_TEST_MANIFEST_HASH),
+            Some(MODULE_GRANT_TEST_ARTIFACT_HASH),
+            Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
+            Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
         ),
-    ]
+    }
 }
 
-fn module_grant_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
+fn module_grant_selftest_case_from_spec(
+    spec: &CaseSpec<GrantSelftestMutation>,
     actual: ModuleGrantReferenceCheck<'_>,
 ) -> ModuleGrantSelfTestCase {
     ModuleGrantSelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
-        passed: method_eq(actual.status, expected_status)
-            && method_eq(actual.reason, expected_reason)
+        passed: method_eq(actual.status, spec.expected_status)
+            && method_eq(actual.reason, spec.expected_reason)
             && !module_grant_check_can_load(&actual),
     }
 }

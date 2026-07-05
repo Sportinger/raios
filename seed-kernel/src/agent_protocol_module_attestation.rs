@@ -10,11 +10,97 @@ use crate::{
         record_false as no, record_field as f, record_missing_retained_reference_fields,
         record_present_absent, record_retained_reference_present_fields, record_selftest_case,
         record_sha_fields, record_sha_or_null_fields, record_static_str_array, record_str as s,
-        record_str_or_null,
+        record_str_or_null, run_selftest_cases_with, CaseSpec,
     },
     event_log, module_evidence,
 };
 use raios_core::record::Value as V;
+
+#[derive(Clone, Copy)]
+enum LocalAttestationSelftestMutation {
+    Absent,
+    Accepted,
+    Stale,
+    ReferenceHashMismatch,
+    ComputedGrantHashMismatch,
+    ManifestEventPreviousBoot,
+    ArtifactEventPreviousBoot,
+    VmReportEventPreviousBoot,
+    RetainedEventPreviousBoot,
+}
+
+const fn local_attestation_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: LocalAttestationSelftestMutation,
+) -> CaseSpec<LocalAttestationSelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const LOCAL_ATTESTATION_CASES: [CaseSpec<LocalAttestationSelftestMutation>;
+    MODULE_LOCAL_ATTESTATION_SELFTEST_CASES] = [
+    local_attestation_case(
+        "absent_reference",
+        "missing",
+        "local_attestation_reference_absent",
+        LocalAttestationSelftestMutation::Absent,
+    ),
+    local_attestation_case(
+        "accepted_current_boot_attestation_still_denied",
+        "valid_hash_reference_load_still_denied",
+        "local_attestation_reference_valid_but_loader_and_evidence_missing",
+        LocalAttestationSelftestMutation::Accepted,
+    ),
+    local_attestation_case(
+        "stale_previous_boot_reference",
+        "stale_or_non_current_boot_reference",
+        "local_attestation_reference_scope_must_be_current_boot",
+        LocalAttestationSelftestMutation::Stale,
+    ),
+    local_attestation_case(
+        "local_attestation_reference_hash_mismatch",
+        "mismatched_local_attestation_reference_hash",
+        "local_attestation_reference_hash_mismatch",
+        LocalAttestationSelftestMutation::ReferenceHashMismatch,
+    ),
+    local_attestation_case(
+        "computed_grant_hash_mismatch",
+        "mismatched_computed_grant_hash",
+        "computed_grant_hash_mismatch",
+        LocalAttestationSelftestMutation::ComputedGrantHashMismatch,
+    ),
+    local_attestation_case(
+        "retained_manifest_reference_event_not_current_boot",
+        "rejected",
+        "retained_manifest_reference_event_id_not_current_boot",
+        LocalAttestationSelftestMutation::ManifestEventPreviousBoot,
+    ),
+    local_attestation_case(
+        "retained_artifact_reference_event_not_current_boot",
+        "rejected",
+        "retained_artifact_reference_event_id_not_current_boot",
+        LocalAttestationSelftestMutation::ArtifactEventPreviousBoot,
+    ),
+    local_attestation_case(
+        "retained_vm_report_reference_event_not_current_boot",
+        "rejected",
+        "retained_vm_report_reference_event_id_not_current_boot",
+        LocalAttestationSelftestMutation::VmReportEventPreviousBoot,
+    ),
+    local_attestation_case(
+        "retained_reference_event_not_current_boot",
+        "rejected",
+        "retained_reference_event_id_not_current_boot",
+        LocalAttestationSelftestMutation::RetainedEventPreviousBoot,
+    ),
+];
 
 pub(crate) fn emit_module_attestation_diagnostic(method: &str) {
     let arg = module_attestation_diagnostic_arg(method);
@@ -767,6 +853,16 @@ fn module_local_attestation_live_reference_mismatch(
 
 fn module_local_attestation_selftest_cases(
 ) -> [ModuleLocalAttestationSelfTestCase; MODULE_LOCAL_ATTESTATION_SELFTEST_CASES] {
+    run_selftest_cases_with(
+        module_local_attestation_valid_input(),
+        &LOCAL_ATTESTATION_CASES,
+        apply_local_attestation_selftest_case,
+        evaluate_local_attestation_selftest_case,
+        module_local_attestation_selftest_case_from_spec,
+    )
+}
+
+fn module_local_attestation_valid_input<'a>() -> ModuleLocalAttestationReferenceInput<'a> {
     let manifest_reference_hash =
         computed_module_manifest_reference_hash(MODULE_GRANT_TEST_MANIFEST_HASH);
     let computed_grant_hash = computed_module_grant_hash(
@@ -811,7 +907,7 @@ fn module_local_attestation_selftest_cases(
         MODULE_GRANT_TEST_VM_REPORT_HASH,
         MODULE_GRANT_TEST_ATTESTATION_HASH,
     );
-    let valid_input = ModuleLocalAttestationReferenceInput {
+    ModuleLocalAttestationReferenceInput {
         has_reference: true,
         arity_valid: true,
         scope: "current_boot",
@@ -834,128 +930,87 @@ fn module_local_attestation_selftest_cases(
         computed_grant_hash: Some(computed_grant_hash),
         vm_report_hash: Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
         local_attestation_hash: Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
-    };
-    [
-        module_local_attestation_selftest_case(
-            "absent_reference",
-            "missing",
-            "local_attestation_reference_absent",
-            evaluate_module_local_attestation_reference(
-                ModuleLocalAttestationReferenceInput {
-                    has_reference: false,
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_attestation_selftest_case(
-            "accepted_current_boot_attestation_still_denied",
-            "valid_hash_reference_load_still_denied",
-            "local_attestation_reference_valid_but_loader_and_evidence_missing",
-            evaluate_module_local_attestation_reference(valid_input, false),
-        ),
-        module_local_attestation_selftest_case(
-            "stale_previous_boot_reference",
-            "stale_or_non_current_boot_reference",
-            "local_attestation_reference_scope_must_be_current_boot",
-            evaluate_module_local_attestation_reference(
-                ModuleLocalAttestationReferenceInput {
-                    scope: "previous_boot",
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_attestation_selftest_case(
-            "local_attestation_reference_hash_mismatch",
-            "mismatched_local_attestation_reference_hash",
-            "local_attestation_reference_hash_mismatch",
-            evaluate_module_local_attestation_reference(
-                ModuleLocalAttestationReferenceInput {
-                    attestation_reference_hash: Some([0x99; 32]),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_attestation_selftest_case(
-            "computed_grant_hash_mismatch",
-            "mismatched_computed_grant_hash",
-            "computed_grant_hash_mismatch",
-            evaluate_module_local_attestation_reference(
-                ModuleLocalAttestationReferenceInput {
-                    computed_grant_hash: Some([0xaa; 32]),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_attestation_selftest_case(
-            "retained_manifest_reference_event_not_current_boot",
-            "rejected",
-            "retained_manifest_reference_event_id_not_current_boot",
-            evaluate_module_local_attestation_reference(
-                ModuleLocalAttestationReferenceInput {
-                    retained_manifest_reference_event_id: Some("event.previous_boot.00000026"),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_attestation_selftest_case(
-            "retained_artifact_reference_event_not_current_boot",
-            "rejected",
-            "retained_artifact_reference_event_id_not_current_boot",
-            evaluate_module_local_attestation_reference(
-                ModuleLocalAttestationReferenceInput {
-                    retained_artifact_reference_event_id: Some("event.previous_boot.00000028"),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_attestation_selftest_case(
-            "retained_vm_report_reference_event_not_current_boot",
-            "rejected",
-            "retained_vm_report_reference_event_id_not_current_boot",
-            evaluate_module_local_attestation_reference(
-                ModuleLocalAttestationReferenceInput {
-                    retained_vm_report_reference_event_id: Some("event.previous_boot.00000029"),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_attestation_selftest_case(
-            "retained_reference_event_not_current_boot",
-            "rejected",
-            "retained_reference_event_id_not_current_boot",
-            evaluate_module_local_attestation_reference(
-                ModuleLocalAttestationReferenceInput {
-                    retained_reference_event_id: Some("event.previous_boot.00000027"),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-    ]
+    }
 }
 
-fn module_local_attestation_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
+fn apply_local_attestation_selftest_case(
+    candidate: &mut ModuleLocalAttestationReferenceInput<'static>,
+    mutation: LocalAttestationSelftestMutation,
+) {
+    let valid_input = module_local_attestation_valid_input();
+    *candidate = match mutation {
+        LocalAttestationSelftestMutation::Absent => ModuleLocalAttestationReferenceInput {
+            has_reference: false,
+            ..valid_input
+        },
+        LocalAttestationSelftestMutation::Accepted => valid_input,
+        LocalAttestationSelftestMutation::Stale => ModuleLocalAttestationReferenceInput {
+            scope: "previous_boot",
+            ..valid_input
+        },
+        LocalAttestationSelftestMutation::ReferenceHashMismatch => {
+            ModuleLocalAttestationReferenceInput {
+                attestation_reference_hash: Some([0x99; 32]),
+                ..valid_input
+            }
+        }
+        LocalAttestationSelftestMutation::ComputedGrantHashMismatch => {
+            ModuleLocalAttestationReferenceInput {
+                computed_grant_hash: Some([0xaa; 32]),
+                ..valid_input
+            }
+        }
+        LocalAttestationSelftestMutation::ManifestEventPreviousBoot => {
+            ModuleLocalAttestationReferenceInput {
+                retained_manifest_reference_event_id: Some("event.previous_boot.00000026"),
+                ..valid_input
+            }
+        }
+        LocalAttestationSelftestMutation::ArtifactEventPreviousBoot => {
+            ModuleLocalAttestationReferenceInput {
+                retained_artifact_reference_event_id: Some("event.previous_boot.00000028"),
+                ..valid_input
+            }
+        }
+        LocalAttestationSelftestMutation::VmReportEventPreviousBoot => {
+            ModuleLocalAttestationReferenceInput {
+                retained_vm_report_reference_event_id: Some("event.previous_boot.00000029"),
+                ..valid_input
+            }
+        }
+        LocalAttestationSelftestMutation::RetainedEventPreviousBoot => {
+            ModuleLocalAttestationReferenceInput {
+                retained_reference_event_id: Some("event.previous_boot.00000027"),
+                ..valid_input
+            }
+        }
+    }
+}
+
+fn evaluate_local_attestation_selftest_case(
+    candidate: ModuleLocalAttestationReferenceInput<'_>,
+    _require_live_retained: bool,
+) -> ModuleLocalAttestationReferenceCheck<'_> {
+    evaluate_module_local_attestation_reference(candidate, false)
+}
+
+fn module_local_attestation_selftest_case_from_spec(
+    spec: &CaseSpec<LocalAttestationSelftestMutation>,
     check: ModuleLocalAttestationReferenceCheck<'_>,
 ) -> ModuleLocalAttestationSelfTestCase {
     ModuleLocalAttestationSelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: check.status,
         actual_reason: check.reason,
-        passed: method_eq(check.status, expected_status)
-            && method_eq(check.reason, expected_reason)
-            && check.valid == method_eq(expected_status, "valid_hash_reference_load_still_denied"),
+        passed: method_eq(check.status, spec.expected_status)
+            && method_eq(check.reason, spec.expected_reason)
+            && check.valid
+                == method_eq(
+                    spec.expected_status,
+                    "valid_hash_reference_load_still_denied",
+                ),
     }
 }
 

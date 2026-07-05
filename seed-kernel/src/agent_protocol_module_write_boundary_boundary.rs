@@ -1,9 +1,10 @@
 use alloc::vec;
 
 use crate::agent_protocol_support::{
-    record_bool as b, record_event_or_null, record_false as no, record_field as f,
-    record_inline as inline, record_object as object, record_sha_or_null, record_str as s,
-    record_str_or_null,
+    emit_selftest_case_fields, record_bool as b, record_event_or_null, record_false as no,
+    record_field as f, record_inline as inline, record_object as object, record_sha_or_null,
+    record_str as s, record_str_or_null, run_selftest_cases_with, CaseSpec,
+    SelftestReportField::False,
 };
 use crate::{
     agent_protocol_module_types::*, agent_protocol_module_write_boundary_append_contract::*,
@@ -13,6 +14,183 @@ use crate::{
     agent_protocol_module_write_boundary_write_policy::*, agent_protocol_support::*, event_log,
 };
 use raios_core::record::Value as V;
+
+#[derive(Clone, Copy)]
+enum WriteBoundarySelftestMutation {
+    MissingManifestReference,
+    StaleArtifactReference,
+    SubstitutedVmReportReference,
+    PreviousBootWriteRequest,
+    WriteRequestSchemaMismatch,
+    MissingComputedGrantReference,
+    LocalAttestationHashMismatch,
+    LocalApprovalHashMismatch,
+    AuditRecordServiceSlotHashMismatch,
+    RollbackPlanServiceSlotHashMismatch,
+    SubstitutedServiceSlotReference,
+    RecoveryArtifactLoaderRequested,
+    DurableAuditLedgerAvailableRollbackStoreMissing,
+    RollbackStoreAvailableDurableAuditLedgerMissing,
+    AvailabilityFactsPresentPolicyDenied,
+    DurableWritePolicyAvailableRollbackPolicyMissing,
+    PolicyFactsAvailableAppendContractMissing,
+    AuditAppendAvailableRollbackTransactionMissing,
+    AppendContractAvailableAppendIntentMissing,
+    AppendIntentPayloadHashEnvelopeMissing,
+    AppendIntentsAvailableWriterDenied,
+    AcceptedCurrentBootPreconditionsWriteDenied,
+}
+
+const fn write_boundary_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: WriteBoundarySelftestMutation,
+) -> CaseSpec<WriteBoundarySelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const WRITE_BOUNDARY_CASES: [CaseSpec<WriteBoundarySelftestMutation>;
+    MODULE_AUDIT_ROLLBACK_WRITE_BOUNDARY_SELFTEST_CASES] = [
+    write_boundary_case(
+        "missing_manifest_reference",
+        "missing",
+        "retained_module_manifest_reference_missing",
+        WriteBoundarySelftestMutation::MissingManifestReference,
+    ),
+    write_boundary_case(
+        "stale_artifact_reference",
+        "rejected",
+        "retained_candidate_artifact_reference_stale_or_dropped_event_id",
+        WriteBoundarySelftestMutation::StaleArtifactReference,
+    ),
+    write_boundary_case(
+        "substituted_vm_report_reference",
+        "rejected",
+        "retained_vm_test_report_reference_substituted_record",
+        WriteBoundarySelftestMutation::SubstitutedVmReportReference,
+    ),
+    write_boundary_case(
+        "previous_boot_write_request",
+        "rejected",
+        "write_boundary_scope_must_be_current_boot",
+        WriteBoundarySelftestMutation::PreviousBootWriteRequest,
+    ),
+    write_boundary_case(
+        "write_request_schema_mismatch",
+        "rejected",
+        "pre_load_audit_rollback_write_request_schema_mismatch",
+        WriteBoundarySelftestMutation::WriteRequestSchemaMismatch,
+    ),
+    write_boundary_case(
+        "missing_computed_grant_reference",
+        "missing",
+        "retained_computed_grant_reference_missing",
+        WriteBoundarySelftestMutation::MissingComputedGrantReference,
+    ),
+    write_boundary_case(
+        "local_attestation_hash_mismatch",
+        "rejected",
+        "write_boundary_local_attestation_hash_mismatch",
+        WriteBoundarySelftestMutation::LocalAttestationHashMismatch,
+    ),
+    write_boundary_case(
+        "local_approval_hash_mismatch",
+        "rejected",
+        "write_boundary_local_approval_hash_mismatch",
+        WriteBoundarySelftestMutation::LocalApprovalHashMismatch,
+    ),
+    write_boundary_case(
+        "audit_record_service_slot_hash_mismatch",
+        "rejected",
+        "write_boundary_audit_record_hash_mismatch",
+        WriteBoundarySelftestMutation::AuditRecordServiceSlotHashMismatch,
+    ),
+    write_boundary_case(
+        "rollback_plan_service_slot_hash_mismatch",
+        "rejected",
+        "write_boundary_rollback_plan_hash_mismatch",
+        WriteBoundarySelftestMutation::RollbackPlanServiceSlotHashMismatch,
+    ),
+    write_boundary_case(
+        "substituted_service_slot_reference",
+        "rejected",
+        "write_boundary_service_slot_reference_mismatch",
+        WriteBoundarySelftestMutation::SubstitutedServiceSlotReference,
+    ),
+    write_boundary_case(
+        "recovery_artifact_loader_requested",
+        "rejected",
+        "recovery_artifact_loading_is_separate",
+        WriteBoundarySelftestMutation::RecoveryArtifactLoaderRequested,
+    ),
+    write_boundary_case(
+        "durable_audit_ledger_available_rollback_store_missing",
+        "denied_missing_durable_write_boundary",
+        "rollback_install_missing",
+        WriteBoundarySelftestMutation::DurableAuditLedgerAvailableRollbackStoreMissing,
+    ),
+    write_boundary_case(
+        "rollback_store_available_durable_audit_ledger_missing",
+        "denied_missing_durable_write_boundary",
+        "durable_audit_write_missing",
+        WriteBoundarySelftestMutation::RollbackStoreAvailableDurableAuditLedgerMissing,
+    ),
+    write_boundary_case(
+        "availability_facts_present_policy_still_denied",
+        "denied_missing_durable_write_policy",
+        "durable_write_policy_missing",
+        WriteBoundarySelftestMutation::AvailabilityFactsPresentPolicyDenied,
+    ),
+    write_boundary_case(
+        "durable_write_policy_available_rollback_policy_missing",
+        "denied_missing_rollback_install_policy",
+        "rollback_install_policy_missing",
+        WriteBoundarySelftestMutation::DurableWritePolicyAvailableRollbackPolicyMissing,
+    ),
+    write_boundary_case(
+        "policy_facts_available_append_contract_missing",
+        "denied_missing_append_contract",
+        "audit_append_envelope_missing_and_rollback_transaction_envelope_missing",
+        WriteBoundarySelftestMutation::PolicyFactsAvailableAppendContractMissing,
+    ),
+    write_boundary_case(
+        "audit_append_available_rollback_transaction_missing",
+        "denied_missing_append_contract",
+        "rollback_transaction_envelope_missing",
+        WriteBoundarySelftestMutation::AuditAppendAvailableRollbackTransactionMissing,
+    ),
+    write_boundary_case(
+        "append_contract_available_append_intent_missing",
+        "denied_missing_append_intent",
+        "audit_record_append_intent_missing_and_rollback_transaction_append_intent_missing",
+        WriteBoundarySelftestMutation::AppendContractAvailableAppendIntentMissing,
+    ),
+    write_boundary_case(
+        "append_intent_payload_hash_envelope_missing",
+        "denied_missing_append_intent",
+        "audit_record_append_payload_hash_envelope_missing",
+        WriteBoundarySelftestMutation::AppendIntentPayloadHashEnvelopeMissing,
+    ),
+    write_boundary_case(
+        "append_intents_available_writer_still_denied",
+        "denied_write_path_unimplemented",
+        "durable_audit_rollback_writer_unimplemented",
+        WriteBoundarySelftestMutation::AppendIntentsAvailableWriterDenied,
+    ),
+    write_boundary_case(
+        "accepted_current_boot_preconditions_write_still_denied",
+        "denied_missing_durable_write_boundary",
+        "durable_audit_write_missing_and_rollback_install_missing",
+        WriteBoundarySelftestMutation::AcceptedCurrentBootPreconditionsWriteDenied,
+    ),
+];
 
 pub(crate) fn emit_module_audit_rollback_write_boundary() {
     let binding = event_log::module_load_gate_binding_snapshot();
@@ -800,19 +978,19 @@ pub(crate) fn emit_module_audit_rollback_write_boundary_selftest_case(
     case: &ModuleAuditRollbackWriteBoundarySelfTestCase,
     comma: bool,
 ) {
-    emit_inline_record_object(
-        vec![
-            f("case", s(case.name)),
-            f("expected_status", s(case.expected_status)),
-            f("expected_reason", s(case.expected_reason)),
-            f("actual_status", s(case.actual_status)),
-            f("actual_reason", s(case.actual_reason)),
-            f("passed", b(case.passed)),
-            f("creates_durable_audit_records", no()),
-            f("installs_rollback_plan", no()),
-            f("loads_artifact", no()),
-            f("can_load", no()),
-            f("load_attempted", no()),
+    emit_selftest_case_fields(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        case.passed,
+        &[
+            False("creates_durable_audit_records"),
+            False("installs_rollback_plan"),
+            False("loads_artifact"),
+            False("can_load"),
+            False("load_attempted"),
         ],
         comma,
     );
@@ -1281,156 +1459,121 @@ pub(crate) fn module_audit_rollback_write_boundary_evaluation(
 pub(crate) fn module_audit_rollback_write_boundary_selftest_cases(
 ) -> [ModuleAuditRollbackWriteBoundarySelfTestCase;
        MODULE_AUDIT_ROLLBACK_WRITE_BOUNDARY_SELFTEST_CASES] {
+    run_selftest_cases_with(
+        module_audit_rollback_write_boundary_valid_candidate(),
+        &WRITE_BOUNDARY_CASES,
+        apply_write_boundary_selftest_case,
+        evaluate_write_boundary_selftest_case,
+        module_audit_rollback_write_boundary_selftest_case_from_spec,
+    )
+}
+
+fn apply_write_boundary_selftest_case(
+    candidate: &mut ModuleAuditRollbackWriteBoundaryCandidate,
+    mutation: WriteBoundarySelftestMutation,
+) {
     let valid = module_audit_rollback_write_boundary_valid_candidate();
-    [
-        module_audit_rollback_write_boundary_selftest_case(
-            "missing_manifest_reference",
-            "missing",
-            "retained_module_manifest_reference_missing",
+    *candidate = match mutation {
+        WriteBoundarySelftestMutation::MissingManifestReference => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 manifest_status: "missing",
                 manifest_reason: "retained_module_manifest_reference_missing",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "stale_artifact_reference",
-            "rejected",
-            "retained_candidate_artifact_reference_stale_or_dropped_event_id",
+            }
+        }
+        WriteBoundarySelftestMutation::StaleArtifactReference => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 artifact_status: "rejected",
                 artifact_reason: "retained_candidate_artifact_reference_stale_or_dropped_event_id",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "substituted_vm_report_reference",
-            "rejected",
-            "retained_vm_test_report_reference_substituted_record",
+            }
+        }
+        WriteBoundarySelftestMutation::SubstitutedVmReportReference => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 vm_report_status: "rejected",
                 vm_report_reason: "retained_vm_test_report_reference_substituted_record",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "previous_boot_write_request",
-            "rejected",
-            "write_boundary_scope_must_be_current_boot",
+            }
+        }
+        WriteBoundarySelftestMutation::PreviousBootWriteRequest => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 scope: "previous_boot",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "write_request_schema_mismatch",
-            "rejected",
-            "pre_load_audit_rollback_write_request_schema_mismatch",
+            }
+        }
+        WriteBoundarySelftestMutation::WriteRequestSchemaMismatch => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 request_schema_ok: false,
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "missing_computed_grant_reference",
-            "missing",
-            "retained_computed_grant_reference_missing",
+            }
+        }
+        WriteBoundarySelftestMutation::MissingComputedGrantReference => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 computed_grant_status: "missing",
                 computed_grant_reason: "retained_computed_grant_reference_missing",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "local_attestation_hash_mismatch",
-            "rejected",
-            "write_boundary_local_attestation_hash_mismatch",
+            }
+        }
+        WriteBoundarySelftestMutation::LocalAttestationHashMismatch => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 local_attestation_hash_matches_grant: false,
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "local_approval_hash_mismatch",
-            "rejected",
-            "write_boundary_local_approval_hash_mismatch",
+            }
+        }
+        WriteBoundarySelftestMutation::LocalApprovalHashMismatch => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 local_approval_hash_matches_audit: false,
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "audit_record_service_slot_hash_mismatch",
-            "rejected",
-            "write_boundary_audit_record_hash_mismatch",
+            }
+        }
+        WriteBoundarySelftestMutation::AuditRecordServiceSlotHashMismatch => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 audit_record_hash_matches_service_slot: false,
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "rollback_plan_service_slot_hash_mismatch",
-            "rejected",
-            "write_boundary_rollback_plan_hash_mismatch",
+            }
+        }
+        WriteBoundarySelftestMutation::RollbackPlanServiceSlotHashMismatch => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 rollback_plan_hash_matches_service_slot: false,
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "substituted_service_slot_reference",
-            "rejected",
-            "write_boundary_service_slot_reference_mismatch",
+            }
+        }
+        WriteBoundarySelftestMutation::SubstitutedServiceSlotReference => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 service_slot_binds_audit_rollback: false,
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "recovery_artifact_loader_requested",
-            "rejected",
-            "recovery_artifact_loading_is_separate",
+            }
+        }
+        WriteBoundarySelftestMutation::RecoveryArtifactLoaderRequested => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 recovery_artifact_loader_requested: true,
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "durable_audit_ledger_available_rollback_store_missing",
-            "denied_missing_durable_write_boundary",
-            "rollback_install_missing",
+            }
+        }
+        WriteBoundarySelftestMutation::DurableAuditLedgerAvailableRollbackStoreMissing => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 durable_audit_ledger_status: "available",
                 durable_audit_ledger_reason: "durable_audit_ledger_available",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "rollback_store_available_durable_audit_ledger_missing",
-            "denied_missing_durable_write_boundary",
-            "durable_audit_write_missing",
+            }
+        }
+        WriteBoundarySelftestMutation::RollbackStoreAvailableDurableAuditLedgerMissing => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 rollback_store_status: "available",
                 rollback_store_reason: "rollback_store_available",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "availability_facts_present_policy_still_denied",
-            "denied_missing_durable_write_policy",
-            "durable_write_policy_missing",
+            }
+        }
+        WriteBoundarySelftestMutation::AvailabilityFactsPresentPolicyDenied => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 durable_audit_ledger_status: "available",
                 durable_audit_ledger_reason: "durable_audit_ledger_available",
                 rollback_store_status: "available",
                 rollback_store_reason: "rollback_store_available",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "durable_write_policy_available_rollback_policy_missing",
-            "denied_missing_rollback_install_policy",
-            "rollback_install_policy_missing",
+            }
+        }
+        WriteBoundarySelftestMutation::DurableWritePolicyAvailableRollbackPolicyMissing => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 durable_audit_ledger_status: "available",
                 durable_audit_ledger_reason: "durable_audit_ledger_available",
@@ -1439,12 +1582,9 @@ pub(crate) fn module_audit_rollback_write_boundary_selftest_cases(
                 durable_write_policy_status: "available",
                 durable_write_policy_reason: "durable_write_policy_available",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "policy_facts_available_append_contract_missing",
-            "denied_missing_append_contract",
-            "audit_append_envelope_missing_and_rollback_transaction_envelope_missing",
+            }
+        }
+        WriteBoundarySelftestMutation::PolicyFactsAvailableAppendContractMissing => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 durable_audit_ledger_status: "available",
                 durable_audit_ledger_reason: "durable_audit_ledger_available",
@@ -1455,12 +1595,9 @@ pub(crate) fn module_audit_rollback_write_boundary_selftest_cases(
                 rollback_install_policy_status: "available",
                 rollback_install_policy_reason: "rollback_install_policy_available",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "audit_append_available_rollback_transaction_missing",
-            "denied_missing_append_contract",
-            "rollback_transaction_envelope_missing",
+            }
+        }
+        WriteBoundarySelftestMutation::AuditAppendAvailableRollbackTransactionMissing => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 durable_audit_ledger_status: "available",
                 durable_audit_ledger_reason: "durable_audit_ledger_available",
@@ -1473,12 +1610,9 @@ pub(crate) fn module_audit_rollback_write_boundary_selftest_cases(
                 audit_append_status: "available",
                 audit_append_reason: "audit_append_envelope_available",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "append_contract_available_append_intent_missing",
-            "denied_missing_append_intent",
-            "audit_record_append_intent_missing_and_rollback_transaction_append_intent_missing",
+            }
+        }
+        WriteBoundarySelftestMutation::AppendContractAvailableAppendIntentMissing => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 durable_audit_ledger_status: "available",
                 durable_audit_ledger_reason: "durable_audit_ledger_available",
@@ -1493,12 +1627,9 @@ pub(crate) fn module_audit_rollback_write_boundary_selftest_cases(
                 rollback_transaction_status: "available",
                 rollback_transaction_reason: "rollback_transaction_envelope_available",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "append_intent_payload_hash_envelope_missing",
-            "denied_missing_append_intent",
-            "audit_record_append_payload_hash_envelope_missing",
+            }
+        }
+        WriteBoundarySelftestMutation::AppendIntentPayloadHashEnvelopeMissing => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 durable_audit_ledger_status: "available",
                 durable_audit_ledger_reason: "durable_audit_ledger_available",
@@ -1518,12 +1649,9 @@ pub(crate) fn module_audit_rollback_write_boundary_selftest_cases(
                 rollback_transaction_append_intent_reason:
                     "rollback_transaction_append_intent_available",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "append_intents_available_writer_still_denied",
-            "denied_write_path_unimplemented",
-            "durable_audit_rollback_writer_unimplemented",
+            }
+        }
+        WriteBoundarySelftestMutation::AppendIntentsAvailableWriterDenied => {
             ModuleAuditRollbackWriteBoundaryCandidate {
                 durable_audit_ledger_status: "available",
                 durable_audit_ledger_reason: "durable_audit_ledger_available",
@@ -1543,15 +1671,17 @@ pub(crate) fn module_audit_rollback_write_boundary_selftest_cases(
                 rollback_transaction_append_intent_reason:
                     "rollback_transaction_append_intent_available",
                 ..valid
-            },
-        ),
-        module_audit_rollback_write_boundary_selftest_case(
-            "accepted_current_boot_preconditions_write_still_denied",
-            "denied_missing_durable_write_boundary",
-            "durable_audit_write_missing_and_rollback_install_missing",
-            valid,
-        ),
-    ]
+            }
+        }
+        WriteBoundarySelftestMutation::AcceptedCurrentBootPreconditionsWriteDenied => valid,
+    };
+}
+
+fn evaluate_write_boundary_selftest_case(
+    candidate: ModuleAuditRollbackWriteBoundaryCandidate,
+    _require_live_retained: bool,
+) -> ModuleAuditRollbackWriteBoundaryEvaluation {
+    evaluate_module_audit_rollback_write_boundary_candidate(candidate)
 }
 
 pub(crate) fn module_audit_rollback_write_boundary_valid_candidate(
@@ -1603,21 +1733,18 @@ pub(crate) fn module_audit_rollback_write_boundary_valid_candidate(
     }
 }
 
-pub(crate) fn module_audit_rollback_write_boundary_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
-    candidate: ModuleAuditRollbackWriteBoundaryCandidate,
+fn module_audit_rollback_write_boundary_selftest_case_from_spec(
+    spec: &CaseSpec<WriteBoundarySelftestMutation>,
+    actual: ModuleAuditRollbackWriteBoundaryEvaluation,
 ) -> ModuleAuditRollbackWriteBoundarySelfTestCase {
-    let actual = evaluate_module_audit_rollback_write_boundary_candidate(candidate);
     ModuleAuditRollbackWriteBoundarySelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
-        passed: method_eq(actual.status, expected_status)
-            && method_eq(actual.reason, expected_reason)
+        passed: method_eq(actual.status, spec.expected_status)
+            && method_eq(actual.reason, spec.expected_reason)
             && !actual.can_load
             && !actual.load_attempted,
     }

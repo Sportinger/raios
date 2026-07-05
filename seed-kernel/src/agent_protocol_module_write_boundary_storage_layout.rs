@@ -1,12 +1,162 @@
 use alloc::{format, string::String, vec, vec::Vec};
 
 use crate::agent_protocol_support::{
-    emit_record_fields_trailing_comma, emit_record_property_line, record_bool as b,
-    record_false as no, record_field as f, record_null as null, record_object as object,
-    record_str as s, record_str_or_null,
+    emit_record_fields_trailing_comma, emit_record_property_line, emit_selftest_case_fields,
+    record_bool as b, record_false as no, record_field as f, record_null as null,
+    record_object as object, record_str as s, record_str_or_null, run_selftest_cases_with,
+    CaseSpec, SelftestReportField::False,
 };
 use crate::{agent_protocol_module_types::*, agent_protocol_support::*, ahci, pci};
 use raios_core::record::Value as V;
+
+#[derive(Clone, Copy)]
+enum StorageLayoutSelftestMutation {
+    MissingInputs,
+    DevicePreviousBoot,
+    DeviceWrongSchema,
+    DeviceProvenanceMissing,
+    DeviceStableIdentityMissing,
+    BlockDeviceIdentityMissing,
+    BlockDriverMissing,
+    SectorReadMissing,
+    PartitionInventoryMissing,
+    LayoutPreviousBoot,
+    LayoutWrongSchema,
+    LayoutProvenanceMissing,
+    LayoutDeviceBindingMissing,
+    AuditLedgerRegionMissing,
+    RollbackStoreRegionMissing,
+    AppendSlotsMissing,
+    RecoveryBoundaryMissing,
+    AvailableStorageLayout,
+}
+
+const fn storage_layout_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: StorageLayoutSelftestMutation,
+) -> CaseSpec<StorageLayoutSelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const STORAGE_LAYOUT_CASES: [CaseSpec<StorageLayoutSelftestMutation>;
+    MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_SELFTEST_CASES] = [
+    storage_layout_case(
+        "missing_storage_inputs_current_boot",
+        "missing",
+        "persistence_device_inventory_missing_and_storage_layout_missing",
+        StorageLayoutSelftestMutation::MissingInputs,
+    ),
+    storage_layout_case(
+        "persistence_device_previous_boot",
+        "rejected",
+        "persistence_device_scope_must_be_current_boot",
+        StorageLayoutSelftestMutation::DevicePreviousBoot,
+    ),
+    storage_layout_case(
+        "persistence_device_wrong_schema",
+        "rejected",
+        "persistence_device_schema_mismatch",
+        StorageLayoutSelftestMutation::DeviceWrongSchema,
+    ),
+    storage_layout_case(
+        "persistence_device_provenance_missing",
+        "rejected",
+        "persistence_device_provenance_missing",
+        StorageLayoutSelftestMutation::DeviceProvenanceMissing,
+    ),
+    storage_layout_case(
+        "persistence_device_stable_identity_missing",
+        "rejected",
+        "persistence_device_stable_identity_missing",
+        StorageLayoutSelftestMutation::DeviceStableIdentityMissing,
+    ),
+    storage_layout_case(
+        "block_device_identity_missing",
+        "missing",
+        "block_device_identity_missing",
+        StorageLayoutSelftestMutation::BlockDeviceIdentityMissing,
+    ),
+    storage_layout_case(
+        "persistence_block_driver_missing",
+        "missing",
+        "persistence_block_driver_missing",
+        StorageLayoutSelftestMutation::BlockDriverMissing,
+    ),
+    storage_layout_case(
+        "persistence_sector_read_path_missing",
+        "missing",
+        "persistence_sector_read_path_missing",
+        StorageLayoutSelftestMutation::SectorReadMissing,
+    ),
+    storage_layout_case(
+        "persistence_partition_inventory_missing",
+        "missing",
+        "persistence_partition_inventory_missing",
+        StorageLayoutSelftestMutation::PartitionInventoryMissing,
+    ),
+    storage_layout_case(
+        "audit_rollback_storage_layout_previous_boot",
+        "rejected",
+        "audit_rollback_storage_layout_scope_must_be_current_boot",
+        StorageLayoutSelftestMutation::LayoutPreviousBoot,
+    ),
+    storage_layout_case(
+        "audit_rollback_storage_layout_wrong_schema",
+        "rejected",
+        "audit_rollback_storage_layout_schema_mismatch",
+        StorageLayoutSelftestMutation::LayoutWrongSchema,
+    ),
+    storage_layout_case(
+        "audit_rollback_storage_layout_provenance_missing",
+        "rejected",
+        "audit_rollback_storage_layout_provenance_missing",
+        StorageLayoutSelftestMutation::LayoutProvenanceMissing,
+    ),
+    storage_layout_case(
+        "storage_layout_device_binding_missing",
+        "rejected",
+        "storage_layout_device_binding_missing",
+        StorageLayoutSelftestMutation::LayoutDeviceBindingMissing,
+    ),
+    storage_layout_case(
+        "audit_ledger_layout_region_missing",
+        "missing",
+        "audit_ledger_layout_region_missing",
+        StorageLayoutSelftestMutation::AuditLedgerRegionMissing,
+    ),
+    storage_layout_case(
+        "rollback_store_layout_region_missing",
+        "missing",
+        "rollback_store_layout_region_missing",
+        StorageLayoutSelftestMutation::RollbackStoreRegionMissing,
+    ),
+    storage_layout_case(
+        "storage_layout_append_slots_missing",
+        "missing",
+        "storage_layout_append_slots_missing",
+        StorageLayoutSelftestMutation::AppendSlotsMissing,
+    ),
+    storage_layout_case(
+        "storage_layout_recovery_boundary_missing",
+        "rejected",
+        "storage_layout_recovery_boundary_missing",
+        StorageLayoutSelftestMutation::RecoveryBoundaryMissing,
+    ),
+    storage_layout_case(
+        "available_storage_layout_still_non_authorizing",
+        "available",
+        "audit_rollback_storage_layout_available",
+        StorageLayoutSelftestMutation::AvailableStorageLayout,
+    ),
+];
 
 pub(crate) const MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_METHOD: &str =
     "module.audit_rollback_storage_layout";
@@ -290,18 +440,18 @@ pub(crate) fn emit_module_audit_rollback_storage_layout_selftest_case(
     case: &ModuleAuditRollbackStorageLayoutSelfTestCase,
     comma: bool,
 ) {
-    emit_inline_record_object(
-        vec![
-            f("case", s(case.name)),
-            f("expected_status", s(case.expected_status)),
-            f("expected_reason", s(case.expected_reason)),
-            f("actual_status", s(case.actual_status)),
-            f("actual_reason", s(case.actual_reason)),
-            f("passed", b(case.passed)),
-            f("writes_enabled", no()),
-            f("installs_rollback_plan", no()),
-            f("can_load", no()),
-            f("load_attempted", no()),
+    emit_selftest_case_fields(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        case.passed,
+        &[
+            False("writes_enabled"),
+            False("installs_rollback_plan"),
+            False("can_load"),
+            False("load_attempted"),
         ],
         comma,
     );
@@ -1493,71 +1643,80 @@ pub(crate) fn emit_module_storage_layout_fact(
 pub(crate) fn module_audit_rollback_storage_layout_selftest_cases(
 ) -> [ModuleAuditRollbackStorageLayoutSelfTestCase;
        MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_SELFTEST_CASES] {
+    run_selftest_cases_with(
+        ModuleAuditRollbackStorageLayoutCandidate {
+            persistence_device_inventory: module_audit_rollback_missing_persistence_device_fact(),
+            audit_rollback_storage_layout: module_audit_rollback_missing_storage_layout_fact(),
+        },
+        &STORAGE_LAYOUT_CASES,
+        apply_storage_layout_selftest_case,
+        evaluate_storage_layout_selftest_case,
+        module_audit_rollback_storage_layout_selftest_case_from_spec,
+    )
+}
+
+fn apply_storage_layout_selftest_case(
+    candidate: &mut ModuleAuditRollbackStorageLayoutCandidate,
+    mutation: StorageLayoutSelftestMutation,
+) {
+    *candidate = module_audit_rollback_storage_layout_selftest_candidate(mutation);
+}
+
+fn evaluate_storage_layout_selftest_case(
+    candidate: ModuleAuditRollbackStorageLayoutCandidate,
+    _require_live_retained: bool,
+) -> ModuleAuditRollbackStorageLayoutEvaluation {
+    evaluate_module_audit_rollback_storage_layout_candidate(candidate)
+}
+
+fn module_audit_rollback_storage_layout_selftest_candidate(
+    mutation: StorageLayoutSelftestMutation,
+) -> ModuleAuditRollbackStorageLayoutCandidate {
     let missing = ModuleAuditRollbackStorageLayoutCandidate {
         persistence_device_inventory: module_audit_rollback_missing_persistence_device_fact(),
         audit_rollback_storage_layout: module_audit_rollback_missing_storage_layout_fact(),
     };
     let available_device = module_audit_rollback_available_persistence_device_fact();
     let available_layout = module_audit_rollback_available_storage_layout_fact();
-    [
-        module_audit_rollback_storage_layout_selftest_case(
-            "missing_storage_inputs_current_boot",
-            "missing",
-            "persistence_device_inventory_missing_and_storage_layout_missing",
-            missing,
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "persistence_device_previous_boot",
-            "rejected",
-            "persistence_device_scope_must_be_current_boot",
+    match mutation {
+        StorageLayoutSelftestMutation::MissingInputs => missing,
+        StorageLayoutSelftestMutation::DevicePreviousBoot => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: ModuleAuditRollbackPersistenceDeviceFact {
                     scope: "previous_boot",
                     ..available_device
                 },
                 audit_rollback_storage_layout: available_layout,
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "persistence_device_wrong_schema",
-            "rejected",
-            "persistence_device_schema_mismatch",
+            }
+        }
+        StorageLayoutSelftestMutation::DeviceWrongSchema => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: ModuleAuditRollbackPersistenceDeviceFact {
                     schema_ok: false,
                     ..available_device
                 },
                 audit_rollback_storage_layout: available_layout,
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "persistence_device_provenance_missing",
-            "rejected",
-            "persistence_device_provenance_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::DeviceProvenanceMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: ModuleAuditRollbackPersistenceDeviceFact {
                     provenance_ok: false,
                     ..available_device
                 },
                 audit_rollback_storage_layout: available_layout,
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "persistence_device_stable_identity_missing",
-            "rejected",
-            "persistence_device_stable_identity_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::DeviceStableIdentityMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: ModuleAuditRollbackPersistenceDeviceFact {
                     stable_identity: false,
                     ..available_device
                 },
                 audit_rollback_storage_layout: available_layout,
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "block_device_identity_missing",
-            "missing",
-            "block_device_identity_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::BlockDeviceIdentityMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: ModuleAuditRollbackPersistenceDeviceFact {
                     block_driver_available: false,
@@ -1568,12 +1727,9 @@ pub(crate) fn module_audit_rollback_storage_layout_selftest_cases(
                     ..available_device
                 },
                 audit_rollback_storage_layout: available_layout,
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "persistence_block_driver_missing",
-            "missing",
-            "persistence_block_driver_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::BlockDriverMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: ModuleAuditRollbackPersistenceDeviceFact {
                     ahci_probe: ahci::AhciReadOnlyProbe::missing("ahci_register_probe_unavailable"),
@@ -1584,12 +1740,9 @@ pub(crate) fn module_audit_rollback_storage_layout_selftest_cases(
                     ..available_device
                 },
                 audit_rollback_storage_layout: available_layout,
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "persistence_sector_read_path_missing",
-            "missing",
-            "persistence_sector_read_path_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::SectorReadMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: ModuleAuditRollbackPersistenceDeviceFact {
                     block_driver_available: false,
@@ -1600,143 +1753,110 @@ pub(crate) fn module_audit_rollback_storage_layout_selftest_cases(
                     ..available_device
                 },
                 audit_rollback_storage_layout: available_layout,
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "persistence_partition_inventory_missing",
-            "missing",
-            "persistence_partition_inventory_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::PartitionInventoryMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: ModuleAuditRollbackPersistenceDeviceFact {
                     partition_inventory_available: false,
                     ..available_device
                 },
                 audit_rollback_storage_layout: available_layout,
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "audit_rollback_storage_layout_previous_boot",
-            "rejected",
-            "audit_rollback_storage_layout_scope_must_be_current_boot",
+            }
+        }
+        StorageLayoutSelftestMutation::LayoutPreviousBoot => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: available_device,
                 audit_rollback_storage_layout: ModuleAuditRollbackStorageLayoutFact {
                     scope: "previous_boot",
                     ..available_layout
                 },
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "audit_rollback_storage_layout_wrong_schema",
-            "rejected",
-            "audit_rollback_storage_layout_schema_mismatch",
+            }
+        }
+        StorageLayoutSelftestMutation::LayoutWrongSchema => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: available_device,
                 audit_rollback_storage_layout: ModuleAuditRollbackStorageLayoutFact {
                     schema_ok: false,
                     ..available_layout
                 },
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "audit_rollback_storage_layout_provenance_missing",
-            "rejected",
-            "audit_rollback_storage_layout_provenance_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::LayoutProvenanceMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: available_device,
                 audit_rollback_storage_layout: ModuleAuditRollbackStorageLayoutFact {
                     provenance_ok: false,
                     ..available_layout
                 },
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "storage_layout_device_binding_missing",
-            "rejected",
-            "storage_layout_device_binding_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::LayoutDeviceBindingMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: available_device,
                 audit_rollback_storage_layout: ModuleAuditRollbackStorageLayoutFact {
                     binds_persistence_device: false,
                     ..available_layout
                 },
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "audit_ledger_layout_region_missing",
-            "missing",
-            "audit_ledger_layout_region_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::AuditLedgerRegionMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: available_device,
                 audit_rollback_storage_layout: ModuleAuditRollbackStorageLayoutFact {
                     has_audit_ledger_region: false,
                     ..available_layout
                 },
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "rollback_store_layout_region_missing",
-            "missing",
-            "rollback_store_layout_region_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::RollbackStoreRegionMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: available_device,
                 audit_rollback_storage_layout: ModuleAuditRollbackStorageLayoutFact {
                     has_rollback_store_region: false,
                     ..available_layout
                 },
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "storage_layout_append_slots_missing",
-            "missing",
-            "storage_layout_append_slots_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::AppendSlotsMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: available_device,
                 audit_rollback_storage_layout: ModuleAuditRollbackStorageLayoutFact {
                     append_slots_available: false,
                     ..available_layout
                 },
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "storage_layout_recovery_boundary_missing",
-            "rejected",
-            "storage_layout_recovery_boundary_missing",
+            }
+        }
+        StorageLayoutSelftestMutation::RecoveryBoundaryMissing => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: available_device,
                 audit_rollback_storage_layout: ModuleAuditRollbackStorageLayoutFact {
                     recovery_region_separated: false,
                     ..available_layout
                 },
-            },
-        ),
-        module_audit_rollback_storage_layout_selftest_case(
-            "available_storage_layout_still_non_authorizing",
-            "available",
-            "audit_rollback_storage_layout_available",
+            }
+        }
+        StorageLayoutSelftestMutation::AvailableStorageLayout => {
             ModuleAuditRollbackStorageLayoutCandidate {
                 persistence_device_inventory: available_device,
                 audit_rollback_storage_layout: available_layout,
-            },
-        ),
-    ]
+            }
+        }
+    }
 }
 
-pub(crate) fn module_audit_rollback_storage_layout_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
-    candidate: ModuleAuditRollbackStorageLayoutCandidate,
+fn module_audit_rollback_storage_layout_selftest_case_from_spec(
+    spec: &CaseSpec<StorageLayoutSelftestMutation>,
+    actual: ModuleAuditRollbackStorageLayoutEvaluation,
 ) -> ModuleAuditRollbackStorageLayoutSelfTestCase {
-    let actual = evaluate_module_audit_rollback_storage_layout_candidate(candidate);
     ModuleAuditRollbackStorageLayoutSelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
-        passed: method_eq(actual.status, expected_status)
-            && method_eq(actual.reason, expected_reason)
+        passed: method_eq(actual.status, spec.expected_status)
+            && method_eq(actual.reason, spec.expected_reason)
             && !actual.writes_enabled
             && !actual.installs_rollback_plan
             && !actual.can_load

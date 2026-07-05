@@ -11,10 +11,104 @@ use crate::{
         record_missing_retained_reference_fields, record_object_field, record_present_absent,
         record_retained_reference_present_fields, record_selftest_case, record_sha_fields,
         record_sha_or_null_fields, record_static_str_array, record_str as s, record_str_or_null,
+        run_selftest_cases_with, CaseSpec,
     },
     event_log, module_evidence,
 };
 use raios_core::record::Value as V;
+
+#[derive(Clone, Copy)]
+enum LocalApprovalSelftestMutation {
+    Absent,
+    Accepted,
+    Stale,
+    ReferenceHashMismatch,
+    ComputedGrantHashMismatch,
+    ManifestEventPreviousBoot,
+    ArtifactEventPreviousBoot,
+    VmReportEventPreviousBoot,
+    AttestationEventPreviousBoot,
+    RetainedEventPreviousBoot,
+}
+
+const fn local_approval_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: LocalApprovalSelftestMutation,
+) -> CaseSpec<LocalApprovalSelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const LOCAL_APPROVAL_CASES: [CaseSpec<LocalApprovalSelftestMutation>;
+    MODULE_LOCAL_APPROVAL_SELFTEST_CASES] = [
+    local_approval_case(
+        "absent_reference",
+        "missing",
+        "local_approval_reference_absent",
+        LocalApprovalSelftestMutation::Absent,
+    ),
+    local_approval_case(
+        "accepted_current_boot_approval_still_denied",
+        "valid_hash_reference_load_still_denied",
+        "local_approval_reference_valid_but_loader_and_evidence_missing",
+        LocalApprovalSelftestMutation::Accepted,
+    ),
+    local_approval_case(
+        "stale_previous_boot_reference",
+        "stale_or_non_current_boot_reference",
+        "local_approval_reference_scope_must_be_current_boot",
+        LocalApprovalSelftestMutation::Stale,
+    ),
+    local_approval_case(
+        "local_approval_reference_hash_mismatch",
+        "mismatched_local_approval_reference_hash",
+        "local_approval_reference_hash_mismatch",
+        LocalApprovalSelftestMutation::ReferenceHashMismatch,
+    ),
+    local_approval_case(
+        "computed_grant_hash_mismatch",
+        "mismatched_computed_grant_hash",
+        "computed_grant_hash_mismatch",
+        LocalApprovalSelftestMutation::ComputedGrantHashMismatch,
+    ),
+    local_approval_case(
+        "retained_manifest_reference_event_not_current_boot",
+        "rejected",
+        "retained_manifest_reference_event_id_not_current_boot",
+        LocalApprovalSelftestMutation::ManifestEventPreviousBoot,
+    ),
+    local_approval_case(
+        "retained_artifact_reference_event_not_current_boot",
+        "rejected",
+        "retained_artifact_reference_event_id_not_current_boot",
+        LocalApprovalSelftestMutation::ArtifactEventPreviousBoot,
+    ),
+    local_approval_case(
+        "retained_vm_report_reference_event_not_current_boot",
+        "rejected",
+        "retained_vm_report_reference_event_id_not_current_boot",
+        LocalApprovalSelftestMutation::VmReportEventPreviousBoot,
+    ),
+    local_approval_case(
+        "retained_local_attestation_reference_event_not_current_boot",
+        "rejected",
+        "retained_local_attestation_reference_event_id_not_current_boot",
+        LocalApprovalSelftestMutation::AttestationEventPreviousBoot,
+    ),
+    local_approval_case(
+        "retained_reference_event_not_current_boot",
+        "rejected",
+        "retained_reference_event_id_not_current_boot",
+        LocalApprovalSelftestMutation::RetainedEventPreviousBoot,
+    ),
+];
 
 pub(crate) fn emit_module_approval_diagnostic(method: &str) {
     let arg = module_approval_diagnostic_arg(method);
@@ -812,6 +906,16 @@ fn module_local_approval_live_reference_mismatch(
 
 fn module_local_approval_selftest_cases(
 ) -> [ModuleLocalApprovalSelfTestCase; MODULE_LOCAL_APPROVAL_SELFTEST_CASES] {
+    run_selftest_cases_with(
+        module_local_approval_valid_input(),
+        &LOCAL_APPROVAL_CASES,
+        apply_local_approval_selftest_case,
+        evaluate_local_approval_selftest_case,
+        module_local_approval_selftest_case_from_spec,
+    )
+}
+
+fn module_local_approval_valid_input<'a>() -> ModuleLocalApprovalReferenceInput<'a> {
     let manifest_reference_hash =
         computed_module_manifest_reference_hash(MODULE_GRANT_TEST_MANIFEST_HASH);
     let computed_grant_hash = computed_module_grant_hash(
@@ -873,7 +977,7 @@ fn module_local_approval_selftest_cases(
         MODULE_GRANT_TEST_ATTESTATION_HASH,
         MODULE_AUDIT_TEST_LOCAL_APPROVAL_HASH,
     );
-    let valid_input = ModuleLocalApprovalReferenceInput {
+    ModuleLocalApprovalReferenceInput {
         has_reference: true,
         arity_valid: true,
         scope: "current_boot",
@@ -901,142 +1005,91 @@ fn module_local_approval_selftest_cases(
         vm_report_hash: Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
         local_attestation_hash: Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
         local_approval_hash: Some(MODULE_AUDIT_TEST_LOCAL_APPROVAL_HASH),
-    };
-    [
-        module_local_approval_selftest_case(
-            "absent_reference",
-            "missing",
-            "local_approval_reference_absent",
-            evaluate_module_local_approval_reference(
-                ModuleLocalApprovalReferenceInput {
-                    has_reference: false,
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_approval_selftest_case(
-            "accepted_current_boot_approval_still_denied",
-            "valid_hash_reference_load_still_denied",
-            "local_approval_reference_valid_but_loader_and_evidence_missing",
-            evaluate_module_local_approval_reference(valid_input, false),
-        ),
-        module_local_approval_selftest_case(
-            "stale_previous_boot_reference",
-            "stale_or_non_current_boot_reference",
-            "local_approval_reference_scope_must_be_current_boot",
-            evaluate_module_local_approval_reference(
-                ModuleLocalApprovalReferenceInput {
-                    scope: "previous_boot",
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_approval_selftest_case(
-            "local_approval_reference_hash_mismatch",
-            "mismatched_local_approval_reference_hash",
-            "local_approval_reference_hash_mismatch",
-            evaluate_module_local_approval_reference(
-                ModuleLocalApprovalReferenceInput {
-                    approval_reference_hash: Some([0x99; 32]),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_approval_selftest_case(
-            "computed_grant_hash_mismatch",
-            "mismatched_computed_grant_hash",
-            "computed_grant_hash_mismatch",
-            evaluate_module_local_approval_reference(
-                ModuleLocalApprovalReferenceInput {
-                    computed_grant_hash: Some([0xaa; 32]),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_approval_selftest_case(
-            "retained_manifest_reference_event_not_current_boot",
-            "rejected",
-            "retained_manifest_reference_event_id_not_current_boot",
-            evaluate_module_local_approval_reference(
-                ModuleLocalApprovalReferenceInput {
-                    retained_manifest_reference_event_id: Some("event.previous_boot.00000026"),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_approval_selftest_case(
-            "retained_artifact_reference_event_not_current_boot",
-            "rejected",
-            "retained_artifact_reference_event_id_not_current_boot",
-            evaluate_module_local_approval_reference(
-                ModuleLocalApprovalReferenceInput {
-                    retained_artifact_reference_event_id: Some("event.previous_boot.00000028"),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_approval_selftest_case(
-            "retained_vm_report_reference_event_not_current_boot",
-            "rejected",
-            "retained_vm_report_reference_event_id_not_current_boot",
-            evaluate_module_local_approval_reference(
-                ModuleLocalApprovalReferenceInput {
-                    retained_vm_report_reference_event_id: Some("event.previous_boot.00000029"),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_approval_selftest_case(
-            "retained_local_attestation_reference_event_not_current_boot",
-            "rejected",
-            "retained_local_attestation_reference_event_id_not_current_boot",
-            evaluate_module_local_approval_reference(
-                ModuleLocalApprovalReferenceInput {
-                    retained_local_attestation_reference_event_id: Some(
-                        "event.previous_boot.00000030",
-                    ),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-        module_local_approval_selftest_case(
-            "retained_reference_event_not_current_boot",
-            "rejected",
-            "retained_reference_event_id_not_current_boot",
-            evaluate_module_local_approval_reference(
-                ModuleLocalApprovalReferenceInput {
-                    retained_reference_event_id: Some("event.previous_boot.00000027"),
-                    ..valid_input
-                },
-                false,
-            ),
-        ),
-    ]
+    }
 }
 
-fn module_local_approval_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
+fn apply_local_approval_selftest_case(
+    candidate: &mut ModuleLocalApprovalReferenceInput<'static>,
+    mutation: LocalApprovalSelftestMutation,
+) {
+    let valid_input = module_local_approval_valid_input();
+    *candidate = match mutation {
+        LocalApprovalSelftestMutation::Absent => ModuleLocalApprovalReferenceInput {
+            has_reference: false,
+            ..valid_input
+        },
+        LocalApprovalSelftestMutation::Accepted => valid_input,
+        LocalApprovalSelftestMutation::Stale => ModuleLocalApprovalReferenceInput {
+            scope: "previous_boot",
+            ..valid_input
+        },
+        LocalApprovalSelftestMutation::ReferenceHashMismatch => ModuleLocalApprovalReferenceInput {
+            approval_reference_hash: Some([0x99; 32]),
+            ..valid_input
+        },
+        LocalApprovalSelftestMutation::ComputedGrantHashMismatch => {
+            ModuleLocalApprovalReferenceInput {
+                computed_grant_hash: Some([0xaa; 32]),
+                ..valid_input
+            }
+        }
+        LocalApprovalSelftestMutation::ManifestEventPreviousBoot => {
+            ModuleLocalApprovalReferenceInput {
+                retained_manifest_reference_event_id: Some("event.previous_boot.00000026"),
+                ..valid_input
+            }
+        }
+        LocalApprovalSelftestMutation::ArtifactEventPreviousBoot => {
+            ModuleLocalApprovalReferenceInput {
+                retained_artifact_reference_event_id: Some("event.previous_boot.00000028"),
+                ..valid_input
+            }
+        }
+        LocalApprovalSelftestMutation::VmReportEventPreviousBoot => {
+            ModuleLocalApprovalReferenceInput {
+                retained_vm_report_reference_event_id: Some("event.previous_boot.00000029"),
+                ..valid_input
+            }
+        }
+        LocalApprovalSelftestMutation::AttestationEventPreviousBoot => {
+            ModuleLocalApprovalReferenceInput {
+                retained_local_attestation_reference_event_id: Some("event.previous_boot.00000030"),
+                ..valid_input
+            }
+        }
+        LocalApprovalSelftestMutation::RetainedEventPreviousBoot => {
+            ModuleLocalApprovalReferenceInput {
+                retained_reference_event_id: Some("event.previous_boot.00000027"),
+                ..valid_input
+            }
+        }
+    }
+}
+
+fn evaluate_local_approval_selftest_case(
+    candidate: ModuleLocalApprovalReferenceInput<'_>,
+    _require_live_retained: bool,
+) -> ModuleLocalApprovalReferenceCheck<'_> {
+    evaluate_module_local_approval_reference(candidate, false)
+}
+
+fn module_local_approval_selftest_case_from_spec(
+    spec: &CaseSpec<LocalApprovalSelftestMutation>,
     check: ModuleLocalApprovalReferenceCheck<'_>,
 ) -> ModuleLocalApprovalSelfTestCase {
     ModuleLocalApprovalSelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: check.status,
         actual_reason: check.reason,
-        passed: method_eq(check.status, expected_status)
-            && method_eq(check.reason, expected_reason)
-            && check.valid == method_eq(expected_status, "valid_hash_reference_load_still_denied"),
+        passed: method_eq(check.status, spec.expected_status)
+            && method_eq(check.reason, spec.expected_reason)
+            && check.valid
+                == method_eq(
+                    spec.expected_status,
+                    "valid_hash_reference_load_still_denied",
+                ),
     }
 }
 

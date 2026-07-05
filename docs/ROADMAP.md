@@ -258,16 +258,31 @@ now come from the production evaluator instead of duplicated
 construction. Recovery profile byte-identical
 (`shadow-20260705-210517-7660.json`, 3644/3644).
 
+Collapse Batch 3 complete (2026-07-05): ALL selftest families (recovery,
+module load-gate, write-boundary, grant/audit/attestation/approval/
+service_slot) run on the shared runner as const case tables; only the
+service_slot_allocator's 29 multi-source cases stay special (reported).
+HONEST accounting: the module-family conversion was net +1,015 lines
+(their factories were thinner than recovery's; the map's -12-16k
+estimate was recovery-shaped). Value delivered: uniformity — one runner,
+one emitter, production-evaluator-derived base hashes — which is the
+prerequisite for the batch-6 host-test migration that WOULD delete the
+tables wholesale. Verified: module-audit-rollback
+(`shadow-20260705-221938-18704.json`, 1626/1626) + FULL
+(`shadow-20260705-222328-20516.json`, 7814/7814 — fifth full green of
+the day). Ops note: the harness never cleans its temp dirs — 356
+raios-shadow-* dirs (~23 GB) filled the disk mid-batch; cleaned
+manually; a teardown-cleanup slice is queued.
+
 Exact next task:
 
 ```text
-Collapse Batch 3 continued: convert the remaining selftest families onto
-the shared runner — recovery command envelope/body/admission selftests,
-then module load-gate selftest family (~4.7k:
-load_gate_selftest_reference_cases/eval/emit), then write-boundary
-selftests. Verify per family (recovery / module-audit-rollback / full
-for load-gate). Then full profile caps the batch. Owner decision
-pending on batch 6.
+Two small slices, then Batch 4: (a) harness teardown cleanup — delete
+the run's temp dir on success, keep on failure for forensics (packet
+for vm-harness/*.ps1); (b) delete the four now-unused emitter imports
+warning. Then collapse Batch 4: event binding emitter/type collapse
+(emit_event_bindings 7.1k + HelloServiceLifecycleBinding — high risk,
+quick+hello-rollback+full). Owner decision pending on batch 6.
 ```
 
 ## Capability Milestones

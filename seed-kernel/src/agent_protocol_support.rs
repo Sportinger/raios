@@ -364,14 +364,47 @@ pub(crate) fn emit_selftest_case_fields_split(
     after_passed_fields: &[SelftestReportField],
     comma: bool,
 ) {
+    emit_selftest_case_fields_with_expected(
+        name,
+        expected_status,
+        expected_reason,
+        &[],
+        actual_status,
+        actual_reason,
+        before_passed_fields,
+        passed,
+        after_passed_fields,
+        comma,
+    );
+}
+
+pub(crate) fn emit_selftest_case_fields_with_expected(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    after_expected_fields: &[SelftestReportField],
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    before_passed_fields: &[SelftestReportField],
+    passed: bool,
+    after_passed_fields: &[SelftestReportField],
+    comma: bool,
+) {
     let mut fields = vec![
         record_field("case", record_str(name)),
         record_field("expected_status", record_str(expected_status)),
         record_field("expected_reason", record_str(expected_reason)),
-        record_field("actual_status", record_str(actual_status)),
-        record_field("actual_reason", record_str(actual_reason)),
     ];
     let mut idx = 0usize;
+    while idx < after_expected_fields.len() {
+        push_selftest_report_field(&mut fields, after_expected_fields[idx]);
+        idx += 1;
+    }
+    fields.extend([
+        record_field("actual_status", record_str(actual_status)),
+        record_field("actual_reason", record_str(actual_reason)),
+    ]);
+    idx = 0;
     while idx < before_passed_fields.len() {
         push_selftest_report_field(&mut fields, before_passed_fields[idx]);
         idx += 1;

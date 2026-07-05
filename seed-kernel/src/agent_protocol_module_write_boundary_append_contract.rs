@@ -1,15 +1,207 @@
 use alloc::vec;
 
 use crate::agent_protocol_support::{
-    emit_record_fields_trailing_comma, emit_record_property_line, record_bool as b,
-    record_false as no, record_field as f, record_null as null, record_object as object,
-    record_str as s,
+    emit_record_fields_trailing_comma, emit_record_property_line, emit_selftest_case_fields,
+    record_bool as b, record_false as no, record_field as f, record_null as null,
+    record_object as object, record_str as s, run_selftest_cases_with, CaseSpec,
+    SelftestReportField::False,
 };
 use crate::{
     agent_protocol_module_types::*, agent_protocol_module_write_boundary_append_engine::*,
     agent_protocol_module_write_boundary_storage_layout::*, agent_protocol_support::*, ahci,
 };
 use raios_core::record::Value as V;
+
+#[derive(Clone, Copy)]
+enum AppendContractSelftestMutation {
+    MissingPair,
+    AuditPreviousBoot,
+    AuditWrongSchema,
+    AuditProvenanceMissing,
+    AuditProvenanceBindingMissing,
+    AuditPolicyBindingMissing,
+    AuditWritePolicyIdMissing,
+    AuditAvailabilityBindingMissing,
+    AuditAvailabilityIdMissing,
+    AuditStorageLayoutIdMissing,
+    AuditAppendEngineIdMissing,
+    AuditStorageLayoutMissing,
+    RollbackPreviousBoot,
+    RollbackWrongSchema,
+    RollbackProvenanceMissing,
+    RollbackProvenanceBindingMissing,
+    RollbackPolicyBindingMissing,
+    RollbackWritePolicyIdMissing,
+    RollbackAvailabilityBindingMissing,
+    RollbackAvailabilityIdMissing,
+    RollbackStorageLayoutIdMissing,
+    RollbackAppendEngineIdMissing,
+    RollbackStorageLayoutMissing,
+    AvailableEnvelopesAppendEngineMissing,
+}
+
+const fn append_contract_case(
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    mutation: AppendContractSelftestMutation,
+) -> CaseSpec<AppendContractSelftestMutation> {
+    CaseSpec {
+        name,
+        expected_status,
+        expected_reason,
+        mutation,
+        require_live_retained: false,
+    }
+}
+
+const APPEND_CONTRACT_CASES: [CaseSpec<AppendContractSelftestMutation>;
+    MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_SELFTEST_CASES] = [
+    append_contract_case(
+        "missing_append_envelope_pair_current_boot",
+        "missing",
+        "audit_append_envelope_missing_and_rollback_transaction_envelope_missing",
+        AppendContractSelftestMutation::MissingPair,
+    ),
+    append_contract_case(
+        "audit_append_envelope_previous_boot",
+        "rejected",
+        "audit_append_envelope_scope_must_be_current_boot",
+        AppendContractSelftestMutation::AuditPreviousBoot,
+    ),
+    append_contract_case(
+        "audit_append_envelope_wrong_schema",
+        "rejected",
+        "audit_append_envelope_schema_mismatch",
+        AppendContractSelftestMutation::AuditWrongSchema,
+    ),
+    append_contract_case(
+        "audit_append_envelope_provenance_missing",
+        "rejected",
+        "audit_append_envelope_provenance_missing",
+        AppendContractSelftestMutation::AuditProvenanceMissing,
+    ),
+    append_contract_case(
+        "audit_append_envelope_provenance_binding_missing",
+        "rejected",
+        "audit_append_envelope_provenance_binding_missing",
+        AppendContractSelftestMutation::AuditProvenanceBindingMissing,
+    ),
+    append_contract_case(
+        "audit_append_envelope_policy_binding_missing",
+        "rejected",
+        "audit_append_envelope_write_policy_binding_missing",
+        AppendContractSelftestMutation::AuditPolicyBindingMissing,
+    ),
+    append_contract_case(
+        "audit_append_envelope_write_policy_id_missing",
+        "rejected",
+        "audit_append_envelope_write_policy_binding_missing",
+        AppendContractSelftestMutation::AuditWritePolicyIdMissing,
+    ),
+    append_contract_case(
+        "audit_append_envelope_availability_binding_missing",
+        "rejected",
+        "audit_append_envelope_availability_binding_missing",
+        AppendContractSelftestMutation::AuditAvailabilityBindingMissing,
+    ),
+    append_contract_case(
+        "audit_append_envelope_availability_id_missing",
+        "rejected",
+        "audit_append_envelope_availability_binding_missing",
+        AppendContractSelftestMutation::AuditAvailabilityIdMissing,
+    ),
+    append_contract_case(
+        "audit_append_envelope_storage_layout_id_missing",
+        "rejected",
+        "audit_append_envelope_storage_layout_binding_missing",
+        AppendContractSelftestMutation::AuditStorageLayoutIdMissing,
+    ),
+    append_contract_case(
+        "audit_append_envelope_append_engine_id_missing",
+        "rejected",
+        "audit_append_envelope_append_engine_binding_missing",
+        AppendContractSelftestMutation::AuditAppendEngineIdMissing,
+    ),
+    append_contract_case(
+        "audit_ledger_storage_layout_missing",
+        "missing",
+        "audit_ledger_storage_layout_missing",
+        AppendContractSelftestMutation::AuditStorageLayoutMissing,
+    ),
+    append_contract_case(
+        "rollback_transaction_envelope_previous_boot",
+        "rejected",
+        "rollback_transaction_envelope_scope_must_be_current_boot",
+        AppendContractSelftestMutation::RollbackPreviousBoot,
+    ),
+    append_contract_case(
+        "rollback_transaction_envelope_wrong_schema",
+        "rejected",
+        "rollback_transaction_envelope_schema_mismatch",
+        AppendContractSelftestMutation::RollbackWrongSchema,
+    ),
+    append_contract_case(
+        "rollback_transaction_envelope_provenance_missing",
+        "rejected",
+        "rollback_transaction_envelope_provenance_missing",
+        AppendContractSelftestMutation::RollbackProvenanceMissing,
+    ),
+    append_contract_case(
+        "rollback_transaction_envelope_provenance_binding_missing",
+        "rejected",
+        "rollback_transaction_envelope_provenance_binding_missing",
+        AppendContractSelftestMutation::RollbackProvenanceBindingMissing,
+    ),
+    append_contract_case(
+        "rollback_transaction_envelope_policy_binding_missing",
+        "rejected",
+        "rollback_transaction_envelope_write_policy_binding_missing",
+        AppendContractSelftestMutation::RollbackPolicyBindingMissing,
+    ),
+    append_contract_case(
+        "rollback_transaction_envelope_write_policy_id_missing",
+        "rejected",
+        "rollback_transaction_envelope_write_policy_binding_missing",
+        AppendContractSelftestMutation::RollbackWritePolicyIdMissing,
+    ),
+    append_contract_case(
+        "rollback_transaction_envelope_availability_binding_missing",
+        "rejected",
+        "rollback_transaction_envelope_availability_binding_missing",
+        AppendContractSelftestMutation::RollbackAvailabilityBindingMissing,
+    ),
+    append_contract_case(
+        "rollback_transaction_envelope_availability_id_missing",
+        "rejected",
+        "rollback_transaction_envelope_availability_binding_missing",
+        AppendContractSelftestMutation::RollbackAvailabilityIdMissing,
+    ),
+    append_contract_case(
+        "rollback_transaction_envelope_storage_layout_id_missing",
+        "rejected",
+        "rollback_transaction_envelope_storage_layout_binding_missing",
+        AppendContractSelftestMutation::RollbackStorageLayoutIdMissing,
+    ),
+    append_contract_case(
+        "rollback_transaction_envelope_append_engine_id_missing",
+        "rejected",
+        "rollback_transaction_envelope_append_engine_binding_missing",
+        AppendContractSelftestMutation::RollbackAppendEngineIdMissing,
+    ),
+    append_contract_case(
+        "rollback_store_storage_layout_missing",
+        "missing",
+        "rollback_store_storage_layout_missing",
+        AppendContractSelftestMutation::RollbackStorageLayoutMissing,
+    ),
+    append_contract_case(
+        "available_envelopes_append_engine_still_missing",
+        "missing",
+        "audit_ledger_append_engine_missing",
+        AppendContractSelftestMutation::AvailableEnvelopesAppendEngineMissing,
+    ),
+];
 
 pub(crate) const MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_METHOD: &str =
     "module.audit_rollback_append_contract";
@@ -218,18 +410,18 @@ pub(crate) fn emit_module_audit_rollback_append_contract_selftest_case(
     case: &ModuleAuditRollbackAppendContractSelfTestCase,
     comma: bool,
 ) {
-    emit_inline_record_object(
-        vec![
-            f("case", s(case.name)),
-            f("expected_status", s(case.expected_status)),
-            f("expected_reason", s(case.expected_reason)),
-            f("actual_status", s(case.actual_status)),
-            f("actual_reason", s(case.actual_reason)),
-            f("passed", b(case.passed)),
-            f("writes_enabled", no()),
-            f("installs_rollback_plan", no()),
-            f("can_load", no()),
-            f("load_attempted", no()),
+    emit_selftest_case_fields(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        case.passed,
+        &[
+            False("writes_enabled"),
+            False("installs_rollback_plan"),
+            False("can_load"),
+            False("load_attempted"),
         ],
         comma,
     );
@@ -1267,312 +1459,261 @@ pub(crate) fn emit_module_append_contract_fact(
 pub(crate) fn module_audit_rollback_append_contract_selftest_cases(
 ) -> [ModuleAuditRollbackAppendContractSelfTestCase;
        MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_SELFTEST_CASES] {
-    let missing = module_audit_rollback_append_contract_snapshot();
-    let available = module_audit_rollback_available_append_contract_fact();
-    [
-        module_audit_rollback_append_contract_selftest_case(
-            "missing_append_envelope_pair_current_boot",
-            "missing",
-            "audit_append_envelope_missing_and_rollback_transaction_envelope_missing",
-            missing,
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_append_envelope_previous_boot",
-            "rejected",
-            "audit_append_envelope_scope_must_be_current_boot",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    scope: "previous_boot",
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_append_envelope_wrong_schema",
-            "rejected",
-            "audit_append_envelope_schema_mismatch",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    schema_ok: false,
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_append_envelope_provenance_missing",
-            "rejected",
-            "audit_append_envelope_provenance_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    provenance_ok: false,
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_append_envelope_provenance_binding_missing",
-            "rejected",
-            "audit_append_envelope_provenance_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_envelope_provenance: false,
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_append_envelope_policy_binding_missing",
-            "rejected",
-            "audit_append_envelope_write_policy_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_write_policy: false,
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_append_envelope_write_policy_id_missing",
-            "rejected",
-            "audit_append_envelope_write_policy_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_write_policy_id: false,
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_append_envelope_availability_binding_missing",
-            "rejected",
-            "audit_append_envelope_availability_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_availability: false,
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_append_envelope_availability_id_missing",
-            "rejected",
-            "audit_append_envelope_availability_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_availability_id: false,
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_append_envelope_storage_layout_id_missing",
-            "rejected",
-            "audit_append_envelope_storage_layout_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_storage_layout_id: false,
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_append_envelope_append_engine_id_missing",
-            "rejected",
-            "audit_append_envelope_append_engine_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_append_engine_id: false,
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "audit_ledger_storage_layout_missing",
-            "missing",
-            "audit_ledger_storage_layout_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    storage_layout_available: false,
-                    ..available
-                },
-                rollback_transaction_envelope: available,
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_transaction_envelope_previous_boot",
-            "rejected",
-            "rollback_transaction_envelope_scope_must_be_current_boot",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    scope: "previous_boot",
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_transaction_envelope_wrong_schema",
-            "rejected",
-            "rollback_transaction_envelope_schema_mismatch",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    schema_ok: false,
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_transaction_envelope_provenance_missing",
-            "rejected",
-            "rollback_transaction_envelope_provenance_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    provenance_ok: false,
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_transaction_envelope_provenance_binding_missing",
-            "rejected",
-            "rollback_transaction_envelope_provenance_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_envelope_provenance: false,
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_transaction_envelope_policy_binding_missing",
-            "rejected",
-            "rollback_transaction_envelope_write_policy_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_write_policy: false,
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_transaction_envelope_write_policy_id_missing",
-            "rejected",
-            "rollback_transaction_envelope_write_policy_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_write_policy_id: false,
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_transaction_envelope_availability_binding_missing",
-            "rejected",
-            "rollback_transaction_envelope_availability_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_availability: false,
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_transaction_envelope_availability_id_missing",
-            "rejected",
-            "rollback_transaction_envelope_availability_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_availability_id: false,
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_transaction_envelope_storage_layout_id_missing",
-            "rejected",
-            "rollback_transaction_envelope_storage_layout_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_storage_layout_id: false,
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_transaction_envelope_append_engine_id_missing",
-            "rejected",
-            "rollback_transaction_envelope_append_engine_binding_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    binds_append_engine_id: false,
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "rollback_store_storage_layout_missing",
-            "missing",
-            "rollback_store_storage_layout_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: available,
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    storage_layout_available: false,
-                    ..available
-                },
-            },
-        ),
-        module_audit_rollback_append_contract_selftest_case(
-            "available_envelopes_append_engine_still_missing",
-            "missing",
-            "audit_ledger_append_engine_missing",
-            ModuleAuditRollbackAppendContractCandidate {
-                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
-                    append_engine_available: false,
-                    ..available
-                },
-                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
-                    append_engine_available: false,
-                    ..available
-                },
-            },
-        ),
-    ]
+    run_selftest_cases_with(
+        module_audit_rollback_append_contract_snapshot(),
+        &APPEND_CONTRACT_CASES,
+        apply_append_contract_selftest_case,
+        evaluate_append_contract_selftest_case,
+        module_audit_rollback_append_contract_selftest_case_from_spec,
+    )
 }
 
-pub(crate) fn module_audit_rollback_append_contract_selftest_case(
-    name: &'static str,
-    expected_status: &'static str,
-    expected_reason: &'static str,
+fn apply_append_contract_selftest_case(
+    candidate: &mut ModuleAuditRollbackAppendContractCandidate,
+    mutation: AppendContractSelftestMutation,
+) {
+    *candidate = module_audit_rollback_append_contract_selftest_candidate(mutation);
+}
+
+fn evaluate_append_contract_selftest_case(
     candidate: ModuleAuditRollbackAppendContractCandidate,
+    _require_live_retained: bool,
+) -> ModuleAuditRollbackAppendContractEvaluation {
+    evaluate_module_audit_rollback_append_contract_candidate(candidate)
+}
+
+fn module_audit_rollback_append_contract_selftest_candidate(
+    mutation: AppendContractSelftestMutation,
+) -> ModuleAuditRollbackAppendContractCandidate {
+    let missing = module_audit_rollback_append_contract_snapshot();
+    let available = module_audit_rollback_available_append_contract_fact();
+    match mutation {
+        AppendContractSelftestMutation::MissingPair => missing,
+        AppendContractSelftestMutation::AuditPreviousBoot => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    scope: "previous_boot",
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::AuditWrongSchema => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    schema_ok: false,
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::AuditProvenanceMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    provenance_ok: false,
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::AuditProvenanceBindingMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_envelope_provenance: false,
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::AuditPolicyBindingMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_write_policy: false,
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::AuditWritePolicyIdMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_write_policy_id: false,
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::AuditAvailabilityBindingMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_availability: false,
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::AuditAvailabilityIdMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_availability_id: false,
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::AuditStorageLayoutIdMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_storage_layout_id: false,
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::AuditAppendEngineIdMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_append_engine_id: false,
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::AuditStorageLayoutMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    storage_layout_available: false,
+                    ..available
+                },
+                rollback_transaction_envelope: available,
+            }
+        }
+        AppendContractSelftestMutation::RollbackPreviousBoot => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    scope: "previous_boot",
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::RollbackWrongSchema => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    schema_ok: false,
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::RollbackProvenanceMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    provenance_ok: false,
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::RollbackProvenanceBindingMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_envelope_provenance: false,
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::RollbackPolicyBindingMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_write_policy: false,
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::RollbackWritePolicyIdMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_write_policy_id: false,
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::RollbackAvailabilityBindingMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_availability: false,
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::RollbackAvailabilityIdMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_availability_id: false,
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::RollbackStorageLayoutIdMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_storage_layout_id: false,
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::RollbackAppendEngineIdMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    binds_append_engine_id: false,
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::RollbackStorageLayoutMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: available,
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    storage_layout_available: false,
+                    ..available
+                },
+            }
+        }
+        AppendContractSelftestMutation::AvailableEnvelopesAppendEngineMissing => {
+            ModuleAuditRollbackAppendContractCandidate {
+                audit_append_envelope: ModuleAuditRollbackAppendContractFact {
+                    append_engine_available: false,
+                    ..available
+                },
+                rollback_transaction_envelope: ModuleAuditRollbackAppendContractFact {
+                    append_engine_available: false,
+                    ..available
+                },
+            }
+        }
+    }
+}
+
+fn module_audit_rollback_append_contract_selftest_case_from_spec(
+    spec: &CaseSpec<AppendContractSelftestMutation>,
+    actual: ModuleAuditRollbackAppendContractEvaluation,
 ) -> ModuleAuditRollbackAppendContractSelfTestCase {
-    let actual = evaluate_module_audit_rollback_append_contract_candidate(candidate);
     ModuleAuditRollbackAppendContractSelfTestCase {
-        name,
-        expected_status,
-        expected_reason,
+        name: spec.name,
+        expected_status: spec.expected_status,
+        expected_reason: spec.expected_reason,
         actual_status: actual.status,
         actual_reason: actual.reason,
-        passed: method_eq(actual.status, expected_status)
-            && method_eq(actual.reason, expected_reason)
+        passed: method_eq(actual.status, spec.expected_status)
+            && method_eq(actual.reason, spec.expected_reason)
             && !actual.writes_enabled
             && !actual.installs_rollback_plan
             && !actual.can_load
