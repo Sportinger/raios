@@ -179,14 +179,22 @@ EOL conversion; v1/v2 identity descs re-signed. Verified: quick
 (`shadow-20260705-172834-16852.json`, 203/203) — the guest re-validates
 the new signatures at runtime.
 
+De-hello-ify Slice 2 done (2026-07-05): hello_service.rs (22,705 lines)
+mechanically split into 16 modules under `hello_service/`, largest
+4,557 lines — all below the AGENTS.md thresholds. Every module is in the
+build.rs attestation source set (root first, then declaration order);
+v1/v2 re-signed. Verified: quick (`shadow-20260705-173919-20792.json`,
+417/417) + hello-rollback-dry-run (`shadow-20260705-174304-16956.json`,
+203/203).
+
 Exact next task:
 
 ```text
-De-hello-ify Slice 2 (mechanical split): split hello_service.rs into
-hello_service/ modules below the AGENTS.md size thresholds, add every
-new file to the build.rs source set (attestation keeps covering moved
-code), re-sign v1/v2. Verify: build, quick, hello-rollback-dry-run.
-Then Slices 3-5 per docs/plan-reviews/m2-de-hello-ify-plan-2026-07-05.md.
+De-hello-ify Slices 3-5 per the plan: (3) move generic rollback
+writer/storage gate machinery out of Hello names, (4) port Hello
+emitters (emitters.rs 4.6k) to raios_core::record (hash inputs
+untouched), (5) minimal ServiceDescriptor parameterization. Each slice:
+re-sign, quick + hello-rollback-dry-run; full profile at M2 closure.
 ```
 
 ## Capability Milestones

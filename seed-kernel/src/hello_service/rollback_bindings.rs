@@ -1,0 +1,3000 @@
+use super::*;
+
+pub(crate) fn bind_rollback_preview(
+    binding: &mut event_log::HelloServiceLifecycleBinding,
+    snapshot: Snapshot,
+) {
+    if let Some(probation) = snapshot.hot_swap_probation {
+        binding.rollback_preview_schema = Some(HELLO_ROLLBACK_PREVIEW_SCHEMA);
+        binding.rollback_preview_id = Some(HELLO_ROLLBACK_PREVIEW_ID);
+        binding.rollback_preview_hash = Some(hello_rollback_preview_hash(snapshot, probation));
+        binding.rollback_preview_status = Some(HELLO_ROLLBACK_PREVIEW_STATUS);
+    }
+}
+
+pub(crate) fn bind_rollback_apply_denial(
+    binding: &mut event_log::HelloServiceLifecycleBinding,
+    snapshot: Snapshot,
+) {
+    binding.rollback_apply_schema = Some(HELLO_ROLLBACK_APPLY_SCHEMA);
+    binding.rollback_apply_id = Some(HELLO_ROLLBACK_APPLY_ID);
+    binding.rollback_apply_status = Some(HELLO_ROLLBACK_APPLY_STATUS);
+    if let Some(probation) = snapshot.hot_swap_probation {
+        let (durable_policy_write_authority_decision, recovery_inspect_source_state) =
+            hello_rollback_apply_retained_denial_sources(snapshot, probation);
+        let recovery_inspect_source_reference = recovery_inspect_source_state.reference;
+        binding.rollback_apply_hash = Some(hello_rollback_apply_denial_hash_with_retained_sources(
+            snapshot,
+            probation,
+            Some(durable_policy_write_authority_decision),
+            Some(recovery_inspect_source_state),
+        ));
+        binding.rollback_apply_source_durable_policy_write_authority_decision_hash =
+            Some(durable_policy_write_authority_decision.decision_hash);
+        binding.rollback_apply_source_recovery_rollback_inspect_source_reference_hash =
+            recovery_inspect_source_reference.map(|reference| reference.reference_hash);
+        binding.rollback_apply_source_durable_policy_write_authority_decision_verified =
+            durable_policy_write_authority_decision.transaction_append_dry_run_verified
+                && durable_policy_write_authority_decision.target_region_sector_inspection_verified
+                && durable_policy_write_authority_decision.write_authority_evidence_verified
+                && durable_policy_write_authority_decision
+                    .audit_policy_availability_evidence_verified
+                && durable_policy_write_authority_decision
+                    .durable_append_authority_availability_evidence_verified
+                && durable_policy_write_authority_decision.target_span_verified;
+        binding.rollback_apply_source_recovery_rollback_inspect_source_reference_validated =
+            recovery_inspect_source_state.ram_audit_validated;
+    }
+}
+
+pub(crate) fn bind_rollback_transaction_preflight(
+    binding: &mut event_log::HelloServiceLifecycleBinding,
+    snapshot: Snapshot,
+) {
+    if let Some(probation) = snapshot.hot_swap_probation {
+        binding.rollback_transaction_preflight_schema =
+            Some(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_SCHEMA);
+        binding.rollback_transaction_preflight_id = Some(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_ID);
+        binding.rollback_transaction_preflight_hash = Some(
+            hello_rollback_transaction_preflight_hash(snapshot, probation),
+        );
+        binding.rollback_transaction_preflight_status =
+            Some(HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_STATUS);
+        binding.rollback_transaction_authority_missing = true;
+        binding.rollback_durable_audit_write_authority_missing = true;
+        binding.rollback_persistent_install_authority_missing = true;
+    }
+}
+
+pub(crate) fn bind_rollback_write_authority_gate(
+    binding: &mut event_log::HelloServiceLifecycleBinding,
+    snapshot: Snapshot,
+) {
+    if let Some(probation) = snapshot.hot_swap_probation {
+        binding.rollback_write_authority_gate_schema =
+            Some(HELLO_ROLLBACK_WRITE_AUTHORITY_GATE_SCHEMA);
+        binding.rollback_write_authority_gate_id = Some(HELLO_ROLLBACK_WRITE_AUTHORITY_GATE_ID);
+        binding.rollback_write_authority_gate_hash = Some(
+            hello_rollback_write_authority_gate_hash(snapshot, probation),
+        );
+        binding.rollback_write_authority_gate_status =
+            Some(HELLO_ROLLBACK_WRITE_AUTHORITY_GATE_STATUS);
+        binding.rollback_write_authority_required_audit_schema = Some("raios.audit_record.v0");
+        binding.rollback_write_authority_required_rollback_schema =
+            Some("raios.rollback_transaction.v0");
+    }
+}
+
+pub(crate) fn bind_rollback_append_intent_gate(
+    binding: &mut event_log::HelloServiceLifecycleBinding,
+    snapshot: Snapshot,
+) {
+    if let Some(probation) = snapshot.hot_swap_probation {
+        binding.rollback_append_intent_gate_schema = Some(HELLO_ROLLBACK_APPEND_INTENT_GATE_SCHEMA);
+        binding.rollback_append_intent_gate_id = Some(HELLO_ROLLBACK_APPEND_INTENT_GATE_ID);
+        binding.rollback_append_intent_gate_hash =
+            Some(hello_rollback_append_intent_gate_hash(snapshot, probation));
+        binding.rollback_append_intent_gate_status = Some(HELLO_ROLLBACK_APPEND_INTENT_GATE_STATUS);
+        binding.rollback_append_intent_required_audit_schema = Some("raios.audit_record.v0");
+        binding.rollback_append_intent_required_rollback_schema =
+            Some("raios.rollback_transaction.v0");
+    }
+}
+
+pub(crate) fn bind_rollback_payload_envelope_gate(
+    binding: &mut event_log::HelloServiceLifecycleBinding,
+    snapshot: Snapshot,
+) {
+    if let Some(probation) = snapshot.hot_swap_probation {
+        binding.rollback_payload_envelope_gate_schema =
+            Some(HELLO_ROLLBACK_PAYLOAD_ENVELOPE_GATE_SCHEMA);
+        binding.rollback_payload_envelope_gate_id = Some(HELLO_ROLLBACK_PAYLOAD_ENVELOPE_GATE_ID);
+        binding.rollback_payload_envelope_gate_hash = Some(
+            hello_rollback_payload_envelope_gate_hash(snapshot, probation),
+        );
+        binding.rollback_payload_envelope_gate_status =
+            Some(HELLO_ROLLBACK_PAYLOAD_ENVELOPE_GATE_STATUS);
+        binding.rollback_payload_envelope_required_audit_schema = Some("raios.audit_record.v0");
+        binding.rollback_payload_envelope_required_rollback_schema =
+            Some("raios.rollback_transaction.v0");
+        binding.rollback_payload_schema = Some(HELLO_ROLLBACK_TRANSACTION_PAYLOAD_SCHEMA);
+        binding.rollback_payload_id = Some(HELLO_ROLLBACK_TRANSACTION_PAYLOAD_ID);
+        binding.rollback_payload_hash =
+            Some(hello_rollback_transaction_payload_hash(snapshot, probation));
+        binding.rollback_payload_status = Some(HELLO_ROLLBACK_TRANSACTION_PAYLOAD_STATUS);
+        binding.rollback_payload_provenance_hash = Some(
+            hello_rollback_transaction_payload_provenance_hash(snapshot, probation),
+        );
+    }
+}
+
+pub(crate) fn bind_rollback_transaction_writer_storage_authority_gate(
+    binding: &mut event_log::HelloServiceLifecycleBinding,
+    snapshot: Snapshot,
+) {
+    if let Some(probation) = snapshot.hot_swap_probation {
+        let foundation = hello_rollback_writer_storage_foundation();
+        let append_record = hello_rollback_append_record_dry_run(snapshot, probation, foundation);
+        let sector_plan =
+            hello_rollback_append_sector_plan_dry_run(snapshot, probation, append_record);
+        let sector_write =
+            hello_rollback_append_sector_write_readback_dry_run(snapshot, probation, sector_plan);
+        let target_region_media_write_policy_preflight =
+            hello_target_region_media_write_policy_preflight(foundation);
+        let target_region_write =
+            hello_rollback_target_region_write_readback_dry_run_from_materializer(
+                sector_plan,
+                foundation,
+                target_region_media_write_policy_preflight,
+            );
+        let durable_writer_policy_preflight = hello_rollback_durable_writer_policy_preflight(
+            foundation,
+            append_record,
+            sector_plan,
+            target_region_write,
+        );
+        let durable_append_preflight = hello_rollback_durable_append_authority_preflight(
+            foundation,
+            append_record,
+            sector_plan,
+            sector_write,
+            target_region_media_write_policy_preflight,
+            target_region_write,
+            durable_writer_policy_preflight,
+        );
+        binding.rollback_transaction_writer_storage_authority_gate_schema =
+            Some(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_AUTHORITY_GATE_SCHEMA);
+        binding.rollback_transaction_writer_storage_authority_gate_id =
+            Some(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_AUTHORITY_GATE_ID);
+        binding.rollback_transaction_writer_storage_authority_gate_hash = Some(
+            hello_rollback_transaction_writer_storage_authority_gate_hash(snapshot, probation),
+        );
+        binding.rollback_transaction_writer_storage_authority_gate_status =
+            Some(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_AUTHORITY_GATE_STATUS);
+        binding.rollback_transaction_writer_storage_required_audit_schema =
+            Some("raios.audit_record.v0");
+        binding.rollback_transaction_writer_storage_required_rollback_schema =
+            Some("raios.rollback_transaction.v0");
+        binding.rollback_transaction_writer_storage_foundation_schema =
+            Some(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_FOUNDATION_SCHEMA);
+        binding.rollback_transaction_writer_storage_foundation_owner =
+            Some(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_FOUNDATION_OWNER);
+        binding.rollback_transaction_writer_storage_authority_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
+        binding.rollback_transaction_writer_storage_authority_owner =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_OWNER);
+        binding.rollback_transaction_writer_storage_audit_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding.rollback_transaction_writer_storage_audit_target_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding.rollback_transaction_writer_storage_append_target_id =
+            Some(HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID);
+        binding.rollback_transaction_writer_storage_append_target_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding.rollback_transaction_writer_storage_transaction_writer_owner =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER);
+        binding.rollback_transaction_writer_storage_append_target_owner_schema =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_SCHEMA);
+        binding.rollback_transaction_writer_storage_append_target_owner_id =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID);
+        binding.rollback_transaction_writer_storage_append_target_owner_status =
+            Some(foundation.append_target_owner_status);
+        binding.rollback_transaction_writer_storage_append_target_owner_reason =
+            Some(foundation.append_target_owner_reason);
+        binding.rollback_transaction_writer_storage_transaction_writer_readiness_schema =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_SCHEMA);
+        binding.rollback_transaction_writer_storage_transaction_writer_readiness_id =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_READINESS_ID);
+        binding.rollback_transaction_writer_storage_transaction_writer_status =
+            Some(foundation.transaction_writer_status);
+        binding.rollback_transaction_writer_storage_transaction_writer_reason =
+            Some(foundation.transaction_writer_reason);
+        binding.rollback_transaction_writer_storage_block_write_path_gate_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_BLOCK_WRITE_PATH_AUTHORITY_GATE_SCHEMA);
+        binding.rollback_transaction_writer_storage_block_write_path_gate_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_BLOCK_WRITE_PATH_AUTHORITY_GATE_ID);
+        binding.rollback_transaction_writer_storage_block_write_path_gate_status =
+            Some(foundation.block_write_path_gate_status);
+        binding.rollback_transaction_writer_storage_block_write_path_gate_reason =
+            Some(foundation.block_write_path_reason);
+        binding.rollback_transaction_writer_storage_block_write_path_available =
+            foundation.block_write_path_available;
+        binding.rollback_transaction_writer_storage_read_only_block_driver_id =
+            Some(foundation.read_only_block_driver_id);
+        binding.rollback_transaction_writer_storage_read_only_block_driver_available =
+            foundation.read_only_block_driver_available;
+        binding.rollback_transaction_writer_storage_partition_inventory_available =
+            foundation.partition_inventory_available;
+        binding.rollback_transaction_writer_storage_partition_inventory_scheme =
+            Some(foundation.partition_inventory_scheme);
+        binding.rollback_transaction_writer_storage_scratch_dry_run_schema = Some(
+            rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_SCRATCH_DRY_RUN_SCHEMA,
+        );
+        binding.rollback_transaction_writer_storage_scratch_dry_run_id =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_TRANSACTION_WRITER_SCRATCH_DRY_RUN_ID);
+        binding.rollback_transaction_writer_storage_scratch_dry_run_status =
+            Some(foundation.scratch_writer_dry_run_status);
+        binding.rollback_transaction_writer_storage_scratch_dry_run_reason =
+            Some(foundation.scratch_writer_dry_run_reason);
+        binding.rollback_transaction_writer_storage_scratch_write_authority_id =
+            Some(foundation.scratch_block_write_authority_id);
+        binding.rollback_transaction_writer_storage_scratch_region_id =
+            Some(foundation.scratch_region_id);
+        binding.rollback_transaction_writer_storage_scratch_target_start_lba =
+            Some(foundation.scratch_region_start_lba);
+        binding.rollback_transaction_writer_storage_scratch_target_lba_count =
+            Some(foundation.scratch_region_lba_count);
+        binding.rollback_transaction_writer_storage_scratch_target_byte_count =
+            Some(foundation.scratch_region_byte_count as u64);
+        binding.rollback_transaction_writer_storage_scratch_target_owned =
+            foundation.scratch_block_write_authority_available;
+        binding.rollback_transaction_writer_storage_scratch_target_within_bounds =
+            foundation.scratch_region_within_device_bounds;
+        binding.rollback_transaction_writer_storage_scratch_target_no_metadata_overlap =
+            foundation.scratch_region_no_boot_or_partition_metadata_overlap;
+        binding.rollback_transaction_writer_storage_scratch_target_ready =
+            foundation.scratch_writer_dry_run_ready;
+        binding.rollback_transaction_writer_storage_append_record_dry_run_schema =
+            Some(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_SCHEMA);
+        binding.rollback_transaction_writer_storage_append_record_dry_run_id =
+            Some(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_ID);
+        binding.rollback_transaction_writer_storage_append_record_dry_run_status =
+            Some(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_STATUS);
+        binding.rollback_transaction_writer_storage_append_record_dry_run_reason =
+            Some(HELLO_ROLLBACK_APPEND_RECORD_DRY_RUN_REASON);
+        binding.rollback_transaction_writer_storage_append_record_dry_run_hash =
+            Some(append_record.dry_run_hash);
+        binding.rollback_transaction_writer_storage_append_record_canonicalization =
+            Some(HELLO_ROLLBACK_APPEND_RECORD_CANONICALIZATION);
+        binding.rollback_transaction_writer_storage_append_record_audit_image_hash =
+            Some(append_record.audit_record_image_hash);
+        binding.rollback_transaction_writer_storage_append_record_audit_byte_length =
+            Some(append_record.audit_record_byte_length);
+        binding.rollback_transaction_writer_storage_append_record_rollback_image_hash =
+            Some(append_record.rollback_transaction_image_hash);
+        binding.rollback_transaction_writer_storage_append_record_rollback_byte_length =
+            Some(append_record.rollback_transaction_byte_length);
+        binding.rollback_transaction_writer_storage_append_record_total_byte_length =
+            Some(append_record.total_record_byte_length);
+        binding.rollback_transaction_writer_storage_append_record_target_start_lba =
+            Some(append_record.target_start_lba);
+        binding.rollback_transaction_writer_storage_append_record_target_lba_count =
+            Some(append_record.target_lba_count);
+        binding.rollback_transaction_writer_storage_append_record_target_byte_count =
+            Some(append_record.target_byte_count);
+        binding.rollback_transaction_writer_storage_append_record_source_payload_hash =
+            Some(hello_rollback_transaction_payload_hash(snapshot, probation));
+        binding.rollback_transaction_writer_storage_append_record_source_provenance_hash = Some(
+            hello_rollback_transaction_payload_provenance_hash(snapshot, probation),
+        );
+        binding.rollback_transaction_writer_storage_append_record_target_range_ready =
+            append_record.target_range_ready;
+        binding.rollback_transaction_writer_storage_append_record_authorizes_append = false;
+        binding.rollback_transaction_writer_storage_append_record_writes_durable_audit_log = false;
+        binding.rollback_transaction_writer_storage_append_record_writes_rollback_store = false;
+        binding.rollback_transaction_writer_storage_append_record_appends_rollback_transaction =
+            false;
+        binding.rollback_transaction_writer_storage_append_record_write_attempted = false;
+        binding.rollback_transaction_writer_storage_append_sector_plan_dry_run_schema =
+            Some(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_SCHEMA);
+        binding.rollback_transaction_writer_storage_append_sector_plan_dry_run_id =
+            Some(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_ID);
+        binding.rollback_transaction_writer_storage_append_sector_plan_dry_run_status =
+            Some(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_STATUS);
+        binding.rollback_transaction_writer_storage_append_sector_plan_dry_run_reason =
+            Some(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_DRY_RUN_REASON);
+        binding.rollback_transaction_writer_storage_append_sector_plan_hash =
+            Some(sector_plan.plan_hash);
+        binding.rollback_transaction_writer_storage_append_sector_plan_canonicalization =
+            Some(HELLO_ROLLBACK_APPEND_SECTOR_PLAN_CANONICALIZATION);
+        binding.rollback_transaction_writer_storage_append_sector_image_hash =
+            Some(sector_plan.sector_image_hash);
+        binding.rollback_transaction_writer_storage_append_sector_size_bytes =
+            Some(sector_plan.sector_size_bytes);
+        binding.rollback_transaction_writer_storage_append_sector_audit_record_offset =
+            Some(sector_plan.audit_record_offset);
+        binding.rollback_transaction_writer_storage_append_sector_audit_record_byte_length =
+            Some(sector_plan.audit_record_byte_length);
+        binding.rollback_transaction_writer_storage_append_sector_rollback_transaction_offset =
+            Some(sector_plan.rollback_transaction_offset);
+        binding
+            .rollback_transaction_writer_storage_append_sector_rollback_transaction_byte_length =
+            Some(sector_plan.rollback_transaction_byte_length);
+        binding.rollback_transaction_writer_storage_append_sector_padding_policy =
+            Some(HELLO_ROLLBACK_APPEND_SECTOR_PADDING_POLICY);
+        binding.rollback_transaction_writer_storage_append_sector_padding_offset =
+            Some(sector_plan.padding_offset);
+        binding.rollback_transaction_writer_storage_append_sector_padding_byte_length =
+            Some(sector_plan.padding_byte_length);
+        binding.rollback_transaction_writer_storage_append_sector_target_start_lba =
+            Some(sector_plan.target_start_lba);
+        binding.rollback_transaction_writer_storage_append_sector_target_lba_count =
+            Some(sector_plan.target_lba_count);
+        binding.rollback_transaction_writer_storage_append_sector_target_byte_count =
+            Some(sector_plan.target_byte_count);
+        binding.rollback_transaction_writer_storage_append_sector_source_record_hash =
+            Some(append_record.dry_run_hash);
+        binding.rollback_transaction_writer_storage_append_sector_target_range_ready =
+            sector_plan.target_range_ready;
+        binding.rollback_transaction_writer_storage_append_sector_authorizes_append = false;
+        binding.rollback_transaction_writer_storage_append_sector_writes_durable_audit_log = false;
+        binding.rollback_transaction_writer_storage_append_sector_writes_rollback_store = false;
+        binding.rollback_transaction_writer_storage_append_sector_appends_rollback_transaction =
+            false;
+        binding.rollback_transaction_writer_storage_append_sector_write_attempted = false;
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_dry_run_schema =
+            Some(HELLO_ROLLBACK_APPEND_SECTOR_WRITE_READBACK_DRY_RUN_SCHEMA);
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_dry_run_id =
+            Some(HELLO_ROLLBACK_APPEND_SECTOR_WRITE_READBACK_DRY_RUN_ID);
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_dry_run_status =
+            Some(sector_write.status);
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_dry_run_reason =
+            Some(sector_write.reason);
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_dry_run_hash =
+            Some(sector_write.dry_run_hash);
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_source_plan_hash =
+            Some(sector_write.source_plan_hash);
+        binding
+            .rollback_transaction_writer_storage_append_sector_write_readback_planned_image_hash =
+            Some(sector_write.planned_sector_image_hash);
+        binding
+            .rollback_transaction_writer_storage_append_sector_write_readback_readback_image_hash =
+            Some(sector_write.readback_sector_image_hash);
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_target_start_lba =
+            Some(sector_write.target_start_lba);
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_target_lba_count =
+            Some(sector_write.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_append_sector_write_readback_target_byte_count =
+            Some(sector_write.target_byte_count);
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_label_found =
+            sector_write.label_found;
+        binding
+            .rollback_transaction_writer_storage_append_sector_write_readback_target_range_ready =
+            sector_write.target_range_ready;
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_write_attempted =
+            sector_write.write_attempted;
+        binding.rollback_transaction_writer_storage_append_sector_write_readback_write_completed =
+            sector_write.write_completed;
+        binding
+            .rollback_transaction_writer_storage_append_sector_write_readback_readback_completed =
+            sector_write.readback_completed;
+        binding
+            .rollback_transaction_writer_storage_append_sector_write_readback_matches_planned_image =
+            sector_write.readback_matches_planned_image;
+        binding
+            .rollback_transaction_writer_storage_append_sector_write_readback_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_append_sector_write_readback_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_append_sector_write_readback_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_append_sector_write_readback_appends_rollback_transaction =
+            false;
+        binding.rollback_transaction_writer_storage_durable_append_authority_preflight_schema =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_append_authority_preflight_id =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_ID);
+        binding.rollback_transaction_writer_storage_durable_append_authority_preflight_status =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_STATUS);
+        binding.rollback_transaction_writer_storage_durable_append_authority_preflight_reason =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_PREFLIGHT_REASON);
+        binding.rollback_transaction_writer_storage_durable_append_authority_preflight_hash =
+            Some(durable_append_preflight.preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_source_write_readback_hash =
+            Some(durable_append_preflight.source_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_source_target_region_write_readback_hash =
+            Some(durable_append_preflight.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_test_media_write_authority_available =
+            durable_append_preflight.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_remaining_denial_reason =
+            Some(durable_append_preflight.remaining_denial_reason);
+        let durable_writer_policy_preflight =
+            durable_append_preflight.durable_writer_policy_preflight;
+        binding.rollback_transaction_writer_storage_durable_writer_policy_preflight_schema =
+            Some(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_writer_policy_preflight_id =
+            Some(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_ID);
+        binding.rollback_transaction_writer_storage_durable_writer_policy_preflight_status =
+            Some(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_STATUS);
+        binding.rollback_transaction_writer_storage_durable_writer_policy_preflight_reason =
+            Some(HELLO_ROLLBACK_DURABLE_WRITER_POLICY_PREFLIGHT_REASON);
+        binding.rollback_transaction_writer_storage_durable_writer_policy_preflight_hash =
+            Some(durable_writer_policy_preflight.preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_source_append_record_hash =
+            Some(durable_writer_policy_preflight.source_append_record_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_source_sector_plan_hash =
+            Some(durable_writer_policy_preflight.source_sector_plan_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_source_target_region_write_readback_hash =
+            Some(durable_writer_policy_preflight.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_target_start_lba =
+            Some(durable_writer_policy_preflight.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_target_lba_count =
+            Some(durable_writer_policy_preflight.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_target_byte_count =
+            Some(durable_writer_policy_preflight.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_target_range_ready =
+            durable_writer_policy_preflight.target_range_ready;
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_test_media_write_authority_available =
+            durable_writer_policy_preflight.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_durable_audit_writer_available =
+            durable_writer_policy_preflight.durable_audit_writer_available;
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_rollback_store_writer_available =
+            durable_writer_policy_preflight.rollback_store_writer_available;
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_transaction_append_writer_available =
+            durable_writer_policy_preflight.transaction_append_writer_available;
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_writer_policy_preflight_write_attempted =
+            false;
+        let durable_append_transaction_authorization_gate =
+            hello_rollback_durable_append_transaction_authorization_gate(
+                durable_writer_policy_preflight,
+                append_record,
+                sector_plan,
+                target_region_write,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_schema =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_id =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_status =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_STATUS);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_reason =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_TRANSACTION_AUTHORIZATION_GATE_REASON);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_hash =
+            Some(durable_append_transaction_authorization_gate.gate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_source_writer_policy_preflight_hash =
+            Some(
+                durable_append_transaction_authorization_gate
+                    .source_writer_policy_preflight_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_source_append_record_hash =
+            Some(durable_append_transaction_authorization_gate.source_append_record_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_source_sector_plan_hash =
+            Some(durable_append_transaction_authorization_gate.source_sector_plan_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_source_target_region_write_readback_hash =
+            Some(
+                durable_append_transaction_authorization_gate
+                    .source_target_region_write_readback_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_target_start_lba =
+            Some(durable_append_transaction_authorization_gate.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_target_lba_count =
+            Some(durable_append_transaction_authorization_gate.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_target_byte_count =
+            Some(durable_append_transaction_authorization_gate.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_target_range_ready =
+            durable_append_transaction_authorization_gate.target_range_ready;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_test_media_write_authority_available =
+            durable_append_transaction_authorization_gate
+                .test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_append_engine_available =
+            durable_append_transaction_authorization_gate.append_engine_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_durable_audit_writer_available =
+            durable_append_transaction_authorization_gate.durable_audit_writer_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_rollback_store_writer_available =
+            durable_append_transaction_authorization_gate.rollback_store_writer_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_transaction_append_writer_available =
+            durable_append_transaction_authorization_gate.transaction_append_writer_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_authorizes_transaction_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_transaction_authorization_gate_write_attempted =
+            false;
+        let append_engine_readiness_decision = hello_rollback_append_engine_readiness_decision(
+            durable_append_transaction_authorization_gate,
+        );
+        binding.rollback_transaction_writer_storage_append_engine_readiness_decision_schema =
+            Some(HELLO_ROLLBACK_APPEND_ENGINE_READINESS_DECISION_SCHEMA);
+        binding.rollback_transaction_writer_storage_append_engine_readiness_decision_id =
+            Some(HELLO_ROLLBACK_APPEND_ENGINE_READINESS_DECISION_ID);
+        binding.rollback_transaction_writer_storage_append_engine_readiness_decision_status =
+            Some(append_engine_readiness_decision.status);
+        binding.rollback_transaction_writer_storage_append_engine_readiness_decision_reason =
+            Some(append_engine_readiness_decision.reason);
+        binding.rollback_transaction_writer_storage_append_engine_readiness_decision_hash =
+            Some(append_engine_readiness_decision.decision_hash);
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_source_authorization_gate_hash =
+            Some(append_engine_readiness_decision.source_authorization_gate_hash);
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_source_writer_policy_preflight_hash =
+            Some(append_engine_readiness_decision.source_writer_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_source_append_record_hash =
+            Some(append_engine_readiness_decision.source_append_record_hash);
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_source_sector_plan_hash =
+            Some(append_engine_readiness_decision.source_sector_plan_hash);
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_source_target_region_write_readback_hash =
+            Some(append_engine_readiness_decision.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_target_start_lba =
+            Some(append_engine_readiness_decision.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_target_lba_count =
+            Some(append_engine_readiness_decision.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_target_byte_count =
+            Some(append_engine_readiness_decision.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_target_range_ready =
+            append_engine_readiness_decision.target_range_ready;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_test_media_write_authority_available =
+            append_engine_readiness_decision
+                .test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_append_engine_available =
+            append_engine_readiness_decision.append_engine_available;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_durable_audit_writer_available =
+            append_engine_readiness_decision.durable_audit_writer_available;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_rollback_store_writer_available =
+            append_engine_readiness_decision.rollback_store_writer_available;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_transaction_append_writer_available =
+            append_engine_readiness_decision.transaction_append_writer_available;
+        binding.rollback_transaction_writer_storage_append_engine_readiness_decision_ready =
+            append_engine_readiness_decision.ready;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_authorizes_transaction_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_append_engine_readiness_decision_write_attempted =
+            false;
+        let target_region_media_write_policy_preflight =
+            durable_append_preflight.target_region_media_write_policy_preflight;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_schema =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_id =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_MEDIA_WRITE_POLICY_PREFLIGHT_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_status =
+            Some(foundation.target_region_media_write_policy_preflight_status);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_reason =
+            Some(foundation.target_region_media_write_policy_preflight_reason);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_hash =
+            Some(target_region_media_write_policy_preflight.preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_source_contract_schema =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_source_contract_id =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_source_contract_status =
+            Some(target_region_media_write_policy_preflight.source_contract_status);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_source_contract_reason =
+            Some(target_region_media_write_policy_preflight.source_contract_reason);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_owner_method =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_append_target_owner_id =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_APPEND_TARGET_OWNER_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_storage_authority_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_STORAGE_AUTHORITY_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_target_region_start_lba =
+            Some(target_region_media_write_policy_preflight.target_region_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_target_region_lba_count =
+            Some(target_region_media_write_policy_preflight.target_region_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_target_byte_count =
+            Some(target_region_media_write_policy_preflight.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_source_contract_target_range_ready =
+            target_region_media_write_policy_preflight.source_contract_target_range_ready;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_owner_ids_verified =
+            target_region_media_write_policy_preflight.owner_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_target_ids_verified =
+            target_region_media_write_policy_preflight.target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_target_span_verified =
+            target_region_media_write_policy_preflight.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_schema_ids_verified =
+            target_region_media_write_policy_preflight.schema_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_media_write_authority_required =
+            true;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_media_write_authority_available =
+            target_region_media_write_policy_preflight.media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_media_write_authority_reason =
+            Some(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_MISSING_REASON);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_durable_audit_policy_required =
+            true;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_durable_audit_policy_available =
+            target_region_media_write_policy_preflight.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_durable_audit_policy_reason =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_MISSING_REASON);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_authorizes_media_write =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_media_write_policy_preflight_write_attempted =
+            false;
+        let media_write_authority_gate = hello_rollback_media_write_authority_gate(
+            durable_append_preflight,
+            target_region_write,
+        );
+        binding.rollback_transaction_writer_storage_media_write_authority_gate_schema =
+            Some(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_SCHEMA);
+        binding.rollback_transaction_writer_storage_media_write_authority_gate_id =
+            Some(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_ID);
+        binding.rollback_transaction_writer_storage_media_write_authority_gate_status =
+            Some(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_STATUS);
+        binding.rollback_transaction_writer_storage_media_write_authority_gate_reason =
+            Some(HELLO_ROLLBACK_MEDIA_WRITE_AUTHORITY_GATE_REASON);
+        binding.rollback_transaction_writer_storage_media_write_authority_gate_hash =
+            Some(media_write_authority_gate.gate_hash);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_source_durable_append_authority_preflight_hash =
+            Some(media_write_authority_gate.source_durable_append_authority_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_source_policy_preflight_hash =
+            Some(media_write_authority_gate.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_source_target_region_write_readback_hash =
+            Some(media_write_authority_gate.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_source_contract_schema =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_SCHEMA);
+        binding.rollback_transaction_writer_storage_media_write_authority_gate_source_contract_id =
+            Some(rollback_append_contract::AUDIT_ROLLBACK_TARGET_REGION_WRITER_CONTRACT_ID);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_source_contract_status =
+            Some(media_write_authority_gate.source_contract_status);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_source_contract_reason =
+            Some(media_write_authority_gate.source_contract_reason);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_target_region_start_lba =
+            Some(media_write_authority_gate.target_region_start_lba);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_target_region_lba_count =
+            Some(media_write_authority_gate.target_region_lba_count);
+        binding.rollback_transaction_writer_storage_media_write_authority_gate_target_byte_count =
+            Some(media_write_authority_gate.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_source_contract_target_range_ready =
+            media_write_authority_gate.source_contract_target_range_ready;
+        binding.rollback_transaction_writer_storage_media_write_authority_gate_owner_ids_verified =
+            media_write_authority_gate.owner_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_target_ids_verified =
+            media_write_authority_gate.target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_target_span_verified =
+            media_write_authority_gate.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_schema_ids_verified =
+            media_write_authority_gate.schema_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_media_write_authority_required =
+            true;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_media_write_authority_available =
+            media_write_authority_gate.media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_media_write_authority_reason =
+            Some(HELLO_ROLLBACK_TEST_MEDIA_WRITE_AUTHORITY_REASON);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_test_media_write_authority_available =
+            media_write_authority_gate.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_durable_audit_policy_required =
+            true;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_durable_audit_policy_available =
+            media_write_authority_gate.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_durable_audit_policy_reason =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_MISSING_REASON);
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_authorizes_media_write =
+            false;
+        binding.rollback_transaction_writer_storage_media_write_authority_gate_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_media_write_authority_gate_target_region_write_attempted =
+            media_write_authority_gate.target_region_write_attempted;
+        binding.rollback_transaction_writer_storage_media_write_authority_gate_write_attempted =
+            false;
+        let durable_append_authority_decision = hello_rollback_durable_append_authority_decision(
+            durable_append_preflight,
+            media_write_authority_gate,
+            append_engine_readiness_decision,
+        );
+        binding.rollback_transaction_writer_storage_durable_append_authority_decision_schema =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_append_authority_decision_id =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_ID);
+        binding.rollback_transaction_writer_storage_durable_append_authority_decision_status =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_STATUS);
+        binding.rollback_transaction_writer_storage_durable_append_authority_decision_reason =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_DECISION_REASON);
+        binding.rollback_transaction_writer_storage_durable_append_authority_decision_hash =
+            Some(durable_append_authority_decision.decision_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_source_durable_append_authority_preflight_hash =
+            Some(durable_append_authority_decision.source_durable_append_authority_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_source_writer_policy_preflight_hash =
+            Some(durable_append_authority_decision.source_writer_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_source_append_engine_readiness_decision_hash =
+            Some(durable_append_authority_decision.source_append_engine_readiness_decision_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_source_media_write_authority_gate_hash =
+            Some(durable_append_authority_decision.source_media_write_authority_gate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_source_policy_preflight_hash =
+            Some(durable_append_authority_decision.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_source_target_region_write_readback_hash =
+            Some(durable_append_authority_decision.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_target_start_lba =
+            Some(durable_append_authority_decision.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_target_lba_count =
+            Some(durable_append_authority_decision.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_target_byte_count =
+            Some(durable_append_authority_decision.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_writer_policy_ready =
+            durable_append_authority_decision.writer_policy_ready;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_append_engine_ready =
+            durable_append_authority_decision.append_engine_ready;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_media_write_gate_ready =
+            durable_append_authority_decision.media_write_gate_ready;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_test_media_write_authority_available =
+            durable_append_authority_decision.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_durable_audit_policy_available =
+            durable_append_authority_decision.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_durable_append_authority_available =
+            durable_append_authority_decision.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_authorizes_transaction_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_decision_write_attempted =
+            false;
+        let durable_audit_policy_decision =
+            hello_rollback_durable_audit_policy_decision(durable_append_authority_decision);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_decision_schema =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_decision_id =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_ID);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_decision_status =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_STATUS);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_decision_reason =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_DECISION_REASON);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_decision_hash =
+            Some(durable_audit_policy_decision.decision_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_source_durable_append_authority_decision_hash =
+            Some(durable_audit_policy_decision.source_durable_append_authority_decision_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_source_policy_preflight_hash =
+            Some(durable_audit_policy_decision.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_source_media_write_authority_gate_hash =
+            Some(durable_audit_policy_decision.source_media_write_authority_gate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_source_target_region_write_readback_hash =
+            Some(durable_audit_policy_decision.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_target_start_lba =
+            Some(durable_audit_policy_decision.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_target_lba_count =
+            Some(durable_audit_policy_decision.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_target_byte_count =
+            Some(durable_audit_policy_decision.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_append_engine_ready =
+            durable_audit_policy_decision.append_engine_ready;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_media_write_policy_verified =
+            durable_audit_policy_decision.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_test_media_write_authority_available =
+            durable_audit_policy_decision.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_durable_append_authority_available =
+            durable_audit_policy_decision.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_durable_audit_policy_available =
+            durable_audit_policy_decision.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_decision_appends_rollback_transaction =
+            false;
+        binding.rollback_transaction_writer_storage_durable_audit_policy_decision_write_attempted =
+            false;
+        let durable_audit_policy_candidate = hello_rollback_durable_audit_policy_candidate(
+            durable_audit_policy_decision,
+            append_record,
+        );
+        binding.rollback_transaction_writer_storage_durable_audit_policy_candidate_schema =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_candidate_id =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_ID);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_candidate_status =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_STATUS);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_candidate_reason =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_CANDIDATE_REASON);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_candidate_hash =
+            Some(durable_audit_policy_candidate.candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_source_durable_audit_policy_decision_hash =
+            Some(durable_audit_policy_candidate.source_durable_audit_policy_decision_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_source_audit_record_image_hash =
+            Some(durable_audit_policy_candidate.source_audit_record_image_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_source_policy_preflight_hash =
+            Some(durable_audit_policy_candidate.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_source_target_region_write_readback_hash =
+            Some(durable_audit_policy_candidate.source_target_region_write_readback_hash);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_candidate_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_target_start_lba =
+            Some(durable_audit_policy_candidate.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_target_lba_count =
+            Some(durable_audit_policy_candidate.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_target_byte_count =
+            Some(durable_audit_policy_candidate.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_media_write_policy_verified =
+            durable_audit_policy_candidate.media_write_policy_verified;
+        binding.rollback_transaction_writer_storage_durable_audit_policy_candidate_available =
+            durable_audit_policy_candidate.durable_audit_policy_candidate_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_durable_audit_policy_available =
+            durable_audit_policy_candidate.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_durable_append_authority_available =
+            durable_audit_policy_candidate.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_candidate_write_attempted =
+            false;
+        let durable_audit_policy_acceptance_gate =
+            hello_rollback_durable_audit_policy_acceptance_gate(durable_audit_policy_candidate);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_schema =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_id =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_ID);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_status =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_STATUS);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_reason =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_ACCEPTANCE_GATE_REASON);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_hash =
+            Some(durable_audit_policy_acceptance_gate.gate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_source_candidate_hash =
+            Some(durable_audit_policy_acceptance_gate.source_durable_audit_policy_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_source_decision_hash =
+            Some(durable_audit_policy_acceptance_gate.source_durable_audit_policy_decision_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_source_audit_record_image_hash =
+            Some(durable_audit_policy_acceptance_gate.source_audit_record_image_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_source_policy_preflight_hash =
+            Some(durable_audit_policy_acceptance_gate.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_source_target_region_write_readback_hash =
+            Some(durable_audit_policy_acceptance_gate.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_target_start_lba =
+            Some(durable_audit_policy_acceptance_gate.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_target_lba_count =
+            Some(durable_audit_policy_acceptance_gate.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_target_byte_count =
+            Some(durable_audit_policy_acceptance_gate.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_candidate_available =
+            durable_audit_policy_acceptance_gate.candidate_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_media_write_policy_verified =
+            durable_audit_policy_acceptance_gate.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_durable_policy_ledger_available =
+            durable_audit_policy_acceptance_gate.durable_policy_ledger_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_write_authority_available =
+            durable_audit_policy_acceptance_gate.write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_durable_audit_policy_available =
+            durable_audit_policy_acceptance_gate.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_durable_append_authority_available =
+            durable_audit_policy_acceptance_gate.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_acceptance_gate_write_attempted =
+            false;
+        let durable_audit_policy_ledger_candidate =
+            hello_rollback_durable_audit_policy_ledger_candidate(
+                durable_audit_policy_acceptance_gate,
+            );
+        binding.rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_schema =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_id =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_ID);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_status =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_STATUS);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_reason =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_CANDIDATE_REASON);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_hash =
+            Some(durable_audit_policy_ledger_candidate.ledger_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_source_acceptance_gate_hash =
+            Some(durable_audit_policy_ledger_candidate.source_acceptance_gate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_source_candidate_hash =
+            Some(durable_audit_policy_ledger_candidate.source_durable_audit_policy_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_source_decision_hash =
+            Some(durable_audit_policy_ledger_candidate.source_durable_audit_policy_decision_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_source_audit_record_image_hash =
+            Some(durable_audit_policy_ledger_candidate.source_audit_record_image_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_source_policy_preflight_hash =
+            Some(durable_audit_policy_ledger_candidate.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_source_target_region_write_readback_hash =
+            Some(durable_audit_policy_ledger_candidate.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_target_start_lba =
+            Some(durable_audit_policy_ledger_candidate.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_target_lba_count =
+            Some(durable_audit_policy_ledger_candidate.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_target_byte_count =
+            Some(durable_audit_policy_ledger_candidate.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_read_only_available =
+            durable_audit_policy_ledger_candidate.read_only_ledger_candidate_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_candidate_available =
+            durable_audit_policy_ledger_candidate.candidate_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_media_write_policy_verified =
+            durable_audit_policy_ledger_candidate.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_durable_policy_ledger_available =
+            durable_audit_policy_ledger_candidate.durable_policy_ledger_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_write_authority_available =
+            durable_audit_policy_ledger_candidate.write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_durable_audit_policy_available =
+            durable_audit_policy_ledger_candidate.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_durable_append_authority_available =
+            durable_audit_policy_ledger_candidate.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_candidate_write_attempted =
+            false;
+        let durable_audit_policy_ledger_aware_acceptance_result =
+            hello_rollback_durable_audit_policy_ledger_aware_acceptance_result(
+                durable_audit_policy_ledger_candidate,
+            );
+        binding.rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_schema =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_id =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_ID);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_status =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_STATUS);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_reason =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_LEDGER_AWARE_ACCEPTANCE_RESULT_REASON);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_hash =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.result_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_source_ledger_candidate_hash =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.source_ledger_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_source_acceptance_gate_hash =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.source_acceptance_gate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_source_candidate_hash =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.source_durable_audit_policy_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_source_decision_hash =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.source_durable_audit_policy_decision_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_source_audit_record_image_hash =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.source_audit_record_image_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_source_policy_preflight_hash =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_source_target_region_write_readback_hash =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_target_start_lba =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_target_lba_count =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_target_byte_count =
+            Some(durable_audit_policy_ledger_aware_acceptance_result.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_read_only_available =
+            durable_audit_policy_ledger_aware_acceptance_result.read_only_ledger_candidate_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_ledger_evidence_verified =
+            durable_audit_policy_ledger_aware_acceptance_result.ledger_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_write_authority_available =
+            durable_audit_policy_ledger_aware_acceptance_result.write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_durable_policy_ledger_available =
+            durable_audit_policy_ledger_aware_acceptance_result.durable_policy_ledger_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_durable_audit_policy_available =
+            durable_audit_policy_ledger_aware_acceptance_result.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_durable_append_authority_available =
+            durable_audit_policy_ledger_aware_acceptance_result.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_ledger_aware_acceptance_result_write_attempted =
+            false;
+        let durable_audit_policy_write_authority_availability =
+            hello_rollback_durable_audit_policy_write_authority_availability(
+                durable_audit_policy_ledger_aware_acceptance_result,
+                durable_audit_policy_ledger_candidate,
+                target_region_media_write_policy_preflight,
+                target_region_write,
+            );
+        binding.rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_schema =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_id =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_ID);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_status =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_STATUS);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_reason =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_WRITE_AUTHORITY_AVAILABILITY_REASON);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_hash =
+            Some(durable_audit_policy_write_authority_availability.availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_source_result_hash =
+            Some(durable_audit_policy_write_authority_availability.source_ledger_aware_acceptance_result_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_source_ledger_candidate_hash =
+            Some(durable_audit_policy_write_authority_availability.source_ledger_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_source_policy_preflight_hash =
+            Some(durable_audit_policy_write_authority_availability.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_source_target_region_write_readback_hash =
+            Some(durable_audit_policy_write_authority_availability.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_target_start_lba =
+            Some(durable_audit_policy_write_authority_availability.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_target_lba_count =
+            Some(durable_audit_policy_write_authority_availability.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_target_byte_count =
+            Some(durable_audit_policy_write_authority_availability.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_ledger_evidence_verified =
+            durable_audit_policy_write_authority_availability.ledger_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_media_write_policy_verified =
+            durable_audit_policy_write_authority_availability.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_target_region_write_readback_verified =
+            durable_audit_policy_write_authority_availability.target_region_write_readback_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_target_span_verified =
+            durable_audit_policy_write_authority_availability.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_audit_rollback_target_ids_verified =
+            durable_audit_policy_write_authority_availability.audit_rollback_target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_test_media_write_authority_available =
+            durable_audit_policy_write_authority_availability.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_write_authority_available =
+            durable_audit_policy_write_authority_availability.write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_durable_policy_ledger_available =
+            durable_audit_policy_write_authority_availability.durable_policy_ledger_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_durable_audit_policy_available =
+            durable_audit_policy_write_authority_availability.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_durable_append_authority_available =
+            durable_audit_policy_write_authority_availability.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_authorizes_media_write =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_write_authority_availability_write_attempted =
+            false;
+        let durable_policy_ledger_availability = hello_rollback_durable_policy_ledger_availability(
+            durable_audit_policy_write_authority_availability,
+        );
+        binding.rollback_transaction_writer_storage_durable_policy_ledger_availability_schema =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_policy_ledger_availability_id =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_ID);
+        binding.rollback_transaction_writer_storage_durable_policy_ledger_availability_status =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_STATUS);
+        binding.rollback_transaction_writer_storage_durable_policy_ledger_availability_reason =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_REASON);
+        binding.rollback_transaction_writer_storage_durable_policy_ledger_availability_hash =
+            Some(durable_policy_ledger_availability.availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_source_write_authority_availability_hash =
+            Some(durable_policy_ledger_availability.source_write_authority_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_source_result_hash =
+            Some(durable_policy_ledger_availability.source_ledger_aware_acceptance_result_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_source_ledger_candidate_hash =
+            Some(durable_policy_ledger_availability.source_ledger_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_source_policy_preflight_hash =
+            Some(durable_policy_ledger_availability.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_source_target_region_write_readback_hash =
+            Some(durable_policy_ledger_availability.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_target_start_lba =
+            Some(durable_policy_ledger_availability.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_target_lba_count =
+            Some(durable_policy_ledger_availability.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_target_byte_count =
+            Some(durable_policy_ledger_availability.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_write_authority_evidence_verified =
+            durable_policy_ledger_availability.write_authority_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_ledger_evidence_verified =
+            durable_policy_ledger_availability.ledger_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_media_write_policy_verified =
+            durable_policy_ledger_availability.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_target_region_write_readback_verified =
+            durable_policy_ledger_availability.target_region_write_readback_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_target_span_verified =
+            durable_policy_ledger_availability.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_audit_rollback_target_ids_verified =
+            durable_policy_ledger_availability.audit_rollback_target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_test_media_write_authority_available =
+            durable_policy_ledger_availability.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_write_authority_available =
+            durable_policy_ledger_availability.write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_durable_policy_ledger_available =
+            durable_policy_ledger_availability.durable_policy_ledger_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_durable_audit_policy_available =
+            durable_policy_ledger_availability.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_durable_append_authority_available =
+            durable_policy_ledger_availability.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_authorizes_media_write =
+            false;
+        binding.rollback_transaction_writer_storage_durable_policy_ledger_availability_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_appends_rollback_transaction =
+            false;
+        binding.rollback_transaction_writer_storage_durable_policy_ledger_availability_write_attempted =
+            false;
+        let durable_audit_policy_availability =
+            hello_rollback_durable_audit_policy_availability(durable_policy_ledger_availability);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_availability_schema =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_availability_id =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_ID);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_availability_status =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_STATUS);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_availability_reason =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_REASON);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_availability_hash =
+            Some(durable_audit_policy_availability.availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_source_policy_ledger_availability_hash =
+            Some(durable_audit_policy_availability.source_policy_ledger_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_source_write_authority_availability_hash =
+            Some(durable_audit_policy_availability.source_write_authority_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_source_result_hash =
+            Some(durable_audit_policy_availability.source_ledger_aware_acceptance_result_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_source_ledger_candidate_hash =
+            Some(durable_audit_policy_availability.source_ledger_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_source_policy_preflight_hash =
+            Some(durable_audit_policy_availability.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_source_target_region_write_readback_hash =
+            Some(durable_audit_policy_availability.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_target_start_lba =
+            Some(durable_audit_policy_availability.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_target_lba_count =
+            Some(durable_audit_policy_availability.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_target_byte_count =
+            Some(durable_audit_policy_availability.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_policy_ledger_availability_evidence_verified =
+            durable_audit_policy_availability.policy_ledger_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_write_authority_evidence_verified =
+            durable_audit_policy_availability.write_authority_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_ledger_evidence_verified =
+            durable_audit_policy_availability.ledger_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_media_write_policy_verified =
+            durable_audit_policy_availability.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_target_region_write_readback_verified =
+            durable_audit_policy_availability.target_region_write_readback_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_target_span_verified =
+            durable_audit_policy_availability.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_audit_rollback_target_ids_verified =
+            durable_audit_policy_availability.audit_rollback_target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_test_media_write_authority_available =
+            durable_audit_policy_availability.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_write_authority_available =
+            durable_audit_policy_availability.write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_durable_policy_ledger_available =
+            durable_audit_policy_availability.durable_policy_ledger_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_durable_audit_policy_available =
+            durable_audit_policy_availability.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_durable_append_authority_available =
+            durable_audit_policy_availability.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_authorizes_media_write =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_appends_rollback_transaction =
+            false;
+        binding.rollback_transaction_writer_storage_durable_audit_policy_availability_write_attempted =
+            false;
+        let durable_append_authority_availability =
+            hello_rollback_durable_append_authority_availability(durable_audit_policy_availability);
+        binding.rollback_transaction_writer_storage_durable_append_authority_availability_schema =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_append_authority_availability_id =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_ID);
+        binding.rollback_transaction_writer_storage_durable_append_authority_availability_status =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_STATUS);
+        binding.rollback_transaction_writer_storage_durable_append_authority_availability_reason =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_REASON);
+        binding.rollback_transaction_writer_storage_durable_append_authority_availability_hash =
+            Some(durable_append_authority_availability.availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_source_audit_policy_availability_hash =
+            Some(durable_append_authority_availability.source_audit_policy_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_source_policy_ledger_availability_hash =
+            Some(durable_append_authority_availability.source_policy_ledger_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_source_write_authority_availability_hash =
+            Some(durable_append_authority_availability.source_write_authority_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_source_result_hash =
+            Some(durable_append_authority_availability.source_ledger_aware_acceptance_result_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_source_ledger_candidate_hash =
+            Some(durable_append_authority_availability.source_ledger_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_source_policy_preflight_hash =
+            Some(durable_append_authority_availability.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_source_target_region_write_readback_hash =
+            Some(durable_append_authority_availability.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_target_start_lba =
+            Some(durable_append_authority_availability.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_target_lba_count =
+            Some(durable_append_authority_availability.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_target_byte_count =
+            Some(durable_append_authority_availability.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_audit_policy_availability_evidence_verified =
+            durable_append_authority_availability.audit_policy_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_policy_ledger_availability_evidence_verified =
+            durable_append_authority_availability.policy_ledger_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_write_authority_evidence_verified =
+            durable_append_authority_availability.write_authority_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_ledger_evidence_verified =
+            durable_append_authority_availability.ledger_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_media_write_policy_verified =
+            durable_append_authority_availability.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_target_region_write_readback_verified =
+            durable_append_authority_availability.target_region_write_readback_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_target_span_verified =
+            durable_append_authority_availability.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_audit_rollback_target_ids_verified =
+            durable_append_authority_availability.audit_rollback_target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_test_media_write_authority_available =
+            durable_append_authority_availability.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_write_authority_available =
+            durable_append_authority_availability.write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_durable_policy_ledger_available =
+            durable_append_authority_availability.durable_policy_ledger_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_durable_audit_policy_available =
+            durable_append_authority_availability.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_durable_append_authority_available =
+            durable_append_authority_availability.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_authorizes_media_write =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_write_attempted =
+            false;
+        let transaction_append_availability_decision =
+            hello_rollback_transaction_append_availability_decision(
+                durable_append_authority_availability,
+                append_engine_readiness_decision,
+                durable_writer_policy_preflight,
+            );
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_schema =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_SCHEMA);
+        binding.rollback_transaction_writer_storage_transaction_append_availability_decision_id =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_ID);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_status =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_STATUS);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_reason =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_AVAILABILITY_DECISION_REASON);
+        binding.rollback_transaction_writer_storage_transaction_append_availability_decision_hash =
+            Some(transaction_append_availability_decision.decision_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_source_durable_append_authority_availability_hash =
+            Some(
+                transaction_append_availability_decision
+                    .source_durable_append_authority_availability_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_source_audit_policy_availability_hash =
+            Some(transaction_append_availability_decision.source_audit_policy_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_source_append_engine_readiness_decision_hash =
+            Some(
+                transaction_append_availability_decision
+                    .source_append_engine_readiness_decision_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_source_writer_policy_preflight_hash =
+            Some(transaction_append_availability_decision.source_writer_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_source_policy_preflight_hash =
+            Some(transaction_append_availability_decision.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_source_target_region_write_readback_hash =
+            Some(transaction_append_availability_decision.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_target_start_lba =
+            Some(transaction_append_availability_decision.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_target_lba_count =
+            Some(transaction_append_availability_decision.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_target_byte_count =
+            Some(transaction_append_availability_decision.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_durable_append_authority_availability_evidence_verified =
+            transaction_append_availability_decision
+                .durable_append_authority_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_audit_policy_availability_evidence_verified =
+            transaction_append_availability_decision.audit_policy_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_append_engine_ready =
+            transaction_append_availability_decision.append_engine_ready;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_writer_policy_ready =
+            transaction_append_availability_decision.writer_policy_ready;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_media_write_policy_verified =
+            transaction_append_availability_decision.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_target_region_write_readback_verified =
+            transaction_append_availability_decision.target_region_write_readback_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_target_span_verified =
+            transaction_append_availability_decision.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_audit_rollback_target_ids_verified =
+            transaction_append_availability_decision.audit_rollback_target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_test_media_write_authority_available =
+            transaction_append_availability_decision.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_durable_append_authority_available =
+            transaction_append_availability_decision.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_durable_audit_policy_available =
+            transaction_append_availability_decision.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_transaction_append_available =
+            transaction_append_availability_decision.transaction_append_available;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_authorizes_media_write =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_authorizes_transaction_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_availability_decision_write_attempted =
+            false;
+        let transaction_append_authority_denial_gate =
+            hello_rollback_transaction_append_authority_denial_gate(
+                transaction_append_availability_decision,
+            );
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_schema =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_SCHEMA);
+        binding.rollback_transaction_writer_storage_transaction_append_authority_denial_gate_id =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_ID);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_status =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_STATUS);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_reason =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_AUTHORITY_DENIAL_GATE_REASON);
+        binding.rollback_transaction_writer_storage_transaction_append_authority_denial_gate_hash =
+            Some(transaction_append_authority_denial_gate.gate_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_source_transaction_append_availability_decision_hash =
+            Some(
+                transaction_append_authority_denial_gate
+                    .source_transaction_append_availability_decision_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_source_durable_append_authority_availability_hash =
+            Some(
+                transaction_append_authority_denial_gate
+                    .source_durable_append_authority_availability_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_source_audit_policy_availability_hash =
+            Some(transaction_append_authority_denial_gate.source_audit_policy_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_source_append_engine_readiness_decision_hash =
+            Some(
+                transaction_append_authority_denial_gate
+                    .source_append_engine_readiness_decision_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_source_writer_policy_preflight_hash =
+            Some(transaction_append_authority_denial_gate.source_writer_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_source_policy_preflight_hash =
+            Some(transaction_append_authority_denial_gate.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_source_target_region_write_readback_hash =
+            Some(transaction_append_authority_denial_gate.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_target_start_lba =
+            Some(transaction_append_authority_denial_gate.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_target_lba_count =
+            Some(transaction_append_authority_denial_gate.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_target_byte_count =
+            Some(transaction_append_authority_denial_gate.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_availability_decision_evidence_verified =
+            transaction_append_authority_denial_gate.availability_decision_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_append_engine_ready =
+            transaction_append_authority_denial_gate.append_engine_ready;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_writer_policy_ready =
+            transaction_append_authority_denial_gate.writer_policy_ready;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_media_write_policy_verified =
+            transaction_append_authority_denial_gate.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_target_region_write_readback_verified =
+            transaction_append_authority_denial_gate.target_region_write_readback_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_target_span_verified =
+            transaction_append_authority_denial_gate.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_audit_rollback_target_ids_verified =
+            transaction_append_authority_denial_gate.audit_rollback_target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_test_media_write_authority_available =
+            transaction_append_authority_denial_gate
+                .test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_durable_append_authority_available =
+            transaction_append_authority_denial_gate.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_durable_audit_policy_available =
+            transaction_append_authority_denial_gate.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_transaction_append_available =
+            transaction_append_authority_denial_gate.transaction_append_available;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_missing_transaction_append_authority =
+            transaction_append_authority_denial_gate.missing_transaction_append_authority;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_authorizes_media_write =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_authorizes_transaction_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_authority_denial_gate_write_attempted =
+            false;
+        let durable_policy_ledger_availability_dry_run =
+            hello_rollback_durable_policy_ledger_availability_dry_run(
+                durable_policy_ledger_availability,
+                durable_audit_policy_write_authority_availability,
+                transaction_append_authority_denial_gate,
+                target_region_write,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_schema =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_id =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_status =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_STATUS);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_reason =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_LEDGER_AVAILABILITY_DRY_RUN_REASON);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_hash =
+            Some(durable_policy_ledger_availability_dry_run.dry_run_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_source_policy_ledger_availability_hash =
+            Some(durable_policy_ledger_availability_dry_run.source_policy_ledger_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_source_write_authority_availability_hash =
+            Some(durable_policy_ledger_availability_dry_run.source_write_authority_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_source_result_hash =
+            Some(durable_policy_ledger_availability_dry_run.source_ledger_aware_acceptance_result_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_source_ledger_candidate_hash =
+            Some(durable_policy_ledger_availability_dry_run.source_ledger_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_source_policy_preflight_hash =
+            Some(durable_policy_ledger_availability_dry_run.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_source_target_region_write_readback_hash =
+            Some(durable_policy_ledger_availability_dry_run.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_source_authority_denial_gate_hash =
+            Some(durable_policy_ledger_availability_dry_run.source_authority_denial_gate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_source_transaction_append_availability_decision_hash =
+            Some(
+                durable_policy_ledger_availability_dry_run
+                    .source_transaction_append_availability_decision_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_target_start_lba =
+            Some(durable_policy_ledger_availability_dry_run.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_target_lba_count =
+            Some(durable_policy_ledger_availability_dry_run.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_target_byte_count =
+            Some(durable_policy_ledger_availability_dry_run.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_policy_ledger_availability_evidence_verified =
+            durable_policy_ledger_availability_dry_run
+                .policy_ledger_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_write_authority_evidence_verified =
+            durable_policy_ledger_availability_dry_run.write_authority_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_ledger_evidence_verified =
+            durable_policy_ledger_availability_dry_run.ledger_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_media_write_policy_verified =
+            durable_policy_ledger_availability_dry_run.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_target_region_write_readback_verified =
+            durable_policy_ledger_availability_dry_run.target_region_write_readback_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_transaction_append_denial_gate_verified =
+            durable_policy_ledger_availability_dry_run.transaction_append_denial_gate_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_target_span_verified =
+            durable_policy_ledger_availability_dry_run.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_audit_rollback_target_ids_verified =
+            durable_policy_ledger_availability_dry_run.audit_rollback_target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_test_media_write_authority_available =
+            durable_policy_ledger_availability_dry_run
+                .test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_write_authority_available =
+            durable_policy_ledger_availability_dry_run.write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_durable_policy_ledger_available =
+            durable_policy_ledger_availability_dry_run.durable_policy_ledger_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_durable_audit_policy_available =
+            durable_policy_ledger_availability_dry_run.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_durable_append_authority_available =
+            durable_policy_ledger_availability_dry_run.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_transaction_append_available =
+            durable_policy_ledger_availability_dry_run.transaction_append_available;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_authorizes_media_write =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_authorizes_transaction_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_write_attempted =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_applies_rollback =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_policy_ledger_availability_dry_run_installs_rollback_state =
+            false;
+        let durable_audit_policy_availability_dry_run =
+            hello_rollback_durable_audit_policy_availability_dry_run(
+                durable_audit_policy_availability,
+                durable_policy_ledger_availability_dry_run,
+                transaction_append_authority_denial_gate,
+                target_region_write,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_schema =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_id =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_status =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_STATUS);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_reason =
+            Some(HELLO_ROLLBACK_DURABLE_AUDIT_POLICY_AVAILABILITY_DRY_RUN_REASON);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_hash =
+            Some(durable_audit_policy_availability_dry_run.dry_run_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_source_audit_policy_availability_hash =
+            Some(durable_audit_policy_availability_dry_run.source_audit_policy_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_source_policy_ledger_availability_dry_run_hash =
+            Some(
+                durable_audit_policy_availability_dry_run
+                    .source_policy_ledger_availability_dry_run_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_source_policy_ledger_availability_hash =
+            Some(durable_audit_policy_availability_dry_run.source_policy_ledger_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_source_write_authority_availability_hash =
+            Some(durable_audit_policy_availability_dry_run.source_write_authority_availability_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_source_result_hash =
+            Some(
+                durable_audit_policy_availability_dry_run
+                    .source_ledger_aware_acceptance_result_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_source_ledger_candidate_hash =
+            Some(durable_audit_policy_availability_dry_run.source_ledger_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_source_policy_preflight_hash =
+            Some(durable_audit_policy_availability_dry_run.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_source_target_region_write_readback_hash =
+            Some(durable_audit_policy_availability_dry_run.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_source_authority_denial_gate_hash =
+            Some(durable_audit_policy_availability_dry_run.source_authority_denial_gate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_source_transaction_append_availability_decision_hash =
+            Some(
+                durable_audit_policy_availability_dry_run
+                    .source_transaction_append_availability_decision_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_target_start_lba =
+            Some(durable_audit_policy_availability_dry_run.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_target_lba_count =
+            Some(durable_audit_policy_availability_dry_run.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_target_byte_count =
+            Some(durable_audit_policy_availability_dry_run.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_audit_policy_availability_evidence_verified =
+            durable_audit_policy_availability_dry_run.audit_policy_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_policy_ledger_dry_run_evidence_verified =
+            durable_audit_policy_availability_dry_run.policy_ledger_dry_run_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_policy_ledger_availability_evidence_verified =
+            durable_audit_policy_availability_dry_run
+                .policy_ledger_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_write_authority_evidence_verified =
+            durable_audit_policy_availability_dry_run.write_authority_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_ledger_evidence_verified =
+            durable_audit_policy_availability_dry_run.ledger_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_media_write_policy_verified =
+            durable_audit_policy_availability_dry_run.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_target_region_write_readback_verified =
+            durable_audit_policy_availability_dry_run.target_region_write_readback_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_transaction_append_denial_gate_verified =
+            durable_audit_policy_availability_dry_run.transaction_append_denial_gate_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_target_span_verified =
+            durable_audit_policy_availability_dry_run.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_audit_rollback_target_ids_verified =
+            durable_audit_policy_availability_dry_run.audit_rollback_target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_test_media_write_authority_available =
+            durable_audit_policy_availability_dry_run
+                .test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_write_authority_available =
+            durable_audit_policy_availability_dry_run.write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_durable_policy_ledger_available =
+            durable_audit_policy_availability_dry_run.durable_policy_ledger_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_durable_audit_policy_available =
+            durable_audit_policy_availability_dry_run.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_durable_append_authority_available =
+            durable_audit_policy_availability_dry_run.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_transaction_append_available =
+            durable_audit_policy_availability_dry_run.transaction_append_available;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_authorizes_media_write =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_authorizes_transaction_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_write_attempted =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_applies_rollback =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_audit_policy_availability_dry_run_installs_rollback_state =
+            false;
+        let durable_append_authority_availability_dry_run =
+            hello_rollback_durable_append_authority_availability_dry_run(
+                durable_append_authority_availability,
+                durable_audit_policy_availability_dry_run,
+                transaction_append_authority_denial_gate,
+                target_region_write,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_schema =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_id =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_status =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_STATUS);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_reason =
+            Some(HELLO_ROLLBACK_DURABLE_APPEND_AUTHORITY_AVAILABILITY_DRY_RUN_REASON);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_hash =
+            Some(durable_append_authority_availability_dry_run.dry_run_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_append_authority_availability_hash =
+            Some(
+                durable_append_authority_availability_dry_run
+                    .source_append_authority_availability_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_audit_policy_availability_dry_run_hash =
+            Some(
+                durable_append_authority_availability_dry_run
+                    .source_audit_policy_availability_dry_run_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_audit_policy_availability_hash =
+            Some(
+                durable_append_authority_availability_dry_run
+                    .source_audit_policy_availability_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_policy_ledger_availability_dry_run_hash =
+            Some(
+                durable_append_authority_availability_dry_run
+                    .source_policy_ledger_availability_dry_run_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_policy_ledger_availability_hash =
+            Some(
+                durable_append_authority_availability_dry_run
+                    .source_policy_ledger_availability_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_write_authority_availability_hash =
+            Some(
+                durable_append_authority_availability_dry_run
+                    .source_write_authority_availability_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_result_hash =
+            Some(
+                durable_append_authority_availability_dry_run
+                    .source_ledger_aware_acceptance_result_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_ledger_candidate_hash =
+            Some(durable_append_authority_availability_dry_run.source_ledger_candidate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_policy_preflight_hash =
+            Some(durable_append_authority_availability_dry_run.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_target_region_write_readback_hash =
+            Some(
+                durable_append_authority_availability_dry_run
+                    .source_target_region_write_readback_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_authority_denial_gate_hash =
+            Some(durable_append_authority_availability_dry_run.source_authority_denial_gate_hash);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_source_transaction_append_availability_decision_hash =
+            Some(
+                durable_append_authority_availability_dry_run
+                    .source_transaction_append_availability_decision_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_target_start_lba =
+            Some(durable_append_authority_availability_dry_run.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_target_lba_count =
+            Some(durable_append_authority_availability_dry_run.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_target_byte_count =
+            Some(durable_append_authority_availability_dry_run.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_append_authority_availability_evidence_verified =
+            durable_append_authority_availability_dry_run
+                .append_authority_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_audit_policy_dry_run_evidence_verified =
+            durable_append_authority_availability_dry_run.audit_policy_dry_run_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_audit_policy_availability_evidence_verified =
+            durable_append_authority_availability_dry_run
+                .audit_policy_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_policy_ledger_dry_run_evidence_verified =
+            durable_append_authority_availability_dry_run.policy_ledger_dry_run_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_policy_ledger_availability_evidence_verified =
+            durable_append_authority_availability_dry_run
+                .policy_ledger_availability_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_write_authority_evidence_verified =
+            durable_append_authority_availability_dry_run.write_authority_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_ledger_evidence_verified =
+            durable_append_authority_availability_dry_run.ledger_evidence_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_media_write_policy_verified =
+            durable_append_authority_availability_dry_run.media_write_policy_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_target_region_write_readback_verified =
+            durable_append_authority_availability_dry_run.target_region_write_readback_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_transaction_append_denial_gate_verified =
+            durable_append_authority_availability_dry_run.transaction_append_denial_gate_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_target_span_verified =
+            durable_append_authority_availability_dry_run.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_audit_rollback_target_ids_verified =
+            durable_append_authority_availability_dry_run.audit_rollback_target_ids_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_test_media_write_authority_available =
+            durable_append_authority_availability_dry_run
+                .test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_write_authority_available =
+            durable_append_authority_availability_dry_run.write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_durable_policy_ledger_available =
+            durable_append_authority_availability_dry_run.durable_policy_ledger_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_durable_audit_policy_available =
+            durable_append_authority_availability_dry_run.durable_audit_policy_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_durable_append_authority_available =
+            durable_append_authority_availability_dry_run.durable_append_authority_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_transaction_append_available =
+            durable_append_authority_availability_dry_run.transaction_append_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_authorizes_media_write =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_authorizes_transaction_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_write_attempted =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_applies_rollback =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_availability_dry_run_installs_rollback_state =
+            false;
+        let transaction_append_dry_run = hello_rollback_transaction_append_dry_run(
+            transaction_append_authority_denial_gate,
+            append_record,
+            sector_plan,
+            target_region_write,
+        );
+        binding.rollback_transaction_writer_storage_transaction_append_dry_run_schema =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_SCHEMA);
+        binding.rollback_transaction_writer_storage_transaction_append_dry_run_id =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_ID);
+        binding.rollback_transaction_writer_storage_transaction_append_dry_run_status =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_STATUS);
+        binding.rollback_transaction_writer_storage_transaction_append_dry_run_reason =
+            Some(HELLO_ROLLBACK_TRANSACTION_APPEND_DRY_RUN_REASON);
+        binding.rollback_transaction_writer_storage_transaction_append_dry_run_hash =
+            Some(transaction_append_dry_run.dry_run_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_source_authority_denial_gate_hash =
+            Some(transaction_append_dry_run.source_authority_denial_gate_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_source_transaction_append_availability_decision_hash =
+            Some(
+                transaction_append_dry_run
+                    .source_transaction_append_availability_decision_hash,
+            );
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_source_append_record_hash =
+            Some(transaction_append_dry_run.source_append_record_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_source_sector_plan_hash =
+            Some(transaction_append_dry_run.source_sector_plan_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_source_target_region_write_readback_hash =
+            Some(transaction_append_dry_run.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_planned_sector_image_hash =
+            Some(transaction_append_dry_run.planned_sector_image_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_readback_sector_image_hash =
+            Some(transaction_append_dry_run.readback_sector_image_hash);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding.rollback_transaction_writer_storage_transaction_append_dry_run_target_start_lba =
+            Some(transaction_append_dry_run.target_start_lba);
+        binding.rollback_transaction_writer_storage_transaction_append_dry_run_target_lba_count =
+            Some(transaction_append_dry_run.target_lba_count);
+        binding.rollback_transaction_writer_storage_transaction_append_dry_run_target_byte_count =
+            Some(transaction_append_dry_run.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_authority_denial_gate_verified =
+            transaction_append_dry_run.authority_denial_gate_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_target_span_verified =
+            transaction_append_dry_run.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_target_region_write_readback_verified =
+            transaction_append_dry_run.target_region_write_readback_verified;
+        binding.rollback_transaction_writer_storage_transaction_append_dry_run_append_image_ready =
+            transaction_append_dry_run.append_image_ready;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_blocked_by_authority_denial_gate =
+            transaction_append_dry_run.blocked_by_authority_denial_gate;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_test_media_write_authority_available =
+            transaction_append_dry_run.test_infrastructure_media_write_authority_available;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_transaction_append_available =
+            transaction_append_dry_run.transaction_append_available;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_authorizes_media_write =
+            false;
+        binding.rollback_transaction_writer_storage_transaction_append_dry_run_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_authorizes_transaction_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_transaction_append_dry_run_transaction_append_attempted =
+            false;
+        let target_region_sector_inspection =
+            hello_rollback_target_region_sector_inspection_from_retained_inspect(
+                append_record,
+                sector_plan,
+                target_region_write,
+            );
+        binding.rollback_transaction_writer_storage_target_region_sector_inspection_schema =
+            Some(HELLO_ROLLBACK_TARGET_REGION_SECTOR_INSPECTION_SCHEMA);
+        binding.rollback_transaction_writer_storage_target_region_sector_inspection_id =
+            Some(HELLO_ROLLBACK_TARGET_REGION_SECTOR_INSPECTION_ID);
+        binding.rollback_transaction_writer_storage_target_region_sector_inspection_status =
+            Some(target_region_sector_inspection.status);
+        binding.rollback_transaction_writer_storage_target_region_sector_inspection_reason =
+            Some(target_region_sector_inspection.reason);
+        binding.rollback_transaction_writer_storage_target_region_sector_inspection_hash =
+            Some(target_region_sector_inspection.inspection_hash);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_source_sector_plan_hash =
+            Some(target_region_sector_inspection.source_sector_plan_hash);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_source_target_region_write_readback_hash =
+            Some(target_region_sector_inspection.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_expected_sector_image_hash =
+            Some(target_region_sector_inspection.expected_sector_image_hash);
+        binding.rollback_transaction_writer_storage_target_region_sector_inspection_sector_image_hash =
+            Some(target_region_sector_inspection.sector_image_hash);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_audit_record_image_hash =
+            Some(target_region_sector_inspection.audit_record_image_hash);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_rollback_transaction_image_hash =
+            Some(target_region_sector_inspection.rollback_transaction_image_hash);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_target_start_lba =
+            Some(target_region_sector_inspection.target_start_lba);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_target_lba_count =
+            Some(target_region_sector_inspection.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_target_byte_count =
+            Some(target_region_sector_inspection.target_byte_count);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_audit_record_offset =
+            Some(target_region_sector_inspection.audit_record_offset);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_audit_record_byte_length =
+            Some(target_region_sector_inspection.audit_record_byte_length);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_rollback_transaction_offset =
+            Some(target_region_sector_inspection.rollback_transaction_offset);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_rollback_transaction_byte_length =
+            Some(target_region_sector_inspection.rollback_transaction_byte_length);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_padding_offset =
+            Some(target_region_sector_inspection.padding_offset);
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_padding_byte_length =
+            Some(target_region_sector_inspection.padding_byte_length);
+        binding.rollback_transaction_writer_storage_target_region_sector_inspection_label_found =
+            target_region_sector_inspection.label_found;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_read_attempted =
+            target_region_sector_inspection.read_attempted;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_read_completed =
+            target_region_sector_inspection.read_completed;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_sector_hash_verified =
+            target_region_sector_inspection.sector_hash_verified;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_audit_record_hash_verified =
+            target_region_sector_inspection.audit_record_hash_verified;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_rollback_transaction_hash_verified =
+            target_region_sector_inspection.rollback_transaction_hash_verified;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_offsets_verified =
+            target_region_sector_inspection.offsets_verified;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_padding_zeroed =
+            target_region_sector_inspection.padding_zeroed;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_target_span_verified =
+            target_region_sector_inspection.target_span_verified;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_target_region_write_readback_verified =
+            target_region_sector_inspection.target_region_write_readback_verified;
+        binding.rollback_transaction_writer_storage_target_region_sector_inspection_verified =
+            target_region_sector_inspection.inspection_verified;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_authorizes_media_write =
+            false;
+        binding.rollback_transaction_writer_storage_target_region_sector_inspection_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_target_region_sector_inspection_installs_rollback_state =
+            false;
+        let recovery_rollback_inspect_source_reference_state =
+            recovery_rollback_inspect_source_reference_state(target_region_sector_inspection);
+        let recovery_rollback_inspect_source_reference =
+            recovery_rollback_inspect_source_reference_state.reference;
+        let recovery_rollback_inspect_source_reference_available =
+            recovery_rollback_inspect_source_reference_state.ram_audit_validated;
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_schema =
+            Some(HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SCHEMA);
+        binding.rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_id =
+            Some(HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_ID);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_status =
+            Some(recovery_rollback_inspect_source_reference_state.status);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_reason =
+            Some(recovery_rollback_inspect_source_reference_state.reason);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_method =
+            Some("recovery.rollback_inspect");
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_event_id =
+            recovery_rollback_inspect_source_reference.map(|reference| reference.event_id);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_audit_event_id =
+            recovery_rollback_inspect_source_reference.map(|reference| reference.audit_event_id);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_hash =
+            recovery_rollback_inspect_source_reference.map(|reference| reference.reference_hash);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_inspection_hash =
+            recovery_rollback_inspect_source_reference.map(|reference| reference.inspection_hash);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_target_region_sector_inspection_hash =
+            Some(target_region_sector_inspection.inspection_hash);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_source_sector_plan_hash =
+            recovery_rollback_inspect_source_reference
+                .map(|reference| reference.source_sector_plan_hash);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_source_target_region_write_readback_hash =
+            recovery_rollback_inspect_source_reference
+                .map(|reference| reference.source_target_region_write_readback_hash);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_available =
+            recovery_rollback_inspect_source_reference_available;
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_matches_sector_inspection =
+            recovery_rollback_inspect_source_reference_available;
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_ram_audit_status =
+            Some(recovery_rollback_inspect_source_reference_state.ram_audit_status);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_ram_audit_reason =
+            Some(recovery_rollback_inspect_source_reference_state.ram_audit_reason);
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_source_event_retained =
+            recovery_rollback_inspect_source_reference_state.source_event_retained;
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_audit_event_retained =
+            recovery_rollback_inspect_source_reference_state.audit_event_retained;
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_ram_audit_validated =
+            recovery_rollback_inspect_source_reference_state.ram_audit_validated;
+        binding
+            .rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_authorizes_rollback_apply =
+            false;
+        let durable_policy_write_authority_decision =
+            hello_rollback_durable_policy_write_authority_decision(
+                durable_append_authority_availability_dry_run,
+                durable_audit_policy_write_authority_availability,
+                durable_audit_policy_availability,
+                durable_append_authority_availability,
+                transaction_append_dry_run,
+                target_region_sector_inspection,
+            );
+        binding
+            .rollback_transaction_writer_storage_durable_policy_write_authority_decision_schema =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_id =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_write_authority_decision_status =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_STATUS);
+        binding
+            .rollback_transaction_writer_storage_durable_policy_write_authority_decision_reason =
+            Some(HELLO_ROLLBACK_DURABLE_POLICY_WRITE_AUTHORITY_DECISION_REASON);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_hash =
+            Some(durable_policy_write_authority_decision.decision_hash);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_source_durable_append_authority_availability_dry_run_hash =
+            Some(
+                durable_policy_write_authority_decision
+                    .source_durable_append_authority_availability_dry_run_hash,
+            );
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_source_transaction_append_dry_run_hash =
+            Some(durable_policy_write_authority_decision.source_transaction_append_dry_run_hash);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_source_target_region_sector_inspection_hash =
+            Some(
+                durable_policy_write_authority_decision
+                    .source_target_region_sector_inspection_hash,
+            );
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_source_write_authority_availability_hash =
+            Some(durable_policy_write_authority_decision.source_write_authority_availability_hash);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_source_audit_policy_availability_hash =
+            Some(durable_policy_write_authority_decision.source_audit_policy_availability_hash);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_source_durable_append_authority_availability_hash =
+            Some(
+                durable_policy_write_authority_decision
+                    .source_durable_append_authority_availability_hash,
+            );
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_source_authority_denial_gate_hash =
+            Some(durable_policy_write_authority_decision.source_authority_denial_gate_hash);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_source_transaction_append_availability_decision_hash =
+            Some(
+                durable_policy_write_authority_decision
+                    .source_transaction_append_availability_decision_hash,
+            );
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_audit_ledger_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_audit_record_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_rollback_store_target_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_rollback_transaction_schema =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_target_start_lba =
+            Some(durable_policy_write_authority_decision.target_start_lba);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_target_lba_count =
+            Some(durable_policy_write_authority_decision.target_lba_count);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_target_byte_count =
+            Some(durable_policy_write_authority_decision.target_byte_count);
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_transaction_append_dry_run_verified =
+            durable_policy_write_authority_decision.transaction_append_dry_run_verified;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_target_region_sector_inspection_verified =
+            durable_policy_write_authority_decision.target_region_sector_inspection_verified;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_write_authority_evidence_verified =
+            durable_policy_write_authority_decision.write_authority_evidence_verified;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_audit_policy_availability_evidence_verified =
+            durable_policy_write_authority_decision.audit_policy_availability_evidence_verified;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_durable_append_authority_availability_evidence_verified =
+            durable_policy_write_authority_decision
+                .durable_append_authority_availability_evidence_verified;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_target_span_verified =
+            durable_policy_write_authority_decision.target_span_verified;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_test_media_write_authority_available =
+            durable_policy_write_authority_decision
+                .test_infrastructure_media_write_authority_available;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_write_authority_available =
+            durable_policy_write_authority_decision.write_authority_available;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_durable_policy_ledger_available =
+            durable_policy_write_authority_decision.durable_policy_ledger_available;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_durable_audit_policy_available =
+            durable_policy_write_authority_decision.durable_audit_policy_available;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_durable_append_authority_available =
+            durable_policy_write_authority_decision.durable_append_authority_available;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_transaction_append_available =
+            durable_policy_write_authority_decision.transaction_append_available;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_authorizes_media_write =
+            false;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_authorizes_append =
+            false;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_authorizes_transaction_append =
+            false;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_writes_durable_audit_log =
+            false;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_writes_rollback_store =
+            false;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_appends_rollback_transaction =
+            false;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_write_attempted =
+            false;
+        binding.rollback_transaction_writer_storage_durable_policy_write_authority_decision_applies_rollback =
+            false;
+        binding.rollback_transaction_writer_storage_target_region_write_readback_dry_run_schema =
+            Some(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_SCHEMA);
+        binding.rollback_transaction_writer_storage_target_region_write_readback_dry_run_id =
+            Some(HELLO_ROLLBACK_TARGET_REGION_WRITE_READBACK_DRY_RUN_ID);
+        binding.rollback_transaction_writer_storage_target_region_write_readback_dry_run_status =
+            Some(target_region_write.status);
+        binding.rollback_transaction_writer_storage_target_region_write_readback_dry_run_reason =
+            Some(target_region_write.reason);
+        binding.rollback_transaction_writer_storage_target_region_write_readback_dry_run_hash =
+            Some(target_region_write.dry_run_hash);
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_source_sector_plan_hash =
+            Some(target_region_write.source_sector_plan_hash);
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_source_policy_preflight_hash =
+            Some(target_region_write.source_policy_preflight_hash);
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_planned_image_hash =
+            Some(target_region_write.planned_sector_image_hash);
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_readback_image_hash =
+            Some(target_region_write.readback_sector_image_hash);
+        binding.rollback_transaction_writer_storage_target_region_write_readback_target_start_lba =
+            Some(target_region_write.target_start_lba);
+        binding.rollback_transaction_writer_storage_target_region_write_readback_target_lba_count =
+            Some(target_region_write.target_lba_count);
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_target_byte_count =
+            Some(target_region_write.target_byte_count);
+        binding.rollback_transaction_writer_storage_target_region_write_readback_label_found =
+            target_region_write.label_found;
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_target_range_ready =
+            target_region_write.target_range_ready;
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_test_media_write_authority_available =
+            target_region_write.test_infrastructure_media_write_authority_available;
+        binding.rollback_transaction_writer_storage_target_region_write_readback_write_attempted =
+            target_region_write.write_attempted;
+        binding.rollback_transaction_writer_storage_target_region_write_readback_write_completed =
+            target_region_write.write_completed;
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_readback_completed =
+            target_region_write.readback_completed;
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_matches_planned_image =
+            target_region_write.readback_matches_planned_image;
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_authorizes_media_write =
+            false;
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_appends_rollback_transaction =
+            false;
+        binding
+            .rollback_transaction_writer_storage_target_region_write_readback_installs_rollback_state =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_discovery_schema =
+            Some(durable_append_preflight.target_region_discovery.schema);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_discovery_id =
+            Some(durable_append_preflight.target_region_discovery.id);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_discovery_status =
+            Some(durable_append_preflight.target_region_discovery.status);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_discovery_reason =
+            Some(durable_append_preflight.target_region_discovery.reason);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_discovery_source =
+            Some(durable_append_preflight.target_region_discovery.source);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_partition_inventory_scheme =
+            Some(durable_append_preflight.target_region_discovery.partition_inventory_scheme);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_partition_entry_count =
+            Some(durable_append_preflight.target_region_discovery.partition_entry_count as u64);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_mbr_signature_valid =
+            durable_append_preflight.target_region_discovery.mbr_signature_valid;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_candidate_present =
+            durable_append_preflight.target_region_discovery.candidate_region_present;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_candidate_is_scratch =
+            durable_append_preflight.target_region_discovery.candidate_region_is_scratch;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_candidate_overlaps_boot_metadata =
+            durable_append_preflight.target_region_discovery.candidate_overlaps_boot_metadata;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_candidate_overlaps_scratch =
+            durable_append_preflight.target_region_discovery.candidate_overlaps_scratch;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_scratch_rejected_as_durable_authority =
+            durable_append_preflight
+                .target_region_discovery
+                .scratch_rejected_as_durable_authority;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_target_region_durable_region_available =
+            durable_append_preflight.target_region_discovery.durable_region_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_audit_writer_fact_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_rollback_writer_fact_id =
+            Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_scratch_write_readback_verified =
+            durable_append_preflight.scratch_write_readback_verified;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_scratch_used_as_durable_authority =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_durable_audit_writer_available =
+            durable_append_preflight.durable_audit_writer_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_rollback_store_writer_available =
+            durable_append_preflight.rollback_store_writer_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_transaction_append_writer_available =
+            durable_append_preflight.transaction_append_writer_available;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_authorizes_append =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_writes_durable_audit_log =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_writes_rollback_store =
+            false;
+        binding
+            .rollback_transaction_writer_storage_durable_append_authority_preflight_appends_rollback_transaction =
+            false;
+        binding.rollback_transaction_writer_storage_layout_status =
+            Some(foundation.storage_layout_status);
+        binding.rollback_transaction_writer_storage_layout_reason =
+            Some(foundation.storage_layout_reason);
+        binding.rollback_transaction_writer_storage_append_engine_status =
+            Some(foundation.append_engine_status);
+        binding.rollback_transaction_writer_storage_append_engine_reason =
+            Some(foundation.append_engine_reason);
+        binding.rollback_transaction_writer_storage_append_contract_status =
+            Some(foundation.append_contract_status);
+        binding.rollback_transaction_writer_storage_append_contract_reason =
+            Some(foundation.append_contract_reason);
+        binding.rollback_transaction_writer_storage_transaction_envelope_status =
+            Some(foundation.rollback_transaction_envelope_status);
+        binding.rollback_transaction_writer_storage_transaction_envelope_reason =
+            Some(foundation.rollback_transaction_envelope_reason);
+        binding.rollback_transaction_writer_storage_transaction_writer_available =
+            foundation.transaction_writer_available;
+        binding.rollback_transaction_writer_storage_durable_audit_store_available =
+            foundation.durable_audit_store_available;
+        binding.rollback_transaction_writer_storage_rollback_store_available =
+            foundation.rollback_store_available;
+        binding.rollback_transaction_writer_storage_append_available =
+            foundation.rollback_transaction_append_available;
+    }
+}

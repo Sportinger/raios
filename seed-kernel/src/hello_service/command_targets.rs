@@ -1,0 +1,161 @@
+use super::*;
+
+pub(crate) fn load_request(method: &str) -> Option<LoadRequest> {
+    load_request_for_head(method, "module.load_ephemeral")
+        .or_else(|| load_request_for_head(method, "service.load_ephemeral"))
+}
+
+pub(crate) fn hot_swap_request(method: &str) -> Option<LoadRequest> {
+    load_request_for_head(method, "service.hot_swap")
+}
+
+pub(crate) fn load_request_for_head(method: &str, head: &'static str) -> Option<LoadRequest> {
+    let method = method.trim();
+    if !method_head_eq(method, head) {
+        return None;
+    }
+    let target = method[head.len()..].trim();
+    let descriptor = verified_load_descriptor_for_target(target, head == "service.hot_swap")?;
+    Some(LoadRequest {
+        source_method: head,
+        descriptor,
+    })
+}
+
+pub(crate) fn verified_load_descriptor_for_target(
+    target: &str,
+    allow_replacement: bool,
+) -> Option<LoadDescriptor> {
+    let source = descriptor_source_for_target(target)?;
+    if !descriptor_sources::validate_descriptor_source(source) {
+        return None;
+    }
+    let replacement_target = replacement_target_matches(target);
+    let artifact_identity = if allow_replacement && replacement_target {
+        descriptor_sources::hello_builtin_artifact_identity_v2()
+    } else {
+        descriptor_sources::hello_builtin_artifact_identity()
+    };
+    let descriptor = load_descriptor_from_source(source, artifact_identity);
+    if !descriptor_sources::validate_builtin_hello_artifact_identity(descriptor.artifact_identity) {
+        return None;
+    }
+    if descriptor_target_matches(target, descriptor)
+        || descriptor_source_target_matches(target, source)
+        || (allow_replacement && replacement_target)
+    {
+        Some(descriptor)
+    } else {
+        None
+    }
+}
+
+pub(crate) fn descriptor_source_for_target(
+    target: &str,
+) -> Option<descriptor_sources::DescriptorSourceRecord> {
+    if descriptor_source_target_matches_locator(
+        target,
+        descriptor_sources::HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR,
+    ) || target.eq_ignore_ascii_case("host_bound:svc.demo.hello")
+    {
+        descriptor_sources::lookup_host_bound_descriptor_source(LOAD_DESCRIPTOR_ID)
+    } else {
+        descriptor_sources::lookup_current_image_descriptor_source(LOAD_DESCRIPTOR_ID)
+    }
+}
+
+pub(crate) fn load_descriptor_from_source(
+    source: descriptor_sources::DescriptorSourceRecord,
+    artifact_identity: descriptor_sources::ArtifactIdentityRecord,
+) -> LoadDescriptor {
+    LoadDescriptor {
+        schema: source.schema,
+        id: source.id,
+        canonicalization: source.canonicalization,
+        source_locator: source.locator,
+        source_kind: source.kind,
+        binds_source_locator: source.binds_source_locator,
+        binds_source_kind: source.binds_source_kind,
+        binds_source_hash: source.binds_source_hash,
+        source_text: source.text,
+        source_envelope: source.signed_envelope,
+        artifact_identity,
+        service_id: source.service_id,
+        artifact_id: source.artifact_id,
+        artifact_kind: source.artifact_kind,
+        scope: source.scope,
+        classification: source.classification,
+        persistence: source.persistence,
+    }
+}
+
+pub(crate) fn descriptor_source_target_matches(
+    target: &str,
+    source: descriptor_sources::DescriptorSourceRecord,
+) -> bool {
+    descriptor_source_target_matches_locator(target, source.locator)
+        || (source.locator == descriptor_sources::HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR
+            && target.eq_ignore_ascii_case("host_bound:svc.demo.hello"))
+}
+
+pub(crate) fn descriptor_source_target_matches_locator(target: &str, locator: &str) -> bool {
+    target.eq_ignore_ascii_case(locator)
+}
+
+pub(crate) fn replacement_target_matches(target: &str) -> bool {
+    target.eq_ignore_ascii_case("svc.demo.hello.v2")
+        || target.eq_ignore_ascii_case("hello.v2")
+        || target.eq_ignore_ascii_case(descriptor_sources::HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID)
+}
+
+pub(crate) fn reset_state_hot_swap_target(method: &str) -> bool {
+    let method = method.trim();
+    if !method_head_eq(method, "service.hot_swap") {
+        return false;
+    }
+    let target = method["service.hot_swap".len()..].trim();
+    target.eq_ignore_ascii_case("svc.demo.hello.reset_state")
+        || target.eq_ignore_ascii_case("hello.reset_state")
+}
+
+pub(crate) fn target_arg_matches(method: &str, head: &str) -> bool {
+    let method = method.trim();
+    if !method_head_eq(method, head) {
+        return false;
+    }
+    let target = method[head.len()..].trim();
+    descriptor_target_matches(target, LOAD_DESCRIPTOR)
+}
+
+pub(crate) fn descriptor_target_matches(target: &str, descriptor: LoadDescriptor) -> bool {
+    target.eq_ignore_ascii_case(descriptor.service_id)
+        || target.eq_ignore_ascii_case("hello")
+        || target.eq_ignore_ascii_case(descriptor.artifact_id)
+        || target.eq_ignore_ascii_case(descriptor.id)
+}
+
+pub(crate) fn health_state(snapshot: Snapshot) -> &'static str {
+    if snapshot.running {
+        "healthy"
+    } else if snapshot.loaded {
+        "stopped"
+    } else {
+        "missing"
+    }
+}
+
+pub(crate) fn service_slot_activation_status(snapshot: Snapshot) -> &'static str {
+    if snapshot.running {
+        SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS
+    } else if snapshot.loaded {
+        SERVICE_SLOT_ACTIVATION_STOPPED_STATUS
+    } else if snapshot.last_action == "drop" && snapshot.last_reason == "dropped" {
+        SERVICE_SLOT_ACTIVATION_CLEARED_STATUS
+    } else {
+        SERVICE_SLOT_ACTIVATION_MISSING_STATUS
+    }
+}
+
+pub(crate) fn service_slot_activation_active(snapshot: Snapshot) -> bool {
+    snapshot.loaded
+}

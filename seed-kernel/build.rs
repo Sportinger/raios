@@ -2,8 +2,26 @@ use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::{env, fmt::Write as _, fs, path::PathBuf};
 
-// Ordered repo-relative artifact source-set manifest; hash every entry in this order.
-const HELLO_ARTIFACT_SOURCE_SET: &[&str] = &["seed-kernel/src/hello_service.rs"];
+// Ordered repo-relative artifact source-set manifest; root first, then modules
+// in declaration order from seed-kernel/src/hello_service.rs.
+const HELLO_ARTIFACT_SOURCE_SET: &[&str] = &[
+    "seed-kernel/src/hello_service.rs",
+    "seed-kernel/src/hello_service/constants.rs",
+    "seed-kernel/src/hello_service/records.rs",
+    "seed-kernel/src/hello_service/descriptor_identity.rs",
+    "seed-kernel/src/hello_service/state_records.rs",
+    "seed-kernel/src/hello_service/rollback_hashes_a.rs",
+    "seed-kernel/src/hello_service/rollback_hashes_b.rs",
+    "seed-kernel/src/hello_service/storage_gate_hash.rs",
+    "seed-kernel/src/hello_service/preflight.rs",
+    "seed-kernel/src/hello_service/hash_support.rs",
+    "seed-kernel/src/hello_service/runtime.rs",
+    "seed-kernel/src/hello_service/state_machine.rs",
+    "seed-kernel/src/hello_service/rollback_bindings.rs",
+    "seed-kernel/src/hello_service/command_targets.rs",
+    "seed-kernel/src/hello_service/lifecycle_binding.rs",
+    "seed-kernel/src/hello_service/emitters.rs",
+];
 
 fn main() {
     println!("cargo:rerun-if-env-changed=RAIOS_DEFAULT_OPENAI_API_KEY");
