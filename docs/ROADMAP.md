@@ -17,7 +17,16 @@ vocabulary).
 
 Last updated: 2026-07-05.
 
-Current milestone: **M1 Testable Core** (see Capability Milestones).
+Current milestone: **M2 Ceremony Collapse** (see Capability Milestones).
+
+**M1 Testable Core closed 2026-07-05.** Capability sentence verified:
+`raios-core` host tests pass in <1s (`cargo test --locked -p raios-core`,
+9/9), and a second machine (GitHub Actions) builds AND smokes every
+commit — run 28734873106 all green: host tests 15s, pinned kernel build
+1m11s, headless QEMU quick profile 5m39s with report artifact. Slices:
+M1-1 (`772003b`), M1-2 (`836d622`), M1-3 (`d57243b`), M1-3b
+(`9db5321` + CRLF fix `943a9a0` — Windows checkout CRLF conversion broke
+the signed source snapshots; forced LF).
 
 **M0 Stabilize closed 2026-07-05.** Evidence: honest committed tree
 (`0ee066e`, `9df2044`, `a6a8f56`, `e3984fb`); full profile green
@@ -45,23 +54,17 @@ sha256 duplicate stays until M2 — replacing it invalidates the signed
 Hello source snapshot (`artifact_content_source_sha256`); that dedup
 belongs to the M2 de-hello-ify slice.
 
-Slice M1-3 done (2026-07-05): origin divergence resolved (the two
-remote-only commits were owner README tagline edits, merged in
-`0f144c4`); `.github/workflows/ci.yml` runs `cargo test --locked -p
-raios-core` plus the pinned `nightly-2024-10-15` build-std kernel release
-build on every push/PR and uploads the kernel ELF. First run GREEN:
-https://github.com/Sportinger/raios/actions/runs/28734704673 (host tests
-16s, kernel build 1m11s).
-
 Exact next task:
 
 ```text
-Slice M1-3b (closes M1): add the headless QEMU quick profile to CI so a
-second machine also SMOKES every commit (M1 capability sentence).
-Windows runner + QEMU install, or port the harness path assumptions
-(C:\Program Files\qemu, $env:TEMP) to a configurable QEMU path for
-ubuntu+pwsh. TCG will be slow — budget generous timeouts. Then close M1;
-open M2 (ceremony collapse).
+Open M2 with a scoping slice: define the Value/record model design (one
+typed record structure, one JSON serializer, one canonical hasher over
+the same structure) as a raios-core module with host tests, WITHOUT
+porting any kernel emitter yet. Then port the first small gate/emitter
+slice-by-slice; every porting slice must delete more lines than it adds
+and keep serial output byte-identical (golden-string harness needles are
+the proof). De-hello-ify and the hello_service.rs sha256 dedup (signed
+snapshot chain update) land inside M2.
 ```
 
 ## Capability Milestones

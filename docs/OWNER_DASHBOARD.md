@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-05 (M0 closed; M1 first slice landed).
+Updated: 2026-07-05 (M0 and M1 closed in one day; M2 opened).
 
 ## What raiOS can actually do today
 
@@ -29,18 +29,19 @@ Updated: 2026-07-05 (M0 closed; M1 first slice landed).
 
 ## Current milestone
 
-**M0 Stabilize is DONE** (2026-07-05). New since last update: every test
-run now records exactly WHY it died (VM crashed — with exit code — vs
-connection glitch), and a dead VM fails the run in seconds instead of
-wasting 7 minutes. Failures can no longer be misfiled as "flaky tests".
+**M0 and M1 are DONE** (2026-07-05). What that means concretely:
+- Test runs record exactly WHY they died (VM crash w/ exit code vs
+  connection glitch); a dead VM fails in seconds, not 7 minutes (M0).
+- Kernel logic lives in a `raios-core` library tested on a normal PC in
+  under a second — previously every logic check needed a VM boot (M1).
+- GitHub now automatically builds the kernel, runs the tests, AND boots
+  the OS in a VM with 417 checks on EVERY commit (all green, ~7 min).
+  A bonus: the signed-source protection proved itself by correctly
+  rejecting a mis-configured build machine on the first CI attempt.
 
-Now active: **M1 Testable Core**, nearly done. The new `raios-core`
-library holds shared kernel logic and the protocol parsers, tested on
-the normal PC in under a second (previously: full VM boot needed).
-NEW: every commit is now built and tested automatically by GitHub (first
-run green). The repo-copy mismatch is resolved — the 2 online-only
-commits were your own README edits, merged safely. Last M1 step: the
-automatic check also boots the OS in a VM (M1-3b), then M1 closes.
+Now active: **M2 Ceremony Collapse** — shrink the agent layer ~10x by
+replacing 535 hand-written data-format emitters with ONE typed record
+model, with byte-identical output proven by the existing test needles.
 
 ## Top risk
 

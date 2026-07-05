@@ -2425,14 +2425,27 @@ the kernel ELF artifact. First CI run GREEN:
 https://github.com/Sportinger/raios/actions/runs/28734704673 — host tests
 16s, kernel build 1m11s.
 
-Current exact next task (milestone M1 Testable Core, `docs/ROADMAP.md`):
-slice M1-3b, which closes M1 — add the headless QEMU quick profile to CI
-so a second machine also smokes every commit (the M1 capability
-sentence). Approach: Windows runner with QEMU installed, or make the
-QEMU path configurable in `scripts/run-stage0-qemu.ps1` (currently
-hardcoded `C:\Program Files\qemu\...`) and run the PowerShell harness
-under pwsh on ubuntu. Expect TCG (no hardware accel) — use generous
-timeouts and the quick profile only. Then close M1 and open M2.
+RESOLVED 2026-07-05: slice M1-3b landed and **M1 Testable Core is
+closed**. The `vm-smoke` CI job (windows-latest, chocolatey QEMU) runs
+the headless quick profile on every push and uploads the report artifact
+even on failure. First attempt failed honestly: Windows checkout CRLF
+conversion changed the raw source bytes and the seed-kernel build script
+correctly rejected the P-256 signed source snapshots
+(`signature::Error`); fixed by forcing `core.autocrlf false` before
+checkout (`943a9a0`). Green run 28734873106: host tests 15s, kernel
+build 1m11s, VM quick profile 5m39s. M1 capability sentence verified:
+kernel logic passes as host `cargo test` in under a second, and a second
+machine builds and smokes every commit.
+
+Current exact next task (milestone M2 Ceremony Collapse,
+`docs/ROADMAP.md`): opening slice — design the single `Value`/record
+model in `raios-core` (typed record structure + one JSON serializer +
+one canonical hasher over the same structure) with host tests only; no
+kernel emitter ported yet. Subsequent slices port gates one at a time,
+must delete more lines than they add, and must keep serial output
+byte-identical (harness needles as proof). The `hello_service.rs` dedup
+and de-hello-ification (including the signed source snapshot chain
+update) belong to M2.
 Keep persistence, durable audit writes, rollback-store writes, transaction
 append, rollback application, external unsigned artifact intake, executable
 candidate-byte mapping, provider auto-load, broad mutation, and installed
