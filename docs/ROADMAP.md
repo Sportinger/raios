@@ -72,13 +72,21 @@ the recovery profile (`shadow-20260705-105605-12660.json`, 3644/3644,
 859 selftest predicates). Net line delta -1 (the one-time SerialSink
 adapter cost is now paid; subsequent ports should delete heavily).
 
+Slice M2-3 done (2026-07-05): batch port of
+`agent_protocol_recovery_command_handler_emit.rs`,
+`agent_protocol_recovery_status_handler_emit.rs`,
+`agent_protocol_recovery_rollback_preview_emit.rs` (net -25 lines);
+recovery profile byte-identical (`shadow-20260705-111122-15364.json`,
+3644/3644).
+
 Exact next task:
 
 ```text
-Port the next batch of small recovery emit modules (~150-250 lines each,
-no hash participation) onto raios_core::record via SerialSink, one
-worker packet per 2-3 modules; each slice must delete more lines than it
-adds and pass the recovery (or matching focused) profile byte-identical.
+Continue batch-porting recovery emit modules onto raios_core::record
+(next: command_dispatch_emit, command_admission_emit,
+command_effect_emit, load_binding_emit — 2-3 per worker packet, skip
+hash-coupled ones with a report); each slice deletes more than it adds
+and passes the recovery profile byte-identical.
 ```
 
 ## Capability Milestones

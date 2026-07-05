@@ -1,84 +1,79 @@
+use alloc::vec;
+
 use crate::{
     agent_protocol_recovery_command_authorization_types::{
         RecoveryLifelineStatusReadHandlerReferenceCheck,
         RecoveryLifelineStatusReadHandlerSelfTestCase,
     },
     agent_protocol_support::{
-        crlf, json_event_id, json_event_id_option, json_opt_str, json_sha256, json_sha256_option,
-        json_str, raw, raw_bool, raw_line,
+        emit_inline_record_object, emit_record_property, record_event_or_null, record_sha_or_null,
+        record_str_or_null,
     },
     event_log,
 };
+use raios_core::record::{Field, Value};
 
 pub(crate) fn emit_recovery_lifeline_status_read_handler_reference_object(
     check: &RecoveryLifelineStatusReadHandlerReferenceCheck<'_>,
 ) {
-    raw_line("      \"status_read_handler_reference\": {");
-    raw("        \"status\": ");
-    json_str(check.status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"has_reference\": ");
-    raw_bool(check.has_reference);
-    raw_line(",");
-    raw("        \"arity_valid\": ");
-    raw_bool(check.arity_valid);
-    raw_line(",");
-    raw("        \"scope\": ");
-    json_str(check.scope);
-    raw_line(",");
-    raw("        \"command_id\": ");
-    json_opt_str(check.command_id);
-    raw_line(",");
-    raw("        \"argument_schema\": ");
-    json_opt_str(check.argument_schema);
-    raw_line(",");
-    raw("        \"target_locator\": ");
-    json_opt_str(check.target_locator);
-    raw_line(",");
-    raw("        \"command_dispatch_boundary_id\": ");
-    json_opt_str(check.command_dispatch_boundary_id);
-    raw_line(",");
-    raw("        \"status_handler_id\": ");
-    json_opt_str(check.status_handler_id);
-    raw_line(",");
-    raw("        \"retained_recovery_lifeline_command_handler_binding_event_id\": ");
-    json_opt_str(check.retained_command_handler_binding_event_id);
-    raw_line(",");
-    raw("        \"argument_hash\": ");
-    json_sha256_option(check.argument_hash);
-    raw_line(",");
-    raw("        \"command_envelope_reference_hash\": ");
-    json_sha256_option(check.command_envelope_reference_hash);
-    raw_line(",");
-    raw("        \"command_body_canonicalization_hash\": ");
-    json_sha256_option(check.command_body_canonicalization_hash);
-    raw_line(",");
-    raw("        \"handler_binding_hash\": ");
-    json_sha256_option(check.handler_binding_hash);
-    raw_line(",");
-    raw("        \"status_read_projection_hash\": ");
-    json_sha256_option(check.status_read_projection_hash);
-    raw_line(",");
-    raw("        \"status_read_handler_hash\": ");
-    json_sha256_option(check.status_read_handler_hash);
-    raw_line(",");
-    raw("        \"expected_status_read_handler_hash\": ");
-    json_sha256_option(check.expected_status_read_handler_hash);
-    raw_line(",");
-    raw("        \"valid_hash_reference\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw_line("        \"accepts_raw_command_body\": false,");
-    raw_line("        \"accepts_lifeline_command_body\": false,");
-    raw_line("        \"dispatches_lifeline_command\": false,");
-    raw_line("        \"executes_lifeline_status\": false,");
-    raw_line("        \"command_execution_enabled\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"load_attempted\": false");
-    raw("      }");
+    emit_record_property(
+        "status_read_handler_reference",
+        vec![
+            Field::new("status", Value::Str(check.status)),
+            Field::new("reason", Value::Str(check.reason)),
+            Field::new("has_reference", Value::Bool(check.has_reference)),
+            Field::new("arity_valid", Value::Bool(check.arity_valid)),
+            Field::new("scope", Value::Str(check.scope)),
+            Field::new("command_id", record_str_or_null(check.command_id)),
+            Field::new("argument_schema", record_str_or_null(check.argument_schema)),
+            Field::new("target_locator", record_str_or_null(check.target_locator)),
+            Field::new(
+                "command_dispatch_boundary_id",
+                record_str_or_null(check.command_dispatch_boundary_id),
+            ),
+            Field::new(
+                "status_handler_id",
+                record_str_or_null(check.status_handler_id),
+            ),
+            Field::new(
+                "retained_recovery_lifeline_command_handler_binding_event_id",
+                record_str_or_null(check.retained_command_handler_binding_event_id),
+            ),
+            Field::new("argument_hash", record_sha_or_null(check.argument_hash)),
+            Field::new(
+                "command_envelope_reference_hash",
+                record_sha_or_null(check.command_envelope_reference_hash),
+            ),
+            Field::new(
+                "command_body_canonicalization_hash",
+                record_sha_or_null(check.command_body_canonicalization_hash),
+            ),
+            Field::new(
+                "handler_binding_hash",
+                record_sha_or_null(check.handler_binding_hash),
+            ),
+            Field::new(
+                "status_read_projection_hash",
+                record_sha_or_null(check.status_read_projection_hash),
+            ),
+            Field::new(
+                "status_read_handler_hash",
+                record_sha_or_null(check.status_read_handler_hash),
+            ),
+            Field::new(
+                "expected_status_read_handler_hash",
+                record_sha_or_null(check.expected_status_read_handler_hash),
+            ),
+            Field::new("valid_hash_reference", Value::Bool(check.valid)),
+            Field::new("accepts_raw_command_body", Value::Bool(false)),
+            Field::new("accepts_lifeline_command_body", Value::Bool(false)),
+            Field::new("dispatches_lifeline_command", Value::Bool(false)),
+            Field::new("executes_lifeline_status", Value::Bool(false)),
+            Field::new("command_execution_enabled", Value::Bool(false)),
+            Field::new("service_inventory_change", Value::Str("none")),
+            Field::new("load_attempted", Value::Bool(false)),
+        ],
+    );
 }
 
 pub(crate) fn emit_recovery_lifeline_status_read_handler_retained_reference(
@@ -89,68 +84,65 @@ pub(crate) fn emit_recovery_lifeline_status_read_handler_retained_reference(
         event_log::RecoveryLifelineStatusReadHandlerReference,
     )>,
 ) {
-    raw_line("      \"retained_status_read_handler_reference\": {");
-    raw("        \"status\": ");
-    json_str(if check.valid {
-        "retained_hash_reference_command_still_denied"
-    } else if retained.is_some() {
-        "previous_retained_hash_reference_present"
-    } else {
-        "missing"
-    });
-    raw_line(",");
-    raw("        \"recorded_event_id\": ");
-    json_event_id_option(recorded_event_id);
-    raw_line(",");
-    raw_line("        \"scope\": \"current_boot\",");
-    raw_line("        \"classification\": \"local_only\",");
-    raw_line("        \"dispatches_lifeline_command\": false,");
-    raw_line("        \"executes_lifeline_status\": false,");
-    raw_line("        \"command_execution_enabled\": false,");
-    raw_line("        \"load_attempted\": false,");
-    raw("        \"latest_event_id\": ");
-    if let Some((event_id, _)) = retained {
-        json_event_id(event_id);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("        \"latest_status_handler_id\": ");
-    if let Some((_, reference)) = retained {
-        json_str(reference.status_handler_id);
-    } else {
-        raw("null");
-    }
-    raw_line(",");
-    raw("        \"latest_status_read_handler_hash\": ");
-    if let Some((_, reference)) = retained {
-        json_sha256(reference.status_read_handler_hash);
-    } else {
-        raw("null");
-    }
-    raw_line("");
-    raw("      }");
+    let (latest_event_id, latest_status_handler_id, latest_status_read_handler_hash) =
+        if let Some((event_id, reference)) = retained {
+            (
+                Value::EventSequence(event_id.sequence()),
+                Value::Str(reference.status_handler_id),
+                Value::Sha256(reference.status_read_handler_hash),
+            )
+        } else {
+            (Value::Null, Value::Null, Value::Null)
+        };
+
+    emit_record_property(
+        "retained_status_read_handler_reference",
+        vec![
+            Field::new(
+                "status",
+                Value::Str(if check.valid {
+                    "retained_hash_reference_command_still_denied"
+                } else if retained.is_some() {
+                    "previous_retained_hash_reference_present"
+                } else {
+                    "missing"
+                }),
+            ),
+            Field::new("recorded_event_id", record_event_or_null(recorded_event_id)),
+            Field::new("scope", Value::Str("current_boot")),
+            Field::new("classification", Value::Str("local_only")),
+            Field::new("dispatches_lifeline_command", Value::Bool(false)),
+            Field::new("executes_lifeline_status", Value::Bool(false)),
+            Field::new("command_execution_enabled", Value::Bool(false)),
+            Field::new("load_attempted", Value::Bool(false)),
+            Field::new("latest_event_id", latest_event_id),
+            Field::new("latest_status_handler_id", latest_status_handler_id),
+            Field::new(
+                "latest_status_read_handler_hash",
+                latest_status_read_handler_hash,
+            ),
+        ],
+    );
 }
 
 pub(crate) fn emit_recovery_lifeline_status_read_handler_selftest_case(
     case: &RecoveryLifelineStatusReadHandlerSelfTestCase,
     comma: bool,
 ) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"accepts_raw_command_body\": false, \"dispatches_lifeline_command\": false, \"executes_lifeline_status\": false, \"command_execution_enabled\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_object(
+        vec![
+            Field::new("case", Value::Str(case.name)),
+            Field::new("expected_status", Value::Str(case.expected_status)),
+            Field::new("expected_reason", Value::Str(case.expected_reason)),
+            Field::new("actual_status", Value::Str(case.actual_status)),
+            Field::new("actual_reason", Value::Str(case.actual_reason)),
+            Field::new("passed", Value::Bool(case.passed)),
+            Field::new("accepts_raw_command_body", Value::Bool(false)),
+            Field::new("dispatches_lifeline_command", Value::Bool(false)),
+            Field::new("executes_lifeline_status", Value::Bool(false)),
+            Field::new("command_execution_enabled", Value::Bool(false)),
+            Field::new("load_attempted", Value::Bool(false)),
+        ],
+        comma,
+    );
 }

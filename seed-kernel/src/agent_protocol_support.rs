@@ -1,6 +1,11 @@
+use alloc::vec::Vec;
 use core::fmt;
 
 use crate::{event_log, serial};
+use raios_core::{
+    record::{write_json, Field, Value},
+    ByteSink,
+};
 
 pub(crate) use raios_core::{method_eq, method_head_eq, parse_sha256_ref};
 
@@ -18,6 +23,57 @@ impl raios_core::ByteSink for SerialSink {
             }
         }
     }
+}
+
+pub(crate) fn record_str_or_null<'a>(value: Option<&'a str>) -> Value<'a> {
+    match value {
+        Some(value) => Value::Str(value),
+        None => Value::Null,
+    }
+}
+
+pub(crate) fn record_sha_or_null(value: Option<[u8; 32]>) -> Value<'static> {
+    match value {
+        Some(value) => Value::Sha256(value),
+        None => Value::Null,
+    }
+}
+
+pub(crate) fn record_event_or_null(value: Option<event_log::EventId>) -> Value<'static> {
+    match value {
+        Some(value) => Value::EventSequence(value.sequence()),
+        None => Value::Null,
+    }
+}
+
+pub(crate) fn emit_record_property(name: &str, fields: Vec<Field<'_>>) {
+    let mut sink = SerialSink;
+
+    sink.write_bytes(b"      ");
+    write_json(&Value::Str(name), &mut sink, 6);
+    sink.write_bytes(b": ");
+    write_json(&Value::Object(fields), &mut sink, 6);
+}
+
+pub(crate) fn emit_inline_record_object(fields: Vec<Field<'_>>, comma: bool) {
+    let mut sink = SerialSink;
+
+    sink.write_bytes(b"        {");
+    let mut idx = 0usize;
+    while idx < fields.len() {
+        if idx != 0 {
+            sink.write_bytes(b", ");
+        }
+        write_json(&Value::Str(fields[idx].key), &mut sink, 8);
+        sink.write_bytes(b": ");
+        write_json(&fields[idx].value, &mut sink, 8);
+        idx += 1;
+    }
+    sink.write_bytes(b"}");
+    if comma {
+        sink.write_bytes(b",");
+    }
+    sink.write_bytes(b"\r\n");
 }
 
 pub(crate) fn current_boot_event_id_str(value: &str) -> bool {
