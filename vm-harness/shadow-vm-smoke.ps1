@@ -263,6 +263,12 @@ finally {
         Remove-Item -LiteralPath $ResolvedImage -Force -ErrorAction SilentlyContinue
     }
 
+    # Passed runs delete their temp dir (356 leftovers once filled the disk);
+    # failed runs keep it so the serial log stays available for forensics.
+    if ($Result -eq "passed" -and -not $KeepImage) {
+        Remove-Item -LiteralPath $RunDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     Write-Host "shadow vm result: $Result"
     Write-Host "report: $ReportPath"
     Write-Host "report sha256: $ReportHashPath"
