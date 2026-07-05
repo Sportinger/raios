@@ -27,7 +27,7 @@ $ReportHashPath = "$ReportPath.sha256"
 $QemuPid = $null
 $TempImage = $false
 $Result = "failed"
-$Failures = New-Object System.Collections.Generic.List[string]
+$Failures = New-Object System.Collections.Generic.List[object]
 $Predicates = New-Object System.Collections.Generic.List[object]
 $ExecutedCommands = New-Object System.Collections.Generic.List[object]
 $StartedAt = [DateTime]::UtcNow
@@ -46,6 +46,11 @@ $script:SerialLogCachePath = $null
 $script:SerialLogCacheLength = [int64]-1
 $script:SerialLogCacheWriteTicks = [int64]-1
 $script:SerialLogCacheContent = $null
+$script:QemuProcess = $null
+$script:QemuProcessBeforeTeardown = $null
+$script:QemuProcessAfterTeardown = $null
+$script:QemuTeardownAction = "not_started"
+$script:SerialTransportFailure = $null
 
 . (Join-Path $PSScriptRoot "shadow-vm-smoke-support.ps1")
 
@@ -148,6 +153,12 @@ try {
     if (-not $QemuPid) {
         throw "Could not parse QEMU pid from runner output"
     }
+    try {
+        $script:QemuProcess = Get-Process -Id $QemuPid -ErrorAction Stop
+    }
+    catch {
+        $script:QemuProcess = $null
+    }
 
     Assert-LogContains -Name "boot:serial_console_ready" -Needle "SERIAL CONSOLE READY" -TimeoutSeconds $TimeoutSeconds
     Assert-LogContains -Name "boot:framebuffer_ready" -Needle "status FRAMEBUFFER: READY" -TimeoutSeconds $TimeoutSeconds
@@ -220,9 +231,24 @@ catch {
 finally {
     Close-SerialTcpConnection
 
+    $script:QemuProcessBeforeTeardown = Get-QemuProcessSnapshot -Observation "before_teardown"
     if ($QemuPid) {
-        Stop-Process -Id $QemuPid -Force -ErrorAction SilentlyContinue
+        if ($script:QemuProcessBeforeTeardown.state -eq "running") {
+            $script:QemuTeardownAction = "stop_process"
+            Stop-Process -Id $QemuPid -Force -ErrorAction SilentlyContinue
+            if ($null -ne $script:QemuProcess) {
+                try {
+                    $script:QemuProcess.WaitForExit(5000) | Out-Null
+                }
+                catch {
+                }
+            }
+        }
+        else {
+            $script:QemuTeardownAction = "already_exited"
+        }
     }
+    $script:QemuProcessAfterTeardown = Get-QemuProcessSnapshot -Observation "after_teardown"
 
     Write-Report `
         -FinalResult $Result `

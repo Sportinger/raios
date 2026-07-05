@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-04 (M0 session 2: full profile GREEN again).
+Updated: 2026-07-05 (M0 CLOSED; M1 opened).
 
 ## What raiOS can actually do today
 
@@ -29,10 +29,14 @@ Updated: 2026-07-04 (M0 session 2: full profile GREEN again).
 
 ## Current milestone
 
-**M0 Stabilize** — almost done. Remaining: the test harness learns to
-report exactly WHY a run died (VM crashed vs connection glitch), so
-failures can never be misfiled as "flaky tests" again. Then M0 closes
-and M1 begins (fast code tests + automatic checks on every commit).
+**M0 Stabilize is DONE** (2026-07-05). New since last update: every test
+run now records exactly WHY it died (VM crashed — with exit code — vs
+connection glitch), and a dead VM fails the run in seconds instead of
+wasting 7 minutes. Failures can no longer be misfiled as "flaky tests".
+
+Now active: **M1 Testable Core** — carve the pure logic out of the kernel
+so it can be tested on a normal PC in seconds (instead of only via full
+VM boots), plus automatic checks on every commit.
 
 ## Top risk
 

@@ -15,30 +15,31 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-04.
+Last updated: 2026-07-05.
 
-Current milestone: **M0 Stabilize** (see Capability Milestones) — nearly
-complete.
+Current milestone: **M1 Testable Core** (see Capability Milestones).
 
-Done in M0 so far (2026-07-04): working tree committed in three honest
-commits (`0ee066e` code catch-up, `9df2044` plan restructuring, `a6a8f56`
-repo hygiene); bounded per-boundary audit scrapes verified; **full profile
-green again**: `shadow-20260704-184615-9224.json`, 7814/7814 predicates,
-334 commands, report SHA-256 `68c8e160849ca9333867ea6007013b2e49d6f39e4e7e4930b761944967ba96ee`
-— first green checkpoint since 2026-07-02. The 2026-07-03 predicate
-failures are classified as host-harness audit-window failures (no guest
-bug); see the failure classification log in `docs/PROJECT_STATUS.md`.
+**M0 Stabilize closed 2026-07-05.** Evidence: honest committed tree
+(`0ee066e`, `9df2044`, `a6a8f56`, `e3984fb`); full profile green
+(`shadow-20260704-184615-9224.json`, 7814/7814 predicates, SHA-256
+`68c8e160849ca9333867ea6007013b2e49d6f39e4e7e4930b761944967ba96ee`); all
+recent failures classified (failure classification log in
+`docs/PROJECT_STATUS.md`); harness transport instrumentation landed —
+every report now carries a `serial_transport_failure` classification
+(qemu_exited / listener_missing_process_alive /
+connect_timeout_listener_present), `qemu_process` teardown snapshots, and
+a structured `stderr_log` block; a dead VM aborts the run immediately
+instead of burning the timeout. Verified: quick profile
+`shadow-20260705-094659-19752.json`, 417/417 predicates.
 
 Exact next task:
 
 ```text
-1. Land the harness transport instrumentation (packet M0-2): capture the
-   QEMU PID at launch; on serial reconnect failure classify structurally as
-   qemu_exited (with exit code) / listener_missing_process_alive /
-   connect_timeout_listener_present instead of burning the whole timeout;
-   record QEMU end state in every report. No auto-relaunch masking.
-2. Verify the instrumentation with a focused or quick profile.
-3. Close M0; open M1 (host-testable core library crate + minimal CI).
+Slice M1-1: cargo workspace + `raios-core` no_std lib crate + `ByteSink`
+trait; move the duplicated sha256/hex helpers and one small pure module;
+host `cargo test` green (SHA-256 vectors, hex round-trip); kernel rebuilds
+unchanged; quick profile green. Beware: workspace conversion moves the
+cargo target/ dir — check scripts/*.ps1 for hardcoded paths.
 ```
 
 ## Capability Milestones

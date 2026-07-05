@@ -36,6 +36,25 @@ Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
   exonerated by the clean serial tail. Packet M0-2 adds harness
   instrumentation (qemu_exited / listener_missing_process_alive /
   connect_timeout_listener_present) so future failures self-classify.
+  RESOLVED 2026-07-05: packet M0-2 landed — the harness now tracks the QEMU
+  process object, aborts the serial reconnect loop immediately when the
+  process is gone, and records a structured `serial_transport_failure`
+  classification (qemu_exited with exit code / listener_missing_process_alive
+  / connect_timeout_listener_present) plus `qemu_process`
+  before/after-teardown snapshots and a structured `stderr_log` block in
+  every report. Verified green with quick profile
+  `shadow-20260705-094659-19752.json` (417/417 predicates; new fields present
+  and correct). Root-cause hypotheses for the silent mid-run QEMU exit, in
+  likelihood order (diagnosis only, no launch-side change made):
+  (1) `scripts/run-stage0-qemu.ps1:37-38` — any concurrent invocation with
+  `-StopExisting` force-kills EVERY `qemu-system-x86_64` on the machine, not
+  just its own stale instance; a parallel harness/screenshot launch kills the
+  in-flight VM with empty stderr and no listener, exactly the observed
+  signature. Suggested future fix: scope StopExisting via a PID file instead
+  of a global process kill. (2) `-no-reboot` (`run-stage0-qemu.ps1:122`) — a
+  guest reset/triple fault after the last serial write makes QEMU exit
+  cleanly (code 0, empty stderr). The new exit-code capture will distinguish
+  these on the next occurrence.
 - 2026-07-03 `shadow-20260703-183727-11132.json` 7005/7006
   `module_manifest_audit_source`: host-harness audit-window failure — the
   manifest event had scrolled out of the single giant `audit.events 256`
@@ -2362,11 +2381,22 @@ count grew because the bounded scrapes split checks without weakening any.
 One earlier same-day attempt failed as host-transport (see the failure
 classification log at the top of this file).
 
-Current exact next task (milestone M0, `docs/ROADMAP.md`): land the harness
-transport instrumentation packet M0-2 (structured qemu_exited /
-listener_missing_process_alive / connect_timeout_listener_present failure
-classification plus QEMU PID/exit-code capture), verify with a focused or
-quick profile, then close M0 and open M1 (host-testable core library + CI).
+RESOLVED 2026-07-05: packet M0-2 landed and verified (quick profile
+`shadow-20260705-094659-19752.json`, 417/417 predicates, new
+`serial_transport_failure` / `qemu_process` / structured `stderr_log`
+report fields present). **M0 Stabilize is closed.** All three M0 criteria
+hold: honest committed tree, full profile green
+(`shadow-20260704-184615-9224.json`, 7814/7814), all recent failures
+classified (see failure classification log at the top of this file).
+
+Current exact next task (milestone M1 Testable Core, `docs/ROADMAP.md`):
+slice M1-1 — convert the repo to a cargo workspace with a new `raios-core`
+`no_std` library crate; define the `ByteSink` trait; move the first small
+pure module plus the duplicated `sha256_bytes`/hex helpers into it; add
+host `cargo test` (SHA-256 vectors, hex round-trip); kernel must rebuild
+unchanged and pass a quick profile. Watch out: workspace conversion moves
+the cargo `target/` directory — check `scripts/*.ps1` for hardcoded
+`seed-kernel/target/...` paths or pin the target dir in `.cargo/config`.
 Keep persistence, durable audit writes, rollback-store writes, transaction
 append, rollback application, external unsigned artifact intake, executable
 candidate-byte mapping, provider auto-load, broad mutation, and installed

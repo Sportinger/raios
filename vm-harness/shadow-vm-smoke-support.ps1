@@ -23,6 +23,30 @@ function Get-FileSha256OrNull {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Get-TextFileReport {
+    param([string]$Path)
+
+    $exists = $false
+    $sizeBytes = $null
+    if ($Path -and (Test-Path -LiteralPath $Path)) {
+        $exists = $true
+        try {
+            $sizeBytes = [int64](Get-Item -LiteralPath $Path -ErrorAction Stop).Length
+        }
+        catch {
+            $sizeBytes = $null
+        }
+    }
+
+    return [ordered]@{
+        path = $Path
+        sha256 = (Get-FileSha256OrNull -Path $Path)
+        exists = $exists
+        size_bytes = $sizeBytes
+        tail_present = ($null -ne $sizeBytes -and $sizeBytes -gt 0)
+    }
+}
+
 function Get-TextSha256 {
     param([string]$Text)
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -239,6 +263,91 @@ function Close-SerialTcpConnection {
     $script:SerialTcpDrainStream = $null
 }
 
+function Get-QemuProcessState {
+    $qpid = $script:QemuPid
+    if (-not $qpid) {
+        return [ordered]@{ pid = $null; state = "unknown_no_pid"; exit_code = $null }
+    }
+
+    $proc = $script:QemuProcess
+    $exitCode = $null
+    $state = $null
+    if ($null -ne $proc) {
+        try {
+            if (-not $proc.HasExited) {
+                $state = "running"
+            }
+            else {
+                $state = "exited"
+                try { $exitCode = $proc.ExitCode } catch { $exitCode = $null }
+            }
+        }
+        catch {
+            $state = $null
+        }
+    }
+    if ($null -eq $state) {
+        try {
+            Get-Process -Id $qpid -ErrorAction Stop | Out-Null
+            $state = "running"
+        }
+        catch {
+            $state = "exited"
+        }
+    }
+    return [ordered]@{ pid = $qpid; state = $state; exit_code = $exitCode }
+}
+
+function Get-QemuProcessSnapshot {
+    param([string]$Observation)
+
+    $state = Get-QemuProcessState
+    return [ordered]@{
+        observation = $Observation
+        pid = $state.pid
+        state = $state.state
+        exit_code = $state.exit_code
+        checked_at_utc = ([DateTime]::UtcNow.ToString("o"))
+    }
+}
+
+function Test-SerialPortListener {
+    param([int]$Port)
+
+    try {
+        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction Stop)
+        return ($listeners.Count -gt 0)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Register-SerialTransportFailure {
+    param(
+        [string]$Classification,
+        [int]$Port,
+        $QemuState,
+        [bool]$ListenerPresent,
+        [double]$ElapsedSeconds
+    )
+
+    $record = [ordered]@{
+        kind = "serial_transport_failure"
+        classification = $Classification
+        port = $Port
+        listener_present = $ListenerPresent
+        qemu_pid = $QemuState.pid
+        qemu_state = $QemuState.state
+        qemu_exit_code = $QemuState.exit_code
+        elapsed_seconds = [Math]::Round($ElapsedSeconds, 1)
+        observed_at_utc = ([DateTime]::UtcNow.ToString("o"))
+    }
+    $script:SerialTransportFailure = $record
+    $Failures.Add($record) | Out-Null
+    return $record
+}
+
 function Get-SerialTcpStream {
     param(
         [int]$Port,
@@ -254,10 +363,12 @@ function Get-SerialTcpStream {
 
     Close-SerialTcpConnection
 
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $connectStarted = [DateTime]::UtcNow
+    $deadline = $connectStarted.AddSeconds($TimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadline) {
         $candidate = [System.Net.Sockets.TcpClient]::new()
         $candidate.NoDelay = $true
+        $attemptFailed = $false
         try {
             $connect = $candidate.BeginConnect("127.0.0.1", $Port, $null, $null)
             if ($connect.AsyncWaitHandle.WaitOne([TimeSpan]::FromMilliseconds(500))) {
@@ -268,15 +379,34 @@ function Get-SerialTcpStream {
             }
         }
         catch {
-            $candidate.Close()
-            Start-Sleep -Milliseconds 100
-            continue
+            $attemptFailed = $true
         }
         $candidate.Close()
+
+        # A dead QEMU can never come back within this run: abort immediately
+        # with a structured classification instead of burning the whole
+        # timeout budget (see failure classification log in PROJECT_STATUS).
+        $qemuState = Get-QemuProcessState
+        if ($qemuState.state -eq "exited") {
+            $elapsed = ([DateTime]::UtcNow - $connectStarted).TotalSeconds
+            $listener = Test-SerialPortListener -Port $Port
+            Register-SerialTransportFailure -Classification "qemu_exited" -Port $Port -QemuState $qemuState -ListenerPresent $listener -ElapsedSeconds $elapsed | Out-Null
+            throw "Serial transport failure (qemu_exited): QEMU pid $($qemuState.pid) exited (exit_code=$($qemuState.exit_code)) while reconnecting to serial TCP port $Port after $([Math]::Round($elapsed, 1))s"
+        }
+
         Start-Sleep -Milliseconds 100
+        if ($attemptFailed) { continue }
     }
 
-    throw "Timed out connecting to QEMU serial TCP port $Port"
+    $elapsed = ([DateTime]::UtcNow - $connectStarted).TotalSeconds
+    $qemuState = Get-QemuProcessState
+    $listener = Test-SerialPortListener -Port $Port
+    $classification =
+        if ($qemuState.state -eq "exited") { "qemu_exited" }
+        elseif (-not $listener) { "listener_missing_process_alive" }
+        else { "connect_timeout_listener_present" }
+    Register-SerialTransportFailure -Classification $classification -Port $Port -QemuState $qemuState -ListenerPresent $listener -ElapsedSeconds $elapsed | Out-Null
+    throw "Serial transport failure ($classification): no connection to QEMU serial TCP port $Port after $([Math]::Round($elapsed, 1))s (qemu pid=$($qemuState.pid) state=$($qemuState.state) exit_code=$($qemuState.exit_code) listener_present=$listener)"
 }
 
 function Add-Predicate {
@@ -562,6 +692,12 @@ function Write-Report {
             }
             pid = $QemuPid
         }
+        qemu_process = [ordered]@{
+            before_teardown = $script:QemuProcessBeforeTeardown
+            after_teardown = $script:QemuProcessAfterTeardown
+            teardown_action = $script:QemuTeardownAction
+        }
+        serial_transport_failure = $script:SerialTransportFailure
         evidence_binding = [ordered]@{
             base_image_sha256 = $baseImageSha256
             candidate_artifact_sha256 = $artifactSha256
@@ -581,10 +717,7 @@ function Write-Report {
             path = $SerialLog
             sha256 = $serialHash
         }
-        stderr_log = [ordered]@{
-            path = $errLog
-            sha256 = (Get-FileSha256OrNull -Path $errLog)
-        }
+        stderr_log = (Get-TextFileReport -Path $errLog)
         failures = @($Failures.ToArray())
     }
 
