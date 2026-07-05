@@ -2414,14 +2414,25 @@ case-insensitivity, uppercase hex, length/charset rejects, 8-digit
 event-sequence edges). Kernel rebuilt unchanged; quick profile green
 (`shadow-20260705-101746-21240.json`, 417/417).
 
+RESOLVED 2026-07-05: slice M1-3 landed. Origin divergence resolved — the
+two remote-only commits were the owner's README tagline edits made via
+the GitHub web UI; merged cleanly in `0f144c4`. `.github/workflows/ci.yml`
+(commit `d57243b`, pushed) runs two jobs on every push/PR: `cargo test
+--locked -p raios-core` (stable) and the pinned `nightly-2024-10-15`
+build-std release build of seed-kernel with the exact RUSTFLAGS the local
+build script uses (command replicated locally first, exit 0), uploading
+the kernel ELF artifact. First CI run GREEN:
+https://github.com/Sportinger/raios/actions/runs/28734704673 — host tests
+16s, kernel build 1m11s.
+
 Current exact next task (milestone M1 Testable Core, `docs/ROADMAP.md`):
-slice M1-3 — minimal CI (GitHub Actions): pinned nightly toolchain +
-rust-src component, `cargo test --locked -p raios-core`, kernel release
-build (`scripts/build-seed-kernel.ps1` equivalent or direct cargo build
-with build-std). Blocker to resolve first: local `main` is 62 commits
-ahead and 2 behind `origin/main` (github.com/Sportinger/raios) — the two
-remote-only commits must be inspected with the owner before any push.
-CI QEMU quick profile is follow-up slice M1-3b.
+slice M1-3b, which closes M1 — add the headless QEMU quick profile to CI
+so a second machine also smokes every commit (the M1 capability
+sentence). Approach: Windows runner with QEMU installed, or make the
+QEMU path configurable in `scripts/run-stage0-qemu.ps1` (currently
+hardcoded `C:\Program Files\qemu\...`) and run the PowerShell harness
+under pwsh on ubuntu. Expect TCG (no hardware accel) — use generous
+timeouts and the quick profile only. Then close M1 and open M2.
 Keep persistence, durable audit writes, rollback-store writes, transaction
 append, rollback application, external unsigned artifact intake, executable
 candidate-byte mapping, provider auto-load, broad mutation, and installed

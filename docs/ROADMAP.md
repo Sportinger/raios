@@ -45,15 +45,23 @@ sha256 duplicate stays until M2 — replacing it invalidates the signed
 Hello source snapshot (`artifact_content_source_sha256`); that dedup
 belongs to the M2 de-hello-ify slice.
 
+Slice M1-3 done (2026-07-05): origin divergence resolved (the two
+remote-only commits were owner README tagline edits, merged in
+`0f144c4`); `.github/workflows/ci.yml` runs `cargo test --locked -p
+raios-core` plus the pinned `nightly-2024-10-15` build-std kernel release
+build on every push/PR and uploads the kernel ELF. First run GREEN:
+https://github.com/Sportinger/raios/actions/runs/28734704673 (host tests
+16s, kernel build 1m11s).
+
 Exact next task:
 
 ```text
-Slice M1-3: minimal CI (GitHub Actions, .github/workflows): pinned
-nightly toolchain + rust-src, cargo test --locked -p raios-core, kernel
-release build. BLOCKER to resolve first: local main is 62 ahead / 2
-behind origin/main — inspect the 2 remote-only commits with the owner
-before any push. QEMU quick profile in CI is a follow-up (M1-3b), not
-part of the minimal slice.
+Slice M1-3b (closes M1): add the headless QEMU quick profile to CI so a
+second machine also SMOKES every commit (M1 capability sentence).
+Windows runner + QEMU install, or port the harness path assumptions
+(C:\Program Files\qemu, $env:TEMP) to a configurable QEMU path for
+ubuntu+pwsh. TCG will be slow — budget generous timeouts. Then close M1;
+open M2 (ceremony collapse).
 ```
 
 ## Capability Milestones
