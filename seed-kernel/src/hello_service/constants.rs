@@ -1,8 +1,90 @@
 use super::*;
 
-pub(crate) const SERVICE_ID: &str = descriptor_sources::HELLO_SERVICE_ID;
-pub(crate) const ARTIFACT_ID: &str = descriptor_sources::HELLO_ARTIFACT_ID;
-pub(crate) const CAPABILITIES: &[&str] = &["cap.service.hello_demo.current_boot"];
+pub(crate) struct ServiceDescriptor {
+    pub(crate) service_id: &'static str,
+    pub(crate) artifact_id: &'static str,
+    pub(crate) artifact_kind: &'static str,
+    pub(crate) scope: &'static str,
+    pub(crate) classification: &'static str,
+    pub(crate) persistence: &'static str,
+    pub(crate) service_capability: &'static str,
+    pub(crate) health_capability: &'static str,
+    pub(crate) rollback_preview_capability: &'static str,
+    pub(crate) rollback_apply_capability: &'static str,
+    pub(crate) rollback_materialize_capability: &'static str,
+    pub(crate) rollback_inspect_capability: &'static str,
+    pub(crate) primary_alias: &'static str,
+    pub(crate) host_bound_alias: &'static str,
+    pub(crate) replacement_service_id: &'static str,
+    pub(crate) replacement_alias: &'static str,
+    pub(crate) replacement_artifact_identity_id: &'static str,
+    pub(crate) reset_state_service_id: &'static str,
+    pub(crate) reset_state_alias: &'static str,
+    pub(crate) artifact_load_plan_preflight_id: &'static str,
+    pub(crate) artifact_load_plan_preflight_status: &'static str,
+    pub(crate) service_slot_intent_id: &'static str,
+    pub(crate) ram_only_service_slot_id: &'static str,
+    pub(crate) service_slot_activation_id: &'static str,
+    pub(crate) service_slot_activation_active_status: &'static str,
+    pub(crate) service_slot_activation_stopped_status: &'static str,
+    pub(crate) service_slot_activation_cleared_status: &'static str,
+    pub(crate) service_slot_activation_missing_status: &'static str,
+    pub(crate) inventory_kind: &'static str,
+    pub(crate) inventory_replaceable: bool,
+    pub(crate) inventory_core_owned: bool,
+    pub(crate) inventory_health_running: &'static str,
+    pub(crate) inventory_health_stopped: &'static str,
+    pub(crate) inventory_health_missing: &'static str,
+    pub(crate) event_lifecycle_kind: &'static str,
+    pub(crate) event_health_kind: &'static str,
+    pub(crate) event_rollback_preview_kind: &'static str,
+    pub(crate) event_rollback_apply_kind: &'static str,
+}
+
+pub(crate) const HELLO_SERVICE_DESCRIPTOR: ServiceDescriptor = ServiceDescriptor {
+    service_id: descriptor_sources::HELLO_SERVICE_ID,
+    artifact_id: descriptor_sources::HELLO_ARTIFACT_ID,
+    artifact_kind: "builtin_stage0_test_service",
+    scope: "current_boot",
+    classification: "local_only",
+    persistence: "none",
+    service_capability: "cap.service.hello_demo.current_boot",
+    health_capability: "cap.service.health.read",
+    rollback_preview_capability: "cap.service.rollback_preview.read",
+    rollback_apply_capability: "cap.service.rollback_apply.current_boot",
+    rollback_materialize_capability: "cap.recovery.rollback_materialize_dry_run.current_boot",
+    rollback_inspect_capability: "cap.recovery.rollback_inspect.read",
+    primary_alias: "hello",
+    host_bound_alias: "host_bound:svc.demo.hello",
+    replacement_service_id: "svc.demo.hello.v2",
+    replacement_alias: "hello.v2",
+    replacement_artifact_identity_id: descriptor_sources::HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID,
+    reset_state_service_id: "svc.demo.hello.reset_state",
+    reset_state_alias: "hello.reset_state",
+    artifact_load_plan_preflight_id: "artifact_load_plan_preflight.current_boot.svc.demo.hello.v0",
+    artifact_load_plan_preflight_status: "accepted_builtin_current_boot_only",
+    service_slot_intent_id: "service_slot_intent.current_boot.svc.demo.hello.v0",
+    ram_only_service_slot_id: "ram_only:svc.demo.hello",
+    service_slot_activation_id: "service_slot_activation.current_boot.svc.demo.hello.v0",
+    service_slot_activation_active_status: "active_current_boot",
+    service_slot_activation_stopped_status: "stopped_current_boot",
+    service_slot_activation_cleared_status: "cleared_current_boot",
+    service_slot_activation_missing_status: "missing_current_boot",
+    inventory_kind: "service",
+    inventory_replaceable: true,
+    inventory_core_owned: false,
+    inventory_health_running: "healthy",
+    inventory_health_stopped: "stopped",
+    inventory_health_missing: "missing",
+    event_lifecycle_kind: "raios.ram_only_hello_service.lifecycle",
+    event_health_kind: "raios.ram_only_hello_service.health",
+    event_rollback_preview_kind: "raios.ram_only_hello_service.rollback_preview",
+    event_rollback_apply_kind: "raios.ram_only_hello_service.rollback_apply",
+};
+
+pub(crate) const SERVICE_ID: &str = HELLO_SERVICE_DESCRIPTOR.service_id;
+pub(crate) const ARTIFACT_ID: &str = HELLO_SERVICE_DESCRIPTOR.artifact_id;
+pub(crate) const CAPABILITIES: &[&str] = &[HELLO_SERVICE_DESCRIPTOR.service_capability];
 pub(crate) const LOAD_DESCRIPTOR_SCHEMA: &str = descriptor_sources::HELLO_LOAD_DESCRIPTOR_SCHEMA;
 pub(crate) const LOAD_DESCRIPTOR_ID: &str = descriptor_sources::HELLO_LOAD_DESCRIPTOR_ID;
 pub(crate) const LOAD_DESCRIPTOR_CANONICALIZATION: &str =
@@ -14,19 +96,23 @@ pub(crate) const LOAD_DESCRIPTOR_SOURCE_KIND: &str =
 pub(crate) const ARTIFACT_LOAD_PLAN_PREFLIGHT_SCHEMA: &str =
     "raios.current_boot_artifact_load_plan_preflight.v0";
 pub(crate) const ARTIFACT_LOAD_PLAN_PREFLIGHT_ID: &str =
-    "artifact_load_plan_preflight.current_boot.svc.demo.hello.v0";
-pub(crate) const ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS: &str = "accepted_builtin_current_boot_only";
+    HELLO_SERVICE_DESCRIPTOR.artifact_load_plan_preflight_id;
+pub(crate) const ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS: &str =
+    HELLO_SERVICE_DESCRIPTOR.artifact_load_plan_preflight_status;
 pub(crate) const SERVICE_SLOT_INTENT_SCHEMA: &str = "raios.ram_only_service_slot_intent.v0";
-pub(crate) const SERVICE_SLOT_INTENT_ID: &str =
-    "service_slot_intent.current_boot.svc.demo.hello.v0";
-pub(crate) const RAM_ONLY_SERVICE_SLOT_ID: &str = "ram_only:svc.demo.hello";
+pub(crate) const SERVICE_SLOT_INTENT_ID: &str = HELLO_SERVICE_DESCRIPTOR.service_slot_intent_id;
+pub(crate) const RAM_ONLY_SERVICE_SLOT_ID: &str = HELLO_SERVICE_DESCRIPTOR.ram_only_service_slot_id;
 pub(crate) const SERVICE_SLOT_ACTIVATION_SCHEMA: &str = "raios.ram_only_service_slot_activation.v0";
 pub(crate) const SERVICE_SLOT_ACTIVATION_ID: &str =
-    "service_slot_activation.current_boot.svc.demo.hello.v0";
-pub(crate) const SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS: &str = "active_current_boot";
-pub(crate) const SERVICE_SLOT_ACTIVATION_STOPPED_STATUS: &str = "stopped_current_boot";
-pub(crate) const SERVICE_SLOT_ACTIVATION_CLEARED_STATUS: &str = "cleared_current_boot";
-pub(crate) const SERVICE_SLOT_ACTIVATION_MISSING_STATUS: &str = "missing_current_boot";
+    HELLO_SERVICE_DESCRIPTOR.service_slot_activation_id;
+pub(crate) const SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS: &str =
+    HELLO_SERVICE_DESCRIPTOR.service_slot_activation_active_status;
+pub(crate) const SERVICE_SLOT_ACTIVATION_STOPPED_STATUS: &str =
+    HELLO_SERVICE_DESCRIPTOR.service_slot_activation_stopped_status;
+pub(crate) const SERVICE_SLOT_ACTIVATION_CLEARED_STATUS: &str =
+    HELLO_SERVICE_DESCRIPTOR.service_slot_activation_cleared_status;
+pub(crate) const SERVICE_SLOT_ACTIVATION_MISSING_STATUS: &str =
+    HELLO_SERVICE_DESCRIPTOR.service_slot_activation_missing_status;
 pub(crate) const HELLO_STATE_SCHEMA: &str = "raios.ram_only_hello_service_state.v0";
 pub(crate) const HELLO_STATE_ID: &str = "hello_state.current_boot.svc.demo.hello.v0";
 pub(crate) const HELLO_STATE_MIGRATION_SCHEMA: &str =
@@ -340,7 +426,8 @@ pub(crate) const HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_FOUNDATION_OWNER: &st
     rollback_storage_layout::AUDIT_ROLLBACK_TRANSACTION_WRITER_OWNER;
 pub(crate) const HELLO_ROLLBACK_TRANSACTION_WRITER_STORAGE_TARGET_ID: &str =
     rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID;
-pub(crate) const HELLO_ROLLBACK_APPLY_CAPABILITY: &str = "cap.service.rollback_apply.current_boot";
+pub(crate) const HELLO_ROLLBACK_APPLY_CAPABILITY: &str =
+    HELLO_SERVICE_DESCRIPTOR.rollback_apply_capability;
 pub(crate) const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_SCHEMA: &str =
     "raios.current_boot_artifact_load_plan_preflight_selftest.v0";
 pub(crate) const ARTIFACT_LOAD_PLAN_PREFLIGHT_SELFTEST_ID: &str =

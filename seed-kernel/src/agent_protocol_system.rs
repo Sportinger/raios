@@ -662,20 +662,30 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
 }
 
 fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
+    let descriptor = hello_service::HELLO_SERVICE_DESCRIPTOR;
     indent(8);
     raw("{");
     raw("\"id\": ");
-    json_str(hello_service::SERVICE_ID);
-    raw(", \"kind\": \"service\"");
+    json_str(descriptor.service_id);
+    raw(", \"kind\": ");
+    json_str(descriptor.inventory_kind);
     raw(", \"health\": ");
-    json_str(if hello.running { "healthy" } else { "stopped" });
-    raw(", \"replaceable\": true");
-    raw(", \"core_owned\": false");
+    json_str(if hello.running {
+        descriptor.inventory_health_running
+    } else {
+        descriptor.inventory_health_stopped
+    });
+    raw(", \"replaceable\": ");
+    raw_bool(descriptor.inventory_replaceable);
+    raw(", \"core_owned\": ");
+    raw_bool(descriptor.inventory_core_owned);
     raw(", \"last_error\": null");
-    raw(", \"scope\": \"current_boot\"");
-    raw(", \"persistence\": \"none\"");
+    raw(", \"scope\": ");
+    json_str(descriptor.scope);
+    raw(", \"persistence\": ");
+    json_str(descriptor.persistence);
     raw(", \"artifact_id\": ");
-    json_str(hello_service::ARTIFACT_ID);
+    json_str(descriptor.artifact_id);
     raw(", \"version\": ");
     json_str(hello_service::service_version(hello.load_descriptor));
     raw(", \"artifact_identity_id\": ");

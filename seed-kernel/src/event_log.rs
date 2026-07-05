@@ -69,8 +69,9 @@ use crate::event_log_evidence::{
     RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_HANDLER_BINDING_EVIDENCE,
     RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_EVIDENCE,
-    RECOVERY_LIFELINE_REQUEST_REFERENCE_EVIDENCE, RECOVERY_LIFELINE_STATUS_READ_HANDLER_EVIDENCE,
+    RECOVERY_LIFELINE_REQUEST_REFERENCE_EVIDENCE,
     RECOVERY_LIFELINE_STATUS_EXECUTION_RESULT_EVIDENCE,
+    RECOVERY_LIFELINE_STATUS_READ_HANDLER_EVIDENCE,
     RECOVERY_LOAD_ARTIFACT_BY_HASH_TARGET_BINDING_EVIDENCE,
     RECOVERY_MEMORY_WRITE_AUTHORITY_EVIDENCE, RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_EVIDENCE,
     RECOVERY_ROLLBACK_APPLY_AUTHORIZATION_EVIDENCE,
@@ -123,10 +124,9 @@ pub use crate::event_log_types::{
     RecoveryLifelineCommandExecutorCapabilityTableReference,
     RecoveryLifelineCommandHandlerBindingReference, RecoveryLifelineCommandSideEffectGateReference,
     RecoveryLifelineRequestReference, RecoveryLifelineStatusExecutionResultReference,
-    RecoveryLifelineStatusReadHandlerReference,
-    RecoveryLoadArtifactByHashTargetBindingReference, RecoveryMemoryWriteAuthorityReference,
-    RecoveryRestartLastGoodTargetBindingReference, RecoveryRollbackApplyAuthorizationReference,
-    RecoveryRollbackPreviewAuthorizationReference,
+    RecoveryLifelineStatusReadHandlerReference, RecoveryLoadArtifactByHashTargetBindingReference,
+    RecoveryMemoryWriteAuthorityReference, RecoveryRestartLastGoodTargetBindingReference,
+    RecoveryRollbackApplyAuthorizationReference, RecoveryRollbackPreviewAuthorizationReference,
     RecoveryServiceInventorySideEffectBoundaryReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
     HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SELFTEST_CASES,
     PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
@@ -137,6 +137,7 @@ use crate::event_log_types::{
     ModuleLocalAttestationReferenceGateCheck, ModuleManifestReferenceGateCheck,
     ModuleServiceSlotReservationGateCheck, ModuleVmTestReportReferenceGateCheck,
 };
+use crate::hello_service::HELLO_SERVICE_DESCRIPTOR;
 use crate::module_evidence;
 
 static LOG: Mutex<EventLog> = Mutex::new(EventLog::new());
@@ -4175,7 +4176,8 @@ impl EventLog {
             };
         };
         if source_event.source_method != "recovery.rollback_inspect"
-            || source_event.requested_capability != "cap.recovery.rollback_inspect.read"
+            || source_event.requested_capability
+                != HELLO_SERVICE_DESCRIPTOR.rollback_inspect_capability
             || source_event.outcome != "response"
         {
             return HelloRecoveryRollbackInspectSourceReferenceCheck {
@@ -4432,15 +4434,15 @@ pub fn record_hello_service_lifecycle(
 ) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
-        kind: "raios.ram_only_hello_service.lifecycle",
+        kind: HELLO_SERVICE_DESCRIPTOR.event_lifecycle_kind,
         source_method,
         source_transport: "serial-console",
         classification: "local_only",
         outcome,
-        requested_capability: "cap.service.hello_demo.current_boot",
+        requested_capability: HELLO_SERVICE_DESCRIPTOR.service_capability,
         risk: "modify_ram",
         subject: "agent.session.serial",
-        resource: "svc.demo.hello",
+        resource: HELLO_SERVICE_DESCRIPTOR.service_id,
         reason,
         evidence: HELLO_SERVICE_LIFECYCLE_EVIDENCE,
         bindings: EventBindings::HelloServiceLifecycle(binding),
@@ -4455,15 +4457,15 @@ pub fn record_hello_service_health(
 ) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
-        kind: "raios.ram_only_hello_service.health",
+        kind: HELLO_SERVICE_DESCRIPTOR.event_health_kind,
         source_method,
         source_transport: "serial-console",
         classification: "local_only",
         outcome,
-        requested_capability: "cap.service.health.read",
+        requested_capability: HELLO_SERVICE_DESCRIPTOR.health_capability,
         risk: "observe",
         subject: "agent.session.serial",
-        resource: "svc.demo.hello",
+        resource: HELLO_SERVICE_DESCRIPTOR.service_id,
         reason,
         evidence: HELLO_SERVICE_HEALTH_EVIDENCE,
         bindings: EventBindings::HelloServiceLifecycle(binding),
@@ -4478,15 +4480,15 @@ pub fn record_hello_service_rollback_preview(
 ) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
-        kind: "raios.ram_only_hello_service.rollback_preview",
+        kind: HELLO_SERVICE_DESCRIPTOR.event_rollback_preview_kind,
         source_method,
         source_transport: "serial-console",
         classification: "local_only",
         outcome,
-        requested_capability: "cap.service.rollback_preview.read",
+        requested_capability: HELLO_SERVICE_DESCRIPTOR.rollback_preview_capability,
         risk: "observe",
         subject: "agent.session.serial",
-        resource: "svc.demo.hello",
+        resource: HELLO_SERVICE_DESCRIPTOR.service_id,
         reason,
         evidence: HELLO_SERVICE_ROLLBACK_PREVIEW_EVIDENCE,
         bindings: EventBindings::HelloServiceLifecycle(binding),
@@ -4501,10 +4503,10 @@ pub fn record_hello_recovery_rollback_materialize_dry_run() -> EventId {
         source_transport: "serial-console",
         classification: "local_only",
         outcome: "test_media_write_readback",
-        requested_capability: "cap.recovery.rollback_materialize_dry_run.current_boot",
+        requested_capability: HELLO_SERVICE_DESCRIPTOR.rollback_materialize_capability,
         risk: "test_media_write",
         subject: "agent.session.serial",
-        resource: "svc.demo.hello",
+        resource: HELLO_SERVICE_DESCRIPTOR.service_id,
         reason: "current_boot_test_infrastructure_only",
         evidence: HELLO_RECOVERY_ROLLBACK_MATERIALIZE_DRY_RUN_EVIDENCE,
         bindings: EventBindings::None,
@@ -4521,10 +4523,10 @@ pub fn record_hello_recovery_rollback_inspect_source_reference(
         source_transport: "serial-console",
         classification: "local_only",
         outcome: "retained_source_reference",
-        requested_capability: "cap.recovery.rollback_inspect.read",
+        requested_capability: HELLO_SERVICE_DESCRIPTOR.rollback_inspect_capability,
         risk: "observe",
         subject: "agent.session.serial",
-        resource: "svc.demo.hello",
+        resource: HELLO_SERVICE_DESCRIPTOR.service_id,
         reason: "retained_recovery_rollback_inspect_source_matches_sector_inspection",
         evidence: HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_EVIDENCE,
         bindings: EventBindings::HelloRecoveryRollbackInspectSourceReference(binding),
@@ -4538,15 +4540,15 @@ pub fn record_hello_service_rollback_apply(
 ) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
-        kind: "raios.ram_only_hello_service.rollback_apply",
+        kind: HELLO_SERVICE_DESCRIPTOR.event_rollback_apply_kind,
         source_method,
         source_transport: "serial-console",
         classification: "local_only",
         outcome: "capability_denied",
-        requested_capability: "cap.service.rollback_apply.current_boot",
+        requested_capability: HELLO_SERVICE_DESCRIPTOR.rollback_apply_capability,
         risk: "modify_ram",
         subject: "agent.session.serial",
-        resource: "svc.demo.hello",
+        resource: HELLO_SERVICE_DESCRIPTOR.service_id,
         reason,
         evidence: HELLO_SERVICE_ROLLBACK_APPLY_EVIDENCE,
         bindings: EventBindings::HelloServiceLifecycle(binding),
@@ -4584,8 +4586,8 @@ pub fn record_recovery_artifact_load_denied(source_method: &'static str) -> Even
     let retained_local_approval = log.latest_recovery_artifact_local_approval_reference();
     let retained_loader = log.latest_recovery_artifact_loader_reference();
     let retained_rollback_evidence = log.latest_recovery_artifact_rollback_evidence_reference();
-    let retained_execution_completion_denial =
-        log.latest_recovery_lifeline_command_execution_stage_reference(
+    let retained_execution_completion_denial = log
+        .latest_recovery_lifeline_command_execution_stage_reference(
             "raios.recovery_lifeline_command_execution_completion_denial.v0",
         );
     let (status, reason) = if retained_identity.is_none() {
@@ -4606,7 +4608,10 @@ pub fn record_recovery_artifact_load_denied(source_method: &'static str) -> Even
             "recovery_lifeline_command_execution_completion_denial_event_id_missing",
         )
     } else {
-        ("available_non_authorizing", "recovery_lifeline_protocol_missing")
+        (
+            "available_non_authorizing",
+            "recovery_lifeline_protocol_missing",
+        )
     };
     let event_reason = if status == "available_non_authorizing" {
         "recovery_load_binding_not_authorizing"
@@ -4623,31 +4628,54 @@ pub fn record_recovery_artifact_load_denied(source_method: &'static str) -> Even
         recovery_rollback_evidence_missing: retained_rollback_evidence.is_none(),
         recovery_load_binding_status: status,
         recovery_load_binding_reason: reason,
-        retained_recovery_artifact_identity_event_id: retained_identity.map(|(event_id, _)| event_id),
-        identity_reference_hash: retained_identity.map(|(_, reference)| reference.identity_reference_hash),
+        retained_recovery_artifact_identity_event_id: retained_identity
+            .map(|(event_id, _)| event_id),
+        identity_reference_hash: retained_identity
+            .map(|(_, reference)| reference.identity_reference_hash),
         retained_recovery_artifact_trust_event_id: retained_trust.map(|(event_id, _)| event_id),
         trust_reference_hash: retained_trust.map(|(_, reference)| reference.trust_reference_hash),
         retained_recovery_vm_test_event_id: retained_vm_test.map(|(event_id, _)| event_id),
-        vm_test_reference_hash: retained_vm_test.map(|(_, reference)| reference.vm_test_reference_hash),
-        retained_recovery_local_approval_event_id: retained_local_approval.map(|(event_id, _)| event_id),
-        local_approval_reference_hash: retained_local_approval.map(|(_, reference)| reference.local_approval_reference_hash),
+        vm_test_reference_hash: retained_vm_test
+            .map(|(_, reference)| reference.vm_test_reference_hash),
+        retained_recovery_local_approval_event_id: retained_local_approval
+            .map(|(event_id, _)| event_id),
+        local_approval_reference_hash: retained_local_approval
+            .map(|(_, reference)| reference.local_approval_reference_hash),
         retained_recovery_loader_event_id: retained_loader.map(|(event_id, _)| event_id),
-        loader_reference_hash: retained_loader.map(|(_, reference)| reference.loader_reference_hash),
-        retained_recovery_rollback_evidence_event_id: retained_rollback_evidence.map(|(event_id, _)| event_id),
-        rollback_evidence_reference_hash: retained_rollback_evidence.map(|(_, reference)| reference.rollback_evidence_reference_hash),
-        retained_execution_completion_denial_event_id: retained_execution_completion_denial.map(|(event_id, _)| event_id),
-        execution_completion_denial_hash: retained_execution_completion_denial.map(|(_, reference)| reference.execution_stage_hash),
-        side_effect_gate_hash: retained_execution_completion_denial.map(|(_, reference)| reference.side_effect_gate_hash),
-        source_rollback_apply_denial_hash: retained_execution_completion_denial.map(|(_, reference)| reference.source_rollback_apply_denial_hash),
-        source_durable_policy_write_authority_decision_hash: retained_execution_completion_denial.map(|(_, reference)| reference.source_durable_policy_write_authority_decision_hash),
-        source_recovery_rollback_inspect_source_reference_hash: retained_execution_completion_denial.map(|(_, reference)| reference.source_recovery_rollback_inspect_source_reference_hash),
-        execution_enablement_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_enablement_hash),
-        execution_preflight_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_preflight_hash),
-        execution_intent_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_intent_hash),
-        execution_commit_gate_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_commit_gate_hash),
-        execution_result_denial_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_result_denial_hash),
-        execution_audit_denial_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_audit_denial_hash),
-        execution_observation_denial_hash: retained_execution_completion_denial.and_then(|(_, reference)| reference.execution_observation_denial_hash),
+        loader_reference_hash: retained_loader
+            .map(|(_, reference)| reference.loader_reference_hash),
+        retained_recovery_rollback_evidence_event_id: retained_rollback_evidence
+            .map(|(event_id, _)| event_id),
+        rollback_evidence_reference_hash: retained_rollback_evidence
+            .map(|(_, reference)| reference.rollback_evidence_reference_hash),
+        retained_execution_completion_denial_event_id: retained_execution_completion_denial
+            .map(|(event_id, _)| event_id),
+        execution_completion_denial_hash: retained_execution_completion_denial
+            .map(|(_, reference)| reference.execution_stage_hash),
+        side_effect_gate_hash: retained_execution_completion_denial
+            .map(|(_, reference)| reference.side_effect_gate_hash),
+        source_rollback_apply_denial_hash: retained_execution_completion_denial
+            .map(|(_, reference)| reference.source_rollback_apply_denial_hash),
+        source_durable_policy_write_authority_decision_hash: retained_execution_completion_denial
+            .map(|(_, reference)| reference.source_durable_policy_write_authority_decision_hash),
+        source_recovery_rollback_inspect_source_reference_hash:
+            retained_execution_completion_denial.map(|(_, reference)| {
+                reference.source_recovery_rollback_inspect_source_reference_hash
+            }),
+        execution_enablement_hash: retained_execution_completion_denial
+            .and_then(|(_, reference)| reference.execution_enablement_hash),
+        execution_preflight_hash: retained_execution_completion_denial
+            .and_then(|(_, reference)| reference.execution_preflight_hash),
+        execution_intent_hash: retained_execution_completion_denial
+            .and_then(|(_, reference)| reference.execution_intent_hash),
+        execution_commit_gate_hash: retained_execution_completion_denial
+            .and_then(|(_, reference)| reference.execution_commit_gate_hash),
+        execution_result_denial_hash: retained_execution_completion_denial
+            .and_then(|(_, reference)| reference.execution_result_denial_hash),
+        execution_audit_denial_hash: retained_execution_completion_denial
+            .and_then(|(_, reference)| reference.execution_audit_denial_hash),
+        execution_observation_denial_hash: retained_execution_completion_denial
+            .and_then(|(_, reference)| reference.execution_observation_denial_hash),
     };
 
     log.record(Event {

@@ -14,10 +14,10 @@ pub(crate) const LOAD_DESCRIPTOR: LoadDescriptor = LoadDescriptor {
     artifact_identity: descriptor_sources::hello_builtin_artifact_identity(),
     service_id: SERVICE_ID,
     artifact_id: ARTIFACT_ID,
-    artifact_kind: "builtin_stage0_test_service",
-    scope: "current_boot",
-    classification: "local_only",
-    persistence: "none",
+    artifact_kind: HELLO_SERVICE_DESCRIPTOR.artifact_kind,
+    scope: HELLO_SERVICE_DESCRIPTOR.scope,
+    classification: HELLO_SERVICE_DESCRIPTOR.classification,
+    persistence: HELLO_SERVICE_DESCRIPTOR.persistence,
 };
 
 pub(crate) fn load_descriptor_source_hash() -> [u8; 32] {
@@ -60,7 +60,7 @@ pub(crate) fn artifact_reference_bytes_hash(descriptor: LoadDescriptor) -> [u8; 
 }
 
 pub(crate) fn service_version(descriptor: LoadDescriptor) -> &'static str {
-    if descriptor.artifact_identity.id == descriptor_sources::HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID
+    if descriptor.artifact_identity.id == HELLO_SERVICE_DESCRIPTOR.replacement_artifact_identity_id
     {
         "v2"
     } else {

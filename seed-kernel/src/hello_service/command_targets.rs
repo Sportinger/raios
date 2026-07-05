@@ -56,7 +56,7 @@ pub(crate) fn descriptor_source_for_target(
     if descriptor_source_target_matches_locator(
         target,
         descriptor_sources::HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR,
-    ) || target.eq_ignore_ascii_case("host_bound:svc.demo.hello")
+    ) || target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.host_bound_alias)
     {
         descriptor_sources::lookup_host_bound_descriptor_source(LOAD_DESCRIPTOR_ID)
     } else {
@@ -95,7 +95,7 @@ pub(crate) fn descriptor_source_target_matches(
 ) -> bool {
     descriptor_source_target_matches_locator(target, source.locator)
         || (source.locator == descriptor_sources::HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR
-            && target.eq_ignore_ascii_case("host_bound:svc.demo.hello"))
+            && target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.host_bound_alias))
 }
 
 pub(crate) fn descriptor_source_target_matches_locator(target: &str, locator: &str) -> bool {
@@ -103,9 +103,9 @@ pub(crate) fn descriptor_source_target_matches_locator(target: &str, locator: &s
 }
 
 pub(crate) fn replacement_target_matches(target: &str) -> bool {
-    target.eq_ignore_ascii_case("svc.demo.hello.v2")
-        || target.eq_ignore_ascii_case("hello.v2")
-        || target.eq_ignore_ascii_case(descriptor_sources::HELLO_BUILTIN_ARTIFACT_IDENTITY_V2_ID)
+    target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.replacement_service_id)
+        || target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.replacement_alias)
+        || target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.replacement_artifact_identity_id)
 }
 
 pub(crate) fn reset_state_hot_swap_target(method: &str) -> bool {
@@ -114,8 +114,8 @@ pub(crate) fn reset_state_hot_swap_target(method: &str) -> bool {
         return false;
     }
     let target = method["service.hot_swap".len()..].trim();
-    target.eq_ignore_ascii_case("svc.demo.hello.reset_state")
-        || target.eq_ignore_ascii_case("hello.reset_state")
+    target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.reset_state_service_id)
+        || target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.reset_state_alias)
 }
 
 pub(crate) fn target_arg_matches(method: &str, head: &str) -> bool {
@@ -129,18 +129,18 @@ pub(crate) fn target_arg_matches(method: &str, head: &str) -> bool {
 
 pub(crate) fn descriptor_target_matches(target: &str, descriptor: LoadDescriptor) -> bool {
     target.eq_ignore_ascii_case(descriptor.service_id)
-        || target.eq_ignore_ascii_case("hello")
+        || target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.primary_alias)
         || target.eq_ignore_ascii_case(descriptor.artifact_id)
         || target.eq_ignore_ascii_case(descriptor.id)
 }
 
 pub(crate) fn health_state(snapshot: Snapshot) -> &'static str {
     if snapshot.running {
-        "healthy"
+        HELLO_SERVICE_DESCRIPTOR.inventory_health_running
     } else if snapshot.loaded {
-        "stopped"
+        HELLO_SERVICE_DESCRIPTOR.inventory_health_stopped
     } else {
-        "missing"
+        HELLO_SERVICE_DESCRIPTOR.inventory_health_missing
     }
 }
 

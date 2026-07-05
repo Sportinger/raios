@@ -6,8 +6,8 @@ pub(crate) fn artifact_load_plan_preflight_record(
     let mut record = ArtifactLoadPlanPreflightRecord {
         schema: ARTIFACT_LOAD_PLAN_PREFLIGHT_SCHEMA,
         id: ARTIFACT_LOAD_PLAN_PREFLIGHT_ID,
-        scope: "current_boot",
-        classification: "local_only",
+        scope: HELLO_SERVICE_DESCRIPTOR.scope,
+        classification: HELLO_SERVICE_DESCRIPTOR.classification,
         status: ARTIFACT_LOAD_PLAN_PREFLIGHT_STATUS,
         preflight_hash: [0; 32],
         service_id: descriptor.service_id,
@@ -159,9 +159,9 @@ pub(crate) fn service_slot_activation_record(
     let mut record = ServiceSlotActivationRecord {
         schema: SERVICE_SLOT_ACTIVATION_SCHEMA,
         id: SERVICE_SLOT_ACTIVATION_ID,
-        scope: "current_boot",
-        classification: "local_only",
-        persistence: "none",
+        scope: HELLO_SERVICE_DESCRIPTOR.scope,
+        classification: HELLO_SERVICE_DESCRIPTOR.classification,
+        persistence: HELLO_SERVICE_DESCRIPTOR.persistence,
         status,
         activation_hash: [0; 32],
         service_id: descriptor.service_id,
