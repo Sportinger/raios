@@ -4,6 +4,7 @@ members = [
     "registry/cli",
     "registry/core",
     "fake-cloud/server",
+    "raios-core",
     "seed-kernel"
 ]
 resolver = "2"

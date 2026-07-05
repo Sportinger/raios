@@ -32,14 +32,24 @@ a structured `stderr_log` block; a dead VM aborts the run immediately
 instead of burning the timeout. Verified: quick profile
 `shadow-20260705-094659-19752.json`, 417/417 predicates.
 
+Done in M1 so far (2026-07-05): slice M1-1 landed — `raios-core` `no_std`
+workspace crate exists with `sha256_bytes`/`sha256_hex`/`ByteSink` and
+host tests (`cargo test --locked -p raios-core`, 3/3 in 0.16s);
+`descriptor_sources.rs` deduplicated onto it; kernel rebuilt and quick
+profile green (`shadow-20260705-100850-5584.json`, 417/417). Note: the
+`hello_service.rs` duplicate stays until M2 — replacing it invalidates the
+signed Hello source snapshot (`artifact_content_source_sha256`), so that
+dedup belongs to the M2 de-hello-ify slice with a descriptor/signature
+chain update.
+
 Exact next task:
 
 ```text
-Slice M1-1: cargo workspace + `raios-core` no_std lib crate + `ByteSink`
-trait; move the duplicated sha256/hex helpers and one small pure module;
-host `cargo test` green (SHA-256 vectors, hex round-trip); kernel rebuilds
-unchanged; quick profile green. Beware: workspace conversion moves the
-cargo target/ dir — check scripts/*.ps1 for hardcoded paths.
+Slice M1-2: move the first real logic unit into raios-core with truth-table
+host tests — pick a small pure eval/parse module with no kernel deps (e.g.
+hex/sha256 reference parsing in agent_protocol_support.rs, or a gate truth
+table), keeping serial output byte-identical. Then slice M1-3: minimal CI
+(GitHub Actions): pinned toolchain, build + cargo test -p raios-core.
 ```
 
 ## Capability Milestones

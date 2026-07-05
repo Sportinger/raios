@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-05 (M0 CLOSED; M1 opened).
+Updated: 2026-07-05 (M0 closed; M1 first slice landed).
 
 ## What raiOS can actually do today
 
@@ -34,9 +34,10 @@ run now records exactly WHY it died (VM crashed — with exit code — vs
 connection glitch), and a dead VM fails the run in seconds instead of
 wasting 7 minutes. Failures can no longer be misfiled as "flaky tests".
 
-Now active: **M1 Testable Core** — carve the pure logic out of the kernel
-so it can be tested on a normal PC in seconds (instead of only via full
-VM boots), plus automatic checks on every commit.
+Now active: **M1 Testable Core**. First slice landed: a new `raios-core`
+library now holds shared kernel logic and is tested on the normal PC in
+0.16 seconds (previously any logic check needed a full VM boot). Next:
+move real gate/parsing logic in, then automatic checks on every commit.
 
 ## Top risk
 

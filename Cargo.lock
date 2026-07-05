@@ -1295,6 +1295,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "raios-core"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "rand"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1510,6 +1517,7 @@ dependencies = [
  "limine",
  "linked_list_allocator",
  "p256",
+ "raios-core",
  "rand_core 0.6.4",
  "sha2 0.10.9",
  "smoltcp",

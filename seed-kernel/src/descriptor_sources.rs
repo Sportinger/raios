@@ -1,6 +1,6 @@
 use crate::agent_protocol_support::parse_sha256_ref;
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
-use sha2::{Digest, Sha256};
+use raios_core::sha256_bytes;
 
 include!(concat!(
     env!("OUT_DIR"),
@@ -946,13 +946,6 @@ pub(crate) fn artifact_reference_hash(identity: ArtifactIdentityRecord) -> [u8; 
 
 pub(crate) fn artifact_reference_bytes_hash(identity: ArtifactIdentityRecord) -> [u8; 32] {
     identity.artifact_reference_bytes_hash
-}
-
-fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
-    let digest = Sha256::digest(bytes);
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
-    out
 }
 
 pub(crate) fn descriptor_source_hash_for_locator(locator: &str) -> Option<[u8; 32]> {

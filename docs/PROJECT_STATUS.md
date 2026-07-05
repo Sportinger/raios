@@ -2389,14 +2389,27 @@ hold: honest committed tree, full profile green
 (`shadow-20260704-184615-9224.json`, 7814/7814), all recent failures
 classified (see failure classification log at the top of this file).
 
+RESOLVED 2026-07-05 (same day, later session): slice M1-1 landed. The repo
+root was already a cargo workspace; new member `raios-core`
+(`#![cfg_attr(not(test), no_std)]`, dep: sha2 only) provides
+`sha256_bytes`, `sha256_hex`, and the `ByteSink` trait with host tests
+(`cargo test --locked -p raios-core`: 3/3 passed in 0.16s — official
+SHA-256 vectors, hex round-trip, Vec sink). `descriptor_sources.rs`
+deduplicated onto `raios_core::sha256_bytes`; kernel rebuilt unchanged and
+quick profile green (`shadow-20260705-100850-5584.json`, 417/417).
+Constraint discovered: the `hello_service.rs` `sha256_bytes` duplicate
+CANNOT be removed yet — the file participates in the signed Hello source
+snapshot, and editing it fails the build with an
+`artifact_content_source_sha256` mismatch; that dedup moves to M2
+(de-hello-ify) together with a descriptor/signature chain update.
+
 Current exact next task (milestone M1 Testable Core, `docs/ROADMAP.md`):
-slice M1-1 — convert the repo to a cargo workspace with a new `raios-core`
-`no_std` library crate; define the `ByteSink` trait; move the first small
-pure module plus the duplicated `sha256_bytes`/hex helpers into it; add
-host `cargo test` (SHA-256 vectors, hex round-trip); kernel must rebuild
-unchanged and pass a quick profile. Watch out: workspace conversion moves
-the cargo `target/` directory — check `scripts/*.ps1` for hardcoded
-`seed-kernel/target/...` paths or pin the target dir in `.cargo/config`.
+slice M1-2 — move the first real logic unit into `raios-core` with
+truth-table host tests: a small pure eval/parse module with no kernel
+dependencies (candidate: `parse_sha256_ref`/hex reference parsing in
+`agent_protocol_support.rs`, or a gate truth table), serial output must
+stay byte-identical (quick profile). Then slice M1-3 — minimal CI (GitHub
+Actions): pinned toolchain, workspace build, `cargo test -p raios-core`.
 Keep persistence, durable audit writes, rollback-store writes, transaction
 append, rollback application, external unsigned artifact intake, executable
 candidate-byte mapping, provider auto-load, broad mutation, and installed
