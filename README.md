@@ -285,6 +285,16 @@ Stable current shape:
   rollback state remain denied unless the status and roadmap say otherwise.
 - Shadow VM smoke profiles verify boot/protocol behavior and write
   `raios.vm_test_report.v0` reports under `release/vm-reports/`.
+- Shared kernel logic lives in the host-testable `raios-core` workspace
+  crate (`cargo test -p raios-core` runs in under a second), including the
+  single typed record model through which all agent-protocol responses and
+  event bindings render — serializer and hasher derive from the same
+  structure, so they cannot diverge.
+- GitHub Actions builds the pinned kernel, runs the host tests, and boots
+  the OS through the headless QEMU quick profile on every push.
+- Every source file is below the agent-readability size thresholds; the
+  former 22.7k-line hello service is 16 signature-attested modules whose
+  source set is hashed and verified by the build.
 
 Still intentionally missing:
 
@@ -302,8 +312,10 @@ Document map:
 
 - `docs/PROJECT_STATUS.md`: detailed current state, exact next task, latest
   reports, gaps, and unabridged implementation history
-- `docs/ROADMAP.md`: phase direction, compact active cursor, and parallel work
-  lanes
+- `docs/ROADMAP.md`: capability milestones (M0–M7), direction, and the
+  compact active cursor
+- `docs/OWNER_DASHBOARD.md`: one page, plain language, current capability
+  and gate status
 - `docs/DEBUGGING.md`: build, run, smoke-test, protocol-probe, and failure-mode
   commands
 - `docs/architecture-decisions/`: durable protocol and memory decisions
