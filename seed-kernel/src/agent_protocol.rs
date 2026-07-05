@@ -1,24 +1,19 @@
 use crate::{
     agent_protocol_memory::{
-        canonical_memory_mutation_method, emit_memory_capability_denied, emit_memory_context,
-        emit_memory_profile, emit_memory_query, emit_memory_trace, emit_recent_events,
-        memory_mutation_method,
+        emit_memory_capability_denied, emit_memory_context, emit_memory_profile, emit_memory_query,
+        emit_memory_trace, emit_recent_events,
     },
     agent_protocol_module_approval::{
         emit_module_approval_diagnostic, emit_module_approval_diagnostic_selftest,
-        module_approval_diagnostic_method, module_approval_diagnostic_selftest_method,
     },
     agent_protocol_module_attestation::{
         emit_module_attestation_diagnostic, emit_module_attestation_diagnostic_selftest,
-        module_attestation_diagnostic_method, module_attestation_diagnostic_selftest_method,
     },
     agent_protocol_module_audit::{
         emit_module_audit_rollback_diagnostic, emit_module_audit_rollback_diagnostic_selftest,
-        module_audit_rollback_diagnostic_method, module_audit_rollback_diagnostic_selftest_method,
     },
     agent_protocol_module_grant::{
         emit_module_grant_diagnostic, emit_module_grant_diagnostic_selftest,
-        module_grant_diagnostic_method, module_grant_diagnostic_selftest_method,
     },
     agent_protocol_module_load_gate::{
         emit_module_load_ephemeral_denied, emit_module_load_gate_approval_selftest,
@@ -26,47 +21,30 @@ use crate::{
         emit_module_load_gate_audit_rollback_selftest,
         emit_module_load_gate_loader_runtime_selftest, emit_module_load_gate_manifest_selftest,
         emit_module_load_gate_retained_selftest, emit_module_load_gate_service_slot_selftest,
-        emit_module_load_gate_vm_report_selftest, module_load_gate_approval_selftest_method,
-        module_load_gate_artifact_selftest_method, module_load_gate_attestation_selftest_method,
-        module_load_gate_audit_rollback_selftest_method,
-        module_load_gate_loader_runtime_selftest_method, module_load_gate_manifest_selftest_method,
-        module_load_gate_retained_selftest_method, module_load_gate_service_slot_selftest_method,
-        module_load_gate_vm_report_selftest_method,
+        emit_module_load_gate_vm_report_selftest,
     },
     agent_protocol_module_loader_artifact_hash_binding::{
-        emit_module_loader_artifact_hash_binding,
-        emit_module_loader_artifact_hash_binding_selftest,
-        module_loader_artifact_hash_binding_method,
-        module_loader_artifact_hash_binding_selftest_method,
+        emit_module_loader_artifact_hash_binding, emit_module_loader_artifact_hash_binding_selftest,
     },
     agent_protocol_module_loader_fact::{
-        canonical_module_loader_fact_method, canonical_module_loader_fact_selftest_method,
-        emit_module_loader_fact, emit_module_loader_fact_selftest, module_loader_fact_method,
-        module_loader_fact_selftest_method,
+        emit_module_loader_fact, emit_module_loader_fact_selftest,
     },
     agent_protocol_module_loader_identity::{
         emit_module_loader_identity, emit_module_loader_identity_selftest,
-        module_loader_identity_method, module_loader_identity_selftest_method,
     },
     agent_protocol_module_loader_runtime::{
         emit_module_loader_runtime, emit_module_loader_runtime_selftest,
-        module_loader_runtime_method, module_loader_runtime_selftest_method,
     },
     agent_protocol_module_reference::{
         emit_module_artifact_diagnostic, emit_module_artifact_diagnostic_selftest,
         emit_module_manifest_diagnostic, emit_module_manifest_diagnostic_selftest,
         emit_module_vm_report_diagnostic, emit_module_vm_report_diagnostic_selftest,
-        module_artifact_diagnostic_method, module_artifact_diagnostic_selftest_method,
-        module_manifest_diagnostic_method, module_manifest_diagnostic_selftest_method,
-        module_vm_report_diagnostic_method, module_vm_report_diagnostic_selftest_method,
     },
     agent_protocol_module_service_slot::{
         emit_module_service_slot_diagnostic, emit_module_service_slot_diagnostic_selftest,
-        module_service_slot_diagnostic_method, module_service_slot_diagnostic_selftest_method,
     },
     agent_protocol_module_service_slot_allocator::{
         emit_module_service_slot_allocator, emit_module_service_slot_allocator_selftest,
-        module_service_slot_allocator_method, module_service_slot_allocator_selftest_method,
     },
     agent_protocol_module_write_boundary::{
         emit_module_audit_rollback_append_contract,
@@ -83,33 +61,12 @@ use crate::{
         emit_module_audit_rollback_write_boundary,
         emit_module_audit_rollback_write_boundary_selftest,
         emit_module_audit_rollback_write_policy, emit_module_audit_rollback_write_policy_selftest,
-        module_audit_rollback_append_contract_method,
-        module_audit_rollback_append_contract_selftest_method,
-        module_audit_rollback_append_engine_method,
-        module_audit_rollback_append_engine_selftest_method,
-        module_audit_rollback_append_intent_method,
-        module_audit_rollback_append_intent_selftest_method,
-        module_audit_rollback_append_payload_hash_method,
-        module_audit_rollback_append_payload_hash_selftest_method,
-        module_audit_rollback_availability_method,
-        module_audit_rollback_availability_selftest_method,
-        module_audit_rollback_storage_layout_method,
-        module_audit_rollback_storage_layout_selftest_method,
-        module_audit_rollback_write_boundary_method,
-        module_audit_rollback_write_boundary_selftest_method,
-        module_audit_rollback_write_policy_method,
-        module_audit_rollback_write_policy_selftest_method,
     },
-    agent_protocol_policy::{
-        canonical_denied_method, canonical_module_load_ephemeral_method, denied_method,
-        emit_capability_denied, module_load_ephemeral_method, record_denial, record_read,
-    },
+    agent_protocol_policy::{emit_capability_denied, record_denial, record_read},
     agent_protocol_provider::{
         emit_provider_context_export_denied, emit_provider_context_gate,
         emit_provider_context_gate_selftest, emit_provider_context_injection_gate,
-        emit_provider_context_injection_gate_selftest, provider_context_export_method,
-        provider_context_gate_method, provider_context_gate_selftest_method,
-        provider_context_injection_gate_method, provider_context_injection_gate_selftest_method,
+        emit_provider_context_injection_gate_selftest,
     },
     agent_protocol_recovery::{
         emit_durable_audit_rollback_write_authority_diagnostic,
@@ -190,88 +147,6 @@ use crate::{
         emit_recovery_lifeline_command_execution_result_denial_diagnostic_selftest,
         emit_recovery_lifeline_status_execution_result_diagnostic,
         emit_recovery_lifeline_status_result_read,
-        recovery_lifeline_command_execution_audit_denial_diagnostic_method,
-        recovery_lifeline_command_execution_audit_denial_diagnostic_selftest_method,
-        recovery_lifeline_command_execution_commit_gate_diagnostic_method,
-        recovery_lifeline_command_execution_commit_gate_diagnostic_selftest_method,
-        recovery_lifeline_command_execution_completion_denial_diagnostic_method,
-        recovery_lifeline_command_execution_completion_denial_diagnostic_selftest_method,
-        recovery_lifeline_command_execution_enablement_diagnostic_method,
-        recovery_lifeline_command_execution_enablement_diagnostic_selftest_method,
-        recovery_lifeline_command_execution_intent_diagnostic_method,
-        recovery_lifeline_command_execution_intent_diagnostic_selftest_method,
-        recovery_lifeline_command_execution_observation_denial_diagnostic_method,
-        recovery_lifeline_command_execution_observation_denial_diagnostic_selftest_method,
-        recovery_lifeline_command_execution_preflight_diagnostic_method,
-        recovery_lifeline_command_execution_preflight_diagnostic_selftest_method,
-        recovery_lifeline_command_execution_result_denial_diagnostic_method,
-        recovery_lifeline_command_execution_result_denial_diagnostic_selftest_method,
-        recovery_lifeline_status_execution_result_diagnostic_method,
-        recovery_lifeline_status_result_read_method,
-        recovery_lifeline_status_result_read_response_method,
-    },
-    agent_protocol_recovery_methods::{
-        canonical_recovery_artifact_load_method,
-        durable_audit_rollback_write_authority_diagnostic_method,
-        durable_audit_rollback_write_authority_diagnostic_selftest_method,
-        recovery_artifact_identity_diagnostic_method,
-        recovery_artifact_identity_diagnostic_selftest_method,
-        recovery_artifact_load_binding_method, recovery_artifact_load_binding_selftest_method,
-        recovery_artifact_load_method, recovery_artifact_loader_diagnostic_method,
-        recovery_artifact_loader_diagnostic_selftest_method,
-        recovery_artifact_local_approval_diagnostic_method,
-        recovery_artifact_local_approval_diagnostic_selftest_method,
-        recovery_artifact_rollback_evidence_diagnostic_method,
-        recovery_artifact_rollback_evidence_diagnostic_selftest_method,
-        recovery_artifact_trust_diagnostic_method,
-        recovery_artifact_trust_diagnostic_selftest_method,
-        recovery_artifact_vm_test_diagnostic_method,
-        recovery_artifact_vm_test_diagnostic_selftest_method,
-        recovery_disable_module_target_binding_diagnostic_method,
-        recovery_disable_module_target_binding_diagnostic_selftest_method,
-        recovery_durable_audit_rollback_persistence_method,
-        recovery_durable_audit_rollback_persistence_selftest_method,
-        recovery_lifeline_command_admission_method,
-        recovery_lifeline_command_admission_selftest_method,
-        recovery_lifeline_command_body_canonicalization_diagnostic_method,
-        recovery_lifeline_command_body_canonicalization_diagnostic_selftest_method,
-        recovery_lifeline_command_dispatch_behavior_diagnostic_method,
-        recovery_lifeline_command_dispatch_behavior_diagnostic_selftest_method,
-        recovery_lifeline_command_dispatch_diagnostic_method,
-        recovery_lifeline_command_dispatch_diagnostic_selftest_method,
-        recovery_lifeline_command_envelope_diagnostic_method,
-        recovery_lifeline_command_envelope_diagnostic_selftest_method,
-        recovery_lifeline_command_executor_capability_table_diagnostic_method,
-        recovery_lifeline_command_executor_capability_table_diagnostic_selftest_method,
-        recovery_lifeline_command_handler_binding_diagnostic_method,
-        recovery_lifeline_command_handler_binding_diagnostic_selftest_method,
-        recovery_lifeline_command_side_effect_gate_diagnostic_method,
-        recovery_lifeline_command_side_effect_gate_diagnostic_selftest_method,
-        recovery_lifeline_command_vocabulary_method,
-        recovery_lifeline_command_vocabulary_selftest_method,
-        recovery_lifeline_protocol_diagnostic_method,
-        recovery_lifeline_protocol_diagnostic_selftest_method,
-        recovery_lifeline_request_diagnostic_method,
-        recovery_lifeline_request_diagnostic_selftest_method,
-        recovery_lifeline_status_read_handler_diagnostic_method,
-        recovery_lifeline_status_read_handler_diagnostic_selftest_method,
-        recovery_load_artifact_by_hash_target_binding_diagnostic_method,
-        recovery_load_artifact_by_hash_target_binding_diagnostic_selftest_method,
-        recovery_loader_runtime_isolation_method,
-        recovery_loader_runtime_isolation_selftest_method, recovery_memory_provenance_method,
-        recovery_memory_provenance_selftest_method,
-        recovery_memory_write_authority_diagnostic_method,
-        recovery_memory_write_authority_diagnostic_selftest_method,
-        recovery_restart_last_good_target_binding_diagnostic_method,
-        recovery_restart_last_good_target_binding_diagnostic_selftest_method,
-        recovery_rollback_apply_authorization_diagnostic_method,
-        recovery_rollback_apply_authorization_diagnostic_selftest_method,
-        recovery_rollback_preview_authorization_diagnostic_method,
-        recovery_rollback_preview_authorization_diagnostic_selftest_method,
-        recovery_rollback_transaction_engine_method,
-        recovery_rollback_transaction_engine_selftest_method,
-        recovery_service_inventory_side_effect_boundary_diagnostic_method,
-        recovery_service_inventory_side_effect_boundary_diagnostic_selftest_method,
     },
     agent_protocol_support::{method_eq, method_head_eq},
     agent_protocol_system::{
@@ -289,935 +164,598 @@ pub enum DispatchOutcome {
     Unknown,
 }
 
+type MethodHandler = fn(MethodCall<'_>, ui::RuntimeStatus) -> DispatchOutcome;
+type MethodPredicate = fn(&str) -> bool;
+
+#[derive(Clone, Copy)]
+pub(crate) struct CommandEnvelopeTarget {
+    pub(crate) method: &'static str,
+    pub(crate) capability: &'static str,
+    pub(crate) response_id: &'static str,
+    pub(crate) dispatch_method: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct CommandEnvelopeMetadata {
+    order: u8,
+    target: CommandEnvelopeTarget,
+}
+
+#[derive(Clone, Copy)]
+struct ConsoleRoute {
+    command: &'static str,
+    dispatch_method: Option<&'static str>,
+}
+
+#[derive(Clone, Copy)]
+enum MatchKind {
+    Exact,
+    Head,
+    Predicate(MethodPredicate),
+}
+
+#[derive(Clone, Copy)]
+enum MethodAction {
+    Read0(fn()),
+    ReadRuntime(fn(ui::RuntimeStatus)),
+    ReadMethod(fn(&str)),
+    ReadRuntimeMethod(fn(ui::RuntimeStatus, &str)),
+    ReadRuntimeMethodEvent(fn(ui::RuntimeStatus, &str, event_log::EventId)),
+    Response0Read(fn() -> &'static str),
+    ResponseMethod(fn(&str) -> &'static str),
+    ResponseMethodReadEvent(fn(&str, event_log::EventId) -> &'static str),
+    ResponseMaterializeDryRun(fn(&str, event_log::EventId) -> &'static str),
+    DeniedMethod(fn(&str) -> &'static str),
+    DeniedProviderContextExport,
+    DeniedModuleLoadEphemeral,
+    DeniedRecoveryArtifactLoad,
+    DeniedMemoryMutation,
+    DeniedGeneric,
+    StatusResultRead,
+}
+
+struct MethodEntry {
+    canonical: &'static str,
+    aliases: &'static [&'static str],
+    match_kind: MatchKind,
+    envelope: Option<CommandEnvelopeMetadata>,
+    console_routes: &'static [ConsoleRoute],
+    action: MethodAction,
+    handler: MethodHandler,
+}
+
+struct MethodCall<'a> {
+    input: &'a str,
+    canonical: &'static str,
+    entry: &'static MethodEntry,
+}
+
+macro_rules! route {
+    ($command:literal => $dispatch:literal) => {
+        ConsoleRoute {
+            command: $command,
+            dispatch_method: Some($dispatch),
+        }
+    };
+    ($command:literal) => {
+        ConsoleRoute {
+            command: $command,
+            dispatch_method: None,
+        }
+    };
+}
+
+macro_rules! method {
+    ($canonical:literal, $kind:ident, [$($alias:literal),* $(,)?], [$($route:expr),* $(,)?], $action:expr) => {
+        MethodEntry {
+            canonical: $canonical,
+            aliases: &[$($alias),*],
+            match_kind: MatchKind::$kind,
+            envelope: None,
+            console_routes: &[$($route),*],
+            action: $action,
+            handler: dispatch_method_entry,
+        }
+    };
+}
+
+macro_rules! envelope_method {
+    ($canonical:literal, $kind:ident, [$($alias:literal),* $(,)?], [$($route:expr),* $(,)?], $order:literal, $target:literal, $capability:literal, $response:literal, $dispatch:literal, $action:expr) => {
+        MethodEntry {
+            canonical: $canonical,
+            aliases: &[$($alias),*],
+            match_kind: MatchKind::$kind,
+            envelope: Some(CommandEnvelopeMetadata {
+                order: $order,
+                target: CommandEnvelopeTarget {
+                    method: $target,
+                    capability: $capability,
+                    response_id: $response,
+                    dispatch_method: $dispatch,
+                },
+            }),
+            console_routes: &[$($route),*],
+            action: $action,
+            handler: dispatch_method_entry,
+        }
+    };
+}
+
+macro_rules! pred_method {
+    ($canonical:literal, $predicate:expr, [$($route:expr),* $(,)?], $action:expr) => {
+        MethodEntry {
+            canonical: $canonical,
+            aliases: &[],
+            match_kind: MatchKind::Predicate($predicate),
+            envelope: None,
+            console_routes: &[$($route),*],
+            action: $action,
+            handler: dispatch_method_entry,
+        }
+    };
+}
+
+macro_rules! pred_envelope_method {
+    ($canonical:literal, $predicate:expr, [$($route:expr),* $(,)?], $order:literal, $target:literal, $capability:literal, $response:literal, $dispatch:literal, $action:expr) => {
+        MethodEntry {
+            canonical: $canonical,
+            aliases: &[],
+            match_kind: MatchKind::Predicate($predicate),
+            envelope: Some(CommandEnvelopeMetadata {
+                order: $order,
+                target: CommandEnvelopeTarget {
+                    method: $target,
+                    capability: $capability,
+                    response_id: $response,
+                    dispatch_method: $dispatch,
+                },
+            }),
+            console_routes: &[$($route),*],
+            action: $action,
+            handler: dispatch_method_entry,
+        }
+    };
+}
+
+#[rustfmt::skip]
+const AGENT_METHODS: &[MethodEntry] = &[
+    envelope_method!("system.describe", Exact, ["describe"], [route!("describe" => "system.describe"), route!("system.describe" => "system.describe")], 0, "system.describe", "cap.system.describe.read", "agent_command_envelope.current_boot.serial.system_describe.v0", "system.describe", MethodAction::Read0(emit_describe)),
+    envelope_method!("system.snapshot", Exact, ["snapshot"], [route!("snapshot" => "system.snapshot"), route!("system.snapshot" => "system.snapshot")], 1, "system.snapshot", "cap.system.snapshot.read", "agent_command_envelope.current_boot.serial.system_snapshot.v0", "system.snapshot", MethodAction::ReadRuntime(emit_snapshot)),
+    envelope_method!("system.boot_log", Exact, ["system.bootlog", "bootlog"], [route!("bootlog" => "system.boot_log"), route!("system.bootlog" => "system.boot_log"), route!("system.boot_log" => "system.boot_log")], 2, "system.boot_log", "cap.system.boot_log.read", "agent_command_envelope.current_boot.serial.system_boot_log.v0", "system.boot_log", MethodAction::Read0(emit_boot_log)),
+    envelope_method!("system.capabilities", Exact, ["capabilities", "caps"], [route!("caps" => "system.capabilities"), route!("capabilities" => "system.capabilities"), route!("system.capabilities" => "system.capabilities")], 3, "system.capabilities", "cap.system.capabilities.read", "agent_command_envelope.current_boot.serial.system_capabilities.v0", "system.capabilities", MethodAction::Read0(emit_capabilities)),
+    envelope_method!("device.graph", Exact, ["devicegraph"], [route!("devicegraph" => "device.graph"), route!("device.graph" => "device.graph")], 4, "device.graph", "cap.device.graph.read", "agent_command_envelope.current_boot.serial.device_graph.v0", "device.graph", MethodAction::ReadRuntime(emit_device_graph)),
+    envelope_method!("problem.list", Exact, ["problems"], [route!("problems" => "problem.list"), route!("problem.list" => "problem.list")], 17, "problem.list", "cap.problem.list.read", "agent_command_envelope.current_boot.serial.problem_list.v0", "problem.list", MethodAction::ReadRuntime(emit_problem_list)),
+    envelope_method!("service.inventory", Exact, ["services"], [route!("services" => "service.inventory"), route!("service.inventory" => "service.inventory")], 5, "service.inventory", "cap.service.inventory.read", "agent_command_envelope.current_boot.serial.service_inventory.v0", "service.inventory", MethodAction::ReadRuntime(emit_service_inventory)),
+    pred_method!("service.descriptor_source_trust_selftest", hello_service::is_descriptor_source_trust_selftest_method, [route!("service.descriptor_source_trust_selftest")], MethodAction::Response0Read(hello_service::emit_descriptor_source_trust_selftest)),
+    pred_method!("service.artifact_reference_trust_selftest", hello_service::is_artifact_reference_trust_selftest_method, [route!("service.artifact_reference_trust_selftest")], MethodAction::Response0Read(hello_service::emit_artifact_reference_trust_selftest)),
+    pred_method!("service.artifact_load_plan_preflight_selftest", hello_service::is_artifact_load_plan_preflight_selftest_method, [route!("service.artifact_load_plan_preflight_selftest")], MethodAction::Response0Read(hello_service::emit_artifact_load_plan_preflight_selftest)),
+    pred_envelope_method!("service.health", hello_service::is_health_method, [route!("service.health")], 6, "service.health", "cap.service.health.read", "agent_command_envelope.current_boot.serial.service_health.v0", "service.health svc.demo.hello", MethodAction::ResponseMethod(hello_service::emit_health)),
+    method!("memory.profile", Exact, ["memprofile"], [route!("memory.profile" => "memory.profile"), route!("memprofile" => "memory.profile")], MethodAction::Read0(emit_memory_profile)),
+    method!("memory.context", Head, ["memctx"], [route!("memory.context"), route!("memctx")], MethodAction::ReadRuntimeMethodEvent(emit_memory_context)),
+    method!("memory.query", Head, ["memquery"], [route!("memory.query"), route!("memquery")], MethodAction::Read0(emit_memory_query)),
+    method!("memory.trace", Head, ["memtrace"], [route!("memory.trace"), route!("memtrace")], MethodAction::ReadMethod(emit_memory_trace)),
+    method!("memory.recent_events", Head, ["audit.events", "events"], [route!("memory.recent_events"), route!("audit.events"), route!("events")], MethodAction::ReadMethod(emit_recent_events)),
+    method!("provider.context_gate", Head, ["provider.context_export_status"], [route!("provider.context_gate"), route!("provider.context_export_status")], MethodAction::ReadRuntimeMethod(emit_provider_context_gate)),
+    method!("provider.context_gate_selftest", Head, [], [route!("provider.context_gate_selftest")], MethodAction::ReadRuntimeMethod(emit_provider_context_gate_selftest)),
+    method!("provider.context_injection_gate", Head, [], [route!("provider.context_injection_gate")], MethodAction::ReadRuntimeMethod(emit_provider_context_injection_gate)),
+    method!("provider.context_injection_gate_selftest", Head, [], [route!("provider.context_injection_gate_selftest")], MethodAction::ReadRuntimeMethod(emit_provider_context_injection_gate_selftest)),
+    method!("module.manifest_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_manifest_diagnostic)),
+    method!("module.manifest_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_module_manifest_diagnostic_selftest)),
+    method!("module.artifact_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_artifact_diagnostic)),
+    method!("module.artifact_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_module_artifact_diagnostic_selftest)),
+    method!("module.vm_report_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_vm_report_diagnostic)),
+    method!("module.vm_report_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_module_vm_report_diagnostic_selftest)),
+    method!("module.attestation_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_attestation_diagnostic)),
+    method!("module.attestation_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_module_attestation_diagnostic_selftest)),
+    method!("module.approval_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_approval_diagnostic)),
+    method!("module.approval_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_module_approval_diagnostic_selftest)),
+    method!("module.grant_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_grant_diagnostic)),
+    method!("module.grant_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_module_grant_diagnostic_selftest)),
+    method!("module.audit_rollback_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_audit_rollback_diagnostic)),
+    method!("module.audit_rollback_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_module_audit_rollback_diagnostic_selftest)),
+    method!("module.service_slot_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_module_service_slot_diagnostic)),
+    method!("module.service_slot_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_module_service_slot_diagnostic_selftest)),
+    method!("module.service_slot_allocator", Head, [], [], MethodAction::Read0(emit_module_service_slot_allocator)),
+    method!("module.service_slot_allocator_selftest", Head, [], [], MethodAction::Read0(emit_module_service_slot_allocator_selftest)),
+    method!("module.loader_runtime", Head, [], [], MethodAction::Read0(emit_module_loader_runtime)),
+    method!("module.loader_runtime_selftest", Head, [], [], MethodAction::Read0(emit_module_loader_runtime_selftest)),
+    method!("module.loader_identity", Head, [], [], MethodAction::Read0(emit_module_loader_identity)),
+    method!("module.loader_identity_selftest", Head, [], [], MethodAction::Read0(emit_module_loader_identity_selftest)),
+    method!("module.loader_artifact_hash_binding", Head, [], [], MethodAction::Read0(emit_module_loader_artifact_hash_binding)),
+    method!("module.loader_artifact_hash_binding_selftest", Head, [], [], MethodAction::Read0(emit_module_loader_artifact_hash_binding_selftest)),
+    method!("module.loader_entrypoint_abi", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact)),
+    method!("module.loader_entrypoint_abi_selftest", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact_selftest)),
+    method!("module.loader_address_space_boundary", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact)),
+    method!("module.loader_address_space_boundary_selftest", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact_selftest)),
+    method!("module.loader_memory_map_constraints", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact)),
+    method!("module.loader_memory_map_constraints_selftest", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact_selftest)),
+    method!("module.loader_capability_import_table", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact)),
+    method!("module.loader_capability_import_table_selftest", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact_selftest)),
+    method!("module.loader_service_slot_binding", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact)),
+    method!("module.loader_service_slot_binding_selftest", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact_selftest)),
+    method!("module.loader_health_state_hooks", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact)),
+    method!("module.loader_health_state_hooks_selftest", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact_selftest)),
+    method!("module.loader_rollback_hooks", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact)),
+    method!("module.loader_rollback_hooks_selftest", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact_selftest)),
+    method!("module.loader_audit_rollback_write_boundary_binding", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact)),
+    method!("module.loader_audit_rollback_write_boundary_binding_selftest", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact_selftest)),
+    envelope_method!("module.audit_rollback_availability", Head, ["module.audit_rollback_store_availability"], [], 9, "module.audit_rollback_availability", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_availability.v0", "module.audit_rollback_availability", MethodAction::Read0(emit_module_audit_rollback_availability)),
+    method!("module.audit_rollback_availability_selftest", Head, ["module.audit_rollback_store_availability_selftest"], [], MethodAction::Read0(emit_module_audit_rollback_availability_selftest)),
+    envelope_method!("module.audit_rollback_write_policy", Head, ["module.audit_rollback_policy"], [], 10, "module.audit_rollback_write_policy", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_write_policy.v0", "module.audit_rollback_write_policy", MethodAction::Read0(emit_module_audit_rollback_write_policy)),
+    method!("module.audit_rollback_write_policy_selftest", Head, ["module.audit_rollback_policy_selftest"], [], MethodAction::Read0(emit_module_audit_rollback_write_policy_selftest)),
+    envelope_method!("module.audit_rollback_storage_layout", Head, ["module.audit_rollback_persistence_layout"], [], 11, "module.audit_rollback_storage_layout", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_storage_layout.v0", "module.audit_rollback_storage_layout", MethodAction::Read0(emit_module_audit_rollback_storage_layout)),
+    method!("module.audit_rollback_storage_layout_selftest", Head, ["module.audit_rollback_persistence_layout_selftest"], [], MethodAction::Read0(emit_module_audit_rollback_storage_layout_selftest)),
+    envelope_method!("module.audit_rollback_append_engine", Head, ["module.audit_rollback_append_engine_readiness"], [], 12, "module.audit_rollback_append_engine", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_append_engine.v0", "module.audit_rollback_append_engine", MethodAction::Read0(emit_module_audit_rollback_append_engine)),
+    method!("module.audit_rollback_append_engine_selftest", Head, ["module.audit_rollback_append_engine_readiness_selftest"], [], MethodAction::Read0(emit_module_audit_rollback_append_engine_selftest)),
+    envelope_method!("module.audit_rollback_append_contract", Head, ["module.audit_rollback_storage_contract"], [], 13, "module.audit_rollback_append_contract", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_append_contract.v0", "module.audit_rollback_append_contract", MethodAction::Read0(emit_module_audit_rollback_append_contract)),
+    method!("module.audit_rollback_append_contract_selftest", Head, ["module.audit_rollback_storage_contract_selftest"], [], MethodAction::Read0(emit_module_audit_rollback_append_contract_selftest)),
+    envelope_method!("module.audit_rollback_append_payload_hash", Head, ["module.audit_rollback_append_payload"], [], 14, "module.audit_rollback_append_payload_hash", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_append_payload_hash.v0", "module.audit_rollback_append_payload_hash", MethodAction::Read0(emit_module_audit_rollback_append_payload_hash)),
+    method!("module.audit_rollback_append_payload_hash_selftest", Head, ["module.audit_rollback_append_payload_selftest"], [], MethodAction::Read0(emit_module_audit_rollback_append_payload_hash_selftest)),
+    envelope_method!("module.audit_rollback_append_intent", Head, ["module.audit_rollback_append_request"], [], 15, "module.audit_rollback_append_intent", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_append_intent.v0", "module.audit_rollback_append_intent", MethodAction::Read0(emit_module_audit_rollback_append_intent)),
+    method!("module.audit_rollback_append_intent_selftest", Head, ["module.audit_rollback_append_request_selftest"], [], MethodAction::Read0(emit_module_audit_rollback_append_intent_selftest)),
+    envelope_method!("module.audit_rollback_write_boundary", Head, ["module.audit_rollback_write_gate"], [], 16, "module.audit_rollback_write_boundary", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_write_boundary.v0", "module.audit_rollback_write_boundary", MethodAction::Read0(emit_module_audit_rollback_write_boundary)),
+    method!("module.audit_rollback_write_boundary_selftest", Head, ["module.audit_rollback_write_gate_selftest"], [], MethodAction::Read0(emit_module_audit_rollback_write_boundary_selftest)),
+    method!("module.load_gate_manifest_selftest", Head, [], [], MethodAction::Read0(emit_module_load_gate_manifest_selftest)),
+    method!("module.load_gate_artifact_selftest", Head, [], [], MethodAction::Read0(emit_module_load_gate_artifact_selftest)),
+    method!("module.load_gate_vm_report_selftest", Head, [], [], MethodAction::Read0(emit_module_load_gate_vm_report_selftest)),
+    method!("module.load_gate_attestation_selftest", Head, [], [], MethodAction::Read0(emit_module_load_gate_attestation_selftest)),
+    method!("module.load_gate_approval_selftest", Head, [], [], MethodAction::Read0(emit_module_load_gate_approval_selftest)),
+    method!("module.load_gate_retained_selftest", Head, [], [], MethodAction::Read0(emit_module_load_gate_retained_selftest)),
+    method!("module.load_gate_audit_rollback_selftest", Head, [], [], MethodAction::Read0(emit_module_load_gate_audit_rollback_selftest)),
+    method!("module.load_gate_service_slot_selftest", Head, [], [], MethodAction::Read0(emit_module_load_gate_service_slot_selftest)),
+    method!("module.load_gate_loader_runtime_selftest", Head, [], [], MethodAction::Read0(emit_module_load_gate_loader_runtime_selftest)),
+    method!("recovery.identity_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_recovery_artifact_identity_diagnostic)),
+    method!("recovery.identity_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_recovery_artifact_identity_diagnostic_selftest)),
+    method!("recovery.trust_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_recovery_artifact_trust_diagnostic)),
+    method!("recovery.trust_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_recovery_artifact_trust_diagnostic_selftest)),
+    method!("recovery.vm_test_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_recovery_artifact_vm_test_diagnostic)),
+    method!("recovery.vm_test_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_recovery_artifact_vm_test_diagnostic_selftest)),
+    method!("recovery.local_approval_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_recovery_artifact_local_approval_diagnostic)),
+    method!("recovery.local_approval_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_recovery_artifact_local_approval_diagnostic_selftest)),
+    method!("recovery.loader_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_recovery_artifact_loader_diagnostic)),
+    method!("recovery.loader_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_recovery_artifact_loader_diagnostic_selftest)),
+    method!("recovery.rollback_evidence_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_recovery_artifact_rollback_evidence_diagnostic)),
+    method!("recovery.rollback_evidence_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_recovery_artifact_rollback_evidence_diagnostic_selftest)),
+    pred_envelope_method!("recovery.rollback_inspect", hello_service::is_recovery_rollback_inspect_method, [route!("recovery.rollback_inspect")], 8, "recovery.rollback_inspect", "cap.recovery.rollback_inspect.read", "agent_command_envelope.current_boot.serial.recovery_rollback_inspect.v0", "recovery.rollback_inspect svc.demo.hello", MethodAction::ResponseMethodReadEvent(hello_service::emit_recovery_rollback_inspect)),
+    method!("recovery.lifeline_request_diagnostic", Head, [], [], MethodAction::ReadMethod(emit_recovery_lifeline_request_diagnostic)),
+    method!("recovery.lifeline_request_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_recovery_lifeline_request_diagnostic_selftest)),
+    method!("recovery.lifeline_protocol_diagnostic", Head, [], [], MethodAction::Read0(emit_recovery_lifeline_protocol_diagnostic)),
+    method!("recovery.lifeline_protocol_diagnostic_selftest", Head, [], [], MethodAction::Read0(emit_recovery_lifeline_protocol_diagnostic_selftest)),
+    method!("recovery.lifeline_command_vocabulary", Head, ["recovery.lifeline_command_vocabulary_diagnostic"], [], MethodAction::Read0(emit_recovery_lifeline_command_vocabulary)),
+    method!("recovery.lifeline_command_vocabulary_selftest", Head, ["recovery.lifeline_command_vocabulary_diagnostic_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_vocabulary_selftest)),
+    method!("recovery.loader_runtime_isolation", Head, ["recovery.loader_runtime_isolation_diagnostic"], [], MethodAction::Read0(emit_recovery_loader_runtime_isolation)),
+    method!("recovery.loader_runtime_isolation_selftest", Head, ["recovery.loader_runtime_isolation_diagnostic_selftest"], [], MethodAction::Read0(emit_recovery_loader_runtime_isolation_selftest)),
+    method!("recovery.rollback_transaction_engine", Head, ["recovery.rollback_transaction_engine_diagnostic"], [], MethodAction::Read0(emit_recovery_rollback_transaction_engine)),
+    method!("recovery.rollback_transaction_engine_selftest", Head, ["recovery.rollback_transaction_engine_diagnostic_selftest"], [], MethodAction::Read0(emit_recovery_rollback_transaction_engine_selftest)),
+    method!("recovery.durable_audit_rollback_persistence", Head, ["recovery.durable_audit_rollback_persistence_diagnostic"], [], MethodAction::Read0(emit_recovery_durable_audit_rollback_persistence)),
+    method!("recovery.durable_audit_rollback_persistence_selftest", Head, ["recovery.durable_audit_rollback_persistence_diagnostic_selftest"], [], MethodAction::Read0(emit_recovery_durable_audit_rollback_persistence_selftest)),
+    method!("recovery.memory_provenance", Head, ["recovery.memory_provenance_diagnostic"], [], MethodAction::Read0(emit_recovery_memory_provenance)),
+    method!("recovery.memory_provenance_selftest", Head, ["recovery.memory_provenance_diagnostic_selftest"], [], MethodAction::Read0(emit_recovery_memory_provenance_selftest)),
+    method!("recovery.lifeline_command_admission", Head, ["recovery.lifeline_command_admission_diagnostic"], [], MethodAction::Read0(emit_recovery_lifeline_command_admission)),
+    method!("recovery.lifeline_command_admission_selftest", Head, ["recovery.lifeline_command_admission_diagnostic_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_admission_selftest)),
+    method!("recovery.lifeline_command_envelope_diagnostic", Head, ["recovery.lifeline_command_envelope_reference"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_envelope_diagnostic)),
+    method!("recovery.lifeline_command_envelope_diagnostic_selftest", Head, ["recovery.lifeline_command_envelope_reference_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_envelope_diagnostic_selftest)),
+    method!("recovery.lifeline_command_dispatch_diagnostic", Head, ["recovery.lifeline_command_dispatch_denial"], [], MethodAction::Read0(emit_recovery_lifeline_command_dispatch_diagnostic)),
+    method!("recovery.lifeline_command_dispatch_diagnostic_selftest", Head, ["recovery.lifeline_command_dispatch_denial_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_dispatch_diagnostic_selftest)),
+    method!("recovery.lifeline_command_body_canonicalization_diagnostic", Head, ["recovery.lifeline_command_body_canonicalization"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_body_canonicalization_diagnostic)),
+    method!("recovery.lifeline_command_body_canonicalization_diagnostic_selftest", Head, ["recovery.lifeline_command_body_canonicalization_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_body_canonicalization_diagnostic_selftest)),
+    method!("recovery.lifeline_command_handler_binding_diagnostic", Head, ["recovery.lifeline_command_handler_binding"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_handler_binding_diagnostic)),
+    method!("recovery.lifeline_command_handler_binding_diagnostic_selftest", Head, ["recovery.lifeline_command_handler_binding_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_handler_binding_diagnostic_selftest)),
+    method!("recovery.lifeline_status_read_handler_diagnostic", Head, ["recovery.lifeline_status_read_handler"], [], MethodAction::ReadMethod(emit_recovery_lifeline_status_read_handler_diagnostic)),
+    method!("recovery.lifeline_status_read_handler_diagnostic_selftest", Head, ["recovery.lifeline_status_read_handler_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_status_read_handler_diagnostic_selftest)),
+    method!("recovery.rollback_preview_authorization_diagnostic", Head, ["recovery.rollback_preview_authorization"], [], MethodAction::ReadMethod(emit_recovery_rollback_preview_authorization_diagnostic)),
+    method!("recovery.rollback_preview_authorization_diagnostic_selftest", Head, ["recovery.rollback_preview_authorization_selftest"], [], MethodAction::Read0(emit_recovery_rollback_preview_authorization_diagnostic_selftest)),
+    method!("recovery.rollback_apply_authorization_diagnostic", Head, ["recovery.rollback_apply_authorization"], [], MethodAction::ReadMethod(emit_recovery_rollback_apply_authorization_diagnostic)),
+    method!("recovery.rollback_apply_authorization_diagnostic_selftest", Head, ["recovery.rollback_apply_authorization_selftest"], [], MethodAction::Read0(emit_recovery_rollback_apply_authorization_diagnostic_selftest)),
+    method!("recovery.disable_module_target_binding_diagnostic", Head, ["recovery.disable_module_target_binding"], [], MethodAction::ReadMethod(emit_recovery_disable_module_target_binding_diagnostic)),
+    method!("recovery.disable_module_target_binding_diagnostic_selftest", Head, ["recovery.disable_module_target_binding_selftest"], [], MethodAction::Read0(emit_recovery_disable_module_target_binding_diagnostic_selftest)),
+    method!("recovery.restart_last_good_target_binding_diagnostic", Head, ["recovery.restart_last_good_target_binding"], [], MethodAction::ReadMethod(emit_recovery_restart_last_good_target_binding_diagnostic)),
+    method!("recovery.restart_last_good_target_binding_diagnostic_selftest", Head, ["recovery.restart_last_good_target_binding_selftest"], [], MethodAction::Read0(emit_recovery_restart_last_good_target_binding_diagnostic_selftest)),
+    method!("recovery.load_artifact_by_hash_target_binding_diagnostic", Head, ["recovery.load_artifact_by_hash_target_binding"], [], MethodAction::ReadMethod(emit_recovery_load_artifact_by_hash_target_binding_diagnostic)),
+    method!("recovery.load_artifact_by_hash_target_binding_diagnostic_selftest", Head, ["recovery.load_artifact_by_hash_target_binding_selftest"], [], MethodAction::Read0(emit_recovery_load_artifact_by_hash_target_binding_diagnostic_selftest)),
+    method!("recovery.memory_write_authority_diagnostic", Head, ["recovery.memory_write_authority"], [], MethodAction::ReadMethod(emit_recovery_memory_write_authority_diagnostic)),
+    method!("recovery.memory_write_authority_diagnostic_selftest", Head, ["recovery.memory_write_authority_selftest"], [], MethodAction::Read0(emit_recovery_memory_write_authority_diagnostic_selftest)),
+    method!("recovery.durable_audit_rollback_write_authority_diagnostic", Head, ["recovery.durable_audit_rollback_write_authority"], [], MethodAction::ReadMethod(emit_durable_audit_rollback_write_authority_diagnostic)),
+    method!("recovery.durable_audit_rollback_write_authority_diagnostic_selftest", Head, ["recovery.durable_audit_rollback_write_authority_selftest"], [], MethodAction::Read0(emit_durable_audit_rollback_write_authority_diagnostic_selftest)),
+    method!("recovery.service_inventory_side_effect_boundary_diagnostic", Head, ["recovery.service_inventory_side_effect_boundary"], [], MethodAction::ReadMethod(emit_recovery_service_inventory_side_effect_boundary_diagnostic)),
+    method!("recovery.service_inventory_side_effect_boundary_diagnostic_selftest", Head, ["recovery.service_inventory_side_effect_boundary_selftest"], [], MethodAction::Read0(emit_recovery_service_inventory_side_effect_boundary_diagnostic_selftest)),
+    method!("recovery.lifeline_command_dispatch_behavior_diagnostic", Head, ["recovery.lifeline_command_dispatch_behavior"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_dispatch_behavior_diagnostic)),
+    method!("recovery.lifeline_command_dispatch_behavior_diagnostic_selftest", Head, ["recovery.lifeline_command_dispatch_behavior_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_dispatch_behavior_diagnostic_selftest)),
+    method!("recovery.lifeline_command_executor_capability_table_diagnostic", Head, ["recovery.lifeline_command_executor_capability_table"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_executor_capability_table_diagnostic)),
+    method!("recovery.lifeline_command_executor_capability_table_diagnostic_selftest", Head, ["recovery.lifeline_command_executor_capability_table_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_executor_capability_table_diagnostic_selftest)),
+    method!("recovery.lifeline_command_side_effect_gate_diagnostic", Head, ["recovery.lifeline_command_side_effect_gate"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_side_effect_gate_diagnostic)),
+    method!("recovery.lifeline_command_side_effect_gate_diagnostic_selftest", Head, ["recovery.lifeline_command_side_effect_gate_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_side_effect_gate_diagnostic_selftest)),
+    method!("recovery.lifeline_command_execution_enablement_diagnostic", Head, ["recovery.lifeline_command_execution_enablement"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_execution_enablement_diagnostic)),
+    method!("recovery.lifeline_command_execution_enablement_diagnostic_selftest", Head, ["recovery.lifeline_command_execution_enablement_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_execution_enablement_diagnostic_selftest)),
+    method!("recovery.lifeline_command_execution_preflight_diagnostic", Head, ["recovery.lifeline_command_execution_preflight"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_execution_preflight_diagnostic)),
+    method!("recovery.lifeline_command_execution_preflight_diagnostic_selftest", Head, ["recovery.lifeline_command_execution_preflight_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_execution_preflight_diagnostic_selftest)),
+    method!("recovery.lifeline_command_execution_intent_diagnostic", Head, ["recovery.lifeline_command_execution_intent"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_execution_intent_diagnostic)),
+    method!("recovery.lifeline_command_execution_intent_diagnostic_selftest", Head, ["recovery.lifeline_command_execution_intent_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_execution_intent_diagnostic_selftest)),
+    method!("recovery.lifeline_command_execution_commit_gate_diagnostic", Head, ["recovery.lifeline_command_execution_commit_gate"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_execution_commit_gate_diagnostic)),
+    method!("recovery.lifeline_command_execution_commit_gate_diagnostic_selftest", Head, ["recovery.lifeline_command_execution_commit_gate_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_execution_commit_gate_diagnostic_selftest)),
+    method!("recovery.lifeline_command_execution_result_denial_diagnostic", Head, ["recovery.lifeline_command_execution_result_denial"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_execution_result_denial_diagnostic)),
+    method!("recovery.lifeline_command_execution_result_denial_diagnostic_selftest", Head, ["recovery.lifeline_command_execution_result_denial_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_execution_result_denial_diagnostic_selftest)),
+    method!("recovery.lifeline_command_execution_audit_denial_diagnostic", Head, ["recovery.lifeline_command_execution_audit_denial"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_execution_audit_denial_diagnostic)),
+    method!("recovery.lifeline_command_execution_audit_denial_diagnostic_selftest", Head, ["recovery.lifeline_command_execution_audit_denial_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_execution_audit_denial_diagnostic_selftest)),
+    method!("recovery.lifeline_command_execution_observation_denial_diagnostic", Head, ["recovery.lifeline_command_execution_observation_denial"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_execution_observation_denial_diagnostic)),
+    method!("recovery.lifeline_command_execution_observation_denial_diagnostic_selftest", Head, ["recovery.lifeline_command_execution_observation_denial_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_execution_observation_denial_diagnostic_selftest)),
+    method!("recovery.lifeline_command_execution_completion_denial_diagnostic", Head, ["recovery.lifeline_command_execution_completion_denial"], [], MethodAction::ReadMethod(emit_recovery_lifeline_command_execution_completion_denial_diagnostic)),
+    method!("recovery.lifeline_command_execution_completion_denial_diagnostic_selftest", Head, ["recovery.lifeline_command_execution_completion_denial_selftest"], [], MethodAction::Read0(emit_recovery_lifeline_command_execution_completion_denial_diagnostic_selftest)),
+    method!("recovery.lifeline_status_execution_result_diagnostic", Exact, ["recovery.lifeline_status_execution_result"], [], MethodAction::Read0(emit_recovery_lifeline_status_execution_result_diagnostic)),
+    envelope_method!("recovery.lifeline_status_result_read", Exact, ["recovery.lifeline.status"], [], 18, "recovery.lifeline.status", "cap.recovery.load_artifact.read", "agent_command_envelope.current_boot.serial.recovery_lifeline_status.v0", "recovery.lifeline.status", MethodAction::StatusResultRead),
+    method!("recovery.load_binding", Head, ["module.recovery_load_binding"], [], MethodAction::Read0(emit_recovery_artifact_load_binding)),
+    method!("recovery.load_binding_selftest", Head, ["module.recovery_load_binding_selftest"], [], MethodAction::Read0(emit_recovery_artifact_load_binding_selftest)),
+    method!("provider.context_export", Head, ["provider.export_context"], [route!("provider.context_export"), route!("provider.export_context")], MethodAction::DeniedProviderContextExport),
+    pred_method!("module.load_ephemeral", hello_service::is_load_start_method, [], MethodAction::ResponseMethod(hello_service::emit_load_start)),
+    pred_method!("service.start", hello_service::is_start_method, [route!("service.start")], MethodAction::ResponseMethod(hello_service::emit_start)),
+    pred_method!("service.restart", hello_service::is_restart_method, [route!("service.restart")], MethodAction::ResponseMethod(hello_service::emit_restart)),
+    pred_method!("service.hot_swap", hello_service::is_hot_swap_method, [route!("service.hot_swap")], MethodAction::ResponseMethod(hello_service::emit_hot_swap)),
+    pred_envelope_method!("service.rollback_preview", hello_service::is_rollback_preview_method, [route!("service.rollback_preview")], 7, "service.rollback_preview", "cap.service.rollback_preview.read", "agent_command_envelope.current_boot.serial.service_rollback_preview.v0", "service.rollback_preview svc.demo.hello", MethodAction::ResponseMethod(hello_service::emit_rollback_preview)),
+    pred_method!("service.rollback_apply", hello_service::is_rollback_apply_method, [route!("service.rollback_apply")], MethodAction::DeniedMethod(hello_service::emit_rollback_apply)),
+    pred_method!("recovery.rollback_inspect_source_reference_selftest", hello_service::is_recovery_rollback_inspect_source_reference_selftest_method, [route!("recovery.rollback_inspect_source_reference_selftest")], MethodAction::Response0Read(hello_service::emit_recovery_rollback_inspect_source_reference_selftest)),
+    pred_method!("recovery.rollback_materialize_dry_run", hello_service::is_recovery_rollback_materialize_dry_run_method, [route!("recovery.rollback_materialize_dry_run")], MethodAction::ResponseMaterializeDryRun(hello_service::emit_recovery_rollback_materialize_dry_run)),
+    pred_method!("service.stop", hello_service::is_stop_method, [route!("service.stop")], MethodAction::ResponseMethod(hello_service::emit_stop)),
+    pred_method!("service.drop", hello_service::is_drop_method, [route!("service.drop")], MethodAction::ResponseMethod(hello_service::emit_drop)),
+    method!("module.load_ephemeral", Head, ["service.load_ephemeral"], [route!("module.load_ephemeral"), route!("service.load_ephemeral")], MethodAction::DeniedModuleLoadEphemeral),
+    method!("recovery.load_artifact", Exact, ["module.load_recovery_artifact"], [route!("recovery.load_artifact"), route!("module.load_recovery_artifact")], MethodAction::DeniedRecoveryArtifactLoad),
+    method!("memory.record_observation", Exact, [], [route!("memory.record_observation" => "memory.record_observation")], MethodAction::DeniedMemoryMutation),
+    method!("memory.propose_policy", Exact, [], [route!("memory.propose_policy" => "memory.propose_policy")], MethodAction::DeniedMemoryMutation),
+    method!("memory.supersede_fact", Exact, [], [route!("memory.supersede_fact" => "memory.supersede_fact")], MethodAction::DeniedMemoryMutation),
+    method!("memory.redact", Exact, [], [route!("memory.redact" => "memory.redact")], MethodAction::DeniedMemoryMutation),
+    method!("memory.compact", Exact, [], [route!("memory.compact" => "memory.compact")], MethodAction::DeniedMemoryMutation),
+    method!("module.propose", Head, [], [route!("module.propose")], MethodAction::DeniedGeneric),
+    method!("module.build_result", Head, [], [route!("module.build_result")], MethodAction::DeniedGeneric),
+    method!("module.test_request", Head, [], [route!("module.test_request")], MethodAction::DeniedGeneric),
+    method!("module.test_result", Head, [], [route!("module.test_result")], MethodAction::DeniedGeneric),
+    method!("module.load_recovery_artifact", Head, [], [], MethodAction::DeniedGeneric),
+    method!("recovery.load_artifact", Head, [], [], MethodAction::DeniedGeneric),
+    method!("module.persist", Head, [], [route!("module.persist")], MethodAction::DeniedGeneric),
+    method!("module.rollback", Head, [], [route!("module.rollback")], MethodAction::DeniedGeneric),
+    method!("service.load_ephemeral", Head, [], [], MethodAction::DeniedGeneric),
+    method!("service.restart", Head, [], [], MethodAction::DeniedGeneric),
+    method!("service.hot_swap", Head, [], [], MethodAction::DeniedGeneric),
+    method!("service.rollback_apply", Head, [], [], MethodAction::DeniedGeneric),
+    method!("service.start", Head, [], [], MethodAction::DeniedGeneric),
+    method!("service.stop", Head, [], [], MethodAction::DeniedGeneric),
+    method!("service.drop", Head, [], [], MethodAction::DeniedGeneric),
+    method!("config.apply", Head, [], [route!("config.apply")], MethodAction::DeniedGeneric),
+    method!("apply_config", Head, [], [route!("apply_config")], MethodAction::DeniedGeneric),
+    method!("provider.configure", Head, [], [], MethodAction::DeniedGeneric),
+    method!("wifi.configure", Head, [], [], MethodAction::DeniedGeneric),
+    method!("draw_text", Head, [], [], MethodAction::DeniedGeneric),
+    method!("probe_device", Head, [], [], MethodAction::DeniedGeneric),
+    method!("download_signed_module", Head, [], [], MethodAction::DeniedGeneric),
+    method!("run_module_test", Head, [], [], MethodAction::DeniedGeneric),
+];
+
+fn lookup_method(method: &str) -> Option<MethodCall<'_>> {
+    let mut idx = 0usize;
+    while idx < AGENT_METHODS.len() {
+        let entry = &AGENT_METHODS[idx];
+        if let Some(canonical) = entry_matches(entry, method) {
+            return Some(MethodCall {
+                input: method,
+                canonical,
+                entry,
+            });
+        }
+        idx += 1;
+    }
+    None
+}
+
+fn entry_matches(entry: &'static MethodEntry, method: &str) -> Option<&'static str> {
+    match entry.match_kind {
+        MatchKind::Exact => {
+            if method_eq(method, entry.canonical) || aliases_match_exact(method, entry.aliases) {
+                Some(entry.canonical)
+            } else {
+                None
+            }
+        }
+        MatchKind::Head => {
+            if method_head_eq(method, entry.canonical) || aliases_match_head(method, entry.aliases)
+            {
+                Some(entry.canonical)
+            } else {
+                None
+            }
+        }
+        MatchKind::Predicate(predicate) => predicate(method).then_some(entry.canonical),
+    }
+}
+
+fn aliases_match_exact(method: &str, aliases: &[&str]) -> bool {
+    let mut idx = 0usize;
+    while idx < aliases.len() {
+        if method_eq(method, aliases[idx]) {
+            return true;
+        }
+        idx += 1;
+    }
+    false
+}
+
+fn aliases_match_head(method: &str, aliases: &[&str]) -> bool {
+    let mut idx = 0usize;
+    while idx < aliases.len() {
+        if method_head_eq(method, aliases[idx]) {
+            return true;
+        }
+        idx += 1;
+    }
+    false
+}
+
+fn dispatch_method_entry(call: MethodCall<'_>, runtime: ui::RuntimeStatus) -> DispatchOutcome {
+    match call.entry.action {
+        MethodAction::Read0(emit) => {
+            record_read(call.canonical);
+            emit();
+            DispatchOutcome::Response(call.canonical)
+        }
+        MethodAction::ReadRuntime(emit) => {
+            record_read(call.canonical);
+            emit(runtime);
+            DispatchOutcome::Response(call.canonical)
+        }
+        MethodAction::ReadMethod(emit) => {
+            record_read(call.canonical);
+            emit(call.input);
+            DispatchOutcome::Response(call.canonical)
+        }
+        MethodAction::ReadRuntimeMethod(emit) => {
+            record_read(call.canonical);
+            emit(runtime, call.input);
+            DispatchOutcome::Response(call.canonical)
+        }
+        MethodAction::ReadRuntimeMethodEvent(emit) => {
+            let event_id = record_read(call.canonical);
+            emit(runtime, call.input, event_id);
+            DispatchOutcome::Response(call.canonical)
+        }
+        MethodAction::Response0Read(emit) => {
+            record_read(call.canonical);
+            DispatchOutcome::Response(emit())
+        }
+        MethodAction::ResponseMethod(emit) => DispatchOutcome::Response(emit(call.input)),
+        MethodAction::ResponseMethodReadEvent(emit) => {
+            let event_id = record_read(call.canonical);
+            DispatchOutcome::Response(emit(call.input, event_id))
+        }
+        MethodAction::ResponseMaterializeDryRun(emit) => {
+            let event_id = event_log::record_hello_recovery_rollback_materialize_dry_run();
+            DispatchOutcome::Response(emit(call.input, event_id))
+        }
+        MethodAction::DeniedMethod(emit) => DispatchOutcome::Denied(emit(call.input)),
+        MethodAction::DeniedProviderContextExport => {
+            let event_id = record_denial("provider.context_export");
+            emit_provider_context_export_denied(runtime, call.input, event_id);
+            DispatchOutcome::Denied("provider.context_export")
+        }
+        MethodAction::DeniedModuleLoadEphemeral => {
+            let method = if method_head_eq(call.input, "service.load_ephemeral") {
+                "service.load_ephemeral"
+            } else {
+                "module.load_ephemeral"
+            };
+            let (event_id, gate_binding) = event_log::record_module_load_ephemeral_denied(method);
+            emit_module_load_ephemeral_denied(method, event_id, gate_binding);
+            DispatchOutcome::Denied(method)
+        }
+        MethodAction::DeniedRecoveryArtifactLoad => {
+            let method = if method_eq(call.input, "module.load_recovery_artifact") {
+                "module.load_recovery_artifact"
+            } else {
+                "recovery.load_artifact"
+            };
+            let event_id = event_log::record_recovery_artifact_load_denied(method);
+            emit_recovery_artifact_load_denied(method, event_id);
+            DispatchOutcome::Denied(method)
+        }
+        MethodAction::DeniedMemoryMutation => {
+            let method = call.canonical;
+            let event_id = record_denial(method);
+            emit_memory_capability_denied(method, event_id);
+            DispatchOutcome::Denied(method)
+        }
+        MethodAction::DeniedGeneric => {
+            let method = call.canonical;
+            let event_id = record_denial(method);
+            emit_capability_denied(method, event_id);
+            DispatchOutcome::Denied(method)
+        }
+        MethodAction::StatusResultRead => {
+            let response_method = if method_eq(call.input, "recovery.lifeline.status") {
+                "recovery.lifeline.status"
+            } else {
+                "recovery.lifeline_status_result_read"
+            };
+            record_read(response_method);
+            emit_recovery_lifeline_status_result_read(response_method);
+            DispatchOutcome::Response(response_method)
+        }
+    }
+}
+
+pub(crate) fn console_dispatch_method<'a>(command: &str, input: &'a str) -> Option<&'a str> {
+    let mut idx = 0usize;
+    while idx < AGENT_METHODS.len() {
+        let entry = &AGENT_METHODS[idx];
+        let mut route_idx = 0usize;
+        while route_idx < entry.console_routes.len() {
+            let route = entry.console_routes[route_idx];
+            if method_eq(command, route.command) {
+                return Some(route.dispatch_method.unwrap_or(input));
+            }
+            route_idx += 1;
+        }
+        idx += 1;
+    }
+    None
+}
+
+pub(crate) fn command_envelope_target(value: Option<&str>) -> Option<CommandEnvelopeTarget> {
+    let value = value.unwrap_or("");
+    let mut idx = 0usize;
+    while idx < AGENT_METHODS.len() {
+        if let Some(envelope) = AGENT_METHODS[idx].envelope {
+            if method_eq(value, envelope.target.method) {
+                return Some(envelope.target);
+            }
+        }
+        idx += 1;
+    }
+    None
+}
+
+pub(crate) fn command_envelope_capability(value: Option<&str>) -> Option<&'static str> {
+    let value = value.unwrap_or("");
+    let mut idx = 0usize;
+    while idx < AGENT_METHODS.len() {
+        if let Some(envelope) = AGENT_METHODS[idx].envelope {
+            if method_eq(value, envelope.target.capability) {
+                return Some(envelope.target.capability);
+            }
+        }
+        idx += 1;
+    }
+    None
+}
+
+pub(crate) fn command_envelope_target_at(order: usize) -> Option<CommandEnvelopeTarget> {
+    let mut idx = 0usize;
+    while idx < AGENT_METHODS.len() {
+        if let Some(envelope) = AGENT_METHODS[idx].envelope {
+            if envelope.order as usize == order {
+                return Some(envelope.target);
+            }
+        }
+        idx += 1;
+    }
+    None
+}
+
+pub(crate) fn command_envelope_target_count() -> usize {
+    let mut count = 0usize;
+    let mut idx = 0usize;
+    while idx < AGENT_METHODS.len() {
+        if AGENT_METHODS[idx].envelope.is_some() {
+            count += 1;
+        }
+        idx += 1;
+    }
+    count
+}
+
 pub fn dispatch(method: &str, runtime: ui::RuntimeStatus) -> DispatchOutcome {
     let method = method.trim();
     if method.is_empty() {
         return DispatchOutcome::Unknown;
     }
 
-    if method_eq(method, "system.describe") || method_eq(method, "describe") {
-        record_read("system.describe");
-        emit_describe();
-        return DispatchOutcome::Response("system.describe");
-    }
-    if method_eq(method, "system.snapshot") || method_eq(method, "snapshot") {
-        record_read("system.snapshot");
-        emit_snapshot(runtime);
-        return DispatchOutcome::Response("system.snapshot");
-    }
-    if method_eq(method, "system.capabilities")
-        || method_eq(method, "capabilities")
-        || method_eq(method, "caps")
-    {
-        record_read("system.capabilities");
-        emit_capabilities();
-        return DispatchOutcome::Response("system.capabilities");
-    }
-    if method_eq(method, "system.boot_log")
-        || method_eq(method, "system.bootlog")
-        || method_eq(method, "bootlog")
-    {
-        record_read("system.boot_log");
-        emit_boot_log();
-        return DispatchOutcome::Response("system.boot_log");
-    }
-    if method_eq(method, "device.graph") || method_eq(method, "devicegraph") {
-        record_read("device.graph");
-        emit_device_graph(runtime);
-        return DispatchOutcome::Response("device.graph");
-    }
-    if method_eq(method, "problem.list") || method_eq(method, "problems") {
-        record_read("problem.list");
-        emit_problem_list(runtime);
-        return DispatchOutcome::Response("problem.list");
-    }
-    if method_eq(method, "service.inventory") || method_eq(method, "services") {
-        record_read("service.inventory");
-        emit_service_inventory(runtime);
-        return DispatchOutcome::Response("service.inventory");
-    }
-    if hello_service::is_descriptor_source_trust_selftest_method(method) {
-        record_read("service.descriptor_source_trust_selftest");
-        let method = hello_service::emit_descriptor_source_trust_selftest();
-        return DispatchOutcome::Response(method);
-    }
-    if hello_service::is_artifact_reference_trust_selftest_method(method) {
-        record_read("service.artifact_reference_trust_selftest");
-        let method = hello_service::emit_artifact_reference_trust_selftest();
-        return DispatchOutcome::Response(method);
-    }
-    if hello_service::is_artifact_load_plan_preflight_selftest_method(method) {
-        record_read("service.artifact_load_plan_preflight_selftest");
-        let method = hello_service::emit_artifact_load_plan_preflight_selftest();
-        return DispatchOutcome::Response(method);
-    }
-    if hello_service::is_health_method(method) {
-        let method = hello_service::emit_health(method);
-        return DispatchOutcome::Response(method);
-    }
-    if method_eq(method, "memory.profile") || method_eq(method, "memprofile") {
-        record_read("memory.profile");
-        emit_memory_profile();
-        return DispatchOutcome::Response("memory.profile");
-    }
-    if method_head_eq(method, "memory.context") || method_head_eq(method, "memctx") {
-        let event_id = record_read("memory.context");
-        emit_memory_context(runtime, method, event_id);
-        return DispatchOutcome::Response("memory.context");
-    }
-    if method_head_eq(method, "memory.query") || method_head_eq(method, "memquery") {
-        record_read("memory.query");
-        emit_memory_query();
-        return DispatchOutcome::Response("memory.query");
-    }
-    if method_head_eq(method, "memory.trace") || method_head_eq(method, "memtrace") {
-        record_read("memory.trace");
-        emit_memory_trace(method);
-        return DispatchOutcome::Response("memory.trace");
-    }
-    if method_head_eq(method, "memory.recent_events")
-        || method_head_eq(method, "audit.events")
-        || method_head_eq(method, "events")
-    {
-        record_read("memory.recent_events");
-        emit_recent_events(method);
-        return DispatchOutcome::Response("memory.recent_events");
-    }
-    if provider_context_gate_method(method) {
-        record_read("provider.context_gate");
-        emit_provider_context_gate(runtime, method);
-        return DispatchOutcome::Response("provider.context_gate");
-    }
-    if provider_context_gate_selftest_method(method) {
-        record_read("provider.context_gate_selftest");
-        emit_provider_context_gate_selftest(runtime, method);
-        return DispatchOutcome::Response("provider.context_gate_selftest");
-    }
-    if provider_context_injection_gate_method(method) {
-        record_read("provider.context_injection_gate");
-        emit_provider_context_injection_gate(runtime, method);
-        return DispatchOutcome::Response("provider.context_injection_gate");
-    }
-    if provider_context_injection_gate_selftest_method(method) {
-        record_read("provider.context_injection_gate_selftest");
-        emit_provider_context_injection_gate_selftest(runtime, method);
-        return DispatchOutcome::Response("provider.context_injection_gate_selftest");
-    }
-    if module_manifest_diagnostic_method(method) {
-        record_read("module.manifest_diagnostic");
-        emit_module_manifest_diagnostic(method);
-        return DispatchOutcome::Response("module.manifest_diagnostic");
-    }
-    if module_manifest_diagnostic_selftest_method(method) {
-        record_read("module.manifest_diagnostic_selftest");
-        emit_module_manifest_diagnostic_selftest();
-        return DispatchOutcome::Response("module.manifest_diagnostic_selftest");
-    }
-    if module_artifact_diagnostic_method(method) {
-        record_read("module.artifact_diagnostic");
-        emit_module_artifact_diagnostic(method);
-        return DispatchOutcome::Response("module.artifact_diagnostic");
-    }
-    if module_artifact_diagnostic_selftest_method(method) {
-        record_read("module.artifact_diagnostic_selftest");
-        emit_module_artifact_diagnostic_selftest();
-        return DispatchOutcome::Response("module.artifact_diagnostic_selftest");
-    }
-    if module_vm_report_diagnostic_method(method) {
-        record_read("module.vm_report_diagnostic");
-        emit_module_vm_report_diagnostic(method);
-        return DispatchOutcome::Response("module.vm_report_diagnostic");
-    }
-    if module_vm_report_diagnostic_selftest_method(method) {
-        record_read("module.vm_report_diagnostic_selftest");
-        emit_module_vm_report_diagnostic_selftest();
-        return DispatchOutcome::Response("module.vm_report_diagnostic_selftest");
-    }
-    if module_attestation_diagnostic_method(method) {
-        record_read("module.attestation_diagnostic");
-        emit_module_attestation_diagnostic(method);
-        return DispatchOutcome::Response("module.attestation_diagnostic");
-    }
-    if module_attestation_diagnostic_selftest_method(method) {
-        record_read("module.attestation_diagnostic_selftest");
-        emit_module_attestation_diagnostic_selftest();
-        return DispatchOutcome::Response("module.attestation_diagnostic_selftest");
-    }
-    if module_approval_diagnostic_method(method) {
-        record_read("module.approval_diagnostic");
-        emit_module_approval_diagnostic(method);
-        return DispatchOutcome::Response("module.approval_diagnostic");
-    }
-    if module_approval_diagnostic_selftest_method(method) {
-        record_read("module.approval_diagnostic_selftest");
-        emit_module_approval_diagnostic_selftest();
-        return DispatchOutcome::Response("module.approval_diagnostic_selftest");
-    }
-    if module_grant_diagnostic_method(method) {
-        record_read("module.grant_diagnostic");
-        emit_module_grant_diagnostic(method);
-        return DispatchOutcome::Response("module.grant_diagnostic");
-    }
-    if module_grant_diagnostic_selftest_method(method) {
-        record_read("module.grant_diagnostic_selftest");
-        emit_module_grant_diagnostic_selftest();
-        return DispatchOutcome::Response("module.grant_diagnostic_selftest");
-    }
-    if module_audit_rollback_diagnostic_method(method) {
-        record_read("module.audit_rollback_diagnostic");
-        emit_module_audit_rollback_diagnostic(method);
-        return DispatchOutcome::Response("module.audit_rollback_diagnostic");
-    }
-    if module_audit_rollback_diagnostic_selftest_method(method) {
-        record_read("module.audit_rollback_diagnostic_selftest");
-        emit_module_audit_rollback_diagnostic_selftest();
-        return DispatchOutcome::Response("module.audit_rollback_diagnostic_selftest");
-    }
-    if module_service_slot_diagnostic_method(method) {
-        record_read("module.service_slot_diagnostic");
-        emit_module_service_slot_diagnostic(method);
-        return DispatchOutcome::Response("module.service_slot_diagnostic");
-    }
-    if module_service_slot_diagnostic_selftest_method(method) {
-        record_read("module.service_slot_diagnostic_selftest");
-        emit_module_service_slot_diagnostic_selftest();
-        return DispatchOutcome::Response("module.service_slot_diagnostic_selftest");
-    }
-    if module_service_slot_allocator_method(method) {
-        record_read("module.service_slot_allocator");
-        emit_module_service_slot_allocator();
-        return DispatchOutcome::Response("module.service_slot_allocator");
-    }
-    if module_service_slot_allocator_selftest_method(method) {
-        record_read("module.service_slot_allocator_selftest");
-        emit_module_service_slot_allocator_selftest();
-        return DispatchOutcome::Response("module.service_slot_allocator_selftest");
-    }
-    if module_loader_runtime_method(method) {
-        record_read("module.loader_runtime");
-        emit_module_loader_runtime();
-        return DispatchOutcome::Response("module.loader_runtime");
-    }
-    if module_loader_runtime_selftest_method(method) {
-        record_read("module.loader_runtime_selftest");
-        emit_module_loader_runtime_selftest();
-        return DispatchOutcome::Response("module.loader_runtime_selftest");
-    }
-    if module_loader_identity_method(method) {
-        record_read("module.loader_identity");
-        emit_module_loader_identity();
-        return DispatchOutcome::Response("module.loader_identity");
-    }
-    if module_loader_identity_selftest_method(method) {
-        record_read("module.loader_identity_selftest");
-        emit_module_loader_identity_selftest();
-        return DispatchOutcome::Response("module.loader_identity_selftest");
-    }
-    if module_loader_artifact_hash_binding_method(method) {
-        record_read("module.loader_artifact_hash_binding");
-        emit_module_loader_artifact_hash_binding();
-        return DispatchOutcome::Response("module.loader_artifact_hash_binding");
-    }
-    if module_loader_artifact_hash_binding_selftest_method(method) {
-        record_read("module.loader_artifact_hash_binding_selftest");
-        emit_module_loader_artifact_hash_binding_selftest();
-        return DispatchOutcome::Response("module.loader_artifact_hash_binding_selftest");
-    }
-    if module_loader_fact_method(method) {
-        let canonical = canonical_module_loader_fact_method(method);
-        record_read(canonical);
-        emit_module_loader_fact(method);
-        return DispatchOutcome::Response(canonical);
-    }
-    if module_loader_fact_selftest_method(method) {
-        let canonical = canonical_module_loader_fact_selftest_method(method);
-        record_read(canonical);
-        emit_module_loader_fact_selftest(method);
-        return DispatchOutcome::Response(canonical);
-    }
-    if module_audit_rollback_availability_method(method) {
-        record_read("module.audit_rollback_availability");
-        emit_module_audit_rollback_availability();
-        return DispatchOutcome::Response("module.audit_rollback_availability");
-    }
-    if module_audit_rollback_availability_selftest_method(method) {
-        record_read("module.audit_rollback_availability_selftest");
-        emit_module_audit_rollback_availability_selftest();
-        return DispatchOutcome::Response("module.audit_rollback_availability_selftest");
-    }
-    if module_audit_rollback_write_policy_method(method) {
-        record_read("module.audit_rollback_write_policy");
-        emit_module_audit_rollback_write_policy();
-        return DispatchOutcome::Response("module.audit_rollback_write_policy");
-    }
-    if module_audit_rollback_write_policy_selftest_method(method) {
-        record_read("module.audit_rollback_write_policy_selftest");
-        emit_module_audit_rollback_write_policy_selftest();
-        return DispatchOutcome::Response("module.audit_rollback_write_policy_selftest");
-    }
-    if module_audit_rollback_storage_layout_method(method) {
-        record_read("module.audit_rollback_storage_layout");
-        emit_module_audit_rollback_storage_layout();
-        return DispatchOutcome::Response("module.audit_rollback_storage_layout");
-    }
-    if module_audit_rollback_storage_layout_selftest_method(method) {
-        record_read("module.audit_rollback_storage_layout_selftest");
-        emit_module_audit_rollback_storage_layout_selftest();
-        return DispatchOutcome::Response("module.audit_rollback_storage_layout_selftest");
-    }
-    if module_audit_rollback_append_engine_method(method) {
-        record_read("module.audit_rollback_append_engine");
-        emit_module_audit_rollback_append_engine();
-        return DispatchOutcome::Response("module.audit_rollback_append_engine");
-    }
-    if module_audit_rollback_append_engine_selftest_method(method) {
-        record_read("module.audit_rollback_append_engine_selftest");
-        emit_module_audit_rollback_append_engine_selftest();
-        return DispatchOutcome::Response("module.audit_rollback_append_engine_selftest");
-    }
-    if module_audit_rollback_append_contract_method(method) {
-        record_read("module.audit_rollback_append_contract");
-        emit_module_audit_rollback_append_contract();
-        return DispatchOutcome::Response("module.audit_rollback_append_contract");
-    }
-    if module_audit_rollback_append_contract_selftest_method(method) {
-        record_read("module.audit_rollback_append_contract_selftest");
-        emit_module_audit_rollback_append_contract_selftest();
-        return DispatchOutcome::Response("module.audit_rollback_append_contract_selftest");
-    }
-    if module_audit_rollback_append_payload_hash_method(method) {
-        record_read("module.audit_rollback_append_payload_hash");
-        emit_module_audit_rollback_append_payload_hash();
-        return DispatchOutcome::Response("module.audit_rollback_append_payload_hash");
-    }
-    if module_audit_rollback_append_payload_hash_selftest_method(method) {
-        record_read("module.audit_rollback_append_payload_hash_selftest");
-        emit_module_audit_rollback_append_payload_hash_selftest();
-        return DispatchOutcome::Response("module.audit_rollback_append_payload_hash_selftest");
-    }
-    if module_audit_rollback_append_intent_method(method) {
-        record_read("module.audit_rollback_append_intent");
-        emit_module_audit_rollback_append_intent();
-        return DispatchOutcome::Response("module.audit_rollback_append_intent");
-    }
-    if module_audit_rollback_append_intent_selftest_method(method) {
-        record_read("module.audit_rollback_append_intent_selftest");
-        emit_module_audit_rollback_append_intent_selftest();
-        return DispatchOutcome::Response("module.audit_rollback_append_intent_selftest");
-    }
-    if module_audit_rollback_write_boundary_method(method) {
-        record_read("module.audit_rollback_write_boundary");
-        emit_module_audit_rollback_write_boundary();
-        return DispatchOutcome::Response("module.audit_rollback_write_boundary");
-    }
-    if module_audit_rollback_write_boundary_selftest_method(method) {
-        record_read("module.audit_rollback_write_boundary_selftest");
-        emit_module_audit_rollback_write_boundary_selftest();
-        return DispatchOutcome::Response("module.audit_rollback_write_boundary_selftest");
-    }
-    if module_load_gate_manifest_selftest_method(method) {
-        record_read("module.load_gate_manifest_selftest");
-        emit_module_load_gate_manifest_selftest();
-        return DispatchOutcome::Response("module.load_gate_manifest_selftest");
-    }
-    if module_load_gate_artifact_selftest_method(method) {
-        record_read("module.load_gate_artifact_selftest");
-        emit_module_load_gate_artifact_selftest();
-        return DispatchOutcome::Response("module.load_gate_artifact_selftest");
-    }
-    if module_load_gate_vm_report_selftest_method(method) {
-        record_read("module.load_gate_vm_report_selftest");
-        emit_module_load_gate_vm_report_selftest();
-        return DispatchOutcome::Response("module.load_gate_vm_report_selftest");
-    }
-    if module_load_gate_attestation_selftest_method(method) {
-        record_read("module.load_gate_attestation_selftest");
-        emit_module_load_gate_attestation_selftest();
-        return DispatchOutcome::Response("module.load_gate_attestation_selftest");
-    }
-    if module_load_gate_approval_selftest_method(method) {
-        record_read("module.load_gate_approval_selftest");
-        emit_module_load_gate_approval_selftest();
-        return DispatchOutcome::Response("module.load_gate_approval_selftest");
-    }
-    if module_load_gate_retained_selftest_method(method) {
-        record_read("module.load_gate_retained_selftest");
-        emit_module_load_gate_retained_selftest();
-        return DispatchOutcome::Response("module.load_gate_retained_selftest");
-    }
-    if module_load_gate_audit_rollback_selftest_method(method) {
-        record_read("module.load_gate_audit_rollback_selftest");
-        emit_module_load_gate_audit_rollback_selftest();
-        return DispatchOutcome::Response("module.load_gate_audit_rollback_selftest");
-    }
-    if module_load_gate_service_slot_selftest_method(method) {
-        record_read("module.load_gate_service_slot_selftest");
-        emit_module_load_gate_service_slot_selftest();
-        return DispatchOutcome::Response("module.load_gate_service_slot_selftest");
-    }
-    if module_load_gate_loader_runtime_selftest_method(method) {
-        record_read("module.load_gate_loader_runtime_selftest");
-        emit_module_load_gate_loader_runtime_selftest();
-        return DispatchOutcome::Response("module.load_gate_loader_runtime_selftest");
-    }
-    if recovery_artifact_identity_diagnostic_method(method) {
-        record_read("recovery.identity_diagnostic");
-        emit_recovery_artifact_identity_diagnostic(method);
-        return DispatchOutcome::Response("recovery.identity_diagnostic");
-    }
-    if recovery_artifact_identity_diagnostic_selftest_method(method) {
-        record_read("recovery.identity_diagnostic_selftest");
-        emit_recovery_artifact_identity_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.identity_diagnostic_selftest");
-    }
-    if recovery_artifact_trust_diagnostic_method(method) {
-        record_read("recovery.trust_diagnostic");
-        emit_recovery_artifact_trust_diagnostic(method);
-        return DispatchOutcome::Response("recovery.trust_diagnostic");
-    }
-    if recovery_artifact_trust_diagnostic_selftest_method(method) {
-        record_read("recovery.trust_diagnostic_selftest");
-        emit_recovery_artifact_trust_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.trust_diagnostic_selftest");
-    }
-    if recovery_artifact_vm_test_diagnostic_method(method) {
-        record_read("recovery.vm_test_diagnostic");
-        emit_recovery_artifact_vm_test_diagnostic(method);
-        return DispatchOutcome::Response("recovery.vm_test_diagnostic");
-    }
-    if recovery_artifact_vm_test_diagnostic_selftest_method(method) {
-        record_read("recovery.vm_test_diagnostic_selftest");
-        emit_recovery_artifact_vm_test_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.vm_test_diagnostic_selftest");
-    }
-    if recovery_artifact_local_approval_diagnostic_method(method) {
-        record_read("recovery.local_approval_diagnostic");
-        emit_recovery_artifact_local_approval_diagnostic(method);
-        return DispatchOutcome::Response("recovery.local_approval_diagnostic");
-    }
-    if recovery_artifact_local_approval_diagnostic_selftest_method(method) {
-        record_read("recovery.local_approval_diagnostic_selftest");
-        emit_recovery_artifact_local_approval_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.local_approval_diagnostic_selftest");
-    }
-    if recovery_artifact_loader_diagnostic_method(method) {
-        record_read("recovery.loader_diagnostic");
-        emit_recovery_artifact_loader_diagnostic(method);
-        return DispatchOutcome::Response("recovery.loader_diagnostic");
-    }
-    if recovery_artifact_loader_diagnostic_selftest_method(method) {
-        record_read("recovery.loader_diagnostic_selftest");
-        emit_recovery_artifact_loader_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.loader_diagnostic_selftest");
-    }
-    if recovery_artifact_rollback_evidence_diagnostic_method(method) {
-        record_read("recovery.rollback_evidence_diagnostic");
-        emit_recovery_artifact_rollback_evidence_diagnostic(method);
-        return DispatchOutcome::Response("recovery.rollback_evidence_diagnostic");
-    }
-    if recovery_artifact_rollback_evidence_diagnostic_selftest_method(method) {
-        record_read("recovery.rollback_evidence_diagnostic_selftest");
-        emit_recovery_artifact_rollback_evidence_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.rollback_evidence_diagnostic_selftest");
-    }
-    if recovery_lifeline_request_diagnostic_method(method) {
-        record_read("recovery.lifeline_request_diagnostic");
-        emit_recovery_lifeline_request_diagnostic(method);
-        return DispatchOutcome::Response("recovery.lifeline_request_diagnostic");
-    }
-    if recovery_lifeline_request_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_request_diagnostic_selftest");
-        emit_recovery_lifeline_request_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.lifeline_request_diagnostic_selftest");
-    }
-    if recovery_lifeline_protocol_diagnostic_method(method) {
-        record_read("recovery.lifeline_protocol_diagnostic");
-        emit_recovery_lifeline_protocol_diagnostic();
-        return DispatchOutcome::Response("recovery.lifeline_protocol_diagnostic");
-    }
-    if recovery_lifeline_protocol_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_protocol_diagnostic_selftest");
-        emit_recovery_lifeline_protocol_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.lifeline_protocol_diagnostic_selftest");
-    }
-    if recovery_lifeline_command_vocabulary_method(method) {
-        record_read("recovery.lifeline_command_vocabulary");
-        emit_recovery_lifeline_command_vocabulary();
-        return DispatchOutcome::Response("recovery.lifeline_command_vocabulary");
-    }
-    if recovery_lifeline_command_vocabulary_selftest_method(method) {
-        record_read("recovery.lifeline_command_vocabulary_selftest");
-        emit_recovery_lifeline_command_vocabulary_selftest();
-        return DispatchOutcome::Response("recovery.lifeline_command_vocabulary_selftest");
-    }
-    if recovery_loader_runtime_isolation_method(method) {
-        record_read("recovery.loader_runtime_isolation");
-        emit_recovery_loader_runtime_isolation();
-        return DispatchOutcome::Response("recovery.loader_runtime_isolation");
-    }
-    if recovery_loader_runtime_isolation_selftest_method(method) {
-        record_read("recovery.loader_runtime_isolation_selftest");
-        emit_recovery_loader_runtime_isolation_selftest();
-        return DispatchOutcome::Response("recovery.loader_runtime_isolation_selftest");
-    }
-    if recovery_rollback_transaction_engine_method(method) {
-        record_read("recovery.rollback_transaction_engine");
-        emit_recovery_rollback_transaction_engine();
-        return DispatchOutcome::Response("recovery.rollback_transaction_engine");
-    }
-    if recovery_rollback_transaction_engine_selftest_method(method) {
-        record_read("recovery.rollback_transaction_engine_selftest");
-        emit_recovery_rollback_transaction_engine_selftest();
-        return DispatchOutcome::Response("recovery.rollback_transaction_engine_selftest");
-    }
-    if recovery_durable_audit_rollback_persistence_method(method) {
-        record_read("recovery.durable_audit_rollback_persistence");
-        emit_recovery_durable_audit_rollback_persistence();
-        return DispatchOutcome::Response("recovery.durable_audit_rollback_persistence");
-    }
-    if recovery_durable_audit_rollback_persistence_selftest_method(method) {
-        record_read("recovery.durable_audit_rollback_persistence_selftest");
-        emit_recovery_durable_audit_rollback_persistence_selftest();
-        return DispatchOutcome::Response("recovery.durable_audit_rollback_persistence_selftest");
-    }
-    if recovery_memory_provenance_method(method) {
-        record_read("recovery.memory_provenance");
-        emit_recovery_memory_provenance();
-        return DispatchOutcome::Response("recovery.memory_provenance");
-    }
-    if recovery_memory_provenance_selftest_method(method) {
-        record_read("recovery.memory_provenance_selftest");
-        emit_recovery_memory_provenance_selftest();
-        return DispatchOutcome::Response("recovery.memory_provenance_selftest");
-    }
-    if recovery_lifeline_command_admission_method(method) {
-        record_read("recovery.lifeline_command_admission");
-        emit_recovery_lifeline_command_admission();
-        return DispatchOutcome::Response("recovery.lifeline_command_admission");
-    }
-    if recovery_lifeline_command_admission_selftest_method(method) {
-        record_read("recovery.lifeline_command_admission_selftest");
-        emit_recovery_lifeline_command_admission_selftest();
-        return DispatchOutcome::Response("recovery.lifeline_command_admission_selftest");
-    }
-    if recovery_lifeline_command_envelope_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_envelope_diagnostic");
-        emit_recovery_lifeline_command_envelope_diagnostic(method);
-        return DispatchOutcome::Response("recovery.lifeline_command_envelope_diagnostic");
-    }
-    if recovery_lifeline_command_envelope_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_envelope_diagnostic_selftest");
-        emit_recovery_lifeline_command_envelope_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.lifeline_command_envelope_diagnostic_selftest");
-    }
-    if recovery_lifeline_command_dispatch_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_dispatch_diagnostic");
-        emit_recovery_lifeline_command_dispatch_diagnostic();
-        return DispatchOutcome::Response("recovery.lifeline_command_dispatch_diagnostic");
-    }
-    if recovery_lifeline_command_dispatch_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_dispatch_diagnostic_selftest");
-        emit_recovery_lifeline_command_dispatch_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.lifeline_command_dispatch_diagnostic_selftest");
-    }
-    if recovery_lifeline_command_body_canonicalization_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_body_canonicalization_diagnostic");
-        emit_recovery_lifeline_command_body_canonicalization_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_body_canonicalization_diagnostic",
-        );
-    }
-    if recovery_lifeline_command_body_canonicalization_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_body_canonicalization_diagnostic_selftest");
-        emit_recovery_lifeline_command_body_canonicalization_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_body_canonicalization_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_handler_binding_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_handler_binding_diagnostic");
-        emit_recovery_lifeline_command_handler_binding_diagnostic(method);
-        return DispatchOutcome::Response("recovery.lifeline_command_handler_binding_diagnostic");
-    }
-    if recovery_lifeline_command_handler_binding_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_handler_binding_diagnostic_selftest");
-        emit_recovery_lifeline_command_handler_binding_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_handler_binding_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_status_read_handler_diagnostic_method(method) {
-        record_read("recovery.lifeline_status_read_handler_diagnostic");
-        emit_recovery_lifeline_status_read_handler_diagnostic(method);
-        return DispatchOutcome::Response("recovery.lifeline_status_read_handler_diagnostic");
-    }
-    if recovery_lifeline_status_read_handler_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_status_read_handler_diagnostic_selftest");
-        emit_recovery_lifeline_status_read_handler_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_status_read_handler_diagnostic_selftest",
-        );
-    }
-    if recovery_rollback_preview_authorization_diagnostic_method(method) {
-        record_read("recovery.rollback_preview_authorization_diagnostic");
-        emit_recovery_rollback_preview_authorization_diagnostic(method);
-        return DispatchOutcome::Response("recovery.rollback_preview_authorization_diagnostic");
-    }
-    if recovery_rollback_preview_authorization_diagnostic_selftest_method(method) {
-        record_read("recovery.rollback_preview_authorization_diagnostic_selftest");
-        emit_recovery_rollback_preview_authorization_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.rollback_preview_authorization_diagnostic_selftest",
-        );
-    }
-    if recovery_rollback_apply_authorization_diagnostic_method(method) {
-        record_read("recovery.rollback_apply_authorization_diagnostic");
-        emit_recovery_rollback_apply_authorization_diagnostic(method);
-        return DispatchOutcome::Response("recovery.rollback_apply_authorization_diagnostic");
-    }
-    if recovery_rollback_apply_authorization_diagnostic_selftest_method(method) {
-        record_read("recovery.rollback_apply_authorization_diagnostic_selftest");
-        emit_recovery_rollback_apply_authorization_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.rollback_apply_authorization_diagnostic_selftest",
-        );
-    }
-    if recovery_disable_module_target_binding_diagnostic_method(method) {
-        record_read("recovery.disable_module_target_binding_diagnostic");
-        emit_recovery_disable_module_target_binding_diagnostic(method);
-        return DispatchOutcome::Response("recovery.disable_module_target_binding_diagnostic");
-    }
-    if recovery_disable_module_target_binding_diagnostic_selftest_method(method) {
-        record_read("recovery.disable_module_target_binding_diagnostic_selftest");
-        emit_recovery_disable_module_target_binding_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.disable_module_target_binding_diagnostic_selftest",
-        );
-    }
-    if recovery_restart_last_good_target_binding_diagnostic_method(method) {
-        record_read("recovery.restart_last_good_target_binding_diagnostic");
-        emit_recovery_restart_last_good_target_binding_diagnostic(method);
-        return DispatchOutcome::Response("recovery.restart_last_good_target_binding_diagnostic");
-    }
-    if recovery_restart_last_good_target_binding_diagnostic_selftest_method(method) {
-        record_read("recovery.restart_last_good_target_binding_diagnostic_selftest");
-        emit_recovery_restart_last_good_target_binding_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.restart_last_good_target_binding_diagnostic_selftest",
-        );
-    }
-    if recovery_load_artifact_by_hash_target_binding_diagnostic_method(method) {
-        record_read("recovery.load_artifact_by_hash_target_binding_diagnostic");
-        emit_recovery_load_artifact_by_hash_target_binding_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.load_artifact_by_hash_target_binding_diagnostic",
-        );
-    }
-    if recovery_load_artifact_by_hash_target_binding_diagnostic_selftest_method(method) {
-        record_read("recovery.load_artifact_by_hash_target_binding_diagnostic_selftest");
-        emit_recovery_load_artifact_by_hash_target_binding_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.load_artifact_by_hash_target_binding_diagnostic_selftest",
-        );
-    }
-    if recovery_memory_write_authority_diagnostic_method(method) {
-        record_read("recovery.memory_write_authority_diagnostic");
-        emit_recovery_memory_write_authority_diagnostic(method);
-        return DispatchOutcome::Response("recovery.memory_write_authority_diagnostic");
-    }
-    if recovery_memory_write_authority_diagnostic_selftest_method(method) {
-        record_read("recovery.memory_write_authority_diagnostic_selftest");
-        emit_recovery_memory_write_authority_diagnostic_selftest();
-        return DispatchOutcome::Response("recovery.memory_write_authority_diagnostic_selftest");
-    }
-    if durable_audit_rollback_write_authority_diagnostic_method(method) {
-        record_read("recovery.durable_audit_rollback_write_authority_diagnostic");
-        emit_durable_audit_rollback_write_authority_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.durable_audit_rollback_write_authority_diagnostic",
-        );
-    }
-    if durable_audit_rollback_write_authority_diagnostic_selftest_method(method) {
-        record_read("recovery.durable_audit_rollback_write_authority_diagnostic_selftest");
-        emit_durable_audit_rollback_write_authority_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.durable_audit_rollback_write_authority_diagnostic_selftest",
-        );
-    }
-    if recovery_service_inventory_side_effect_boundary_diagnostic_method(method) {
-        record_read("recovery.service_inventory_side_effect_boundary_diagnostic");
-        emit_recovery_service_inventory_side_effect_boundary_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.service_inventory_side_effect_boundary_diagnostic",
-        );
-    }
-    if recovery_service_inventory_side_effect_boundary_diagnostic_selftest_method(method) {
-        record_read("recovery.service_inventory_side_effect_boundary_diagnostic_selftest");
-        emit_recovery_service_inventory_side_effect_boundary_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.service_inventory_side_effect_boundary_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_dispatch_behavior_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_dispatch_behavior_diagnostic");
-        emit_recovery_lifeline_command_dispatch_behavior_diagnostic(method);
-        return DispatchOutcome::Response("recovery.lifeline_command_dispatch_behavior_diagnostic");
-    }
-    if recovery_lifeline_command_dispatch_behavior_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_dispatch_behavior_diagnostic_selftest");
-        emit_recovery_lifeline_command_dispatch_behavior_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_dispatch_behavior_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_executor_capability_table_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_executor_capability_table_diagnostic");
-        emit_recovery_lifeline_command_executor_capability_table_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_executor_capability_table_diagnostic",
-        );
-    }
-    if recovery_lifeline_command_executor_capability_table_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_executor_capability_table_diagnostic_selftest");
-        emit_recovery_lifeline_command_executor_capability_table_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_executor_capability_table_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_side_effect_gate_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_side_effect_gate_diagnostic");
-        emit_recovery_lifeline_command_side_effect_gate_diagnostic(method);
-        return DispatchOutcome::Response("recovery.lifeline_command_side_effect_gate_diagnostic");
-    }
-    if recovery_lifeline_command_side_effect_gate_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_side_effect_gate_diagnostic_selftest");
-        emit_recovery_lifeline_command_side_effect_gate_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_side_effect_gate_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_execution_enablement_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_execution_enablement_diagnostic");
-        emit_recovery_lifeline_command_execution_enablement_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_enablement_diagnostic",
-        );
-    }
-    if recovery_lifeline_command_execution_enablement_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_execution_enablement_diagnostic_selftest");
-        emit_recovery_lifeline_command_execution_enablement_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_enablement_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_execution_preflight_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_execution_preflight_diagnostic");
-        emit_recovery_lifeline_command_execution_preflight_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_preflight_diagnostic",
-        );
-    }
-    if recovery_lifeline_command_execution_preflight_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_execution_preflight_diagnostic_selftest");
-        emit_recovery_lifeline_command_execution_preflight_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_preflight_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_execution_intent_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_execution_intent_diagnostic");
-        emit_recovery_lifeline_command_execution_intent_diagnostic(method);
-        return DispatchOutcome::Response("recovery.lifeline_command_execution_intent_diagnostic");
-    }
-    if recovery_lifeline_command_execution_intent_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_execution_intent_diagnostic_selftest");
-        emit_recovery_lifeline_command_execution_intent_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_intent_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_execution_commit_gate_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_execution_commit_gate_diagnostic");
-        emit_recovery_lifeline_command_execution_commit_gate_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_commit_gate_diagnostic",
-        );
-    }
-    if recovery_lifeline_command_execution_commit_gate_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_execution_commit_gate_diagnostic_selftest");
-        emit_recovery_lifeline_command_execution_commit_gate_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_commit_gate_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_execution_result_denial_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_execution_result_denial_diagnostic");
-        emit_recovery_lifeline_command_execution_result_denial_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_result_denial_diagnostic",
-        );
-    }
-    if recovery_lifeline_command_execution_result_denial_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_execution_result_denial_diagnostic_selftest");
-        emit_recovery_lifeline_command_execution_result_denial_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_result_denial_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_execution_audit_denial_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_execution_audit_denial_diagnostic");
-        emit_recovery_lifeline_command_execution_audit_denial_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_audit_denial_diagnostic",
-        );
-    }
-    if recovery_lifeline_command_execution_audit_denial_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_execution_audit_denial_diagnostic_selftest");
-        emit_recovery_lifeline_command_execution_audit_denial_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_audit_denial_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_execution_observation_denial_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_execution_observation_denial_diagnostic");
-        emit_recovery_lifeline_command_execution_observation_denial_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_observation_denial_diagnostic",
-        );
-    }
-    if recovery_lifeline_command_execution_observation_denial_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_execution_observation_denial_diagnostic_selftest");
-        emit_recovery_lifeline_command_execution_observation_denial_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_observation_denial_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_command_execution_completion_denial_diagnostic_method(method) {
-        record_read("recovery.lifeline_command_execution_completion_denial_diagnostic");
-        emit_recovery_lifeline_command_execution_completion_denial_diagnostic(method);
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_completion_denial_diagnostic",
-        );
-    }
-    if recovery_lifeline_command_execution_completion_denial_diagnostic_selftest_method(method) {
-        record_read("recovery.lifeline_command_execution_completion_denial_diagnostic_selftest");
-        emit_recovery_lifeline_command_execution_completion_denial_diagnostic_selftest();
-        return DispatchOutcome::Response(
-            "recovery.lifeline_command_execution_completion_denial_diagnostic_selftest",
-        );
-    }
-    if recovery_lifeline_status_execution_result_diagnostic_method(method) {
-        record_read("recovery.lifeline_status_execution_result_diagnostic");
-        emit_recovery_lifeline_status_execution_result_diagnostic();
-        return DispatchOutcome::Response("recovery.lifeline_status_execution_result_diagnostic");
-    }
-    if recovery_lifeline_status_result_read_method(method) {
-        let response_method = recovery_lifeline_status_result_read_response_method(method);
-        record_read(response_method);
-        emit_recovery_lifeline_status_result_read(response_method);
-        return DispatchOutcome::Response(response_method);
-    }
-    if recovery_artifact_load_binding_method(method) {
-        record_read("recovery.load_binding");
-        emit_recovery_artifact_load_binding();
-        return DispatchOutcome::Response("recovery.load_binding");
-    }
-    if recovery_artifact_load_binding_selftest_method(method) {
-        record_read("recovery.load_binding_selftest");
-        emit_recovery_artifact_load_binding_selftest();
-        return DispatchOutcome::Response("recovery.load_binding_selftest");
-    }
-
-    if provider_context_export_method(method) {
-        let event_id = record_denial("provider.context_export");
-        emit_provider_context_export_denied(runtime, method, event_id);
-        return DispatchOutcome::Denied("provider.context_export");
-    }
-
-    if hello_service::is_load_start_method(method) {
-        let method = hello_service::emit_load_start(method);
-        return DispatchOutcome::Response(method);
-    }
-
-    if hello_service::is_start_method(method) {
-        let method = hello_service::emit_start(method);
-        return DispatchOutcome::Response(method);
-    }
-
-    if hello_service::is_restart_method(method) {
-        let method = hello_service::emit_restart(method);
-        return DispatchOutcome::Response(method);
-    }
-
-    if hello_service::is_hot_swap_method(method) {
-        let method = hello_service::emit_hot_swap(method);
-        return DispatchOutcome::Response(method);
-    }
-
-    if hello_service::is_rollback_preview_method(method) {
-        let method = hello_service::emit_rollback_preview(method);
-        return DispatchOutcome::Response(method);
-    }
-
-    if hello_service::is_rollback_apply_method(method) {
-        let method = hello_service::emit_rollback_apply(method);
-        return DispatchOutcome::Denied(method);
-    }
-
-    if hello_service::is_recovery_rollback_inspect_method(method) {
-        let event_id = record_read("recovery.rollback_inspect");
-        let method = hello_service::emit_recovery_rollback_inspect(method, event_id);
-        return DispatchOutcome::Response(method);
-    }
-
-    if hello_service::is_recovery_rollback_inspect_source_reference_selftest_method(method) {
-        record_read("recovery.rollback_inspect_source_reference_selftest");
-        let method = hello_service::emit_recovery_rollback_inspect_source_reference_selftest();
-        return DispatchOutcome::Response(method);
-    }
-
-    if hello_service::is_recovery_rollback_materialize_dry_run_method(method) {
-        let event_id = event_log::record_hello_recovery_rollback_materialize_dry_run();
-        let method = hello_service::emit_recovery_rollback_materialize_dry_run(method, event_id);
-        return DispatchOutcome::Response(method);
-    }
-
-    if hello_service::is_stop_method(method) {
-        let method = hello_service::emit_stop(method);
-        return DispatchOutcome::Response(method);
-    }
-
-    if hello_service::is_drop_method(method) {
-        let method = hello_service::emit_drop(method);
-        return DispatchOutcome::Response(method);
-    }
-
-    if module_load_ephemeral_method(method) {
-        let method = canonical_module_load_ephemeral_method(method);
-        let (event_id, gate_binding) = event_log::record_module_load_ephemeral_denied(method);
-        emit_module_load_ephemeral_denied(method, event_id, gate_binding);
-        return DispatchOutcome::Denied(method);
-    }
-
-    if recovery_artifact_load_method(method) {
-        let method = canonical_recovery_artifact_load_method(method);
-        let event_id = event_log::record_recovery_artifact_load_denied(method);
-        emit_recovery_artifact_load_denied(method, event_id);
-        return DispatchOutcome::Denied(method);
-    }
-
-    if memory_mutation_method(method) {
-        let method = canonical_memory_mutation_method(method);
-        let event_id = record_denial(method);
-        emit_memory_capability_denied(method, event_id);
-        return DispatchOutcome::Denied(method);
-    }
-
-    if denied_method(method) {
-        let method = canonical_denied_method(method);
-        let event_id = record_denial(method);
-        emit_capability_denied(method, event_id);
-        return DispatchOutcome::Denied(method);
+    if let Some(call) = lookup_method(method) {
+        return (call.entry.handler)(call, runtime);
     }
 
     DispatchOutcome::Unknown

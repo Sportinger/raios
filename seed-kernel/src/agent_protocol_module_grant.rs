@@ -13,16 +13,6 @@ use crate::{
 };
 use raios_core::record::Value as V;
 
-pub(crate) fn module_grant_diagnostic_method(method: &str) -> bool {
-    method_head_eq(method, "module.grant_diagnostic")
-        || method_head_eq(method, "module.load_gate_diagnostic")
-}
-
-pub(crate) fn module_grant_diagnostic_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.grant_diagnostic_selftest")
-        || method_head_eq(method, "module.load_gate_diagnostic_selftest")
-}
-
 #[rustfmt::skip]
 pub(crate) fn emit_module_grant_diagnostic(method: &str) {
     let arg = module_grant_diagnostic_arg(method);

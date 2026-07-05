@@ -14,15 +14,6 @@ use crate::{
     module_evidence::{self, ram_only_service_slot_id_valid, ModuleAuditRecordHashInput},
 };
 use raios_core::record::Value as V;
-pub(crate) fn module_audit_rollback_diagnostic_method(method: &str) -> bool {
-    method_head_eq(method, "module.audit_rollback_diagnostic")
-        || method_head_eq(method, "module.audit_rollback_gate_diagnostic")
-}
-
-pub(crate) fn module_audit_rollback_diagnostic_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.audit_rollback_diagnostic_selftest")
-}
-
 fn module_audit_rollback_diagnostic_arg(method: &str) -> &str {
     let method = method.trim();
     let head_len = if method_head_eq(method, "module.audit_rollback_diagnostic") {

@@ -16,14 +16,6 @@ use crate::{
     },
 };
 use raios_core::record::Value as V;
-pub(crate) fn module_service_slot_diagnostic_method(method: &str) -> bool {
-    method_head_eq(method, "module.service_slot_diagnostic")
-}
-
-pub(crate) fn module_service_slot_diagnostic_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.service_slot_diagnostic_selftest")
-}
-
 fn module_service_slot_diagnostic_arg(method: &str) -> &str {
     let method = method.trim();
     let head_len = if method_head_eq(method, "module.service_slot_diagnostic") {

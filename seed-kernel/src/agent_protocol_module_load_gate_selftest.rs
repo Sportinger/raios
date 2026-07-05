@@ -8,7 +8,7 @@ use crate::{
         evaluate_module_load_gate_service_slot_candidate,
     },
     agent_protocol_module_types::*,
-    agent_protocol_support::{method_eq, method_head_eq, parse_current_boot_event_id},
+    agent_protocol_support::{method_eq, parse_current_boot_event_id},
     event_log,
     module_evidence::{ModuleAuditRecordHashInput, ModuleServiceSlotReservationHashInput},
 };
@@ -1134,49 +1134,4 @@ pub(crate) fn module_load_gate_test_reference(
         vm_report_hash,
         local_attestation_hash,
     }
-}
-
-pub(crate) fn module_load_gate_manifest_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.load_gate_manifest_selftest")
-        || method_head_eq(method, "module.manifest_gate_selftest")
-}
-
-pub(crate) fn module_load_gate_artifact_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.load_gate_artifact_selftest")
-        || method_head_eq(method, "module.artifact_gate_selftest")
-}
-
-pub(crate) fn module_load_gate_vm_report_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.load_gate_vm_report_selftest")
-        || method_head_eq(method, "module.vm_report_gate_selftest")
-}
-
-pub(crate) fn module_load_gate_attestation_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.load_gate_attestation_selftest")
-        || method_head_eq(method, "module.attestation_gate_selftest")
-}
-
-pub(crate) fn module_load_gate_approval_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.load_gate_approval_selftest")
-        || method_head_eq(method, "module.approval_gate_selftest")
-}
-
-pub(crate) fn module_load_gate_retained_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.load_gate_retained_selftest")
-        || method_head_eq(method, "module.retained_grant_gate_selftest")
-}
-
-pub(crate) fn module_load_gate_audit_rollback_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.load_gate_audit_rollback_selftest")
-        || method_head_eq(method, "module.audit_rollback_gate_selftest")
-}
-
-pub(crate) fn module_load_gate_service_slot_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.load_gate_service_slot_selftest")
-        || method_head_eq(method, "module.service_slot_gate_selftest")
-}
-
-pub(crate) fn module_load_gate_loader_runtime_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.load_gate_loader_runtime_selftest")
-        || method_head_eq(method, "module.loader_runtime_gate_selftest")
 }

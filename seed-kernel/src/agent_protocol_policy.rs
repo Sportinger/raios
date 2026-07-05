@@ -3,7 +3,6 @@ use crate::{
     agent_protocol_provider::provider_context_export_method,
     agent_protocol_recovery_methods::recovery_artifact_load_method,
     agent_protocol_support::{json_event_id, json_str, method_eq, method_head_eq, raw, raw_line},
-    agent_protocol_system::DENIED_METHODS,
     event_log, serial,
 };
 pub(crate) fn record_read(method: &'static str) -> event_log::EventId {
@@ -49,36 +48,6 @@ pub(crate) fn emit_capability_denied(method: &'static str, event_id: event_log::
     raw_line("  }");
     raw_line("}");
     serial::write_raw_fmt(format_args!("RAIOS_AGENT_END {}\r\n", method));
-}
-
-pub(crate) fn denied_method(method: &str) -> bool {
-    let mut idx = 0usize;
-    while idx < DENIED_METHODS.len() {
-        if method_head_eq(method, DENIED_METHODS[idx]) {
-            return true;
-        }
-        idx += 1;
-    }
-    false
-}
-
-pub(crate) fn canonical_denied_method(method: &str) -> &'static str {
-    let mut idx = 0usize;
-    while idx < DENIED_METHODS.len() {
-        if method_head_eq(method, DENIED_METHODS[idx]) {
-            return DENIED_METHODS[idx];
-        }
-        idx += 1;
-    }
-    "unknown"
-}
-
-pub(crate) fn canonical_module_load_ephemeral_method(method: &str) -> &'static str {
-    if method_head_eq(method, "service.load_ephemeral") {
-        "service.load_ephemeral"
-    } else {
-        "module.load_ephemeral"
-    }
 }
 
 fn requested_capability_for_read(method: &str) -> &'static str {
@@ -301,9 +270,4 @@ fn risk_for_denial(method: &str) -> &'static str {
     } else {
         "modify_ram"
     }
-}
-
-pub(crate) fn module_load_ephemeral_method(method: &str) -> bool {
-    method_head_eq(method, "module.load_ephemeral")
-        || method_head_eq(method, "service.load_ephemeral")
 }

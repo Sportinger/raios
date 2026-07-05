@@ -18,14 +18,6 @@ macro_rules! push_status_reason {
     }};
 }
 
-pub(crate) fn module_loader_runtime_method(method: &str) -> bool {
-    method_head_eq(method, "module.loader_runtime")
-}
-
-pub(crate) fn module_loader_runtime_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.loader_runtime_selftest")
-}
-
 pub(crate) fn emit_module_loader_runtime() {
     let manifest = event_log::latest_module_manifest_reference();
     let artifact = event_log::latest_module_candidate_artifact_reference();

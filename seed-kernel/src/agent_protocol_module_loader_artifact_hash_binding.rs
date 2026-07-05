@@ -6,20 +6,12 @@ use crate::{
     agent_protocol_support::{
         begin_response, crlf, emit_inline_record_object, emit_inline_record_object_fragment,
         emit_record_fields_trailing_comma, emit_record_property_line, end_response, method_eq,
-        method_head_eq, raw_line, record_bool as b, record_event_or_null, record_false as no,
-        record_field as f, record_str as s,
+        raw_line, record_bool as b, record_event_or_null, record_false as no, record_field as f,
+        record_str as s,
     },
     event_log,
 };
 use raios_core::record::Value as V;
-
-pub(crate) fn module_loader_artifact_hash_binding_method(method: &str) -> bool {
-    method_head_eq(method, "module.loader_artifact_hash_binding")
-}
-
-pub(crate) fn module_loader_artifact_hash_binding_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.loader_artifact_hash_binding_selftest")
-}
 
 pub(crate) fn emit_module_loader_artifact_hash_binding() {
     let manifest = event_log::latest_module_manifest_reference();

@@ -19,175 +19,6 @@ const CHAT_LINES: usize = 10;
 const MAX_BYTES_PER_POLL: usize = 64;
 const AGENT_COMMAND_ENVELOPE_METHOD: &str = "agent.command_envelope";
 const AGENT_COMMAND_ENVELOPE_SCHEMA: &str = "raios.agent_command_envelope.v0";
-const AGENT_COMMAND_ENVELOPE_TARGET: &str = "system.describe";
-const AGENT_COMMAND_ENVELOPE_CAPABILITY: &str = "cap.system.describe.read";
-const AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET: &str = "system.snapshot";
-const AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_CAPABILITY: &str = "cap.system.snapshot.read";
-const AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET: &str = "system.boot_log";
-const AGENT_COMMAND_ENVELOPE_BOOT_LOG_CAPABILITY: &str = "cap.system.boot_log.read";
-const AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET: &str = "system.capabilities";
-const AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_CAPABILITY: &str = "cap.system.capabilities.read";
-const AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET: &str = "device.graph";
-const AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_CAPABILITY: &str = "cap.device.graph.read";
-const AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET: &str = "service.inventory";
-const AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_CAPABILITY: &str = "cap.service.inventory.read";
-const AGENT_COMMAND_ENVELOPE_SERVICE_HEALTH_TARGET: &str = "service.health";
-const AGENT_COMMAND_ENVELOPE_SERVICE_HEALTH_CAPABILITY: &str = "cap.service.health.read";
-const AGENT_COMMAND_ENVELOPE_SERVICE_ROLLBACK_PREVIEW_TARGET: &str = "service.rollback_preview";
-const AGENT_COMMAND_ENVELOPE_SERVICE_ROLLBACK_PREVIEW_CAPABILITY: &str =
-    "cap.service.rollback_preview.read";
-const AGENT_COMMAND_ENVELOPE_RECOVERY_ROLLBACK_INSPECT_TARGET: &str =
-    "recovery.rollback_inspect";
-const AGENT_COMMAND_ENVELOPE_RECOVERY_ROLLBACK_INSPECT_CAPABILITY: &str =
-    "cap.recovery.rollback_inspect.read";
-const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_AVAILABILITY_TARGET: &str =
-    "module.audit_rollback_availability";
-const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_POLICY_TARGET: &str =
-    "module.audit_rollback_write_policy";
-const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_TARGET: &str =
-    "module.audit_rollback_storage_layout";
-const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_ENGINE_TARGET: &str =
-    "module.audit_rollback_append_engine";
-const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_TARGET: &str =
-    "module.audit_rollback_append_contract";
-const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_PAYLOAD_HASH_TARGET: &str =
-    "module.audit_rollback_append_payload_hash";
-const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_INTENT_TARGET: &str =
-    "module.audit_rollback_append_intent";
-const AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_BOUNDARY_TARGET: &str =
-    "module.audit_rollback_write_boundary";
-const AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY: &str =
-    "cap.module.grant_diagnostic.read";
-const AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET: &str = "problem.list";
-const AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_CAPABILITY: &str = "cap.problem.list.read";
-const AGENT_COMMAND_ENVELOPE_RECOVERY_LIFELINE_STATUS_TARGET: &str = "recovery.lifeline.status";
-const AGENT_COMMAND_ENVELOPE_RECOVERY_LIFELINE_STATUS_CAPABILITY: &str =
-    "cap.recovery.load_artifact.read";
-
-#[derive(Clone, Copy)]
-struct AgentCommandEnvelopeAllowedTarget {
-    method: &'static str,
-    capability: &'static str,
-    response_id: &'static str,
-    dispatch_method: &'static str,
-}
-
-const AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS: [AgentCommandEnvelopeAllowedTarget; 19] = [
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.system_describe.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.system_snapshot.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_SYSTEM_SNAPSHOT_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_BOOT_LOG_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.system_boot_log.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_BOOT_LOG_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.system_capabilities.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_SYSTEM_CAPABILITIES_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.device_graph.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_DEVICE_GRAPH_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.service_inventory.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_SERVICE_INVENTORY_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_SERVICE_HEALTH_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_SERVICE_HEALTH_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.service_health.v0",
-        dispatch_method: "service.health svc.demo.hello",
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_SERVICE_ROLLBACK_PREVIEW_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_SERVICE_ROLLBACK_PREVIEW_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.service_rollback_preview.v0",
-        dispatch_method: "service.rollback_preview svc.demo.hello",
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_RECOVERY_ROLLBACK_INSPECT_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_RECOVERY_ROLLBACK_INSPECT_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.recovery_rollback_inspect.v0",
-        dispatch_method: "recovery.rollback_inspect svc.demo.hello",
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_AVAILABILITY_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_availability.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_AVAILABILITY_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_POLICY_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_write_policy.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_POLICY_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_storage_layout.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_STORAGE_LAYOUT_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_ENGINE_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_append_engine.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_ENGINE_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_append_contract.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_CONTRACT_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_PAYLOAD_HASH_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_append_payload_hash.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_PAYLOAD_HASH_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_INTENT_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_append_intent.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_APPEND_INTENT_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_BOUNDARY_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_MODULE_GRANT_DIAGNOSTIC_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.module_audit_rollback_write_boundary.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_MODULE_AUDIT_ROLLBACK_WRITE_BOUNDARY_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.problem_list.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_PROBLEM_LIST_TARGET,
-    },
-    AgentCommandEnvelopeAllowedTarget {
-        method: AGENT_COMMAND_ENVELOPE_RECOVERY_LIFELINE_STATUS_TARGET,
-        capability: AGENT_COMMAND_ENVELOPE_RECOVERY_LIFELINE_STATUS_CAPABILITY,
-        response_id: "agent_command_envelope.current_boot.serial.recovery_lifeline_status.v0",
-        dispatch_method: AGENT_COMMAND_ENVELOPE_RECOVERY_LIFELINE_STATUS_TARGET,
-    },
-];
 
 static CONSOLE: Mutex<ConsoleState> = Mutex::new(ConsoleState::new());
 
@@ -1293,73 +1124,19 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
 
     write_output(format_args!("> {}", command_line.trimmed_str()));
 
+    if let Some(method) =
+        agent_protocol::console_dispatch_method(command.as_str(), command_line.trimmed_str())
+    {
+        command_agent_protocol(method, runtime);
+        return;
+    }
+
     match command.as_str() {
         "help" => command_help(),
         "status" => command_status(runtime),
         "devices" => command_devices(runtime),
         "log" => command_log(),
-        "describe" | "system.describe" => command_agent_protocol("system.describe", runtime),
-        "snapshot" | "system.snapshot" => command_agent_protocol("system.snapshot", runtime),
-        "caps" | "capabilities" | "system.capabilities" => {
-            command_agent_protocol("system.capabilities", runtime)
-        }
-        "bootlog" | "system.bootlog" | "system.boot_log" => {
-            command_agent_protocol("system.boot_log", runtime)
-        }
-        "devicegraph" | "device.graph" => command_agent_protocol("device.graph", runtime),
-        "problems" | "problem.list" => command_agent_protocol("problem.list", runtime),
-        "services" | "service.inventory" => command_agent_protocol("service.inventory", runtime),
-        "service.health"
-        | "service.rollback_preview"
-        | "service.descriptor_source_trust_selftest"
-        | "service.artifact_reference_trust_selftest"
-        | "service.artifact_load_plan_preflight_selftest" => {
-            command_agent_protocol(command_line.trimmed_str(), runtime)
-        }
-        "memory.profile" | "memprofile" => command_agent_protocol("memory.profile", runtime),
-        "memory.context" | "memctx" => command_agent_protocol(command_line.trimmed_str(), runtime),
-        "memory.query" | "memquery" => command_agent_protocol(command_line.trimmed_str(), runtime),
-        "memory.trace" | "memtrace" => command_agent_protocol(command_line.trimmed_str(), runtime),
-        "memory.recent_events" | "audit.events" | "events" => {
-            command_agent_protocol(command_line.trimmed_str(), runtime)
-        }
         "agent" => command_agent(command_line.arguments_after_command(), runtime),
-        "memory.record_observation"
-        | "memory.propose_policy"
-        | "memory.supersede_fact"
-        | "memory.redact"
-        | "memory.compact" => command_agent_protocol(command.as_str(), runtime),
-        "provider.context_export" | "provider.export_context" => {
-            command_agent_protocol(command_line.trimmed_str(), runtime)
-        }
-        "provider.context_gate"
-        | "provider.context_export_status"
-        | "provider.context_gate_selftest"
-        | "provider.context_injection_gate"
-        | "provider.context_injection_gate_selftest" => {
-            command_agent_protocol(command_line.trimmed_str(), runtime)
-        }
-        "module.propose"
-        | "module.build_result"
-        | "module.test_request"
-        | "module.test_result"
-        | "module.load_ephemeral"
-        | "module.load_recovery_artifact"
-        | "module.persist"
-        | "module.rollback"
-        | "recovery.load_artifact"
-        | "recovery.rollback_inspect"
-        | "recovery.rollback_inspect_source_reference_selftest"
-        | "recovery.rollback_materialize_dry_run"
-        | "service.load_ephemeral"
-        | "service.restart"
-        | "service.hot_swap"
-        | "service.rollback_apply"
-        | "service.start"
-        | "service.stop"
-        | "service.drop"
-        | "config.apply"
-        | "apply_config" => command_agent_protocol(command_line.trimmed_str(), runtime),
         "provider" => command_provider_status(),
         "openai" => command_openai_status(),
         "wifi" => command_wifi_status(),
@@ -1370,7 +1147,6 @@ fn execute(command_line: CommandLine, runtime: ui::RuntimeStatus) {
             command_line.trimmed_str()
         )),
     }
-
 }
 
 fn command_help() {
@@ -1544,30 +1320,12 @@ fn agent_command_envelope_event_binding(
 
 fn agent_command_envelope_lookup_allowed_target(
     value: Option<&str>,
-) -> Option<AgentCommandEnvelopeAllowedTarget> {
-    let value = value.unwrap_or("");
-    let mut index = 0usize;
-    while index < AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS.len() {
-        let target = AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS[index];
-        if method_eq(value, target.method) {
-            return Some(target);
-        }
-        index += 1;
-    }
-    None
+) -> Option<agent_protocol::CommandEnvelopeTarget> {
+    agent_protocol::command_envelope_target(value)
 }
 
 fn agent_command_envelope_lookup_allowed_capability(value: Option<&str>) -> Option<&'static str> {
-    let value = value.unwrap_or("");
-    let mut index = 0usize;
-    while index < AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS.len() {
-        let target = AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS[index];
-        if method_eq(value, target.capability) {
-            return Some(target.capability);
-        }
-        index += 1;
-    }
-    None
+    agent_protocol::command_envelope_capability(value)
 }
 
 fn agent_command_envelope_event_target(value: Option<&str>) -> Option<&'static str> {
@@ -1592,7 +1350,7 @@ fn agent_command_envelope_dispatch_method(envelope: AgentCommandEnvelope<'_>) ->
     if let Some(target) = agent_command_envelope_lookup_allowed_target(envelope.target_method) {
         target.dispatch_method
     } else {
-        AGENT_COMMAND_ENVELOPE_TARGET
+        agent_command_envelope_default_target().dispatch_method
     }
 }
 
@@ -1619,7 +1377,7 @@ fn agent_command_envelope_expected_capability(envelope: AgentCommandEnvelope<'_>
     if let Some(target) = agent_command_envelope_lookup_allowed_target(envelope.target_method) {
         target.capability
     } else {
-        AGENT_COMMAND_ENVELOPE_CAPABILITY
+        agent_command_envelope_default_target().capability
     }
 }
 
@@ -1744,15 +1502,17 @@ fn emit_agent_command_envelope(
     json_opt_str(envelope.classification);
     raw_line(",");
     raw("      \"allowed_target_method\": ");
-    json_str(AGENT_COMMAND_ENVELOPE_TARGET);
+    json_str(agent_command_envelope_default_target().method);
     raw_line(",");
     raw("      \"allowed_target_methods\": [");
     let mut allowed_index = 0usize;
-    while allowed_index < AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS.len() {
+    while allowed_index < agent_protocol::command_envelope_target_count() {
         if allowed_index > 0 {
             raw(", ");
         }
-        json_str(AGENT_COMMAND_ENVELOPE_ALLOWED_TARGETS[allowed_index].method);
+        if let Some(target) = agent_protocol::command_envelope_target_at(allowed_index) {
+            json_str(target.method);
+        }
         allowed_index += 1;
     }
     raw_line("],");
@@ -1779,8 +1539,17 @@ fn agent_command_envelope_response_id(envelope: AgentCommandEnvelope<'_>) -> &'s
     if let Some(target) = agent_command_envelope_lookup_allowed_target(envelope.target_method) {
         target.response_id
     } else {
-        "agent_command_envelope.current_boot.serial.system_describe.v0"
+        agent_command_envelope_default_target().response_id
     }
+}
+
+fn agent_command_envelope_default_target() -> agent_protocol::CommandEnvelopeTarget {
+    agent_protocol::command_envelope_target_at(0).unwrap_or(agent_protocol::CommandEnvelopeTarget {
+        method: "system.describe",
+        capability: "cap.system.describe.read",
+        response_id: "agent_command_envelope.current_boot.serial.system_describe.v0",
+        dispatch_method: "system.describe",
+    })
 }
 
 fn command_setup_enter() {

@@ -326,26 +326,6 @@ const MODULE_LOADER_FACT_SPECS: [ModuleLoaderFactSpec; 8] = [
     },
 ];
 
-pub(crate) fn module_loader_fact_method(method: &str) -> bool {
-    module_loader_fact_spec(method).is_some()
-}
-
-pub(crate) fn module_loader_fact_selftest_method(method: &str) -> bool {
-    module_loader_fact_selftest_spec(method).is_some()
-}
-
-pub(crate) fn canonical_module_loader_fact_method(method: &str) -> &'static str {
-    module_loader_fact_spec(method)
-        .map(|spec| spec.method)
-        .unwrap_or("module.loader_entrypoint_abi")
-}
-
-pub(crate) fn canonical_module_loader_fact_selftest_method(method: &str) -> &'static str {
-    module_loader_fact_selftest_spec(method)
-        .map(|spec| spec.selftest_method)
-        .unwrap_or("module.loader_entrypoint_abi_selftest")
-}
-
 pub(crate) fn emit_module_loader_fact(method: &str) {
     let Some(spec) = module_loader_fact_spec(method) else {
         return;

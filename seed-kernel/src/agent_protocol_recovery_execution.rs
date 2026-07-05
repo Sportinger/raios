@@ -27,8 +27,6 @@ pub(crate) struct RecoveryLifelineCommandExecutionStageDescriptor {
     pub(crate) index: u8,
     pub(crate) method_name: &'static str,
     pub(crate) method_alias: &'static str,
-    pub(crate) selftest_method_name: &'static str,
-    pub(crate) selftest_alias: &'static str,
     pub(crate) response_method: &'static str,
     pub(crate) selftest_response_method: &'static str,
     pub(crate) diagnostic_schema: &'static str,
@@ -184,8 +182,6 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE:
         index: 0,
         method_name: "recovery.lifeline_command_execution_enablement_diagnostic",
         method_alias: "recovery.lifeline_command_execution_enablement",
-        selftest_method_name: "recovery.lifeline_command_execution_enablement_diagnostic_selftest",
-        selftest_alias: "recovery.lifeline_command_execution_enablement_selftest",
         response_method: "recovery.lifeline_command_execution_enablement_diagnostic",
         selftest_response_method: "recovery.lifeline_command_execution_enablement_diagnostic_selftest",
         diagnostic_schema: "raios.recovery_lifeline_command_execution_enablement_diagnostic.v0",
@@ -223,8 +219,6 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE:
         index: 1,
         method_name: "recovery.lifeline_command_execution_preflight_diagnostic",
         method_alias: "recovery.lifeline_command_execution_preflight",
-        selftest_method_name: "recovery.lifeline_command_execution_preflight_diagnostic_selftest",
-        selftest_alias: "recovery.lifeline_command_execution_preflight_selftest",
         response_method: "recovery.lifeline_command_execution_preflight_diagnostic",
         selftest_response_method: "recovery.lifeline_command_execution_preflight_diagnostic_selftest",
         diagnostic_schema: "raios.recovery_lifeline_command_execution_preflight_diagnostic.v0",
@@ -262,8 +256,6 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE:
         index: 2,
         method_name: "recovery.lifeline_command_execution_intent_diagnostic",
         method_alias: "recovery.lifeline_command_execution_intent",
-        selftest_method_name: "recovery.lifeline_command_execution_intent_diagnostic_selftest",
-        selftest_alias: "recovery.lifeline_command_execution_intent_selftest",
         response_method: "recovery.lifeline_command_execution_intent_diagnostic",
         selftest_response_method: "recovery.lifeline_command_execution_intent_diagnostic_selftest",
         diagnostic_schema: "raios.recovery_lifeline_command_execution_intent_diagnostic.v0",
@@ -301,8 +293,6 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE:
         index: 3,
         method_name: "recovery.lifeline_command_execution_commit_gate_diagnostic",
         method_alias: "recovery.lifeline_command_execution_commit_gate",
-        selftest_method_name: "recovery.lifeline_command_execution_commit_gate_diagnostic_selftest",
-        selftest_alias: "recovery.lifeline_command_execution_commit_gate_selftest",
         response_method: "recovery.lifeline_command_execution_commit_gate_diagnostic",
         selftest_response_method: "recovery.lifeline_command_execution_commit_gate_diagnostic_selftest",
         diagnostic_schema: "raios.recovery_lifeline_command_execution_commit_gate_diagnostic.v0",
@@ -340,9 +330,6 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE:
         index: 4,
         method_name: "recovery.lifeline_command_execution_result_denial_diagnostic",
         method_alias: "recovery.lifeline_command_execution_result_denial",
-        selftest_method_name:
-            "recovery.lifeline_command_execution_result_denial_diagnostic_selftest",
-        selftest_alias: "recovery.lifeline_command_execution_result_denial_selftest",
         response_method: "recovery.lifeline_command_execution_result_denial_diagnostic",
         selftest_response_method:
             "recovery.lifeline_command_execution_result_denial_diagnostic_selftest",
@@ -385,9 +372,6 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE:
         index: 5,
         method_name: "recovery.lifeline_command_execution_audit_denial_diagnostic",
         method_alias: "recovery.lifeline_command_execution_audit_denial",
-        selftest_method_name:
-            "recovery.lifeline_command_execution_audit_denial_diagnostic_selftest",
-        selftest_alias: "recovery.lifeline_command_execution_audit_denial_selftest",
         response_method: "recovery.lifeline_command_execution_audit_denial_diagnostic",
         selftest_response_method:
             "recovery.lifeline_command_execution_audit_denial_diagnostic_selftest",
@@ -434,9 +418,6 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE:
         index: 6,
         method_name: "recovery.lifeline_command_execution_observation_denial_diagnostic",
         method_alias: "recovery.lifeline_command_execution_observation_denial",
-        selftest_method_name:
-            "recovery.lifeline_command_execution_observation_denial_diagnostic_selftest",
-        selftest_alias: "recovery.lifeline_command_execution_observation_denial_selftest",
         response_method: "recovery.lifeline_command_execution_observation_denial_diagnostic",
         selftest_response_method:
             "recovery.lifeline_command_execution_observation_denial_diagnostic_selftest",
@@ -492,9 +473,6 @@ pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE:
         index: 7,
         method_name: "recovery.lifeline_command_execution_completion_denial_diagnostic",
         method_alias: "recovery.lifeline_command_execution_completion_denial",
-        selftest_method_name:
-            "recovery.lifeline_command_execution_completion_denial_diagnostic_selftest",
-        selftest_alias: "recovery.lifeline_command_execution_completion_denial_selftest",
         response_method: "recovery.lifeline_command_execution_completion_denial_diagnostic",
         selftest_response_method:
             "recovery.lifeline_command_execution_completion_denial_diagnostic_selftest",
@@ -1882,22 +1860,6 @@ pub(crate) fn recovery_lifeline_command_execution_stage_from_check(
     })
 }
 
-pub(crate) fn recovery_lifeline_command_execution_stage_diagnostic_method(
-    method: &str,
-    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
-) -> bool {
-    method_head_eq(method, descriptor.method_name)
-        || method_head_eq(method, descriptor.method_alias)
-}
-
-pub(crate) fn recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
-    method: &str,
-    descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
-) -> bool {
-    method_head_eq(method, descriptor.selftest_method_name)
-        || method_head_eq(method, descriptor.selftest_alias)
-}
-
 pub(crate) fn recovery_lifeline_command_execution_stage_diagnostic_arg(
     method: &str,
     descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
@@ -2573,168 +2535,6 @@ fn emit_recovery_lifeline_command_execution_stage_requirement(
         raw(",");
     }
     crlf();
-}
-
-pub(crate) fn recovery_lifeline_command_execution_enablement_diagnostic_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_enablement_diagnostic_selftest_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_ENABLEMENT_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_preflight_diagnostic_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_preflight_diagnostic_selftest_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_PREFLIGHT_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_intent_diagnostic_method(method: &str) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_intent_diagnostic_selftest_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_INTENT_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_commit_gate_diagnostic_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_commit_gate_diagnostic_selftest_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMMIT_GATE_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_result_denial_diagnostic_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_result_denial_diagnostic_selftest_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_RESULT_DENIAL_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_audit_denial_diagnostic_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_audit_denial_diagnostic_selftest_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_AUDIT_DENIAL_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_observation_denial_diagnostic_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_observation_denial_diagnostic_selftest_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_OBSERVATION_DENIAL_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_completion_denial_diagnostic_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_command_execution_completion_denial_diagnostic_selftest_method(
-    method: &str,
-) -> bool {
-    recovery_lifeline_command_execution_stage_diagnostic_selftest_method(
-        method,
-        RECOVERY_LIFELINE_COMMAND_EXECUTION_COMPLETION_DENIAL_STAGE,
-    )
-}
-
-pub(crate) fn recovery_lifeline_status_execution_result_diagnostic_method(method: &str) -> bool {
-    method_eq(
-        method,
-        "recovery.lifeline_status_execution_result_diagnostic",
-    ) || method_eq(method, "recovery.lifeline_status_execution_result")
-}
-
-pub(crate) fn recovery_lifeline_status_result_read_method(method: &str) -> bool {
-    method_eq(method, "recovery.lifeline_status_result_read")
-        || method_eq(method, "recovery.lifeline.status")
-}
-
-pub(crate) fn recovery_lifeline_status_result_read_response_method(method: &str) -> &'static str {
-    if method_eq(method, "recovery.lifeline.status") {
-        "recovery.lifeline.status"
-    } else {
-        "recovery.lifeline_status_result_read"
-    }
 }
 
 #[derive(Clone, Copy)]

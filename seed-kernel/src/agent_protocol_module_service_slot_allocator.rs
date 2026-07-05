@@ -10,14 +10,6 @@ use crate::agent_protocol_support::{
 use crate::{agent_protocol_module_types::*, agent_protocol_support::*, event_log};
 use raios_core::record::{Field, Value as V};
 
-pub(crate) fn module_service_slot_allocator_method(method: &str) -> bool {
-    method_head_eq(method, "module.service_slot_allocator")
-}
-
-pub(crate) fn module_service_slot_allocator_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.service_slot_allocator_selftest")
-}
-
 pub(crate) fn emit_module_service_slot_allocator() {
     let retained = event_log::latest_module_service_slot_reservation();
     let retained_event_id = retained.as_ref().map(|(event_id, _)| *event_id);

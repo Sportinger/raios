@@ -8210,17 +8210,6 @@ pub(crate) fn memory_mutation_method(method: &str) -> bool {
     false
 }
 
-pub(crate) fn canonical_memory_mutation_method(method: &str) -> &'static str {
-    let mut idx = 0usize;
-    while idx < MEMORY_MUTATION_METHODS.len() {
-        if method_eq(method, MEMORY_MUTATION_METHODS[idx]) {
-            return MEMORY_MUTATION_METHODS[idx];
-        }
-        idx += 1;
-    }
-    "unknown"
-}
-
 fn memory_context_profile(method: &str) -> &'static str {
     let arg = memory_method_arg(method, "memory.context");
     if method_eq(arg, "planning") {

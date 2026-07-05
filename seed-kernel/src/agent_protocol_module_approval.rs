@@ -16,14 +16,6 @@ use crate::{
 };
 use raios_core::record::Value as V;
 
-pub(crate) fn module_approval_diagnostic_method(method: &str) -> bool {
-    method_head_eq(method, "module.approval_diagnostic")
-}
-
-pub(crate) fn module_approval_diagnostic_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.approval_diagnostic_selftest")
-}
-
 pub(crate) fn emit_module_approval_diagnostic(method: &str) {
     let arg = module_approval_diagnostic_arg(method);
     let check = parse_module_local_approval_reference(arg, true);

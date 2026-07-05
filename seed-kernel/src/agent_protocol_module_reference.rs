@@ -2241,30 +2241,6 @@ fn module_vm_report_reference_matches(
         && check.local_attestation_hash == Some(reference.local_attestation_hash)
 }
 
-pub(crate) fn module_manifest_diagnostic_method(method: &str) -> bool {
-    method_head_eq(method, "module.manifest_diagnostic")
-}
-
-pub(crate) fn module_manifest_diagnostic_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.manifest_diagnostic_selftest")
-}
-
-pub(crate) fn module_artifact_diagnostic_method(method: &str) -> bool {
-    method_head_eq(method, "module.artifact_diagnostic")
-}
-
-pub(crate) fn module_artifact_diagnostic_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.artifact_diagnostic_selftest")
-}
-
-pub(crate) fn module_vm_report_diagnostic_method(method: &str) -> bool {
-    method_head_eq(method, "module.vm_report_diagnostic")
-}
-
-pub(crate) fn module_vm_report_diagnostic_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "module.vm_report_diagnostic_selftest")
-}
-
 fn module_manifest_diagnostic_arg(method: &str) -> &str {
     let method = method.trim();
     let head_len = if method_head_eq(method, "module.manifest_diagnostic") {

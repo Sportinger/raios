@@ -2243,23 +2243,6 @@ pub(crate) fn provider_context_export_method(method: &str) -> bool {
         || method_head_eq(method, "provider.export_context")
 }
 
-pub(crate) fn provider_context_gate_method(method: &str) -> bool {
-    method_head_eq(method, "provider.context_gate")
-        || method_head_eq(method, "provider.context_export_status")
-}
-
-pub(crate) fn provider_context_gate_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "provider.context_gate_selftest")
-}
-
-pub(crate) fn provider_context_injection_gate_method(method: &str) -> bool {
-    method_head_eq(method, "provider.context_injection_gate")
-}
-
-pub(crate) fn provider_context_injection_gate_selftest_method(method: &str) -> bool {
-    method_head_eq(method, "provider.context_injection_gate_selftest")
-}
-
 pub(crate) fn provider_context_export_profile(method: &str) -> &'static str {
     let arg = provider_context_export_arg(method);
     if method_eq(arg, "provider_minimal") || arg.is_empty() {

@@ -230,16 +230,21 @@ byte-identical collapse bottoms out ~55-75k lines; ~20k requires
 output-shape/vocabulary changes (batch 6 = OWNER DECISION + needle
 updates + likely an ADR).
 
+Collapse Batch 1 done (2026-07-05): MethodEntry dispatch table replaces
+the 168-branch chain, console routing, and envelope target enumeration;
+146 dead *_method helpers deleted; net -1,653 lines. Verified by FULL
+profile (`shadow-20260705-194232-27296.json`, 7814/7814 — fourth full
+green of the day).
+
 Exact next task:
 
 ```text
-Collapse Batch 1: table-driven method dispatch (MethodEntry table
-replacing the 168-branch dispatch chain in agent_protocol.rs + console
-routing + method predicate helpers; est. -2-3k lines), byte-identical;
-verify quick. Then Batch 2 (named args + shared CommandBindings,
-recovery profile), Batch 3 (generic selftest runner, focused + full),
-per the collapse map. Owner decision pending on batch 6 (vocabulary
-compaction beyond byte-identity).
+Collapse Batch 2: named key=value command arguments + shared
+CommandBindings/StageBinding structs replacing the 48 per-stage command
+structs and 30 positional parsers (est. -8-12k lines), byte-identical;
+verify with recovery profile + full. Then Batch 3 (generic selftest
+runner). Owner decision pending on batch 6 (vocabulary compaction
+beyond byte-identity).
 ```
 
 ## Capability Milestones
