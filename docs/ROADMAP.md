@@ -236,15 +236,22 @@ the 168-branch chain, console routing, and envelope target enumeration;
 profile (`shadow-20260705-194232-27296.json`, 7814/7814 — fourth full
 green of the day).
 
+Collapse Batch 2 part 1 done (2026-07-05): shared
+CommandBindings/StageBinding replace 15 cloned input/check struct pairs
+(authorization, effects, dispatch); one shared positional reference
+parser replaces 15; net -1,159 lines. Recovery profile byte-identical
+(`shadow-20260705-202307-20408.json`, 3644/3644). Deferred by the
+worker: admission family + execution structs.
+
 Exact next task:
 
 ```text
-Collapse Batch 2: named key=value command arguments + shared
-CommandBindings/StageBinding structs replacing the 48 per-stage command
-structs and 30 positional parsers (est. -8-12k lines), byte-identical;
-verify with recovery profile + full. Then Batch 3 (generic selftest
-runner). Owner decision pending on batch 6 (vocabulary compaction
-beyond byte-identity).
+Collapse Batch 2 part 2: admission family + remaining execution struct
+consolidation onto CommandBindings; remaining positional parsers onto
+the shared parser (byte-identical; recovery profile). Then Batch 3
+(generic selftest runner — the biggest estimated deletion, -12-16k).
+Owner decision pending on batch 6 (vocabulary compaction beyond
+byte-identity).
 ```
 
 ## Capability Milestones

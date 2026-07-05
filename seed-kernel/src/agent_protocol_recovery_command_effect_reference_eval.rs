@@ -5,9 +5,10 @@ use crate::{
         recovery_lifeline_command_spec, RecoveryLifelineCommandSpec,
         RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
     },
-    agent_protocol_support::{
-        current_boot_event_id_str, method_eq, parse_current_boot_event_id, parse_sha256_ref,
+    agent_protocol_recovery_runtime_types::{
+        parse_command_reference_args, CommandReferenceField::*,
     },
+    agent_protocol_support::{current_boot_event_id_str, method_eq, parse_current_boot_event_id},
     event_log, module_evidence,
 };
 
@@ -15,87 +16,32 @@ pub(crate) fn parse_recovery_memory_write_authority_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryMemoryWriteAuthorityReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let recovery_memory_write_authority_hash = parts.next();
-    let retained_load_artifact_by_hash_target_binding_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let rollback_apply_authorization_hash = parts.next();
-    let disable_module_target_binding_hash = parts.next();
-    let restart_last_good_target_binding_hash = parts.next();
-    let load_artifact_by_hash_target_binding_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let recovery_memory_write_authority_id = parts.next();
-    let recovery_memory_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryMemoryWriteAuthorityInput {
-        has_reference: recovery_memory_write_authority_hash.is_some(),
-        arity_valid: recovery_memory_write_authority_hash.is_some()
-            && retained_load_artifact_by_hash_target_binding_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && rollback_apply_authorization_hash.is_some()
-            && disable_module_target_binding_hash.is_some()
-            && restart_last_good_target_binding_hash.is_some()
-            && load_artifact_by_hash_target_binding_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && recovery_memory_write_authority_id.is_some()
-            && recovery_memory_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        recovery_memory_write_authority_hash: recovery_memory_write_authority_hash
-            .and_then(parse_sha256_ref),
-        retained_load_artifact_by_hash_target_binding_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        disable_module_target_binding_hash: disable_module_target_binding_hash
-            .and_then(parse_sha256_ref),
-        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
-            .and_then(parse_sha256_ref),
-        load_artifact_by_hash_target_binding_hash: load_artifact_by_hash_target_binding_hash
-            .and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
-            .and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        recovery_memory_write_authority_id,
-        recovery_memory_projection_hash: recovery_memory_projection_hash.and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            RecoveryMemoryWriteAuthorityHash,
+            RetainedLoadArtifactByHashTargetBindingEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            RollbackPreviewAuthorizationHash,
+            RollbackApplyAuthorizationHash,
+            DisableModuleTargetBindingHash,
+            RestartLastGoodTargetBindingHash,
+            LoadArtifactByHashTargetBindingHash,
+            SourceRollbackApplyDenialHash,
+            SourceDurablePolicyWriteAuthorityDecisionHash,
+            SourceRecoveryRollbackInspectSourceReferenceHash,
+            CommandDispatchBoundaryId,
+            RecoveryMemoryWriteAuthorityId,
+            RecoveryMemoryProjectionHash,
+        ],
+    );
     evaluate_recovery_memory_write_authority_reference(input, require_live_retained)
 }
 
@@ -361,41 +307,15 @@ pub(crate) fn recovery_memory_write_authority_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryMemoryWriteAuthorityReferenceCheck<'a> {
-    RecoveryMemoryWriteAuthorityReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        recovery_memory_write_authority_hash: input.recovery_memory_write_authority_hash,
-        expected_recovery_memory_write_authority_hash,
-        retained_load_artifact_by_hash_target_binding_event_id: input
-            .retained_load_artifact_by_hash_target_binding_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
-        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
-        load_artifact_by_hash_target_binding_hash: input.load_artifact_by_hash_target_binding_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        recovery_memory_write_authority_id: input.recovery_memory_write_authority_id,
-        recovery_memory_projection_hash: input.recovery_memory_projection_hash,
+    input.with_reference_check(
+        RecoveryMemoryWriteAuthorityHash,
         normalized_spec,
         target_locator_value,
+        expected_recovery_memory_write_authority_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_memory_write_authority_live_chain_mismatch(
@@ -490,92 +410,33 @@ pub(crate) fn parse_durable_audit_rollback_write_authority_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> DurableAuditRollbackWriteAuthorityReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let durable_audit_rollback_write_authority_hash = parts.next();
-    let retained_recovery_memory_write_authority_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let rollback_apply_authorization_hash = parts.next();
-    let disable_module_target_binding_hash = parts.next();
-    let restart_last_good_target_binding_hash = parts.next();
-    let load_artifact_by_hash_target_binding_hash = parts.next();
-    let recovery_memory_write_authority_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let durable_audit_rollback_write_authority_id = parts.next();
-    let durable_audit_rollback_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = DurableAuditRollbackWriteAuthorityInput {
-        has_reference: durable_audit_rollback_write_authority_hash.is_some(),
-        arity_valid: durable_audit_rollback_write_authority_hash.is_some()
-            && retained_recovery_memory_write_authority_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && rollback_apply_authorization_hash.is_some()
-            && disable_module_target_binding_hash.is_some()
-            && restart_last_good_target_binding_hash.is_some()
-            && load_artifact_by_hash_target_binding_hash.is_some()
-            && recovery_memory_write_authority_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && durable_audit_rollback_write_authority_id.is_some()
-            && durable_audit_rollback_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        durable_audit_rollback_write_authority_hash: durable_audit_rollback_write_authority_hash
-            .and_then(parse_sha256_ref),
-        retained_recovery_memory_write_authority_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        disable_module_target_binding_hash: disable_module_target_binding_hash
-            .and_then(parse_sha256_ref),
-        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
-            .and_then(parse_sha256_ref),
-        load_artifact_by_hash_target_binding_hash: load_artifact_by_hash_target_binding_hash
-            .and_then(parse_sha256_ref),
-        recovery_memory_write_authority_hash: recovery_memory_write_authority_hash
-            .and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
-            .and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        durable_audit_rollback_write_authority_id,
-        durable_audit_rollback_projection_hash: durable_audit_rollback_projection_hash
-            .and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            DurableAuditRollbackWriteAuthorityHash,
+            RetainedRecoveryMemoryWriteAuthorityEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            RollbackPreviewAuthorizationHash,
+            RollbackApplyAuthorizationHash,
+            DisableModuleTargetBindingHash,
+            RestartLastGoodTargetBindingHash,
+            LoadArtifactByHashTargetBindingHash,
+            RecoveryMemoryWriteAuthorityHash,
+            SourceRollbackApplyDenialHash,
+            SourceDurablePolicyWriteAuthorityDecisionHash,
+            SourceRecoveryRollbackInspectSourceReferenceHash,
+            CommandDispatchBoundaryId,
+            DurableAuditRollbackWriteAuthorityId,
+            DurableAuditRollbackProjectionHash,
+        ],
+    );
     evaluate_durable_audit_rollback_write_authority_reference(input, require_live_retained)
 }
 
@@ -849,43 +710,15 @@ pub(crate) fn durable_audit_rollback_write_authority_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> DurableAuditRollbackWriteAuthorityReferenceCheck<'a> {
-    DurableAuditRollbackWriteAuthorityReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        durable_audit_rollback_write_authority_hash: input
-            .durable_audit_rollback_write_authority_hash,
-        expected_durable_audit_rollback_write_authority_hash,
-        retained_recovery_memory_write_authority_event_id: input
-            .retained_recovery_memory_write_authority_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
-        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
-        load_artifact_by_hash_target_binding_hash: input.load_artifact_by_hash_target_binding_hash,
-        recovery_memory_write_authority_hash: input.recovery_memory_write_authority_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        durable_audit_rollback_write_authority_id: input.durable_audit_rollback_write_authority_id,
-        durable_audit_rollback_projection_hash: input.durable_audit_rollback_projection_hash,
+    input.with_reference_check(
+        DurableAuditRollbackWriteAuthorityHash,
         normalized_spec,
         target_locator_value,
+        expected_durable_audit_rollback_write_authority_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn durable_audit_rollback_write_authority_live_chain_mismatch(
@@ -983,96 +816,34 @@ pub(crate) fn parse_recovery_service_inventory_side_effect_boundary_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let service_inventory_side_effect_boundary_hash = parts.next();
-    let retained_durable_audit_rollback_write_authority_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let rollback_apply_authorization_hash = parts.next();
-    let disable_module_target_binding_hash = parts.next();
-    let restart_last_good_target_binding_hash = parts.next();
-    let load_artifact_by_hash_target_binding_hash = parts.next();
-    let recovery_memory_write_authority_hash = parts.next();
-    let durable_audit_rollback_write_authority_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let service_inventory_side_effect_boundary_id = parts.next();
-    let service_inventory_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryServiceInventorySideEffectBoundaryInput {
-        has_reference: service_inventory_side_effect_boundary_hash.is_some(),
-        arity_valid: service_inventory_side_effect_boundary_hash.is_some()
-            && retained_durable_audit_rollback_write_authority_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && rollback_apply_authorization_hash.is_some()
-            && disable_module_target_binding_hash.is_some()
-            && restart_last_good_target_binding_hash.is_some()
-            && load_artifact_by_hash_target_binding_hash.is_some()
-            && recovery_memory_write_authority_hash.is_some()
-            && durable_audit_rollback_write_authority_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && service_inventory_side_effect_boundary_id.is_some()
-            && service_inventory_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        service_inventory_side_effect_boundary_hash: service_inventory_side_effect_boundary_hash
-            .and_then(parse_sha256_ref),
-        retained_durable_audit_rollback_write_authority_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        disable_module_target_binding_hash: disable_module_target_binding_hash
-            .and_then(parse_sha256_ref),
-        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
-            .and_then(parse_sha256_ref),
-        load_artifact_by_hash_target_binding_hash: load_artifact_by_hash_target_binding_hash
-            .and_then(parse_sha256_ref),
-        recovery_memory_write_authority_hash: recovery_memory_write_authority_hash
-            .and_then(parse_sha256_ref),
-        durable_audit_rollback_write_authority_hash: durable_audit_rollback_write_authority_hash
-            .and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
-            .and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        service_inventory_side_effect_boundary_id,
-        service_inventory_projection_hash: service_inventory_projection_hash
-            .and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            ServiceInventorySideEffectBoundaryHash,
+            RetainedDurableAuditRollbackWriteAuthorityEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            RollbackPreviewAuthorizationHash,
+            RollbackApplyAuthorizationHash,
+            DisableModuleTargetBindingHash,
+            RestartLastGoodTargetBindingHash,
+            LoadArtifactByHashTargetBindingHash,
+            RecoveryMemoryWriteAuthorityHash,
+            DurableAuditRollbackWriteAuthorityHash,
+            SourceRollbackApplyDenialHash,
+            SourceDurablePolicyWriteAuthorityDecisionHash,
+            SourceRecoveryRollbackInspectSourceReferenceHash,
+            CommandDispatchBoundaryId,
+            ServiceInventorySideEffectBoundaryId,
+            ServiceInventoryProjectionHash,
+        ],
+    );
     evaluate_recovery_service_inventory_side_effect_boundary_reference(input, require_live_retained)
 }
 
@@ -1354,45 +1125,15 @@ pub(crate) fn recovery_service_inventory_side_effect_boundary_reference_check<'a
     reason: &'static str,
     valid: bool,
 ) -> RecoveryServiceInventorySideEffectBoundaryReferenceCheck<'a> {
-    RecoveryServiceInventorySideEffectBoundaryReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        service_inventory_side_effect_boundary_hash: input
-            .service_inventory_side_effect_boundary_hash,
-        expected_service_inventory_side_effect_boundary_hash,
-        retained_durable_audit_rollback_write_authority_event_id: input
-            .retained_durable_audit_rollback_write_authority_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
-        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
-        load_artifact_by_hash_target_binding_hash: input.load_artifact_by_hash_target_binding_hash,
-        recovery_memory_write_authority_hash: input.recovery_memory_write_authority_hash,
-        durable_audit_rollback_write_authority_hash: input
-            .durable_audit_rollback_write_authority_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        service_inventory_side_effect_boundary_id: input.service_inventory_side_effect_boundary_id,
-        service_inventory_projection_hash: input.service_inventory_projection_hash,
+    input.with_reference_check(
+        ServiceInventorySideEffectBoundaryHash,
         normalized_spec,
         target_locator_value,
+        expected_service_inventory_side_effect_boundary_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_service_inventory_side_effect_boundary_live_chain_mismatch(
@@ -1497,99 +1238,35 @@ pub(crate) fn parse_recovery_lifeline_command_dispatch_behavior_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLifelineCommandDispatchBehaviorReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let command_dispatch_behavior_hash = parts.next();
-    let retained_service_inventory_side_effect_boundary_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let rollback_apply_authorization_hash = parts.next();
-    let disable_module_target_binding_hash = parts.next();
-    let restart_last_good_target_binding_hash = parts.next();
-    let load_artifact_by_hash_target_binding_hash = parts.next();
-    let recovery_memory_write_authority_hash = parts.next();
-    let durable_audit_rollback_write_authority_hash = parts.next();
-    let service_inventory_side_effect_boundary_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let command_dispatch_behavior_id = parts.next();
-    let command_dispatch_behavior_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryLifelineCommandDispatchBehaviorInput {
-        has_reference: command_dispatch_behavior_hash.is_some(),
-        arity_valid: command_dispatch_behavior_hash.is_some()
-            && retained_service_inventory_side_effect_boundary_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && rollback_apply_authorization_hash.is_some()
-            && disable_module_target_binding_hash.is_some()
-            && restart_last_good_target_binding_hash.is_some()
-            && load_artifact_by_hash_target_binding_hash.is_some()
-            && recovery_memory_write_authority_hash.is_some()
-            && durable_audit_rollback_write_authority_hash.is_some()
-            && service_inventory_side_effect_boundary_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && command_dispatch_behavior_id.is_some()
-            && command_dispatch_behavior_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        command_dispatch_behavior_hash: command_dispatch_behavior_hash.and_then(parse_sha256_ref),
-        retained_service_inventory_side_effect_boundary_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        disable_module_target_binding_hash: disable_module_target_binding_hash
-            .and_then(parse_sha256_ref),
-        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
-            .and_then(parse_sha256_ref),
-        load_artifact_by_hash_target_binding_hash: load_artifact_by_hash_target_binding_hash
-            .and_then(parse_sha256_ref),
-        recovery_memory_write_authority_hash: recovery_memory_write_authority_hash
-            .and_then(parse_sha256_ref),
-        durable_audit_rollback_write_authority_hash: durable_audit_rollback_write_authority_hash
-            .and_then(parse_sha256_ref),
-        service_inventory_side_effect_boundary_hash: service_inventory_side_effect_boundary_hash
-            .and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
-            .and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        command_dispatch_behavior_id,
-        command_dispatch_behavior_projection_hash: command_dispatch_behavior_projection_hash
-            .and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            CommandDispatchBehaviorHash,
+            RetainedServiceInventorySideEffectBoundaryEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            RollbackPreviewAuthorizationHash,
+            RollbackApplyAuthorizationHash,
+            DisableModuleTargetBindingHash,
+            RestartLastGoodTargetBindingHash,
+            LoadArtifactByHashTargetBindingHash,
+            RecoveryMemoryWriteAuthorityHash,
+            DurableAuditRollbackWriteAuthorityHash,
+            ServiceInventorySideEffectBoundaryHash,
+            SourceRollbackApplyDenialHash,
+            SourceDurablePolicyWriteAuthorityDecisionHash,
+            SourceRecoveryRollbackInspectSourceReferenceHash,
+            CommandDispatchBoundaryId,
+            CommandDispatchBehaviorId,
+            CommandDispatchBehaviorProjectionHash,
+        ],
+    );
     evaluate_recovery_lifeline_command_dispatch_behavior_reference(input, require_live_retained)
 }
 
@@ -1876,46 +1553,15 @@ pub(crate) fn recovery_lifeline_command_dispatch_behavior_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryLifelineCommandDispatchBehaviorReferenceCheck<'a> {
-    RecoveryLifelineCommandDispatchBehaviorReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        command_dispatch_behavior_hash: input.command_dispatch_behavior_hash,
-        expected_command_dispatch_behavior_hash,
-        retained_service_inventory_side_effect_boundary_event_id: input
-            .retained_service_inventory_side_effect_boundary_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
-        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
-        load_artifact_by_hash_target_binding_hash: input.load_artifact_by_hash_target_binding_hash,
-        recovery_memory_write_authority_hash: input.recovery_memory_write_authority_hash,
-        durable_audit_rollback_write_authority_hash: input
-            .durable_audit_rollback_write_authority_hash,
-        service_inventory_side_effect_boundary_hash: input
-            .service_inventory_side_effect_boundary_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        command_dispatch_behavior_id: input.command_dispatch_behavior_id,
-        command_dispatch_behavior_projection_hash: input.command_dispatch_behavior_projection_hash,
+    input.with_reference_check(
+        CommandDispatchBehaviorHash,
         normalized_spec,
         target_locator_value,
+        expected_command_dispatch_behavior_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_lifeline_command_dispatch_behavior_live_chain_mismatch(
@@ -2025,102 +1671,36 @@ pub(crate) fn parse_recovery_lifeline_command_executor_capability_table_referenc
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLifelineCommandExecutorCapabilityTableReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let executor_capability_table_hash = parts.next();
-    let retained_command_dispatch_behavior_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let rollback_apply_authorization_hash = parts.next();
-    let disable_module_target_binding_hash = parts.next();
-    let restart_last_good_target_binding_hash = parts.next();
-    let load_artifact_by_hash_target_binding_hash = parts.next();
-    let recovery_memory_write_authority_hash = parts.next();
-    let durable_audit_rollback_write_authority_hash = parts.next();
-    let service_inventory_side_effect_boundary_hash = parts.next();
-    let command_dispatch_behavior_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let executor_capability_table_id = parts.next();
-    let executor_capability_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryLifelineCommandExecutorCapabilityTableInput {
-        has_reference: executor_capability_table_hash.is_some(),
-        arity_valid: executor_capability_table_hash.is_some()
-            && retained_command_dispatch_behavior_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && rollback_apply_authorization_hash.is_some()
-            && disable_module_target_binding_hash.is_some()
-            && restart_last_good_target_binding_hash.is_some()
-            && load_artifact_by_hash_target_binding_hash.is_some()
-            && recovery_memory_write_authority_hash.is_some()
-            && durable_audit_rollback_write_authority_hash.is_some()
-            && service_inventory_side_effect_boundary_hash.is_some()
-            && command_dispatch_behavior_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && executor_capability_table_id.is_some()
-            && executor_capability_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        executor_capability_table_hash: executor_capability_table_hash.and_then(parse_sha256_ref),
-        retained_command_dispatch_behavior_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        disable_module_target_binding_hash: disable_module_target_binding_hash
-            .and_then(parse_sha256_ref),
-        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
-            .and_then(parse_sha256_ref),
-        load_artifact_by_hash_target_binding_hash: load_artifact_by_hash_target_binding_hash
-            .and_then(parse_sha256_ref),
-        recovery_memory_write_authority_hash: recovery_memory_write_authority_hash
-            .and_then(parse_sha256_ref),
-        durable_audit_rollback_write_authority_hash: durable_audit_rollback_write_authority_hash
-            .and_then(parse_sha256_ref),
-        service_inventory_side_effect_boundary_hash: service_inventory_side_effect_boundary_hash
-            .and_then(parse_sha256_ref),
-        command_dispatch_behavior_hash: command_dispatch_behavior_hash.and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
-            .and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        executor_capability_table_id,
-        executor_capability_projection_hash: executor_capability_projection_hash
-            .and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            ExecutorCapabilityTableHash,
+            RetainedCommandDispatchBehaviorEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            RollbackPreviewAuthorizationHash,
+            RollbackApplyAuthorizationHash,
+            DisableModuleTargetBindingHash,
+            RestartLastGoodTargetBindingHash,
+            LoadArtifactByHashTargetBindingHash,
+            RecoveryMemoryWriteAuthorityHash,
+            DurableAuditRollbackWriteAuthorityHash,
+            ServiceInventorySideEffectBoundaryHash,
+            CommandDispatchBehaviorHash,
+            SourceRollbackApplyDenialHash,
+            SourceDurablePolicyWriteAuthorityDecisionHash,
+            SourceRecoveryRollbackInspectSourceReferenceHash,
+            CommandDispatchBoundaryId,
+            ExecutorCapabilityTableId,
+            ExecutorCapabilityProjectionHash,
+        ],
+    );
     evaluate_recovery_lifeline_command_executor_capability_table_reference(
         input,
         require_live_retained,
@@ -2413,47 +1993,15 @@ pub(crate) fn recovery_lifeline_command_executor_capability_table_reference_chec
     reason: &'static str,
     valid: bool,
 ) -> RecoveryLifelineCommandExecutorCapabilityTableReferenceCheck<'a> {
-    RecoveryLifelineCommandExecutorCapabilityTableReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        executor_capability_table_hash: input.executor_capability_table_hash,
-        expected_executor_capability_table_hash,
-        retained_command_dispatch_behavior_event_id: input
-            .retained_command_dispatch_behavior_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
-        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
-        load_artifact_by_hash_target_binding_hash: input.load_artifact_by_hash_target_binding_hash,
-        recovery_memory_write_authority_hash: input.recovery_memory_write_authority_hash,
-        durable_audit_rollback_write_authority_hash: input
-            .durable_audit_rollback_write_authority_hash,
-        service_inventory_side_effect_boundary_hash: input
-            .service_inventory_side_effect_boundary_hash,
-        command_dispatch_behavior_hash: input.command_dispatch_behavior_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        executor_capability_table_id: input.executor_capability_table_id,
-        executor_capability_projection_hash: input.executor_capability_projection_hash,
+    input.with_reference_check(
+        ExecutorCapabilityTableHash,
         normalized_spec,
         target_locator_value,
+        expected_executor_capability_table_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_lifeline_command_executor_capability_table_live_chain_mismatch(
@@ -2565,104 +2113,37 @@ pub(crate) fn parse_recovery_lifeline_command_side_effect_gate_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLifelineCommandSideEffectGateReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let side_effect_gate_hash = parts.next();
-    let retained_executor_capability_table_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let rollback_apply_authorization_hash = parts.next();
-    let disable_module_target_binding_hash = parts.next();
-    let restart_last_good_target_binding_hash = parts.next();
-    let load_artifact_by_hash_target_binding_hash = parts.next();
-    let recovery_memory_write_authority_hash = parts.next();
-    let durable_audit_rollback_write_authority_hash = parts.next();
-    let service_inventory_side_effect_boundary_hash = parts.next();
-    let command_dispatch_behavior_hash = parts.next();
-    let executor_capability_table_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let side_effect_gate_id = parts.next();
-    let side_effect_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryLifelineCommandSideEffectGateInput {
-        has_reference: side_effect_gate_hash.is_some(),
-        arity_valid: side_effect_gate_hash.is_some()
-            && retained_executor_capability_table_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && rollback_apply_authorization_hash.is_some()
-            && disable_module_target_binding_hash.is_some()
-            && restart_last_good_target_binding_hash.is_some()
-            && load_artifact_by_hash_target_binding_hash.is_some()
-            && recovery_memory_write_authority_hash.is_some()
-            && durable_audit_rollback_write_authority_hash.is_some()
-            && service_inventory_side_effect_boundary_hash.is_some()
-            && command_dispatch_behavior_hash.is_some()
-            && executor_capability_table_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && side_effect_gate_id.is_some()
-            && side_effect_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        side_effect_gate_hash: side_effect_gate_hash.and_then(parse_sha256_ref),
-        retained_executor_capability_table_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        disable_module_target_binding_hash: disable_module_target_binding_hash
-            .and_then(parse_sha256_ref),
-        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
-            .and_then(parse_sha256_ref),
-        load_artifact_by_hash_target_binding_hash: load_artifact_by_hash_target_binding_hash
-            .and_then(parse_sha256_ref),
-        recovery_memory_write_authority_hash: recovery_memory_write_authority_hash
-            .and_then(parse_sha256_ref),
-        durable_audit_rollback_write_authority_hash: durable_audit_rollback_write_authority_hash
-            .and_then(parse_sha256_ref),
-        service_inventory_side_effect_boundary_hash: service_inventory_side_effect_boundary_hash
-            .and_then(parse_sha256_ref),
-        command_dispatch_behavior_hash: command_dispatch_behavior_hash.and_then(parse_sha256_ref),
-        executor_capability_table_hash: executor_capability_table_hash.and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
-            .and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        side_effect_gate_id,
-        side_effect_projection_hash: side_effect_projection_hash.and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            SideEffectGateHash,
+            RetainedExecutorCapabilityTableEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            RollbackPreviewAuthorizationHash,
+            RollbackApplyAuthorizationHash,
+            DisableModuleTargetBindingHash,
+            RestartLastGoodTargetBindingHash,
+            LoadArtifactByHashTargetBindingHash,
+            RecoveryMemoryWriteAuthorityHash,
+            DurableAuditRollbackWriteAuthorityHash,
+            ServiceInventorySideEffectBoundaryHash,
+            CommandDispatchBehaviorHash,
+            ExecutorCapabilityTableHash,
+            SourceRollbackApplyDenialHash,
+            SourceDurablePolicyWriteAuthorityDecisionHash,
+            SourceRecoveryRollbackInspectSourceReferenceHash,
+            CommandDispatchBoundaryId,
+            SideEffectGateId,
+            SideEffectProjectionHash,
+        ],
+    );
     evaluate_recovery_lifeline_command_side_effect_gate_reference(input, require_live_retained)
 }
 
@@ -2952,48 +2433,15 @@ pub(crate) fn recovery_lifeline_command_side_effect_gate_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryLifelineCommandSideEffectGateReferenceCheck<'a> {
-    RecoveryLifelineCommandSideEffectGateReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        side_effect_gate_hash: input.side_effect_gate_hash,
-        expected_side_effect_gate_hash,
-        retained_executor_capability_table_event_id: input
-            .retained_executor_capability_table_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
-        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
-        load_artifact_by_hash_target_binding_hash: input.load_artifact_by_hash_target_binding_hash,
-        recovery_memory_write_authority_hash: input.recovery_memory_write_authority_hash,
-        durable_audit_rollback_write_authority_hash: input
-            .durable_audit_rollback_write_authority_hash,
-        service_inventory_side_effect_boundary_hash: input
-            .service_inventory_side_effect_boundary_hash,
-        command_dispatch_behavior_hash: input.command_dispatch_behavior_hash,
-        executor_capability_table_hash: input.executor_capability_table_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        side_effect_gate_id: input.side_effect_gate_id,
-        side_effect_projection_hash: input.side_effect_projection_hash,
+    input.with_reference_check(
+        SideEffectGateHash,
         normalized_spec,
         target_locator_value,
+        expected_side_effect_gate_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_lifeline_command_side_effect_gate_live_chain_mismatch(

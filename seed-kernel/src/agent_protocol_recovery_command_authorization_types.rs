@@ -1,46 +1,19 @@
-use crate::{agent_protocol_recovery_lifeline::RecoveryLifelineCommandSpec, event_log};
+use crate::agent_protocol_recovery_runtime_types::CommandBindings;
 
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryLifelineCommandHandlerBindingInput<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) retained_command_body_canonicalization_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) handler_id: Option<&'a str>,
-    pub(crate) handler_input_binding_hash: Option<[u8; 32]>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryLifelineCommandHandlerBindingReferenceCheck<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) expected_handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) retained_command_body_canonicalization_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) handler_id: Option<&'a str>,
-    pub(crate) handler_input_binding_hash: Option<[u8; 32]>,
-    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
-    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
-    pub(crate) status: &'static str,
-    pub(crate) reason: &'static str,
-    pub(crate) valid: bool,
-}
+pub(crate) type RecoveryLifelineCommandHandlerBindingInput<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryLifelineCommandHandlerBindingReferenceCheck<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryLifelineStatusReadHandlerInput<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryLifelineStatusReadHandlerReferenceCheck<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryRollbackPreviewAuthorizationInput<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryRollbackPreviewAuthorizationReferenceCheck<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryRollbackApplyAuthorizationInput<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryRollbackApplyAuthorizationReferenceCheck<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryDisableModuleTargetBindingInput<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryDisableModuleTargetBindingReferenceCheck<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryRestartLastGoodTargetBindingInput<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryRestartLastGoodTargetBindingReferenceCheck<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryLoadArtifactByHashTargetBindingInput<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryLoadArtifactByHashTargetBindingReferenceCheck<'a> = CommandBindings<'a>;
 
 pub(crate) struct RecoveryLifelineCommandHandlerBindingSelfTestCase {
     pub(crate) name: &'static str,
@@ -49,50 +22,6 @@ pub(crate) struct RecoveryLifelineCommandHandlerBindingSelfTestCase {
     pub(crate) actual_status: &'static str,
     pub(crate) actual_reason: &'static str,
     pub(crate) passed: bool,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryLifelineStatusReadHandlerInput<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) retained_command_handler_binding_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) status_handler_id: Option<&'a str>,
-    pub(crate) status_read_projection_hash: Option<[u8; 32]>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryLifelineStatusReadHandlerReferenceCheck<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) expected_status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) retained_command_handler_binding_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) status_handler_id: Option<&'a str>,
-    pub(crate) status_read_projection_hash: Option<[u8; 32]>,
-    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
-    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
-    pub(crate) status: &'static str,
-    pub(crate) reason: &'static str,
-    pub(crate) valid: bool,
 }
 
 pub(crate) struct RecoveryLifelineStatusReadHandlerSelfTestCase {
@@ -104,52 +33,6 @@ pub(crate) struct RecoveryLifelineStatusReadHandlerSelfTestCase {
     pub(crate) passed: bool,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryRollbackPreviewAuthorizationInput<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) retained_status_read_handler_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) rollback_preview_authorization_id: Option<&'a str>,
-    pub(crate) rollback_preview_projection_hash: Option<[u8; 32]>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryRollbackPreviewAuthorizationReferenceCheck<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) expected_rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) retained_status_read_handler_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) rollback_preview_authorization_id: Option<&'a str>,
-    pub(crate) rollback_preview_projection_hash: Option<[u8; 32]>,
-    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
-    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
-    pub(crate) status: &'static str,
-    pub(crate) reason: &'static str,
-    pub(crate) valid: bool,
-}
-
 pub(crate) struct RecoveryRollbackPreviewAuthorizationSelfTestCase {
     pub(crate) name: &'static str,
     pub(crate) expected_status: &'static str,
@@ -157,60 +40,6 @@ pub(crate) struct RecoveryRollbackPreviewAuthorizationSelfTestCase {
     pub(crate) actual_status: &'static str,
     pub(crate) actual_reason: &'static str,
     pub(crate) passed: bool,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryRollbackApplyAuthorizationInput<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) retained_rollback_preview_authorization_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) rollback_apply_authorization_id: Option<&'a str>,
-    pub(crate) rollback_apply_projection_hash: Option<[u8; 32]>,
-    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryRollbackApplyAuthorizationReferenceCheck<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) expected_rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) retained_rollback_preview_authorization_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) rollback_apply_authorization_id: Option<&'a str>,
-    pub(crate) rollback_apply_projection_hash: Option<[u8; 32]>,
-    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
-    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
-    pub(crate) status: &'static str,
-    pub(crate) reason: &'static str,
-    pub(crate) valid: bool,
 }
 
 pub(crate) struct RecoveryRollbackApplyAuthorizationSelfTestCase {
@@ -222,62 +51,6 @@ pub(crate) struct RecoveryRollbackApplyAuthorizationSelfTestCase {
     pub(crate) passed: bool,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryDisableModuleTargetBindingInput<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) disable_module_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) retained_rollback_apply_authorization_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) disable_module_target_id: Option<&'a str>,
-    pub(crate) disable_module_target_projection_hash: Option<[u8; 32]>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryDisableModuleTargetBindingReferenceCheck<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) disable_module_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) expected_disable_module_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) retained_rollback_apply_authorization_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) disable_module_target_id: Option<&'a str>,
-    pub(crate) disable_module_target_projection_hash: Option<[u8; 32]>,
-    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
-    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
-    pub(crate) status: &'static str,
-    pub(crate) reason: &'static str,
-    pub(crate) valid: bool,
-}
-
 pub(crate) struct RecoveryDisableModuleTargetBindingSelfTestCase {
     pub(crate) name: &'static str,
     pub(crate) expected_status: &'static str,
@@ -287,64 +60,6 @@ pub(crate) struct RecoveryDisableModuleTargetBindingSelfTestCase {
     pub(crate) passed: bool,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryRestartLastGoodTargetBindingInput<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) restart_last_good_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) retained_disable_module_target_binding_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) disable_module_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) restart_last_good_target_id: Option<&'a str>,
-    pub(crate) restart_last_good_target_projection_hash: Option<[u8; 32]>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryRestartLastGoodTargetBindingReferenceCheck<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) restart_last_good_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) expected_restart_last_good_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) retained_disable_module_target_binding_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) disable_module_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) restart_last_good_target_id: Option<&'a str>,
-    pub(crate) restart_last_good_target_projection_hash: Option<[u8; 32]>,
-    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
-    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
-    pub(crate) status: &'static str,
-    pub(crate) reason: &'static str,
-    pub(crate) valid: bool,
-}
-
 pub(crate) struct RecoveryRestartLastGoodTargetBindingSelfTestCase {
     pub(crate) name: &'static str,
     pub(crate) expected_status: &'static str,
@@ -352,68 +67,6 @@ pub(crate) struct RecoveryRestartLastGoodTargetBindingSelfTestCase {
     pub(crate) actual_status: &'static str,
     pub(crate) actual_reason: &'static str,
     pub(crate) passed: bool,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryLoadArtifactByHashTargetBindingInput<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) retained_restart_last_good_target_binding_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) disable_module_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) restart_last_good_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) load_artifact_by_hash_target_id: Option<&'a str>,
-    pub(crate) load_artifact_by_hash_target_artifact_hash: Option<[u8; 32]>,
-    pub(crate) load_artifact_by_hash_target_projection_hash: Option<[u8; 32]>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryLoadArtifactByHashTargetBindingReferenceCheck<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) expected_load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) retained_restart_last_good_target_binding_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) disable_module_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) restart_last_good_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) load_artifact_by_hash_target_id: Option<&'a str>,
-    pub(crate) load_artifact_by_hash_target_artifact_hash: Option<[u8; 32]>,
-    pub(crate) load_artifact_by_hash_target_projection_hash: Option<[u8; 32]>,
-    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
-    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
-    pub(crate) status: &'static str,
-    pub(crate) reason: &'static str,
-    pub(crate) valid: bool,
 }
 
 pub(crate) struct RecoveryLoadArtifactByHashTargetBindingSelfTestCase {

@@ -1,48 +1,13 @@
 use crate::{
-    agent_protocol_recovery_lifeline::RecoveryLifelineCommandSpec,
     agent_protocol_recovery_runtime_types::{
-        RecoveryLifelineCommandAdmissionCandidate, RecoveryLifelineCommandAdmissionCheck,
+        CommandBindings, RecoveryLifelineCommandAdmissionCandidate,
+        RecoveryLifelineCommandAdmissionCheck,
     },
     event_log,
 };
 
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryLifelineCommandEnvelopeReferenceInput<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) retained_lifeline_request_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) required_capability: Option<&'a str>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_admission_boundary_id: Option<&'a str>,
-    pub(crate) lifeline_request_reference_hash: Option<[u8; 32]>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryLifelineCommandEnvelopeReferenceCheck<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) expected_command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) retained_lifeline_request_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) required_capability: Option<&'a str>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_admission_boundary_id: Option<&'a str>,
-    pub(crate) lifeline_request_reference_hash: Option<[u8; 32]>,
-    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
-    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
-    pub(crate) status: &'static str,
-    pub(crate) reason: &'static str,
-    pub(crate) valid: bool,
-}
+pub(crate) type RecoveryLifelineCommandEnvelopeReferenceInput<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryLifelineCommandEnvelopeReferenceCheck<'a> = CommandBindings<'a>;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RecoveryLifelineCommandEnvelopeCandidate {
@@ -229,41 +194,8 @@ pub(crate) struct RecoveryLifelineCommandDispatchSelfTestCase {
     pub(crate) passed: bool,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryLifelineCommandBodyCanonicalizationInput<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) retained_command_envelope_reference_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'a> {
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) expected_command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) retained_command_envelope_reference_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
-    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
-    pub(crate) status: &'static str,
-    pub(crate) reason: &'static str,
-    pub(crate) valid: bool,
-}
+pub(crate) type RecoveryLifelineCommandBodyCanonicalizationInput<'a> = CommandBindings<'a>;
+pub(crate) type RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'a> = CommandBindings<'a>;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RecoveryLifelineCommandBodyCanonicalizationCandidate {

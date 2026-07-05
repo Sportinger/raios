@@ -4,7 +4,8 @@ use crate::{
     agent_protocol_recovery_command_effect_types::*,
     agent_protocol_recovery_command_reference_eval::*, agent_protocol_recovery_constants::*,
     agent_protocol_recovery_lifeline::RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
-    agent_protocol_support::method_eq, module_evidence,
+    agent_protocol_recovery_runtime_types::CommandBindings, agent_protocol_support::method_eq,
+    module_evidence,
 };
 
 pub(crate) fn recovery_lifeline_command_handler_binding_selftest_cases(
@@ -25,6 +26,7 @@ pub(crate) fn recovery_lifeline_command_handler_binding_selftest_cases(
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         handler_id: Some(RECOVERY_COMMAND_HANDLER_BINDING_BOUNDARY_ID),
         handler_input_binding_hash: Some([0x34; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_lifeline_command_handler_binding_hash(
         module_evidence::RecoveryLifelineCommandHandlerBindingHashInput {
@@ -161,6 +163,7 @@ pub(crate) fn recovery_lifeline_status_read_handler_selftest_cases(
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         status_handler_id: Some(RECOVERY_STATUS_READ_HANDLER_BOUNDARY_ID),
         status_read_projection_hash: Some([0x45; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_lifeline_status_read_handler_hash(
         module_evidence::RecoveryLifelineStatusReadHandlerHashInput {
@@ -301,6 +304,7 @@ pub(crate) fn recovery_rollback_preview_authorization_selftest_cases(
             RECOVERY_ROLLBACK_PREVIEW_AUTHORIZATION_BOUNDARY_ID,
         ),
         rollback_preview_projection_hash: Some([0x56; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_rollback_preview_authorization_hash(
         module_evidence::RecoveryRollbackPreviewAuthorizationHashInput {
@@ -445,6 +449,7 @@ pub(crate) fn recovery_rollback_apply_authorization_selftest_cases(
         source_rollback_apply_denial_hash: Some([0x68; 32]),
         source_durable_policy_write_authority_decision_hash: Some([0x69; 32]),
         source_recovery_rollback_inspect_source_reference_hash: Some([0x6a; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_rollback_apply_authorization_hash(
         module_evidence::RecoveryRollbackApplyAuthorizationHashInput {
@@ -594,6 +599,7 @@ pub(crate) fn recovery_disable_module_target_binding_selftest_cases(
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         disable_module_target_id: Some(RECOVERY_DISABLE_MODULE_TARGET_BINDING_BOUNDARY_ID),
         disable_module_target_projection_hash: Some([0x6b; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_disable_module_target_binding_hash(
         module_evidence::RecoveryDisableModuleTargetBindingHashInput {
@@ -744,6 +750,7 @@ pub(crate) fn recovery_restart_last_good_target_binding_selftest_cases(
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         restart_last_good_target_id: Some(RECOVERY_RESTART_LAST_GOOD_TARGET_BINDING_BOUNDARY_ID),
         restart_last_good_target_projection_hash: Some([0x6c; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_restart_last_good_target_binding_hash(
         module_evidence::RecoveryRestartLastGoodTargetBindingHashInput {
@@ -900,6 +907,7 @@ pub(crate) fn recovery_load_artifact_by_hash_target_binding_selftest_cases(
         ),
         load_artifact_by_hash_target_artifact_hash: Some([0x6d; 32]),
         load_artifact_by_hash_target_projection_hash: Some([0x6e; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_load_artifact_by_hash_target_binding_hash(
         module_evidence::RecoveryLoadArtifactByHashTargetBindingHashInput {
@@ -1056,6 +1064,7 @@ pub(crate) fn recovery_memory_write_authority_selftest_cases(
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         recovery_memory_write_authority_id: Some(RECOVERY_MEMORY_WRITE_AUTHORITY_BOUNDARY_ID),
         recovery_memory_projection_hash: Some([0x6e; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_memory_write_authority_hash(
         module_evidence::RecoveryMemoryWriteAuthorityHashInput {
@@ -1215,6 +1224,7 @@ pub(crate) fn durable_audit_rollback_write_authority_selftest_cases(
             DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_BOUNDARY_ID,
         ),
         durable_audit_rollback_projection_hash: Some([0x7f; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_durable_audit_rollback_write_authority_hash(
         module_evidence::DurableAuditRollbackWriteAuthorityHashInput {
@@ -1379,6 +1389,7 @@ pub(crate) fn recovery_service_inventory_side_effect_boundary_selftest_cases(
             RECOVERY_SERVICE_INVENTORY_SIDE_EFFECT_BOUNDARY_ID,
         ),
         service_inventory_projection_hash: Some([0x90; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_service_inventory_side_effect_boundary_hash(
         module_evidence::RecoveryServiceInventorySideEffectBoundaryHashInput {
@@ -1546,6 +1557,7 @@ pub(crate) fn recovery_lifeline_command_dispatch_behavior_selftest_cases(
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         command_dispatch_behavior_id: Some(RECOVERY_LIFELINE_COMMAND_DISPATCH_BEHAVIOR_BOUNDARY_ID),
         command_dispatch_behavior_projection_hash: Some([0xa1; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_lifeline_command_dispatch_behavior_hash(
         module_evidence::RecoveryLifelineCommandDispatchBehaviorHashInput {
@@ -1711,6 +1723,7 @@ pub(crate) fn recovery_lifeline_command_executor_capability_table_selftest_cases
             RECOVERY_LIFELINE_COMMAND_EXECUTOR_CAPABILITY_TABLE_BOUNDARY_ID,
         ),
         executor_capability_projection_hash: Some([0xb2; 32]),
+        ..CommandBindings::empty()
     };
     let expected =
         module_evidence::computed_recovery_lifeline_command_executor_capability_table_hash(
@@ -1893,6 +1906,7 @@ pub(crate) fn recovery_lifeline_command_side_effect_gate_selftest_cases(
         command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
         side_effect_gate_id: Some(RECOVERY_LIFELINE_COMMAND_SIDE_EFFECT_GATE_BOUNDARY_ID),
         side_effect_projection_hash: Some([0xc3; 32]),
+        ..CommandBindings::empty()
     };
     let expected = module_evidence::computed_recovery_lifeline_command_side_effect_gate_hash(
         module_evidence::RecoveryLifelineCommandSideEffectGateHashInput {

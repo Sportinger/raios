@@ -10,9 +10,10 @@ use crate::{
         recovery_lifeline_command_spec, RecoveryLifelineCommandSpec,
         RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
     },
-    agent_protocol_support::{
-        current_boot_event_id_str, method_eq, parse_current_boot_event_id, parse_sha256_ref,
+    agent_protocol_recovery_runtime_types::{
+        parse_command_reference_args, CommandReferenceField::*,
     },
+    agent_protocol_support::{current_boot_event_id_str, method_eq, parse_current_boot_event_id},
     event_log, module_evidence,
 };
 
@@ -20,41 +21,20 @@ pub(crate) fn parse_recovery_lifeline_command_envelope_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLifelineCommandEnvelopeReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let command_envelope_reference_hash = parts.next();
-    let retained_lifeline_request_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let required_capability = parts.next();
-    let target_locator = parts.next();
-    let command_admission_boundary_id = parts.next();
-    let lifeline_request_reference_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryLifelineCommandEnvelopeReferenceInput {
-        has_reference: command_envelope_reference_hash.is_some(),
-        arity_valid: command_envelope_reference_hash.is_some()
-            && retained_lifeline_request_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && required_capability.is_some()
-            && target_locator.is_some()
-            && command_admission_boundary_id.is_some()
-            && lifeline_request_reference_hash.is_some()
-            && extra.is_none(),
-        scope,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        retained_lifeline_request_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        required_capability,
-        target_locator,
-        command_admission_boundary_id,
-        lifeline_request_reference_hash: lifeline_request_reference_hash.and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            CommandEnvelopeReferenceHash,
+            RetainedLifelineRequestEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            RequiredCapability,
+            TargetLocator,
+            CommandAdmissionBoundaryId,
+            LifelineRequestReferenceHash,
+        ],
+    );
     evaluate_recovery_lifeline_command_envelope_reference(input, require_live_retained)
 }
 
@@ -259,26 +239,15 @@ pub(crate) fn recovery_lifeline_command_envelope_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryLifelineCommandEnvelopeReferenceCheck<'a> {
-    RecoveryLifelineCommandEnvelopeReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        expected_command_envelope_reference_hash,
-        retained_lifeline_request_event_id: input.retained_lifeline_request_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        required_capability: input.required_capability,
-        target_locator: input.target_locator,
-        command_admission_boundary_id: input.command_admission_boundary_id,
-        lifeline_request_reference_hash: input.lifeline_request_reference_hash,
+    input.with_reference_check(
+        CommandEnvelopeReferenceHash,
         normalized_spec,
         target_locator_value,
+        expected_command_envelope_reference_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_lifeline_command_envelope_live_chain_mismatch(
@@ -324,39 +293,19 @@ pub(crate) fn parse_recovery_lifeline_command_body_canonicalization_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let command_body_canonicalization_hash = parts.next();
-    let retained_command_envelope_reference_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryLifelineCommandBodyCanonicalizationInput {
-        has_reference: command_body_canonicalization_hash.is_some(),
-        arity_valid: command_body_canonicalization_hash.is_some()
-            && retained_command_envelope_reference_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && extra.is_none(),
-        scope,
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        retained_command_envelope_reference_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            CommandBodyCanonicalizationHash,
+            RetainedCommandEnvelopeReferenceEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandDispatchBoundaryId,
+        ],
+    );
     evaluate_recovery_lifeline_command_body_canonicalization_reference(input, require_live_retained)
 }
 
@@ -550,26 +499,15 @@ pub(crate) fn recovery_lifeline_command_body_canonicalization_reference_check<'a
     reason: &'static str,
     valid: bool,
 ) -> RecoveryLifelineCommandBodyCanonicalizationReferenceCheck<'a> {
-    RecoveryLifelineCommandBodyCanonicalizationReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        expected_command_body_canonicalization_hash,
-        retained_command_envelope_reference_event_id: input
-            .retained_command_envelope_reference_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
+    input.with_reference_check(
+        CommandBodyCanonicalizationHash,
         normalized_spec,
         target_locator_value,
+        expected_command_body_canonicalization_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_lifeline_command_body_canonicalization_live_chain_mismatch(
@@ -660,48 +598,22 @@ pub(crate) fn parse_recovery_lifeline_command_handler_binding_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLifelineCommandHandlerBindingReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let handler_binding_hash = parts.next();
-    let retained_command_body_canonicalization_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let handler_id = parts.next();
-    let handler_input_binding_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryLifelineCommandHandlerBindingInput {
-        has_reference: handler_binding_hash.is_some(),
-        arity_valid: handler_binding_hash.is_some()
-            && retained_command_body_canonicalization_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && handler_id.is_some()
-            && handler_input_binding_hash.is_some()
-            && extra.is_none(),
-        scope,
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        retained_command_body_canonicalization_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        handler_id,
-        handler_input_binding_hash: handler_input_binding_hash.and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            HandlerBindingHash,
+            RetainedCommandBodyCanonicalizationEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            CommandDispatchBoundaryId,
+            HandlerId,
+            HandlerInputBindingHash,
+        ],
+    );
     evaluate_recovery_lifeline_command_handler_binding_reference(input, require_live_retained)
 }
 
@@ -915,29 +827,15 @@ pub(crate) fn recovery_lifeline_command_handler_binding_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryLifelineCommandHandlerBindingReferenceCheck<'a> {
-    RecoveryLifelineCommandHandlerBindingReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        handler_binding_hash: input.handler_binding_hash,
-        expected_handler_binding_hash,
-        retained_command_body_canonicalization_event_id: input
-            .retained_command_body_canonicalization_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        handler_id: input.handler_id,
-        handler_input_binding_hash: input.handler_input_binding_hash,
+    input.with_reference_check(
+        HandlerBindingHash,
         normalized_spec,
         target_locator_value,
+        expected_handler_binding_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_lifeline_command_handler_binding_live_chain_mismatch(
@@ -997,51 +895,23 @@ pub(crate) fn parse_recovery_lifeline_status_read_handler_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLifelineStatusReadHandlerReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let status_read_handler_hash = parts.next();
-    let retained_command_handler_binding_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let status_handler_id = parts.next();
-    let status_read_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryLifelineStatusReadHandlerInput {
-        has_reference: status_read_handler_hash.is_some(),
-        arity_valid: status_read_handler_hash.is_some()
-            && retained_command_handler_binding_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && status_handler_id.is_some()
-            && status_read_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        retained_command_handler_binding_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        status_handler_id,
-        status_read_projection_hash: status_read_projection_hash.and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            StatusReadHandlerHash,
+            RetainedCommandHandlerBindingEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            CommandDispatchBoundaryId,
+            StatusHandlerId,
+            StatusReadProjectionHash,
+        ],
+    );
     evaluate_recovery_lifeline_status_read_handler_reference(input, require_live_retained)
 }
 
@@ -1258,29 +1128,15 @@ pub(crate) fn recovery_lifeline_status_read_handler_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryLifelineStatusReadHandlerReferenceCheck<'a> {
-    RecoveryLifelineStatusReadHandlerReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        status_read_handler_hash: input.status_read_handler_hash,
-        expected_status_read_handler_hash,
-        retained_command_handler_binding_event_id: input.retained_command_handler_binding_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        status_handler_id: input.status_handler_id,
-        status_read_projection_hash: input.status_read_projection_hash,
+    input.with_reference_check(
+        StatusReadHandlerHash,
         normalized_spec,
         target_locator_value,
+        expected_status_read_handler_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_lifeline_status_read_handler_live_chain_mismatch(
@@ -1346,56 +1202,24 @@ pub(crate) fn parse_recovery_rollback_preview_authorization_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryRollbackPreviewAuthorizationReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let rollback_preview_authorization_hash = parts.next();
-    let retained_status_read_handler_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let rollback_preview_authorization_id = parts.next();
-    let rollback_preview_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryRollbackPreviewAuthorizationInput {
-        has_reference: rollback_preview_authorization_hash.is_some(),
-        arity_valid: rollback_preview_authorization_hash.is_some()
-            && retained_status_read_handler_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && rollback_preview_authorization_id.is_some()
-            && rollback_preview_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        retained_status_read_handler_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        rollback_preview_authorization_id,
-        rollback_preview_projection_hash: rollback_preview_projection_hash
-            .and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            RollbackPreviewAuthorizationHash,
+            RetainedStatusReadHandlerEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            CommandDispatchBoundaryId,
+            RollbackPreviewAuthorizationId,
+            RollbackPreviewProjectionHash,
+        ],
+    );
     evaluate_recovery_rollback_preview_authorization_reference(input, require_live_retained)
 }
 
@@ -1619,30 +1443,15 @@ pub(crate) fn recovery_rollback_preview_authorization_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryRollbackPreviewAuthorizationReferenceCheck<'a> {
-    RecoveryRollbackPreviewAuthorizationReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        expected_rollback_preview_authorization_hash,
-        retained_status_read_handler_event_id: input.retained_status_read_handler_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        rollback_preview_authorization_id: input.rollback_preview_authorization_id,
-        rollback_preview_projection_hash: input.rollback_preview_projection_hash,
+    input.with_reference_check(
+        RollbackPreviewAuthorizationHash,
         normalized_spec,
         target_locator_value,
+        expected_rollback_preview_authorization_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_rollback_preview_authorization_live_chain_mismatch(
@@ -1708,71 +1517,28 @@ pub(crate) fn parse_recovery_rollback_apply_authorization_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryRollbackApplyAuthorizationReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let rollback_apply_authorization_hash = parts.next();
-    let retained_rollback_preview_authorization_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let rollback_apply_authorization_id = parts.next();
-    let rollback_apply_projection_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryRollbackApplyAuthorizationInput {
-        has_reference: rollback_apply_authorization_hash.is_some(),
-        arity_valid: rollback_apply_authorization_hash.is_some()
-            && retained_rollback_preview_authorization_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && rollback_apply_authorization_id.is_some()
-            && rollback_apply_projection_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && extra.is_none(),
-        scope,
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        retained_rollback_preview_authorization_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        rollback_apply_authorization_id,
-        rollback_apply_projection_hash: rollback_apply_projection_hash.and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
-            .and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            RollbackApplyAuthorizationHash,
+            RetainedRollbackPreviewAuthorizationEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            RollbackPreviewAuthorizationHash,
+            CommandDispatchBoundaryId,
+            RollbackApplyAuthorizationId,
+            RollbackApplyProjectionHash,
+            SourceRollbackApplyDenialHash,
+            SourceDurablePolicyWriteAuthorityDecisionHash,
+            SourceRecoveryRollbackInspectSourceReferenceHash,
+        ],
+    );
     evaluate_recovery_rollback_apply_authorization_reference(input, require_live_retained)
 }
 
@@ -2018,37 +1784,15 @@ pub(crate) fn recovery_rollback_apply_authorization_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryRollbackApplyAuthorizationReferenceCheck<'a> {
-    RecoveryRollbackApplyAuthorizationReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        expected_rollback_apply_authorization_hash,
-        retained_rollback_preview_authorization_event_id: input
-            .retained_rollback_preview_authorization_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        rollback_apply_authorization_id: input.rollback_apply_authorization_id,
-        rollback_apply_projection_hash: input.rollback_apply_projection_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
+    input.with_reference_check(
+        RollbackApplyAuthorizationHash,
         normalized_spec,
         target_locator_value,
+        expected_rollback_apply_authorization_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_rollback_apply_authorization_live_chain_mismatch(
@@ -2122,76 +1866,29 @@ pub(crate) fn parse_recovery_disable_module_target_binding_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryDisableModuleTargetBindingReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let disable_module_target_binding_hash = parts.next();
-    let retained_rollback_apply_authorization_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let rollback_apply_authorization_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let disable_module_target_id = parts.next();
-    let disable_module_target_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryDisableModuleTargetBindingInput {
-        has_reference: disable_module_target_binding_hash.is_some(),
-        arity_valid: disable_module_target_binding_hash.is_some()
-            && retained_rollback_apply_authorization_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && rollback_apply_authorization_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && disable_module_target_id.is_some()
-            && disable_module_target_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        disable_module_target_binding_hash: disable_module_target_binding_hash
-            .and_then(parse_sha256_ref),
-        retained_rollback_apply_authorization_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
-            .and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        disable_module_target_id,
-        disable_module_target_projection_hash: disable_module_target_projection_hash
-            .and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            DisableModuleTargetBindingHash,
+            RetainedRollbackApplyAuthorizationEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            RollbackPreviewAuthorizationHash,
+            RollbackApplyAuthorizationHash,
+            SourceRollbackApplyDenialHash,
+            SourceDurablePolicyWriteAuthorityDecisionHash,
+            SourceRecoveryRollbackInspectSourceReferenceHash,
+            CommandDispatchBoundaryId,
+            DisableModuleTargetId,
+            DisableModuleTargetProjectionHash,
+        ],
+    );
     evaluate_recovery_disable_module_target_binding_reference(input, require_live_retained)
 }
 
@@ -2441,38 +2138,15 @@ pub(crate) fn recovery_disable_module_target_binding_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryDisableModuleTargetBindingReferenceCheck<'a> {
-    RecoveryDisableModuleTargetBindingReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
-        expected_disable_module_target_binding_hash,
-        retained_rollback_apply_authorization_event_id: input
-            .retained_rollback_apply_authorization_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        disable_module_target_id: input.disable_module_target_id,
-        disable_module_target_projection_hash: input.disable_module_target_projection_hash,
+    input.with_reference_check(
+        DisableModuleTargetBindingHash,
         normalized_spec,
         target_locator_value,
+        expected_disable_module_target_binding_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_disable_module_target_binding_live_chain_mismatch(
@@ -2555,80 +2229,30 @@ pub(crate) fn parse_recovery_restart_last_good_target_binding_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryRestartLastGoodTargetBindingReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let restart_last_good_target_binding_hash = parts.next();
-    let retained_disable_module_target_binding_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let rollback_apply_authorization_hash = parts.next();
-    let disable_module_target_binding_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let restart_last_good_target_id = parts.next();
-    let restart_last_good_target_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryRestartLastGoodTargetBindingInput {
-        has_reference: restart_last_good_target_binding_hash.is_some(),
-        arity_valid: restart_last_good_target_binding_hash.is_some()
-            && retained_disable_module_target_binding_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && rollback_apply_authorization_hash.is_some()
-            && disable_module_target_binding_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && restart_last_good_target_id.is_some()
-            && restart_last_good_target_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
-            .and_then(parse_sha256_ref),
-        retained_disable_module_target_binding_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        disable_module_target_binding_hash: disable_module_target_binding_hash
-            .and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
-            .and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        restart_last_good_target_id,
-        restart_last_good_target_projection_hash: restart_last_good_target_projection_hash
-            .and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            RestartLastGoodTargetBindingHash,
+            RetainedDisableModuleTargetBindingEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            RollbackPreviewAuthorizationHash,
+            RollbackApplyAuthorizationHash,
+            DisableModuleTargetBindingHash,
+            SourceRollbackApplyDenialHash,
+            SourceDurablePolicyWriteAuthorityDecisionHash,
+            SourceRecoveryRollbackInspectSourceReferenceHash,
+            CommandDispatchBoundaryId,
+            RestartLastGoodTargetId,
+            RestartLastGoodTargetProjectionHash,
+        ],
+    );
     evaluate_recovery_restart_last_good_target_binding_reference(input, require_live_retained)
 }
 
@@ -2885,39 +2509,15 @@ pub(crate) fn recovery_restart_last_good_target_binding_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryRestartLastGoodTargetBindingReferenceCheck<'a> {
-    RecoveryRestartLastGoodTargetBindingReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
-        expected_restart_last_good_target_binding_hash,
-        retained_disable_module_target_binding_event_id: input
-            .retained_disable_module_target_binding_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        restart_last_good_target_id: input.restart_last_good_target_id,
-        restart_last_good_target_projection_hash: input.restart_last_good_target_projection_hash,
+    input.with_reference_check(
+        RestartLastGoodTargetBindingHash,
         normalized_spec,
         target_locator_value,
+        expected_restart_last_good_target_binding_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_restart_last_good_target_binding_live_chain_mismatch(
@@ -3003,88 +2603,32 @@ pub(crate) fn parse_recovery_load_artifact_by_hash_target_binding_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLoadArtifactByHashTargetBindingReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let load_artifact_by_hash_target_binding_hash = parts.next();
-    let retained_restart_last_good_target_binding_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let rollback_apply_authorization_hash = parts.next();
-    let disable_module_target_binding_hash = parts.next();
-    let restart_last_good_target_binding_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let command_dispatch_boundary_id = parts.next();
-    let load_artifact_by_hash_target_id = parts.next();
-    let load_artifact_by_hash_target_artifact_hash = parts.next();
-    let load_artifact_by_hash_target_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
-    let input = RecoveryLoadArtifactByHashTargetBindingInput {
-        has_reference: load_artifact_by_hash_target_binding_hash.is_some(),
-        arity_valid: load_artifact_by_hash_target_binding_hash.is_some()
-            && retained_restart_last_good_target_binding_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && rollback_apply_authorization_hash.is_some()
-            && disable_module_target_binding_hash.is_some()
-            && restart_last_good_target_binding_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && command_dispatch_boundary_id.is_some()
-            && load_artifact_by_hash_target_id.is_some()
-            && load_artifact_by_hash_target_artifact_hash.is_some()
-            && load_artifact_by_hash_target_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        load_artifact_by_hash_target_binding_hash: load_artifact_by_hash_target_binding_hash
-            .and_then(parse_sha256_ref),
-        retained_restart_last_good_target_binding_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        disable_module_target_binding_hash: disable_module_target_binding_hash
-            .and_then(parse_sha256_ref),
-        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
-            .and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash
-            .and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        load_artifact_by_hash_target_id,
-        load_artifact_by_hash_target_artifact_hash: load_artifact_by_hash_target_artifact_hash
-            .and_then(parse_sha256_ref),
-        load_artifact_by_hash_target_projection_hash: load_artifact_by_hash_target_projection_hash
-            .and_then(parse_sha256_ref),
-    };
+    let input = parse_command_reference_args(
+        arg,
+        &[
+            LoadArtifactByHashTargetBindingHash,
+            RetainedRestartLastGoodTargetBindingEventId,
+            CommandId,
+            ArgumentSchema,
+            ArgumentHash,
+            TargetLocator,
+            CommandEnvelopeReferenceHash,
+            CommandBodyCanonicalizationHash,
+            HandlerBindingHash,
+            StatusReadHandlerHash,
+            RollbackPreviewAuthorizationHash,
+            RollbackApplyAuthorizationHash,
+            DisableModuleTargetBindingHash,
+            RestartLastGoodTargetBindingHash,
+            SourceRollbackApplyDenialHash,
+            SourceDurablePolicyWriteAuthorityDecisionHash,
+            SourceRecoveryRollbackInspectSourceReferenceHash,
+            CommandDispatchBoundaryId,
+            LoadArtifactByHashTargetId,
+            LoadArtifactByHashTargetArtifactHash,
+            LoadArtifactByHashTargetProjectionHash,
+        ],
+    );
     evaluate_recovery_load_artifact_by_hash_target_binding_reference(input, require_live_retained)
 }
 
@@ -3354,43 +2898,15 @@ pub(crate) fn recovery_load_artifact_by_hash_target_binding_reference_check<'a>(
     reason: &'static str,
     valid: bool,
 ) -> RecoveryLoadArtifactByHashTargetBindingReferenceCheck<'a> {
-    RecoveryLoadArtifactByHashTargetBindingReferenceCheck {
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        load_artifact_by_hash_target_binding_hash: input.load_artifact_by_hash_target_binding_hash,
-        expected_load_artifact_by_hash_target_binding_hash,
-        retained_restart_last_good_target_binding_event_id: input
-            .retained_restart_last_good_target_binding_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
-        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        load_artifact_by_hash_target_id: input.load_artifact_by_hash_target_id,
-        load_artifact_by_hash_target_artifact_hash: input
-            .load_artifact_by_hash_target_artifact_hash,
-        load_artifact_by_hash_target_projection_hash: input
-            .load_artifact_by_hash_target_projection_hash,
+    input.with_reference_check(
+        LoadArtifactByHashTargetBindingHash,
         normalized_spec,
         target_locator_value,
+        expected_load_artifact_by_hash_target_binding_hash,
         status,
         reason,
         valid,
-    }
+    )
 }
 
 pub(crate) fn recovery_load_artifact_by_hash_target_binding_live_chain_mismatch(

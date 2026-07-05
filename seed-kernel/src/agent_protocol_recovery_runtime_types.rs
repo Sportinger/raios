@@ -1,4 +1,701 @@
-use crate::agent_protocol_recovery_lifeline_protocol_types::RecoveryLifelineCommandVocabularyCandidate;
+use crate::{
+    agent_protocol_recovery_lifeline::RecoveryLifelineCommandSpec,
+    agent_protocol_recovery_lifeline_protocol_types::RecoveryLifelineCommandVocabularyCandidate,
+    agent_protocol_support::parse_sha256_ref, event_log,
+};
+
+#[derive(Clone, Copy)]
+pub(crate) struct StageBinding<'a> {
+    pub(crate) stage_hash: Option<[u8; 32]>,
+    pub(crate) expected_hash: Option<[u8; 32]>,
+    pub(crate) retained_previous_event_id: Option<&'a str>,
+}
+
+impl<'a> StageBinding<'a> {
+    pub(crate) const fn empty() -> Self {
+        Self {
+            stage_hash: None,
+            expected_hash: None,
+            retained_previous_event_id: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct CommandBindings<'a> {
+    pub(crate) stage: StageBinding<'a>,
+    pub(crate) has_reference: bool,
+    pub(crate) arity_valid: bool,
+    pub(crate) scope: &'a str,
+    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
+    pub(crate) expected_command_envelope_reference_hash: Option<[u8; 32]>,
+    pub(crate) retained_lifeline_request_event_id: Option<&'a str>,
+    pub(crate) command_id: Option<&'a str>,
+    pub(crate) argument_schema: Option<&'a str>,
+    pub(crate) argument_hash: Option<[u8; 32]>,
+    pub(crate) required_capability: Option<&'a str>,
+    pub(crate) target_locator: Option<&'a str>,
+    pub(crate) command_admission_boundary_id: Option<&'a str>,
+    pub(crate) lifeline_request_reference_hash: Option<[u8; 32]>,
+    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
+    pub(crate) expected_command_body_canonicalization_hash: Option<[u8; 32]>,
+    pub(crate) retained_command_envelope_reference_event_id: Option<&'a str>,
+    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
+    pub(crate) handler_binding_hash: Option<[u8; 32]>,
+    pub(crate) expected_handler_binding_hash: Option<[u8; 32]>,
+    pub(crate) retained_command_body_canonicalization_event_id: Option<&'a str>,
+    pub(crate) handler_id: Option<&'a str>,
+    pub(crate) handler_input_binding_hash: Option<[u8; 32]>,
+    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
+    pub(crate) expected_status_read_handler_hash: Option<[u8; 32]>,
+    pub(crate) retained_command_handler_binding_event_id: Option<&'a str>,
+    pub(crate) status_handler_id: Option<&'a str>,
+    pub(crate) status_read_projection_hash: Option<[u8; 32]>,
+    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
+    pub(crate) expected_rollback_preview_authorization_hash: Option<[u8; 32]>,
+    pub(crate) retained_status_read_handler_event_id: Option<&'a str>,
+    pub(crate) rollback_preview_authorization_id: Option<&'a str>,
+    pub(crate) rollback_preview_projection_hash: Option<[u8; 32]>,
+    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
+    pub(crate) expected_rollback_apply_authorization_hash: Option<[u8; 32]>,
+    pub(crate) retained_rollback_preview_authorization_event_id: Option<&'a str>,
+    pub(crate) rollback_apply_authorization_id: Option<&'a str>,
+    pub(crate) rollback_apply_projection_hash: Option<[u8; 32]>,
+    pub(crate) disable_module_target_binding_hash: Option<[u8; 32]>,
+    pub(crate) expected_disable_module_target_binding_hash: Option<[u8; 32]>,
+    pub(crate) retained_rollback_apply_authorization_event_id: Option<&'a str>,
+    pub(crate) disable_module_target_id: Option<&'a str>,
+    pub(crate) disable_module_target_projection_hash: Option<[u8; 32]>,
+    pub(crate) restart_last_good_target_binding_hash: Option<[u8; 32]>,
+    pub(crate) expected_restart_last_good_target_binding_hash: Option<[u8; 32]>,
+    pub(crate) retained_disable_module_target_binding_event_id: Option<&'a str>,
+    pub(crate) restart_last_good_target_id: Option<&'a str>,
+    pub(crate) restart_last_good_target_projection_hash: Option<[u8; 32]>,
+    pub(crate) load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
+    pub(crate) expected_load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
+    pub(crate) retained_restart_last_good_target_binding_event_id: Option<&'a str>,
+    pub(crate) load_artifact_by_hash_target_id: Option<&'a str>,
+    pub(crate) load_artifact_by_hash_target_artifact_hash: Option<[u8; 32]>,
+    pub(crate) load_artifact_by_hash_target_projection_hash: Option<[u8; 32]>,
+    pub(crate) recovery_memory_write_authority_hash: Option<[u8; 32]>,
+    pub(crate) expected_recovery_memory_write_authority_hash: Option<[u8; 32]>,
+    pub(crate) retained_load_artifact_by_hash_target_binding_event_id: Option<&'a str>,
+    pub(crate) recovery_memory_write_authority_id: Option<&'a str>,
+    pub(crate) recovery_memory_projection_hash: Option<[u8; 32]>,
+    pub(crate) durable_audit_rollback_write_authority_hash: Option<[u8; 32]>,
+    pub(crate) expected_durable_audit_rollback_write_authority_hash: Option<[u8; 32]>,
+    pub(crate) retained_recovery_memory_write_authority_event_id: Option<&'a str>,
+    pub(crate) durable_audit_rollback_write_authority_id: Option<&'a str>,
+    pub(crate) durable_audit_rollback_projection_hash: Option<[u8; 32]>,
+    pub(crate) service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
+    pub(crate) expected_service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
+    pub(crate) retained_durable_audit_rollback_write_authority_event_id: Option<&'a str>,
+    pub(crate) service_inventory_side_effect_boundary_id: Option<&'a str>,
+    pub(crate) service_inventory_projection_hash: Option<[u8; 32]>,
+    pub(crate) command_dispatch_behavior_hash: Option<[u8; 32]>,
+    pub(crate) expected_command_dispatch_behavior_hash: Option<[u8; 32]>,
+    pub(crate) retained_service_inventory_side_effect_boundary_event_id: Option<&'a str>,
+    pub(crate) command_dispatch_behavior_id: Option<&'a str>,
+    pub(crate) command_dispatch_behavior_projection_hash: Option<[u8; 32]>,
+    pub(crate) executor_capability_table_hash: Option<[u8; 32]>,
+    pub(crate) expected_executor_capability_table_hash: Option<[u8; 32]>,
+    pub(crate) retained_command_dispatch_behavior_event_id: Option<&'a str>,
+    pub(crate) executor_capability_table_id: Option<&'a str>,
+    pub(crate) executor_capability_projection_hash: Option<[u8; 32]>,
+    pub(crate) side_effect_gate_hash: Option<[u8; 32]>,
+    pub(crate) expected_side_effect_gate_hash: Option<[u8; 32]>,
+    pub(crate) retained_executor_capability_table_event_id: Option<&'a str>,
+    pub(crate) side_effect_gate_id: Option<&'a str>,
+    pub(crate) side_effect_projection_hash: Option<[u8; 32]>,
+    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
+    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
+    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
+    pub(crate) execution_stage_hash: Option<[u8; 32]>,
+    pub(crate) expected_execution_stage_hash: Option<[u8; 32]>,
+    pub(crate) retained_previous_stage_event_id: Option<&'a str>,
+    pub(crate) execution_enablement_hash: Option<[u8; 32]>,
+    pub(crate) execution_preflight_hash: Option<[u8; 32]>,
+    pub(crate) execution_intent_hash: Option<[u8; 32]>,
+    pub(crate) execution_commit_gate_hash: Option<[u8; 32]>,
+    pub(crate) execution_result_denial_hash: Option<[u8; 32]>,
+    pub(crate) execution_audit_denial_hash: Option<[u8; 32]>,
+    pub(crate) execution_observation_denial_hash: Option<[u8; 32]>,
+    pub(crate) execution_stage_id: Option<&'a str>,
+    pub(crate) execution_stage_projection_hash: Option<[u8; 32]>,
+    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
+    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+    pub(crate) status: &'static str,
+    pub(crate) reason: &'static str,
+    pub(crate) valid: bool,
+}
+
+impl<'a> CommandBindings<'a> {
+    pub(crate) const fn empty() -> Self {
+        Self {
+            stage: StageBinding::empty(),
+            has_reference: false,
+            arity_valid: false,
+            scope: "current_boot",
+            command_envelope_reference_hash: None,
+            expected_command_envelope_reference_hash: None,
+            retained_lifeline_request_event_id: None,
+            command_id: None,
+            argument_schema: None,
+            argument_hash: None,
+            required_capability: None,
+            target_locator: None,
+            command_admission_boundary_id: None,
+            lifeline_request_reference_hash: None,
+            command_body_canonicalization_hash: None,
+            expected_command_body_canonicalization_hash: None,
+            retained_command_envelope_reference_event_id: None,
+            command_dispatch_boundary_id: None,
+            handler_binding_hash: None,
+            expected_handler_binding_hash: None,
+            retained_command_body_canonicalization_event_id: None,
+            handler_id: None,
+            handler_input_binding_hash: None,
+            status_read_handler_hash: None,
+            expected_status_read_handler_hash: None,
+            retained_command_handler_binding_event_id: None,
+            status_handler_id: None,
+            status_read_projection_hash: None,
+            rollback_preview_authorization_hash: None,
+            expected_rollback_preview_authorization_hash: None,
+            retained_status_read_handler_event_id: None,
+            rollback_preview_authorization_id: None,
+            rollback_preview_projection_hash: None,
+            rollback_apply_authorization_hash: None,
+            expected_rollback_apply_authorization_hash: None,
+            retained_rollback_preview_authorization_event_id: None,
+            rollback_apply_authorization_id: None,
+            rollback_apply_projection_hash: None,
+            disable_module_target_binding_hash: None,
+            expected_disable_module_target_binding_hash: None,
+            retained_rollback_apply_authorization_event_id: None,
+            disable_module_target_id: None,
+            disable_module_target_projection_hash: None,
+            restart_last_good_target_binding_hash: None,
+            expected_restart_last_good_target_binding_hash: None,
+            retained_disable_module_target_binding_event_id: None,
+            restart_last_good_target_id: None,
+            restart_last_good_target_projection_hash: None,
+            load_artifact_by_hash_target_binding_hash: None,
+            expected_load_artifact_by_hash_target_binding_hash: None,
+            retained_restart_last_good_target_binding_event_id: None,
+            load_artifact_by_hash_target_id: None,
+            load_artifact_by_hash_target_artifact_hash: None,
+            load_artifact_by_hash_target_projection_hash: None,
+            recovery_memory_write_authority_hash: None,
+            expected_recovery_memory_write_authority_hash: None,
+            retained_load_artifact_by_hash_target_binding_event_id: None,
+            recovery_memory_write_authority_id: None,
+            recovery_memory_projection_hash: None,
+            durable_audit_rollback_write_authority_hash: None,
+            expected_durable_audit_rollback_write_authority_hash: None,
+            retained_recovery_memory_write_authority_event_id: None,
+            durable_audit_rollback_write_authority_id: None,
+            durable_audit_rollback_projection_hash: None,
+            service_inventory_side_effect_boundary_hash: None,
+            expected_service_inventory_side_effect_boundary_hash: None,
+            retained_durable_audit_rollback_write_authority_event_id: None,
+            service_inventory_side_effect_boundary_id: None,
+            service_inventory_projection_hash: None,
+            command_dispatch_behavior_hash: None,
+            expected_command_dispatch_behavior_hash: None,
+            retained_service_inventory_side_effect_boundary_event_id: None,
+            command_dispatch_behavior_id: None,
+            command_dispatch_behavior_projection_hash: None,
+            executor_capability_table_hash: None,
+            expected_executor_capability_table_hash: None,
+            retained_command_dispatch_behavior_event_id: None,
+            executor_capability_table_id: None,
+            executor_capability_projection_hash: None,
+            side_effect_gate_hash: None,
+            expected_side_effect_gate_hash: None,
+            retained_executor_capability_table_event_id: None,
+            side_effect_gate_id: None,
+            side_effect_projection_hash: None,
+            source_rollback_apply_denial_hash: None,
+            source_durable_policy_write_authority_decision_hash: None,
+            source_recovery_rollback_inspect_source_reference_hash: None,
+            execution_stage_hash: None,
+            expected_execution_stage_hash: None,
+            retained_previous_stage_event_id: None,
+            execution_enablement_hash: None,
+            execution_preflight_hash: None,
+            execution_intent_hash: None,
+            execution_commit_gate_hash: None,
+            execution_result_denial_hash: None,
+            execution_audit_denial_hash: None,
+            execution_observation_denial_hash: None,
+            execution_stage_id: None,
+            execution_stage_projection_hash: None,
+            normalized_spec: None,
+            target_locator_value: None,
+            status: "",
+            reason: "",
+            valid: false,
+        }
+    }
+
+    pub(crate) fn with_reference_check(
+        mut self,
+        stage_hash_field: CommandReferenceField,
+        normalized_spec: Option<RecoveryLifelineCommandSpec>,
+        target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
+        expected_hash: Option<[u8; 32]>,
+        status: &'static str,
+        reason: &'static str,
+        valid: bool,
+    ) -> Self {
+        self.stage.expected_hash = expected_hash;
+        self.set_expected_hash(stage_hash_field, expected_hash);
+        self.normalized_spec = normalized_spec;
+        self.target_locator_value = target_locator_value;
+        self.status = status;
+        self.reason = reason;
+        self.valid = valid;
+        self
+    }
+
+    fn set_expected_hash(&mut self, field: CommandReferenceField, expected: Option<[u8; 32]>) {
+        match field {
+            CommandReferenceField::CommandEnvelopeReferenceHash => {
+                self.expected_command_envelope_reference_hash = expected
+            }
+            CommandReferenceField::CommandBodyCanonicalizationHash => {
+                self.expected_command_body_canonicalization_hash = expected
+            }
+            CommandReferenceField::HandlerBindingHash => {
+                self.expected_handler_binding_hash = expected
+            }
+            CommandReferenceField::StatusReadHandlerHash => {
+                self.expected_status_read_handler_hash = expected
+            }
+            CommandReferenceField::RollbackPreviewAuthorizationHash => {
+                self.expected_rollback_preview_authorization_hash = expected
+            }
+            CommandReferenceField::RollbackApplyAuthorizationHash => {
+                self.expected_rollback_apply_authorization_hash = expected
+            }
+            CommandReferenceField::DisableModuleTargetBindingHash => {
+                self.expected_disable_module_target_binding_hash = expected
+            }
+            CommandReferenceField::RestartLastGoodTargetBindingHash => {
+                self.expected_restart_last_good_target_binding_hash = expected
+            }
+            CommandReferenceField::LoadArtifactByHashTargetBindingHash => {
+                self.expected_load_artifact_by_hash_target_binding_hash = expected
+            }
+            CommandReferenceField::RecoveryMemoryWriteAuthorityHash => {
+                self.expected_recovery_memory_write_authority_hash = expected
+            }
+            CommandReferenceField::DurableAuditRollbackWriteAuthorityHash => {
+                self.expected_durable_audit_rollback_write_authority_hash = expected
+            }
+            CommandReferenceField::ServiceInventorySideEffectBoundaryHash => {
+                self.expected_service_inventory_side_effect_boundary_hash = expected
+            }
+            CommandReferenceField::CommandDispatchBehaviorHash => {
+                self.expected_command_dispatch_behavior_hash = expected
+            }
+            CommandReferenceField::ExecutorCapabilityTableHash => {
+                self.expected_executor_capability_table_hash = expected
+            }
+            CommandReferenceField::SideEffectGateHash => {
+                self.expected_side_effect_gate_hash = expected
+            }
+            CommandReferenceField::ExecutionStageHash => {
+                self.expected_execution_stage_hash = expected
+            }
+            _ => {}
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum CommandReferenceField {
+    CommandEnvelopeReferenceHash,
+    RetainedLifelineRequestEventId,
+    CommandId,
+    ArgumentSchema,
+    ArgumentHash,
+    RequiredCapability,
+    TargetLocator,
+    CommandAdmissionBoundaryId,
+    LifelineRequestReferenceHash,
+    CommandBodyCanonicalizationHash,
+    RetainedCommandEnvelopeReferenceEventId,
+    CommandDispatchBoundaryId,
+    HandlerBindingHash,
+    RetainedCommandBodyCanonicalizationEventId,
+    HandlerId,
+    HandlerInputBindingHash,
+    StatusReadHandlerHash,
+    RetainedCommandHandlerBindingEventId,
+    StatusHandlerId,
+    StatusReadProjectionHash,
+    RollbackPreviewAuthorizationHash,
+    RetainedStatusReadHandlerEventId,
+    RollbackPreviewAuthorizationId,
+    RollbackPreviewProjectionHash,
+    RollbackApplyAuthorizationHash,
+    RetainedRollbackPreviewAuthorizationEventId,
+    RollbackApplyAuthorizationId,
+    RollbackApplyProjectionHash,
+    DisableModuleTargetBindingHash,
+    RetainedRollbackApplyAuthorizationEventId,
+    DisableModuleTargetId,
+    DisableModuleTargetProjectionHash,
+    RestartLastGoodTargetBindingHash,
+    RetainedDisableModuleTargetBindingEventId,
+    RestartLastGoodTargetId,
+    RestartLastGoodTargetProjectionHash,
+    LoadArtifactByHashTargetBindingHash,
+    RetainedRestartLastGoodTargetBindingEventId,
+    LoadArtifactByHashTargetId,
+    LoadArtifactByHashTargetArtifactHash,
+    LoadArtifactByHashTargetProjectionHash,
+    RecoveryMemoryWriteAuthorityHash,
+    RetainedLoadArtifactByHashTargetBindingEventId,
+    RecoveryMemoryWriteAuthorityId,
+    RecoveryMemoryProjectionHash,
+    DurableAuditRollbackWriteAuthorityHash,
+    RetainedRecoveryMemoryWriteAuthorityEventId,
+    DurableAuditRollbackWriteAuthorityId,
+    DurableAuditRollbackProjectionHash,
+    ServiceInventorySideEffectBoundaryHash,
+    RetainedDurableAuditRollbackWriteAuthorityEventId,
+    ServiceInventorySideEffectBoundaryId,
+    ServiceInventoryProjectionHash,
+    CommandDispatchBehaviorHash,
+    RetainedServiceInventorySideEffectBoundaryEventId,
+    CommandDispatchBehaviorId,
+    CommandDispatchBehaviorProjectionHash,
+    ExecutorCapabilityTableHash,
+    RetainedCommandDispatchBehaviorEventId,
+    ExecutorCapabilityTableId,
+    ExecutorCapabilityProjectionHash,
+    SideEffectGateHash,
+    RetainedExecutorCapabilityTableEventId,
+    SideEffectGateId,
+    SideEffectProjectionHash,
+    SourceRollbackApplyDenialHash,
+    SourceDurablePolicyWriteAuthorityDecisionHash,
+    SourceRecoveryRollbackInspectSourceReferenceHash,
+    ExecutionStageHash,
+    RetainedPreviousStageEventId,
+    ExecutionEnablementHash,
+    ExecutionPreflightHash,
+    ExecutionIntentHash,
+    ExecutionCommitGateHash,
+    ExecutionResultDenialHash,
+    ExecutionAuditDenialHash,
+    ExecutionObservationDenialHash,
+    ExecutionStageId,
+    ExecutionStageProjectionHash,
+}
+
+pub(crate) fn parse_command_reference_args<'a>(
+    arg: &'a str,
+    fields: &[CommandReferenceField],
+) -> CommandBindings<'a> {
+    let mut parts = arg.split_whitespace();
+    let mut input = CommandBindings::empty();
+    let mut all_required_present = true;
+    for (index, field) in fields.iter().copied().enumerate() {
+        let value = parts.next();
+        if index == 0 {
+            input.has_reference = value.is_some();
+        }
+        if value.is_none() {
+            all_required_present = false;
+        }
+        set_command_reference_field(&mut input, field, value);
+        if index == 0 {
+            input.stage.stage_hash = input_hash_for_field(input, field);
+        } else if index == 1 {
+            input.stage.retained_previous_event_id = value;
+        }
+    }
+    input.scope = parts.next().unwrap_or("current_boot");
+    input.arity_valid = input.has_reference && all_required_present && parts.next().is_none();
+    input
+}
+
+fn input_hash_for_field(
+    input: CommandBindings<'_>,
+    field: CommandReferenceField,
+) -> Option<[u8; 32]> {
+    match field {
+        CommandReferenceField::CommandEnvelopeReferenceHash => {
+            input.command_envelope_reference_hash
+        }
+        CommandReferenceField::CommandBodyCanonicalizationHash => {
+            input.command_body_canonicalization_hash
+        }
+        CommandReferenceField::HandlerBindingHash => input.handler_binding_hash,
+        CommandReferenceField::StatusReadHandlerHash => input.status_read_handler_hash,
+        CommandReferenceField::RollbackPreviewAuthorizationHash => {
+            input.rollback_preview_authorization_hash
+        }
+        CommandReferenceField::RollbackApplyAuthorizationHash => {
+            input.rollback_apply_authorization_hash
+        }
+        CommandReferenceField::DisableModuleTargetBindingHash => {
+            input.disable_module_target_binding_hash
+        }
+        CommandReferenceField::RestartLastGoodTargetBindingHash => {
+            input.restart_last_good_target_binding_hash
+        }
+        CommandReferenceField::LoadArtifactByHashTargetBindingHash => {
+            input.load_artifact_by_hash_target_binding_hash
+        }
+        CommandReferenceField::RecoveryMemoryWriteAuthorityHash => {
+            input.recovery_memory_write_authority_hash
+        }
+        CommandReferenceField::DurableAuditRollbackWriteAuthorityHash => {
+            input.durable_audit_rollback_write_authority_hash
+        }
+        CommandReferenceField::ServiceInventorySideEffectBoundaryHash => {
+            input.service_inventory_side_effect_boundary_hash
+        }
+        CommandReferenceField::CommandDispatchBehaviorHash => input.command_dispatch_behavior_hash,
+        CommandReferenceField::ExecutorCapabilityTableHash => input.executor_capability_table_hash,
+        CommandReferenceField::SideEffectGateHash => input.side_effect_gate_hash,
+        CommandReferenceField::ExecutionStageHash => input.execution_stage_hash,
+        _ => None,
+    }
+}
+
+fn set_command_reference_field<'a>(
+    input: &mut CommandBindings<'a>,
+    field: CommandReferenceField,
+    value: Option<&'a str>,
+) {
+    match field {
+        CommandReferenceField::CommandEnvelopeReferenceHash => {
+            input.command_envelope_reference_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedLifelineRequestEventId => {
+            input.retained_lifeline_request_event_id = value
+        }
+        CommandReferenceField::CommandId => input.command_id = value,
+        CommandReferenceField::ArgumentSchema => input.argument_schema = value,
+        CommandReferenceField::ArgumentHash => {
+            input.argument_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RequiredCapability => input.required_capability = value,
+        CommandReferenceField::TargetLocator => input.target_locator = value,
+        CommandReferenceField::CommandAdmissionBoundaryId => {
+            input.command_admission_boundary_id = value
+        }
+        CommandReferenceField::LifelineRequestReferenceHash => {
+            input.lifeline_request_reference_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::CommandBodyCanonicalizationHash => {
+            input.command_body_canonicalization_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedCommandEnvelopeReferenceEventId => {
+            input.retained_command_envelope_reference_event_id = value
+        }
+        CommandReferenceField::CommandDispatchBoundaryId => {
+            input.command_dispatch_boundary_id = value
+        }
+        CommandReferenceField::HandlerBindingHash => {
+            input.handler_binding_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedCommandBodyCanonicalizationEventId => {
+            input.retained_command_body_canonicalization_event_id = value
+        }
+        CommandReferenceField::HandlerId => input.handler_id = value,
+        CommandReferenceField::HandlerInputBindingHash => {
+            input.handler_input_binding_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::StatusReadHandlerHash => {
+            input.status_read_handler_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedCommandHandlerBindingEventId => {
+            input.retained_command_handler_binding_event_id = value
+        }
+        CommandReferenceField::StatusHandlerId => input.status_handler_id = value,
+        CommandReferenceField::StatusReadProjectionHash => {
+            input.status_read_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RollbackPreviewAuthorizationHash => {
+            input.rollback_preview_authorization_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedStatusReadHandlerEventId => {
+            input.retained_status_read_handler_event_id = value
+        }
+        CommandReferenceField::RollbackPreviewAuthorizationId => {
+            input.rollback_preview_authorization_id = value
+        }
+        CommandReferenceField::RollbackPreviewProjectionHash => {
+            input.rollback_preview_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RollbackApplyAuthorizationHash => {
+            input.rollback_apply_authorization_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedRollbackPreviewAuthorizationEventId => {
+            input.retained_rollback_preview_authorization_event_id = value
+        }
+        CommandReferenceField::RollbackApplyAuthorizationId => {
+            input.rollback_apply_authorization_id = value
+        }
+        CommandReferenceField::RollbackApplyProjectionHash => {
+            input.rollback_apply_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::DisableModuleTargetBindingHash => {
+            input.disable_module_target_binding_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedRollbackApplyAuthorizationEventId => {
+            input.retained_rollback_apply_authorization_event_id = value
+        }
+        CommandReferenceField::DisableModuleTargetId => input.disable_module_target_id = value,
+        CommandReferenceField::DisableModuleTargetProjectionHash => {
+            input.disable_module_target_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RestartLastGoodTargetBindingHash => {
+            input.restart_last_good_target_binding_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedDisableModuleTargetBindingEventId => {
+            input.retained_disable_module_target_binding_event_id = value
+        }
+        CommandReferenceField::RestartLastGoodTargetId => input.restart_last_good_target_id = value,
+        CommandReferenceField::RestartLastGoodTargetProjectionHash => {
+            input.restart_last_good_target_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::LoadArtifactByHashTargetBindingHash => {
+            input.load_artifact_by_hash_target_binding_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedRestartLastGoodTargetBindingEventId => {
+            input.retained_restart_last_good_target_binding_event_id = value
+        }
+        CommandReferenceField::LoadArtifactByHashTargetId => {
+            input.load_artifact_by_hash_target_id = value
+        }
+        CommandReferenceField::LoadArtifactByHashTargetArtifactHash => {
+            input.load_artifact_by_hash_target_artifact_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::LoadArtifactByHashTargetProjectionHash => {
+            input.load_artifact_by_hash_target_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RecoveryMemoryWriteAuthorityHash => {
+            input.recovery_memory_write_authority_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedLoadArtifactByHashTargetBindingEventId => {
+            input.retained_load_artifact_by_hash_target_binding_event_id = value
+        }
+        CommandReferenceField::RecoveryMemoryWriteAuthorityId => {
+            input.recovery_memory_write_authority_id = value
+        }
+        CommandReferenceField::RecoveryMemoryProjectionHash => {
+            input.recovery_memory_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::DurableAuditRollbackWriteAuthorityHash => {
+            input.durable_audit_rollback_write_authority_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedRecoveryMemoryWriteAuthorityEventId => {
+            input.retained_recovery_memory_write_authority_event_id = value
+        }
+        CommandReferenceField::DurableAuditRollbackWriteAuthorityId => {
+            input.durable_audit_rollback_write_authority_id = value
+        }
+        CommandReferenceField::DurableAuditRollbackProjectionHash => {
+            input.durable_audit_rollback_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ServiceInventorySideEffectBoundaryHash => {
+            input.service_inventory_side_effect_boundary_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedDurableAuditRollbackWriteAuthorityEventId => {
+            input.retained_durable_audit_rollback_write_authority_event_id = value
+        }
+        CommandReferenceField::ServiceInventorySideEffectBoundaryId => {
+            input.service_inventory_side_effect_boundary_id = value
+        }
+        CommandReferenceField::ServiceInventoryProjectionHash => {
+            input.service_inventory_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::CommandDispatchBehaviorHash => {
+            input.command_dispatch_behavior_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedServiceInventorySideEffectBoundaryEventId => {
+            input.retained_service_inventory_side_effect_boundary_event_id = value
+        }
+        CommandReferenceField::CommandDispatchBehaviorId => {
+            input.command_dispatch_behavior_id = value
+        }
+        CommandReferenceField::CommandDispatchBehaviorProjectionHash => {
+            input.command_dispatch_behavior_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ExecutorCapabilityTableHash => {
+            input.executor_capability_table_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedCommandDispatchBehaviorEventId => {
+            input.retained_command_dispatch_behavior_event_id = value
+        }
+        CommandReferenceField::ExecutorCapabilityTableId => {
+            input.executor_capability_table_id = value
+        }
+        CommandReferenceField::ExecutorCapabilityProjectionHash => {
+            input.executor_capability_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::SideEffectGateHash => {
+            input.side_effect_gate_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedExecutorCapabilityTableEventId => {
+            input.retained_executor_capability_table_event_id = value
+        }
+        CommandReferenceField::SideEffectGateId => input.side_effect_gate_id = value,
+        CommandReferenceField::SideEffectProjectionHash => {
+            input.side_effect_projection_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::SourceRollbackApplyDenialHash => {
+            input.source_rollback_apply_denial_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::SourceDurablePolicyWriteAuthorityDecisionHash => {
+            input.source_durable_policy_write_authority_decision_hash =
+                value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::SourceRecoveryRollbackInspectSourceReferenceHash => {
+            input.source_recovery_rollback_inspect_source_reference_hash =
+                value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ExecutionStageHash => {
+            input.execution_stage_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedPreviousStageEventId => {
+            input.retained_previous_stage_event_id = value
+        }
+        CommandReferenceField::ExecutionEnablementHash => {
+            input.execution_enablement_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ExecutionPreflightHash => {
+            input.execution_preflight_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ExecutionIntentHash => {
+            input.execution_intent_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ExecutionCommitGateHash => {
+            input.execution_commit_gate_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ExecutionResultDenialHash => {
+            input.execution_result_denial_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ExecutionAuditDenialHash => {
+            input.execution_audit_denial_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ExecutionObservationDenialHash => {
+            input.execution_observation_denial_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ExecutionStageId => input.execution_stage_id = value,
+        CommandReferenceField::ExecutionStageProjectionHash => {
+            input.execution_stage_projection_hash = value.and_then(parse_sha256_ref)
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct RecoveryLoaderRuntimeIsolationCandidate {

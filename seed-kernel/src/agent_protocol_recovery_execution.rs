@@ -1,23 +1,25 @@
 use alloc::format;
 
 use crate::{
+    agent_protocol_recovery_command_dispatch_types::RecoveryLifelineCommandDispatchCheck,
     agent_protocol_recovery_command_eval::{
         evaluate_recovery_lifeline_command_dispatch,
         recovery_lifeline_command_dispatch_candidate_from_retained,
         recovery_lifeline_status_execution_readiness_ready,
         recovery_lifeline_status_execution_readiness_reason,
     },
-    agent_protocol_recovery_command_dispatch_types::RecoveryLifelineCommandDispatchCheck,
     agent_protocol_recovery_lifeline::{
         recovery_lifeline_command_spec, RecoveryLifelineCommandSpec,
         RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
+    },
+    agent_protocol_recovery_runtime_types::{
+        parse_command_reference_args, CommandReferenceField, CommandReferenceField::*,
     },
     agent_protocol_recovery_target_binding_emit::emit_recovery_artifact_load_denial_source_evidence,
     agent_protocol_support::{
         begin_response, crlf, current_boot_event_id_str, end_response, json_event_id,
         json_event_id_option, json_opt_str, json_sha256, json_sha256_option, json_str, method_eq,
-        method_head_eq, parse_current_boot_event_id, parse_sha256_ref, raw, raw_bool, raw_fmt,
-        raw_line,
+        method_head_eq, parse_current_boot_event_id, raw, raw_bool, raw_fmt, raw_line,
     },
     event_log, module_evidence,
 };
@@ -589,10 +591,8 @@ fn recovery_lifeline_status_execution_result_reference_from_readiness(
         event_log::RecoveryLifelineStatusReadHandlerReference,
     )>,
 ) -> Option<event_log::RecoveryLifelineStatusExecutionResultReference> {
-    if !recovery_lifeline_status_execution_readiness_ready(
-        check,
-        retained_status_handler.is_some(),
-    ) {
+    if !recovery_lifeline_status_execution_readiness_ready(check, retained_status_handler.is_some())
+    {
         return None;
     }
 
@@ -601,7 +601,10 @@ fn recovery_lifeline_status_execution_result_reference_from_readiness(
         check.execution_completion_denial_reference?;
 
     if !method_eq(status_handler.command_id, completion_denial.command_id)
-        || !method_eq(status_handler.argument_schema, completion_denial.argument_schema)
+        || !method_eq(
+            status_handler.argument_schema,
+            completion_denial.argument_schema,
+        )
         || status_handler.argument_hash != completion_denial.argument_hash
         || status_handler.target_locator != completion_denial.target_locator
         || status_handler.command_envelope_reference_hash
@@ -624,8 +627,7 @@ fn recovery_lifeline_status_execution_result_reference_from_readiness(
     let execution_commit_gate_hash = completion_denial.execution_commit_gate_hash?;
     let execution_result_denial_hash = completion_denial.execution_result_denial_hash?;
     let execution_audit_denial_hash = completion_denial.execution_audit_denial_hash?;
-    let execution_observation_denial_hash =
-        completion_denial.execution_observation_denial_hash?;
+    let execution_observation_denial_hash = completion_denial.execution_observation_denial_hash?;
 
     let status_handler_event_id = event_id_hash_string(retained_status_read_handler_event_id);
     let completion_event_id = event_id_hash_string(retained_execution_completion_denial_event_id);
@@ -705,156 +707,117 @@ pub(crate) fn parse_recovery_lifeline_command_execution_stage_reference(
     descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
     require_live_retained: bool,
 ) -> RecoveryLifelineCommandExecutionStageReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let execution_stage_hash = parts.next();
-    let retained_previous_stage_event_id = parts.next();
-    let command_id = parts.next();
-    let argument_schema = parts.next();
-    let argument_hash = parts.next();
-    let target_locator = parts.next();
-    let command_envelope_reference_hash = parts.next();
-    let command_body_canonicalization_hash = parts.next();
-    let handler_binding_hash = parts.next();
-    let status_read_handler_hash = parts.next();
-    let rollback_preview_authorization_hash = parts.next();
-    let rollback_apply_authorization_hash = parts.next();
-    let disable_module_target_binding_hash = parts.next();
-    let restart_last_good_target_binding_hash = parts.next();
-    let load_artifact_by_hash_target_binding_hash = parts.next();
-    let recovery_memory_write_authority_hash = parts.next();
-    let durable_audit_rollback_write_authority_hash = parts.next();
-    let service_inventory_side_effect_boundary_hash = parts.next();
-    let command_dispatch_behavior_hash = parts.next();
-    let executor_capability_table_hash = parts.next();
-    let side_effect_gate_hash = parts.next();
-    let source_rollback_apply_denial_hash = parts.next();
-    let source_durable_policy_write_authority_decision_hash = parts.next();
-    let source_recovery_rollback_inspect_source_reference_hash = parts.next();
-    let execution_enablement_hash = if descriptor.index >= 1 {
-        parts.next()
-    } else {
-        None
-    };
-    let execution_preflight_hash = if descriptor.index >= 2 {
-        parts.next()
-    } else {
-        None
-    };
-    let execution_intent_hash = if descriptor.index >= 3 {
-        parts.next()
-    } else {
-        None
-    };
-    let execution_commit_gate_hash = if descriptor.index >= 4 {
-        parts.next()
-    } else {
-        None
-    };
-    let execution_result_denial_hash = if descriptor.index >= 5 {
-        parts.next()
-    } else {
-        None
-    };
-    let execution_audit_denial_hash = if descriptor.index >= 6 {
-        parts.next()
-    } else {
-        None
-    };
-    let execution_observation_denial_hash = if descriptor.index >= 7 {
-        parts.next()
-    } else {
-        None
-    };
-    let command_dispatch_boundary_id = parts.next();
-    let execution_stage_id = parts.next();
-    let execution_stage_projection_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
+    let mut fields = [CommandReferenceField::CommandId; 34];
+    let mut len = 0;
+    for field in [
+        ExecutionStageHash,
+        RetainedPreviousStageEventId,
+        CommandId,
+        ArgumentSchema,
+        ArgumentHash,
+        TargetLocator,
+        CommandEnvelopeReferenceHash,
+        CommandBodyCanonicalizationHash,
+        HandlerBindingHash,
+        StatusReadHandlerHash,
+        RollbackPreviewAuthorizationHash,
+        RollbackApplyAuthorizationHash,
+        DisableModuleTargetBindingHash,
+        RestartLastGoodTargetBindingHash,
+        LoadArtifactByHashTargetBindingHash,
+        RecoveryMemoryWriteAuthorityHash,
+        DurableAuditRollbackWriteAuthorityHash,
+        ServiceInventorySideEffectBoundaryHash,
+        CommandDispatchBehaviorHash,
+        ExecutorCapabilityTableHash,
+        SideEffectGateHash,
+        SourceRollbackApplyDenialHash,
+        SourceDurablePolicyWriteAuthorityDecisionHash,
+        SourceRecoveryRollbackInspectSourceReferenceHash,
+    ] {
+        fields[len] = field;
+        len += 1;
+    }
+    if descriptor.index >= 1 {
+        fields[len] = ExecutionEnablementHash;
+        len += 1;
+    }
+    if descriptor.index >= 2 {
+        fields[len] = ExecutionPreflightHash;
+        len += 1;
+    }
+    if descriptor.index >= 3 {
+        fields[len] = ExecutionIntentHash;
+        len += 1;
+    }
+    if descriptor.index >= 4 {
+        fields[len] = ExecutionCommitGateHash;
+        len += 1;
+    }
+    if descriptor.index >= 5 {
+        fields[len] = ExecutionResultDenialHash;
+        len += 1;
+    }
+    if descriptor.index >= 6 {
+        fields[len] = ExecutionAuditDenialHash;
+        len += 1;
+    }
+    if descriptor.index >= 7 {
+        fields[len] = ExecutionObservationDenialHash;
+        len += 1;
+    }
+    for field in [
+        CommandDispatchBoundaryId,
+        ExecutionStageId,
+        ExecutionStageProjectionHash,
+    ] {
+        fields[len] = field;
+        len += 1;
+    }
+    let parsed = parse_command_reference_args(arg, &fields[..len]);
     let input = RecoveryLifelineCommandExecutionStageInput {
         descriptor,
-        has_reference: execution_stage_hash.is_some(),
-        arity_valid: execution_stage_hash.is_some()
-            && retained_previous_stage_event_id.is_some()
-            && command_id.is_some()
-            && argument_schema.is_some()
-            && argument_hash.is_some()
-            && target_locator.is_some()
-            && command_envelope_reference_hash.is_some()
-            && command_body_canonicalization_hash.is_some()
-            && handler_binding_hash.is_some()
-            && status_read_handler_hash.is_some()
-            && rollback_preview_authorization_hash.is_some()
-            && rollback_apply_authorization_hash.is_some()
-            && disable_module_target_binding_hash.is_some()
-            && restart_last_good_target_binding_hash.is_some()
-            && load_artifact_by_hash_target_binding_hash.is_some()
-            && recovery_memory_write_authority_hash.is_some()
-            && durable_audit_rollback_write_authority_hash.is_some()
-            && service_inventory_side_effect_boundary_hash.is_some()
-            && command_dispatch_behavior_hash.is_some()
-            && executor_capability_table_hash.is_some()
-            && side_effect_gate_hash.is_some()
-            && source_rollback_apply_denial_hash.is_some()
-            && source_durable_policy_write_authority_decision_hash.is_some()
-            && source_recovery_rollback_inspect_source_reference_hash.is_some()
-            && (descriptor.index < 1 || execution_enablement_hash.is_some())
-            && (descriptor.index < 2 || execution_preflight_hash.is_some())
-            && (descriptor.index < 3 || execution_intent_hash.is_some())
-            && (descriptor.index < 4 || execution_commit_gate_hash.is_some())
-            && (descriptor.index < 5 || execution_result_denial_hash.is_some())
-            && (descriptor.index < 6 || execution_audit_denial_hash.is_some())
-            && (descriptor.index < 7 || execution_observation_denial_hash.is_some())
-            && command_dispatch_boundary_id.is_some()
-            && execution_stage_id.is_some()
-            && execution_stage_projection_hash.is_some()
-            && extra.is_none(),
-        scope,
-        execution_stage_hash: execution_stage_hash.and_then(parse_sha256_ref),
-        retained_previous_stage_event_id,
-        command_id,
-        argument_schema,
-        argument_hash: argument_hash.and_then(parse_sha256_ref),
-        target_locator,
-        command_envelope_reference_hash: command_envelope_reference_hash.and_then(parse_sha256_ref),
-        command_body_canonicalization_hash: command_body_canonicalization_hash
-            .and_then(parse_sha256_ref),
-        handler_binding_hash: handler_binding_hash.and_then(parse_sha256_ref),
-        status_read_handler_hash: status_read_handler_hash.and_then(parse_sha256_ref),
-        rollback_preview_authorization_hash: rollback_preview_authorization_hash
-            .and_then(parse_sha256_ref),
-        rollback_apply_authorization_hash: rollback_apply_authorization_hash
-            .and_then(parse_sha256_ref),
-        disable_module_target_binding_hash: disable_module_target_binding_hash
-            .and_then(parse_sha256_ref),
-        restart_last_good_target_binding_hash: restart_last_good_target_binding_hash
-            .and_then(parse_sha256_ref),
-        load_artifact_by_hash_target_binding_hash: load_artifact_by_hash_target_binding_hash
-            .and_then(parse_sha256_ref),
-        recovery_memory_write_authority_hash: recovery_memory_write_authority_hash
-            .and_then(parse_sha256_ref),
-        durable_audit_rollback_write_authority_hash: durable_audit_rollback_write_authority_hash
-            .and_then(parse_sha256_ref),
-        service_inventory_side_effect_boundary_hash: service_inventory_side_effect_boundary_hash
-            .and_then(parse_sha256_ref),
-        command_dispatch_behavior_hash: command_dispatch_behavior_hash.and_then(parse_sha256_ref),
-        executor_capability_table_hash: executor_capability_table_hash.and_then(parse_sha256_ref),
-        side_effect_gate_hash: side_effect_gate_hash.and_then(parse_sha256_ref),
-        source_rollback_apply_denial_hash: source_rollback_apply_denial_hash.and_then(parse_sha256_ref),
-        source_durable_policy_write_authority_decision_hash:
-            source_durable_policy_write_authority_decision_hash.and_then(parse_sha256_ref),
-        source_recovery_rollback_inspect_source_reference_hash:
-            source_recovery_rollback_inspect_source_reference_hash.and_then(parse_sha256_ref),
-        execution_enablement_hash: execution_enablement_hash.and_then(parse_sha256_ref),
-        execution_preflight_hash: execution_preflight_hash.and_then(parse_sha256_ref),
-        execution_intent_hash: execution_intent_hash.and_then(parse_sha256_ref),
-        execution_commit_gate_hash: execution_commit_gate_hash.and_then(parse_sha256_ref),
-        execution_result_denial_hash: execution_result_denial_hash.and_then(parse_sha256_ref),
-        execution_audit_denial_hash: execution_audit_denial_hash.and_then(parse_sha256_ref),
-        execution_observation_denial_hash: execution_observation_denial_hash
-            .and_then(parse_sha256_ref),
-        command_dispatch_boundary_id,
-        execution_stage_id,
-        execution_stage_projection_hash: execution_stage_projection_hash.and_then(parse_sha256_ref),
+        has_reference: parsed.has_reference,
+        arity_valid: parsed.arity_valid,
+        scope: parsed.scope,
+        execution_stage_hash: parsed.execution_stage_hash,
+        retained_previous_stage_event_id: parsed.retained_previous_stage_event_id,
+        command_id: parsed.command_id,
+        argument_schema: parsed.argument_schema,
+        argument_hash: parsed.argument_hash,
+        target_locator: parsed.target_locator,
+        command_envelope_reference_hash: parsed.command_envelope_reference_hash,
+        command_body_canonicalization_hash: parsed.command_body_canonicalization_hash,
+        handler_binding_hash: parsed.handler_binding_hash,
+        status_read_handler_hash: parsed.status_read_handler_hash,
+        rollback_preview_authorization_hash: parsed.rollback_preview_authorization_hash,
+        rollback_apply_authorization_hash: parsed.rollback_apply_authorization_hash,
+        disable_module_target_binding_hash: parsed.disable_module_target_binding_hash,
+        restart_last_good_target_binding_hash: parsed.restart_last_good_target_binding_hash,
+        load_artifact_by_hash_target_binding_hash: parsed.load_artifact_by_hash_target_binding_hash,
+        recovery_memory_write_authority_hash: parsed.recovery_memory_write_authority_hash,
+        durable_audit_rollback_write_authority_hash: parsed
+            .durable_audit_rollback_write_authority_hash,
+        service_inventory_side_effect_boundary_hash: parsed
+            .service_inventory_side_effect_boundary_hash,
+        command_dispatch_behavior_hash: parsed.command_dispatch_behavior_hash,
+        executor_capability_table_hash: parsed.executor_capability_table_hash,
+        side_effect_gate_hash: parsed.side_effect_gate_hash,
+        source_rollback_apply_denial_hash: parsed.source_rollback_apply_denial_hash,
+        source_durable_policy_write_authority_decision_hash: parsed
+            .source_durable_policy_write_authority_decision_hash,
+        source_recovery_rollback_inspect_source_reference_hash: parsed
+            .source_recovery_rollback_inspect_source_reference_hash,
+        execution_enablement_hash: parsed.execution_enablement_hash,
+        execution_preflight_hash: parsed.execution_preflight_hash,
+        execution_intent_hash: parsed.execution_intent_hash,
+        execution_commit_gate_hash: parsed.execution_commit_gate_hash,
+        execution_result_denial_hash: parsed.execution_result_denial_hash,
+        execution_audit_denial_hash: parsed.execution_audit_denial_hash,
+        execution_observation_denial_hash: parsed.execution_observation_denial_hash,
+        command_dispatch_boundary_id: parsed.command_dispatch_boundary_id,
+        execution_stage_id: parsed.execution_stage_id,
+        execution_stage_projection_hash: parsed.execution_stage_projection_hash,
     };
     evaluate_recovery_lifeline_command_execution_stage_reference(input, require_live_retained)
 }
@@ -1318,7 +1281,8 @@ fn recovery_lifeline_command_execution_stage_matches_side_effect(
         && input.command_dispatch_behavior_hash == Some(previous.command_dispatch_behavior_hash)
         && input.executor_capability_table_hash == Some(previous.executor_capability_table_hash)
         && input.side_effect_gate_hash == Some(previous.side_effect_gate_hash)
-        && input.source_rollback_apply_denial_hash == Some(previous.source_rollback_apply_denial_hash)
+        && input.source_rollback_apply_denial_hash
+            == Some(previous.source_rollback_apply_denial_hash)
         && input.source_durable_policy_write_authority_decision_hash
             == Some(previous.source_durable_policy_write_authority_decision_hash)
         && input.source_recovery_rollback_inspect_source_reference_hash
@@ -1373,7 +1337,8 @@ fn recovery_lifeline_command_execution_stage_matches_previous_stage(
         && input.command_dispatch_behavior_hash == Some(previous.command_dispatch_behavior_hash)
         && input.executor_capability_table_hash == Some(previous.executor_capability_table_hash)
         && input.side_effect_gate_hash == Some(previous.side_effect_gate_hash)
-        && input.source_rollback_apply_denial_hash == Some(previous.source_rollback_apply_denial_hash)
+        && input.source_rollback_apply_denial_hash
+            == Some(previous.source_rollback_apply_denial_hash)
         && input.source_durable_policy_write_authority_decision_hash
             == Some(previous.source_durable_policy_write_authority_decision_hash)
         && input.source_recovery_rollback_inspect_source_reference_hash
@@ -2539,8 +2504,10 @@ fn emit_recovery_lifeline_command_execution_stage_requirement(
 
 #[derive(Clone, Copy)]
 pub(crate) struct RecoveryLifelineStatusResultReadState {
-    pub(crate) retained_result:
-        Option<(event_log::EventId, event_log::RecoveryLifelineStatusExecutionResultReference)>,
+    pub(crate) retained_result: Option<(
+        event_log::EventId,
+        event_log::RecoveryLifelineStatusExecutionResultReference,
+    )>,
     pub(crate) accepted: bool,
     pub(crate) reason: &'static str,
 }
@@ -2577,7 +2544,8 @@ impl RecoveryLifelineStatusResultReadState {
     }
 }
 
-pub(crate) fn recovery_lifeline_status_result_read_state() -> RecoveryLifelineStatusResultReadState {
+pub(crate) fn recovery_lifeline_status_result_read_state() -> RecoveryLifelineStatusResultReadState
+{
     let retained_result = event_log::latest_recovery_lifeline_status_execution_result_reference();
     let retained_status_handler =
         event_log::latest_recovery_lifeline_status_read_handler_reference();
@@ -2622,8 +2590,7 @@ pub(crate) fn recovery_lifeline_status_result_read_state() -> RecoveryLifelineSt
                         != completion_denial.executor_capability_table_hash
                     || result.side_effect_gate_hash != completion_denial.side_effect_gate_hash
                 {
-                    reason =
-                        "retained_recovery_lifeline_completion_denial_result_mismatch";
+                    reason = "retained_recovery_lifeline_completion_denial_result_mismatch";
                 } else {
                     accepted = true;
                     reason = "recovery_lifeline_status_result_read_available";
@@ -2750,23 +2717,25 @@ pub(crate) fn emit_recovery_lifeline_command_execution_completion_denial_diagnos
 pub(crate) fn emit_recovery_lifeline_status_execution_result_diagnostic() {
     let (check, retained_status_handler) = latest_recovery_lifeline_command_dispatch_check();
     let retained_status_handler_present = retained_status_handler.is_some();
-    let readiness_ready = recovery_lifeline_status_execution_readiness_ready(
-        &check,
-        retained_status_handler_present,
-    );
+    let readiness_ready =
+        recovery_lifeline_status_execution_readiness_ready(&check, retained_status_handler_present);
     let readiness_reason = recovery_lifeline_status_execution_readiness_reason(
         &check,
         retained_status_handler_present,
     );
-    let reference =
-        recovery_lifeline_status_execution_result_reference_from_readiness(&check, retained_status_handler);
+    let reference = recovery_lifeline_status_execution_result_reference_from_readiness(
+        &check,
+        retained_status_handler,
+    );
     let recorded_event_id =
         reference.map(event_log::record_recovery_lifeline_status_execution_result_reference);
     let retained_result = event_log::latest_recovery_lifeline_status_execution_result_reference();
     let result_available = reference.is_some();
 
     begin_response("recovery.lifeline_status_execution_result_diagnostic");
-    raw_line("      \"schema\": \"raios.recovery_lifeline_status_execution_result_diagnostic.v0\",");
+    raw_line(
+        "      \"schema\": \"raios.recovery_lifeline_status_execution_result_diagnostic.v0\",",
+    );
     raw_line("      \"scope\": \"current_boot\",");
     raw_line("      \"classification\": \"local_only\",");
     raw("      \"status\": ");
@@ -2821,9 +2790,7 @@ pub(crate) fn emit_recovery_lifeline_status_execution_result_diagnostic() {
     raw_line("        \"subject\": \"agent.session.serial\",");
     raw_line("        \"resource\": \"recovery_lifeline_status_execution_result\",");
     raw_line("        \"command_id\": \"recovery.lifeline.status\",");
-    raw_line(
-        "        \"result_schema\": \"raios.recovery_lifeline_status_execution_result.v0\"",
-    );
+    raw_line("        \"result_schema\": \"raios.recovery_lifeline_status_execution_result.v0\"");
     raw_line("      },");
     raw_line("      \"status_execution_readiness\": {");
     raw_line("        \"schema\": \"raios.recovery_lifeline_status_execution_readiness.v0\",");
@@ -2979,7 +2946,9 @@ pub(crate) fn emit_recovery_lifeline_status_result_read(response_method: &'stati
     raw_line(",");
     raw_line("      \"command_id\": \"recovery.lifeline.status\",");
     raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_retained_recovery_lifeline_status_execution_result_records\": false,");
+    raw_line(
+        "      \"creates_retained_recovery_lifeline_status_execution_result_records\": false,",
+    );
     raw_line("      \"accepts_raw_command_body\": false,");
     raw_line("      \"accepts_lifeline_command_body\": false,");
     raw_line("      \"accepts_lifeline_command_envelope\": false,");
