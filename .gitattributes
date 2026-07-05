@@ -1,0 +1,3 @@
+# Signed byte-exact content; EOL conversion changes attested hashes/signatures.
+seed-kernel/src/hello_service.rs -text
+seed-kernel/descriptors/** -text

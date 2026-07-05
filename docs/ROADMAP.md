@@ -170,15 +170,23 @@ target/descriptor-resign), split feasibility (needs ordered source-set
 hashing in build.rs first), 5-slice plan, risks (attestation must keep
 covering moved code; no .gitattributes = CRLF hazard for signed bytes).
 
+De-hello-ify Slice 1 done (2026-07-05): build.rs hashes an ordered
+source SET with length-framed entries (currently exactly
+hello_service.rs); the hello_service.rs sha256_bytes duplicate is gone
+(raios_core::sha256_bytes); .gitattributes protects signed bytes from
+EOL conversion; v1/v2 identity descs re-signed. Verified: quick
+(`shadow-20260705-172534-6696.json`, 417/417) + hello-rollback-dry-run
+(`shadow-20260705-172834-16852.json`, 203/203) — the guest re-validates
+the new signatures at runtime.
+
 Exact next task:
 
 ```text
-De-hello-ify Slice 1 (attestation-critical, single worker, extra care):
-build.rs ordered source-set hashing (still covering the single file
-initially), replace hello_service.rs local sha256_bytes with
-raios_core::sha256_bytes, add .gitattributes protecting signed sources
-from EOL conversion, re-sign v1/v2 identity descs via descriptor-resign.
-Verify: build + quick + hello-rollback-dry-run profiles.
+De-hello-ify Slice 2 (mechanical split): split hello_service.rs into
+hello_service/ modules below the AGENTS.md size thresholds, add every
+new file to the build.rs source set (attestation keeps covering moved
+code), re-sign v1/v2. Verify: build, quick, hello-rollback-dry-run.
+Then Slices 3-5 per docs/plan-reviews/m2-de-hello-ify-plan-2026-07-05.md.
 ```
 
 ## Capability Milestones

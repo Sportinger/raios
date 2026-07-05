@@ -1,3 +1,4 @@
+use raios_core::sha256_bytes;
 use spin::Mutex;
 
 use sha2::{Digest, Sha256};
@@ -12531,12 +12532,6 @@ fn preflight_case(
         passed: expected_accept == actual_accept,
         reason,
     }
-}
-
-fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
-    let mut hash = Sha256::new();
-    hash.update(bytes);
-    finalize_sha256(hash)
 }
 
 fn finalize_sha256(hash: Sha256) -> [u8; 32] {

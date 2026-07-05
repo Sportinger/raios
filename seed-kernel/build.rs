@@ -2,6 +2,9 @@ use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::{env, fmt::Write as _, fs, path::PathBuf};
 
+// Ordered repo-relative artifact source-set manifest; hash every entry in this order.
+const HELLO_ARTIFACT_SOURCE_SET: &[&str] = &["seed-kernel/src/hello_service.rs"];
+
 fn main() {
     println!("cargo:rerun-if-env-changed=RAIOS_DEFAULT_OPENAI_API_KEY");
     println!("cargo:rerun-if-env-changed=RAIOS_OPENAI_CERT_SHA256");
@@ -25,12 +28,17 @@ fn main() {
     println!(
         "cargo:rerun-if-changed=descriptors/svc.demo.hello.builtin_artifact_identity.v2.p256.sig.der.hex"
     );
-    println!("cargo:rerun-if-changed=src/hello_service.rs");
     println!("cargo:rerun-if-changed=artifacts/svc.demo.hello.builtin.artifact");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let repo_root = manifest_dir.parent().unwrap();
+    for source_path in HELLO_ARTIFACT_SOURCE_SET {
+        println!(
+            "cargo:rerun-if-changed={}",
+            repo_root.join(source_path).display()
+        );
+    }
     let descriptor_path = manifest_dir.join("descriptors/svc.demo.hello.current_image.desc");
-    let hello_service_path = manifest_dir.join("src/hello_service.rs");
     let artifact_bytes_path = manifest_dir.join("artifacts/svc.demo.hello.builtin.artifact");
     let public_key_path =
         manifest_dir.join("descriptors/svc.demo.hello.current_image.p256.pub.hex");
@@ -49,7 +57,7 @@ fn main() {
     let artifact_identity_v2_signature_path = manifest_dir
         .join("descriptors/svc.demo.hello.builtin_artifact_identity.v2.p256.sig.der.hex");
     let current_source = fs::read_to_string(descriptor_path).unwrap();
-    let hello_service_source = fs::read(hello_service_path).unwrap();
+    let artifact_source_snapshot = read_ordered_source_set(repo_root, HELLO_ARTIFACT_SOURCE_SET);
     let artifact_bytes = fs::read(artifact_bytes_path).unwrap();
     let artifact_identity_source = fs::read_to_string(artifact_identity_path).unwrap();
     let artifact_identity_v2_source = fs::read_to_string(artifact_identity_v2_path).unwrap();
@@ -81,7 +89,7 @@ fn main() {
     let artifact_identity_hash_hex = sha256_hex(&artifact_identity_hash);
     let artifact_identity_v2_hash = Sha256::digest(artifact_identity_v2_source.as_bytes());
     let artifact_identity_v2_hash_hex = sha256_hex(&artifact_identity_v2_hash);
-    let artifact_content_source_hash = Sha256::digest(&hello_service_source);
+    let artifact_content_source_hash = Sha256::digest(&artifact_source_snapshot);
     let artifact_content_source_hash_hex = sha256_hex(&artifact_content_source_hash);
     let artifact_content_binding_text = format!(
         "schema=raios.builtin_artifact_content_binding.v0\n\
@@ -357,6 +365,28 @@ pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
         ),
     )
     .unwrap();
+}
+
+fn read_ordered_source_set(repo_root: &std::path::Path, source_set: &[&str]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for repo_relative_path in source_set {
+        let file_bytes = fs::read(repo_root.join(repo_relative_path)).unwrap();
+        frame_source_file(&mut out, repo_relative_path.as_bytes(), &file_bytes);
+    }
+    out
+}
+
+fn frame_source_file(out: &mut Vec<u8>, path: &[u8], file_bytes: &[u8]) {
+    // Source-set framing is, in manifest order, decimal path byte length + "\n"
+    // + path bytes + "\n" + decimal file byte length + "\n" + file bytes + "\n".
+    out.extend_from_slice(path.len().to_string().as_bytes());
+    out.push(b'\n');
+    out.extend_from_slice(path);
+    out.push(b'\n');
+    out.extend_from_slice(file_bytes.len().to_string().as_bytes());
+    out.push(b'\n');
+    out.extend_from_slice(file_bytes);
+    out.push(b'\n');
 }
 
 fn read_hex_file(path: PathBuf) -> Vec<u8> {
