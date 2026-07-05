@@ -330,7 +330,7 @@ fn rollback_write_authority_gate_value(
         j!("status" => s(HELLO_ROLLBACK_WRITE_AUTHORITY_GATE_STATUS)),
         j!("service_id" => s(SERVICE_ID)),
         j!("requested_capability" => s(HELLO_ROLLBACK_APPLY_CAPABILITY)),
-        j!("gate_hash" => sha(hello_rollback_write_authority_gate_hash(
+        j!("gate_hash" => sha(rollback_write_authority_gate_hash(
                 snapshot, probation,
             )),
         ),
@@ -396,9 +396,9 @@ fn rollback_append_intent_gate_value(
         j!("status" => s(HELLO_ROLLBACK_APPEND_INTENT_GATE_STATUS)),
         j!("service_id" => s(SERVICE_ID)),
         j!("requested_capability" => s(HELLO_ROLLBACK_APPLY_CAPABILITY)),
-        j!("gate_hash" => sha(hello_rollback_append_intent_gate_hash(snapshot, probation)),
+        j!("gate_hash" => sha(rollback_append_intent_gate_hash(snapshot, probation)),
         ),
-        j!("rollback_write_authority_gate_hash" => sha(hello_rollback_write_authority_gate_hash(
+        j!("rollback_write_authority_gate_hash" => sha(rollback_write_authority_gate_hash(
                 snapshot, probation,
             )),
         ),
@@ -469,13 +469,13 @@ fn rollback_payload_envelope_gate_value(
         j!("status" => s(HELLO_ROLLBACK_PAYLOAD_ENVELOPE_GATE_STATUS)),
         j!("service_id" => s(SERVICE_ID)),
         j!("requested_capability" => s(HELLO_ROLLBACK_APPLY_CAPABILITY)),
-        j!("gate_hash" => sha(hello_rollback_payload_envelope_gate_hash(
+        j!("gate_hash" => sha(rollback_payload_envelope_gate_hash(
                 snapshot, probation,
             )),
         ),
-        j!("rollback_append_intent_gate_hash" => sha(hello_rollback_append_intent_gate_hash(snapshot, probation)),
+        j!("rollback_append_intent_gate_hash" => sha(rollback_append_intent_gate_hash(snapshot, probation)),
         ),
-        j!("rollback_write_authority_gate_hash" => sha(hello_rollback_write_authority_gate_hash(
+        j!("rollback_write_authority_gate_hash" => sha(rollback_write_authority_gate_hash(
                 snapshot, probation,
             )),
         ),
@@ -602,7 +602,7 @@ pub(crate) fn emit_rollback_transaction_writer_storage_authority_gate(
     probation: Option<HelloHotSwapProbationRecord>,
 ) {
     if let Some(probation) = probation {
-        let foundation = hello_rollback_writer_storage_foundation();
+        let foundation = rollback_writer_storage_foundation();
         let append_record = hello_rollback_append_record_dry_run(snapshot, probation, foundation);
         let sector_plan =
             hello_rollback_append_sector_plan_dry_run(snapshot, probation, append_record);
@@ -641,13 +641,11 @@ pub(crate) fn emit_rollback_transaction_writer_storage_authority_gate(
         raw(", \"requested_capability\": ");
         json_str(HELLO_ROLLBACK_APPLY_CAPABILITY);
         raw(", \"gate_hash\": ");
-        json_sha256(
-            hello_rollback_transaction_writer_storage_authority_gate_hash(snapshot, probation),
-        );
-        raw(", \"rollback_payload_envelope_gate_hash\": ");
-        json_sha256(hello_rollback_payload_envelope_gate_hash(
+        json_sha256(rollback_transaction_writer_storage_authority_gate_hash(
             snapshot, probation,
         ));
+        raw(", \"rollback_payload_envelope_gate_hash\": ");
+        json_sha256(rollback_payload_envelope_gate_hash(snapshot, probation));
         raw(", \"payload_hash\": ");
         json_sha256(hello_rollback_transaction_payload_hash(snapshot, probation));
         raw(", \"provenance_hash\": ");
@@ -655,11 +653,9 @@ pub(crate) fn emit_rollback_transaction_writer_storage_authority_gate(
             snapshot, probation,
         ));
         raw(", \"rollback_append_intent_gate_hash\": ");
-        json_sha256(hello_rollback_append_intent_gate_hash(snapshot, probation));
+        json_sha256(rollback_append_intent_gate_hash(snapshot, probation));
         raw(", \"rollback_write_authority_gate_hash\": ");
-        json_sha256(hello_rollback_write_authority_gate_hash(
-            snapshot, probation,
-        ));
+        json_sha256(rollback_write_authority_gate_hash(snapshot, probation));
         raw(", \"rollback_transaction_preflight_hash\": ");
         json_sha256(hello_rollback_transaction_preflight_hash(
             snapshot, probation,
@@ -2910,7 +2906,7 @@ pub(crate) fn recovery_rollback_inspection_evidence(
     RollbackTargetRegionSectorInspection,
 )> {
     let probation = snapshot.hot_swap_probation?;
-    let foundation = hello_rollback_writer_storage_foundation();
+    let foundation = rollback_writer_storage_foundation();
     let append_record = hello_rollback_append_record_dry_run(snapshot, probation, foundation);
     let sector_plan = hello_rollback_append_sector_plan_dry_run(snapshot, probation, append_record);
     let target_region_media_write_policy_preflight =
@@ -2936,7 +2932,7 @@ pub(crate) fn recovery_rollback_materialization_evidence(
     RollbackTargetRegionWriteReadbackDryRun,
 )> {
     let probation = snapshot.hot_swap_probation?;
-    let foundation = hello_rollback_writer_storage_foundation();
+    let foundation = rollback_writer_storage_foundation();
     let append_record = hello_rollback_append_record_dry_run(snapshot, probation, foundation);
     let sector_plan = hello_rollback_append_sector_plan_dry_run(snapshot, probation, append_record);
     let target_region_media_write_policy_preflight =

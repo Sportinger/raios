@@ -193,16 +193,24 @@ staged evidence writer stays manual; hash-module diff verified empty);
 re-signed; verified quick (`shadow-20260705-181004-22820.json`, 417/417)
 + hello-rollback-dry-run (`shadow-20260705-181324-8968.json`, 203/203).
 
+De-hello-ify Slice 3 done (2026-07-05): generic rollback machinery
+extracted into generically-named modules (rollback_writer_gate,
+rollback_authority_gates, storage_authority_gate,
+rollback_writer_bindings; old files are shims), hello_ prefixes dropped
+from the generic gate-hash symbols with quoted-literal sequence proofs
+(all emitted strings byte-identical); source set extended, re-signed.
+Verified: quick (`shadow-20260705-182727-22700.json`, 417/417) +
+hello-rollback-dry-run (`shadow-20260705-183114-27284.json`, 203/203).
+
 Exact next task:
 
 ```text
-De-hello-ify Slice 3: move generic rollback writer/storage gate
-machinery out of Hello names (keep files in the attestation source set;
-byte-identical hashes), then Slice 5: minimal ServiceDescriptor
-parameterization (ids, aliases, slot ids, event-log fields, inventory
-append). Each slice: re-sign, quick + hello-rollback-dry-run. Then the
-M2 closure evaluation: full profile + capability-sentence check
-(~10x target vs actual; agent layer size measurement).
+De-hello-ify Slice 5: minimal ServiceDescriptor parameterization (ids,
+aliases, slot ids, event-log resource/capability fields, inventory
+append via descriptor instead of hardcodes) — keep emitted schema names
+stable; re-sign; quick + hello-rollback-dry-run. Then the M2 closure
+evaluation: full profile + capability-sentence check (agent layer size
+measurement vs the ~10x target; honest verdict).
 ```
 
 ## Capability Milestones
