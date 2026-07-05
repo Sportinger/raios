@@ -135,14 +135,20 @@ verified byte-identical by module-audit-rollback
 (`shadow-20260705-142306-4516.json`, 1626/1626) AND quick
 (`shadow-20260705-142625-22816.json`, 417/417).
 
+Slice M2-13 done (2026-07-05): map Batch 3 — loader_identity,
+loader_artifact_hash_binding, loader_fact, service_slot_allocator ported
+(net -126 lines; raios-core gained Value::InlineArray, 18 host tests);
+module-audit-rollback byte-identical
+(`shadow-20260705-144753-8004.json`, 1626/1626).
+
 Exact next task:
 
 ```text
-Map Batch 3 (SAFE loader/service rendering): loader_identity,
-loader_artifact_hash_binding, loader_fact, service_slot_allocator —
-verify with module-audit-rollback (+ full later for selftests). Then
-Batch 4 (large render surfaces, full profile), Batch 5 (COUPLED, hash
-helpers untouched), per the porting map.
+Map Batch 4 (SAFE large render surfaces): loader_runtime (~10.3k),
+load_gate_render (~6.1k), load_gate_selftest_emit (~718) — one worker
+packet per file for the two big ones; verify with the FULL profile
+(coverage is full-only for load-gate/selftests). Then Batch 5 (COUPLED,
+hash helpers untouched), per the porting map.
 ```
 
 ## Capability Milestones

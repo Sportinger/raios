@@ -1,11 +1,16 @@
+use alloc::vec;
+
 use crate::{
     agent_protocol_module_service_slot_allocator_projection::latest_module_service_slot_allocator_readiness_projection,
     agent_protocol_support::{
-        begin_response, crlf, end_response, json_event_id_option, json_str, method_eq,
-        method_head_eq, raw, raw_bool, raw_fmt, raw_line,
+        begin_response, crlf, emit_inline_record_object, emit_inline_record_object_fragment,
+        emit_record_fields_trailing_comma, emit_record_property_line, end_response, method_eq,
+        method_head_eq, raw_line, record_bool as b, record_event_or_null, record_false as no,
+        record_field as f, record_str as s,
     },
     event_log,
 };
+use raios_core::record::Value as V;
 
 const MODULE_LOADER_FACT_SELFTEST_CASES: usize = 14;
 
@@ -379,30 +384,32 @@ pub(crate) fn emit_module_loader_fact(method: &str) {
     };
 
     begin_response(spec.method);
-    raw("      \"schema\": ");
-    json_str(spec.schema);
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw("      \"mutates_global_event_log\": ");
-    raw_bool(source_evidence.is_some());
-    raw_line(",");
-    if source_evidence.is_some() {
-        raw_line(
-            "      \"global_event_log_mutation\": \"retained_current_boot_source_evidence_only\",",
-        );
-    } else {
-        raw_line("      \"global_event_log_mutation\": \"none\",");
-    }
-    raw_line("      \"accepts_loader_descriptor\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"creates_service_inventory_records\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"can_load_now\": false,");
-    raw_line("      \"load_attempted\": false,");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s(spec.schema)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", b(source_evidence.is_some())),
+            f(
+                "global_event_log_mutation",
+                s(if source_evidence.is_some() {
+                    "retained_current_boot_source_evidence_only"
+                } else {
+                    "none"
+                }),
+            ),
+            f("accepts_loader_descriptor", no()),
+            f("accepts_artifact_bytes", no()),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ],
+        6,
+    );
     if let Some((event_id, evidence)) = source_evidence {
         emit_module_loader_fact_source_evidence(event_id, evidence);
         raw_line(",");
@@ -438,27 +445,26 @@ pub(crate) fn emit_module_loader_fact_selftest(method: &str) {
     }
 
     begin_response(spec.selftest_method);
-    raw("      \"schema\": ");
-    json_str(spec.selftest_schema);
-    raw_line(",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"accepts_loader_descriptor\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"creates_service_inventory_records\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"can_load_now\": false,");
-    raw_line("      \"load_attempted\": false,");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s(spec.selftest_schema)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("accepts_loader_descriptor", no()),
+            f("accepts_artifact_bytes", no()),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+        ],
+        6,
+    );
     raw_line("      \"cases\": [");
     idx = 0;
     while idx < cases.len() {
@@ -492,6 +498,26 @@ fn module_loader_fact_selftest_spec(method: &str) -> Option<ModuleLoaderFactSpec
         idx += 1;
     }
     None
+}
+
+fn module_loader_fact_dependency_bind_field(spec: ModuleLoaderFactSpec) -> &'static str {
+    if method_eq(spec.dependency_gate, "artifact_hash_binding") {
+        "binds_artifact_hash_binding"
+    } else if method_eq(spec.dependency_gate, "entrypoint_abi") {
+        "binds_entrypoint_abi"
+    } else if method_eq(spec.dependency_gate, "address_space_boundary") {
+        "binds_address_space_boundary"
+    } else if method_eq(spec.dependency_gate, "memory_map_constraints") {
+        "binds_memory_map_constraints"
+    } else if method_eq(spec.dependency_gate, "capability_import_table") {
+        "binds_capability_import_table"
+    } else if method_eq(spec.dependency_gate, "service_slot_binding") {
+        "binds_service_slot_binding"
+    } else if method_eq(spec.dependency_gate, "health_state_hooks") {
+        "binds_health_state_hooks"
+    } else {
+        "binds_rollback_hooks"
+    }
 }
 
 fn module_loader_fact_retained_module_evidence_present() -> bool {
@@ -553,104 +579,78 @@ fn emit_module_loader_fact_required_bindings(
     candidate: ModuleLoaderFactCandidate,
     evaluation: ModuleLoaderFactEvaluation,
 ) {
-    raw_line("      \"required_bindings\": {");
-    raw("        \"retained_module_evidence\": ");
-    json_str(evaluation.retained_module_evidence_status);
-    raw_line(",");
-    raw("        \"service_slot_allocator_readiness\": ");
-    json_str(evaluation.service_slot_allocator_readiness_status);
-    raw_line(",");
-    raw("        \"service_slot_allocator_runtime\": ");
-    json_str(evaluation.service_slot_allocator_runtime_status);
-    raw_line(",");
-    raw("        \"audit_rollback_write_boundary\": ");
-    json_str(evaluation.audit_rollback_write_boundary_status);
-    raw_line(",");
-    json_str(spec.dependency_gate);
-    raw(": ");
-    json_str(evaluation.dependency_status);
-    raw_line(",");
-    raw("        \"fact_present\": ");
-    raw_bool(candidate.fact.present);
-    raw_line(",");
-    raw("        \"dependency_schema\": ");
-    json_str(spec.dependency_schema);
-    raw_line(",");
-    raw("        \"dependency_method\": ");
-    json_str(spec.dependency_method);
-    crlf();
-    raw_line("      }");
+    emit_record_property_line(
+        "required_bindings",
+        vec![
+            f(
+                "retained_module_evidence",
+                s(evaluation.retained_module_evidence_status),
+            ),
+            f(
+                "service_slot_allocator_readiness",
+                s(evaluation.service_slot_allocator_readiness_status),
+            ),
+            f(
+                "service_slot_allocator_runtime",
+                s(evaluation.service_slot_allocator_runtime_status),
+            ),
+            f(
+                "audit_rollback_write_boundary",
+                s(evaluation.audit_rollback_write_boundary_status),
+            ),
+            f(spec.dependency_gate, s(evaluation.dependency_status)),
+            f("fact_present", b(candidate.fact.present)),
+            f("dependency_schema", s(spec.dependency_schema)),
+            f("dependency_method", s(spec.dependency_method)),
+        ],
+        false,
+    );
 }
 
 fn emit_module_loader_fact_source_evidence(
     event_id: event_log::EventId,
     evidence: event_log::ModuleLoaderFactSourceEvidence,
 ) {
-    raw_line("      \"source_evidence\": {");
-    raw("        \"schema\": ");
-    json_str(evidence.schema);
-    raw_line(",");
-    raw_line("        \"state\": \"retained\",");
-    raw_line("        \"status\": \"retained_current_boot_source_evidence\",");
-    raw_line("        \"reason\": \"module_loader_fact_source_evidence_recorded\",");
-    raw_line("        \"scope\": \"current_boot\",");
-    raw_line("        \"classification\": \"local_only\",");
-    raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-    raw("        \"event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("        \"fact_schema\": ");
-    json_str(evidence.fact_schema);
-    raw_line(",");
-    raw("        \"fact_id\": ");
-    json_str(evidence.fact_id);
-    raw_line(",");
-    raw("        \"source_method\": ");
-    json_str(evidence.source_method);
-    raw_line(",");
-    raw("        \"source_fact_locator\": ");
-    json_str(evidence.source_fact_locator);
-    raw_line(",");
-    raw("        \"readiness_status\": ");
-    json_str(evidence.readiness_status);
-    raw_line(",");
-    raw("        \"readiness_reason\": ");
-    json_str(evidence.readiness_reason);
-    raw_line(",");
-    raw("        \"fact_status\": ");
-    json_str(evidence.fact_status);
-    raw_line(",");
-    raw("        \"fact_reason\": ");
-    json_str(evidence.fact_reason);
-    raw_line(",");
-    raw("        \"fact_present\": ");
-    raw_bool(evidence.fact_present);
-    raw_line(",");
-    raw("        \"dependency_gate\": ");
-    json_str(evidence.dependency_gate);
-    raw_line(",");
-    raw("        \"dependency_schema\": ");
-    json_str(evidence.dependency_schema);
-    raw_line(",");
-    raw("        \"dependency_method\": ");
-    json_str(evidence.dependency_method);
-    raw_line(",");
-    raw("        \"dependency_present\": ");
-    raw_bool(evidence.dependency_present);
-    raw_line(",");
-    raw("        \"dependency_source_evidence_event_id\": ");
-    json_event_id_option(evidence.dependency_source_evidence_event_id);
-    raw_line(",");
-    raw_line("        \"accepts_loader_descriptor\": false,");
-    raw_line("        \"accepts_artifact_bytes\": false,");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false,");
-    raw_line("        \"authorizes_load\": false");
-    raw_line("      }");
+    emit_record_property_line(
+        "source_evidence",
+        vec![
+            f("schema", s(evidence.schema)),
+            f("state", s("retained")),
+            f("status", s("retained_current_boot_source_evidence")),
+            f("reason", s("module_loader_fact_source_evidence_recorded")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("retention", s("current_boot_ram_event_log")),
+            f("event_id", record_event_or_null(Some(event_id))),
+            f("fact_schema", s(evidence.fact_schema)),
+            f("fact_id", s(evidence.fact_id)),
+            f("source_method", s(evidence.source_method)),
+            f("source_fact_locator", s(evidence.source_fact_locator)),
+            f("readiness_status", s(evidence.readiness_status)),
+            f("readiness_reason", s(evidence.readiness_reason)),
+            f("fact_status", s(evidence.fact_status)),
+            f("fact_reason", s(evidence.fact_reason)),
+            f("fact_present", b(evidence.fact_present)),
+            f("dependency_gate", s(evidence.dependency_gate)),
+            f("dependency_schema", s(evidence.dependency_schema)),
+            f("dependency_method", s(evidence.dependency_method)),
+            f("dependency_present", b(evidence.dependency_present)),
+            f(
+                "dependency_source_evidence_event_id",
+                record_event_or_null(evidence.dependency_source_evidence_event_id),
+            ),
+            f("accepts_loader_descriptor", no()),
+            f("accepts_artifact_bytes", no()),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+            f("authorizes_load", no()),
+        ],
+        false,
+    );
 }
 
 fn emit_module_loader_fact_object(
@@ -659,112 +659,93 @@ fn emit_module_loader_fact_object(
     evaluation: ModuleLoaderFactEvaluation,
     source_evidence_event_id: Option<event_log::EventId>,
 ) {
-    raw("      ");
-    json_str(spec.field);
-    raw_line(": {");
-    raw("        \"schema\": ");
-    json_str(spec.schema);
-    raw_line(",");
-    raw("        \"state\": ");
-    json_str(if fact.present { "present" } else { "missing" });
-    raw_line(",");
-    raw("        \"status\": ");
-    json_str(evaluation.fact_status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(evaluation.fact_reason);
-    raw_line(",");
-    raw_line("        \"scope\": \"current_boot\",");
-    raw("        \"fact_scope\": ");
-    json_str(fact.scope);
-    raw_line(",");
-    raw("        \"schema_valid\": ");
-    raw_bool(fact.schema_ok);
-    raw_line(",");
-    raw("        \"classification\": ");
-    json_str(fact.classification);
-    raw_line(",");
-    raw("        \"provenance_valid\": ");
-    raw_bool(fact.provenance_ok);
-    raw_line(",");
-    raw("        \"binds_retained_module_evidence\": ");
-    raw_bool(fact.binds_retained_module_evidence);
-    raw_line(",");
-    raw("        \"binds_service_slot_allocator\": ");
-    raw_bool(fact.binds_service_slot_allocator);
-    raw_line(",");
-    raw("        \"binds_audit_rollback_write_boundary\": ");
-    raw_bool(fact.binds_audit_rollback_write_boundary);
-    raw_line(",");
-    raw("        \"binds_");
-    raw(spec.dependency_gate);
-    raw("\": ");
-    raw_bool(fact.binds_dependency);
-    raw_line(",");
-    raw("        \"fact_id\": ");
-    json_str(spec.fact_id);
-    raw_line(",");
-    raw("        \"source_method\": ");
-    json_str(spec.method);
-    raw_line(",");
-    raw("        \"source_fact_locator\": ");
-    json_str(spec.source_fact_locator);
-    raw_line(",");
+    let mut fields = vec![
+        f("schema", s(spec.schema)),
+        f("state", s(if fact.present { "present" } else { "missing" })),
+        f("status", s(evaluation.fact_status)),
+        f("reason", s(evaluation.fact_reason)),
+        f("scope", s("current_boot")),
+        f("fact_scope", s(fact.scope)),
+        f("schema_valid", b(fact.schema_ok)),
+        f("classification", s(fact.classification)),
+        f("provenance_valid", b(fact.provenance_ok)),
+        f(
+            "binds_retained_module_evidence",
+            b(fact.binds_retained_module_evidence),
+        ),
+        f(
+            "binds_service_slot_allocator",
+            b(fact.binds_service_slot_allocator),
+        ),
+        f(
+            "binds_audit_rollback_write_boundary",
+            b(fact.binds_audit_rollback_write_boundary),
+        ),
+        f(
+            module_loader_fact_dependency_bind_field(spec),
+            b(fact.binds_dependency),
+        ),
+        f("fact_id", s(spec.fact_id)),
+        f("source_method", s(spec.method)),
+        f("source_fact_locator", s(spec.source_fact_locator)),
+    ];
     if source_evidence_event_id.is_some() {
-        raw("        \"source_evidence_event_id\": ");
-        json_event_id_option(source_evidence_event_id);
-        raw_line(",");
-        raw("        \"source_evidence_schema\": ");
-        json_str(spec.source_evidence_schema);
-        raw_line(",");
-        raw_line("        \"source_evidence_state\": \"retained_current_boot\",");
+        fields.push(f(
+            "source_evidence_event_id",
+            record_event_or_null(source_evidence_event_id),
+        ));
+        fields.push(f("source_evidence_schema", s(spec.source_evidence_schema)));
+        fields.push(f("source_evidence_state", s("retained_current_boot")));
     }
-    raw_line("        \"persistence\": \"none\",");
-    raw_line("        \"durable\": false,");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"authorizes_load\": false");
-    raw_line("      }");
+    fields.push(f("persistence", s("none")));
+    fields.push(f("durable", no()));
+    fields.push(f("loads_artifact", no()));
+    fields.push(f("allocates_service_slot", no()));
+    fields.push(f("creates_service_inventory_records", no()));
+    fields.push(f("service_inventory_change", s("none")));
+    fields.push(f("authorizes_load", no()));
+    emit_record_property_line(spec.field, fields, false);
 }
 
 fn emit_module_loader_fact_policy_result(
     candidate: ModuleLoaderFactCandidate,
     evaluation: ModuleLoaderFactEvaluation,
 ) {
-    raw_line("      \"policy_result\": {");
-    raw("        \"readiness_status\": ");
-    json_str(evaluation.status);
-    raw_line(",");
-    raw("        \"readiness_reason\": ");
-    json_str(evaluation.reason);
-    raw_line(",");
-    raw("        \"retained_module_evidence_present\": ");
-    raw_bool(candidate.retained_module_evidence_present);
-    raw_line(",");
-    raw("        \"service_slot_allocator_readiness_present\": ");
-    raw_bool(candidate.service_slot_allocator_readiness_present);
-    raw_line(",");
-    raw("        \"service_slot_allocator_ready\": ");
-    raw_bool(candidate.service_slot_allocator_ready);
-    raw_line(",");
-    raw("        \"audit_rollback_write_boundary_present\": ");
-    raw_bool(candidate.audit_rollback_write_boundary_present);
-    raw_line(",");
-    raw("        \"dependency_present\": ");
-    raw_bool(candidate.dependency_present);
-    raw_line(",");
-    raw("        \"fact_available\": ");
-    raw_bool(method_eq(evaluation.fact_status, "available"));
-    raw_line(",");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      }");
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("readiness_status", s(evaluation.status)),
+            f("readiness_reason", s(evaluation.reason)),
+            f(
+                "retained_module_evidence_present",
+                b(candidate.retained_module_evidence_present),
+            ),
+            f(
+                "service_slot_allocator_readiness_present",
+                b(candidate.service_slot_allocator_readiness_present),
+            ),
+            f(
+                "service_slot_allocator_ready",
+                b(candidate.service_slot_allocator_ready),
+            ),
+            f(
+                "audit_rollback_write_boundary_present",
+                b(candidate.audit_rollback_write_boundary_present),
+            ),
+            f("dependency_present", b(candidate.dependency_present)),
+            f(
+                "fact_available",
+                b(method_eq(evaluation.fact_status, "available")),
+            ),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ],
+        false,
+    );
 }
 
 fn emit_module_loader_fact_blocked_by(
@@ -824,37 +805,35 @@ fn emit_module_loader_fact_gate(
     } else {
         *wrote = true;
     }
-    raw("        {\"gate\": ");
-    json_str(gate);
-    raw(", \"state\": ");
-    json_str(state);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw("}");
+    emit_inline_record_object_fragment(
+        vec![
+            f("gate", s(gate)),
+            f("state", s(state)),
+            f("reason", s(reason)),
+        ],
+        8,
+    );
 }
 
 fn emit_module_loader_fact_selftest_case(case: &ModuleLoaderFactSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"actual_fact_status\": ");
-    json_str(case.actual_fact_status);
-    raw(", \"actual_fact_reason\": ");
-    json_str(case.actual_fact_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_object(
+        vec![
+            f("case", s(case.name)),
+            f("expected_status", s(case.expected_status)),
+            f("expected_reason", s(case.expected_reason)),
+            f("actual_status", s(case.actual_status)),
+            f("actual_reason", s(case.actual_reason)),
+            f("actual_fact_status", s(case.actual_fact_status)),
+            f("actual_fact_reason", s(case.actual_fact_reason)),
+            f("passed", b(case.passed)),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("can_load", no()),
+            f("load_attempted", no()),
+        ],
+        comma,
+    );
 }
 
 fn evaluate_module_loader_fact_candidate(

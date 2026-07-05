@@ -1,12 +1,17 @@
+use alloc::vec;
+
 use crate::{
     agent_protocol_module_service_slot_allocator_projection::latest_module_service_slot_allocator_readiness_projection,
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        begin_response, crlf, end_response, json_event_id_option, json_str, method_eq,
-        method_head_eq, raw, raw_bool, raw_fmt, raw_line,
+        begin_response, crlf, emit_inline_record_object, emit_inline_record_object_fragment,
+        emit_record_fields_trailing_comma, emit_record_property_line, end_response, method_eq,
+        method_head_eq, raw_line, record_bool as b, record_event_or_null, record_false as no,
+        record_field as f, record_str as s,
     },
     event_log,
 };
+use raios_core::record::Value as V;
 
 pub(crate) fn module_loader_identity_method(method: &str) -> bool {
     method_head_eq(method, "module.loader_identity")
@@ -62,22 +67,28 @@ pub(crate) fn emit_module_loader_identity() {
         event_log::record_module_loader_identity_source_evidence(source_evidence);
 
     begin_response("module.loader_identity");
-    raw_line("      \"schema\": \"raios.module_loader_identity.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"mutates_global_event_log\": true,");
-    raw_line(
-        "      \"global_event_log_mutation\": \"retained_current_boot_source_evidence_only\",",
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.module_loader_identity.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", b(true)),
+            f(
+                "global_event_log_mutation",
+                s("retained_current_boot_source_evidence_only"),
+            ),
+            f("accepts_loader_descriptor", no()),
+            f("accepts_artifact_bytes", no()),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ],
+        6,
     );
-    raw_line("      \"accepts_loader_descriptor\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"creates_service_inventory_records\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"can_load_now\": false,");
-    raw_line("      \"load_attempted\": false,");
     emit_module_loader_identity_retained_module_evidence(
         retained_module_evidence_present,
         manifest.as_ref().map(|(event_id, _)| *event_id),
@@ -145,25 +156,26 @@ pub(crate) fn emit_module_loader_identity_selftest() {
     }
 
     begin_response("module.loader_identity_selftest");
-    raw_line("      \"schema\": \"raios.module_loader_identity_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"accepts_loader_descriptor\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"creates_service_inventory_records\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"can_load_now\": false,");
-    raw_line("      \"load_attempted\": false,");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.module_loader_identity_selftest.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("accepts_loader_descriptor", no()),
+            f("accepts_artifact_bytes", no()),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+        ],
+        6,
+    );
     raw_line("      \"cases\": [");
     idx = 0;
     while idx < cases.len() {
@@ -186,146 +198,150 @@ fn emit_module_loader_identity_retained_module_evidence(
     audit_rollback_event_id: Option<event_log::EventId>,
     service_slot_event_id: Option<event_log::EventId>,
 ) {
-    raw_line("      \"retained_module_evidence\": {");
-    raw("        \"state\": ");
-    json_str(if retained_module_evidence_present {
+    let state = if retained_module_evidence_present {
         "available"
     } else {
         "missing"
-    });
-    raw_line(",");
-    raw("        \"status\": ");
-    json_str(if retained_module_evidence_present {
-        "available"
-    } else {
-        "missing"
-    });
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(if retained_module_evidence_present {
-        "retained_module_evidence_available"
-    } else {
-        "retained_module_evidence_missing"
-    });
-    raw_line(",");
-    raw_line("        \"classification\": \"local_only\",");
-    raw_line("        \"authority\": \"current_boot_hash_references\",");
-    raw("        \"manifest_reference_event_id\": ");
-    json_event_id_option(manifest_event_id);
-    raw_line(",");
-    raw("        \"candidate_artifact_reference_event_id\": ");
-    json_event_id_option(artifact_event_id);
-    raw_line(",");
-    raw("        \"vm_test_report_reference_event_id\": ");
-    json_event_id_option(vm_report_event_id);
-    raw_line(",");
-    raw("        \"local_attestation_reference_event_id\": ");
-    json_event_id_option(local_attestation_event_id);
-    raw_line(",");
-    raw("        \"local_approval_reference_event_id\": ");
-    json_event_id_option(local_approval_event_id);
-    raw_line(",");
-    raw("        \"computed_grant_reference_event_id\": ");
-    json_event_id_option(computed_grant_event_id);
-    raw_line(",");
-    raw("        \"audit_rollback_reference_event_id\": ");
-    json_event_id_option(audit_rollback_event_id);
-    raw_line(",");
-    raw("        \"service_slot_reservation_event_id\": ");
-    json_event_id_option(service_slot_event_id);
-    crlf();
-    raw_line("      }");
+    };
+    emit_record_property_line(
+        "retained_module_evidence",
+        vec![
+            f("state", s(state)),
+            f("status", s(state)),
+            f(
+                "reason",
+                s(if retained_module_evidence_present {
+                    "retained_module_evidence_available"
+                } else {
+                    "retained_module_evidence_missing"
+                }),
+            ),
+            f("classification", s("local_only")),
+            f("authority", s("current_boot_hash_references")),
+            f(
+                "manifest_reference_event_id",
+                record_event_or_null(manifest_event_id),
+            ),
+            f(
+                "candidate_artifact_reference_event_id",
+                record_event_or_null(artifact_event_id),
+            ),
+            f(
+                "vm_test_report_reference_event_id",
+                record_event_or_null(vm_report_event_id),
+            ),
+            f(
+                "local_attestation_reference_event_id",
+                record_event_or_null(local_attestation_event_id),
+            ),
+            f(
+                "local_approval_reference_event_id",
+                record_event_or_null(local_approval_event_id),
+            ),
+            f(
+                "computed_grant_reference_event_id",
+                record_event_or_null(computed_grant_event_id),
+            ),
+            f(
+                "audit_rollback_reference_event_id",
+                record_event_or_null(audit_rollback_event_id),
+            ),
+            f(
+                "service_slot_reservation_event_id",
+                record_event_or_null(service_slot_event_id),
+            ),
+        ],
+        false,
+    );
 }
 
 fn emit_module_loader_identity_source_evidence(
     event_id: event_log::EventId,
     evidence: event_log::ModuleLoaderIdentitySourceEvidence,
 ) {
-    raw_line("      \"source_evidence\": {");
-    raw("        \"schema\": ");
-    json_str(evidence.schema);
-    raw_line(",");
-    raw_line("        \"state\": \"retained\",");
-    raw_line("        \"status\": \"retained_current_boot_source_evidence\",");
-    raw_line("        \"reason\": \"module_loader_identity_source_evidence_recorded\",");
-    raw_line("        \"scope\": \"current_boot\",");
-    raw_line("        \"classification\": \"local_only\",");
-    raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-    raw("        \"event_id\": ");
-    json_event_id_option(Some(event_id));
-    raw_line(",");
-    raw("        \"fact_schema\": ");
-    json_str(evidence.fact_schema);
-    raw_line(",");
-    raw("        \"fact_id\": ");
-    json_str(evidence.fact_id);
-    raw_line(",");
-    raw("        \"source_method\": ");
-    json_str(evidence.source_method);
-    raw_line(",");
-    raw("        \"source_fact_locator\": ");
-    json_str(evidence.source_fact_locator);
-    raw_line(",");
-    raw("        \"readiness_status\": ");
-    json_str(evidence.readiness_status);
-    raw_line(",");
-    raw("        \"readiness_reason\": ");
-    json_str(evidence.readiness_reason);
-    raw_line(",");
-    raw("        \"identity_status\": ");
-    json_str(evidence.identity_status);
-    raw_line(",");
-    raw("        \"identity_reason\": ");
-    json_str(evidence.identity_reason);
-    raw_line(",");
-    raw("        \"identity_present\": ");
-    raw_bool(evidence.identity_present);
-    raw_line(",");
-    raw("        \"retained_module_evidence_present\": ");
-    raw_bool(evidence.retained_module_evidence_present);
-    raw_line(",");
-    raw("        \"service_slot_allocator_readiness_present\": ");
-    raw_bool(evidence.service_slot_allocator_readiness_present);
-    raw_line(",");
-    raw("        \"service_slot_allocator_ready\": ");
-    raw_bool(evidence.service_slot_allocator_ready);
-    raw_line(",");
-    raw("        \"audit_rollback_write_boundary_present\": ");
-    raw_bool(evidence.audit_rollback_write_boundary_present);
-    raw_line(",");
-    raw_line("        \"accepts_loader_descriptor\": false,");
-    raw_line("        \"accepts_artifact_bytes\": false,");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false,");
-    raw_line("        \"authorizes_load\": false");
-    raw_line("      }");
+    emit_record_property_line(
+        "source_evidence",
+        vec![
+            f("schema", s(evidence.schema)),
+            f("state", s("retained")),
+            f("status", s("retained_current_boot_source_evidence")),
+            f(
+                "reason",
+                s("module_loader_identity_source_evidence_recorded"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("retention", s("current_boot_ram_event_log")),
+            f("event_id", record_event_or_null(Some(event_id))),
+            f("fact_schema", s(evidence.fact_schema)),
+            f("fact_id", s(evidence.fact_id)),
+            f("source_method", s(evidence.source_method)),
+            f("source_fact_locator", s(evidence.source_fact_locator)),
+            f("readiness_status", s(evidence.readiness_status)),
+            f("readiness_reason", s(evidence.readiness_reason)),
+            f("identity_status", s(evidence.identity_status)),
+            f("identity_reason", s(evidence.identity_reason)),
+            f("identity_present", b(evidence.identity_present)),
+            f(
+                "retained_module_evidence_present",
+                b(evidence.retained_module_evidence_present),
+            ),
+            f(
+                "service_slot_allocator_readiness_present",
+                b(evidence.service_slot_allocator_readiness_present),
+            ),
+            f(
+                "service_slot_allocator_ready",
+                b(evidence.service_slot_allocator_ready),
+            ),
+            f(
+                "audit_rollback_write_boundary_present",
+                b(evidence.audit_rollback_write_boundary_present),
+            ),
+            f("accepts_loader_descriptor", no()),
+            f("accepts_artifact_bytes", no()),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+            f("authorizes_load", no()),
+        ],
+        false,
+    );
 }
 
 fn emit_module_loader_identity_required_bindings(
     candidate: ModuleLoaderIdentityCandidate,
     evaluation: ModuleLoaderIdentityEvaluation,
 ) {
-    raw_line("      \"required_bindings\": {");
-    raw("        \"retained_module_evidence\": ");
-    json_str(evaluation.retained_module_evidence_status);
-    raw_line(",");
-    raw("        \"service_slot_allocator_readiness\": ");
-    json_str(evaluation.service_slot_allocator_readiness_status);
-    raw_line(",");
-    raw("        \"service_slot_allocator_runtime\": ");
-    json_str(evaluation.service_slot_allocator_runtime_status);
-    raw_line(",");
-    raw("        \"audit_rollback_write_boundary\": ");
-    json_str(evaluation.audit_rollback_write_boundary_status);
-    raw_line(",");
-    raw("        \"loader_identity_fact_present\": ");
-    raw_bool(candidate.identity.present);
-    crlf();
-    raw_line("      }");
+    emit_record_property_line(
+        "required_bindings",
+        vec![
+            f(
+                "retained_module_evidence",
+                s(evaluation.retained_module_evidence_status),
+            ),
+            f(
+                "service_slot_allocator_readiness",
+                s(evaluation.service_slot_allocator_readiness_status),
+            ),
+            f(
+                "service_slot_allocator_runtime",
+                s(evaluation.service_slot_allocator_runtime_status),
+            ),
+            f(
+                "audit_rollback_write_boundary",
+                s(evaluation.audit_rollback_write_boundary_status),
+            ),
+            f(
+                "loader_identity_fact_present",
+                b(candidate.identity.present),
+            ),
+        ],
+        false,
+    );
 }
 
 fn emit_module_loader_identity_fact(
@@ -333,94 +349,98 @@ fn emit_module_loader_identity_fact(
     evaluation: ModuleLoaderIdentityEvaluation,
     source_evidence_event_id: event_log::EventId,
 ) {
-    raw_line("      \"loader_identity\": {");
-    raw_line("        \"schema\": \"raios.module_loader_identity.v0\",");
-    raw("        \"state\": ");
-    json_str(if fact.present { "present" } else { "missing" });
-    raw_line(",");
-    raw("        \"status\": ");
-    json_str(evaluation.identity_status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(evaluation.identity_reason);
-    raw_line(",");
-    raw_line("        \"scope\": \"current_boot\",");
-    raw("        \"fact_scope\": ");
-    json_str(fact.scope);
-    raw_line(",");
-    raw("        \"schema_valid\": ");
-    raw_bool(fact.schema_ok);
-    raw_line(",");
-    raw("        \"classification\": ");
-    json_str(fact.classification);
-    raw_line(",");
-    raw("        \"provenance_valid\": ");
-    raw_bool(fact.provenance_ok);
-    raw_line(",");
-    raw("        \"binds_retained_module_evidence\": ");
-    raw_bool(fact.binds_retained_module_evidence);
-    raw_line(",");
-    raw("        \"binds_service_slot_allocator\": ");
-    raw_bool(fact.binds_service_slot_allocator);
-    raw_line(",");
-    raw("        \"binds_audit_rollback_write_boundary\": ");
-    raw_bool(fact.binds_audit_rollback_write_boundary);
-    raw_line(",");
-    raw_line("        \"fact_id\": \"module.loader_runtime.identity.current_boot\",");
-    raw_line("        \"source_method\": \"module.loader_identity\",");
-    raw_line("        \"source_fact_locator\": \"module.loader_identity.loader_identity\",");
-    raw("        \"source_evidence_event_id\": ");
-    json_event_id_option(Some(source_evidence_event_id));
-    raw_line(",");
-    raw_line(
-        "        \"source_evidence_schema\": \"raios.module_loader_identity_source_evidence.v0\",",
+    emit_record_property_line(
+        "loader_identity",
+        vec![
+            f("schema", s("raios.module_loader_identity.v0")),
+            f("state", s(if fact.present { "present" } else { "missing" })),
+            f("status", s(evaluation.identity_status)),
+            f("reason", s(evaluation.identity_reason)),
+            f("scope", s("current_boot")),
+            f("fact_scope", s(fact.scope)),
+            f("schema_valid", b(fact.schema_ok)),
+            f("classification", s(fact.classification)),
+            f("provenance_valid", b(fact.provenance_ok)),
+            f(
+                "binds_retained_module_evidence",
+                b(fact.binds_retained_module_evidence),
+            ),
+            f(
+                "binds_service_slot_allocator",
+                b(fact.binds_service_slot_allocator),
+            ),
+            f(
+                "binds_audit_rollback_write_boundary",
+                b(fact.binds_audit_rollback_write_boundary),
+            ),
+            f("fact_id", s("module.loader_runtime.identity.current_boot")),
+            f("source_method", s("module.loader_identity")),
+            f(
+                "source_fact_locator",
+                s("module.loader_identity.loader_identity"),
+            ),
+            f(
+                "source_evidence_event_id",
+                record_event_or_null(Some(source_evidence_event_id)),
+            ),
+            f(
+                "source_evidence_schema",
+                s("raios.module_loader_identity_source_evidence.v0"),
+            ),
+            f("source_evidence_state", s("retained_current_boot")),
+            f("persistence", s("none")),
+            f("durable", no()),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("authorizes_load", no()),
+        ],
+        false,
     );
-    raw_line("        \"source_evidence_state\": \"retained_current_boot\",");
-    raw_line("        \"persistence\": \"none\",");
-    raw_line("        \"durable\": false,");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"authorizes_load\": false");
-    raw_line("      }");
 }
 
 fn emit_module_loader_identity_policy_result(
     candidate: ModuleLoaderIdentityCandidate,
     evaluation: ModuleLoaderIdentityEvaluation,
 ) {
-    raw_line("      \"policy_result\": {");
-    raw("        \"readiness_status\": ");
-    json_str(evaluation.status);
-    raw_line(",");
-    raw("        \"readiness_reason\": ");
-    json_str(evaluation.reason);
-    raw_line(",");
-    raw("        \"retained_module_evidence_present\": ");
-    raw_bool(candidate.retained_module_evidence_present);
-    raw_line(",");
-    raw("        \"service_slot_allocator_readiness_present\": ");
-    raw_bool(candidate.service_slot_allocator_readiness_present);
-    raw_line(",");
-    raw("        \"service_slot_allocator_ready\": ");
-    raw_bool(candidate.service_slot_allocator_ready);
-    raw_line(",");
-    raw("        \"audit_rollback_write_boundary_present\": ");
-    raw_bool(candidate.audit_rollback_write_boundary_present);
-    raw_line(",");
-    raw("        \"identity_available\": ");
-    raw_bool(method_eq(evaluation.identity_status, "available"));
-    raw_line(",");
-    raw_line("        \"loads_artifact\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"creates_service_inventory_records\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw_line("      }");
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("readiness_status", s(evaluation.status)),
+            f("readiness_reason", s(evaluation.reason)),
+            f(
+                "retained_module_evidence_present",
+                b(candidate.retained_module_evidence_present),
+            ),
+            f(
+                "service_slot_allocator_readiness_present",
+                b(candidate.service_slot_allocator_readiness_present),
+            ),
+            f(
+                "service_slot_allocator_ready",
+                b(candidate.service_slot_allocator_ready),
+            ),
+            f(
+                "audit_rollback_write_boundary_present",
+                b(candidate.audit_rollback_write_boundary_present),
+            ),
+            f(
+                "identity_available",
+                b(method_eq(evaluation.identity_status, "available")),
+            ),
+            f("loads_artifact", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ],
+        false,
+    );
 }
 
+#[rustfmt::skip]
 fn emit_module_loader_identity_gate(
     wrote: &mut bool,
     gate: &'static str,
@@ -435,37 +455,12 @@ fn emit_module_loader_identity_gate(
     } else {
         *wrote = true;
     }
-    raw("        {\"gate\": ");
-    json_str(gate);
-    raw(", \"state\": ");
-    json_str(state);
-    raw(", \"reason\": ");
-    json_str(reason);
-    raw("}");
+    emit_inline_record_object_fragment(vec![f("gate", s(gate)), f("state", s(state)), f("reason", s(reason))], 8);
 }
 
+#[rustfmt::skip]
 fn emit_module_loader_identity_selftest_case(case: &ModuleLoaderIdentitySelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"actual_identity_status\": ");
-    json_str(case.actual_identity_status);
-    raw(", \"actual_identity_reason\": ");
-    json_str(case.actual_identity_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"loads_artifact\": false, \"allocates_service_slot\": false, \"creates_service_inventory_records\": false, \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("actual_identity_status", s(case.actual_identity_status)), f("actual_identity_reason", s(case.actual_identity_reason)), f("passed", b(case.passed)), f("loads_artifact", no()), f("allocates_service_slot", no()), f("creates_service_inventory_records", no()), f("can_load", no()), f("load_attempted", no())], comma);
 }
 
 fn module_loader_identity_source_evidence(

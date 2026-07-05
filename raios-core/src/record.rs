@@ -19,6 +19,7 @@ pub enum Value<'a> {
     TrimmedAsciiBytes(&'a [u8]),
     Sha256([u8; 32]),
     EventSequence(u64),
+    InlineArray(Vec<Value<'a>>),
     Array(Vec<Value<'a>>),
     InlineObject(Vec<Field<'a>>),
     Object(Vec<Field<'a>>),
@@ -46,6 +47,7 @@ pub fn write_json<S: ByteSink>(value: &Value<'_>, sink: &mut S, indent: usize) {
         Value::TrimmedAsciiBytes(value) => write_trimmed_ascii_bytes(value, sink),
         Value::Sha256(value) => write_sha256(*value, sink),
         Value::EventSequence(value) => write_event_sequence(*value, sink),
+        Value::InlineArray(values) => write_inline_array(values, sink, indent),
         Value::Array(values) => write_array(values, sink, indent),
         Value::InlineObject(fields) => write_inline_object(fields, sink, indent),
         Value::Object(fields) => write_object(fields, sink, indent),
@@ -103,6 +105,19 @@ fn write_array<S: ByteSink>(values: &[Value<'_>], sink: &mut S, indent: usize) {
         idx += 1;
     }
     write_indent(sink, indent);
+    sink.write_bytes(b"]");
+}
+
+fn write_inline_array<S: ByteSink>(values: &[Value<'_>], sink: &mut S, indent: usize) {
+    sink.write_bytes(b"[");
+    let mut idx = 0usize;
+    while idx < values.len() {
+        if idx != 0 {
+            sink.write_bytes(b", ");
+        }
+        write_json(&values[idx], sink, indent);
+        idx += 1;
+    }
     sink.write_bytes(b"]");
 }
 
@@ -288,6 +303,18 @@ mod tests {
         assert_eq!(
             render(&value),
             b"{\"schema\": \"raios.test.v0\", \"hashes\": {\"artifact_hash\": \"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}, \"load_attempted\": false}"
+        );
+    }
+
+    #[test]
+    fn inline_array_renders_single_line_values() {
+        assert_eq!(
+            render(&Value::InlineArray(vec![
+                Value::Bool(true),
+                Value::Null,
+                Value::EventSequence(7),
+            ])),
+            b"[true, null, \"event.current_boot.00000007\"]"
         );
     }
 
