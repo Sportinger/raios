@@ -56,6 +56,10 @@ pub(crate) fn record_event(value: event_log::EventId) -> Value<'static> {
     Value::EventSequence(value.sequence())
 }
 
+pub(crate) fn record_event_field<'a>(key: &'a str, value: event_log::EventId) -> Field<'a> {
+    record_field(key, record_event(value))
+}
+
 pub(crate) fn record_sha(value: [u8; 32]) -> Value<'static> {
     Value::Sha256(value)
 }
@@ -140,6 +144,10 @@ pub(crate) fn record_object<'a>(fields: Vec<Field<'a>>) -> Value<'a> {
     Value::Object(fields)
 }
 
+pub(crate) fn record_object_field<'a>(key: &'a str, fields: Vec<Field<'a>>) -> Field<'a> {
+    record_field(key, record_object(fields))
+}
+
 pub(crate) fn record_sha_or_null(value: Option<[u8; 32]>) -> Value<'static> {
     match value {
         Some(value) => Value::Sha256(value),
@@ -152,6 +160,72 @@ pub(crate) fn record_event_or_null(value: Option<event_log::EventId>) -> Value<'
         Some(value) => Value::EventSequence(value.sequence()),
         None => Value::Null,
     }
+}
+
+pub(crate) fn record_present_absent(present: bool) -> Value<'static> {
+    record_str(if present { "present" } else { "absent" })
+}
+
+pub(crate) fn record_retained_reference_present_fields<'a>(
+    event_id: event_log::EventId,
+    recorded_event_id: Option<event_log::EventId>,
+    matches_current_reference: bool,
+    schema: &'a str,
+) -> Vec<Field<'a>> {
+    vec![
+        record_field("state", record_str("present")),
+        record_field("retention", record_str("current_boot_ram_event_log")),
+        record_field("event_id", record_event_or_null(Some(event_id))),
+        record_field("recorded_event_id", record_event_or_null(recorded_event_id)),
+        record_field(
+            "matches_current_reference",
+            record_bool(matches_current_reference),
+        ),
+        record_field("schema", record_str(schema)),
+        record_field(
+            "status",
+            record_str("retained_hash_reference_load_still_denied"),
+        ),
+        record_field("classification", record_str("local_only")),
+    ]
+}
+
+pub(crate) fn record_missing_retained_reference_fields<'a>(
+    schema: &'a str,
+    reason: &'a str,
+) -> Vec<Field<'a>> {
+    vec![
+        record_field("state", record_str("missing")),
+        record_field("retention", record_str("current_boot_ram_event_log")),
+        record_field("event_id", Value::Null),
+        record_field("recorded_event_id", Value::Null),
+        record_field("matches_current_reference", record_false()),
+        record_field("schema", record_str(schema)),
+        record_field("status", record_str("missing")),
+        record_field("reason", record_str(reason)),
+        record_field("can_load_now", record_false()),
+        record_field("load_attempted", record_false()),
+    ]
+}
+
+pub(crate) fn record_selftest_case<'a>(
+    name: &'a str,
+    expected_status: &'a str,
+    expected_reason: &'a str,
+    actual_status: &'a str,
+    actual_reason: &'a str,
+    passed: bool,
+) -> Value<'a> {
+    Value::InlineObject(vec![
+        record_field("case", record_str(name)),
+        record_field("expected_status", record_str(expected_status)),
+        record_field("expected_reason", record_str(expected_reason)),
+        record_field("actual_status", record_str(actual_status)),
+        record_field("actual_reason", record_str(actual_reason)),
+        record_field("passed", record_bool(passed)),
+        record_field("can_load", record_false()),
+        record_field("load_attempted", record_false()),
+    ])
 }
 
 pub(crate) fn emit_record_property(name: &str, fields: Vec<Field<'_>>) {

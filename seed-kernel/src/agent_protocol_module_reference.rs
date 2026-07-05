@@ -1,13 +1,20 @@
+use alloc::vec;
+
 use crate::{
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        begin_response, crlf, current_boot_event_id_str, emit_export_gate, end_response,
-        json_event_id, json_event_id_option, json_opt_str, json_sha256, json_sha256_option,
-        json_str, method_eq, method_head_eq, parse_current_boot_event_id, parse_sha256_ref, raw,
-        raw_bool, raw_fmt, raw_line,
+        begin_response, crlf, current_boot_event_id_str, emit_export_gate,
+        emit_record_fields_trailing_comma, emit_record_property_line,
+        emit_record_value_property_line, end_response, method_eq, method_head_eq,
+        parse_current_boot_event_id, parse_sha256_ref, raw_line, record_bool as b, record_event,
+        record_false as no, record_field as f, record_missing_retained_reference_fields,
+        record_present_absent, record_retained_reference_present_fields, record_selftest_case,
+        record_sha_fields, record_sha_or_null, record_static_str_array, record_str as s,
+        record_str_or_null,
     },
     event_log, module_evidence,
 };
+use raios_core::record::Value as V;
 pub(crate) fn emit_module_manifest_diagnostic(method: &str) {
     let arg = module_manifest_diagnostic_arg(method);
     let check = parse_module_manifest_reference(arg);
@@ -19,44 +26,57 @@ pub(crate) fn emit_module_manifest_diagnostic(method: &str) {
     let retained = event_log::latest_module_manifest_reference();
 
     begin_response("module.manifest_diagnostic");
-    raw_line("      \"schema\": \"raios.module_manifest_reference_diagnostic.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw("      \"mutates_global_event_log\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw("      \"global_event_log_mutation\": ");
-    json_str(if check.valid {
-        "valid_hash_reference_retention_only"
-    } else {
-        "none"
-    });
-    raw_line(",");
-    raw_line("      \"accepts_manifest_json\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"accepts_unsigned_service_code\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"module.manifest_diagnostic <manifest_reference_hash> <manifest_hash> [current_boot]\",");
-    raw_line("      \"request\": {");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"subject\": \"agent.session.serial\",");
-    raw_line("        \"resource\": \"live_service_graph\",");
-    raw_line("        \"manifest_schema\": \"raios.module_manifest.v0\",");
-    raw_line("        \"manifest_reference_schema\": \"raios.module_manifest_reference.v0\",");
-    raw_line("        \"manifest_reference_canonicalization\": \"raios.module_manifest_reference.canonical.v0\"");
-    raw_line("      },");
-    emit_module_manifest_reference_object(&check);
-    raw_line(",");
-    emit_module_manifest_retained_reference(&check, recorded_event_id, retained);
-    raw_line(",");
-    emit_module_manifest_gate_state(&check);
-    raw_line(",");
-    emit_module_manifest_policy_result(&check);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.module_manifest_reference_diagnostic.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", b(check.valid)),
+            f(
+                "global_event_log_mutation",
+                s(if check.valid {
+                    "valid_hash_reference_retention_only"
+                } else {
+                    "none"
+                }),
+            ),
+            f("accepts_manifest_json", no()),
+            f("accepts_artifact_bytes", no()),
+            f("accepts_unsigned_service_code", no()),
+            f("loads_artifact", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "reference_format",
+                s("module.manifest_diagnostic <manifest_reference_hash> <manifest_hash> [current_boot]"),
+            ),
+        ],
+        6,
+    );
+    emit_record_property_line(
+        "request",
+        vec![
+            f("requested_capability", s("cap.module.load_ephemeral")),
+            f("load_mode", s("ram_only")),
+            f("subject", s("agent.session.serial")),
+            f("resource", s("live_service_graph")),
+            f("manifest_schema", s("raios.module_manifest.v0")),
+            f(
+                "manifest_reference_schema",
+                s("raios.module_manifest_reference.v0"),
+            ),
+            f(
+                "manifest_reference_canonicalization",
+                s("raios.module_manifest_reference.canonical.v0"),
+            ),
+        ],
+        true,
+    );
+    emit_module_manifest_reference_object(&check, true);
+    emit_module_manifest_retained_reference(&check, recorded_event_id, retained, true);
+    emit_module_manifest_gate_state(&check, true);
+    emit_module_manifest_policy_result(&check, true);
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     if !check.valid {
@@ -109,92 +129,70 @@ pub(crate) fn emit_module_manifest_diagnostic(method: &str) {
     end_response("module.manifest_diagnostic");
 }
 
-fn emit_module_manifest_reference_object(check: &ModuleManifestReferenceCheck<'_>) {
-    raw_line("      \"module_manifest_reference\": {");
-    raw("        \"state\": ");
-    json_str(if check.has_reference {
-        "present"
-    } else {
-        "absent"
-    });
-    raw_line(",");
-    raw("        \"validation_status\": ");
-    json_str(check.status);
-    raw_line(",");
-    raw("        \"validation_reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"arity_valid\": ");
-    raw_bool(check.arity_valid);
-    raw_line(",");
-    raw("        \"scope\": ");
-    json_str(check.scope);
-    raw_line(",");
-    raw_line("        \"manifest_schema\": \"raios.module_manifest.v0\",");
-    raw("        \"manifest_reference_hash\": ");
-    json_sha256_option(check.manifest_reference_hash);
-    raw_line(",");
-    raw("        \"expected_manifest_reference_hash\": ");
-    json_sha256_option(check.expected_manifest_reference_hash);
-    raw_line(",");
-    raw("        \"manifest_hash\": ");
-    json_sha256_option(check.manifest_hash);
-    crlf();
-    raw_line("      }");
+fn emit_module_manifest_reference_object(check: &ModuleManifestReferenceCheck<'_>, comma: bool) {
+    emit_record_property_line(
+        "module_manifest_reference",
+        vec![
+            f("state", record_present_absent(check.has_reference)),
+            f("validation_status", s(check.status)),
+            f("validation_reason", s(check.reason)),
+            f("arity_valid", b(check.arity_valid)),
+            f("scope", s(check.scope)),
+            f("manifest_schema", s("raios.module_manifest.v0")),
+            f(
+                "manifest_reference_hash",
+                record_sha_or_null(check.manifest_reference_hash),
+            ),
+            f(
+                "expected_manifest_reference_hash",
+                record_sha_or_null(check.expected_manifest_reference_hash),
+            ),
+            f("manifest_hash", record_sha_or_null(check.manifest_hash)),
+        ],
+        comma,
+    );
 }
 
 fn emit_module_manifest_retained_reference(
     check: &ModuleManifestReferenceCheck<'_>,
     recorded_event_id: Option<event_log::EventId>,
     retained: Option<(event_log::EventId, event_log::ModuleManifestReference)>,
+    comma: bool,
 ) {
-    raw_line("      \"retained_manifest_reference\": {");
-    if let Some((event_id, reference)) = retained {
-        raw_line("        \"state\": \"present\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw("        \"event_id\": ");
-        json_event_id(event_id);
-        raw_line(",");
-        raw("        \"recorded_event_id\": ");
-        json_event_id_option(recorded_event_id);
-        raw_line(",");
-        raw("        \"matches_current_reference\": ");
-        raw_bool(module_manifest_reference_matches(check, reference));
-        raw_line(",");
-        raw_line("        \"schema\": \"raios.module_manifest_reference.v0\",");
-        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
-        raw_line("        \"classification\": \"local_only\",");
-        raw_line("        \"accepts_manifest_json\": false,");
-        raw_line("        \"accepts_artifact_bytes\": false,");
-        raw_line("        \"accepts_unsigned_service_code\": false,");
-        raw_line("        \"authorizes_guest_load\": false,");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"service_inventory_change\": \"none\",");
-        raw_line("        \"load_attempted\": false,");
-        raw_line("        \"hashes\": {");
-        raw("          \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw_line(",");
-        raw("          \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        crlf();
-        raw_line("        }");
+    let fields = if let Some((event_id, reference)) = retained {
+        let mut fields = record_retained_reference_present_fields(
+            event_id,
+            recorded_event_id,
+            module_manifest_reference_matches(check, reference),
+            "raios.module_manifest_reference.v0",
+        );
+        fields.extend(vec![
+            f("accepts_manifest_json", no()),
+            f("accepts_artifact_bytes", no()),
+            f("accepts_unsigned_service_code", no()),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "hashes",
+                V::Object(record_sha_fields(&[
+                    ("manifest_reference_hash", reference.manifest_reference_hash),
+                    ("manifest_hash", reference.manifest_hash),
+                ])),
+            ),
+        ]);
+        fields
     } else {
-        raw_line("        \"state\": \"missing\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw_line("        \"event_id\": null,");
-        raw_line("        \"recorded_event_id\": null,");
-        raw_line("        \"matches_current_reference\": false,");
-        raw_line("        \"schema\": \"raios.module_manifest_reference.v0\",");
-        raw_line("        \"status\": \"missing\",");
-        raw_line("        \"reason\": \"no_valid_module_manifest_reference_retained\",");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"load_attempted\": false");
-    }
-    raw("      }");
+        record_missing_retained_reference_fields(
+            "raios.module_manifest_reference.v0",
+            "no_valid_module_manifest_reference_retained",
+        )
+    };
+    emit_record_property_line("retained_manifest_reference", fields, comma);
 }
 
-fn emit_module_manifest_gate_state(check: &ModuleManifestReferenceCheck<'_>) {
+fn emit_module_manifest_gate_state(check: &ModuleManifestReferenceCheck<'_>, comma: bool) {
     let state = if check.valid {
         "hash_reference_valid"
     } else if check.has_reference {
@@ -202,107 +200,105 @@ fn emit_module_manifest_gate_state(check: &ModuleManifestReferenceCheck<'_>) {
     } else {
         "missing"
     };
-    raw_line("      \"gate_state\": {");
-    raw("        \"module_manifest\": ");
-    json_str(state);
-    raw_line(",");
-    raw_line("        \"candidate_artifact\": \"missing\",");
-    raw_line("        \"vm_test_report\": \"missing\",");
-    raw_line("        \"local_attestation\": \"missing\",");
-    raw_line("        \"computed_capability_grant\": \"missing\",");
-    raw_line("        \"local_approval\": \"missing\",");
-    raw_line("        \"rollback_plan\": \"missing\",");
-    raw_line("        \"durable_audit_record\": \"missing\",");
-    raw_line("        \"loader\": \"unavailable\",");
-    raw_line("        \"service_slot\": \"unallocated\",");
-    raw_line("        \"artifact_loaded\": false,");
-    raw_line("        \"service_started\": false,");
-    raw_line("        \"persistence\": \"none\",");
-    raw_line("        \"can_load\": false");
-    raw("      }");
+    emit_record_property_line(
+        "gate_state",
+        vec![
+            f("module_manifest", s(state)),
+            f("candidate_artifact", s("missing")),
+            f("vm_test_report", s("missing")),
+            f("local_attestation", s("missing")),
+            f("computed_capability_grant", s("missing")),
+            f("local_approval", s("missing")),
+            f("rollback_plan", s("missing")),
+            f("durable_audit_record", s("missing")),
+            f("loader", s("unavailable")),
+            f("service_slot", s("unallocated")),
+            f("artifact_loaded", no()),
+            f("service_started", no()),
+            f("persistence", s("none")),
+            f("can_load", no()),
+        ],
+        comma,
+    );
 }
 
-fn emit_module_manifest_policy_result(check: &ModuleManifestReferenceCheck<'_>) {
-    raw_line("      \"policy_result\": {");
-    raw("        \"manifest_reference_present\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw_line("        \"authorizes_guest_load\": false,");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"load_attempted\": false,");
-    raw_line("        \"guest_evidence_authority\": \"hash_reference_only_no_manifest_json_or_artifact_bytes\",");
-    raw_line("        \"required_before_load\": [");
-    raw_line("          \"candidate_artifact_sha256\",");
-    raw_line("          \"raios.vm_test_report.v0\",");
-    raw_line("          \"raios.local_attestation.v0\",");
-    raw_line("          \"raios.computed_capability_grant.v0\",");
-    raw_line("          \"raios.audit_record.v0\",");
-    raw_line("          \"rollback_plan\",");
-    raw_line("          \"module_loader\",");
-    raw_line("          \"ram_only_service_slot\"");
-    raw_line("        ]");
-    raw("      }");
+fn emit_module_manifest_policy_result(check: &ModuleManifestReferenceCheck<'_>, comma: bool) {
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("manifest_reference_present", b(check.valid)),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "guest_evidence_authority",
+                s("hash_reference_only_no_manifest_json_or_artifact_bytes"),
+            ),
+            f(
+                "required_before_load",
+                record_static_str_array(&[
+                    "candidate_artifact_sha256",
+                    "raios.vm_test_report.v0",
+                    "raios.local_attestation.v0",
+                    "raios.computed_capability_grant.v0",
+                    "raios.audit_record.v0",
+                    "rollback_plan",
+                    "module_loader",
+                    "ram_only_service_slot",
+                ]),
+            ),
+        ],
+        comma,
+    );
 }
 
 pub(crate) fn emit_module_manifest_diagnostic_selftest() {
     let cases = module_manifest_selftest_cases();
-    let mut passed = true;
-    let mut idx = 0usize;
-    while idx < cases.len() {
-        passed = passed && cases[idx].passed;
-        idx += 1;
-    }
+    let passed = cases.iter().all(|case| case.passed);
 
     begin_response("module.manifest_diagnostic_selftest");
-    raw_line("      \"schema\": \"raios.module_manifest_reference_diagnostic_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_retained_manifest_reference_records\": false,");
-    raw_line("      \"accepts_manifest_json\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"accepts_unsigned_service_code\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"loader\": \"unavailable\",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
-    raw_line("      \"cases\": [");
-    idx = 0;
-    while idx < cases.len() {
-        emit_module_manifest_selftest_case(&cases[idx], idx + 1 != cases.len());
-        idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"can_load\": false");
+    let case_records = cases
+        .iter()
+        .map(module_manifest_selftest_case_record)
+        .collect();
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_manifest_reference_diagnostic_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("creates_retained_manifest_reference_records", no()),
+            f("accepts_manifest_json", no()),
+            f("accepts_artifact_bytes", no()),
+            f("accepts_unsigned_service_code", no()),
+            f("loads_artifact", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("loader", s("unavailable")),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f("cases", V::Array(case_records)),
+        ],
+        6,
+    );
+    emit_record_value_property_line("can_load", no(), false);
     end_response("module.manifest_diagnostic_selftest");
 }
 
-fn emit_module_manifest_selftest_case(case: &ModuleManifestSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+fn module_manifest_selftest_case_record(case: &ModuleManifestSelfTestCase) -> V<'static> {
+    record_selftest_case(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        case.passed,
+    )
 }
 
 pub(crate) fn emit_module_artifact_diagnostic(method: &str) {
@@ -317,48 +313,62 @@ pub(crate) fn emit_module_artifact_diagnostic(method: &str) {
     let retained = event_log::latest_module_candidate_artifact_reference();
 
     begin_response("module.artifact_diagnostic");
-    raw_line("      \"schema\": \"raios.module_candidate_artifact_reference_diagnostic.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw("      \"mutates_global_event_log\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw("      \"global_event_log_mutation\": ");
-    json_str(if check.valid {
-        "valid_hash_reference_retention_only"
-    } else {
-        "none"
-    });
-    raw_line(",");
-    raw_line("      \"accepts_manifest_json\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"accepts_unsigned_service_code\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"artifact_loaded\": false,");
-    raw_line("      \"service_started\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"module.artifact_diagnostic <artifact_reference_hash> <retained_manifest_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <manifest_hash> <computed_grant_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]\",");
-    raw_line("      \"request\": {");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"subject\": \"agent.session.serial\",");
-    raw_line("        \"resource\": \"live_service_graph\",");
-    raw_line(
-        "        \"artifact_reference_schema\": \"raios.module_candidate_artifact_reference.v0\",",
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_candidate_artifact_reference_diagnostic.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", b(check.valid)),
+            f(
+                "global_event_log_mutation",
+                s(if check.valid {
+                    "valid_hash_reference_retention_only"
+                } else {
+                    "none"
+                }),
+            ),
+            f("accepts_manifest_json", no()),
+            f("accepts_artifact_bytes", no()),
+            f("accepts_unsigned_service_code", no()),
+            f("allocates_service_slot", no()),
+            f("loads_artifact", no()),
+            f("artifact_loaded", no()),
+            f("service_started", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "reference_format",
+                s("module.artifact_diagnostic <artifact_reference_hash> <retained_manifest_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <manifest_hash> <computed_grant_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]"),
+            ),
+        ],
+        6,
     );
-    raw_line("        \"artifact_reference_canonicalization\": \"raios.module_candidate_artifact_reference.canonical.v0\"");
-    raw_line("      },");
-    emit_module_artifact_reference_object(&check);
-    raw_line(",");
-    emit_module_artifact_retained_reference(&check, recorded_event_id, retained);
-    raw_line(",");
-    emit_module_artifact_gate_state(&check);
-    raw_line(",");
-    emit_module_artifact_policy_result(&check);
-    raw_line(",");
+    emit_record_property_line(
+        "request",
+        vec![
+            f("requested_capability", s("cap.module.load_ephemeral")),
+            f("load_mode", s("ram_only")),
+            f("subject", s("agent.session.serial")),
+            f("resource", s("live_service_graph")),
+            f(
+                "artifact_reference_schema",
+                s("raios.module_candidate_artifact_reference.v0"),
+            ),
+            f(
+                "artifact_reference_canonicalization",
+                s("raios.module_candidate_artifact_reference.canonical.v0"),
+            ),
+        ],
+        true,
+    );
+    emit_module_artifact_reference_object(&check, true);
+    emit_module_artifact_retained_reference(&check, recorded_event_id, retained, true);
+    emit_module_artifact_gate_state(&check, true);
+    emit_module_artifact_policy_result(&check, true);
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     if !check.valid {
@@ -399,63 +409,61 @@ pub(crate) fn emit_module_artifact_diagnostic(method: &str) {
     end_response("module.artifact_diagnostic");
 }
 
-fn emit_module_artifact_reference_object(check: &ModuleArtifactReferenceCheck<'_>) {
-    raw_line("      \"candidate_artifact_reference\": {");
-    raw("        \"state\": ");
-    json_str(if check.has_reference {
-        "present"
-    } else {
-        "absent"
-    });
-    raw_line(",");
-    raw("        \"validation_status\": ");
-    json_str(check.status);
-    raw_line(",");
-    raw("        \"validation_reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"arity_valid\": ");
-    raw_bool(check.arity_valid);
-    raw_line(",");
-    raw("        \"scope\": ");
-    json_str(check.scope);
-    raw_line(",");
-    raw("        \"retained_manifest_reference_event_id\": ");
-    json_opt_str(check.retained_manifest_reference_event_id);
-    raw_line(",");
-    raw("        \"retained_computed_grant_reference_event_id\": ");
-    json_opt_str(check.retained_reference_event_id);
-    raw_line(",");
-    raw_line("        \"hashes\": {");
-    raw("          \"artifact_reference_hash\": ");
-    json_sha256_option(check.artifact_reference_hash);
-    raw_line(",");
-    raw("          \"expected_artifact_reference_hash\": ");
-    json_sha256_option(check.expected_artifact_reference_hash);
-    raw_line(",");
-    raw("          \"manifest_reference_hash\": ");
-    json_sha256_option(check.manifest_reference_hash);
-    raw_line(",");
-    raw("          \"manifest_hash\": ");
-    json_sha256_option(check.manifest_hash);
-    raw_line(",");
-    raw("          \"computed_capability_grant_hash\": ");
-    json_sha256_option(check.computed_grant_hash);
-    raw_line(",");
-    raw("          \"expected_computed_capability_grant_hash\": ");
-    json_sha256_option(check.expected_computed_grant_hash);
-    raw_line(",");
-    raw("          \"artifact_hash\": ");
-    json_sha256_option(check.artifact_hash);
-    raw_line(",");
-    raw("          \"vm_test_report_hash\": ");
-    json_sha256_option(check.vm_report_hash);
-    raw_line(",");
-    raw("          \"local_attestation_hash\": ");
-    json_sha256_option(check.local_attestation_hash);
-    crlf();
-    raw_line("        }");
-    raw("      }");
+fn emit_module_artifact_reference_object(check: &ModuleArtifactReferenceCheck<'_>, comma: bool) {
+    emit_record_property_line(
+        "candidate_artifact_reference",
+        vec![
+            f("state", record_present_absent(check.has_reference)),
+            f("validation_status", s(check.status)),
+            f("validation_reason", s(check.reason)),
+            f("arity_valid", b(check.arity_valid)),
+            f("scope", s(check.scope)),
+            f(
+                "retained_manifest_reference_event_id",
+                record_str_or_null(check.retained_manifest_reference_event_id),
+            ),
+            f(
+                "retained_computed_grant_reference_event_id",
+                record_str_or_null(check.retained_reference_event_id),
+            ),
+            f(
+                "hashes",
+                V::Object(vec![
+                    f(
+                        "artifact_reference_hash",
+                        record_sha_or_null(check.artifact_reference_hash),
+                    ),
+                    f(
+                        "expected_artifact_reference_hash",
+                        record_sha_or_null(check.expected_artifact_reference_hash),
+                    ),
+                    f(
+                        "manifest_reference_hash",
+                        record_sha_or_null(check.manifest_reference_hash),
+                    ),
+                    f("manifest_hash", record_sha_or_null(check.manifest_hash)),
+                    f(
+                        "computed_capability_grant_hash",
+                        record_sha_or_null(check.computed_grant_hash),
+                    ),
+                    f(
+                        "expected_computed_capability_grant_hash",
+                        record_sha_or_null(check.expected_computed_grant_hash),
+                    ),
+                    f("artifact_hash", record_sha_or_null(check.artifact_hash)),
+                    f(
+                        "vm_test_report_hash",
+                        record_sha_or_null(check.vm_report_hash),
+                    ),
+                    f(
+                        "local_attestation_hash",
+                        record_sha_or_null(check.local_attestation_hash),
+                    ),
+                ]),
+            ),
+        ],
+        comma,
+    );
 }
 
 fn emit_module_artifact_retained_reference(
@@ -465,75 +473,58 @@ fn emit_module_artifact_retained_reference(
         event_log::EventId,
         event_log::ModuleCandidateArtifactReference,
     )>,
+    comma: bool,
 ) {
-    raw_line("      \"retained_candidate_artifact_reference\": {");
-    if let Some((event_id, reference)) = retained {
-        raw_line("        \"state\": \"present\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw("        \"event_id\": ");
-        json_event_id(event_id);
-        raw_line(",");
-        raw("        \"recorded_event_id\": ");
-        json_event_id_option(recorded_event_id);
-        raw_line(",");
-        raw("        \"matches_current_reference\": ");
-        raw_bool(module_artifact_reference_matches(check, reference));
-        raw_line(",");
-        raw_line("        \"schema\": \"raios.module_candidate_artifact_reference.v0\",");
-        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
-        raw_line("        \"classification\": \"local_only\",");
-        raw_line("        \"accepts_manifest_json\": false,");
-        raw_line("        \"accepts_artifact_bytes\": false,");
-        raw_line("        \"accepts_unsigned_service_code\": false,");
-        raw_line("        \"authorizes_guest_load\": false,");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"service_inventory_change\": \"none\",");
-        raw_line("        \"load_attempted\": false,");
-        raw("        \"retained_manifest_reference_event_id\": ");
-        json_event_id(reference.retained_manifest_reference_event_id);
-        raw_line(",");
-        raw("        \"retained_computed_grant_reference_event_id\": ");
-        json_event_id(reference.retained_reference_event_id);
-        raw_line(",");
-        raw_line("        \"hashes\": {");
-        raw("          \"artifact_reference_hash\": ");
-        json_sha256(reference.artifact_reference_hash);
-        raw_line(",");
-        raw("          \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw_line(",");
-        raw("          \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw_line(",");
-        raw("          \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw_line(",");
-        raw("          \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw_line(",");
-        raw("          \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw_line(",");
-        raw("          \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        crlf();
-        raw_line("        }");
+    let fields = if let Some((event_id, reference)) = retained {
+        let mut fields = record_retained_reference_present_fields(
+            event_id,
+            recorded_event_id,
+            module_artifact_reference_matches(check, reference),
+            "raios.module_candidate_artifact_reference.v0",
+        );
+        fields.extend(vec![
+            f("accepts_manifest_json", no()),
+            f("accepts_artifact_bytes", no()),
+            f("accepts_unsigned_service_code", no()),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "retained_manifest_reference_event_id",
+                record_event(reference.retained_manifest_reference_event_id),
+            ),
+            f(
+                "retained_computed_grant_reference_event_id",
+                record_event(reference.retained_reference_event_id),
+            ),
+            f(
+                "hashes",
+                V::Object(record_sha_fields(&[
+                    ("artifact_reference_hash", reference.artifact_reference_hash),
+                    ("manifest_reference_hash", reference.manifest_reference_hash),
+                    ("manifest_hash", reference.manifest_hash),
+                    (
+                        "computed_capability_grant_hash",
+                        reference.computed_grant_hash,
+                    ),
+                    ("artifact_hash", reference.artifact_hash),
+                    ("vm_test_report_hash", reference.vm_report_hash),
+                    ("local_attestation_hash", reference.local_attestation_hash),
+                ])),
+            ),
+        ]);
+        fields
     } else {
-        raw_line("        \"state\": \"missing\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw_line("        \"event_id\": null,");
-        raw_line("        \"recorded_event_id\": null,");
-        raw_line("        \"matches_current_reference\": false,");
-        raw_line("        \"schema\": \"raios.module_candidate_artifact_reference.v0\",");
-        raw_line("        \"status\": \"missing\",");
-        raw_line("        \"reason\": \"no_valid_candidate_artifact_reference_retained\",");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"load_attempted\": false");
-    }
-    raw("      }");
+        record_missing_retained_reference_fields(
+            "raios.module_candidate_artifact_reference.v0",
+            "no_valid_candidate_artifact_reference_retained",
+        )
+    };
+    emit_record_property_line("retained_candidate_artifact_reference", fields, comma);
 }
 
-fn emit_module_artifact_gate_state(check: &ModuleArtifactReferenceCheck<'_>) {
+fn emit_module_artifact_gate_state(check: &ModuleArtifactReferenceCheck<'_>, comma: bool) {
     let state = if check.valid {
         "hash_reference_valid"
     } else if check.has_reference {
@@ -541,107 +532,106 @@ fn emit_module_artifact_gate_state(check: &ModuleArtifactReferenceCheck<'_>) {
     } else {
         "missing"
     };
-    raw_line("      \"gate_state\": {");
-    raw_line("        \"module_manifest\": \"hash_reference_only\",");
-    raw("        \"candidate_artifact\": ");
-    json_str(state);
-    raw_line(",");
-    raw_line("        \"vm_test_report\": \"missing\",");
-    raw_line("        \"local_attestation\": \"missing\",");
-    raw_line("        \"computed_capability_grant\": \"hash_reference_only\",");
-    raw_line("        \"local_approval\": \"missing\",");
-    raw_line("        \"rollback_plan\": \"missing\",");
-    raw_line("        \"durable_audit_record\": \"missing\",");
-    raw_line("        \"loader\": \"unavailable\",");
-    raw_line("        \"service_slot\": \"unallocated\",");
-    raw_line("        \"artifact_loaded\": false,");
-    raw_line("        \"service_started\": false,");
-    raw_line("        \"persistence\": \"none\",");
-    raw_line("        \"can_load\": false");
-    raw("      }");
+    emit_record_property_line(
+        "gate_state",
+        vec![
+            f("module_manifest", s("hash_reference_only")),
+            f("candidate_artifact", s(state)),
+            f("vm_test_report", s("missing")),
+            f("local_attestation", s("missing")),
+            f("computed_capability_grant", s("hash_reference_only")),
+            f("local_approval", s("missing")),
+            f("rollback_plan", s("missing")),
+            f("durable_audit_record", s("missing")),
+            f("loader", s("unavailable")),
+            f("service_slot", s("unallocated")),
+            f("artifact_loaded", no()),
+            f("service_started", no()),
+            f("persistence", s("none")),
+            f("can_load", no()),
+        ],
+        comma,
+    );
 }
 
-fn emit_module_artifact_policy_result(check: &ModuleArtifactReferenceCheck<'_>) {
-    raw_line("      \"policy_result\": {");
-    raw("        \"candidate_artifact_reference_present\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw_line("        \"authorizes_guest_load\": false,");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"load_attempted\": false,");
-    raw_line("        \"guest_evidence_authority\": \"hash_reference_only_no_artifact_bytes\",");
-    raw_line("        \"required_before_load\": [");
-    raw_line("          \"raios.vm_test_report.v0\",");
-    raw_line("          \"raios.local_attestation.v0\",");
-    raw_line("          \"raios.audit_record.v0\",");
-    raw_line("          \"rollback_plan\",");
-    raw_line("          \"module_loader\",");
-    raw_line("          \"ram_only_service_slot\"");
-    raw_line("        ]");
-    raw("      }");
+fn emit_module_artifact_policy_result(check: &ModuleArtifactReferenceCheck<'_>, comma: bool) {
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("candidate_artifact_reference_present", b(check.valid)),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "guest_evidence_authority",
+                s("hash_reference_only_no_artifact_bytes"),
+            ),
+            f(
+                "required_before_load",
+                record_static_str_array(&[
+                    "raios.vm_test_report.v0",
+                    "raios.local_attestation.v0",
+                    "raios.audit_record.v0",
+                    "rollback_plan",
+                    "module_loader",
+                    "ram_only_service_slot",
+                ]),
+            ),
+        ],
+        comma,
+    );
 }
 
 pub(crate) fn emit_module_artifact_diagnostic_selftest() {
     let cases = module_artifact_selftest_cases();
-    let mut passed = true;
-    let mut idx = 0usize;
-    while idx < cases.len() {
-        passed = passed && cases[idx].passed;
-        idx += 1;
-    }
+    let passed = cases.iter().all(|case| case.passed);
 
     begin_response("module.artifact_diagnostic_selftest");
-    raw_line(
-        "      \"schema\": \"raios.module_candidate_artifact_reference_diagnostic_selftest.v0\",",
+    let case_records = cases
+        .iter()
+        .map(module_artifact_selftest_case_record)
+        .collect();
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_candidate_artifact_reference_diagnostic_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f(
+                "creates_retained_candidate_artifact_reference_records",
+                no(),
+            ),
+            f("accepts_manifest_json", no()),
+            f("accepts_artifact_bytes", no()),
+            f("accepts_unsigned_service_code", no()),
+            f("loads_artifact", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("loader", s("unavailable")),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f("cases", V::Array(case_records)),
+        ],
+        6,
     );
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_retained_candidate_artifact_reference_records\": false,");
-    raw_line("      \"accepts_manifest_json\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"accepts_unsigned_service_code\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"loader\": \"unavailable\",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
-    raw_line("      \"cases\": [");
-    idx = 0;
-    while idx < cases.len() {
-        emit_module_artifact_selftest_case(&cases[idx], idx + 1 != cases.len());
-        idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"can_load\": false");
+    emit_record_value_property_line("can_load", no(), false);
     end_response("module.artifact_diagnostic_selftest");
 }
 
-fn emit_module_artifact_selftest_case(case: &ModuleArtifactSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+fn module_artifact_selftest_case_record(case: &ModuleArtifactSelfTestCase) -> V<'static> {
+    record_selftest_case(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        case.passed,
+    )
 }
 
 fn parse_module_manifest_reference(arg: &str) -> ModuleManifestReferenceCheck<'_> {
@@ -1355,48 +1345,64 @@ pub(crate) fn emit_module_vm_report_diagnostic(method: &str) {
     let retained = event_log::latest_module_vm_test_report_reference();
 
     begin_response("module.vm_report_diagnostic");
-    raw_line("      \"schema\": \"raios.module_vm_test_report_reference_diagnostic.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw("      \"mutates_global_event_log\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw("      \"global_event_log_mutation\": ");
-    json_str(if check.valid {
-        "valid_hash_reference_retention_only"
-    } else {
-        "none"
-    });
-    raw_line(",");
-    raw_line("      \"accepts_manifest_json\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"accepts_vm_report_json\": false,");
-    raw_line("      \"accepts_unsigned_service_code\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"artifact_loaded\": false,");
-    raw_line("      \"service_started\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"module.vm_report_diagnostic <report_reference_hash> <retained_manifest_reference_event_id> <retained_artifact_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <artifact_reference_hash> <manifest_hash> <artifact_hash> <computed_grant_hash> <vm_report_hash> <local_attestation_hash> [current_boot]\",");
-    raw_line("      \"request\": {");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"subject\": \"agent.session.serial\",");
-    raw_line("        \"resource\": \"live_service_graph\",");
-    raw_line("        \"vm_test_report_schema\": \"raios.vm_test_report.v0\",");
-    raw_line("        \"vm_test_report_reference_schema\": \"raios.module_vm_test_report_reference.v0\",");
-    raw_line("        \"vm_test_report_reference_canonicalization\": \"raios.module_vm_test_report_reference.canonical.v0\"");
-    raw_line("      },");
-    emit_module_vm_report_reference_object(&check);
-    raw_line(",");
-    emit_module_vm_report_retained_reference(&check, recorded_event_id, retained);
-    raw_line(",");
-    emit_module_vm_report_gate_state(&check);
-    raw_line(",");
-    emit_module_vm_report_policy_result(&check);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_vm_test_report_reference_diagnostic.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", b(check.valid)),
+            f(
+                "global_event_log_mutation",
+                s(if check.valid {
+                    "valid_hash_reference_retention_only"
+                } else {
+                    "none"
+                }),
+            ),
+            f("accepts_manifest_json", no()),
+            f("accepts_artifact_bytes", no()),
+            f("accepts_vm_report_json", no()),
+            f("accepts_unsigned_service_code", no()),
+            f("allocates_service_slot", no()),
+            f("loads_artifact", no()),
+            f("artifact_loaded", no()),
+            f("service_started", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "reference_format",
+                s("module.vm_report_diagnostic <report_reference_hash> <retained_manifest_reference_event_id> <retained_artifact_reference_event_id> <retained_reference_event_id> <manifest_reference_hash> <artifact_reference_hash> <manifest_hash> <artifact_hash> <computed_grant_hash> <vm_report_hash> <local_attestation_hash> [current_boot]"),
+            ),
+        ],
+        6,
+    );
+    emit_record_property_line(
+        "request",
+        vec![
+            f("requested_capability", s("cap.module.load_ephemeral")),
+            f("load_mode", s("ram_only")),
+            f("subject", s("agent.session.serial")),
+            f("resource", s("live_service_graph")),
+            f("vm_test_report_schema", s("raios.vm_test_report.v0")),
+            f(
+                "vm_test_report_reference_schema",
+                s("raios.module_vm_test_report_reference.v0"),
+            ),
+            f(
+                "vm_test_report_reference_canonicalization",
+                s("raios.module_vm_test_report_reference.canonical.v0"),
+            ),
+        ],
+        true,
+    );
+    emit_module_vm_report_reference_object(&check, true);
+    emit_module_vm_report_retained_reference(&check, recorded_event_id, retained, true);
+    emit_module_vm_report_gate_state(&check, true);
+    emit_module_vm_report_policy_result(&check, true);
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     if !check.valid {
@@ -1431,150 +1437,132 @@ pub(crate) fn emit_module_vm_report_diagnostic(method: &str) {
     end_response("module.vm_report_diagnostic");
 }
 
-fn emit_module_vm_report_reference_object(check: &ModuleVmReportReferenceCheck<'_>) {
-    raw_line("      \"vm_test_report_reference\": {");
-    raw("        \"state\": ");
-    json_str(if check.has_reference {
-        "present"
-    } else {
-        "absent"
-    });
-    raw_line(",");
-    raw("        \"validation_status\": ");
-    json_str(check.status);
-    raw_line(",");
-    raw("        \"validation_reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"arity_valid\": ");
-    raw_bool(check.arity_valid);
-    raw_line(",");
-    raw("        \"scope\": ");
-    json_str(check.scope);
-    raw_line(",");
-    raw("        \"retained_manifest_reference_event_id\": ");
-    json_opt_str(check.retained_manifest_reference_event_id);
-    raw_line(",");
-    raw("        \"retained_candidate_artifact_reference_event_id\": ");
-    json_opt_str(check.retained_artifact_reference_event_id);
-    raw_line(",");
-    raw("        \"retained_computed_grant_reference_event_id\": ");
-    json_opt_str(check.retained_reference_event_id);
-    raw_line(",");
-    raw_line("        \"vm_test_report_schema\": \"raios.vm_test_report.v0\",");
-    raw("        \"vm_test_report_reference_hash\": ");
-    json_sha256_option(check.report_reference_hash);
-    raw_line(",");
-    raw("        \"expected_vm_test_report_reference_hash\": ");
-    json_sha256_option(check.expected_report_reference_hash);
-    raw_line(",");
-    raw("        \"expected_computed_capability_grant_hash\": ");
-    json_sha256_option(check.expected_computed_grant_hash);
-    raw_line(",");
-    raw("        \"manifest_reference_hash\": ");
-    json_sha256_option(check.manifest_reference_hash);
-    raw_line(",");
-    raw("        \"artifact_reference_hash\": ");
-    json_sha256_option(check.artifact_reference_hash);
-    raw_line(",");
-    raw("        \"manifest_hash\": ");
-    json_sha256_option(check.manifest_hash);
-    raw_line(",");
-    raw("        \"artifact_hash\": ");
-    json_sha256_option(check.artifact_hash);
-    raw_line(",");
-    raw("        \"computed_capability_grant_hash\": ");
-    json_sha256_option(check.computed_grant_hash);
-    raw_line(",");
-    raw("        \"vm_test_report_hash\": ");
-    json_sha256_option(check.vm_report_hash);
-    raw_line(",");
-    raw("        \"local_attestation_hash\": ");
-    json_sha256_option(check.local_attestation_hash);
-    crlf();
-    raw_line("      }");
+fn emit_module_vm_report_reference_object(check: &ModuleVmReportReferenceCheck<'_>, comma: bool) {
+    emit_record_property_line(
+        "vm_test_report_reference",
+        vec![
+            f("state", record_present_absent(check.has_reference)),
+            f("validation_status", s(check.status)),
+            f("validation_reason", s(check.reason)),
+            f("arity_valid", b(check.arity_valid)),
+            f("scope", s(check.scope)),
+            f(
+                "retained_manifest_reference_event_id",
+                record_str_or_null(check.retained_manifest_reference_event_id),
+            ),
+            f(
+                "retained_candidate_artifact_reference_event_id",
+                record_str_or_null(check.retained_artifact_reference_event_id),
+            ),
+            f(
+                "retained_computed_grant_reference_event_id",
+                record_str_or_null(check.retained_reference_event_id),
+            ),
+            f("vm_test_report_schema", s("raios.vm_test_report.v0")),
+            f(
+                "vm_test_report_reference_hash",
+                record_sha_or_null(check.report_reference_hash),
+            ),
+            f(
+                "expected_vm_test_report_reference_hash",
+                record_sha_or_null(check.expected_report_reference_hash),
+            ),
+            f(
+                "expected_computed_capability_grant_hash",
+                record_sha_or_null(check.expected_computed_grant_hash),
+            ),
+            f(
+                "manifest_reference_hash",
+                record_sha_or_null(check.manifest_reference_hash),
+            ),
+            f(
+                "artifact_reference_hash",
+                record_sha_or_null(check.artifact_reference_hash),
+            ),
+            f("manifest_hash", record_sha_or_null(check.manifest_hash)),
+            f("artifact_hash", record_sha_or_null(check.artifact_hash)),
+            f(
+                "computed_capability_grant_hash",
+                record_sha_or_null(check.computed_grant_hash),
+            ),
+            f(
+                "vm_test_report_hash",
+                record_sha_or_null(check.vm_report_hash),
+            ),
+            f(
+                "local_attestation_hash",
+                record_sha_or_null(check.local_attestation_hash),
+            ),
+        ],
+        comma,
+    );
 }
 
 fn emit_module_vm_report_retained_reference(
     check: &ModuleVmReportReferenceCheck<'_>,
     recorded_event_id: Option<event_log::EventId>,
     retained: Option<(event_log::EventId, event_log::ModuleVmTestReportReference)>,
+    comma: bool,
 ) {
-    raw_line("      \"retained_vm_test_report_reference\": {");
-    if let Some((event_id, reference)) = retained {
-        raw_line("        \"state\": \"present\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw("        \"event_id\": ");
-        json_event_id(event_id);
-        raw_line(",");
-        raw("        \"recorded_event_id\": ");
-        json_event_id_option(recorded_event_id);
-        raw_line(",");
-        raw("        \"matches_current_reference\": ");
-        raw_bool(module_vm_report_reference_matches(check, reference));
-        raw_line(",");
-        raw_line("        \"schema\": \"raios.module_vm_test_report_reference.v0\",");
-        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
-        raw_line("        \"classification\": \"local_only\",");
-        raw_line("        \"accepts_manifest_json\": false,");
-        raw_line("        \"accepts_artifact_bytes\": false,");
-        raw_line("        \"accepts_vm_report_json\": false,");
-        raw_line("        \"accepts_unsigned_service_code\": false,");
-        raw_line("        \"authorizes_guest_load\": false,");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"service_inventory_change\": \"none\",");
-        raw_line("        \"load_attempted\": false,");
-        raw("        \"retained_manifest_reference_event_id\": ");
-        json_event_id(reference.retained_manifest_reference_event_id);
-        raw_line(",");
-        raw("        \"retained_candidate_artifact_reference_event_id\": ");
-        json_event_id(reference.retained_artifact_reference_event_id);
-        raw_line(",");
-        raw("        \"retained_computed_grant_reference_event_id\": ");
-        json_event_id(reference.retained_reference_event_id);
-        raw_line(",");
-        raw_line("        \"hashes\": {");
-        raw("          \"vm_test_report_reference_hash\": ");
-        json_sha256(reference.report_reference_hash);
-        raw_line(",");
-        raw("          \"manifest_reference_hash\": ");
-        json_sha256(reference.manifest_reference_hash);
-        raw_line(",");
-        raw("          \"artifact_reference_hash\": ");
-        json_sha256(reference.artifact_reference_hash);
-        raw_line(",");
-        raw("          \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw_line(",");
-        raw("          \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw_line(",");
-        raw("          \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw_line(",");
-        raw("          \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw_line(",");
-        raw("          \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        crlf();
-        raw_line("        }");
+    let fields = if let Some((event_id, reference)) = retained {
+        let mut fields = record_retained_reference_present_fields(
+            event_id,
+            recorded_event_id,
+            module_vm_report_reference_matches(check, reference),
+            "raios.module_vm_test_report_reference.v0",
+        );
+        fields.extend(vec![
+            f("accepts_manifest_json", no()),
+            f("accepts_artifact_bytes", no()),
+            f("accepts_vm_report_json", no()),
+            f("accepts_unsigned_service_code", no()),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "retained_manifest_reference_event_id",
+                record_event(reference.retained_manifest_reference_event_id),
+            ),
+            f(
+                "retained_candidate_artifact_reference_event_id",
+                record_event(reference.retained_artifact_reference_event_id),
+            ),
+            f(
+                "retained_computed_grant_reference_event_id",
+                record_event(reference.retained_reference_event_id),
+            ),
+            f(
+                "hashes",
+                V::Object(record_sha_fields(&[
+                    (
+                        "vm_test_report_reference_hash",
+                        reference.report_reference_hash,
+                    ),
+                    ("manifest_reference_hash", reference.manifest_reference_hash),
+                    ("artifact_reference_hash", reference.artifact_reference_hash),
+                    ("manifest_hash", reference.manifest_hash),
+                    ("artifact_hash", reference.artifact_hash),
+                    (
+                        "computed_capability_grant_hash",
+                        reference.computed_grant_hash,
+                    ),
+                    ("vm_test_report_hash", reference.vm_report_hash),
+                    ("local_attestation_hash", reference.local_attestation_hash),
+                ])),
+            ),
+        ]);
+        fields
     } else {
-        raw_line("        \"state\": \"missing\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw_line("        \"event_id\": null,");
-        raw_line("        \"recorded_event_id\": null,");
-        raw_line("        \"matches_current_reference\": false,");
-        raw_line("        \"schema\": \"raios.module_vm_test_report_reference.v0\",");
-        raw_line("        \"status\": \"missing\",");
-        raw_line("        \"reason\": \"no_valid_vm_test_report_reference_retained\",");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"load_attempted\": false");
-    }
-    raw("      }");
+        record_missing_retained_reference_fields(
+            "raios.module_vm_test_report_reference.v0",
+            "no_valid_vm_test_report_reference_retained",
+        )
+    };
+    emit_record_property_line("retained_vm_test_report_reference", fields, comma);
 }
 
-fn emit_module_vm_report_gate_state(check: &ModuleVmReportReferenceCheck<'_>) {
+fn emit_module_vm_report_gate_state(check: &ModuleVmReportReferenceCheck<'_>, comma: bool) {
     let state = if check.valid {
         "hash_reference_valid"
     } else if check.has_reference {
@@ -1582,106 +1570,107 @@ fn emit_module_vm_report_gate_state(check: &ModuleVmReportReferenceCheck<'_>) {
     } else {
         "missing"
     };
-    raw_line("      \"gate_state\": {");
-    raw_line("        \"module_manifest\": \"retained_hash_reference_only\",");
-    raw_line("        \"candidate_artifact\": \"retained_hash_reference_only\",");
-    raw("        \"vm_test_report\": ");
-    json_str(state);
-    raw_line(",");
-    raw_line("        \"local_attestation\": \"missing\",");
-    raw_line("        \"computed_capability_grant\": \"retained_hash_reference_only\",");
-    raw_line("        \"local_approval\": \"missing\",");
-    raw_line("        \"rollback_plan\": \"missing\",");
-    raw_line("        \"durable_audit_record\": \"missing\",");
-    raw_line("        \"loader\": \"unavailable\",");
-    raw_line("        \"service_slot\": \"unallocated\",");
-    raw_line("        \"artifact_loaded\": false,");
-    raw_line("        \"service_started\": false,");
-    raw_line("        \"persistence\": \"none\",");
-    raw_line("        \"can_load\": false");
-    raw("      }");
+    emit_record_property_line(
+        "gate_state",
+        vec![
+            f("module_manifest", s("retained_hash_reference_only")),
+            f("candidate_artifact", s("retained_hash_reference_only")),
+            f("vm_test_report", s(state)),
+            f("local_attestation", s("missing")),
+            f(
+                "computed_capability_grant",
+                s("retained_hash_reference_only"),
+            ),
+            f("local_approval", s("missing")),
+            f("rollback_plan", s("missing")),
+            f("durable_audit_record", s("missing")),
+            f("loader", s("unavailable")),
+            f("service_slot", s("unallocated")),
+            f("artifact_loaded", no()),
+            f("service_started", no()),
+            f("persistence", s("none")),
+            f("can_load", no()),
+        ],
+        comma,
+    );
 }
 
-fn emit_module_vm_report_policy_result(check: &ModuleVmReportReferenceCheck<'_>) {
-    raw_line("      \"policy_result\": {");
-    raw("        \"vm_test_report_reference_present\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw_line("        \"authorizes_guest_load\": false,");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"load_attempted\": false,");
-    raw_line("        \"guest_evidence_authority\": \"hash_reference_only_no_vm_report_json_or_artifact_bytes\",");
-    raw_line("        \"required_before_load\": [");
-    raw_line("          \"raios.local_attestation.v0\",");
-    raw_line("          \"local_approval\",");
-    raw_line("          \"raios.audit_record.v0\",");
-    raw_line("          \"rollback_plan\",");
-    raw_line("          \"module_loader\",");
-    raw_line("          \"ram_only_service_slot\"");
-    raw_line("        ]");
-    raw("      }");
+fn emit_module_vm_report_policy_result(check: &ModuleVmReportReferenceCheck<'_>, comma: bool) {
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("vm_test_report_reference_present", b(check.valid)),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "guest_evidence_authority",
+                s("hash_reference_only_no_vm_report_json_or_artifact_bytes"),
+            ),
+            f(
+                "required_before_load",
+                record_static_str_array(&[
+                    "raios.local_attestation.v0",
+                    "local_approval",
+                    "raios.audit_record.v0",
+                    "rollback_plan",
+                    "module_loader",
+                    "ram_only_service_slot",
+                ]),
+            ),
+        ],
+        comma,
+    );
 }
 
 pub(crate) fn emit_module_vm_report_diagnostic_selftest() {
     let cases = module_vm_report_selftest_cases();
-    let mut passed = true;
-    let mut idx = 0usize;
-    while idx < cases.len() {
-        passed = passed && cases[idx].passed;
-        idx += 1;
-    }
+    let passed = cases.iter().all(|case| case.passed);
 
     begin_response("module.vm_report_diagnostic_selftest");
-    raw_line("      \"schema\": \"raios.module_vm_test_report_reference_diagnostic_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_retained_vm_test_report_reference_records\": false,");
-    raw_line("      \"accepts_manifest_json\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"accepts_vm_report_json\": false,");
-    raw_line("      \"accepts_unsigned_service_code\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"loader\": \"unavailable\",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
-    raw_line("      \"cases\": [");
-    idx = 0;
-    while idx < cases.len() {
-        emit_module_vm_report_selftest_case(&cases[idx], idx + 1 != cases.len());
-        idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"can_load\": false");
+    let case_records = cases
+        .iter()
+        .map(module_vm_report_selftest_case_record)
+        .collect();
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_vm_test_report_reference_diagnostic_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("creates_retained_vm_test_report_reference_records", no()),
+            f("accepts_manifest_json", no()),
+            f("accepts_artifact_bytes", no()),
+            f("accepts_vm_report_json", no()),
+            f("accepts_unsigned_service_code", no()),
+            f("loads_artifact", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("loader", s("unavailable")),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f("cases", V::Array(case_records)),
+        ],
+        6,
+    );
+    emit_record_value_property_line("can_load", no(), false);
     end_response("module.vm_report_diagnostic_selftest");
 }
 
-fn emit_module_vm_report_selftest_case(case: &ModuleVmReportSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+fn module_vm_report_selftest_case_record(case: &ModuleVmReportSelfTestCase) -> V<'static> {
+    record_selftest_case(
+        case.name,
+        case.expected_status,
+        case.expected_reason,
+        case.actual_status,
+        case.actual_reason,
+        case.passed,
+    )
 }
 
 fn parse_module_vm_report_reference(

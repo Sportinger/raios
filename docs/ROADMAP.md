@@ -154,14 +154,25 @@ all hash-input sites documented and untouched; verified by
 module-audit-rollback (`shadow-20260705-160504-8620.json`, 1626/1626)
 AND full (`shadow-20260705-160858-23032.json`, 7814/7814).
 
+Slice M2-17 done (2026-07-05): coupled Batch 5 second packet —
+attestation, approval, reference JSON rendering ported, all hash sites
+untouched (worker diff check: zero changed hash-input lines); verified
+by module-audit-rollback (`shadow-20260705-164930-25652.json`,
+1626/1626) AND full (`shadow-20260705-165249-26488.json`, 7814/7814).
+**The module-boundary porting map is fully executed** — all SAFE and
+COUPLED emit surfaces render through the record model.
+
 Exact next task:
 
 ```text
-Coupled Batch 5 second packet: reference (~2.3k), attestation (~1.1k),
-approval (~1.2k) — same cardinal rule (hash inputs byte-for-byte
-untouched, only JSON rendering ports), verify with
-module-audit-rollback + full. Afterwards: de-hello-ify scoping
-(hello_service.rs 22k lines, signed source snapshot chain update).
+De-hello-ify scoping (read-only packet): analyze hello_service.rs (22.5k
+lines) — what it contains (emitters, gates, state machine, selftests),
+how the signed source snapshot chain works (build.rs verification,
+signature files, re-signing procedure), and a slice plan to split it
+below the AGENTS.md size thresholds with the sha256 dedup included.
+This is the last big M2 surface; after it, evaluate M2's ~10x target
+and the capability sentence (golden-string byte-identity proven
+throughout).
 ```
 
 ## Capability Milestones
