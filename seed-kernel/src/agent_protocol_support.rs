@@ -4,6 +4,22 @@ use crate::{event_log, serial};
 
 pub(crate) use raios_core::{method_eq, method_head_eq, parse_sha256_ref};
 
+pub(crate) struct SerialSink;
+
+impl raios_core::ByteSink for SerialSink {
+    fn write_bytes(&mut self, bytes: &[u8]) {
+        if let Ok(text) = core::str::from_utf8(bytes) {
+            serial::write_raw_str(text);
+        } else {
+            let mut idx = 0usize;
+            while idx < bytes.len() {
+                serial::write_byte(bytes[idx]);
+                idx += 1;
+            }
+        }
+    }
+}
+
 pub(crate) fn current_boot_event_id_str(value: &str) -> bool {
     parse_current_boot_event_id(value).is_some()
 }

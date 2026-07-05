@@ -1,3 +1,5 @@
+use alloc::{vec, vec::Vec};
+
 use crate::{
     agent_protocol_recovery_artifact_types::{
         RecoveryIdentitySelfTestCase, RecoveryLifelineRequestSelfTestCase,
@@ -5,157 +7,138 @@ use crate::{
         RecoveryRollbackEvidenceSelfTestCase, RecoveryTrustSelfTestCase,
         RecoveryVmTestSelfTestCase,
     },
-    agent_protocol_support::{crlf, json_str, raw, raw_bool},
+    agent_protocol_support::SerialSink,
+};
+use raios_core::{
+    record::{write_json, Field, Value},
+    ByteSink,
 };
 
-pub(crate) fn emit_recovery_identity_selftest_case(
-    case: &RecoveryIdentitySelfTestCase,
-    comma: bool,
-) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
+fn emit_case(fields: Vec<Field<'_>>, comma: bool) {
+    let value = Value::Object(fields);
+    let Value::Object(fields) = &value else {
+        return;
+    };
+    let mut sink = SerialSink;
+
+    sink.write_bytes(b"        {");
+    let mut idx = 0usize;
+    while idx < fields.len() {
+        if idx != 0 {
+            sink.write_bytes(b", ");
+        }
+        write_json(&Value::Str(fields[idx].key), &mut sink, 8);
+        sink.write_bytes(b": ");
+        write_json(&fields[idx].value, &mut sink, 8);
+        idx += 1;
     }
-    crlf();
+    sink.write_bytes(b"}");
+    if comma {
+        sink.write_bytes(b",");
+    }
+    sink.write_bytes(b"\r\n");
 }
 
-pub(crate) fn emit_recovery_trust_selftest_case(case: &RecoveryTrustSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+macro_rules! emit_case_fn {
+    ($fn_name:ident, $case_ty:ty, [$($extra:expr),+ $(,)?]) => {
+        pub(crate) fn $fn_name(case: &$case_ty, comma: bool) {
+            emit_case(
+                vec![
+                    Field::new("case", Value::Str(case.name)),
+                    Field::new("expected_status", Value::Str(case.expected_status)),
+                    Field::new("expected_reason", Value::Str(case.expected_reason)),
+                    Field::new("actual_status", Value::Str(case.actual_status)),
+                    Field::new("actual_reason", Value::Str(case.actual_reason)),
+                    Field::new("passed", Value::Bool(case.passed)),
+                    $($extra,)+
+                ],
+                comma,
+            );
+        }
+    };
 }
 
-pub(crate) fn emit_recovery_vm_test_selftest_case(case: &RecoveryVmTestSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
+emit_case_fn!(
+    emit_recovery_identity_selftest_case,
+    RecoveryIdentitySelfTestCase,
+    [
+        Field::new("authorizes_recovery_load", Value::Bool(false)),
+        Field::new("can_move_beyond_denial", Value::Bool(false)),
+        Field::new("loads_recovery_artifact", Value::Bool(false)),
+        Field::new("load_attempted", Value::Bool(false)),
+    ]
+);
 
-pub(crate) fn emit_recovery_local_approval_selftest_case(
-    case: &RecoveryLocalApprovalSelfTestCase,
-    comma: bool,
-) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
+emit_case_fn!(
+    emit_recovery_trust_selftest_case,
+    RecoveryTrustSelfTestCase,
+    [
+        Field::new("authorizes_recovery_load", Value::Bool(false)),
+        Field::new("can_move_beyond_denial", Value::Bool(false)),
+        Field::new("loads_recovery_artifact", Value::Bool(false)),
+        Field::new("load_attempted", Value::Bool(false)),
+    ]
+);
 
-pub(crate) fn emit_recovery_loader_selftest_case(case: &RecoveryLoaderSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
+emit_case_fn!(
+    emit_recovery_vm_test_selftest_case,
+    RecoveryVmTestSelfTestCase,
+    [
+        Field::new("authorizes_recovery_load", Value::Bool(false)),
+        Field::new("can_move_beyond_denial", Value::Bool(false)),
+        Field::new("loads_recovery_artifact", Value::Bool(false)),
+        Field::new("load_attempted", Value::Bool(false)),
+    ]
+);
 
-pub(crate) fn emit_recovery_rollback_evidence_selftest_case(
-    case: &RecoveryRollbackEvidenceSelfTestCase,
-    comma: bool,
-) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
+emit_case_fn!(
+    emit_recovery_local_approval_selftest_case,
+    RecoveryLocalApprovalSelfTestCase,
+    [
+        Field::new("authorizes_recovery_load", Value::Bool(false)),
+        Field::new("can_move_beyond_denial", Value::Bool(false)),
+        Field::new("loads_recovery_artifact", Value::Bool(false)),
+        Field::new("load_attempted", Value::Bool(false)),
+    ]
+);
 
-pub(crate) fn emit_recovery_lifeline_request_selftest_case(
-    case: &RecoveryLifelineRequestSelfTestCase,
-    comma: bool,
-) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
-}
+emit_case_fn!(
+    emit_recovery_loader_selftest_case,
+    RecoveryLoaderSelfTestCase,
+    [
+        Field::new("authorizes_recovery_load", Value::Bool(false)),
+        Field::new("can_move_beyond_denial", Value::Bool(false)),
+        Field::new("loads_recovery_loader", Value::Bool(false)),
+        Field::new("loads_recovery_artifact", Value::Bool(false)),
+        Field::new("load_attempted", Value::Bool(false)),
+    ]
+);
+
+emit_case_fn!(
+    emit_recovery_rollback_evidence_selftest_case,
+    RecoveryRollbackEvidenceSelfTestCase,
+    [
+        Field::new("authorizes_recovery_load", Value::Bool(false)),
+        Field::new("can_move_beyond_denial", Value::Bool(false)),
+        Field::new("loads_recovery_artifact", Value::Bool(false)),
+        Field::new("creates_durable_records", Value::Bool(false)),
+        Field::new("installs_rollback_plan", Value::Bool(false)),
+        Field::new("load_attempted", Value::Bool(false)),
+    ]
+);
+
+emit_case_fn!(
+    emit_recovery_lifeline_request_selftest_case,
+    RecoveryLifelineRequestSelfTestCase,
+    [
+        Field::new("authorizes_recovery_load", Value::Bool(false)),
+        Field::new("can_move_beyond_denial", Value::Bool(false)),
+        Field::new("loads_recovery_loader", Value::Bool(false)),
+        Field::new("loads_recovery_artifact", Value::Bool(false)),
+        Field::new("creates_durable_records", Value::Bool(false)),
+        Field::new("installs_rollback_plan", Value::Bool(false)),
+        Field::new("allocates_service_slot", Value::Bool(false)),
+        Field::new("service_inventory_change", Value::Str("none")),
+        Field::new("load_attempted", Value::Bool(false)),
+    ]
+);

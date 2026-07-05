@@ -64,13 +64,21 @@ finding for all ports: today's kernel hashers hash `key=value` LINES,
 not JSON bytes (`module_evidence.rs:4538-4592`) — every ported gate must
 consciously map its old line-hash convention.
 
+Slice M2-2 done (2026-07-05): first emitter port —
+`agent_protocol_recovery_artifact_selftest_emit.rs` now builds
+`raios_core::record::Value` and serializes through the new `SerialSink`
+adapter (`agent_protocol_support.rs`); byte-identical output proven by
+the recovery profile (`shadow-20260705-105605-12660.json`, 3644/3644,
+859 selftest predicates). Net line delta -1 (the one-time SerialSink
+adapter cost is now paid; subsequent ports should delete heavily).
+
 Exact next task:
 
 ```text
-Port the first small kernel emitter to raios_core::record (pick a tiny
-emit module, e.g. a recovery *_emit.rs under ~200 lines), byte-identical
-serial output proven by quick/focused profile needles; the slice must
-delete more lines than it adds.
+Port the next batch of small recovery emit modules (~150-250 lines each,
+no hash participation) onto raios_core::record via SerialSink, one
+worker packet per 2-3 modules; each slice must delete more lines than it
+adds and pass the recovery (or matching focused) profile byte-identical.
 ```
 
 ## Capability Milestones
