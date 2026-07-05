@@ -1,12 +1,17 @@
+use alloc::{vec, vec::Vec};
+
 use crate::{
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        begin_response, crlf, emit_export_gate, end_response, json_event_id, json_event_id_option,
-        json_sha256, json_sha256_option, json_str, method_eq, method_head_eq, parse_sha256_ref,
-        raw, raw_bool, raw_fmt, raw_line,
+        begin_response, crlf, emit_export_gate, emit_record_fields_trailing_comma,
+        emit_record_property_line, emit_record_value_property_line, end_response, method_eq,
+        method_head_eq, parse_sha256_ref, raw_line, record_bool as b, record_event_or_null,
+        record_false as no, record_field as f, record_sha_or_null, record_static_str_array,
+        record_str as s,
     },
     event_log, module_evidence,
 };
+use raios_core::record::Value as V;
 
 pub(crate) fn module_grant_diagnostic_method(method: &str) -> bool {
     method_head_eq(method, "module.grant_diagnostic")
@@ -18,6 +23,7 @@ pub(crate) fn module_grant_diagnostic_selftest_method(method: &str) -> bool {
         || method_head_eq(method, "module.load_gate_diagnostic_selftest")
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_grant_diagnostic(method: &str) {
     let arg = module_grant_diagnostic_arg(method);
     let check = parse_module_grant_reference(arg);
@@ -30,68 +36,38 @@ pub(crate) fn emit_module_grant_diagnostic(method: &str) {
     let retained = event_log::latest_module_computed_grant_reference();
 
     begin_response("module.grant_diagnostic");
-    raw_line("      \"schema\": \"raios.module_computed_grant_diagnostic.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"artifact_loaded\": false,");
-    raw_line("      \"service_started\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"module.grant_diagnostic <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]\",");
-    raw_line("      \"request\": {");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"risk\": \"modify_ram\",");
-    raw_line("        \"subject\": \"agent.session.serial\",");
-    raw_line("        \"resource\": \"live_service_graph\"");
-    raw_line("      },");
-    raw_line("      \"computed_grant_reference\": {");
-    raw("        \"state\": ");
-    json_str(if check.has_reference {
-        "present"
-    } else {
-        "absent"
-    });
-    raw_line(",");
-    raw("        \"validation_status\": ");
-    json_str(check.status);
-    raw_line(",");
-    raw("        \"validation_reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"arity_valid\": ");
-    raw_bool(check.arity_valid);
-    raw_line(",");
-    raw("        \"scope\": ");
-    json_str(check.scope);
-    raw_line(",");
-    raw("        \"computed_capability_grant_hash\": ");
-    json_sha256_option(check.grant_hash);
-    raw_line(",");
-    raw("        \"expected_computed_capability_grant_hash\": ");
-    json_sha256_option(check.expected_grant_hash);
-    raw_line(",");
-    raw("        \"manifest_hash\": ");
-    json_sha256_option(check.manifest_hash);
-    raw_line(",");
-    raw("        \"artifact_hash\": ");
-    json_sha256_option(check.artifact_hash);
-    raw_line(",");
-    raw("        \"vm_test_report_hash\": ");
-    json_sha256_option(check.vm_report_hash);
-    raw_line(",");
-    raw("        \"local_attestation_hash\": ");
-    json_sha256_option(check.local_attestation_hash);
-    crlf();
-    raw_line("      },");
-    emit_module_grant_retained_reference(&check, recorded_event_id, retained);
-    raw_line(",");
-    emit_module_grant_gate_state(&check);
-    raw_line(",");
-    emit_module_grant_policy_result(&check);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s("raios.module_computed_grant_diagnostic.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("accepts_artifact_bytes", no()),
+            f("artifact_loaded", no()),
+            f("service_started", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "reference_format",
+                s("module.grant_diagnostic <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> [current_boot]"),
+            ),
+            f(
+                "request",
+                V::Object(vec![
+                    f("requested_capability", s("cap.module.load_ephemeral")),
+                    f("load_mode", s("ram_only")),
+                    f("risk", s("modify_ram")),
+                    f("subject", s("agent.session.serial")),
+                    f("resource", s("live_service_graph")),
+                ]),
+            ),
+        ],
+        6,
+    );
+    emit_record_property_line("computed_grant_reference", module_grant_reference_fields(&check), true);
+    emit_module_grant_retained_reference(&check, recorded_event_id, retained, true);
+    emit_module_grant_gate_state(&check, true);
+    emit_module_grant_policy_result(&check, true);
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     if !check.valid {
@@ -131,6 +107,7 @@ pub(crate) fn emit_module_grant_diagnostic(method: &str) {
     end_response("module.grant_diagnostic");
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_grant_diagnostic_selftest() {
     let cases = module_grant_selftest_cases();
     let mut passed = true;
@@ -139,160 +116,179 @@ pub(crate) fn emit_module_grant_diagnostic_selftest() {
         passed = passed && cases[idx].passed;
         idx += 1;
     }
+    let case_records = cases.iter().map(module_grant_selftest_case_record).collect();
 
     begin_response("module.grant_diagnostic_selftest");
-    raw_line("      \"schema\": \"raios.module_computed_grant_diagnostic_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"loader\": \"unavailable\",");
-    raw_line("      \"service_slot\": \"unallocated\",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
-    raw_line("      \"cases\": [");
-    idx = 0;
-    while idx < cases.len() {
-        emit_module_grant_selftest_case(&cases[idx], idx + 1 != cases.len());
-        idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"can_load\": false");
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_computed_grant_diagnostic_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("accepts_artifact_bytes", no()),
+            f("loads_artifact", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("loader", s("unavailable")),
+            f("service_slot", s("unallocated")),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f("cases", V::Array(case_records)),
+        ],
+        6,
+    );
+    emit_record_value_property_line("can_load", no(), false);
     end_response("module.grant_diagnostic_selftest");
 }
 
-fn emit_module_grant_selftest_case(case: &ModuleGrantSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+#[rustfmt::skip]
+fn module_grant_reference_fields<'a>(
+    check: &ModuleGrantReferenceCheck<'a>,
+) -> Vec<raios_core::record::Field<'a>> {
+    vec![
+        f(
+            "state",
+            s(if check.has_reference { "present" } else { "absent" }),
+        ),
+        f("validation_status", s(check.status)),
+        f("validation_reason", s(check.reason)),
+        f("arity_valid", b(check.arity_valid)),
+        f("scope", s(check.scope)),
+        f("computed_capability_grant_hash", record_sha_or_null(check.grant_hash)),
+        f(
+            "expected_computed_capability_grant_hash",
+            record_sha_or_null(check.expected_grant_hash),
+        ),
+        f("manifest_hash", record_sha_or_null(check.manifest_hash)),
+        f("artifact_hash", record_sha_or_null(check.artifact_hash)),
+        f("vm_test_report_hash", record_sha_or_null(check.vm_report_hash)),
+        f(
+            "local_attestation_hash",
+            record_sha_or_null(check.local_attestation_hash),
+        ),
+    ]
 }
 
-fn emit_module_grant_gate_state(check: &ModuleGrantReferenceCheck<'_>) {
-    raw_line("      \"gate_state\": {");
-    raw_line("        \"module_manifest\": \"hash_reference_only\",");
-    raw_line("        \"candidate_artifact\": \"hash_reference_only\",");
-    raw_line("        \"vm_test_report\": \"hash_reference_only\",");
-    raw_line("        \"local_attestation\": \"hash_reference_only\",");
-    raw("        \"computed_capability_grant\": ");
-    json_str(if check.valid {
+#[rustfmt::skip]
+fn module_grant_selftest_case_record(case: &ModuleGrantSelfTestCase) -> V<'static> {
+    V::InlineObject(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("can_load", no()), f("load_attempted", no())])
+}
+
+fn emit_module_grant_gate_state(check: &ModuleGrantReferenceCheck<'_>, comma: bool) {
+    let computed_grant = if check.valid {
         "hash_reference_valid"
     } else if check.has_reference {
         "hash_reference_invalid"
     } else {
         "missing"
-    });
-    raw_line(",");
-    raw_line("        \"local_approval\": \"not_received_by_guest\",");
-    raw_line("        \"rollback_plan\": \"missing\",");
-    raw_line("        \"durable_audit_record\": \"missing\",");
-    raw_line("        \"loader\": \"unavailable\",");
-    raw_line("        \"service_slot\": \"unallocated\",");
-    raw_line("        \"artifact_loaded\": false,");
-    raw_line("        \"service_started\": false,");
-    raw_line("        \"persistence\": \"none\",");
-    raw_line("        \"can_load\": false");
-    raw("      }");
+    };
+    emit_record_property_line(
+        "gate_state",
+        vec![
+            f("module_manifest", s("hash_reference_only")),
+            f("candidate_artifact", s("hash_reference_only")),
+            f("vm_test_report", s("hash_reference_only")),
+            f("local_attestation", s("hash_reference_only")),
+            f("computed_capability_grant", s(computed_grant)),
+            f("local_approval", s("not_received_by_guest")),
+            f("rollback_plan", s("missing")),
+            f("durable_audit_record", s("missing")),
+            f("loader", s("unavailable")),
+            f("service_slot", s("unallocated")),
+            f("artifact_loaded", no()),
+            f("service_started", no()),
+            f("persistence", s("none")),
+            f("can_load", no()),
+        ],
+        comma,
+    );
 }
 
+#[rustfmt::skip]
 fn emit_module_grant_retained_reference(
     check: &ModuleGrantReferenceCheck<'_>,
     recorded_event_id: Option<event_log::EventId>,
     retained: Option<(event_log::EventId, event_log::ModuleComputedGrantReference)>,
+    comma: bool,
 ) {
-    raw_line("      \"retained_reference\": {");
-    if let Some((event_id, reference)) = retained {
-        raw_line("        \"state\": \"present\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw("        \"event_id\": ");
-        json_event_id(event_id);
-        raw_line(",");
-        raw("        \"recorded_event_id\": ");
-        json_event_id_option(recorded_event_id);
-        raw_line(",");
-        raw("        \"matches_current_reference\": ");
-        raw_bool(module_grant_reference_matches(check, reference));
-        raw_line(",");
-        raw_line("        \"schema\": \"raios.module_computed_grant_reference.v0\",");
-        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
-        raw_line("        \"grants_capability\": false,");
-        raw_line("        \"grants_load_now\": false,");
-        raw_line("        \"authorizes_guest_load\": false,");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"load_attempted\": false,");
-        raw_line("        \"hashes\": {");
-        raw("          \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw_line(",");
-        raw("          \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw_line(",");
-        raw("          \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw_line(",");
-        raw("          \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw_line(",");
-        raw("          \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        crlf();
-        raw_line("        }");
+    let fields = if let Some((event_id, reference)) = retained {
+        vec![
+            f("state", s("present")),
+            f("retention", s("current_boot_ram_event_log")),
+            f("event_id", record_event_or_null(Some(event_id))),
+            f("recorded_event_id", record_event_or_null(recorded_event_id)),
+            f(
+                "matches_current_reference",
+                b(module_grant_reference_matches(check, reference)),
+            ),
+            f("schema", s("raios.module_computed_grant_reference.v0")),
+            f("status", s("retained_hash_reference_load_still_denied")),
+            f("grants_capability", no()),
+            f("grants_load_now", no()),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+            f(
+                "hashes",
+                V::Object(vec![
+                    f(
+                        "computed_capability_grant_hash",
+                        record_sha_or_null(Some(reference.computed_grant_hash)),
+                    ),
+                    f("manifest_hash", record_sha_or_null(Some(reference.manifest_hash))),
+                    f("artifact_hash", record_sha_or_null(Some(reference.artifact_hash))),
+                    f(
+                        "vm_test_report_hash",
+                        record_sha_or_null(Some(reference.vm_report_hash)),
+                    ),
+                    f(
+                        "local_attestation_hash",
+                        record_sha_or_null(Some(reference.local_attestation_hash)),
+                    ),
+                ]),
+            ),
+        ]
     } else {
-        raw_line("        \"state\": \"missing\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw_line("        \"event_id\": null,");
-        raw_line("        \"recorded_event_id\": null,");
-        raw_line("        \"matches_current_reference\": false,");
-        raw_line("        \"schema\": \"raios.module_computed_grant_reference.v0\",");
-        raw_line("        \"status\": \"missing\",");
-        raw_line("        \"reason\": \"no_valid_computed_grant_reference_retained\",");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"load_attempted\": false");
-    }
-    raw("      }");
+        vec![
+            f("state", s("missing")),
+            f("retention", s("current_boot_ram_event_log")),
+            f("event_id", record_event_or_null(None)),
+            f("recorded_event_id", record_event_or_null(None)),
+            f("matches_current_reference", no()),
+            f("schema", s("raios.module_computed_grant_reference.v0")),
+            f("status", s("missing")),
+            f("reason", s("no_valid_computed_grant_reference_retained")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ]
+    };
+    emit_record_property_line("retained_reference", fields, comma);
 }
 
-fn emit_module_grant_policy_result(check: &ModuleGrantReferenceCheck<'_>) {
-    raw_line("      \"policy_result\": {");
-    raw("        \"computed_candidate_present\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw_line("        \"grants_capability\": false,");
-    raw_line("        \"grants_load_now\": false,");
-    raw_line("        \"authorizes_guest_load\": false,");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"load_attempted\": false,");
-    raw_line("        \"guest_evidence_authority\": \"hash_reference_only_no_artifact_bytes\",");
-    raw_line("        \"required_before_load\": [");
-    raw_line("          \"in_guest_evidence_retention\",");
-    raw_line("          \"raios.audit_record.v0\",");
-    raw_line("          \"rollback_plan\",");
-    raw_line("          \"module_loader\",");
-    raw_line("          \"ram_only_service_slot\"");
-    raw_line("        ]");
-    raw("      }");
+#[rustfmt::skip]
+fn emit_module_grant_policy_result(check: &ModuleGrantReferenceCheck<'_>, comma: bool) {
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("computed_candidate_present", b(check.valid)),
+            f("grants_capability", no()),
+            f("grants_load_now", no()),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("guest_evidence_authority", s("hash_reference_only_no_artifact_bytes")),
+            f(
+                "required_before_load",
+                record_static_str_array(&["in_guest_evidence_retention", "raios.audit_record.v0", "rollback_plan", "module_loader", "ram_only_service_slot"]),
+            ),
+        ],
+        comma,
+    );
 }
 
 fn module_grant_binding_from_check(

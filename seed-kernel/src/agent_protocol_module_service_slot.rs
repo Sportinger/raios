@@ -1,17 +1,21 @@
+use alloc::vec;
+
 use crate::{
     agent_protocol_module_audit::module_audit_rollback_valid_input,
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        begin_response, crlf, current_boot_event_id_str, end_response, json_event_id,
-        json_event_id_option, json_opt_str, json_sha256, json_sha256_option, json_str, method_eq,
-        method_head_eq, parse_current_boot_event_id, parse_sha256_ref, raw, raw_bool, raw_fmt,
-        raw_line,
+        begin_response, current_boot_event_id_str, emit_record_fields_trailing_comma,
+        emit_record_property_line, emit_record_value_property_line, end_response, method_eq,
+        method_head_eq, parse_current_boot_event_id, parse_sha256_ref, record_bool as b,
+        record_event_or_null, record_false as no, record_field as f, record_gate,
+        record_sha_fields, record_sha_or_null, record_str as s, record_str_or_null,
     },
     event_log,
     module_evidence::{
         self, ram_only_service_slot_id_valid, ModuleServiceSlotReservationHashInput,
     },
 };
+use raios_core::record::Value as V;
 pub(crate) fn module_service_slot_diagnostic_method(method: &str) -> bool {
     method_head_eq(method, "module.service_slot_diagnostic")
 }
@@ -30,6 +34,7 @@ fn module_service_slot_diagnostic_arg(method: &str) -> &str {
     method[head_len..].trim()
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_service_slot_diagnostic(method: &str) {
     let arg = module_service_slot_diagnostic_arg(method);
     let check = parse_module_service_slot_reservation(arg, true);
@@ -42,173 +47,177 @@ pub(crate) fn emit_module_service_slot_diagnostic(method: &str) {
     let retained = event_log::latest_module_service_slot_reservation();
 
     begin_response("module.service_slot_diagnostic");
-    raw_line("      \"schema\": \"raios.module_service_slot_reservation_diagnostic.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw("      \"mutates_global_event_log\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw("      \"global_event_log_mutation\": ");
-    json_str(if check.valid {
-        "valid_hash_reference_retention_only"
-    } else {
-        "none"
-    });
-    raw_line(",");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"creates_service_inventory_records\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"reference_format\": \"module.service_slot_diagnostic <reservation_hash> <retained_reference_event_id> <retained_audit_rollback_reference_event_id> <computed_grant_hash> <audit_record_hash> <rollback_plan_hash> <pre_load_service_inventory_hash> <ram_only_service_slot_id> [current_boot]\",");
-    emit_module_service_slot_reference_object(&check);
-    raw_line(",");
-    emit_module_service_slot_retained_reference(&check, recorded_event_id, retained);
-    raw_line(",");
-    emit_module_service_slot_policy_result(&check);
-    raw_line(",");
-    raw_line("      \"blocked_by\": [");
-    raw_line(
-        "        {\"gate\": \"service_slot_allocator\", \"state\": \"unavailable\", \"reason\": \"ram_only_service_slot_allocator_unimplemented\"},",
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_service_slot_reservation_diagnostic.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", b(check.valid)),
+            f(
+                "global_event_log_mutation",
+                s(if check.valid {
+                    "valid_hash_reference_retention_only"
+                } else {
+                    "none"
+                }),
+            ),
+            f("accepts_artifact_bytes", no()),
+            f("allocates_service_slot", no()),
+            f("creates_service_inventory_records", no()),
+            f("loads_artifact", no()),
+            f(
+                "reference_format",
+                s("module.service_slot_diagnostic <reservation_hash> <retained_reference_event_id> <retained_audit_rollback_reference_event_id> <computed_grant_hash> <audit_record_hash> <rollback_plan_hash> <pre_load_service_inventory_hash> <ram_only_service_slot_id> [current_boot]"),
+            ),
+        ],
+        6,
     );
-    raw_line(
-        "        {\"gate\": \"module_loader\", \"state\": \"unavailable\", \"reason\": \"module_loader_unimplemented\"}",
+    emit_module_service_slot_reference_object(&check, true);
+    emit_module_service_slot_retained_reference(&check, recorded_event_id, retained, true);
+    emit_module_service_slot_policy_result(&check, true);
+    emit_record_value_property_line(
+        "blocked_by",
+        V::Array(vec![
+            record_gate("service_slot_allocator", "unavailable",
+                "ram_only_service_slot_allocator_unimplemented"),
+            record_gate("module_loader", "unavailable", "module_loader_unimplemented"),
+        ]),
+        false,
     );
-    raw_line("      ]");
     end_response("module.service_slot_diagnostic");
 }
 
-fn emit_module_service_slot_reference_object(check: &ModuleServiceSlotReservationCheck<'_>) {
-    raw_line("      \"service_slot_reservation_reference\": {");
-    raw("        \"state\": ");
-    json_str(if check.has_reference {
-        "present"
-    } else {
-        "absent"
-    });
-    raw_line(",");
-    raw("        \"validation_status\": ");
-    json_str(check.status);
-    raw_line(",");
-    raw("        \"validation_reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"arity_valid\": ");
-    raw_bool(check.arity_valid);
-    raw_line(",");
-    raw("        \"scope\": ");
-    json_str(check.scope);
-    raw_line(",");
-    raw("        \"reservation_hash\": ");
-    json_sha256_option(check.reservation_hash);
-    raw_line(",");
-    raw("        \"expected_reservation_hash\": ");
-    json_sha256_option(check.expected_reservation_hash);
-    raw_line(",");
-    raw("        \"retained_computed_grant_reference_event_id\": ");
-    json_opt_str(check.retained_reference_event_id);
-    raw_line(",");
-    raw("        \"retained_audit_rollback_reference_event_id\": ");
-    json_opt_str(check.retained_audit_rollback_reference_event_id);
-    raw_line(",");
-    raw("        \"computed_capability_grant_hash\": ");
-    json_sha256_option(check.computed_grant_hash);
-    raw_line(",");
-    raw("        \"audit_record_hash\": ");
-    json_sha256_option(check.audit_record_hash);
-    raw_line(",");
-    raw("        \"rollback_plan_hash\": ");
-    json_sha256_option(check.rollback_plan_hash);
-    raw_line(",");
-    raw("        \"pre_load_service_inventory_hash\": ");
-    json_sha256_option(check.pre_load_service_inventory_hash);
-    raw_line(",");
-    raw("        \"ram_only_service_slot_id\": ");
-    json_opt_str(check.ram_only_service_slot_id);
-    crlf();
-    raw_line("      }");
+#[rustfmt::skip]
+fn emit_module_service_slot_reference_object(
+    check: &ModuleServiceSlotReservationCheck<'_>,
+    comma: bool,
+) {
+    emit_record_property_line(
+        "service_slot_reservation_reference",
+        vec![
+            f(
+                "state",
+                s(if check.has_reference { "present" } else { "absent" }),
+            ),
+            f("validation_status", s(check.status)),
+            f("validation_reason", s(check.reason)),
+            f("arity_valid", b(check.arity_valid)),
+            f("scope", s(check.scope)),
+            f("reservation_hash", record_sha_or_null(check.reservation_hash)),
+            f(
+                "expected_reservation_hash",
+                record_sha_or_null(check.expected_reservation_hash),
+            ),
+            f(
+                "retained_computed_grant_reference_event_id",
+                record_str_or_null(check.retained_reference_event_id),
+            ),
+            f(
+                "retained_audit_rollback_reference_event_id",
+                record_str_or_null(check.retained_audit_rollback_reference_event_id),
+            ),
+            f(
+                "computed_capability_grant_hash",
+                record_sha_or_null(check.computed_grant_hash),
+            ),
+            f("audit_record_hash", record_sha_or_null(check.audit_record_hash)),
+            f("rollback_plan_hash", record_sha_or_null(check.rollback_plan_hash)),
+            f(
+                "pre_load_service_inventory_hash",
+                record_sha_or_null(check.pre_load_service_inventory_hash),
+            ),
+            f(
+                "ram_only_service_slot_id",
+                record_str_or_null(check.ram_only_service_slot_id),
+            ),
+        ],
+        comma,
+    );
 }
 
+#[rustfmt::skip]
 fn emit_module_service_slot_retained_reference(
     check: &ModuleServiceSlotReservationCheck<'_>,
     recorded_event_id: Option<event_log::EventId>,
     retained: Option<(event_log::EventId, event_log::ModuleServiceSlotReservation)>,
+    comma: bool,
 ) {
-    raw_line("      \"retained_service_slot_reservation\": {");
-    if let Some((event_id, reference)) = retained {
-        raw_line("        \"state\": \"present\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw("        \"event_id\": ");
-        json_event_id(event_id);
-        raw_line(",");
-        raw("        \"recorded_event_id\": ");
-        json_event_id_option(recorded_event_id);
-        raw_line(",");
-        raw("        \"matches_current_reference\": ");
-        raw_bool(module_service_slot_reference_matches(check, reference));
-        raw_line(",");
-        raw_line("        \"schema\": \"raios.module_service_slot_reservation.v0\",");
-        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
-        raw_line("        \"classification\": \"local_only\",");
-        raw_line("        \"allocates_service_slot\": false,");
-        raw_line("        \"service_inventory_change\": \"none\",");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"load_attempted\": false,");
-        raw("        \"retained_computed_grant_reference_event_id\": ");
-        json_event_id(reference.retained_reference_event_id);
-        raw_line(",");
-        raw("        \"retained_audit_rollback_reference_event_id\": ");
-        json_event_id(reference.retained_audit_rollback_reference_event_id);
-        raw_line(",");
-        raw("        \"ram_only_service_slot_id\": ");
-        json_str(reference.ram_only_service_slot_id.as_str());
-        raw_line(",");
-        raw_line("        \"hashes\": {");
-        raw("          \"reservation_hash\": ");
-        json_sha256(reference.reservation_hash);
-        raw_line(",");
-        raw("          \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw_line(",");
-        raw("          \"audit_record_hash\": ");
-        json_sha256(reference.audit_record_hash);
-        raw_line(",");
-        raw("          \"rollback_plan_hash\": ");
-        json_sha256(reference.rollback_plan_hash);
-        raw_line(",");
-        raw("          \"pre_load_service_inventory_hash\": ");
-        json_sha256(reference.pre_load_service_inventory_hash);
-        crlf();
-        raw_line("        }");
+    let fields = if let Some((event_id, ref reference)) = retained {
+        vec![
+            f("state", s("present")),
+            f("retention", s("current_boot_ram_event_log")),
+            f("event_id", record_event_or_null(Some(event_id))),
+            f("recorded_event_id", record_event_or_null(recorded_event_id)),
+            f(
+                "matches_current_reference",
+                b(module_service_slot_reference_matches(check, *reference)),
+            ),
+            f("schema", s("raios.module_service_slot_reservation.v0")),
+            f("status", s("retained_hash_reference_load_still_denied")),
+            f("classification", s("local_only")),
+            f("allocates_service_slot", no()),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+            f(
+                "retained_computed_grant_reference_event_id",
+                record_event_or_null(Some(reference.retained_reference_event_id)),
+            ),
+            f(
+                "retained_audit_rollback_reference_event_id",
+                record_event_or_null(Some(reference.retained_audit_rollback_reference_event_id)),
+            ),
+            f("ram_only_service_slot_id", s(reference.ram_only_service_slot_id.as_str())),
+            f(
+                "hashes",
+                V::Object(record_sha_fields(&[
+                    ("reservation_hash", reference.reservation_hash),
+                    ("computed_capability_grant_hash", reference.computed_grant_hash),
+                    ("audit_record_hash", reference.audit_record_hash),
+                    ("rollback_plan_hash", reference.rollback_plan_hash),
+                    ("pre_load_service_inventory_hash", reference.pre_load_service_inventory_hash),
+                ])),
+            ),
+        ]
     } else {
-        raw_line("        \"state\": \"missing\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw_line("        \"event_id\": null,");
-        raw_line("        \"recorded_event_id\": null,");
-        raw_line("        \"matches_current_reference\": false,");
-        raw_line("        \"schema\": \"raios.module_service_slot_reservation.v0\",");
-        raw_line("        \"status\": \"missing\",");
-        raw_line("        \"reason\": \"no_valid_service_slot_reservation_retained\",");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"load_attempted\": false");
-    }
-    raw("      }");
+        vec![
+            f("state", s("missing")),
+            f("retention", s("current_boot_ram_event_log")),
+            f("event_id", record_event_or_null(None)),
+            f("recorded_event_id", record_event_or_null(None)),
+            f("matches_current_reference", no()),
+            f("schema", s("raios.module_service_slot_reservation.v0")),
+            f("status", s("missing")),
+            f("reason", s("no_valid_service_slot_reservation_retained")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ]
+    };
+    emit_record_property_line("retained_service_slot_reservation", fields, comma);
 }
 
-fn emit_module_service_slot_policy_result(check: &ModuleServiceSlotReservationCheck<'_>) {
-    raw_line("      \"policy_result\": {");
-    raw("        \"reservation_reference_present\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw_line("        \"service_slot_reserved\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"loader\": \"unavailable\",");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"load_attempted\": false");
-    raw("      }");
+#[rustfmt::skip]
+fn emit_module_service_slot_policy_result(check: &ModuleServiceSlotReservationCheck<'_>, comma: bool) {
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("reservation_reference_present", b(check.valid)),
+            f("service_slot_reserved", no()),
+            f("allocates_service_slot", no()),
+            f("loader", s("unavailable")),
+            f("service_inventory_change", s("none")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ],
+        comma,
+    );
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_service_slot_diagnostic_selftest() {
     let cases = module_service_slot_selftest_cases();
     let mut passed = true;
@@ -217,53 +226,37 @@ pub(crate) fn emit_module_service_slot_diagnostic_selftest() {
         passed = passed && cases[idx].passed;
         idx += 1;
     }
+    let case_records = cases.iter().map(module_service_slot_selftest_case_record).collect();
 
     begin_response("module.service_slot_diagnostic_selftest");
-    raw_line("      \"schema\": \"raios.module_service_slot_reservation_diagnostic_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_service_slot_reservation_records\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
-    raw_line("      \"cases\": [");
-    idx = 0;
-    while idx < cases.len() {
-        emit_module_service_slot_selftest_case(&cases[idx], idx + 1 != cases.len());
-        idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"can_load\": false");
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_service_slot_reservation_diagnostic_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("creates_service_slot_reservation_records", no()),
+            f("allocates_service_slot", no()),
+            f("loads_artifact", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f("cases", V::Array(case_records)),
+        ],
+        6,
+    );
+    emit_record_value_property_line("can_load", no(), false);
     end_response("module.service_slot_diagnostic_selftest");
 }
 
-fn emit_module_service_slot_selftest_case(case: &ModuleServiceSlotSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+#[rustfmt::skip]
+fn module_service_slot_selftest_case_record(case: &ModuleServiceSlotSelfTestCase) -> V<'static> {
+    V::InlineObject(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("can_load", no()), f("load_attempted", no())])
 }
 
 fn parse_module_service_slot_reservation(

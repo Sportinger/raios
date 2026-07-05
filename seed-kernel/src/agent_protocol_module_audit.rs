@@ -1,14 +1,19 @@
+use alloc::vec;
+
 use crate::{
     agent_protocol_module_types::*,
     agent_protocol_support::{
-        begin_response, crlf, current_boot_event_id_str, emit_export_gate, end_response,
-        json_event_id, json_event_id_option, json_opt_str, json_sha256, json_sha256_option,
-        json_str, method_eq, method_head_eq, parse_current_boot_event_id, parse_sha256_ref, raw,
-        raw_bool, raw_fmt, raw_line,
+        begin_response, crlf, current_boot_event_id_str, emit_export_gate,
+        emit_record_fields_trailing_comma, emit_record_property_line,
+        emit_record_value_property_line, end_response, method_eq, method_head_eq,
+        parse_current_boot_event_id, parse_sha256_ref, raw_line, record_bool as b,
+        record_event_or_null, record_false as no, record_field as f, record_sha_fields,
+        record_sha_or_null_fields, record_static_str_array, record_str as s, record_str_or_null,
     },
     event_log,
     module_evidence::{self, ram_only_service_slot_id_valid, ModuleAuditRecordHashInput},
 };
+use raios_core::record::Value as V;
 pub(crate) fn module_audit_rollback_diagnostic_method(method: &str) -> bool {
     method_head_eq(method, "module.audit_rollback_diagnostic")
         || method_head_eq(method, "module.audit_rollback_gate_diagnostic")
@@ -42,48 +47,63 @@ pub(crate) fn emit_module_audit_rollback_diagnostic(method: &str) {
     let retained = event_log::latest_module_audit_rollback_reference();
 
     begin_response("module.audit_rollback_diagnostic");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_reference_diagnostic.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": false,");
-    raw("      \"mutates_global_event_log\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw("      \"global_event_log_mutation\": ");
-    json_str(if check.valid {
-        "valid_hash_reference_retention_only"
-    } else {
-        "none"
-    });
-    raw_line(",");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"artifact_loaded\": false,");
-    raw_line("      \"service_started\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"reference_format\": \"module.audit_rollback_diagnostic <audit_record_hash> <rollback_plan_hash> <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> <local_approval_hash> <pre_load_service_inventory_hash> <cleanup_actions_hash> <denial_event_id> <retained_reference_event_id> <ram_only_service_slot_id> [current_boot]\",");
-    raw_line("      \"request\": {");
-    raw_line("        \"requested_capability\": \"cap.module.load_ephemeral\",");
-    raw_line("        \"load_mode\": \"ram_only\",");
-    raw_line("        \"subject\": \"agent.session.serial\",");
-    raw_line("        \"resource\": \"live_service_graph\",");
-    raw_line("        \"audit_record_schema\": \"raios.audit_record.v0\",");
-    raw_line("        \"audit_record_canonicalization\": \"raios.audit_record.canonical.v0\",");
-    raw_line("        \"rollback_plan_schema\": \"raios.rollback_plan.v0\",");
-    raw_line("        \"rollback_plan_canonicalization\": \"raios.rollback_plan.canonical.v0\"");
-    raw_line("      },");
-    emit_module_audit_rollback_reference_object(&check);
-    raw_line(",");
-    emit_module_audit_rollback_retained_reference(&check, recorded_event_id, retained);
-    raw_line(",");
-    emit_module_audit_rollback_gate_state(&check);
-    raw_line(",");
-    emit_module_audit_rollback_policy_result(&check);
-    raw_line(",");
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_audit_rollback_reference_diagnostic.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", no()),
+            f("mutates_global_event_log", b(check.valid)),
+            f(
+                "global_event_log_mutation",
+                s(if check.valid {
+                    "valid_hash_reference_retention_only"
+                } else {
+                    "none"
+                }),
+            ),
+            f("accepts_artifact_bytes", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("allocates_service_slot", no()),
+            f("loads_artifact", no()),
+            f("artifact_loaded", no()),
+            f("service_started", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f(
+                "reference_format",
+                s("module.audit_rollback_diagnostic <audit_record_hash> <rollback_plan_hash> <computed_grant_hash> <manifest_hash> <artifact_hash> <vm_report_hash> <local_attestation_hash> <local_approval_hash> <pre_load_service_inventory_hash> <cleanup_actions_hash> <denial_event_id> <retained_reference_event_id> <ram_only_service_slot_id> [current_boot]"),
+            ),
+            f(
+                "request",
+                V::Object(vec![
+                    f("requested_capability", s("cap.module.load_ephemeral")),
+                    f("load_mode", s("ram_only")),
+                    f("subject", s("agent.session.serial")),
+                    f("resource", s("live_service_graph")),
+                    f("audit_record_schema", s("raios.audit_record.v0")),
+                    f(
+                        "audit_record_canonicalization",
+                        s("raios.audit_record.canonical.v0"),
+                    ),
+                    f("rollback_plan_schema", s("raios.rollback_plan.v0")),
+                    f(
+                        "rollback_plan_canonicalization",
+                        s("raios.rollback_plan.canonical.v0"),
+                    ),
+                ]),
+            ),
+        ],
+        6,
+    );
+    emit_module_audit_rollback_reference_object(&check, true);
+    emit_module_audit_rollback_retained_reference(&check, recorded_event_id, retained, true);
+    emit_module_audit_rollback_gate_state(&check, true);
+    emit_module_audit_rollback_policy_result(&check, true);
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     if !check.valid {
@@ -123,165 +143,131 @@ pub(crate) fn emit_module_audit_rollback_diagnostic(method: &str) {
     end_response("module.audit_rollback_diagnostic");
 }
 
-fn emit_module_audit_rollback_reference_object(check: &ModuleAuditRollbackReferenceCheck<'_>) {
-    raw_line("      \"audit_rollback_reference\": {");
-    raw("        \"state\": ");
-    json_str(if check.has_reference {
-        "present"
-    } else {
-        "absent"
-    });
-    raw_line(",");
-    raw("        \"validation_status\": ");
-    json_str(check.status);
-    raw_line(",");
-    raw("        \"validation_reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"arity_valid\": ");
-    raw_bool(check.arity_valid);
-    raw_line(",");
-    raw("        \"scope\": ");
-    json_str(check.scope);
-    raw_line(",");
-    raw("        \"denial_event_id\": ");
-    json_opt_str(check.denial_event_id);
-    raw_line(",");
-    raw("        \"retained_reference_event_id\": ");
-    json_opt_str(check.retained_reference_event_id);
-    raw_line(",");
-    raw("        \"ram_only_service_slot_id\": ");
-    json_opt_str(check.ram_only_service_slot_id);
-    raw_line(",");
-    raw_line("        \"hashes\": {");
-    raw("          \"audit_record_hash\": ");
-    json_sha256_option(check.audit_record_hash);
-    raw_line(",");
-    raw("          \"expected_audit_record_hash\": ");
-    json_sha256_option(check.expected_audit_record_hash);
-    raw_line(",");
-    raw("          \"rollback_plan_hash\": ");
-    json_sha256_option(check.rollback_plan_hash);
-    raw_line(",");
-    raw("          \"expected_rollback_plan_hash\": ");
-    json_sha256_option(check.expected_rollback_plan_hash);
-    raw_line(",");
-    raw("          \"computed_capability_grant_hash\": ");
-    json_sha256_option(check.computed_grant_hash);
-    raw_line(",");
-    raw("          \"expected_computed_capability_grant_hash\": ");
-    json_sha256_option(check.expected_computed_grant_hash);
-    raw_line(",");
-    raw("          \"manifest_hash\": ");
-    json_sha256_option(check.manifest_hash);
-    raw_line(",");
-    raw("          \"artifact_hash\": ");
-    json_sha256_option(check.artifact_hash);
-    raw_line(",");
-    raw("          \"vm_test_report_hash\": ");
-    json_sha256_option(check.vm_report_hash);
-    raw_line(",");
-    raw("          \"local_attestation_hash\": ");
-    json_sha256_option(check.local_attestation_hash);
-    raw_line(",");
-    raw("          \"local_approval_hash\": ");
-    json_sha256_option(check.local_approval_hash);
-    raw_line(",");
-    raw("          \"pre_load_service_inventory_hash\": ");
-    json_sha256_option(check.pre_load_service_inventory_hash);
-    raw_line(",");
-    raw("          \"cleanup_actions_hash\": ");
-    json_sha256_option(check.cleanup_actions_hash);
-    crlf();
-    raw_line("        }");
-    raw("      }");
+#[rustfmt::skip]
+fn emit_module_audit_rollback_reference_object(
+    check: &ModuleAuditRollbackReferenceCheck<'_>,
+    comma: bool,
+) {
+    emit_record_property_line(
+        "audit_rollback_reference",
+        vec![
+            f(
+                "state",
+                s(if check.has_reference { "present" } else { "absent" }),
+            ),
+            f("validation_status", s(check.status)),
+            f("validation_reason", s(check.reason)),
+            f("arity_valid", b(check.arity_valid)),
+            f("scope", s(check.scope)),
+            f("denial_event_id", record_str_or_null(check.denial_event_id)),
+            f(
+                "retained_reference_event_id",
+                record_str_or_null(check.retained_reference_event_id),
+            ),
+            f(
+                "ram_only_service_slot_id",
+                record_str_or_null(check.ram_only_service_slot_id),
+            ),
+            f(
+                "hashes",
+                V::Object(record_sha_or_null_fields(&[
+                    ("audit_record_hash", check.audit_record_hash),
+                    ("expected_audit_record_hash", check.expected_audit_record_hash),
+                    ("rollback_plan_hash", check.rollback_plan_hash),
+                    ("expected_rollback_plan_hash", check.expected_rollback_plan_hash),
+                    ("computed_capability_grant_hash", check.computed_grant_hash),
+                    (
+                        "expected_computed_capability_grant_hash",
+                        check.expected_computed_grant_hash,
+                    ),
+                    ("manifest_hash", check.manifest_hash),
+                    ("artifact_hash", check.artifact_hash),
+                    ("vm_test_report_hash", check.vm_report_hash),
+                    ("local_attestation_hash", check.local_attestation_hash),
+                    ("local_approval_hash", check.local_approval_hash),
+                    (
+                        "pre_load_service_inventory_hash",
+                        check.pre_load_service_inventory_hash,
+                    ),
+                    ("cleanup_actions_hash", check.cleanup_actions_hash),
+                ])),
+            ),
+        ],
+        comma,
+    );
 }
 
+#[rustfmt::skip]
 fn emit_module_audit_rollback_retained_reference(
     check: &ModuleAuditRollbackReferenceCheck<'_>,
     recorded_event_id: Option<event_log::EventId>,
     retained: Option<(event_log::EventId, event_log::ModuleAuditRollbackReference)>,
+    comma: bool,
 ) {
-    raw_line("      \"retained_audit_rollback_reference\": {");
-    if let Some((event_id, reference)) = retained {
-        raw_line("        \"state\": \"present\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw("        \"event_id\": ");
-        json_event_id(event_id);
-        raw_line(",");
-        raw("        \"recorded_event_id\": ");
-        json_event_id_option(recorded_event_id);
-        raw_line(",");
-        raw("        \"matches_current_reference\": ");
-        raw_bool(module_audit_rollback_reference_matches(check, reference));
-        raw_line(",");
-        raw_line("        \"schema\": \"raios.module_audit_rollback_reference.v0\",");
-        raw_line("        \"status\": \"retained_hash_reference_load_still_denied\",");
-        raw_line("        \"classification\": \"local_only\",");
-        raw_line("        \"durable_audit_written\": false,");
-        raw_line("        \"rollback_plan_installed\": false,");
-        raw_line("        \"grants_capability\": false,");
-        raw_line("        \"grants_load_now\": false,");
-        raw_line("        \"authorizes_guest_load\": false,");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"load_attempted\": false,");
-        raw("        \"denial_event_id\": ");
-        json_event_id(reference.denial_event_id);
-        raw_line(",");
-        raw("        \"retained_computed_grant_reference_event_id\": ");
-        json_event_id(reference.retained_reference_event_id);
-        raw_line(",");
-        raw("        \"ram_only_service_slot_id\": ");
-        json_str(reference.ram_only_service_slot_id.as_str());
-        raw_line(",");
-        raw_line("        \"hashes\": {");
-        raw("          \"audit_record_hash\": ");
-        json_sha256(reference.audit_record_hash);
-        raw_line(",");
-        raw("          \"rollback_plan_hash\": ");
-        json_sha256(reference.rollback_plan_hash);
-        raw_line(",");
-        raw("          \"computed_capability_grant_hash\": ");
-        json_sha256(reference.computed_grant_hash);
-        raw_line(",");
-        raw("          \"manifest_hash\": ");
-        json_sha256(reference.manifest_hash);
-        raw_line(",");
-        raw("          \"artifact_hash\": ");
-        json_sha256(reference.artifact_hash);
-        raw_line(",");
-        raw("          \"vm_test_report_hash\": ");
-        json_sha256(reference.vm_report_hash);
-        raw_line(",");
-        raw("          \"local_attestation_hash\": ");
-        json_sha256(reference.local_attestation_hash);
-        raw_line(",");
-        raw("          \"local_approval_hash\": ");
-        json_sha256(reference.local_approval_hash);
-        raw_line(",");
-        raw("          \"pre_load_service_inventory_hash\": ");
-        json_sha256(reference.pre_load_service_inventory_hash);
-        raw_line(",");
-        raw("          \"cleanup_actions_hash\": ");
-        json_sha256(reference.cleanup_actions_hash);
-        crlf();
-        raw_line("        }");
+    let fields = if let Some((event_id, ref reference)) = retained {
+        vec![
+            f("state", s("present")),
+            f("retention", s("current_boot_ram_event_log")),
+            f("event_id", record_event_or_null(Some(event_id))),
+            f("recorded_event_id", record_event_or_null(recorded_event_id)),
+            f(
+                "matches_current_reference",
+                b(module_audit_rollback_reference_matches(check, *reference)),
+            ),
+            f("schema", s("raios.module_audit_rollback_reference.v0")),
+            f("status", s("retained_hash_reference_load_still_denied")),
+            f("classification", s("local_only")),
+            f("durable_audit_written", no()),
+            f("rollback_plan_installed", no()),
+            f("grants_capability", no()),
+            f("grants_load_now", no()),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+            f("denial_event_id", record_event_or_null(Some(reference.denial_event_id))),
+            f(
+                "retained_computed_grant_reference_event_id",
+                record_event_or_null(Some(reference.retained_reference_event_id)),
+            ),
+            f("ram_only_service_slot_id", s(reference.ram_only_service_slot_id.as_str())),
+            f(
+                "hashes",
+                V::Object(record_sha_fields(&[
+                    ("audit_record_hash", reference.audit_record_hash),
+                    ("rollback_plan_hash", reference.rollback_plan_hash),
+                    ("computed_capability_grant_hash", reference.computed_grant_hash),
+                    ("manifest_hash", reference.manifest_hash),
+                    ("artifact_hash", reference.artifact_hash),
+                    ("vm_test_report_hash", reference.vm_report_hash),
+                    ("local_attestation_hash", reference.local_attestation_hash),
+                    ("local_approval_hash", reference.local_approval_hash),
+                    (
+                        "pre_load_service_inventory_hash",
+                        reference.pre_load_service_inventory_hash,
+                    ),
+                    ("cleanup_actions_hash", reference.cleanup_actions_hash),
+                ])),
+            ),
+        ]
     } else {
-        raw_line("        \"state\": \"missing\",");
-        raw_line("        \"retention\": \"current_boot_ram_event_log\",");
-        raw_line("        \"event_id\": null,");
-        raw_line("        \"recorded_event_id\": null,");
-        raw_line("        \"matches_current_reference\": false,");
-        raw_line("        \"schema\": \"raios.module_audit_rollback_reference.v0\",");
-        raw_line("        \"status\": \"missing\",");
-        raw_line("        \"reason\": \"no_valid_audit_rollback_reference_retained\",");
-        raw_line("        \"can_load_now\": false,");
-        raw_line("        \"load_attempted\": false");
-    }
-    raw("      }");
+        vec![
+            f("state", s("missing")),
+            f("retention", s("current_boot_ram_event_log")),
+            f("event_id", record_event_or_null(None)),
+            f("recorded_event_id", record_event_or_null(None)),
+            f("matches_current_reference", no()),
+            f("schema", s("raios.module_audit_rollback_reference.v0")),
+            f("status", s("missing")),
+            f("reason", s("no_valid_audit_rollback_reference_retained")),
+            f("can_load_now", no()),
+            f("load_attempted", no()),
+        ]
+    };
+    emit_record_property_line("retained_audit_rollback_reference", fields, comma);
 }
 
-fn emit_module_audit_rollback_gate_state(check: &ModuleAuditRollbackReferenceCheck<'_>) {
+#[rustfmt::skip]
+fn emit_module_audit_rollback_gate_state(check: &ModuleAuditRollbackReferenceCheck<'_>, comma: bool) {
     let state = if check.valid {
         "hash_reference_valid"
     } else if check.has_reference {
@@ -289,73 +275,86 @@ fn emit_module_audit_rollback_gate_state(check: &ModuleAuditRollbackReferenceChe
     } else {
         "missing"
     };
-    raw_line("      \"gate_state\": {");
-    raw("        \"retained_computed_grant_reference\": ");
-    json_str(if check.valid {
-        "hash_reference_supplied"
-    } else {
-        state
-    });
-    raw_line(",");
-    raw("        \"computed_capability_grant\": ");
-    json_str(state);
-    raw_line(",");
-    raw_line("        \"module_manifest\": \"hash_reference_only\",");
-    raw_line("        \"candidate_artifact\": \"hash_reference_only\",");
-    raw_line("        \"vm_test_report\": \"hash_reference_only\",");
-    raw_line("        \"local_attestation\": \"hash_reference_only\",");
-    raw("        \"durable_audit_record\": ");
-    json_str(if check.valid {
-        "hash_reference_valid_not_durable"
-    } else {
-        state
-    });
-    raw_line(",");
-    raw("        \"rollback_plan\": ");
-    json_str(if check.valid {
-        "hash_reference_valid_not_installed"
-    } else {
-        state
-    });
-    raw_line(",");
-    raw_line("        \"local_approval\": \"hash_reference_only\",");
-    raw_line("        \"loader\": \"unavailable\",");
-    raw_line("        \"service_slot\": \"unallocated\",");
-    raw_line("        \"artifact_loaded\": false,");
-    raw_line("        \"service_started\": false,");
-    raw_line("        \"persistence\": \"none\",");
-    raw_line("        \"can_load\": false");
-    raw("      }");
+    emit_record_property_line(
+        "gate_state",
+        vec![
+            f(
+                "retained_computed_grant_reference",
+                s(if check.valid {
+                    "hash_reference_supplied"
+                } else {
+                    state
+                }),
+            ),
+            f("computed_capability_grant", s(state)),
+            f("module_manifest", s("hash_reference_only")),
+            f("candidate_artifact", s("hash_reference_only")),
+            f("vm_test_report", s("hash_reference_only")),
+            f("local_attestation", s("hash_reference_only")),
+            f(
+                "durable_audit_record",
+                s(if check.valid {
+                    "hash_reference_valid_not_durable"
+                } else {
+                    state
+                }),
+            ),
+            f(
+                "rollback_plan",
+                s(if check.valid {
+                    "hash_reference_valid_not_installed"
+                } else {
+                    state
+                }),
+            ),
+            f("local_approval", s("hash_reference_only")),
+            f("loader", s("unavailable")),
+            f("service_slot", s("unallocated")),
+            f("artifact_loaded", no()),
+            f("service_started", no()),
+            f("persistence", s("none")),
+            f("can_load", no()),
+        ],
+        comma,
+    );
 }
 
-fn emit_module_audit_rollback_policy_result(check: &ModuleAuditRollbackReferenceCheck<'_>) {
-    raw_line("      \"policy_result\": {");
-    raw("        \"audit_record_hash_reference_present\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw("        \"rollback_plan_hash_reference_present\": ");
-    raw_bool(check.valid);
-    raw_line(",");
-    raw_line("        \"guest_evidence_authority\": \"hash_reference_only_no_artifact_bytes\",");
-    raw_line("        \"durable_audit_written\": false,");
-    raw_line("        \"rollback_plan_installed\": false,");
-    raw_line("        \"grants_capability\": false,");
-    raw_line("        \"grants_load_now\": false,");
-    raw_line("        \"authorizes_guest_load\": false,");
-    raw_line("        \"can_load_now\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"load_attempted\": false,");
-    raw_line("        \"loader\": \"unavailable\",");
-    raw_line("        \"service_slot\": \"unallocated\",");
-    raw_line("        \"required_before_load\": [");
-    raw_line("          \"durable_audit_record_write\",");
-    raw_line("          \"rollback_plan_installation\",");
-    raw_line("          \"module_loader\",");
-    raw_line("          \"ram_only_service_slot_allocation\"");
-    raw_line("        ]");
-    raw("      }");
+#[rustfmt::skip]
+fn emit_module_audit_rollback_policy_result(
+    check: &ModuleAuditRollbackReferenceCheck<'_>,
+    comma: bool,
+) {
+    emit_record_property_line(
+        "policy_result",
+        vec![
+            f("audit_record_hash_reference_present", b(check.valid)),
+            f("rollback_plan_hash_reference_present", b(check.valid)),
+            f("guest_evidence_authority", s("hash_reference_only_no_artifact_bytes")),
+            f("durable_audit_written", no()),
+            f("rollback_plan_installed", no()),
+            f("grants_capability", no()),
+            f("grants_load_now", no()),
+            f("authorizes_guest_load", no()),
+            f("can_load_now", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("loader", s("unavailable")),
+            f("service_slot", s("unallocated")),
+            f(
+                "required_before_load",
+                record_static_str_array(&[
+                    "durable_audit_record_write",
+                    "rollback_plan_installation",
+                    "module_loader",
+                    "ram_only_service_slot_allocation",
+                ]),
+            ),
+        ],
+        comma,
+    );
 }
 
+#[rustfmt::skip]
 pub(crate) fn emit_module_audit_rollback_diagnostic_selftest() {
     let cases = module_audit_rollback_selftest_cases();
     let mut passed = true;
@@ -364,73 +363,60 @@ pub(crate) fn emit_module_audit_rollback_diagnostic_selftest() {
         passed = passed && cases[idx].passed;
         idx += 1;
     }
+    let case_records = cases.iter().map(module_audit_rollback_selftest_case_record).collect();
 
     begin_response("module.audit_rollback_diagnostic_selftest");
-    raw_line("      \"schema\": \"raios.module_audit_rollback_reference_diagnostic_selftest.v0\",");
-    raw_line("      \"scope\": \"current_boot\",");
-    raw_line("      \"classification\": \"local_only\",");
-    raw_line("      \"test_infrastructure\": true,");
-    raw_line("      \"mutates_global_event_log\": false,");
-    raw_line("      \"creates_retained_audit_rollback_reference_records\": false,");
-    raw_line("      \"creates_durable_audit_records\": false,");
-    raw_line("      \"creates_rollback_plans\": false,");
-    raw_line("      \"allocates_service_slot\": false,");
-    raw_line("      \"accepts_artifact_bytes\": false,");
-    raw_line("      \"loads_artifact\": false,");
-    raw_line("      \"service_inventory_change\": \"none\",");
-    raw_line("      \"load_attempted\": false,");
-    raw_line("      \"loader\": \"unavailable\",");
-    raw_line("      \"service_slot\": \"unallocated\",");
-    raw("      \"case_count\": ");
-    raw_fmt(format_args!("{}", cases.len()));
-    raw_line(",");
-    raw("      \"passed\": ");
-    raw_bool(passed);
-    raw_line(",");
-    raw_line("      \"required_bindings\": [");
-    raw_line("        \"audit_record_hash\",");
-    raw_line("        \"rollback_plan_hash\",");
-    raw_line("        \"computed_capability_grant_hash\",");
-    raw_line("        \"retained_reference_event_id\",");
-    raw_line("        \"denial_event_id\",");
-    raw_line("        \"manifest_hash\",");
-    raw_line("        \"artifact_hash\",");
-    raw_line("        \"vm_test_report_hash\",");
-    raw_line("        \"local_attestation_hash\",");
-    raw_line("        \"local_approval_hash\",");
-    raw_line("        \"pre_load_service_inventory_hash\",");
-    raw_line("        \"cleanup_actions_hash\",");
-    raw_line("        \"ram_only_service_slot_id\"");
-    raw_line("      ],");
-    raw_line("      \"cases\": [");
-    idx = 0;
-    while idx < cases.len() {
-        emit_module_audit_rollback_selftest_case(&cases[idx], idx + 1 != cases.len());
-        idx += 1;
-    }
-    raw_line("      ],");
-    raw_line("      \"can_load\": false");
+    emit_record_fields_trailing_comma(
+        vec![
+            f(
+                "schema",
+                s("raios.module_audit_rollback_reference_diagnostic_selftest.v0"),
+            ),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", no()),
+            f("creates_retained_audit_rollback_reference_records", no()),
+            f("creates_durable_audit_records", no()),
+            f("creates_rollback_plans", no()),
+            f("allocates_service_slot", no()),
+            f("accepts_artifact_bytes", no()),
+            f("loads_artifact", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+            f("loader", s("unavailable")),
+            f("service_slot", s("unallocated")),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f(
+                "required_bindings",
+                record_static_str_array(&[
+                    "audit_record_hash",
+                    "rollback_plan_hash",
+                    "computed_capability_grant_hash",
+                    "retained_reference_event_id",
+                    "denial_event_id",
+                    "manifest_hash",
+                    "artifact_hash",
+                    "vm_test_report_hash",
+                    "local_attestation_hash",
+                    "local_approval_hash",
+                    "pre_load_service_inventory_hash",
+                    "cleanup_actions_hash",
+                    "ram_only_service_slot_id",
+                ]),
+            ),
+            f("cases", V::Array(case_records)),
+        ],
+        6,
+    );
+    emit_record_value_property_line("can_load", no(), false);
     end_response("module.audit_rollback_diagnostic_selftest");
 }
 
-fn emit_module_audit_rollback_selftest_case(case: &ModuleAuditRollbackSelfTestCase, comma: bool) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"can_load\": false, \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+#[rustfmt::skip]
+fn module_audit_rollback_selftest_case_record(case: &ModuleAuditRollbackSelfTestCase) -> V<'static> {
+    V::InlineObject(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("can_load", no()), f("load_attempted", no())])
 }
 
 fn parse_module_audit_rollback_reference(arg: &str) -> ModuleAuditRollbackReferenceCheck<'_> {

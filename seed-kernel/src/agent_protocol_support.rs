@@ -74,6 +74,28 @@ pub(crate) fn record_sha_fields<'a>(pairs: &[(&'a str, [u8; 32])]) -> Vec<Field<
     fields
 }
 
+pub(crate) fn record_sha_or_null_fields<'a>(
+    pairs: &[(&'a str, Option<[u8; 32]>)],
+) -> Vec<Field<'a>> {
+    let mut fields = Vec::new();
+    let mut idx = 0usize;
+    while idx < pairs.len() {
+        fields.push(record_field(pairs[idx].0, record_sha_or_null(pairs[idx].1)));
+        idx += 1;
+    }
+    fields
+}
+
+pub(crate) fn record_static_str_array(values: &[&'static str]) -> Value<'static> {
+    let mut out = Vec::new();
+    let mut idx = 0usize;
+    while idx < values.len() {
+        out.push(record_str(values[idx]));
+        idx += 1;
+    }
+    Value::Array(out)
+}
+
 pub(crate) fn extend_false_fields<'a>(fields: &mut Vec<Field<'a>>, names: &'a [&'a str]) {
     let mut idx = 0usize;
     while idx < names.len() {
@@ -418,6 +440,14 @@ pub(crate) fn emit_export_gate(
         6,
     );
     *wrote = true;
+}
+
+pub(crate) fn record_gate<'a>(gate: &'a str, state: &'a str, reason: &'a str) -> Value<'a> {
+    record_inline(vec![
+        record_field("gate", record_str(gate)),
+        record_field("state", record_str(state)),
+        record_field("reason", record_str(reason)),
+    ])
 }
 
 pub(crate) fn begin_response(method: &'static str) {

@@ -148,15 +148,20 @@ streaming sections honestly left as-is). **FULL profile green over the
 entire M2 state**: `shadow-20260705-152745-17896.json`, 7814/7814
 predicates, 334 commands, 17.1 min.
 
+Slice M2-16 done (2026-07-05): coupled Batch 5 first packet — JSON
+rendering of grant, service_slot, append_payload_hash, audit ported with
+all hash-input sites documented and untouched; verified by
+module-audit-rollback (`shadow-20260705-160504-8620.json`, 1626/1626)
+AND full (`shadow-20260705-160858-23032.json`, 7814/7814).
+
 Exact next task:
 
 ```text
-Map Batch 5 (COUPLED — extreme care): port ONLY the JSON response
-rendering of grant, service_slot, append_payload_hash, audit (first
-packet) then reference, attestation, approval (second packet); the
-key=value line-hash inputs and hash helper functions must remain
-byte-for-byte untouched. Verify each packet with module-audit-rollback +
-full. Afterwards: de-hello-ify scoping (hello_service.rs, signed chain).
+Coupled Batch 5 second packet: reference (~2.3k), attestation (~1.1k),
+approval (~1.2k) — same cardinal rule (hash inputs byte-for-byte
+untouched, only JSON rendering ports), verify with
+module-audit-rollback + full. Afterwards: de-hello-ify scoping
+(hello_service.rs 22k lines, signed source snapshot chain update).
 ```
 
 ## Capability Milestones
