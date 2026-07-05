@@ -162,17 +162,23 @@ by module-audit-rollback (`shadow-20260705-164930-25652.json`,
 **The module-boundary porting map is fully executed** — all SAFE and
 COUPLED emit surfaces render through the record model.
 
+Slice M2-18 done (2026-07-05): de-hello-ify plan produced and saved at
+`docs/plan-reviews/m2-de-hello-ify-plan-2026-07-05.md` — full section
+map of hello_service.rs (22,705 lines), the signed source snapshot chain
+explained end-to-end (build.rs hashes ONE file's bytes; re-signing via
+target/descriptor-resign), split feasibility (needs ordered source-set
+hashing in build.rs first), 5-slice plan, risks (attestation must keep
+covering moved code; no .gitattributes = CRLF hazard for signed bytes).
+
 Exact next task:
 
 ```text
-De-hello-ify scoping (read-only packet): analyze hello_service.rs (22.5k
-lines) — what it contains (emitters, gates, state machine, selftests),
-how the signed source snapshot chain works (build.rs verification,
-signature files, re-signing procedure), and a slice plan to split it
-below the AGENTS.md size thresholds with the sha256 dedup included.
-This is the last big M2 surface; after it, evaluate M2's ~10x target
-and the capability sentence (golden-string byte-identity proven
-throughout).
+De-hello-ify Slice 1 (attestation-critical, single worker, extra care):
+build.rs ordered source-set hashing (still covering the single file
+initially), replace hello_service.rs local sha256_bytes with
+raios_core::sha256_bytes, add .gitattributes protecting signed sources
+from EOL conversion, re-sign v1/v2 identity descs via descriptor-resign.
+Verify: build + quick + hello-rollback-dry-run profiles.
 ```
 
 ## Capability Milestones
