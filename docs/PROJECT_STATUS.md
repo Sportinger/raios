@@ -26,6 +26,21 @@ profiles, protocol probes, and failure modes.
 
 Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
 
+- 2026-07-05 `shadow-20260705-114125-1380.json` (recovery profile,
+  uncommitted M2-4 working tree): 433/433 reached predicates passed, then
+  the NEW M0-2 instrumentation classified the death in 0.5s:
+  `qemu_exited`, no listener, exit code unobtainable, guest serial tail
+  clean directly after `memory.recent_events` / `AGENT RESPONSE WRITTEN
+  TO SERIAL`. Same signature as the 2026-07-04 full-profile failure —
+  which happened on pre-M2 committed code, so the M2 ports are exonerated
+  as the cause. Pattern (two occurrences, both dying right after
+  `memory.recent_events`) now points at a timing-dependent guest
+  reset/triple fault after that response (`-no-reboot` turns a guest
+  reset into a silent clean QEMU exit) rather than host transport;
+  reclassified as suspected guest-behavior, intermittent. Follow-up
+  candidate for investigation if it recurs: the post-response code path
+  of `memory.recent_events` (agent_protocol_memory.rs).
+
 - 2026-07-04 `shadow-20260704-183440-16492.json` (full profile): no failing
   predicate (200/200 reached passed, 14 commands executed); failure is
   `Timed out connecting to QEMU serial TCP port 4565` after the guest

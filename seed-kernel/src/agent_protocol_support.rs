@@ -3,7 +3,7 @@ use core::fmt;
 
 use crate::{event_log, serial};
 use raios_core::{
-    record::{write_json, Field, Value},
+    record::{write_json, write_json_fields, Field, Value},
     ByteSink,
 };
 
@@ -32,6 +32,60 @@ pub(crate) fn record_str_or_null<'a>(value: Option<&'a str>) -> Value<'a> {
     }
 }
 
+pub(crate) fn record_field<'a>(key: &'a str, value: Value<'a>) -> Field<'a> {
+    Field::new(key, value)
+}
+
+pub(crate) fn record_str(value: &str) -> Value<'_> {
+    Value::Str(value)
+}
+
+pub(crate) fn record_bool(value: bool) -> Value<'static> {
+    Value::Bool(value)
+}
+
+pub(crate) fn record_false() -> Value<'static> {
+    Value::Bool(false)
+}
+
+pub(crate) fn record_null() -> Value<'static> {
+    Value::Null
+}
+
+pub(crate) fn record_event(value: event_log::EventId) -> Value<'static> {
+    Value::EventSequence(value.sequence())
+}
+
+pub(crate) fn record_sha(value: [u8; 32]) -> Value<'static> {
+    Value::Sha256(value)
+}
+
+pub(crate) fn record_inline<'a>(fields: Vec<Field<'a>>) -> Value<'a> {
+    Value::InlineObject(fields)
+}
+
+pub(crate) fn record_sha_fields<'a>(pairs: &[(&'a str, [u8; 32])]) -> Vec<Field<'a>> {
+    let mut fields = Vec::new();
+    let mut idx = 0usize;
+    while idx < pairs.len() {
+        fields.push(record_field(pairs[idx].0, record_sha(pairs[idx].1)));
+        idx += 1;
+    }
+    fields
+}
+
+pub(crate) fn extend_false_fields<'a>(fields: &mut Vec<Field<'a>>, names: &'a [&'a str]) {
+    let mut idx = 0usize;
+    while idx < names.len() {
+        fields.push(record_field(names[idx], record_false()));
+        idx += 1;
+    }
+}
+
+pub(crate) fn record_object<'a>(fields: Vec<Field<'a>>) -> Value<'a> {
+    Value::Object(fields)
+}
+
 pub(crate) fn record_sha_or_null(value: Option<[u8; 32]>) -> Value<'static> {
     match value {
         Some(value) => Value::Sha256(value),
@@ -55,24 +109,61 @@ pub(crate) fn emit_record_property(name: &str, fields: Vec<Field<'_>>) {
     write_json(&Value::Object(fields), &mut sink, 6);
 }
 
-pub(crate) fn emit_inline_record_object(fields: Vec<Field<'_>>, comma: bool) {
+pub(crate) fn emit_record_property_line(name: &str, fields: Vec<Field<'_>>, comma: bool) {
+    emit_record_property(name, fields);
+    raw_line(if comma { "," } else { "" });
+}
+
+pub(crate) fn emit_inline_record_property(name: &str, fields: Vec<Field<'_>>, comma: bool) {
     let mut sink = SerialSink;
 
-    sink.write_bytes(b"        {");
-    let mut idx = 0usize;
-    while idx < fields.len() {
-        if idx != 0 {
-            sink.write_bytes(b", ");
-        }
-        write_json(&Value::Str(fields[idx].key), &mut sink, 8);
-        sink.write_bytes(b": ");
-        write_json(&fields[idx].value, &mut sink, 8);
-        idx += 1;
-    }
-    sink.write_bytes(b"}");
+    sink.write_bytes(b"      ");
+    write_json(&Value::Str(name), &mut sink, 6);
+    sink.write_bytes(b": ");
+    write_json(&Value::InlineObject(fields), &mut sink, 6);
     if comma {
         sink.write_bytes(b",");
     }
+    sink.write_bytes(b"\r\n");
+}
+
+pub(crate) fn emit_record_fields(fields: Vec<Field<'_>>, spaces: usize) {
+    let mut sink = SerialSink;
+
+    write_json_fields(&fields, &mut sink, spaces);
+}
+
+pub(crate) fn emit_record_object(fields: Vec<Field<'_>>, spaces: usize, comma: bool) {
+    let mut sink = SerialSink;
+    let mut idx = 0usize;
+    while idx < spaces {
+        sink.write_bytes(b" ");
+        idx += 1;
+    }
+    write_json(&Value::Object(fields), &mut sink, spaces);
+    if comma {
+        sink.write_bytes(b",");
+    }
+    sink.write_bytes(b"\r\n");
+}
+
+pub(crate) fn emit_inline_record_object_fragment(fields: Vec<Field<'_>>, spaces: usize) {
+    let mut sink = SerialSink;
+    let mut idx = 0usize;
+    while idx < spaces {
+        sink.write_bytes(b" ");
+        idx += 1;
+    }
+    write_json(&Value::InlineObject(fields), &mut sink, spaces);
+}
+
+pub(crate) fn emit_inline_record_object(fields: Vec<Field<'_>>, comma: bool) {
+    emit_inline_record_object_fragment(fields, 8);
+    if comma {
+        let mut sink = SerialSink;
+        sink.write_bytes(b",");
+    }
+    let mut sink = SerialSink;
     sink.write_bytes(b"\r\n");
 }
 

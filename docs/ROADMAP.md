@@ -79,14 +79,24 @@ Slice M2-3 done (2026-07-05): batch port of
 recovery profile byte-identical (`shadow-20260705-111122-15364.json`,
 3644/3644).
 
+Slice M2-4 done (2026-07-05): batch port of command_dispatch_emit,
+command_admission_emit, command_effect_emit, load_binding_emit (net -230
+kernel lines; raios-core gained Value::InlineObject +
+write_json_fields); recovery profile byte-identical
+(`shadow-20260705-114327-7224.json`, 3644/3644). One classified
+intermittent failure on the first verify attempt (`qemu_exited` in 0.5s
+— the M0-2 instrumentation working as designed; see failure log:
+suspected timing-dependent guest reset after `memory.recent_events`,
+pre-dates M2).
+
 Exact next task:
 
 ```text
-Continue batch-porting recovery emit modules onto raios_core::record
-(next: command_dispatch_emit, command_admission_emit,
-command_effect_emit, load_binding_emit — 2-3 per worker packet, skip
-hash-coupled ones with a report); each slice deletes more than it adds
-and passes the recovery profile byte-identical.
+Continue batch-porting recovery emit modules (next candidates:
+memory_provenance_emit, persistence_emit, command_envelope_emit,
+loader_runtime_emit, rollback_transaction_emit — skip hash-coupled ones
+with a report); each slice deletes more than it adds and passes the
+recovery profile byte-identical.
 ```
 
 ## Capability Milestones

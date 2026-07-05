@@ -1,10 +1,17 @@
+use alloc::vec;
+
 use crate::{
     agent_protocol_recovery_runtime_types::{
         RecoveryLifelineCommandAdmissionCandidate, RecoveryLifelineCommandAdmissionCheck,
         RecoveryLifelineCommandAdmissionSelfTestCase, RecoveryMemoryProvenanceCheck,
     },
-    agent_protocol_support::{crlf, json_str, raw, raw_bool, raw_line},
+    agent_protocol_support::{
+        emit_inline_record_object, emit_record_fields, emit_record_object,
+        emit_record_property_line, record_bool as b, record_false as no, record_field as f,
+        record_null as null, record_object as object, record_str as s,
+    },
 };
+use raios_core::record::Value as V;
 
 pub(crate) fn emit_recovery_lifeline_command_admission_input_state(
     candidate: &RecoveryLifelineCommandAdmissionCandidate,
@@ -12,49 +19,57 @@ pub(crate) fn emit_recovery_lifeline_command_admission_input_state(
     check: &RecoveryLifelineCommandAdmissionCheck,
     comma: bool,
 ) {
-    raw_line("      \"command_admission_inputs\": {");
-    raw_line("        \"recovery_memory_provenance\": {");
-    raw_line("          \"schema\": \"raios.recovery_memory_provenance.v0\",");
-    raw("          \"state\": ");
-    json_str(if candidate.recovery_memory_provenance_available {
-        "defined_read_only_boundary"
-    } else {
-        "missing"
-    });
-    raw_line(",");
-    raw_line("          \"retention\": \"current_boot_read_only_diagnostic\",");
-    raw_line("          \"event_id\": null,");
-    raw("          \"boundary_exposed\": ");
-    raw_bool(check.recovery_memory_provenance_boundary_exposed);
-    raw_line(",");
-    raw("          \"accepted_for_command_admission\": ");
-    raw_bool(check.recovery_memory_provenance_accepted);
-    raw_line(",");
-    raw("          \"recovery_memory_provenance_ready\": ");
-    raw_bool(memory_check.recovery_memory_provenance_ready);
-    raw_line(",");
-    raw("          \"current_boot\": ");
-    raw_bool(candidate.recovery_memory_provenance_current_boot);
-    raw_line(",");
-    raw("          \"schema_ok\": ");
-    raw_bool(candidate.recovery_memory_provenance_schema_ok);
-    raw_line(",");
-    raw("          \"binding_ok\": ");
-    raw_bool(candidate.recovery_memory_provenance_binding_ok);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(candidate.recovery_memory_provenance_binding_reason);
-    raw_line(",");
-    raw_line("          \"writes_recovery_memory\": false,");
-    raw_line("          \"exports_provider_context\": false,");
-    raw_line("          \"accepts_lifeline_command_envelope\": false");
-    raw_line("        }");
-    raw("      }");
-    if comma {
-        raw_line(",");
-    } else {
-        raw_line("");
-    }
+    emit_record_property_line(
+        "command_admission_inputs",
+        vec![f(
+            "recovery_memory_provenance",
+            object(vec![
+                f("schema", s("raios.recovery_memory_provenance.v0")),
+                f(
+                    "state",
+                    s(if candidate.recovery_memory_provenance_available {
+                        "defined_read_only_boundary"
+                    } else {
+                        "missing"
+                    }),
+                ),
+                f("retention", s("current_boot_read_only_diagnostic")),
+                f("event_id", null()),
+                f(
+                    "boundary_exposed",
+                    b(check.recovery_memory_provenance_boundary_exposed),
+                ),
+                f(
+                    "accepted_for_command_admission",
+                    b(check.recovery_memory_provenance_accepted),
+                ),
+                f(
+                    "recovery_memory_provenance_ready",
+                    b(memory_check.recovery_memory_provenance_ready),
+                ),
+                f(
+                    "current_boot",
+                    b(candidate.recovery_memory_provenance_current_boot),
+                ),
+                f(
+                    "schema_ok",
+                    b(candidate.recovery_memory_provenance_schema_ok),
+                ),
+                f(
+                    "binding_ok",
+                    b(candidate.recovery_memory_provenance_binding_ok),
+                ),
+                f(
+                    "reason",
+                    s(candidate.recovery_memory_provenance_binding_reason),
+                ),
+                f("writes_recovery_memory", no()),
+                f("exports_provider_context", no()),
+                f("accepts_lifeline_command_envelope", no()),
+            ]),
+        )],
+        comma,
+    );
 }
 
 pub(crate) fn emit_recovery_lifeline_command_admission_requirement(
@@ -67,242 +82,224 @@ pub(crate) fn emit_recovery_lifeline_command_admission_requirement(
     check: &RecoveryLifelineCommandAdmissionCheck,
     comma: bool,
 ) {
-    raw_line("        {");
-    raw("          \"command_id\": ");
-    json_str(command_id);
-    raw_line(",");
-    raw("          \"argument_schema\": ");
-    json_str(args_schema);
-    raw_line(",");
-    raw("          \"required_capability\": ");
-    json_str(required_capability);
-    raw_line(",");
-    raw("          \"admission_schema\": ");
-    json_str(readiness_schema);
-    raw_line(",");
-    raw("          \"status\": ");
-    json_str(if present { "present" } else { "missing" });
-    raw_line(",");
-    raw_line("          \"scope\": \"current_boot\",");
-    raw_line("          \"classification\": \"local_only\",");
-    raw_line("          \"required\": true,");
-    raw_line("          \"event_id\": null,");
-    raw("          \"reason\": ");
-    json_str(if present {
-        "command_admission_requirement_defined"
-    } else {
-        missing_reason
-    });
-    raw_line(",");
-    raw("          \"admission_ready\": ");
-    raw_bool(check.command_admission_ready && present);
-    raw_line(",");
-    raw_line("          \"accepts_envelope\": false,");
-    raw_line("          \"dispatches_command\": false,");
-    raw_line("          \"command_execution_enabled\": false,");
-    raw_line("          \"rollback_preview_enabled\": false,");
-    raw_line("          \"rollback_apply_enabled\": false,");
-    raw_line("          \"memory_writes_enabled\": false,");
-    raw_line("          \"provider_export_enabled\": false,");
-    raw_line("          \"durable_writes_enabled\": false,");
-    raw_line("          \"loads_recovery_artifact\": false,");
-    raw_line("          \"creates_durable_records\": false,");
-    raw_line("          \"installs_rollback_plan\": false,");
-    raw_line("          \"allocates_service_slot\": false,");
-    raw_line("          \"service_inventory_change\": \"none\",");
-    raw_line("          \"load_attempted\": false");
-    raw("        }");
-    if comma {
-        raw_line(",");
-    } else {
-        raw_line("");
-    }
+    emit_record_object(
+        vec![
+            f("command_id", s(command_id)),
+            f("argument_schema", s(args_schema)),
+            f("required_capability", s(required_capability)),
+            f("admission_schema", s(readiness_schema)),
+            f("status", s(if present { "present" } else { "missing" })),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("required", b(true)),
+            f("event_id", null()),
+            f(
+                "reason",
+                s(if present {
+                    "command_admission_requirement_defined"
+                } else {
+                    missing_reason
+                }),
+            ),
+            f(
+                "admission_ready",
+                b(check.command_admission_ready && present),
+            ),
+            f("accepts_envelope", no()),
+            f("dispatches_command", no()),
+            f("command_execution_enabled", no()),
+            f("rollback_preview_enabled", no()),
+            f("rollback_apply_enabled", no()),
+            f("memory_writes_enabled", no()),
+            f("provider_export_enabled", no()),
+            f("durable_writes_enabled", no()),
+            f("loads_recovery_artifact", no()),
+            f("creates_durable_records", no()),
+            f("installs_rollback_plan", no()),
+            f("allocates_service_slot", no()),
+            f("service_inventory_change", s("none")),
+            f("load_attempted", no()),
+        ],
+        8,
+        comma,
+    );
 }
 
 pub(crate) fn emit_recovery_lifeline_command_admission_boundary(
     check: &RecoveryLifelineCommandAdmissionCheck,
 ) {
-    raw_line("        \"schema\": \"raios.recovery_lifeline_command_admission.v0\",");
-    raw_line("        \"state\": \"defined_non_executable\",");
-    raw("        \"requirements_exposed\": ");
-    raw_bool(check.command_admission_requirements_exposed);
-    raw_line(",");
-    raw("        \"command_admission_ready\": ");
-    raw_bool(check.command_admission_ready);
-    raw_line(",");
-    raw_line("        \"accepts_lifeline_command_envelope\": false,");
-    raw_line("        \"dispatches_lifeline_command\": false,");
-    raw_line("        \"command_execution_enabled\": false,");
-    raw_line("        \"rollback_preview_enabled\": false,");
-    raw_line("        \"rollback_apply_enabled\": false,");
-    raw_line("        \"memory_writes_enabled\": false,");
-    raw_line("        \"provider_export_enabled\": false,");
-    raw_line("        \"durable_writes_enabled\": false,");
-    raw_line("        \"rollback_replay_enabled\": false,");
-    raw_line("        \"recovery_memory_writes_enabled\": false,");
-    raw_line("        \"writes_durable_audit_log\": false,");
-    raw_line("        \"writes_rollback_store\": false,");
-    raw_line("        \"loads_recovery_loader\": false,");
-    raw_line("        \"loads_recovery_artifact\": false,");
-    raw_line("        \"creates_durable_records\": false,");
-    raw_line("        \"installs_rollback_plan\": false,");
-    raw_line("        \"allocates_service_slot\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"direct_openai_recovery_shortcut_accepted\": false,");
-    raw_line("        \"required_before_admission\": [");
-    raw_line("          \"raios.recovery_lifeline_request.v0\",");
-    raw_line("          \"raios.recovery_lifeline_protocol_state.v0\",");
-    raw_line("          \"raios.recovery_lifeline_command_vocabulary.v0\",");
-    raw_line("          \"raios.recovery_loader_runtime_isolation.v0\",");
-    raw_line("          \"raios.recovery_rollback_transaction_engine.v0\",");
-    raw_line("          \"raios.durable_audit_rollback_persistence.v0\",");
-    raw_line("          \"raios.recovery_memory_provenance.v0\"");
-    raw_line("        ]");
+    emit_record_fields(
+        vec![
+            f("schema", s("raios.recovery_lifeline_command_admission.v0")),
+            f("state", s("defined_non_executable")),
+            f(
+                "requirements_exposed",
+                b(check.command_admission_requirements_exposed),
+            ),
+            f("command_admission_ready", b(check.command_admission_ready)),
+            f("accepts_lifeline_command_envelope", no()),
+            f("dispatches_lifeline_command", no()),
+            f("command_execution_enabled", no()),
+            f("rollback_preview_enabled", no()),
+            f("rollback_apply_enabled", no()),
+            f("memory_writes_enabled", no()),
+            f("provider_export_enabled", no()),
+            f("durable_writes_enabled", no()),
+            f("rollback_replay_enabled", no()),
+            f("recovery_memory_writes_enabled", no()),
+            f("writes_durable_audit_log", no()),
+            f("writes_rollback_store", no()),
+            f("loads_recovery_loader", no()),
+            f("loads_recovery_artifact", no()),
+            f("creates_durable_records", no()),
+            f("installs_rollback_plan", no()),
+            f("allocates_service_slot", no()),
+            f("service_inventory_change", s("none")),
+            f("direct_openai_recovery_shortcut_accepted", no()),
+            f(
+                "required_before_admission",
+                V::Array(vec![
+                    s("raios.recovery_lifeline_request.v0"),
+                    s("raios.recovery_lifeline_protocol_state.v0"),
+                    s("raios.recovery_lifeline_command_vocabulary.v0"),
+                    s("raios.recovery_loader_runtime_isolation.v0"),
+                    s("raios.recovery_rollback_transaction_engine.v0"),
+                    s("raios.durable_audit_rollback_persistence.v0"),
+                    s("raios.recovery_memory_provenance.v0"),
+                ]),
+            ),
+        ],
+        8,
+    );
 }
 
 pub(crate) fn emit_recovery_lifeline_command_admission_check(
     check: &RecoveryLifelineCommandAdmissionCheck,
 ) {
-    raw("        \"status\": ");
-    json_str(check.status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"request_chain_valid\": ");
-    raw_bool(check.memory_check.request_chain_valid);
-    raw_line(",");
-    raw("        \"command_vocabulary_envelope_exposed\": ");
-    raw_bool(check.memory_check.command_vocabulary_envelope_exposed);
-    raw_line(",");
-    raw("        \"command_vocabulary_accepted\": ");
-    raw_bool(check.memory_check.command_vocabulary_accepted);
-    raw_line(",");
-    raw("        \"loader_runtime_isolation_boundary_exposed\": ");
-    raw_bool(check.memory_check.loader_runtime_isolation_boundary_exposed);
-    raw_line(",");
-    raw("        \"loader_runtime_isolation_accepted\": ");
-    raw_bool(check.memory_check.loader_runtime_isolation_accepted);
-    raw_line(",");
-    raw("        \"rollback_transaction_engine_boundary_exposed\": ");
-    raw_bool(
-        check
-            .memory_check
-            .rollback_transaction_engine_boundary_exposed,
+    emit_record_fields(
+        vec![
+            f("status", s(check.status)),
+            f("reason", s(check.reason)),
+            f(
+                "request_chain_valid",
+                b(check.memory_check.request_chain_valid),
+            ),
+            f(
+                "command_vocabulary_envelope_exposed",
+                b(check.memory_check.command_vocabulary_envelope_exposed),
+            ),
+            f(
+                "command_vocabulary_accepted",
+                b(check.memory_check.command_vocabulary_accepted),
+            ),
+            f(
+                "loader_runtime_isolation_boundary_exposed",
+                b(check.memory_check.loader_runtime_isolation_boundary_exposed),
+            ),
+            f(
+                "loader_runtime_isolation_accepted",
+                b(check.memory_check.loader_runtime_isolation_accepted),
+            ),
+            f(
+                "rollback_transaction_engine_boundary_exposed",
+                b(check
+                    .memory_check
+                    .rollback_transaction_engine_boundary_exposed),
+            ),
+            f(
+                "rollback_transaction_engine_accepted",
+                b(check.memory_check.rollback_transaction_engine_accepted),
+            ),
+            f(
+                "durable_audit_rollback_persistence_boundary_exposed",
+                b(check
+                    .memory_check
+                    .durable_audit_rollback_persistence_boundary_exposed),
+            ),
+            f(
+                "durable_audit_rollback_persistence_accepted",
+                b(check
+                    .memory_check
+                    .durable_audit_rollback_persistence_accepted),
+            ),
+            f(
+                "recovery_memory_provenance_boundary_exposed",
+                b(check.recovery_memory_provenance_boundary_exposed),
+            ),
+            f(
+                "recovery_memory_provenance_accepted",
+                b(check.recovery_memory_provenance_accepted),
+            ),
+            f(
+                "command_admission_requirements_exposed",
+                b(check.command_admission_requirements_exposed),
+            ),
+            f("command_admission_ready", b(check.command_admission_ready)),
+            f(
+                "lifeline_status_admission_present",
+                b(check.lifeline_status_admission_present),
+            ),
+            f(
+                "rollback_preview_admission_present",
+                b(check.rollback_preview_admission_present),
+            ),
+            f(
+                "rollback_apply_admission_present",
+                b(check.rollback_apply_admission_present),
+            ),
+            f(
+                "disable_module_admission_present",
+                b(check.disable_module_admission_present),
+            ),
+            f(
+                "restart_last_good_admission_present",
+                b(check.restart_last_good_admission_present),
+            ),
+            f(
+                "load_recovery_artifact_by_hash_admission_present",
+                b(check.load_recovery_artifact_by_hash_admission_present),
+            ),
+            f(
+                "command_execution_enabled",
+                b(check.command_execution_enabled),
+            ),
+            f(
+                "accepts_lifeline_command_envelope",
+                b(check.accepts_lifeline_command_envelope),
+            ),
+            f(
+                "dispatches_lifeline_command",
+                b(check.dispatches_lifeline_command),
+            ),
+            f(
+                "authorizes_recovery_load",
+                b(check.authorizes_recovery_load),
+            ),
+            f("can_move_beyond_denial", b(check.can_move_beyond_denial)),
+            f("loads_recovery_loader", b(check.loads_recovery_loader)),
+            f("loads_recovery_artifact", b(check.loads_recovery_artifact)),
+            f("creates_durable_records", b(check.creates_durable_records)),
+            f("installs_rollback_plan", b(check.installs_rollback_plan)),
+            f("allocates_service_slot", b(check.allocates_service_slot)),
+            f(
+                "service_inventory_change",
+                s(check.service_inventory_change),
+            ),
+            f("durable_audit_write_attempted", no()),
+            f("rollback_install_attempted", no()),
+            f("rollback_replay_attempted", no()),
+            f("recovery_memory_write_attempted", no()),
+            f("provider_export_attempted", no()),
+            f("lifeline_command_dispatch_attempted", no()),
+            f("service_slot_allocation_attempted", no()),
+            f("direct_openai_recovery_shortcut_accepted", no()),
+            f("load_attempted", b(check.load_attempted)),
+        ],
+        8,
     );
-    raw_line(",");
-    raw("        \"rollback_transaction_engine_accepted\": ");
-    raw_bool(check.memory_check.rollback_transaction_engine_accepted);
-    raw_line(",");
-    raw("        \"durable_audit_rollback_persistence_boundary_exposed\": ");
-    raw_bool(
-        check
-            .memory_check
-            .durable_audit_rollback_persistence_boundary_exposed,
-    );
-    raw_line(",");
-    raw("        \"durable_audit_rollback_persistence_accepted\": ");
-    raw_bool(
-        check
-            .memory_check
-            .durable_audit_rollback_persistence_accepted,
-    );
-    raw_line(",");
-    raw("        \"recovery_memory_provenance_boundary_exposed\": ");
-    raw_bool(check.recovery_memory_provenance_boundary_exposed);
-    raw_line(",");
-    raw("        \"recovery_memory_provenance_accepted\": ");
-    raw_bool(check.recovery_memory_provenance_accepted);
-    raw_line(",");
-    raw("        \"command_admission_requirements_exposed\": ");
-    raw_bool(check.command_admission_requirements_exposed);
-    raw_line(",");
-    raw("        \"command_admission_ready\": ");
-    raw_bool(check.command_admission_ready);
-    raw_line(",");
-    raw("        \"lifeline_status_admission_present\": ");
-    raw_bool(check.lifeline_status_admission_present);
-    raw_line(",");
-    raw("        \"rollback_preview_admission_present\": ");
-    raw_bool(check.rollback_preview_admission_present);
-    raw_line(",");
-    raw("        \"rollback_apply_admission_present\": ");
-    raw_bool(check.rollback_apply_admission_present);
-    raw_line(",");
-    raw("        \"disable_module_admission_present\": ");
-    raw_bool(check.disable_module_admission_present);
-    raw_line(",");
-    raw("        \"restart_last_good_admission_present\": ");
-    raw_bool(check.restart_last_good_admission_present);
-    raw_line(",");
-    raw("        \"load_recovery_artifact_by_hash_admission_present\": ");
-    raw_bool(check.load_recovery_artifact_by_hash_admission_present);
-    raw_line(",");
-    raw("        \"command_execution_enabled\": ");
-    raw_bool(check.command_execution_enabled);
-    raw_line(",");
-    raw("        \"accepts_lifeline_command_envelope\": ");
-    raw_bool(check.accepts_lifeline_command_envelope);
-    raw_line(",");
-    raw("        \"dispatches_lifeline_command\": ");
-    raw_bool(check.dispatches_lifeline_command);
-    raw_line(",");
-    raw("        \"authorizes_recovery_load\": ");
-    raw_bool(check.authorizes_recovery_load);
-    raw_line(",");
-    raw("        \"can_move_beyond_denial\": ");
-    raw_bool(check.can_move_beyond_denial);
-    raw_line(",");
-    raw("        \"loads_recovery_loader\": ");
-    raw_bool(check.loads_recovery_loader);
-    raw_line(",");
-    raw("        \"loads_recovery_artifact\": ");
-    raw_bool(check.loads_recovery_artifact);
-    raw_line(",");
-    raw("        \"creates_durable_records\": ");
-    raw_bool(check.creates_durable_records);
-    raw_line(",");
-    raw("        \"installs_rollback_plan\": ");
-    raw_bool(check.installs_rollback_plan);
-    raw_line(",");
-    raw("        \"allocates_service_slot\": ");
-    raw_bool(check.allocates_service_slot);
-    raw_line(",");
-    raw("        \"service_inventory_change\": ");
-    json_str(check.service_inventory_change);
-    raw_line(",");
-    raw_line("        \"durable_audit_write_attempted\": false,");
-    raw_line("        \"rollback_install_attempted\": false,");
-    raw_line("        \"rollback_replay_attempted\": false,");
-    raw_line("        \"recovery_memory_write_attempted\": false,");
-    raw_line("        \"provider_export_attempted\": false,");
-    raw_line("        \"lifeline_command_dispatch_attempted\": false,");
-    raw_line("        \"service_slot_allocation_attempted\": false,");
-    raw_line("        \"direct_openai_recovery_shortcut_accepted\": false,");
-    raw("        \"load_attempted\": ");
-    raw_bool(check.load_attempted);
-    crlf();
 }
 
-pub(crate) fn emit_recovery_lifeline_command_admission_selftest_case(
-    case: &RecoveryLifelineCommandAdmissionSelfTestCase,
-    comma: bool,
-) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"command_execution_enabled\": false, \"accepts_lifeline_command_envelope\": false, \"dispatches_lifeline_command\": false, \"memory_writes_enabled\": false, \"provider_export_enabled\": false, \"durable_writes_enabled\": false, \"rollback_replay_enabled\": false, \"recovery_memory_writes_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+#[rustfmt::skip]
+pub(crate) fn emit_recovery_lifeline_command_admission_selftest_case(case: &RecoveryLifelineCommandAdmissionSelfTestCase, comma: bool) {
+    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("command_execution_enabled", no()), f("accepts_lifeline_command_envelope", no()), f("dispatches_lifeline_command", no()), f("memory_writes_enabled", no()), f("provider_export_enabled", no()), f("durable_writes_enabled", no()), f("rollback_replay_enabled", no()), f("recovery_memory_writes_enabled", no()), f("rollback_preview_enabled", no()), f("rollback_apply_enabled", no()), f("authorizes_recovery_load", no()), f("can_move_beyond_denial", no()), f("loads_recovery_loader", no()), f("loads_recovery_artifact", no()), f("creates_durable_records", no()), f("installs_rollback_plan", no()), f("allocates_service_slot", no()), f("service_inventory_change", s("none")), f("load_attempted", no())], comma);
 }

@@ -18,6 +18,7 @@ pub enum Value<'a> {
     Sha256([u8; 32]),
     EventSequence(u64),
     Array(Vec<Value<'a>>),
+    InlineObject(Vec<Field<'a>>),
     Object(Vec<Field<'a>>),
 }
 
@@ -42,7 +43,23 @@ pub fn write_json<S: ByteSink>(value: &Value<'_>, sink: &mut S, indent: usize) {
         Value::Sha256(value) => write_sha256(*value, sink),
         Value::EventSequence(value) => write_event_sequence(*value, sink),
         Value::Array(values) => write_array(values, sink, indent),
+        Value::InlineObject(fields) => write_inline_object(fields, sink, indent),
         Value::Object(fields) => write_object(fields, sink, indent),
+    }
+}
+
+pub fn write_json_fields<S: ByteSink>(fields: &[Field<'_>], sink: &mut S, indent: usize) {
+    let mut idx = 0usize;
+    while idx < fields.len() {
+        write_indent(sink, indent);
+        write_json_str(fields[idx].key, sink);
+        sink.write_bytes(b": ");
+        write_json(&fields[idx].value, sink, indent);
+        if idx + 1 != fields.len() {
+            sink.write_bytes(b",");
+        }
+        sink.write_bytes(b"\r\n");
+        idx += 1;
     }
 }
 
@@ -83,6 +100,21 @@ fn write_array<S: ByteSink>(values: &[Value<'_>], sink: &mut S, indent: usize) {
     }
     write_indent(sink, indent);
     sink.write_bytes(b"]");
+}
+
+fn write_inline_object<S: ByteSink>(fields: &[Field<'_>], sink: &mut S, indent: usize) {
+    sink.write_bytes(b"{");
+    let mut idx = 0usize;
+    while idx < fields.len() {
+        if idx != 0 {
+            sink.write_bytes(b", ");
+        }
+        write_json_str(fields[idx].key, sink);
+        sink.write_bytes(b": ");
+        write_json(&fields[idx].value, sink, indent);
+        idx += 1;
+    }
+    sink.write_bytes(b"}");
 }
 
 fn write_object<S: ByteSink>(fields: &[Field<'_>], sink: &mut S, indent: usize) {
@@ -197,6 +229,46 @@ mod tests {
     fn empty_array_and_object_render_closed() {
         assert_eq!(render(&Value::Array(vec![])), b"[]");
         assert_eq!(render(&Value::Object(vec![])), b"{}");
+    }
+
+    #[test]
+    fn inline_object_renders_compact_nested_fields() {
+        let digest = [
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
+            0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67,
+            0x89, 0xab, 0xcd, 0xef,
+        ];
+        let value = Value::InlineObject(vec![
+            Field::new("schema", Value::Str("raios.test.v0")),
+            Field::new(
+                "hashes",
+                Value::InlineObject(vec![Field::new("artifact_hash", Value::Sha256(digest))]),
+            ),
+            Field::new("load_attempted", Value::Bool(false)),
+        ]);
+
+        assert_eq!(
+            render(&value),
+            b"{\"schema\": \"raios.test.v0\", \"hashes\": {\"artifact_hash\": \"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}, \"load_attempted\": false}"
+        );
+    }
+
+    #[test]
+    fn field_list_renders_inside_open_object() {
+        let mut out = std::vec::Vec::new();
+        super::write_json_fields(
+            &[
+                Field::new("schema", Value::Str("raios.test.v0")),
+                Field::new("ready", Value::Bool(false)),
+            ],
+            &mut out,
+            4,
+        );
+
+        assert_eq!(
+            out,
+            b"    \"schema\": \"raios.test.v0\",\r\n    \"ready\": false\r\n"
+        );
     }
 
     #[test]
