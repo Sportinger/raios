@@ -243,15 +243,23 @@ parser replaces 15; net -1,159 lines. Recovery profile byte-identical
 (`shadow-20260705-202307-20408.json`, 3644/3644). Deferred by the
 worker: admission family + execution structs.
 
+Collapse Batch 2 complete (2026-07-05): part 2 converted the admission
+family and execution stages onto CommandBindings and routed the last 7
+positional parsers through the shared parser (only the shared parser
+still splits input); recovery profile byte-identical
+(`shadow-20260705-203821-18288.json`, 3644/3644).
+
 Exact next task:
 
 ```text
-Collapse Batch 2 part 2: admission family + remaining execution struct
-consolidation onto CommandBindings; remaining positional parsers onto
-the shared parser (byte-identical; recovery profile). Then Batch 3
-(generic selftest runner — the biggest estimated deletion, -12-16k).
-Owner decision pending on batch 6 (vocabulary compaction beyond
-byte-identity).
+Collapse Batch 3: generic selftest runner (const CaseSpec data tables +
+one shared record-model report emitter per the collapse-map sketch),
+starting with the recovery selftest family
+(agent_protocol_recovery_command_reference_selftests.rs ~9.1k case
+data), then module load-gate (~4.7k), then write-boundary (~2k).
+Est. -12-16k total. Byte-identical; verify per family with the focused
+profile, full profile after the batch. Owner decision pending on
+batch 6.
 ```
 
 ## Capability Milestones

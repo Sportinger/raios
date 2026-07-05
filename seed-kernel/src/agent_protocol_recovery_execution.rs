@@ -13,7 +13,8 @@ use crate::{
         RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID,
     },
     agent_protocol_recovery_runtime_types::{
-        parse_command_reference_args, CommandReferenceField, CommandReferenceField::*,
+        parse_command_reference_args, CommandBindings, CommandReferenceField,
+        CommandReferenceField::*,
     },
     agent_protocol_recovery_target_binding_emit::emit_recovery_artifact_load_denial_source_evidence,
     agent_protocol_support::{
@@ -63,91 +64,35 @@ pub(crate) struct RecoveryLifelineCommandExecutionStageDescriptor {
 #[derive(Clone, Copy)]
 pub(crate) struct RecoveryLifelineCommandExecutionStageInput<'a> {
     pub(crate) descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) execution_stage_hash: Option<[u8; 32]>,
-    pub(crate) retained_previous_stage_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) disable_module_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) restart_last_good_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) recovery_memory_write_authority_hash: Option<[u8; 32]>,
-    pub(crate) durable_audit_rollback_write_authority_hash: Option<[u8; 32]>,
-    pub(crate) service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_behavior_hash: Option<[u8; 32]>,
-    pub(crate) executor_capability_table_hash: Option<[u8; 32]>,
-    pub(crate) side_effect_gate_hash: Option<[u8; 32]>,
-    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-    pub(crate) execution_enablement_hash: Option<[u8; 32]>,
-    pub(crate) execution_preflight_hash: Option<[u8; 32]>,
-    pub(crate) execution_intent_hash: Option<[u8; 32]>,
-    pub(crate) execution_commit_gate_hash: Option<[u8; 32]>,
-    pub(crate) execution_result_denial_hash: Option<[u8; 32]>,
-    pub(crate) execution_audit_denial_hash: Option<[u8; 32]>,
-    pub(crate) execution_observation_denial_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) execution_stage_id: Option<&'a str>,
-    pub(crate) execution_stage_projection_hash: Option<[u8; 32]>,
+    pub(crate) bindings: CommandBindings<'a>,
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct RecoveryLifelineCommandExecutionStageReferenceCheck<'a> {
     pub(crate) descriptor: RecoveryLifelineCommandExecutionStageDescriptor,
-    pub(crate) has_reference: bool,
-    pub(crate) arity_valid: bool,
-    pub(crate) scope: &'a str,
-    pub(crate) execution_stage_hash: Option<[u8; 32]>,
-    pub(crate) expected_execution_stage_hash: Option<[u8; 32]>,
-    pub(crate) retained_previous_stage_event_id: Option<&'a str>,
-    pub(crate) command_id: Option<&'a str>,
-    pub(crate) argument_schema: Option<&'a str>,
-    pub(crate) argument_hash: Option<[u8; 32]>,
-    pub(crate) target_locator: Option<&'a str>,
-    pub(crate) command_envelope_reference_hash: Option<[u8; 32]>,
-    pub(crate) command_body_canonicalization_hash: Option<[u8; 32]>,
-    pub(crate) handler_binding_hash: Option<[u8; 32]>,
-    pub(crate) status_read_handler_hash: Option<[u8; 32]>,
-    pub(crate) rollback_preview_authorization_hash: Option<[u8; 32]>,
-    pub(crate) rollback_apply_authorization_hash: Option<[u8; 32]>,
-    pub(crate) disable_module_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) restart_last_good_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) load_artifact_by_hash_target_binding_hash: Option<[u8; 32]>,
-    pub(crate) recovery_memory_write_authority_hash: Option<[u8; 32]>,
-    pub(crate) durable_audit_rollback_write_authority_hash: Option<[u8; 32]>,
-    pub(crate) service_inventory_side_effect_boundary_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_behavior_hash: Option<[u8; 32]>,
-    pub(crate) executor_capability_table_hash: Option<[u8; 32]>,
-    pub(crate) side_effect_gate_hash: Option<[u8; 32]>,
-    pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
-    pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
-    pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
-    pub(crate) execution_enablement_hash: Option<[u8; 32]>,
-    pub(crate) execution_preflight_hash: Option<[u8; 32]>,
-    pub(crate) execution_intent_hash: Option<[u8; 32]>,
-    pub(crate) execution_commit_gate_hash: Option<[u8; 32]>,
-    pub(crate) execution_result_denial_hash: Option<[u8; 32]>,
-    pub(crate) execution_audit_denial_hash: Option<[u8; 32]>,
-    pub(crate) execution_observation_denial_hash: Option<[u8; 32]>,
-    pub(crate) command_dispatch_boundary_id: Option<&'a str>,
-    pub(crate) execution_stage_id: Option<&'a str>,
-    pub(crate) execution_stage_projection_hash: Option<[u8; 32]>,
-    pub(crate) normalized_spec: Option<RecoveryLifelineCommandSpec>,
-    pub(crate) target_locator_value: Option<event_log::RecoveryCommandTargetLocator>,
-    pub(crate) status: &'static str,
-    pub(crate) reason: &'static str,
-    pub(crate) valid: bool,
+    pub(crate) bindings: CommandBindings<'a>,
+}
+
+impl<'a> core::ops::Deref for RecoveryLifelineCommandExecutionStageInput<'a> {
+    type Target = CommandBindings<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.bindings
+    }
+}
+
+impl<'a> core::ops::DerefMut for RecoveryLifelineCommandExecutionStageInput<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.bindings
+    }
+}
+
+impl<'a> core::ops::Deref for RecoveryLifelineCommandExecutionStageReferenceCheck<'a> {
+    type Target = CommandBindings<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.bindings
+    }
 }
 
 pub(crate) const RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_SELFTEST_CASES: usize = 10;
@@ -777,47 +722,7 @@ pub(crate) fn parse_recovery_lifeline_command_execution_stage_reference(
     let parsed = parse_command_reference_args(arg, &fields[..len]);
     let input = RecoveryLifelineCommandExecutionStageInput {
         descriptor,
-        has_reference: parsed.has_reference,
-        arity_valid: parsed.arity_valid,
-        scope: parsed.scope,
-        execution_stage_hash: parsed.execution_stage_hash,
-        retained_previous_stage_event_id: parsed.retained_previous_stage_event_id,
-        command_id: parsed.command_id,
-        argument_schema: parsed.argument_schema,
-        argument_hash: parsed.argument_hash,
-        target_locator: parsed.target_locator,
-        command_envelope_reference_hash: parsed.command_envelope_reference_hash,
-        command_body_canonicalization_hash: parsed.command_body_canonicalization_hash,
-        handler_binding_hash: parsed.handler_binding_hash,
-        status_read_handler_hash: parsed.status_read_handler_hash,
-        rollback_preview_authorization_hash: parsed.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: parsed.rollback_apply_authorization_hash,
-        disable_module_target_binding_hash: parsed.disable_module_target_binding_hash,
-        restart_last_good_target_binding_hash: parsed.restart_last_good_target_binding_hash,
-        load_artifact_by_hash_target_binding_hash: parsed.load_artifact_by_hash_target_binding_hash,
-        recovery_memory_write_authority_hash: parsed.recovery_memory_write_authority_hash,
-        durable_audit_rollback_write_authority_hash: parsed
-            .durable_audit_rollback_write_authority_hash,
-        service_inventory_side_effect_boundary_hash: parsed
-            .service_inventory_side_effect_boundary_hash,
-        command_dispatch_behavior_hash: parsed.command_dispatch_behavior_hash,
-        executor_capability_table_hash: parsed.executor_capability_table_hash,
-        side_effect_gate_hash: parsed.side_effect_gate_hash,
-        source_rollback_apply_denial_hash: parsed.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: parsed
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: parsed
-            .source_recovery_rollback_inspect_source_reference_hash,
-        execution_enablement_hash: parsed.execution_enablement_hash,
-        execution_preflight_hash: parsed.execution_preflight_hash,
-        execution_intent_hash: parsed.execution_intent_hash,
-        execution_commit_gate_hash: parsed.execution_commit_gate_hash,
-        execution_result_denial_hash: parsed.execution_result_denial_hash,
-        execution_audit_denial_hash: parsed.execution_audit_denial_hash,
-        execution_observation_denial_hash: parsed.execution_observation_denial_hash,
-        command_dispatch_boundary_id: parsed.command_dispatch_boundary_id,
-        execution_stage_id: parsed.execution_stage_id,
-        execution_stage_projection_hash: parsed.execution_stage_projection_hash,
+        bindings: parsed,
     };
     evaluate_recovery_lifeline_command_execution_stage_reference(input, require_live_retained)
 }
@@ -1149,53 +1054,15 @@ fn recovery_lifeline_command_execution_stage_reference_check<'a>(
 ) -> RecoveryLifelineCommandExecutionStageReferenceCheck<'a> {
     RecoveryLifelineCommandExecutionStageReferenceCheck {
         descriptor: input.descriptor,
-        has_reference: input.has_reference,
-        arity_valid: input.arity_valid,
-        scope: input.scope,
-        execution_stage_hash: input.execution_stage_hash,
-        expected_execution_stage_hash,
-        retained_previous_stage_event_id: input.retained_previous_stage_event_id,
-        command_id: input.command_id,
-        argument_schema: input.argument_schema,
-        argument_hash: input.argument_hash,
-        target_locator: input.target_locator,
-        command_envelope_reference_hash: input.command_envelope_reference_hash,
-        command_body_canonicalization_hash: input.command_body_canonicalization_hash,
-        handler_binding_hash: input.handler_binding_hash,
-        status_read_handler_hash: input.status_read_handler_hash,
-        rollback_preview_authorization_hash: input.rollback_preview_authorization_hash,
-        rollback_apply_authorization_hash: input.rollback_apply_authorization_hash,
-        disable_module_target_binding_hash: input.disable_module_target_binding_hash,
-        restart_last_good_target_binding_hash: input.restart_last_good_target_binding_hash,
-        load_artifact_by_hash_target_binding_hash: input.load_artifact_by_hash_target_binding_hash,
-        recovery_memory_write_authority_hash: input.recovery_memory_write_authority_hash,
-        durable_audit_rollback_write_authority_hash: input
-            .durable_audit_rollback_write_authority_hash,
-        service_inventory_side_effect_boundary_hash: input
-            .service_inventory_side_effect_boundary_hash,
-        command_dispatch_behavior_hash: input.command_dispatch_behavior_hash,
-        executor_capability_table_hash: input.executor_capability_table_hash,
-        side_effect_gate_hash: input.side_effect_gate_hash,
-        source_rollback_apply_denial_hash: input.source_rollback_apply_denial_hash,
-        source_durable_policy_write_authority_decision_hash: input
-            .source_durable_policy_write_authority_decision_hash,
-        source_recovery_rollback_inspect_source_reference_hash: input
-            .source_recovery_rollback_inspect_source_reference_hash,
-        execution_enablement_hash: input.execution_enablement_hash,
-        execution_preflight_hash: input.execution_preflight_hash,
-        execution_intent_hash: input.execution_intent_hash,
-        execution_commit_gate_hash: input.execution_commit_gate_hash,
-        execution_result_denial_hash: input.execution_result_denial_hash,
-        execution_audit_denial_hash: input.execution_audit_denial_hash,
-        execution_observation_denial_hash: input.execution_observation_denial_hash,
-        command_dispatch_boundary_id: input.command_dispatch_boundary_id,
-        execution_stage_id: input.execution_stage_id,
-        execution_stage_projection_hash: input.execution_stage_projection_hash,
-        normalized_spec,
-        target_locator_value,
-        status,
-        reason,
-        valid,
+        bindings: input.bindings.with_reference_check(
+            ExecutionStageHash,
+            normalized_spec,
+            target_locator_value,
+            expected_execution_stage_hash,
+            status,
+            reason,
+            valid,
+        ),
     }
 }
 
@@ -1846,71 +1713,74 @@ pub(crate) fn recovery_lifeline_command_execution_stage_selftest_cases(
        RECOVERY_LIFELINE_COMMAND_EXECUTION_STAGE_SELFTEST_CASES] {
     let valid_input = RecoveryLifelineCommandExecutionStageInput {
         descriptor,
-        has_reference: true,
-        arity_valid: true,
-        scope: "current_boot",
-        execution_stage_hash: None,
-        retained_previous_stage_event_id: Some("event.current_boot.00000001"),
-        command_id: Some("recovery.lifeline.status"),
-        argument_schema: Some("raios.recovery_lifeline_command.status_args.v0"),
-        argument_hash: Some([0xb1; 32]),
-        target_locator: Some("recovery.lifeline.status.current_boot"),
-        command_envelope_reference_hash: Some([0xb2; 32]),
-        command_body_canonicalization_hash: Some([0xb3; 32]),
-        handler_binding_hash: Some([0xb4; 32]),
-        status_read_handler_hash: Some([0xb5; 32]),
-        rollback_preview_authorization_hash: Some([0xb6; 32]),
-        rollback_apply_authorization_hash: Some([0xb7; 32]),
-        disable_module_target_binding_hash: Some([0xb8; 32]),
-        restart_last_good_target_binding_hash: Some([0xb9; 32]),
-        load_artifact_by_hash_target_binding_hash: Some([0xba; 32]),
-        recovery_memory_write_authority_hash: Some([0xbb; 32]),
-        durable_audit_rollback_write_authority_hash: Some([0xbc; 32]),
-        service_inventory_side_effect_boundary_hash: Some([0xbd; 32]),
-        command_dispatch_behavior_hash: Some([0xbe; 32]),
-        executor_capability_table_hash: Some([0xbf; 32]),
-        side_effect_gate_hash: Some([0xc0; 32]),
-        source_rollback_apply_denial_hash: Some([0xd0; 32]),
-        source_durable_policy_write_authority_decision_hash: Some([0xd1; 32]),
-        source_recovery_rollback_inspect_source_reference_hash: Some([0xd2; 32]),
-        execution_enablement_hash: if descriptor.index >= 1 {
-            Some([0xc1; 32])
-        } else {
-            None
+        bindings: CommandBindings {
+            has_reference: true,
+            arity_valid: true,
+            scope: "current_boot",
+            execution_stage_hash: None,
+            retained_previous_stage_event_id: Some("event.current_boot.00000001"),
+            command_id: Some("recovery.lifeline.status"),
+            argument_schema: Some("raios.recovery_lifeline_command.status_args.v0"),
+            argument_hash: Some([0xb1; 32]),
+            target_locator: Some("recovery.lifeline.status.current_boot"),
+            command_envelope_reference_hash: Some([0xb2; 32]),
+            command_body_canonicalization_hash: Some([0xb3; 32]),
+            handler_binding_hash: Some([0xb4; 32]),
+            status_read_handler_hash: Some([0xb5; 32]),
+            rollback_preview_authorization_hash: Some([0xb6; 32]),
+            rollback_apply_authorization_hash: Some([0xb7; 32]),
+            disable_module_target_binding_hash: Some([0xb8; 32]),
+            restart_last_good_target_binding_hash: Some([0xb9; 32]),
+            load_artifact_by_hash_target_binding_hash: Some([0xba; 32]),
+            recovery_memory_write_authority_hash: Some([0xbb; 32]),
+            durable_audit_rollback_write_authority_hash: Some([0xbc; 32]),
+            service_inventory_side_effect_boundary_hash: Some([0xbd; 32]),
+            command_dispatch_behavior_hash: Some([0xbe; 32]),
+            executor_capability_table_hash: Some([0xbf; 32]),
+            side_effect_gate_hash: Some([0xc0; 32]),
+            source_rollback_apply_denial_hash: Some([0xd0; 32]),
+            source_durable_policy_write_authority_decision_hash: Some([0xd1; 32]),
+            source_recovery_rollback_inspect_source_reference_hash: Some([0xd2; 32]),
+            execution_enablement_hash: if descriptor.index >= 1 {
+                Some([0xc1; 32])
+            } else {
+                None
+            },
+            execution_preflight_hash: if descriptor.index >= 2 {
+                Some([0xc2; 32])
+            } else {
+                None
+            },
+            execution_intent_hash: if descriptor.index >= 3 {
+                Some([0xc3; 32])
+            } else {
+                None
+            },
+            execution_commit_gate_hash: if descriptor.index >= 4 {
+                Some([0xc5; 32])
+            } else {
+                None
+            },
+            execution_result_denial_hash: if descriptor.index >= 5 {
+                Some([0xc6; 32])
+            } else {
+                None
+            },
+            execution_audit_denial_hash: if descriptor.index >= 6 {
+                Some([0xc7; 32])
+            } else {
+                None
+            },
+            execution_observation_denial_hash: if descriptor.index >= 7 {
+                Some([0xc8; 32])
+            } else {
+                None
+            },
+            command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
+            execution_stage_id: Some(descriptor.stage_id),
+            execution_stage_projection_hash: Some([0xc4; 32]),
+            ..CommandBindings::empty()
         },
-        execution_preflight_hash: if descriptor.index >= 2 {
-            Some([0xc2; 32])
-        } else {
-            None
-        },
-        execution_intent_hash: if descriptor.index >= 3 {
-            Some([0xc3; 32])
-        } else {
-            None
-        },
-        execution_commit_gate_hash: if descriptor.index >= 4 {
-            Some([0xc5; 32])
-        } else {
-            None
-        },
-        execution_result_denial_hash: if descriptor.index >= 5 {
-            Some([0xc6; 32])
-        } else {
-            None
-        },
-        execution_audit_denial_hash: if descriptor.index >= 6 {
-            Some([0xc7; 32])
-        } else {
-            None
-        },
-        execution_observation_denial_hash: if descriptor.index >= 7 {
-            Some([0xc8; 32])
-        } else {
-            None
-        },
-        command_dispatch_boundary_id: Some(RECOVERY_COMMAND_DISPATCH_BOUNDARY_ID),
-        execution_stage_id: Some(descriptor.stage_id),
-        execution_stage_projection_hash: Some([0xc4; 32]),
     };
     let expected = module_evidence::computed_recovery_lifeline_command_execution_stage_hash(
         module_evidence::RecoveryLifelineCommandExecutionStageHashInput {

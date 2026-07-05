@@ -16,12 +16,7 @@ pub(crate) fn recovery_lifeline_command_admission_candidate_from_memory(
         recovery_memory_provenance_binding_ok: true,
         recovery_memory_provenance_binding_reason: "recovery_memory_provenance_defined_read_only",
         direct_openai_recovery_shortcut_used: false,
-        lifeline_status_admission_present: false,
-        rollback_preview_admission_present: false,
-        rollback_apply_admission_present: false,
-        disable_module_admission_present: false,
-        restart_last_good_admission_present: false,
-        load_recovery_artifact_by_hash_admission_present: false,
+        bindings: CommandBindings::empty(),
     }
 }
 
@@ -335,12 +330,15 @@ pub(crate) fn recovery_lifeline_command_admission_check(
         recovery_memory_provenance_accepted,
         command_admission_requirements_exposed,
         command_admission_ready,
-        lifeline_status_admission_present,
-        rollback_preview_admission_present,
-        rollback_apply_admission_present,
-        disable_module_admission_present,
-        restart_last_good_admission_present,
-        load_recovery_artifact_by_hash_admission_present,
+        bindings: CommandBindings {
+            lifeline_status_admission_present,
+            rollback_preview_admission_present,
+            rollback_apply_admission_present,
+            disable_module_admission_present,
+            restart_last_good_admission_present,
+            load_recovery_artifact_by_hash_admission_present,
+            ..CommandBindings::empty()
+        },
         command_execution_enabled: false,
         accepts_lifeline_command_envelope: false,
         dispatches_lifeline_command: false,
@@ -366,12 +364,15 @@ pub(crate) fn recovery_lifeline_command_admission_valid_candidate(
         recovery_memory_provenance_binding_ok: true,
         recovery_memory_provenance_binding_reason: "retained_recovery_memory_provenance_valid",
         direct_openai_recovery_shortcut_used: false,
-        lifeline_status_admission_present: true,
-        rollback_preview_admission_present: true,
-        rollback_apply_admission_present: true,
-        disable_module_admission_present: true,
-        restart_last_good_admission_present: true,
-        load_recovery_artifact_by_hash_admission_present: true,
+        bindings: CommandBindings {
+            lifeline_status_admission_present: true,
+            rollback_preview_admission_present: true,
+            rollback_apply_admission_present: true,
+            disable_module_admission_present: true,
+            restart_last_good_admission_present: true,
+            load_recovery_artifact_by_hash_admission_present: true,
+            ..CommandBindings::empty()
+        },
     }
 }
 

@@ -21,26 +21,21 @@ use crate::{
         recovery_load_binding_retained_local_approval_mismatch,
         recovery_load_binding_retained_rollback_evidence_mismatch,
     },
-    agent_protocol_support::{
-        current_boot_event_id_str, method_eq, parse_current_boot_event_id, parse_sha256_ref,
+    agent_protocol_recovery_runtime_types::{
+        parse_command_reference_args, CommandReferenceField::*,
     },
+    agent_protocol_support::{current_boot_event_id_str, method_eq, parse_current_boot_event_id},
     event_log, module_evidence,
 };
 
 pub(crate) fn parse_recovery_identity_reference(arg: &str) -> RecoveryIdentityReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let identity_reference_hash = parts.next();
-    let artifact_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
+    let parsed = parse_command_reference_args(arg, &[IdentityReferenceHash, ArtifactHash]);
     let input = RecoveryIdentityReferenceCheck {
-        has_reference: identity_reference_hash.is_some(),
-        arity_valid: identity_reference_hash.is_some()
-            && artifact_hash.is_some()
-            && extra.is_none(),
-        scope,
-        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
-        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
+        has_reference: parsed.has_reference,
+        arity_valid: parsed.arity_valid,
+        scope: parsed.scope,
+        identity_reference_hash: parsed.identity_reference_hash,
+        artifact_hash: parsed.artifact_hash,
         expected_identity_reference_hash: None,
         status: "missing",
         reason: "recovery_artifact_identity_reference_absent",
@@ -136,28 +131,25 @@ pub(crate) fn parse_recovery_trust_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryTrustReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let trust_reference_hash = parts.next();
-    let retained_identity_reference_event_id = parts.next();
-    let identity_reference_hash = parts.next();
-    let artifact_hash = parts.next();
-    let trust_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
+    let parsed = parse_command_reference_args(
+        arg,
+        &[
+            TrustReferenceHash,
+            RetainedIdentityReferenceEventId,
+            IdentityReferenceHash,
+            ArtifactHash,
+            TrustHash,
+        ],
+    );
     let input = RecoveryTrustReferenceInput {
-        has_reference: trust_reference_hash.is_some(),
-        arity_valid: trust_reference_hash.is_some()
-            && retained_identity_reference_event_id.is_some()
-            && identity_reference_hash.is_some()
-            && artifact_hash.is_some()
-            && trust_hash.is_some()
-            && extra.is_none(),
-        scope,
-        trust_reference_hash: trust_reference_hash.and_then(parse_sha256_ref),
-        retained_identity_reference_event_id,
-        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
-        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
-        trust_hash: trust_hash.and_then(parse_sha256_ref),
+        has_reference: parsed.has_reference,
+        arity_valid: parsed.arity_valid,
+        scope: parsed.scope,
+        trust_reference_hash: parsed.trust_reference_hash,
+        retained_identity_reference_event_id: parsed.retained_identity_reference_event_id,
+        identity_reference_hash: parsed.identity_reference_hash,
+        artifact_hash: parsed.artifact_hash,
+        trust_hash: parsed.trust_hash,
     };
     evaluate_recovery_trust_reference(input, require_live_retained)
 }
@@ -332,37 +324,31 @@ pub(crate) fn parse_recovery_vm_test_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryVmTestReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let vm_test_reference_hash = parts.next();
-    let retained_identity_reference_event_id = parts.next();
-    let retained_trust_reference_event_id = parts.next();
-    let identity_reference_hash = parts.next();
-    let trust_reference_hash = parts.next();
-    let artifact_hash = parts.next();
-    let trust_hash = parts.next();
-    let vm_test_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
+    let parsed = parse_command_reference_args(
+        arg,
+        &[
+            VmTestReferenceHash,
+            RetainedIdentityReferenceEventId,
+            RetainedTrustReferenceEventId,
+            IdentityReferenceHash,
+            TrustReferenceHash,
+            ArtifactHash,
+            TrustHash,
+            VmTestHash,
+        ],
+    );
     let input = RecoveryVmTestReferenceInput {
-        has_reference: vm_test_reference_hash.is_some(),
-        arity_valid: vm_test_reference_hash.is_some()
-            && retained_identity_reference_event_id.is_some()
-            && retained_trust_reference_event_id.is_some()
-            && identity_reference_hash.is_some()
-            && trust_reference_hash.is_some()
-            && artifact_hash.is_some()
-            && trust_hash.is_some()
-            && vm_test_hash.is_some()
-            && extra.is_none(),
-        scope,
-        vm_test_reference_hash: vm_test_reference_hash.and_then(parse_sha256_ref),
-        retained_identity_reference_event_id,
-        retained_trust_reference_event_id,
-        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
-        trust_reference_hash: trust_reference_hash.and_then(parse_sha256_ref),
-        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
-        trust_hash: trust_hash.and_then(parse_sha256_ref),
-        vm_test_hash: vm_test_hash.and_then(parse_sha256_ref),
+        has_reference: parsed.has_reference,
+        arity_valid: parsed.arity_valid,
+        scope: parsed.scope,
+        vm_test_reference_hash: parsed.vm_test_reference_hash,
+        retained_identity_reference_event_id: parsed.retained_identity_reference_event_id,
+        retained_trust_reference_event_id: parsed.retained_trust_reference_event_id,
+        identity_reference_hash: parsed.identity_reference_hash,
+        trust_reference_hash: parsed.trust_reference_hash,
+        artifact_hash: parsed.artifact_hash,
+        trust_hash: parsed.trust_hash,
+        vm_test_hash: parsed.vm_test_hash,
     };
     evaluate_recovery_vm_test_reference(input, require_live_retained)
 }
@@ -596,46 +582,37 @@ pub(crate) fn parse_recovery_local_approval_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLocalApprovalReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let local_approval_reference_hash = parts.next();
-    let retained_identity_reference_event_id = parts.next();
-    let retained_trust_reference_event_id = parts.next();
-    let retained_vm_test_reference_event_id = parts.next();
-    let identity_reference_hash = parts.next();
-    let trust_reference_hash = parts.next();
-    let vm_test_reference_hash = parts.next();
-    let artifact_hash = parts.next();
-    let trust_hash = parts.next();
-    let vm_test_hash = parts.next();
-    let local_approval_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
+    let parsed = parse_command_reference_args(
+        arg,
+        &[
+            LocalApprovalReferenceHash,
+            RetainedIdentityReferenceEventId,
+            RetainedTrustReferenceEventId,
+            RetainedVmTestReferenceEventId,
+            IdentityReferenceHash,
+            TrustReferenceHash,
+            VmTestReferenceHash,
+            ArtifactHash,
+            TrustHash,
+            VmTestHash,
+            LocalApprovalHash,
+        ],
+    );
     let input = RecoveryLocalApprovalReferenceInput {
-        has_reference: local_approval_reference_hash.is_some(),
-        arity_valid: local_approval_reference_hash.is_some()
-            && retained_identity_reference_event_id.is_some()
-            && retained_trust_reference_event_id.is_some()
-            && retained_vm_test_reference_event_id.is_some()
-            && identity_reference_hash.is_some()
-            && trust_reference_hash.is_some()
-            && vm_test_reference_hash.is_some()
-            && artifact_hash.is_some()
-            && trust_hash.is_some()
-            && vm_test_hash.is_some()
-            && local_approval_hash.is_some()
-            && extra.is_none(),
-        scope,
-        local_approval_reference_hash: local_approval_reference_hash.and_then(parse_sha256_ref),
-        retained_identity_reference_event_id,
-        retained_trust_reference_event_id,
-        retained_vm_test_reference_event_id,
-        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
-        trust_reference_hash: trust_reference_hash.and_then(parse_sha256_ref),
-        vm_test_reference_hash: vm_test_reference_hash.and_then(parse_sha256_ref),
-        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
-        trust_hash: trust_hash.and_then(parse_sha256_ref),
-        vm_test_hash: vm_test_hash.and_then(parse_sha256_ref),
-        local_approval_hash: local_approval_hash.and_then(parse_sha256_ref),
+        has_reference: parsed.has_reference,
+        arity_valid: parsed.arity_valid,
+        scope: parsed.scope,
+        local_approval_reference_hash: parsed.local_approval_reference_hash,
+        retained_identity_reference_event_id: parsed.retained_identity_reference_event_id,
+        retained_trust_reference_event_id: parsed.retained_trust_reference_event_id,
+        retained_vm_test_reference_event_id: parsed.retained_vm_test_reference_event_id,
+        identity_reference_hash: parsed.identity_reference_hash,
+        trust_reference_hash: parsed.trust_reference_hash,
+        vm_test_reference_hash: parsed.vm_test_reference_hash,
+        artifact_hash: parsed.artifact_hash,
+        trust_hash: parsed.trust_hash,
+        vm_test_hash: parsed.vm_test_hash,
+        local_approval_hash: parsed.local_approval_hash,
     };
     evaluate_recovery_local_approval_reference(input, require_live_retained)
 }
@@ -945,55 +922,44 @@ pub(crate) fn parse_recovery_loader_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLoaderReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let loader_reference_hash = parts.next();
-    let retained_identity_reference_event_id = parts.next();
-    let retained_trust_reference_event_id = parts.next();
-    let retained_vm_test_reference_event_id = parts.next();
-    let retained_local_approval_reference_event_id = parts.next();
-    let identity_reference_hash = parts.next();
-    let trust_reference_hash = parts.next();
-    let vm_test_reference_hash = parts.next();
-    let local_approval_reference_hash = parts.next();
-    let artifact_hash = parts.next();
-    let trust_hash = parts.next();
-    let vm_test_hash = parts.next();
-    let local_approval_hash = parts.next();
-    let loader_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
+    let parsed = parse_command_reference_args(
+        arg,
+        &[
+            LoaderReferenceHash,
+            RetainedIdentityReferenceEventId,
+            RetainedTrustReferenceEventId,
+            RetainedVmTestReferenceEventId,
+            RetainedLocalApprovalReferenceEventId,
+            IdentityReferenceHash,
+            TrustReferenceHash,
+            VmTestReferenceHash,
+            LocalApprovalReferenceHash,
+            ArtifactHash,
+            TrustHash,
+            VmTestHash,
+            LocalApprovalHash,
+            LoaderHash,
+        ],
+    );
     let input = RecoveryLoaderReferenceInput {
-        has_reference: loader_reference_hash.is_some(),
-        arity_valid: loader_reference_hash.is_some()
-            && retained_identity_reference_event_id.is_some()
-            && retained_trust_reference_event_id.is_some()
-            && retained_vm_test_reference_event_id.is_some()
-            && retained_local_approval_reference_event_id.is_some()
-            && identity_reference_hash.is_some()
-            && trust_reference_hash.is_some()
-            && vm_test_reference_hash.is_some()
-            && local_approval_reference_hash.is_some()
-            && artifact_hash.is_some()
-            && trust_hash.is_some()
-            && vm_test_hash.is_some()
-            && local_approval_hash.is_some()
-            && loader_hash.is_some()
-            && extra.is_none(),
-        scope,
-        loader_reference_hash: loader_reference_hash.and_then(parse_sha256_ref),
-        retained_identity_reference_event_id,
-        retained_trust_reference_event_id,
-        retained_vm_test_reference_event_id,
-        retained_local_approval_reference_event_id,
-        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
-        trust_reference_hash: trust_reference_hash.and_then(parse_sha256_ref),
-        vm_test_reference_hash: vm_test_reference_hash.and_then(parse_sha256_ref),
-        local_approval_reference_hash: local_approval_reference_hash.and_then(parse_sha256_ref),
-        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
-        trust_hash: trust_hash.and_then(parse_sha256_ref),
-        vm_test_hash: vm_test_hash.and_then(parse_sha256_ref),
-        local_approval_hash: local_approval_hash.and_then(parse_sha256_ref),
-        loader_hash: loader_hash.and_then(parse_sha256_ref),
+        has_reference: parsed.has_reference,
+        arity_valid: parsed.arity_valid,
+        scope: parsed.scope,
+        loader_reference_hash: parsed.loader_reference_hash,
+        retained_identity_reference_event_id: parsed.retained_identity_reference_event_id,
+        retained_trust_reference_event_id: parsed.retained_trust_reference_event_id,
+        retained_vm_test_reference_event_id: parsed.retained_vm_test_reference_event_id,
+        retained_local_approval_reference_event_id: parsed
+            .retained_local_approval_reference_event_id,
+        identity_reference_hash: parsed.identity_reference_hash,
+        trust_reference_hash: parsed.trust_reference_hash,
+        vm_test_reference_hash: parsed.vm_test_reference_hash,
+        local_approval_reference_hash: parsed.local_approval_reference_hash,
+        artifact_hash: parsed.artifact_hash,
+        trust_hash: parsed.trust_hash,
+        vm_test_hash: parsed.vm_test_hash,
+        local_approval_hash: parsed.local_approval_hash,
+        loader_hash: parsed.loader_hash,
     };
     evaluate_recovery_loader_reference(input, require_live_retained)
 }
@@ -1329,65 +1295,50 @@ pub(crate) fn parse_recovery_rollback_evidence_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryRollbackEvidenceReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let rollback_evidence_reference_hash = parts.next();
-    let retained_identity_reference_event_id = parts.next();
-    let retained_trust_reference_event_id = parts.next();
-    let retained_vm_test_reference_event_id = parts.next();
-    let retained_local_approval_reference_event_id = parts.next();
-    let retained_loader_reference_event_id = parts.next();
-    let identity_reference_hash = parts.next();
-    let trust_reference_hash = parts.next();
-    let vm_test_reference_hash = parts.next();
-    let local_approval_reference_hash = parts.next();
-    let loader_reference_hash = parts.next();
-    let artifact_hash = parts.next();
-    let trust_hash = parts.next();
-    let vm_test_hash = parts.next();
-    let local_approval_hash = parts.next();
-    let loader_hash = parts.next();
-    let rollback_evidence_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
+    let parsed = parse_command_reference_args(
+        arg,
+        &[
+            RollbackEvidenceReferenceHash,
+            RetainedIdentityReferenceEventId,
+            RetainedTrustReferenceEventId,
+            RetainedVmTestReferenceEventId,
+            RetainedLocalApprovalReferenceEventId,
+            RetainedLoaderReferenceEventId,
+            IdentityReferenceHash,
+            TrustReferenceHash,
+            VmTestReferenceHash,
+            LocalApprovalReferenceHash,
+            LoaderReferenceHash,
+            ArtifactHash,
+            TrustHash,
+            VmTestHash,
+            LocalApprovalHash,
+            LoaderHash,
+            RollbackEvidenceHash,
+        ],
+    );
     let input = RecoveryRollbackEvidenceReferenceInput {
-        has_reference: rollback_evidence_reference_hash.is_some(),
-        arity_valid: rollback_evidence_reference_hash.is_some()
-            && retained_identity_reference_event_id.is_some()
-            && retained_trust_reference_event_id.is_some()
-            && retained_vm_test_reference_event_id.is_some()
-            && retained_local_approval_reference_event_id.is_some()
-            && retained_loader_reference_event_id.is_some()
-            && identity_reference_hash.is_some()
-            && trust_reference_hash.is_some()
-            && vm_test_reference_hash.is_some()
-            && local_approval_reference_hash.is_some()
-            && loader_reference_hash.is_some()
-            && artifact_hash.is_some()
-            && trust_hash.is_some()
-            && vm_test_hash.is_some()
-            && local_approval_hash.is_some()
-            && loader_hash.is_some()
-            && rollback_evidence_hash.is_some()
-            && extra.is_none(),
-        scope,
-        rollback_evidence_reference_hash: rollback_evidence_reference_hash
-            .and_then(parse_sha256_ref),
-        retained_identity_reference_event_id,
-        retained_trust_reference_event_id,
-        retained_vm_test_reference_event_id,
-        retained_local_approval_reference_event_id,
-        retained_loader_reference_event_id,
-        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
-        trust_reference_hash: trust_reference_hash.and_then(parse_sha256_ref),
-        vm_test_reference_hash: vm_test_reference_hash.and_then(parse_sha256_ref),
-        local_approval_reference_hash: local_approval_reference_hash.and_then(parse_sha256_ref),
-        loader_reference_hash: loader_reference_hash.and_then(parse_sha256_ref),
-        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
-        trust_hash: trust_hash.and_then(parse_sha256_ref),
-        vm_test_hash: vm_test_hash.and_then(parse_sha256_ref),
-        local_approval_hash: local_approval_hash.and_then(parse_sha256_ref),
-        loader_hash: loader_hash.and_then(parse_sha256_ref),
-        rollback_evidence_hash: rollback_evidence_hash.and_then(parse_sha256_ref),
+        has_reference: parsed.has_reference,
+        arity_valid: parsed.arity_valid,
+        scope: parsed.scope,
+        rollback_evidence_reference_hash: parsed.rollback_evidence_reference_hash,
+        retained_identity_reference_event_id: parsed.retained_identity_reference_event_id,
+        retained_trust_reference_event_id: parsed.retained_trust_reference_event_id,
+        retained_vm_test_reference_event_id: parsed.retained_vm_test_reference_event_id,
+        retained_local_approval_reference_event_id: parsed
+            .retained_local_approval_reference_event_id,
+        retained_loader_reference_event_id: parsed.retained_loader_reference_event_id,
+        identity_reference_hash: parsed.identity_reference_hash,
+        trust_reference_hash: parsed.trust_reference_hash,
+        vm_test_reference_hash: parsed.vm_test_reference_hash,
+        local_approval_reference_hash: parsed.local_approval_reference_hash,
+        loader_reference_hash: parsed.loader_reference_hash,
+        artifact_hash: parsed.artifact_hash,
+        trust_hash: parsed.trust_hash,
+        vm_test_hash: parsed.vm_test_hash,
+        local_approval_hash: parsed.local_approval_hash,
+        loader_hash: parsed.loader_hash,
+        rollback_evidence_hash: parsed.rollback_evidence_hash,
     };
     evaluate_recovery_rollback_evidence_reference(input, require_live_retained)
 }
@@ -1688,71 +1639,55 @@ pub(crate) fn parse_recovery_lifeline_request_reference(
     arg: &str,
     require_live_retained: bool,
 ) -> RecoveryLifelineRequestReferenceCheck<'_> {
-    let mut parts = arg.split_whitespace();
-    let lifeline_request_reference_hash = parts.next();
-    let retained_identity_reference_event_id = parts.next();
-    let retained_trust_reference_event_id = parts.next();
-    let retained_vm_test_reference_event_id = parts.next();
-    let retained_local_approval_reference_event_id = parts.next();
-    let retained_loader_reference_event_id = parts.next();
-    let retained_rollback_evidence_reference_event_id = parts.next();
-    let identity_reference_hash = parts.next();
-    let trust_reference_hash = parts.next();
-    let vm_test_reference_hash = parts.next();
-    let local_approval_reference_hash = parts.next();
-    let loader_reference_hash = parts.next();
-    let rollback_evidence_reference_hash = parts.next();
-    let artifact_hash = parts.next();
-    let trust_hash = parts.next();
-    let vm_test_hash = parts.next();
-    let local_approval_hash = parts.next();
-    let loader_hash = parts.next();
-    let rollback_evidence_hash = parts.next();
-    let scope = parts.next().unwrap_or("current_boot");
-    let extra = parts.next();
+    let parsed = parse_command_reference_args(
+        arg,
+        &[
+            LifelineRequestReferenceHash,
+            RetainedIdentityReferenceEventId,
+            RetainedTrustReferenceEventId,
+            RetainedVmTestReferenceEventId,
+            RetainedLocalApprovalReferenceEventId,
+            RetainedLoaderReferenceEventId,
+            RetainedRollbackEvidenceReferenceEventId,
+            IdentityReferenceHash,
+            TrustReferenceHash,
+            VmTestReferenceHash,
+            LocalApprovalReferenceHash,
+            LoaderReferenceHash,
+            RollbackEvidenceReferenceHash,
+            ArtifactHash,
+            TrustHash,
+            VmTestHash,
+            LocalApprovalHash,
+            LoaderHash,
+            RollbackEvidenceHash,
+        ],
+    );
     let input = RecoveryLifelineRequestReferenceInput {
-        has_reference: lifeline_request_reference_hash.is_some(),
-        arity_valid: lifeline_request_reference_hash.is_some()
-            && retained_identity_reference_event_id.is_some()
-            && retained_trust_reference_event_id.is_some()
-            && retained_vm_test_reference_event_id.is_some()
-            && retained_local_approval_reference_event_id.is_some()
-            && retained_loader_reference_event_id.is_some()
-            && retained_rollback_evidence_reference_event_id.is_some()
-            && identity_reference_hash.is_some()
-            && trust_reference_hash.is_some()
-            && vm_test_reference_hash.is_some()
-            && local_approval_reference_hash.is_some()
-            && loader_reference_hash.is_some()
-            && rollback_evidence_reference_hash.is_some()
-            && artifact_hash.is_some()
-            && trust_hash.is_some()
-            && vm_test_hash.is_some()
-            && local_approval_hash.is_some()
-            && loader_hash.is_some()
-            && rollback_evidence_hash.is_some()
-            && extra.is_none(),
-        scope,
-        lifeline_request_reference_hash: lifeline_request_reference_hash.and_then(parse_sha256_ref),
-        retained_identity_reference_event_id,
-        retained_trust_reference_event_id,
-        retained_vm_test_reference_event_id,
-        retained_local_approval_reference_event_id,
-        retained_loader_reference_event_id,
-        retained_rollback_evidence_reference_event_id,
-        identity_reference_hash: identity_reference_hash.and_then(parse_sha256_ref),
-        trust_reference_hash: trust_reference_hash.and_then(parse_sha256_ref),
-        vm_test_reference_hash: vm_test_reference_hash.and_then(parse_sha256_ref),
-        local_approval_reference_hash: local_approval_reference_hash.and_then(parse_sha256_ref),
-        loader_reference_hash: loader_reference_hash.and_then(parse_sha256_ref),
-        rollback_evidence_reference_hash: rollback_evidence_reference_hash
-            .and_then(parse_sha256_ref),
-        artifact_hash: artifact_hash.and_then(parse_sha256_ref),
-        trust_hash: trust_hash.and_then(parse_sha256_ref),
-        vm_test_hash: vm_test_hash.and_then(parse_sha256_ref),
-        local_approval_hash: local_approval_hash.and_then(parse_sha256_ref),
-        loader_hash: loader_hash.and_then(parse_sha256_ref),
-        rollback_evidence_hash: rollback_evidence_hash.and_then(parse_sha256_ref),
+        has_reference: parsed.has_reference,
+        arity_valid: parsed.arity_valid,
+        scope: parsed.scope,
+        lifeline_request_reference_hash: parsed.lifeline_request_reference_hash,
+        retained_identity_reference_event_id: parsed.retained_identity_reference_event_id,
+        retained_trust_reference_event_id: parsed.retained_trust_reference_event_id,
+        retained_vm_test_reference_event_id: parsed.retained_vm_test_reference_event_id,
+        retained_local_approval_reference_event_id: parsed
+            .retained_local_approval_reference_event_id,
+        retained_loader_reference_event_id: parsed.retained_loader_reference_event_id,
+        retained_rollback_evidence_reference_event_id: parsed
+            .retained_rollback_evidence_reference_event_id,
+        identity_reference_hash: parsed.identity_reference_hash,
+        trust_reference_hash: parsed.trust_reference_hash,
+        vm_test_reference_hash: parsed.vm_test_reference_hash,
+        local_approval_reference_hash: parsed.local_approval_reference_hash,
+        loader_reference_hash: parsed.loader_reference_hash,
+        rollback_evidence_reference_hash: parsed.rollback_evidence_reference_hash,
+        artifact_hash: parsed.artifact_hash,
+        trust_hash: parsed.trust_hash,
+        vm_test_hash: parsed.vm_test_hash,
+        local_approval_hash: parsed.local_approval_hash,
+        loader_hash: parsed.loader_hash,
+        rollback_evidence_hash: parsed.rollback_evidence_hash,
     };
     evaluate_recovery_lifeline_request_reference(input, require_live_retained)
 }

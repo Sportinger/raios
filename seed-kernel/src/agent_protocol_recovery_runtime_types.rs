@@ -110,6 +110,30 @@ pub(crate) struct CommandBindings<'a> {
     pub(crate) source_rollback_apply_denial_hash: Option<[u8; 32]>,
     pub(crate) source_durable_policy_write_authority_decision_hash: Option<[u8; 32]>,
     pub(crate) source_recovery_rollback_inspect_source_reference_hash: Option<[u8; 32]>,
+    pub(crate) identity_reference_hash: Option<[u8; 32]>,
+    pub(crate) trust_reference_hash: Option<[u8; 32]>,
+    pub(crate) vm_test_reference_hash: Option<[u8; 32]>,
+    pub(crate) local_approval_reference_hash: Option<[u8; 32]>,
+    pub(crate) loader_reference_hash: Option<[u8; 32]>,
+    pub(crate) rollback_evidence_reference_hash: Option<[u8; 32]>,
+    pub(crate) artifact_hash: Option<[u8; 32]>,
+    pub(crate) trust_hash: Option<[u8; 32]>,
+    pub(crate) vm_test_hash: Option<[u8; 32]>,
+    pub(crate) local_approval_hash: Option<[u8; 32]>,
+    pub(crate) loader_hash: Option<[u8; 32]>,
+    pub(crate) rollback_evidence_hash: Option<[u8; 32]>,
+    pub(crate) retained_identity_reference_event_id: Option<&'a str>,
+    pub(crate) retained_trust_reference_event_id: Option<&'a str>,
+    pub(crate) retained_vm_test_reference_event_id: Option<&'a str>,
+    pub(crate) retained_local_approval_reference_event_id: Option<&'a str>,
+    pub(crate) retained_loader_reference_event_id: Option<&'a str>,
+    pub(crate) retained_rollback_evidence_reference_event_id: Option<&'a str>,
+    pub(crate) lifeline_status_admission_present: bool,
+    pub(crate) rollback_preview_admission_present: bool,
+    pub(crate) rollback_apply_admission_present: bool,
+    pub(crate) disable_module_admission_present: bool,
+    pub(crate) restart_last_good_admission_present: bool,
+    pub(crate) load_recovery_artifact_by_hash_admission_present: bool,
     pub(crate) execution_stage_hash: Option<[u8; 32]>,
     pub(crate) expected_execution_stage_hash: Option<[u8; 32]>,
     pub(crate) retained_previous_stage_event_id: Option<&'a str>,
@@ -219,6 +243,30 @@ impl<'a> CommandBindings<'a> {
             source_rollback_apply_denial_hash: None,
             source_durable_policy_write_authority_decision_hash: None,
             source_recovery_rollback_inspect_source_reference_hash: None,
+            identity_reference_hash: None,
+            trust_reference_hash: None,
+            vm_test_reference_hash: None,
+            local_approval_reference_hash: None,
+            loader_reference_hash: None,
+            rollback_evidence_reference_hash: None,
+            artifact_hash: None,
+            trust_hash: None,
+            vm_test_hash: None,
+            local_approval_hash: None,
+            loader_hash: None,
+            rollback_evidence_hash: None,
+            retained_identity_reference_event_id: None,
+            retained_trust_reference_event_id: None,
+            retained_vm_test_reference_event_id: None,
+            retained_local_approval_reference_event_id: None,
+            retained_loader_reference_event_id: None,
+            retained_rollback_evidence_reference_event_id: None,
+            lifeline_status_admission_present: false,
+            rollback_preview_admission_present: false,
+            rollback_apply_admission_present: false,
+            disable_module_admission_present: false,
+            restart_last_good_admission_present: false,
+            load_recovery_artifact_by_hash_admission_present: false,
             execution_stage_hash: None,
             expected_execution_stage_hash: None,
             retained_previous_stage_event_id: None,
@@ -384,6 +432,24 @@ pub(crate) enum CommandReferenceField {
     SourceRollbackApplyDenialHash,
     SourceDurablePolicyWriteAuthorityDecisionHash,
     SourceRecoveryRollbackInspectSourceReferenceHash,
+    IdentityReferenceHash,
+    TrustReferenceHash,
+    VmTestReferenceHash,
+    LocalApprovalReferenceHash,
+    LoaderReferenceHash,
+    RollbackEvidenceReferenceHash,
+    ArtifactHash,
+    TrustHash,
+    VmTestHash,
+    LocalApprovalHash,
+    LoaderHash,
+    RollbackEvidenceHash,
+    RetainedIdentityReferenceEventId,
+    RetainedTrustReferenceEventId,
+    RetainedVmTestReferenceEventId,
+    RetainedLocalApprovalReferenceEventId,
+    RetainedLoaderReferenceEventId,
+    RetainedRollbackEvidenceReferenceEventId,
     ExecutionStageHash,
     RetainedPreviousStageEventId,
     ExecutionEnablementHash,
@@ -464,6 +530,14 @@ fn input_hash_for_field(
         CommandReferenceField::CommandDispatchBehaviorHash => input.command_dispatch_behavior_hash,
         CommandReferenceField::ExecutorCapabilityTableHash => input.executor_capability_table_hash,
         CommandReferenceField::SideEffectGateHash => input.side_effect_gate_hash,
+        CommandReferenceField::IdentityReferenceHash => input.identity_reference_hash,
+        CommandReferenceField::TrustReferenceHash => input.trust_reference_hash,
+        CommandReferenceField::VmTestReferenceHash => input.vm_test_reference_hash,
+        CommandReferenceField::LocalApprovalReferenceHash => input.local_approval_reference_hash,
+        CommandReferenceField::LoaderReferenceHash => input.loader_reference_hash,
+        CommandReferenceField::RollbackEvidenceReferenceHash => {
+            input.rollback_evidence_reference_hash
+        }
         CommandReferenceField::ExecutionStageHash => input.execution_stage_hash,
         _ => None,
     }
@@ -662,6 +736,54 @@ fn set_command_reference_field<'a>(
         CommandReferenceField::SourceRecoveryRollbackInspectSourceReferenceHash => {
             input.source_recovery_rollback_inspect_source_reference_hash =
                 value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::IdentityReferenceHash => {
+            input.identity_reference_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::TrustReferenceHash => {
+            input.trust_reference_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::VmTestReferenceHash => {
+            input.vm_test_reference_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::LocalApprovalReferenceHash => {
+            input.local_approval_reference_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::LoaderReferenceHash => {
+            input.loader_reference_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RollbackEvidenceReferenceHash => {
+            input.rollback_evidence_reference_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::ArtifactHash => {
+            input.artifact_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::TrustHash => input.trust_hash = value.and_then(parse_sha256_ref),
+        CommandReferenceField::VmTestHash => input.vm_test_hash = value.and_then(parse_sha256_ref),
+        CommandReferenceField::LocalApprovalHash => {
+            input.local_approval_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::LoaderHash => input.loader_hash = value.and_then(parse_sha256_ref),
+        CommandReferenceField::RollbackEvidenceHash => {
+            input.rollback_evidence_hash = value.and_then(parse_sha256_ref)
+        }
+        CommandReferenceField::RetainedIdentityReferenceEventId => {
+            input.retained_identity_reference_event_id = value
+        }
+        CommandReferenceField::RetainedTrustReferenceEventId => {
+            input.retained_trust_reference_event_id = value
+        }
+        CommandReferenceField::RetainedVmTestReferenceEventId => {
+            input.retained_vm_test_reference_event_id = value
+        }
+        CommandReferenceField::RetainedLocalApprovalReferenceEventId => {
+            input.retained_local_approval_reference_event_id = value
+        }
+        CommandReferenceField::RetainedLoaderReferenceEventId => {
+            input.retained_loader_reference_event_id = value
+        }
+        CommandReferenceField::RetainedRollbackEvidenceReferenceEventId => {
+            input.retained_rollback_evidence_reference_event_id = value
         }
         CommandReferenceField::ExecutionStageHash => {
             input.execution_stage_hash = value.and_then(parse_sha256_ref)
@@ -940,12 +1062,7 @@ pub(crate) struct RecoveryLifelineCommandAdmissionCandidate {
     pub(crate) recovery_memory_provenance_binding_ok: bool,
     pub(crate) recovery_memory_provenance_binding_reason: &'static str,
     pub(crate) direct_openai_recovery_shortcut_used: bool,
-    pub(crate) lifeline_status_admission_present: bool,
-    pub(crate) rollback_preview_admission_present: bool,
-    pub(crate) rollback_apply_admission_present: bool,
-    pub(crate) disable_module_admission_present: bool,
-    pub(crate) restart_last_good_admission_present: bool,
-    pub(crate) load_recovery_artifact_by_hash_admission_present: bool,
+    pub(crate) bindings: CommandBindings<'static>,
 }
 
 #[derive(Clone, Copy)]
@@ -957,12 +1074,7 @@ pub(crate) struct RecoveryLifelineCommandAdmissionCheck {
     pub(crate) recovery_memory_provenance_accepted: bool,
     pub(crate) command_admission_requirements_exposed: bool,
     pub(crate) command_admission_ready: bool,
-    pub(crate) lifeline_status_admission_present: bool,
-    pub(crate) rollback_preview_admission_present: bool,
-    pub(crate) rollback_apply_admission_present: bool,
-    pub(crate) disable_module_admission_present: bool,
-    pub(crate) restart_last_good_admission_present: bool,
-    pub(crate) load_recovery_artifact_by_hash_admission_present: bool,
+    pub(crate) bindings: CommandBindings<'static>,
     pub(crate) command_execution_enabled: bool,
     pub(crate) accepts_lifeline_command_envelope: bool,
     pub(crate) dispatches_lifeline_command: bool,
@@ -975,6 +1087,28 @@ pub(crate) struct RecoveryLifelineCommandAdmissionCheck {
     pub(crate) allocates_service_slot: bool,
     pub(crate) service_inventory_change: &'static str,
     pub(crate) load_attempted: bool,
+}
+
+impl core::ops::Deref for RecoveryLifelineCommandAdmissionCandidate {
+    type Target = CommandBindings<'static>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.bindings
+    }
+}
+
+impl core::ops::DerefMut for RecoveryLifelineCommandAdmissionCandidate {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.bindings
+    }
+}
+
+impl core::ops::Deref for RecoveryLifelineCommandAdmissionCheck {
+    type Target = CommandBindings<'static>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.bindings
+    }
 }
 
 pub(crate) struct RecoveryLifelineCommandAdmissionSelfTestCase {
