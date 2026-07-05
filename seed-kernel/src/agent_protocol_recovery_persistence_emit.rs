@@ -1,3 +1,5 @@
+use alloc::vec;
+
 use crate::{
     agent_protocol_recovery_runtime_types::{
         RecoveryDurableAuditRollbackPersistenceCandidate,
@@ -5,8 +7,17 @@ use crate::{
         RecoveryDurableAuditRollbackPersistenceSelfTestCase,
         RecoveryRollbackTransactionEngineCheck,
     },
-    agent_protocol_support::{crlf, json_str, raw, raw_bool, raw_line},
+    agent_protocol_support::{
+        emit_inline_record_object, emit_inline_record_property_at, emit_record_fields,
+        emit_record_property_line, record_bool as b, record_false as no, record_field as f,
+        record_non_authorizing_fact_fields, record_null as null, record_object as object,
+        record_str as s,
+    },
 };
+use raios_core::record::Value as V;
+
+#[rustfmt::skip]
+const PERSISTENCE_FACT_FALSES: &[&str] = &["authorizes_recovery_load", "durable_writes_enabled", "rollback_replay_enabled", "recovery_memory_writes_enabled", "rollback_preview_enabled", "rollback_apply_enabled", "can_move_beyond_denial", "loads_recovery_loader", "loads_recovery_artifact", "creates_durable_records", "installs_rollback_plan", "allocates_service_slot"];
 
 pub(crate) fn emit_recovery_durable_audit_rollback_persistence_input_state(
     candidate: &RecoveryDurableAuditRollbackPersistenceCandidate,
@@ -14,51 +25,59 @@ pub(crate) fn emit_recovery_durable_audit_rollback_persistence_input_state(
     check: &RecoveryDurableAuditRollbackPersistenceCheck,
     comma: bool,
 ) {
-    raw_line("      \"durable_persistence_inputs\": {");
-    raw_line("        \"rollback_transaction_engine\": {");
-    raw_line("          \"schema\": \"raios.recovery_rollback_transaction_engine.v0\",");
-    raw("          \"state\": ");
-    json_str(if candidate.rollback_transaction_engine_available {
-        "defined_read_only_boundary"
-    } else {
-        "missing"
-    });
-    raw_line(",");
-    raw_line("          \"retention\": \"current_boot_read_only_diagnostic\",");
-    raw_line("          \"event_id\": null,");
-    raw("          \"boundary_exposed\": ");
-    raw_bool(check.rollback_transaction_engine_boundary_exposed);
-    raw_line(",");
-    raw("          \"accepted_for_persistence_readiness\": ");
-    raw_bool(check.rollback_transaction_engine_accepted);
-    raw_line(",");
-    raw("          \"rollback_transaction_engine_ready\": ");
-    raw_bool(transaction_check.rollback_transaction_engine_ready);
-    raw_line(",");
-    raw("          \"current_boot\": ");
-    raw_bool(candidate.rollback_transaction_engine_current_boot);
-    raw_line(",");
-    raw("          \"schema_ok\": ");
-    raw_bool(candidate.rollback_transaction_engine_schema_ok);
-    raw_line(",");
-    raw("          \"binding_ok\": ");
-    raw_bool(candidate.rollback_transaction_engine_binding_ok);
-    raw_line(",");
-    raw("          \"reason\": ");
-    json_str(candidate.rollback_transaction_engine_binding_reason);
-    raw_line(",");
-    raw_line("          \"accepts_rollback_transaction_envelope\": false,");
-    raw_line("          \"executes_rollback_preview\": false,");
-    raw_line("          \"executes_rollback_apply\": false,");
-    raw_line("          \"creates_durable_records\": false,");
-    raw_line("          \"installs_rollback_plan\": false");
-    raw_line("        }");
-    raw("      }");
-    if comma {
-        raw_line(",");
-    } else {
-        raw_line("");
-    }
+    emit_record_property_line(
+        "durable_persistence_inputs",
+        vec![f(
+            "rollback_transaction_engine",
+            object(vec![
+                f("schema", s("raios.recovery_rollback_transaction_engine.v0")),
+                f(
+                    "state",
+                    s(if candidate.rollback_transaction_engine_available {
+                        "defined_read_only_boundary"
+                    } else {
+                        "missing"
+                    }),
+                ),
+                f("retention", s("current_boot_read_only_diagnostic")),
+                f("event_id", null()),
+                f(
+                    "boundary_exposed",
+                    b(check.rollback_transaction_engine_boundary_exposed),
+                ),
+                f(
+                    "accepted_for_persistence_readiness",
+                    b(check.rollback_transaction_engine_accepted),
+                ),
+                f(
+                    "rollback_transaction_engine_ready",
+                    b(transaction_check.rollback_transaction_engine_ready),
+                ),
+                f(
+                    "current_boot",
+                    b(candidate.rollback_transaction_engine_current_boot),
+                ),
+                f(
+                    "schema_ok",
+                    b(candidate.rollback_transaction_engine_schema_ok),
+                ),
+                f(
+                    "binding_ok",
+                    b(candidate.rollback_transaction_engine_binding_ok),
+                ),
+                f(
+                    "reason",
+                    s(candidate.rollback_transaction_engine_binding_reason),
+                ),
+                f("accepts_rollback_transaction_envelope", no()),
+                f("executes_rollback_preview", no()),
+                f("executes_rollback_apply", no()),
+                f("creates_durable_records", no()),
+                f("installs_rollback_plan", no()),
+            ]),
+        )],
+        comma,
+    );
 }
 
 pub(crate) fn emit_recovery_durable_audit_rollback_persistence_fact(
@@ -68,181 +87,153 @@ pub(crate) fn emit_recovery_durable_audit_rollback_persistence_fact(
     missing_reason: &'static str,
     comma: bool,
 ) {
-    raw("        \"");
-    raw(field);
-    raw("\": {\"schema\": ");
-    json_str(schema);
-    raw(", \"status\": ");
-    json_str(if present { "present" } else { "missing" });
-    raw(", \"event_id\": null, \"retained\": false, \"required\": true, \"scope\": \"current_boot\", \"classification\": \"local_only\", \"reason\": ");
-    json_str(if present {
-        "current_boot_fact_available"
-    } else {
-        missing_reason
-    });
-    raw(", \"authorizes_recovery_load\": false, \"durable_writes_enabled\": false, \"rollback_replay_enabled\": false, \"recovery_memory_writes_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
-    if comma {
-        raw_line(",");
-    } else {
-        raw_line("");
-    }
+    #[rustfmt::skip]
+    emit_inline_record_property_at(field, record_non_authorizing_fact_fields(schema, present, missing_reason, PERSISTENCE_FACT_FALSES), 8, comma);
 }
 
 pub(crate) fn emit_recovery_durable_audit_rollback_persistence_boundary(
     check: &RecoveryDurableAuditRollbackPersistenceCheck,
 ) {
-    raw_line("        \"schema\": \"raios.durable_audit_rollback_persistence.v0\",");
-    raw_line("        \"state\": \"defined_non_executable\",");
-    raw("        \"requirements_exposed\": ");
-    raw_bool(check.persistence_requirements_exposed);
-    raw_line(",");
-    raw("        \"durable_audit_rollback_persistence_ready\": ");
-    raw_bool(check.durable_audit_rollback_persistence_ready);
-    raw_line(",");
-    raw_line("        \"durable_writes_enabled\": false,");
-    raw_line("        \"rollback_replay_enabled\": false,");
-    raw_line("        \"recovery_memory_writes_enabled\": false,");
-    raw_line("        \"rollback_preview_enabled\": false,");
-    raw_line("        \"rollback_apply_enabled\": false,");
-    raw_line("        \"accepts_rollback_transaction_envelope\": false,");
-    raw_line("        \"accepts_lifeline_command_envelope\": false,");
-    raw_line("        \"writes_durable_audit_log\": false,");
-    raw_line("        \"writes_rollback_store\": false,");
-    raw_line("        \"updates_last_good_checkpoint\": false,");
-    raw_line("        \"creates_durable_records\": false,");
-    raw_line("        \"installs_rollback_plan\": false,");
-    raw_line("        \"loads_recovery_artifact\": false,");
-    raw_line("        \"service_inventory_change\": \"none\",");
-    raw_line("        \"direct_openai_recovery_shortcut_accepted\": false,");
-    raw_line("        \"required_before_durable_write\": [");
-    raw_line("          \"raios.recovery_lifeline_protocol_state.v0\",");
-    raw_line("          \"raios.recovery_lifeline_command_vocabulary.v0\",");
-    raw_line("          \"raios.recovery_loader_runtime_isolation.v0\",");
-    raw_line("          \"raios.recovery_rollback_transaction_engine.v0\",");
-    raw_line("          \"raios.persistence_device_inventory.v0\",");
-    raw_line("          \"raios.durable_audit_rollback_storage_layout_identity.v0\",");
-    raw_line("          \"raios.durable_audit_append_log_identity.v0\",");
-    raw_line("          \"raios.rollback_store_identity.v0\",");
-    raw_line("          \"raios.rollback_transaction_replay_cursor.v0\",");
-    raw_line("          \"raios.recovery_last_good_checkpoint_binding.v0\",");
-    raw_line("          \"raios.durable_write_ordering.v0\",");
-    raw_line("          \"raios.durable_crash_consistency.v0\",");
-    raw_line("          \"raios.durable_integrity_root_hash_chain.v0\",");
-    raw_line("          \"raios.recovery_memory_provenance.v0\"");
-    raw_line("        ]");
+    emit_record_fields(
+        vec![
+            f("schema", s("raios.durable_audit_rollback_persistence.v0")),
+            f("state", s("defined_non_executable")),
+            f(
+                "requirements_exposed",
+                b(check.persistence_requirements_exposed),
+            ),
+            f(
+                "durable_audit_rollback_persistence_ready",
+                b(check.durable_audit_rollback_persistence_ready),
+            ),
+            f("durable_writes_enabled", no()),
+            f("rollback_replay_enabled", no()),
+            f("recovery_memory_writes_enabled", no()),
+            f("rollback_preview_enabled", no()),
+            f("rollback_apply_enabled", no()),
+            f("accepts_rollback_transaction_envelope", no()),
+            f("accepts_lifeline_command_envelope", no()),
+            f("writes_durable_audit_log", no()),
+            f("writes_rollback_store", no()),
+            f("updates_last_good_checkpoint", no()),
+            f("creates_durable_records", no()),
+            f("installs_rollback_plan", no()),
+            f("loads_recovery_artifact", no()),
+            f("service_inventory_change", s("none")),
+            f("direct_openai_recovery_shortcut_accepted", no()),
+            f(
+                "required_before_durable_write",
+                V::Array(vec![
+                    s("raios.recovery_lifeline_protocol_state.v0"),
+                    s("raios.recovery_lifeline_command_vocabulary.v0"),
+                    s("raios.recovery_loader_runtime_isolation.v0"),
+                    s("raios.recovery_rollback_transaction_engine.v0"),
+                    s("raios.persistence_device_inventory.v0"),
+                    s("raios.durable_audit_rollback_storage_layout_identity.v0"),
+                    s("raios.durable_audit_append_log_identity.v0"),
+                    s("raios.rollback_store_identity.v0"),
+                    s("raios.rollback_transaction_replay_cursor.v0"),
+                    s("raios.recovery_last_good_checkpoint_binding.v0"),
+                    s("raios.durable_write_ordering.v0"),
+                    s("raios.durable_crash_consistency.v0"),
+                    s("raios.durable_integrity_root_hash_chain.v0"),
+                    s("raios.recovery_memory_provenance.v0"),
+                ]),
+            ),
+        ],
+        8,
+    );
 }
 
 pub(crate) fn emit_recovery_durable_audit_rollback_persistence_check(
     check: &RecoveryDurableAuditRollbackPersistenceCheck,
 ) {
-    raw("        \"status\": ");
-    json_str(check.status);
-    raw_line(",");
-    raw("        \"reason\": ");
-    json_str(check.reason);
-    raw_line(",");
-    raw("        \"request_chain_valid\": ");
-    raw_bool(check.request_chain_valid);
-    raw_line(",");
-    raw("        \"command_vocabulary_envelope_exposed\": ");
-    raw_bool(check.command_vocabulary_envelope_exposed);
-    raw_line(",");
-    raw("        \"command_vocabulary_accepted\": ");
-    raw_bool(check.command_vocabulary_accepted);
-    raw_line(",");
-    raw("        \"loader_runtime_isolation_boundary_exposed\": ");
-    raw_bool(check.loader_runtime_isolation_boundary_exposed);
-    raw_line(",");
-    raw("        \"loader_runtime_isolation_accepted\": ");
-    raw_bool(check.loader_runtime_isolation_accepted);
-    raw_line(",");
-    raw("        \"rollback_transaction_engine_boundary_exposed\": ");
-    raw_bool(check.rollback_transaction_engine_boundary_exposed);
-    raw_line(",");
-    raw("        \"rollback_transaction_engine_accepted\": ");
-    raw_bool(check.rollback_transaction_engine_accepted);
-    raw_line(",");
-    raw("        \"persistence_requirements_exposed\": ");
-    raw_bool(check.persistence_requirements_exposed);
-    raw_line(",");
-    raw("        \"durable_audit_rollback_persistence_ready\": ");
-    raw_bool(check.durable_audit_rollback_persistence_ready);
-    raw_line(",");
-    raw("        \"durable_writes_enabled\": ");
-    raw_bool(check.durable_writes_enabled);
-    raw_line(",");
-    raw("        \"rollback_replay_enabled\": ");
-    raw_bool(check.rollback_replay_enabled);
-    raw_line(",");
-    raw("        \"recovery_memory_writes_enabled\": ");
-    raw_bool(check.recovery_memory_writes_enabled);
-    raw_line(",");
-    raw("        \"rollback_preview_enabled\": ");
-    raw_bool(check.rollback_preview_enabled);
-    raw_line(",");
-    raw("        \"rollback_apply_enabled\": ");
-    raw_bool(check.rollback_apply_enabled);
-    raw_line(",");
-    raw("        \"command_execution_enabled\": ");
-    raw_bool(check.command_execution_enabled);
-    raw_line(",");
-    raw("        \"accepts_lifeline_command_envelope\": ");
-    raw_bool(check.accepts_lifeline_command_envelope);
-    raw_line(",");
-    raw("        \"authorizes_recovery_load\": ");
-    raw_bool(check.authorizes_recovery_load);
-    raw_line(",");
-    raw("        \"can_move_beyond_denial\": ");
-    raw_bool(check.can_move_beyond_denial);
-    raw_line(",");
-    raw("        \"loads_recovery_loader\": ");
-    raw_bool(check.loads_recovery_loader);
-    raw_line(",");
-    raw("        \"loads_recovery_artifact\": ");
-    raw_bool(check.loads_recovery_artifact);
-    raw_line(",");
-    raw("        \"creates_durable_records\": ");
-    raw_bool(check.creates_durable_records);
-    raw_line(",");
-    raw("        \"installs_rollback_plan\": ");
-    raw_bool(check.installs_rollback_plan);
-    raw_line(",");
-    raw("        \"allocates_service_slot\": ");
-    raw_bool(check.allocates_service_slot);
-    raw_line(",");
-    raw("        \"service_inventory_change\": ");
-    json_str(check.service_inventory_change);
-    raw_line(",");
-    raw_line("        \"durable_audit_write_attempted\": false,");
-    raw_line("        \"rollback_install_attempted\": false,");
-    raw_line("        \"rollback_replay_attempted\": false,");
-    raw_line("        \"recovery_memory_write_attempted\": false,");
-    raw_line("        \"service_slot_allocation_attempted\": false,");
-    raw_line("        \"direct_openai_recovery_shortcut_accepted\": false,");
-    raw("        \"load_attempted\": ");
-    raw_bool(check.load_attempted);
-    crlf();
+    emit_record_fields(
+        vec![
+            f("status", s(check.status)),
+            f("reason", s(check.reason)),
+            f("request_chain_valid", b(check.request_chain_valid)),
+            f(
+                "command_vocabulary_envelope_exposed",
+                b(check.command_vocabulary_envelope_exposed),
+            ),
+            f(
+                "command_vocabulary_accepted",
+                b(check.command_vocabulary_accepted),
+            ),
+            f(
+                "loader_runtime_isolation_boundary_exposed",
+                b(check.loader_runtime_isolation_boundary_exposed),
+            ),
+            f(
+                "loader_runtime_isolation_accepted",
+                b(check.loader_runtime_isolation_accepted),
+            ),
+            f(
+                "rollback_transaction_engine_boundary_exposed",
+                b(check.rollback_transaction_engine_boundary_exposed),
+            ),
+            f(
+                "rollback_transaction_engine_accepted",
+                b(check.rollback_transaction_engine_accepted),
+            ),
+            f(
+                "persistence_requirements_exposed",
+                b(check.persistence_requirements_exposed),
+            ),
+            f(
+                "durable_audit_rollback_persistence_ready",
+                b(check.durable_audit_rollback_persistence_ready),
+            ),
+            f("durable_writes_enabled", b(check.durable_writes_enabled)),
+            f("rollback_replay_enabled", b(check.rollback_replay_enabled)),
+            f(
+                "recovery_memory_writes_enabled",
+                b(check.recovery_memory_writes_enabled),
+            ),
+            f(
+                "rollback_preview_enabled",
+                b(check.rollback_preview_enabled),
+            ),
+            f("rollback_apply_enabled", b(check.rollback_apply_enabled)),
+            f(
+                "command_execution_enabled",
+                b(check.command_execution_enabled),
+            ),
+            f(
+                "accepts_lifeline_command_envelope",
+                b(check.accepts_lifeline_command_envelope),
+            ),
+            f(
+                "authorizes_recovery_load",
+                b(check.authorizes_recovery_load),
+            ),
+            f("can_move_beyond_denial", b(check.can_move_beyond_denial)),
+            f("loads_recovery_loader", b(check.loads_recovery_loader)),
+            f("loads_recovery_artifact", b(check.loads_recovery_artifact)),
+            f("creates_durable_records", b(check.creates_durable_records)),
+            f("installs_rollback_plan", b(check.installs_rollback_plan)),
+            f("allocates_service_slot", b(check.allocates_service_slot)),
+            f(
+                "service_inventory_change",
+                s(check.service_inventory_change),
+            ),
+            f("durable_audit_write_attempted", no()),
+            f("rollback_install_attempted", no()),
+            f("rollback_replay_attempted", no()),
+            f("recovery_memory_write_attempted", no()),
+            f("service_slot_allocation_attempted", no()),
+            f("direct_openai_recovery_shortcut_accepted", no()),
+            f("load_attempted", b(check.load_attempted)),
+        ],
+        8,
+    );
 }
 
 pub(crate) fn emit_recovery_durable_audit_rollback_persistence_selftest_case(
     case: &RecoveryDurableAuditRollbackPersistenceSelfTestCase,
     comma: bool,
 ) {
-    raw("        {\"case\": ");
-    json_str(case.name);
-    raw(", \"expected_status\": ");
-    json_str(case.expected_status);
-    raw(", \"expected_reason\": ");
-    json_str(case.expected_reason);
-    raw(", \"actual_status\": ");
-    json_str(case.actual_status);
-    raw(", \"actual_reason\": ");
-    json_str(case.actual_reason);
-    raw(", \"passed\": ");
-    raw_bool(case.passed);
-    raw(", \"durable_writes_enabled\": false, \"rollback_replay_enabled\": false, \"recovery_memory_writes_enabled\": false, \"rollback_preview_enabled\": false, \"rollback_apply_enabled\": false, \"command_execution_enabled\": false, \"accepts_lifeline_command_envelope\": false, \"authorizes_recovery_load\": false, \"can_move_beyond_denial\": false, \"loads_recovery_loader\": false, \"loads_recovery_artifact\": false, \"creates_durable_records\": false, \"installs_rollback_plan\": false, \"allocates_service_slot\": false, \"service_inventory_change\": \"none\", \"load_attempted\": false}");
-    if comma {
-        raw(",");
-    }
-    crlf();
+    #[rustfmt::skip]
+    emit_inline_record_object(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("durable_writes_enabled", no()), f("rollback_replay_enabled", no()), f("recovery_memory_writes_enabled", no()), f("rollback_preview_enabled", no()), f("rollback_apply_enabled", no()), f("command_execution_enabled", no()), f("accepts_lifeline_command_envelope", no()), f("authorizes_recovery_load", no()), f("can_move_beyond_denial", no()), f("loads_recovery_loader", no()), f("loads_recovery_artifact", no()), f("creates_durable_records", no()), f("installs_rollback_plan", no()), f("allocates_service_slot", no()), f("service_inventory_change", s("none")), f("load_attempted", no())], comma);
 }

@@ -89,14 +89,24 @@ intermittent failure on the first verify attempt (`qemu_exited` in 0.5s
 suspected timing-dependent guest reset after `memory.recent_events`,
 pre-dates M2).
 
-Exact next task:
+Slice M2-5 done (2026-07-05): batch port of memory_provenance_emit,
+persistence_emit, command_envelope_emit, loader_runtime_emit,
+rollback_transaction_emit; recovery profile byte-identical
+(`shadow-20260705-120458-16280.json`, 3644/3644). 13 recovery emit
+modules now render through the record model.
+
+Exact next task (REPAIR PRIORITY before further ports):
 
 ```text
-Continue batch-porting recovery emit modules (next candidates:
-memory_provenance_emit, persistence_emit, command_envelope_emit,
-loader_runtime_emit, rollback_transaction_emit — skip hash-coupled ones
-with a report); each slice deletes more than it adds and passes the
-recovery profile byte-identical.
+Investigate the ~50%-reproducible silent guest crash directly after the
+memory.recent_events response (2x today at the identical profile
+position, 1x 2026-07-04 pre-M2; see failure classification log).
+Diagnostic slice: read agent_protocol_memory.rs post-response path and
+the serial command read loop; add a cheap serial breadcrumb if needed to
+localize; propose the fix. Then resume batch-porting the remaining
+recovery emit modules (command_body_emit, rollback_apply_emit,
+memory_write_emit, durable_write_emit, service_inventory_effect_emit,
+lifeline_*_emit, target_binding_emit, artifact_reference_emit).
 ```
 
 ## Capability Milestones

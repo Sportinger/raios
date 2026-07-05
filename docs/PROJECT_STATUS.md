@@ -40,6 +40,17 @@ Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
   reclassified as suspected guest-behavior, intermittent. Follow-up
   candidate for investigation if it recurs: the post-response code path
   of `memory.recent_events` (agent_protocol_memory.rs).
+- 2026-07-05 `shadow-20260705-120244-*.json` (recovery profile, second
+  occurrence same day): identical signature AGAIN — 433/433 reached
+  predicates passed, death at exactly the same profile position (directly
+  after `memory.recent_events`), `qemu_exited` classified in 0.5s, clean
+  serial tail. Now 2 of 3 recovery-profile runs on this tree; no longer
+  "intermittent noise" but a ~50%-reproducible guest crash at a fixed
+  boundary. PROMOTED to an active repair work item: instrument/inspect
+  what runs after the `memory.recent_events` response is written
+  (agent_protocol_memory.rs post-response path, next-command read loop,
+  or heap state at that point). The M2 ports remain exonerated (first
+  occurrence 2026-07-04 predates them).
 
 - 2026-07-04 `shadow-20260704-183440-16492.json` (full profile): no failing
   predicate (200/200 reached passed, 14 commands executed); failure is

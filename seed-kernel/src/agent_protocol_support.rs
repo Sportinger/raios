@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use core::fmt;
 
 use crate::{event_log, serial};
@@ -82,6 +82,38 @@ pub(crate) fn extend_false_fields<'a>(fields: &mut Vec<Field<'a>>, names: &'a [&
     }
 }
 
+pub(crate) fn record_non_authorizing_fact_fields<'a>(
+    schema: &'a str,
+    present: bool,
+    missing_reason: &'a str,
+    false_fields: &'a [&'a str],
+) -> Vec<Field<'a>> {
+    let mut fields = vec![
+        record_field("schema", record_str(schema)),
+        record_field(
+            "status",
+            record_str(if present { "present" } else { "missing" }),
+        ),
+        record_field("event_id", record_null()),
+        record_field("retained", record_false()),
+        record_field("required", record_bool(true)),
+        record_field("scope", record_str("current_boot")),
+        record_field("classification", record_str("local_only")),
+        record_field(
+            "reason",
+            record_str(if present {
+                "current_boot_fact_available"
+            } else {
+                missing_reason
+            }),
+        ),
+    ];
+    extend_false_fields(&mut fields, false_fields);
+    fields.push(record_field("service_inventory_change", record_str("none")));
+    fields.push(record_field("load_attempted", record_false()));
+    fields
+}
+
 pub(crate) fn record_object<'a>(fields: Vec<Field<'a>>) -> Value<'a> {
     Value::Object(fields)
 }
@@ -115,12 +147,25 @@ pub(crate) fn emit_record_property_line(name: &str, fields: Vec<Field<'_>>, comm
 }
 
 pub(crate) fn emit_inline_record_property(name: &str, fields: Vec<Field<'_>>, comma: bool) {
-    let mut sink = SerialSink;
+    emit_inline_record_property_at(name, fields, 6, comma);
+}
 
-    sink.write_bytes(b"      ");
+pub(crate) fn emit_inline_record_property_at(
+    name: &str,
+    fields: Vec<Field<'_>>,
+    spaces: usize,
+    comma: bool,
+) {
+    let mut sink = SerialSink;
+    let mut idx = 0usize;
+
+    while idx < spaces {
+        sink.write_bytes(b" ");
+        idx += 1;
+    }
     write_json(&Value::Str(name), &mut sink, 6);
     sink.write_bytes(b": ");
-    write_json(&Value::InlineObject(fields), &mut sink, 6);
+    write_json(&Value::InlineObject(fields), &mut sink, spaces);
     if comma {
         sink.write_bytes(b",");
     }
