@@ -38,6 +38,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
+      # The seed-kernel build script verifies P-256 signatures over raw
+      # source bytes; CRLF checkout conversion on Windows breaks them.
+      - name: Force LF checkout
+        run: git config --global core.autocrlf false
+        shell: powershell
       - uses: actions/checkout@v4
       - name: Install QEMU
         run: choco install qemu -y --no-progress
