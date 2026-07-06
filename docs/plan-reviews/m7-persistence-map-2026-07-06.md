@@ -170,6 +170,21 @@ Report format: fixture description, needle names, report JSON path.
 
 ### Slice M7B-2: scoped durable append authority
 
+**M7B-2 DONE (2026-07-06, commit eff386a).** STALE-PACKET CORRECTION: the packet
+below says to flip "the M3 write-boundary chain files (scoped positive path)".
+A max-effort scope verified against HEAD that this is WRONG — the
+`agent_protocol_module_write_boundary_*.rs` chain always-denies and its
+`writes_enabled`/`authorizes_append` booleans are SHARED cross-target, so a
+positive branch there grants generic write to EVERY module. M3-3 (the first
+durable write) flipped ZERO boundary files; it used a separate raios-core scoped
+evaluator. M7B-2 mirrored THAT: NEW `raios-core/src/scoped_seed_data_append.rs`
+(own pins + range/chain/write-readback-reparse gauntlet, 32 denials) + an
+additive `ahci.rs::write_readback_reclog_append` looping the existing
+`issue_write_sector`; `issue_dma_command`, `scoped_rollback_apply.rs`, and the
+shared `durable_record_log_scan_fields` literals untouched. Any later slice
+citing "the M7B-2 write-boundary flip" must instead follow this
+separate-scoped-evaluator pattern.
+
 Capability: the kernel durably appends a typed record to RECLOG with append → readback → inspect → only-then-report under a scoped grant — the first real persistence write in raiOS. Files: the M3 write-boundary chain files (scoped positive path for `append.record_log.seed_data` ONLY, mirroring how M3 scoped `append.audit_ledger.current_boot` — flip list in the M3 map); `durable_store.rs` append over the existing AHCI write generalized to multi-sector spans inside the validated RECLOG region (verify-at-execution how hardcoded the current LBA1 path is); raios-core append planner + tests. First payloads: boot lifecycle records mirroring RAM-ring events (ring stays authoritative for current_boot UI). Verification: focused `persistence` (durable-append-authorized, durable-readback-hash, durable-store-full-denied via nearly-full fixture, generic-target-still-denied needles); `module-audit-rollback` profile unchanged-green. Fail-closed: writes outside the RECLOG span denied; GPT metadata, superblock, BOOTCTL, ARTSTOR unwritable this slice; generic module write boundary, scratch, boot media all still denied; store-full ⇒ deny, no rotation. STOP-tripwires: any widening beyond the RECLOG span; AHCI restructure over ~500 changed lines (report first).
 
 ```text
@@ -234,10 +249,13 @@ Goal: Kernel writes boot success into BOOTCTL via scoped
   docs/image-layout-v0.md rules; plus scripts/switch-boot-slot.ps1 for
   owner-invoked v0-manual slot staging/pending.
 Read first: map 3.4; docs/image-layout-v0.md (Rules, Boot Flow, Atomic
-  Writes); raios-core/src/boot_control.rs; the M7B-2 write-boundary flip
-  pattern; scripts/make-gpt-persist-image.py.
-Allowed write set: seed-kernel/src/boot_control.rs, write-boundary files
-  (second scoped target only), raios-core/src/** (+tests),
+  Writes); raios-core/src/boot_control.rs; the M7B-2 separate-scoped-evaluator
+  pattern (raios-core/src/scoped_seed_data_append.rs — a NEW sibling evaluator,
+  NOT a write-boundary flip); scripts/make-gpt-persist-image.py.
+Allowed write set: seed-kernel/src/boot_control.rs, a NEW scoped evaluator
+  raios-core/src/scoped_boot_control_replace.rs for the second scoped target
+  ONLY (do NOT edit agent_protocol_module_write_boundary_* — shared cross-target),
+  an additive AHCI BOOTCTL write/readback helper, raios-core/src/** (+tests),
   scripts/switch-boot-slot.ps1 (new), persistence profile + support.
 Forbidden: generic write authority; UEFI boot-variable manipulation; touching
   release/raios-stage0.img or writing GPT boot images into release/; attested
