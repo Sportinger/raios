@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 early morning (M3 CLOSED — first real durable write).
+Updated: 2026-07-06 morning (M4 CLOSED — real Wasm isolation works).
 
 ## What raiOS can actually do today
 
@@ -47,18 +47,21 @@ count landed at ~126.5k (not the original ~20k); the optional extra
 shrink (changing output vocabulary) is deferred and remains YOUR call —
 say the word and it gets scheduled.
 
-**M3 is CLOSED** — the biggest capability jump so far: raiOS performed
-its first real, policy-authorized, durable disk write (one exact
-512-byte rollback transaction, written, read back, hash-verified), and
-the hello rollback now ACTUALLY APPLIES using that transaction as its
-authority record. The system graduated from "can only describe and deny
-changes" to "can safely make one and prove it". Everything else stays
-fail-closed. Closure: full profile 7,825/7,825 green.
+**M3 and M4 are CLOSED.** M3: raiOS performed its first real,
+policy-authorized durable disk write and the hello rollback now actually
+applies using that transaction as its authority record. M4 (the deepest
+safety milestone so far): foreign code now runs INSIDE a real in-kernel
+WebAssembly sandbox and physically cannot call anything outside its
+granted functions — a module that even *imports* a forbidden function
+fails to load. Four hostile-guest cases (broken bytes, memory hog,
+infinite loop, crash) all end as clean evidence, never a kernel crash.
+Proven: 465/465 checks incl. 49 wasm-specific ones.
 
-Now active: **M4 Wasm Isolation** — a service runs inside an in-kernel
-Wasm interpreter and physically cannot call an authority outside its
-granted imports. Scoping (interpreter choice, capability envelope
-design) is underway.
+Now active: **M5 Second Service Proof** — the acceptance test of the
+whole rebuild: adding a SECOND service (the echo wasm guest, which
+already runs isolated) should cost only a descriptor + a state machine,
+not another huge file. If it does, M2's refactor and M4's runtime truly
+generalized. Scoping now.
 
 ## Top risk
 

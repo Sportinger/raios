@@ -17,7 +17,20 @@ vocabulary).
 
 Last updated: 2026-07-05.
 
-Current milestone: **M4 Wasm Isolation** (see Capability Milestones).
+Current milestone: **M5 Second Service Proof** (see Capability Milestones).
+
+**M4 Wasm Isolation closed 2026-07-06.** Capability sentence verified
+TRUE: a service runs inside the in-kernel wasmi interpreter and cannot
+call any authority outside its granted host-function imports — the
+capability envelope IS the linker import set. Evidence: quick profile
+`shadow-20260706-054603-21952.json` (465/465, 49 wasm needles): attested
+echo guest runs under env.log+env.counter_get with fuel metering; a
+forbidden-import module fails AT INSTANTIATION (link error); 4/4 trap
+hardening cases (malformed / over-memory / fuel exhaustion / guest trap)
+end as evidence, never a kernel panic. No-regression full profile
+`shadow-20260706-055027-25628.json` 7825/7825. Slices M4-1..M4-7
+(commits 27bfb56..328c90e); wasmi =0.31.2 vendored/pinned; wasm32 guest
+attested via the P-256 chain.
 
 **M3 First Durable Write closed 2026-07-06.** Capability sentence
 verified TRUE: raiOS performs its first real, policy-authorized, durable
@@ -396,13 +409,19 @@ profile `shadow-20260706-052847-5000.json`, 441/441 incl. 25 new wasm
 needles (guest log line observed on serial; exceed-capability link
 failure evidenced).
 
+M4 closed (see above).
+
 Exact next task:
 
 ```text
-M4 slices 5-6: trap hardening probes (malformed wasm bytes, over-memory
-growth, fuel exhaustion, guest trap — each surfaced as typed evidence,
-never a kernel hang/panic), then M4 closure: full profile + capability
-sentence evaluation.
+Open M5 (Second Service Proof) with a scoping slice: the echo wasm guest
+already exists and runs isolated. M5's test: promote svc.demo.echo to a
+REAL current-boot service (load/start/health/inventory/stop) costing
+ONLY a ServiceDescriptor + state machine — reusing the M2 ServiceDescriptor,
+the M3 durable-write path, and the M4 wasm envelope, with NO new
+emitters/hash-chains/harness profiles beyond generated needles. Map what
+echo needs vs what hello already provides; if it costs tens of thousands
+of lines, the architecture failed its own claim — measure honestly.
 ```
 
 ## Capability Milestones
