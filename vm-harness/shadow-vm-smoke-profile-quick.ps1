@@ -1472,7 +1472,7 @@
             throw "Expected wasm.echo_probe to stay read-only and non-authorizing"
         }
         $wasmCandidate = $wasmResult.candidate_intake
-        $wasmCandidateOk = $wasmCandidate.external_delivery_channel -eq "pending_m6a_slice2" -and [int]$wasmCandidate.case_count -eq 3 -and $wasmCandidate.all_load_denied -eq $true -and $wasmCandidate.all_execution_denied -eq $true -and $wasmCandidate.all_persistence_denied -eq $true -and $wasmCandidate.echo_external_candidate.wasm_valid -eq $true -and $wasmCandidate.echo_external_candidate.retained_in_ram -eq $true -and $wasmCandidate.echo_external_candidate.rejected -eq $false -and $wasmCandidate.malformed_under_bound_candidate.wasm_valid -eq $false -and $wasmCandidate.malformed_under_bound_candidate.retained_in_ram -eq $true -and $wasmCandidate.oversize_candidate.rejected -eq $true -and $wasmCandidate.oversize_candidate.retained_in_ram -eq $false
+        $wasmCandidateOk = $wasmCandidate.external_delivery_channel -eq "serial_console_base64_chunks_v0" -and [int]$wasmCandidate.case_count -eq 3 -and $wasmCandidate.all_load_denied -eq $true -and $wasmCandidate.all_execution_denied -eq $true -and $wasmCandidate.all_persistence_denied -eq $true -and $wasmCandidate.echo_external_candidate.wasm_valid -eq $true -and $wasmCandidate.echo_external_candidate.retained_in_ram -eq $true -and $wasmCandidate.echo_external_candidate.rejected -eq $false -and $wasmCandidate.malformed_under_bound_candidate.wasm_valid -eq $false -and $wasmCandidate.malformed_under_bound_candidate.retained_in_ram -eq $true -and $wasmCandidate.oversize_candidate.rejected -eq $true -and $wasmCandidate.oversize_candidate.retained_in_ram -eq $false
         Add-Predicate -Name "quick:wasm_echo_probe_candidate_intake" -Expected "external wasm candidate intake: echo valid+retained, malformed retained-invalid, oversize rejected, load/exec/persist denied, delivery pending_m6a_slice2" -Passed $wasmCandidateOk -Actual $(if ($wasmCandidateOk) { "matched" } else { ($wasmCandidate | ConvertTo-Json -Compress -Depth 4) })
         if (-not $wasmCandidateOk) {
             throw "Expected wasm.echo_probe candidate_intake to accept an inert, hash-identified, fail-closed external Wasm candidate"
@@ -1521,7 +1521,7 @@
             @{ Name = "quick:wasm_echo_probe_no_persistence_needle"; Text = '"writes_persistent_state": false' },
             @{ Name = "quick:wasm_echo_probe_no_inventory_mutation_needle"; Text = '"mutates_service_inventory": false' },
             @{ Name = "quick:wasm_echo_probe_no_global_event_log_mutation_needle"; Text = '"mutates_global_event_log": false' },
-            @{ Name = "quick:wasm_echo_probe_candidate_delivery_channel_needle"; Text = '"external_delivery_channel": "pending_m6a_slice2"' },
+            @{ Name = "quick:wasm_echo_probe_candidate_delivery_channel_needle"; Text = '"external_delivery_channel": "serial_console_base64_chunks_v0"' },
             @{ Name = "quick:wasm_echo_probe_candidate_echo_case_needle"; Text = '"case": "echo_external_test_vector"' },
             @{ Name = "quick:wasm_echo_probe_candidate_malformed_case_needle"; Text = '"case": "malformed_under_bound"' },
             @{ Name = "quick:wasm_echo_probe_candidate_oversize_case_needle"; Text = '"case": "oversize_rejected"' },

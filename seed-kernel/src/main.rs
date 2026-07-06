@@ -116,6 +116,7 @@ mod framebuffer;
 mod hello_service;
 mod input;
 mod memory;
+mod module_candidate_channel;
 mod module_candidate_intake;
 mod module_evidence;
 mod net;

@@ -585,6 +585,42 @@ function Send-AgentCommand {
     }
 }
 
+function Send-CandidateBytes {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Candidate artifact does not exist: $Path"
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path).Path)
+    $base64 = [Convert]::ToBase64String($bytes)
+    $chunkChars = 3000
+    $chunkIndex = 0
+    for ($offset = 0; $offset -lt $base64.Length; $offset += $chunkChars) {
+        $count = [Math]::Min($chunkChars, $base64.Length - $offset)
+        $chunk = $base64.Substring($offset, $count)
+        $chunkIndex += 1
+        Send-AgentCommand `
+            -Command "module.submit_candidate_chunk $chunk" `
+            -ExpectedMarker "RAIOS_AGENT_END module.submit_candidate_chunk" `
+            -Name "candidate_delivery:chunk_$chunkIndex"
+    }
+
+    Send-AgentCommand `
+        -Command "module.submit_candidate_finalize" `
+        -ExpectedMarker "RAIOS_AGENT_END module.submit_candidate_finalize" `
+        -Name "candidate_delivery:finalize"
+
+    return [pscustomobject]@{
+        path = (Resolve-Path -LiteralPath $Path).Path
+        byte_len = $bytes.Length
+        chunk_count = $chunkIndex
+        finalize_response = (Get-LastAgentResponseJson -Method "module.submit_candidate_finalize")
+    }
+}
+
 function Get-LastAgentResponseJson {
     param(
         [string]$Method

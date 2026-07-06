@@ -153,7 +153,9 @@ use crate::{
         emit_boot_log, emit_capabilities, emit_describe, emit_device_graph, emit_problem_list,
         emit_service_inventory, emit_snapshot,
     },
-    agent_protocol_wasm::emit_wasm_echo_probe,
+    agent_protocol_wasm::{
+        emit_submit_candidate_chunk, emit_submit_candidate_finalize, emit_wasm_echo_probe,
+    },
     echo_service, event_log, hello_service, ui,
 };
 
@@ -382,6 +384,8 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("module.loader_audit_rollback_write_boundary_binding", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact)),
     method!("module.loader_audit_rollback_write_boundary_binding_selftest", Head, [], [], MethodAction::ReadMethod(emit_module_loader_fact_selftest)),
     method!("wasm.echo_probe", Exact, [], [route!("wasm.echo_probe")], MethodAction::Read0(emit_wasm_echo_probe)),
+    method!("module.submit_candidate_chunk", Head, [], [route!("module.submit_candidate_chunk")], MethodAction::ReadMethod(emit_submit_candidate_chunk)),
+    method!("module.submit_candidate_finalize", Exact, [], [route!("module.submit_candidate_finalize")], MethodAction::Read0(emit_submit_candidate_finalize)),
     envelope_method!("module.audit_rollback_availability", Head, ["module.audit_rollback_store_availability"], [], 9, "module.audit_rollback_availability", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_availability.v0", "module.audit_rollback_availability", MethodAction::Read0(emit_module_audit_rollback_availability)),
     method!("module.audit_rollback_availability_selftest", Head, ["module.audit_rollback_store_availability_selftest"], [], MethodAction::Read0(emit_module_audit_rollback_availability_selftest)),
     envelope_method!("module.audit_rollback_write_policy", Head, ["module.audit_rollback_policy"], [], 10, "module.audit_rollback_write_policy", "cap.module.grant_diagnostic.read", "agent_command_envelope.current_boot.serial.module_audit_rollback_write_policy.v0", "module.audit_rollback_write_policy", MethodAction::Read0(emit_module_audit_rollback_write_policy)),

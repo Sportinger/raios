@@ -6,9 +6,98 @@ use crate::{
         record_bool as b, record_field as f, record_sha, record_static_str_array, record_str as s,
         record_str_or_null,
     },
-    module_candidate_intake, wasm_runtime,
+    module_candidate_channel, module_candidate_intake, wasm_runtime,
 };
 use raios_core::record::Value as V;
+
+pub(crate) fn emit_submit_candidate_chunk(arg: &str) {
+    let outcome = module_candidate_channel::submit_candidate_chunk(arg);
+
+    begin_response("module.submit_candidate_chunk");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("method", s("module.submit_candidate_chunk")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("chunk_index", V::U64(outcome.chunk_index as u64)),
+            f("decoded_byte_len", V::U64(outcome.decoded_byte_len as u64)),
+            f("pending_byte_len", V::U64(outcome.pending_byte_len as u64)),
+            f(
+                "pending_chunk_count",
+                V::U64(outcome.pending_chunk_count as u64),
+            ),
+            f("accepted", b(outcome.accepted)),
+            f("rejected", b(outcome.rejected)),
+            f(
+                "discarded_pending_delivery",
+                b(outcome.discarded_pending_delivery),
+            ),
+            f("reason", s(outcome.reason)),
+            f("load_attempted", b(outcome.load_attempted)),
+            f("execution_attempted", b(outcome.execution_attempted)),
+            f("authorizes_load", b(outcome.authorizes_load)),
+            f("authorizes_execution", b(outcome.authorizes_execution)),
+            f(
+                "writes_persistent_state",
+                b(outcome.writes_persistent_state),
+            ),
+            f(
+                "external_delivery_channel",
+                s(outcome.external_delivery_channel),
+            ),
+        ],
+        6,
+    );
+    raw_line("      \"evidence_complete\": true");
+    end_response("module.submit_candidate_chunk");
+}
+
+pub(crate) fn emit_submit_candidate_finalize() {
+    let outcome = module_candidate_channel::submit_candidate_finalize();
+    let candidate = &outcome.candidate;
+
+    begin_response("module.submit_candidate_finalize");
+    emit_record_fields_trailing_comma(
+        vec![
+            f("method", s("module.submit_candidate_finalize")),
+            f("scope", s(candidate.scope)),
+            f("classification", s("local_only")),
+            f(
+                "delivered_byte_len",
+                V::U64(outcome.delivered_byte_len as u64),
+            ),
+            f(
+                "delivered_chunk_count",
+                V::U64(outcome.delivered_chunk_count as u64),
+            ),
+            f("byte_len", V::U64(candidate.byte_len as u64)),
+            f("artifact_sha256", record_sha(candidate.artifact_sha256)),
+            f("wasm_valid", b(candidate.wasm_valid)),
+            f("retained_in_ram", b(candidate.retained_in_ram)),
+            f("rejected", b(candidate.rejected)),
+            f("reason", s(candidate.reason)),
+            f("load_attempted", b(candidate.load_attempted)),
+            f("execution_attempted", b(candidate.execution_attempted)),
+            f("authorizes_load", b(candidate.authorizes_load)),
+            f("authorizes_execution", b(candidate.authorizes_execution)),
+            f(
+                "writes_persistent_state",
+                b(candidate.writes_persistent_state),
+            ),
+            f(
+                "external_delivery_channel",
+                s(candidate.external_delivery_channel),
+            ),
+            f(
+                "candidate",
+                record_candidate_intake_case("serial_console_base64_delivery", candidate),
+            ),
+        ],
+        6,
+    );
+    raw_line("      \"evidence_complete\": true");
+    end_response("module.submit_candidate_finalize");
+}
 
 pub(crate) fn emit_wasm_echo_probe() {
     let probe = wasm_runtime::run_echo_probe();

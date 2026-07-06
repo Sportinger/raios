@@ -3,8 +3,8 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M6A-1 — raiOS can now take in an outside program as a
-checked, inert candidate; loading it still refused).
+Updated: 2026-07-06 (M6A-2a — a real outside program can now be handed to
+raiOS over the console; checked, held inert, loading still refused).
 
 ## What raiOS can actually do today
 
@@ -15,12 +15,14 @@ checked, inert candidate; loading it still refused).
   (snapshot, devices, services, problems, event log).
 - One built-in demo service can be loaded, hot-swapped v1<->v2, and
   rollback-previewed — all RAM-only.
-- NEW (M6A-1): raiOS can now take a Wasm program that did NOT come baked
-  into the system, check that it is real (hash + parse), and hold it in
-  memory as an inert "candidate" — while running, loading, and saving it
-  stay firmly refused. This is the receiving door for outside code; giving
-  that code any rights is a later, gated step. Delivery from truly outside
-  the image arrives next slice (today the bytes are a labeled test sample).
+- NEW (M6A-1 + M6A-2a): raiOS now has a working receiving door for outside
+  code. A real Wasm program that did NOT come baked into the system can be
+  sent in over the console (in small encoded pieces that get reassembled),
+  checked for realness (fingerprint + parse), and held in memory as an
+  inert "candidate" — while running, loading, and saving it stay firmly
+  refused. Verified end-to-end with a real 4 KB program. Giving that code
+  any rights is the next, gated step (M6B). Independently security-checked;
+  one known limit noted: the realness-check itself isn't yet time-capped.
 
 ## Gate status
 
@@ -77,9 +79,10 @@ moment: one AI-authored artifact travels
 the whole safe loop end to end — authored, tested in the Shadow VM,
 capability-granted, promoted live, and rolled back — with evidence at
 every step. Split into M6A (candidate intake) → M6B (grant) → M6C
-(promote) → M6D (rollback). **M6A-1 done**: the receiving door exists
-(above). Next (M6A-2): deliver a real outside Wasm file to the running
-system and bind a test report to it — loading still refused until M6B.
+(promote) → M6D (rollback). **M6A-1 + M6A-2a done**: the receiving door
+exists and takes a real outside program over the console (above). Next
+(M6A-2b): give that delivered program its own test report — loading still
+refused until M6B.
 
 ## Top risk
 

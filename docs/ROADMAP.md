@@ -18,7 +18,8 @@ vocabulary).
 Last updated: 2026-07-06.
 
 Current milestone: **M6 Promotion Loop v0** (see Capability Milestones),
-sub-milestone M6A; slice M6A-1 (candidate-intake mechanism) done.
+sub-milestone M6A; slices M6A-1 (intake mechanism) + M6A-2a (real serial
+delivery) done; next M6A-2b (candidate-specific vm_test_report binding).
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small
@@ -497,17 +498,36 @@ Verified: quick `shadow-20260706-093418-2968.json` 562/562 incl. 8
 `quick:wasm_echo_probe_candidate_*` needles (one flaked-then-green
 host-transport run classified in PROJECT_STATUS).
 
+M6A-2a done (2026-07-06): REAL external delivery over the serial console.
+New `seed-kernel/src/module_candidate_channel.rs` reassembles a real
+external `.wasm` sent as base64 chunks (bounded RAM buffer capped at
+MAX_EXTERNAL_WASM_CANDIDATE_BYTES, local base64 decoder, fail-closed
+discard on malformed/overflow/empty); finalize's ONLY sink is
+`intake_external_wasm_candidate`. Two registered read-methods
+`module.submit_candidate_chunk` / `module.submit_candidate_finalize` (no
+new MethodAction, no dispatch-arm behavior change). The delivery label is
+now the real `serial_console_base64_chunks_v0`; `pending_m6a_slice2` is
+retired. Verified: focused `shadow-20260706-102027-16828.json` 176/176
+(real 4205-byte echo wasm delivered, exact SHA f81f9442…abd2, retained
+inert, all denials false, malformed-discard + VM-responsive negative) +
+quick regression `shadow-20260706-102839-18048.json` 562/562.
+Adversarially reviewed: no reachable load/grant/instantiate/execute/persist
+sink, no panic/OOB/bound-bypass/lock/state-leak. Known residual: wasm
+validation (`wasmi::Module::new`) runs on attacker bytes, bounded but not
+time/fuel-bounded — a later hardening candidate (see PROJECT_STATUS).
+
 Exact next task:
 
 ```text
-M6A slice 2 (real external delivery + Shadow binding): make
-`-ArtifactPath` deliver a real EXTERNAL .wasm to the running kernel (a
-new agent method module.submit_candidate taking the serial payload, or
-harness-fed bytes) so the candidate is no longer a build-embedded test
-vector, and bind a candidate-specific `raios.vm_test_report.v0` hash to
-that exact artifact SHA-256. Replace the `pending_m6a_slice2` delivery
-label with the real channel. LOAD STILL DENIED until M6B grant. Verify:
-focused Shadow profile driving the external artifact end to end.
+M6A slice 2b (harness-only evidence, ZERO kernel change): bind a
+candidate-specific `raios.vm_test_report.v0` carrying the EXACT
+delivered-candidate artifact SHA-256 — replace the synthetic 2222…/3333…
+constants in shadow-vm-smoke-profile-full-module-evidence.ps1 with the
+real -ArtifactPath SHA, assert the four-way equality chain (report ==
+candidate_artifact_ref == intake.artifact_sha256 == ECHO hash), and add a
+predicate that can_load_now=false REMAINS after the real binding. LOAD
+STILL DENIED until M6B grant. Verify: focused module-evidence profile +
+FULL regression.
 ```
 ```
 

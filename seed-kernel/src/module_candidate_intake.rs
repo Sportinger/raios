@@ -6,7 +6,7 @@ use raios_core::sha256_bytes;
 // Large enough for the current echo Wasm artifact plus growth room, still small
 // enough that M6A v0 never treats arbitrary large runtime bytes as acceptable.
 pub(crate) const MAX_EXTERNAL_WASM_CANDIDATE_BYTES: usize = 262_144;
-pub(crate) const EXTERNAL_WASM_CANDIDATE_DELIVERY_CHANNEL: &str = "pending_m6a_slice2";
+pub(crate) const EXTERNAL_WASM_CANDIDATE_DELIVERY_CHANNEL: &str = "serial_console_base64_chunks_v0";
 
 const CURRENT_BOOT_SCOPE: &str = "current_boot";
 const RETAINED_INERT_REASON: &str = "retained_current_boot_inert_candidate";

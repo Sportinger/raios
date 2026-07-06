@@ -45,6 +45,14 @@ Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
   failures. CONFIRMED intermittent host-transport: clean retry (no code
   change) `shadow-20260706-093418-2968.json` passed 562/562, the same
   `audit.events`/`memory.recent_events` commands green.
+  RECURRED 2026-07-06 during M6A-2a quick regression
+  `shadow-20260706-102248-13040.json`: byte-identical signature (same
+  `agent audit.events 72` timeout at offset ~1,429,514,
+  `serial_transport_failure: null`, QEMU `state: running` at teardown);
+  candidate needles + the M6A-2a label fix all green before it. This
+  audit.events-72 scrape reader-overrun is now a recurring nuisance flake
+  — candidate for a real harness fix (bounded/paged scrape) in a later
+  harness slice, tracked separately from capability work.
 - 2026-07-05 `shadow-20260705-114125-1380.json` (recovery profile,
   uncommitted M2-4 working tree): 433/433 reached predicates passed, then
   the NEW M0-2 instrumentation classified the death in 0.5s:
@@ -2513,29 +2521,46 @@ canonical `key=value` LINES, not JSON bytes (`module_evidence.rs:4538` +
 `:542`), so each ported gate must map its old hash convention explicitly.
 
 Current exact next task (milestone M6 Promotion Loop v0, sub-milestone
-M6A, `docs/ROADMAP.md`): M6A-1 candidate-intake MECHANISM is DONE
-(2026-07-06). `seed-kernel/src/module_candidate_intake.rs` accepts
-arbitrary bounded bytes (`intake_external_wasm_candidate`, 256 KiB cap),
-computes the SHA-256 in-guest, validates via
-`wasm_runtime::validate_module_bytes` (wasmi::Module::new), and returns an
-inert `ExternalWasmCandidate` with `load_attempted` / `authorizes_load` /
-`execution_attempted` / `authorizes_execution` / `writes_persistent_state`
-hard-false on EVERY path; the probe covers echo-valid-retained,
-malformed-retained-invalid, and oversize-rejected; evidence emits through
-the record model on the existing `wasm.echo_probe` response
-(`agent_protocol_wasm.rs`). No authority/load-gate/dispatch/descriptor file
-touched. Verified: quick `shadow-20260706-093418-2968.json` 562/562 incl. 8
-`quick:wasm_echo_probe_candidate_*` needles. Per v0 scope the byte SOURCE is
-a fixed test vector labeled `pending_m6a_slice2`.
-NEXT — M6A slice 2: deliver a REAL external `.wasm` to the running kernel
-(a `module.submit_candidate` serial payload or harness `-ArtifactPath`)
-replacing the test vector, and bind a candidate-specific
-`raios.vm_test_report.v0` to that exact artifact hash. Load stays denied
-until M6B grant.
+M6A, `docs/ROADMAP.md`): M6A-1 (intake mechanism) and M6A-2a (REAL
+runtime delivery) are DONE (2026-07-06). M6A-1:
+`module_candidate_intake.rs` accepts bounded bytes (256 KiB cap), hashes
+in-guest, validates via `wasm_runtime::validate_module_bytes`
+(wasmi::Module::new), returns an inert `ExternalWasmCandidate`
+(load/execution/persistence hard-false on every path). M6A-2a: new
+`module_candidate_channel.rs` reassembles a real external `.wasm`
+delivered over the serial console as base64 chunks (bounded RAM buffer,
+local base64 decoder, fail-closed discard on malformed/overflow/empty),
+finalize's ONLY sink is `intake_external_wasm_candidate`; two registered
+read-methods `module.submit_candidate_chunk` / `module.submit_candidate_finalize`
+(no new MethodAction, no dispatch-arm behavior change); the delivery
+label is now the real `serial_console_base64_chunks_v0` (the
+`pending_m6a_slice2` placeholder is retired). Verified: focused
+`shadow-20260706-102027-16828.json` 176/176 (real 4205-byte echo wasm
+delivered, exact SHA match f81f9442…abd2, retained inert, all denials
+false, malformed-chunk discard + VM-still-responsive negative case) +
+quick regression `shadow-20260706-102839-18048.json` 562/562.
+Adversarially reviewed: no reachable load/grant/instantiate/execute/persist
+sink, no panic/OOB/bound-bypass/lock/state-leak.
+KNOWN RESIDUAL (from the M6A-2a adversarial review, honest gap): finalize
+runs `wasmi::Module::new` on attacker-controlled bytes — bounded (256 KiB,
+freed, no execution/instantiation/JIT/authority) but the wasm
+validator/parser itself is NOT time/fuel-bounded, so a maliciously crafted
+≤256 KiB module is a theoretical guest-DoS surface. M4 trap-hardening
+covers malformed→module_new_error without panic; time/fuel-bounding the
+validation is a candidate for a later hardening slice. Also: each
+submit_* call writes one fixed read-audit entry (static strings, bounded
+ring — no attacker bytes) like every read method.
+NEXT — M6A slice 2b (harness-only evidence): bind a candidate-specific
+`raios.vm_test_report.v0` carrying the EXACT delivered-candidate artifact
+SHA-256 (replace the synthetic 2222…/3333… constants in
+`shadow-vm-smoke-profile-full-module-evidence.ps1`) so the kernel
+load-gate cross-check evaluates the real candidate identity — while load
+stays denied (assert can_load_now=false remains). Zero kernel change.
 Keep persistence, generic (non-`svc.demo.hello`) durable audit/rollback
 writes, external artifact LOAD and execution, executable candidate-byte
 mapping, provider auto-load, broad mutation, and installed rollback state
-denied. External candidate INTAKE is now allowed but strictly inert.
+denied. External candidate INTAKE (now over the real serial channel) is
+allowed but load-denied and non-executing.
 
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with

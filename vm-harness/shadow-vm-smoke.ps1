@@ -9,7 +9,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full")]
+    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery")]
     [string]$Profile = "full"
 )
 
@@ -180,6 +180,11 @@ try {
 
         if ($Profile -eq "quick") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-quick.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "candidate-delivery") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-candidate-delivery.ps1")
             break SmokeProfileValidation
         }
 
