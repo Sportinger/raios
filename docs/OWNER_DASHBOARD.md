@@ -3,9 +3,9 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M6A COMPLETE — a real outside program can be handed to
-raiOS over the console, checked, held inert with its real identity on record;
-loading still refused. Next step grants rights — needs your go-ahead).
+Updated: 2026-07-06 (M6B-1 — raiOS can now cryptographically CHECK a
+promotion-authority signature; still grants nothing. The next step needs YOUR
+signing key + go-ahead before it can grant any rights).
 
 ## What raiOS can actually do today
 
@@ -80,12 +80,15 @@ moment: one AI-authored artifact travels
 the whole safe loop end to end — authored, tested in the Shadow VM,
 capability-granted, promoted live, and rolled back — with evidence at
 every step. Split into M6A (candidate intake) → M6B (grant) → M6C
-(promote) → M6D (rollback). **M6A COMPLETE** (M6A-1 intake + M6A-2a real
-delivery + M6A-2b real-identity evidence): the receiving door works
-end-to-end and the system records the delivered program's real identity,
-still refusing to load it. **Next: M6B — the first step that actually
-grants the delivered program rights. That is a real trust decision, so it
-waits for your go-ahead.**
+(promote) → M6D (rollback). **M6A COMPLETE + M6B-1 done.** The receiving
+door works end-to-end, and raiOS can now cryptographically CHECK a
+"promotion authority" signature (the single key that says "this outside
+program is allowed here") — but still grants NOTHING. Today that key is a
+loudly-marked, publicly-known PLACEHOLDER that grants nothing.
+**Next: M6B-2, the first step that actually grants rights. It is BLOCKED
+until (1) you generate your own promotion key K and keep it off the
+machine, (2) it replaces the placeholder, and (3) you approve. See ADR
+0007 for the three points to ratify.**
 
 ## Top risk
 

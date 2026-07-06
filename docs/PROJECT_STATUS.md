@@ -2560,11 +2560,33 @@ predicate and `can_load_now: false` preserved. Honest gap:
 vm_test_report/local_attestation hashes stay synthetic (post-run report
 hash; later land-if-cheap). Verified: FULL `shadow-20260706-104758-19976.json`
 8160/8160. **Sub-milestone M6A (external candidate identity) COMPLETE.**
-NEXT — M6B slice 1 (verified grant), FIRST AUTHORITY STEP (owner go-ahead
-required): turn the computed capability grant for the delivered candidate
-from a retained hash-reference diagnostic into a real authorizing decision
-(manifest + real artifact SHA + vm_test_report + local attestation),
-fail-closed, one narrow capability, while LOAD stays denied until
+M6B-1 DONE (2026-07-06): raiOS can cryptographically VERIFY a
+P-256/SHA-256 promotion-authority signature against a PINNED public key
+(distinct from the build/descriptor key) over the existing canonical
+local-attestation reference hash, and mark the local_attestation gate
+`signature_verified` — while grants_capability / authorizes_guest_load /
+can_load_now / artifact_loaded / service_started / load_attempted ALL
+STAY FALSE (grants nothing, loads nothing). New `raios-core/src/
+promotion_attestation.rs` (pinned-only verifier — NO key arg; fails
+closed; host tests 31/31 incl. roundtrip/tamper/wrong-key/malformed-DER/
+self-pin); attestation.rs verifies an optional hex-DER signature over the
+UNMODIFIED expected reference hash (no canonical churn), new statuses
+`local_attestation_signature_verified_load_still_denied` /
+`mismatched_local_attestation_signature`; 10th selftest case
+`promotion_signature_invalid`. ADR 0007 (Proposed) records the first
+runtime trust anchor. Verified: host `cargo test -p raios-core` 31/31 +
+FULL `shadow-20260706-115036-5444.json` 8162/8162. Adversarially
+reviewed: could-not-refute (no authority path, no forgery-that-grants, no
+panic/OOB/churn/golden-regression).
+CRITICAL — the pinned key is a NON-RATIFIED PLACEHOLDER (the P-256
+generator point, scalar 1, publicly known); `PROMOTION_AUTHORITY_IS_PLACEHOLDER=true`.
+It is safe only because nothing is granted. See ADR 0007 "M6B-2
+Enforcement Precondition".
+NEXT — M6B slice 2 (verified grant), FIRST AUTHORITY FLIP — BLOCKED on
+owner ratification (ADR 0007 points 1-3) AND on gating: the grant path
+MUST hard-refuse while PROMOTION_AUTHORITY_IS_PLACEHOLDER is true, the
+placeholder key MUST be replaced with owner key K, and only then may the
+scoped capability grant flip true while LOAD stays denied until
 audit/rollback/slot exist.
 Keep persistence, generic (non-`svc.demo.hello`) durable audit/rollback
 writes, external artifact LOAD and execution, executable candidate-byte

@@ -20,6 +20,7 @@ use raios_core::record::Value as V;
 enum LocalAttestationSelftestMutation {
     Absent,
     Accepted,
+    SignatureInvalid,
     Stale,
     ReferenceHashMismatch,
     ComputedGrantHashMismatch,
@@ -57,6 +58,12 @@ const LOCAL_ATTESTATION_CASES: [CaseSpec<LocalAttestationSelftestMutation>;
         "valid_hash_reference_load_still_denied",
         "local_attestation_reference_valid_but_loader_and_evidence_missing",
         LocalAttestationSelftestMutation::Accepted,
+    ),
+    local_attestation_case(
+        "promotion_signature_invalid",
+        "mismatched_local_attestation_signature",
+        "local_attestation_promotion_signature_invalid",
+        LocalAttestationSelftestMutation::SignatureInvalid,
     ),
     local_attestation_case(
         "stale_previous_boot_reference",
@@ -250,61 +257,63 @@ fn emit_module_local_attestation_reference_object(
     check: &ModuleLocalAttestationReferenceCheck<'_>,
     comma: bool,
 ) {
-    emit_record_property_line(
-        "local_attestation_reference",
-        vec![
-            f("state", record_present_absent(check.has_reference)),
-            f("validation_status", s(check.status)),
-            f("validation_reason", s(check.reason)),
-            f("arity_valid", b(check.arity_valid)),
-            f("scope", s(check.scope)),
-            f(
-                "retained_manifest_reference_event_id",
-                record_str_or_null(check.retained_manifest_reference_event_id),
-            ),
-            f(
-                "retained_candidate_artifact_reference_event_id",
-                record_str_or_null(check.retained_artifact_reference_event_id),
-            ),
-            f(
-                "retained_vm_test_report_reference_event_id",
-                record_str_or_null(check.retained_vm_report_reference_event_id),
-            ),
-            f(
-                "retained_computed_grant_reference_event_id",
-                record_str_or_null(check.retained_reference_event_id),
-            ),
-            f(
-                "hashes",
-                V::Object(record_sha_or_null_fields(&[
-                    (
-                        "local_attestation_reference_hash",
-                        check.attestation_reference_hash,
-                    ),
-                    (
-                        "expected_local_attestation_reference_hash",
-                        check.expected_attestation_reference_hash,
-                    ),
-                    ("manifest_reference_hash", check.manifest_reference_hash),
-                    ("artifact_reference_hash", check.artifact_reference_hash),
-                    (
-                        "vm_test_report_reference_hash",
-                        check.vm_report_reference_hash,
-                    ),
-                    ("manifest_hash", check.manifest_hash),
-                    ("artifact_hash", check.artifact_hash),
-                    ("computed_capability_grant_hash", check.computed_grant_hash),
-                    (
-                        "expected_computed_capability_grant_hash",
-                        check.expected_computed_grant_hash,
-                    ),
-                    ("vm_test_report_hash", check.vm_report_hash),
-                    ("local_attestation_hash", check.local_attestation_hash),
-                ])),
-            ),
-        ],
-        comma,
-    );
+    let mut fields = vec![
+        f("state", record_present_absent(check.has_reference)),
+        f("validation_status", s(check.status)),
+        f("validation_reason", s(check.reason)),
+    ];
+    if check.signature_verified {
+        fields.push(f("signature_verified", b(true)));
+    }
+    fields.extend(vec![
+        f("arity_valid", b(check.arity_valid)),
+        f("scope", s(check.scope)),
+        f(
+            "retained_manifest_reference_event_id",
+            record_str_or_null(check.retained_manifest_reference_event_id),
+        ),
+        f(
+            "retained_candidate_artifact_reference_event_id",
+            record_str_or_null(check.retained_artifact_reference_event_id),
+        ),
+        f(
+            "retained_vm_test_report_reference_event_id",
+            record_str_or_null(check.retained_vm_report_reference_event_id),
+        ),
+        f(
+            "retained_computed_grant_reference_event_id",
+            record_str_or_null(check.retained_reference_event_id),
+        ),
+        f(
+            "hashes",
+            V::Object(record_sha_or_null_fields(&[
+                (
+                    "local_attestation_reference_hash",
+                    check.attestation_reference_hash,
+                ),
+                (
+                    "expected_local_attestation_reference_hash",
+                    check.expected_attestation_reference_hash,
+                ),
+                ("manifest_reference_hash", check.manifest_reference_hash),
+                ("artifact_reference_hash", check.artifact_reference_hash),
+                (
+                    "vm_test_report_reference_hash",
+                    check.vm_report_reference_hash,
+                ),
+                ("manifest_hash", check.manifest_hash),
+                ("artifact_hash", check.artifact_hash),
+                ("computed_capability_grant_hash", check.computed_grant_hash),
+                (
+                    "expected_computed_capability_grant_hash",
+                    check.expected_computed_grant_hash,
+                ),
+                ("vm_test_report_hash", check.vm_report_hash),
+                ("local_attestation_hash", check.local_attestation_hash),
+            ])),
+        ),
+    ]);
+    emit_record_property_line("local_attestation_reference", fields, comma);
 }
 
 fn emit_module_local_attestation_retained_reference(
@@ -385,33 +394,37 @@ fn emit_module_local_attestation_gate_state(
     check: &ModuleLocalAttestationReferenceCheck<'_>,
     comma: bool,
 ) {
-    let state = if check.valid {
+    let state = if check.signature_verified {
+        "signature_verified"
+    } else if check.valid {
         "hash_reference_valid"
     } else if check.has_reference {
         "hash_reference_invalid"
     } else {
         "missing"
     };
-    emit_record_property_line(
-        "gate_state",
-        vec![
-            f("module_manifest", s("hash_reference_only")),
-            f("candidate_artifact", s("hash_reference_only")),
-            f("vm_test_report", s("hash_reference_only")),
-            f("local_attestation", s(state)),
-            f("computed_capability_grant", s("hash_reference_only")),
-            f("local_approval", s("not_received_by_guest")),
-            f("rollback_plan", s("missing")),
-            f("durable_audit_record", s("missing")),
-            f("loader", s("unavailable")),
-            f("service_slot", s("unallocated")),
-            f("artifact_loaded", no()),
-            f("service_started", no()),
-            f("persistence", s("none")),
-            f("can_load", no()),
-        ],
-        comma,
-    );
+    let mut fields = vec![
+        f("module_manifest", s("hash_reference_only")),
+        f("candidate_artifact", s("hash_reference_only")),
+        f("vm_test_report", s("hash_reference_only")),
+        f("local_attestation", s(state)),
+    ];
+    if check.signature_verified {
+        fields.push(f("signature_verified", b(true)));
+    }
+    fields.extend(vec![
+        f("computed_capability_grant", s("hash_reference_only")),
+        f("local_approval", s("not_received_by_guest")),
+        f("rollback_plan", s("missing")),
+        f("durable_audit_record", s("missing")),
+        f("loader", s("unavailable")),
+        f("service_slot", s("unallocated")),
+        f("artifact_loaded", no()),
+        f("service_started", no()),
+        f("persistence", s("none")),
+        f("can_load", no()),
+    ]);
+    emit_record_property_line("gate_state", fields, comma);
 }
 
 fn emit_module_local_attestation_policy_result(
@@ -482,6 +495,8 @@ fn parse_module_local_attestation_reference(
                 computed_grant_hash: None,
                 vm_report_hash: None,
                 local_attestation_hash: None,
+                promotion_signature_der: None,
+                signature_verified: false,
             },
             None,
             None,
@@ -505,7 +520,18 @@ fn parse_module_local_attestation_reference(
     let grant_token = tokens.next();
     let report_token = tokens.next();
     let attestation_token = tokens.next();
-    let scope = tokens.next().unwrap_or("current_boot");
+    let scope_or_signature_token = tokens.next();
+    let trailing_signature_token = tokens.next();
+    let (scope, promotion_signature_token) =
+        match (scope_or_signature_token, trailing_signature_token) {
+            (Some(scope), Some(signature)) => (scope, Some(signature)),
+            (Some(signature), None) if promotion_signature_hex_candidate(signature.as_bytes()) => {
+                ("current_boot", Some(signature))
+            }
+            (Some(scope), None) => (scope, None),
+            (None, None) => ("current_boot", None),
+            (None, Some(_)) => ("current_boot", None),
+        };
     let arity_valid = reference_token.is_some()
         && manifest_event_token.is_some()
         && artifact_event_token.is_some()
@@ -537,6 +563,8 @@ fn parse_module_local_attestation_reference(
         computed_grant_hash: grant_token.and_then(parse_sha256_ref),
         vm_report_hash: report_token.and_then(parse_sha256_ref),
         local_attestation_hash: attestation_token.and_then(parse_sha256_ref),
+        promotion_signature_der: promotion_signature_token.map(str::as_bytes),
+        signature_verified: false,
     };
     evaluate_module_local_attestation_reference(input, require_live_retained)
 }
@@ -710,6 +738,27 @@ fn evaluate_module_local_attestation_reference<'a>(
         }
     }
 
+    if let Some(signature_hex) = input.promotion_signature_der {
+        if !verify_promotion_signature_hex(signature_hex, &expected_attestation_reference_hash) {
+            return module_local_attestation_reference_check(
+                input,
+                Some(expected_attestation_reference_hash),
+                Some(expected_computed_grant_hash),
+                "mismatched_local_attestation_signature",
+                "local_attestation_promotion_signature_invalid",
+                false,
+            );
+        }
+        return module_local_attestation_reference_check(
+            input,
+            Some(expected_attestation_reference_hash),
+            Some(expected_computed_grant_hash),
+            "local_attestation_signature_verified_load_still_denied",
+            "local_attestation_promotion_signature_verified_but_loader_and_evidence_missing",
+            true,
+        );
+    }
+
     module_local_attestation_reference_check(
         input,
         Some(expected_attestation_reference_hash),
@@ -718,6 +767,53 @@ fn evaluate_module_local_attestation_reference<'a>(
         "local_attestation_reference_valid_but_loader_and_evidence_missing",
         true,
     )
+}
+
+const MAX_PROMOTION_SIGNATURE_DER_LEN: usize = 80;
+
+fn verify_promotion_signature_hex(signature_hex: &[u8], payload: &[u8; 32]) -> bool {
+    let Some((signature_der, signature_len)) = decode_promotion_signature_der_hex(signature_hex)
+    else {
+        return false;
+    };
+    raios_core::promotion_attestation::verify_promotion_authority_signature(
+        &signature_der[..signature_len],
+        payload,
+    )
+}
+
+fn decode_promotion_signature_der_hex(
+    signature_hex: &[u8],
+) -> Option<([u8; MAX_PROMOTION_SIGNATURE_DER_LEN], usize)> {
+    if !promotion_signature_hex_candidate(signature_hex) {
+        return None;
+    }
+
+    let mut out = [0u8; MAX_PROMOTION_SIGNATURE_DER_LEN];
+    let mut idx = 0usize;
+    while idx < signature_hex.len() / 2 {
+        let high = hex_nibble(signature_hex[idx * 2])?;
+        let low = hex_nibble(signature_hex[idx * 2 + 1])?;
+        out[idx] = (high << 4) | low;
+        idx += 1;
+    }
+    Some((out, idx))
+}
+
+fn promotion_signature_hex_candidate(signature_hex: &[u8]) -> bool {
+    !signature_hex.is_empty()
+        && signature_hex.len() % 2 == 0
+        && signature_hex.len() / 2 <= MAX_PROMOTION_SIGNATURE_DER_LEN
+        && signature_hex.iter().all(|byte| hex_nibble(*byte).is_some())
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn module_local_attestation_reference_check<'a>(
@@ -745,6 +841,12 @@ fn module_local_attestation_reference_check<'a>(
         computed_grant_hash: input.computed_grant_hash,
         vm_report_hash: input.vm_report_hash,
         local_attestation_hash: input.local_attestation_hash,
+        promotion_signature_der: input.promotion_signature_der,
+        signature_verified: input.signature_verified
+            || method_eq(
+                status,
+                "local_attestation_signature_verified_load_still_denied",
+            ),
         expected_attestation_reference_hash,
         expected_computed_grant_hash,
         status,
@@ -930,6 +1032,8 @@ fn module_local_attestation_valid_input<'a>() -> ModuleLocalAttestationReference
         computed_grant_hash: Some(computed_grant_hash),
         vm_report_hash: Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
         local_attestation_hash: Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
+        promotion_signature_der: None,
+        signature_verified: false,
     }
 }
 
@@ -944,6 +1048,12 @@ fn apply_local_attestation_selftest_case(
             ..valid_input
         },
         LocalAttestationSelftestMutation::Accepted => valid_input,
+        LocalAttestationSelftestMutation::SignatureInvalid => {
+            ModuleLocalAttestationReferenceInput {
+                promotion_signature_der: Some(b"3006020100020100"),
+                ..valid_input
+            }
+        }
         LocalAttestationSelftestMutation::Stale => ModuleLocalAttestationReferenceInput {
             scope: "previous_boot",
             ..valid_input
@@ -998,6 +1108,14 @@ fn module_local_attestation_selftest_case_from_spec(
     spec: &CaseSpec<LocalAttestationSelftestMutation>,
     check: ModuleLocalAttestationReferenceCheck<'_>,
 ) -> ModuleLocalAttestationSelfTestCase {
+    let expected_valid = method_eq(
+        spec.expected_status,
+        "valid_hash_reference_load_still_denied",
+    ) || method_eq(
+        spec.expected_status,
+        "local_attestation_signature_verified_load_still_denied",
+    );
+    let can_load = false;
     ModuleLocalAttestationSelfTestCase {
         name: spec.name,
         expected_status: spec.expected_status,
@@ -1006,11 +1124,8 @@ fn module_local_attestation_selftest_case_from_spec(
         actual_reason: check.reason,
         passed: method_eq(check.status, spec.expected_status)
             && method_eq(check.reason, spec.expected_reason)
-            && check.valid
-                == method_eq(
-                    spec.expected_status,
-                    "valid_hash_reference_load_still_denied",
-                ),
+            && check.valid == expected_valid
+            && !can_load,
     }
 }
 
@@ -1047,6 +1162,7 @@ fn module_local_attestation_reference_matches(
     reference: event_log::ModuleLocalAttestationReference,
 ) -> bool {
     check.attestation_reference_hash == Some(reference.attestation_reference_hash)
+        && (!check.signature_verified || check.promotion_signature_der.is_some())
         && check
             .retained_manifest_reference_event_id
             .and_then(parse_current_boot_event_id)

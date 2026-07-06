@@ -136,6 +136,8 @@ pub(crate) struct ModuleLocalAttestationReferenceInput<'a> {
     pub(crate) computed_grant_hash: Option<[u8; 32]>,
     pub(crate) vm_report_hash: Option<[u8; 32]>,
     pub(crate) local_attestation_hash: Option<[u8; 32]>,
+    pub(crate) promotion_signature_der: Option<&'a [u8]>,
+    pub(crate) signature_verified: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -156,6 +158,8 @@ pub(crate) struct ModuleLocalAttestationReferenceCheck<'a> {
     pub(crate) computed_grant_hash: Option<[u8; 32]>,
     pub(crate) vm_report_hash: Option<[u8; 32]>,
     pub(crate) local_attestation_hash: Option<[u8; 32]>,
+    pub(crate) promotion_signature_der: Option<&'a [u8]>,
+    pub(crate) signature_verified: bool,
     pub(crate) expected_attestation_reference_hash: Option<[u8; 32]>,
     pub(crate) expected_computed_grant_hash: Option<[u8; 32]>,
     pub(crate) status: &'static str,
@@ -3090,7 +3094,7 @@ pub(crate) struct ModuleLoadGateLoaderRuntimeSelfTestCase {
 pub(crate) const MODULE_MANIFEST_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_ARTIFACT_SELFTEST_CASES: usize = 7;
 pub(crate) const MODULE_VM_REPORT_SELFTEST_CASES: usize = 8;
-pub(crate) const MODULE_LOCAL_ATTESTATION_SELFTEST_CASES: usize = 9;
+pub(crate) const MODULE_LOCAL_ATTESTATION_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_LOCAL_APPROVAL_SELFTEST_CASES: usize = 10;
 pub(crate) const MODULE_GRANT_SELFTEST_CASES: usize = 5;
 pub(crate) const MODULE_AUDIT_ROLLBACK_SELFTEST_CASES: usize = 10;

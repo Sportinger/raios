@@ -4,6 +4,7 @@ extern crate alloc;
 
 use sha2::{Digest, Sha256};
 
+pub mod promotion_attestation;
 pub mod record;
 pub mod scoped_rollback_apply;
 
