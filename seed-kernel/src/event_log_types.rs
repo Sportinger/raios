@@ -2125,6 +2125,24 @@ pub struct ModuleLocalAttestationReference {
     pub signature_verified: bool,
 }
 
+pub const MAX_PROMOTION_SIGNATURE_DER_LEN: usize = 80;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ModulePromotionSignatureReference {
+    pub attestation_reference_hash: [u8; 32],
+    pub promotion_authority_key_sha256: [u8; 32],
+    pub signature_der: [u8; MAX_PROMOTION_SIGNATURE_DER_LEN],
+    pub signature_len: usize,
+    pub signature_verified: bool,
+}
+
+impl ModulePromotionSignatureReference {
+    #[allow(dead_code)]
+    pub fn signature(&self) -> &[u8] {
+        &self.signature_der[..self.signature_len.min(MAX_PROMOTION_SIGNATURE_DER_LEN)]
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ModuleLocalApprovalReference {
     pub approval_reference_hash: [u8; 32],
@@ -3731,6 +3749,8 @@ pub enum EventBindings {
     ModuleCandidateArtifactReference(ModuleCandidateArtifactReference),
     ModuleVmTestReportReference(ModuleVmTestReportReference),
     ModuleLocalAttestationReference(ModuleLocalAttestationReference),
+    #[allow(dead_code)]
+    ModulePromotionSignatureReference(ModulePromotionSignatureReference),
     ModuleLocalApprovalReference(ModuleLocalApprovalReference),
     ModuleComputedGrantReference(ModuleComputedGrantReference),
     ModuleAuditRollbackReference(ModuleAuditRollbackReference),
@@ -3877,9 +3897,7 @@ pub enum EventBindings {
     ),
     RecoveryLifelineCommandSideEffectGateReference(RecoveryLifelineCommandSideEffectGateReference),
     RecoveryLifelineCommandExecutionStageReference(RecoveryLifelineCommandExecutionStageReference),
-    RecoveryLifelineStatusExecutionResultReference(
-        RecoveryLifelineStatusExecutionResultReference,
-    ),
+    RecoveryLifelineStatusExecutionResultReference(RecoveryLifelineStatusExecutionResultReference),
 }
 
 #[derive(Clone, Copy)]

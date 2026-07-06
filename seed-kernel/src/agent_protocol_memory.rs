@@ -1864,6 +1864,7 @@ fn emit_event_bindings(kind: &str, bindings: &event_log::EventBindings) {
         event_log::EventBindings::ModuleLocalAttestationReference(binding) => {
             emit_module_local_attestation_reference_binding(kind, binding);
         }
+        event_log::EventBindings::ModulePromotionSignatureReference(_) => {}
         event_log::EventBindings::ModuleLocalApprovalReference(binding) => {
             emit_module_local_approval_reference_binding(kind, binding);
         }

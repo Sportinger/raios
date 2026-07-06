@@ -2911,9 +2911,38 @@ TWO of the three M7 scoped write targets live (`append.record_log.seed_data`,
 `replace.boot_control.seed_data`); the third (`blob.artifact_store.seed_data`) is
 M7D. Still within-boot dev-tier (`persistence_claimed:false`).
 
-NEXT — per the M7-0 sequencing: **M6D-2** (durable promotion transaction into
-SEED_DATA RECLOG, a prerequisite for M7D re-promotion) → **M7D** (persistent
-artifact store + boot-time re-promotion — survive an actual reboot). RECLOG
+M6D-2 (durable promotion transaction into SEED_DATA RECLOG, the bridge from M6's
+RAM loop to M7 persistence and a prerequisite for M7D re-promotion) is split into
+two workers. **M6D-2a DONE (2026-07-07, RAM prerequisite):** the dev-key promotion
+signature (ECDSA/DER) was previously verified then discarded (only
+`signature_verified:bool` kept). It is now RETAINED in RAM as a new Copy event
+`module.promotion_signature_reference.retained`
+(`ModulePromotionSignatureReference` — attestation_reference_hash, promotion
+authority key sha256, signature_der[≤80]+len, signature_verified), recorded ONLY
+on the signature-verified branch (never on unsigned/bad-signature), fetchable via
+`latest_module_promotion_signature_reference()`, with a
+`promotion_signature_retained` diagnostic boolean for a needle. This is the ONLY
+reason the M6D-2b durable record can carry a REAL re-verifiable signature (not a
+summary). RAM-only, no durable write, no owner-sealed/cross-reboot claim,
+`PROMOTION_AUTHORITY_IS_PLACEHOLDER` stays true. Verified: raios-core 79/79
+(unchanged); `-Profile module-audit-rollback` 1709/1709 UNCHANGED-GREEN.
+REMAINING — **M6D-2b:** a new `raios.promotion_transaction.v0` record (one
+`write_json` object binding the full M6 chain — artifact/manifest/vm_report/
+local_attestation/computed_grant hashes, the 4 retained reference-event-id
+strings verbatim, the recomputable attestation_reference_hash, the retained
+signature DER + key fingerprint, plus rollback_plan/pre_load-inventory/slot; for
+un-promote also reprojected_inventory_hash + restore_hash_verified + cleanup
+flags) appended via a NEW sibling scoped evaluator
+`scoped_promotion_transaction_append` on RAIOS_DATA_RECLOG (own method/target/
+schema pins + signature-verified + grant-binding + dev-tier authority gates,
+SAFE-gated), hooked on a VERIFIED promote (load) and VERIFIED un-promote
+(rollback_apply) — fail-closed if the signature reference is absent. The record is
+a COMPLETE self-contained re-verification input so M7D can re-verify the chain
+after reboot (recompute the 32-byte attestation_reference_hash, verify the stored
+DER over it — never trust a stored hash). Dev-tier throughout
+(`persistence_claimed`/`owner_sealed`/`cross_reboot_proven` all false). Then
+**M7D** (persistent artifact store + boot-time re-promotion — survive an actual
+reboot). RECLOG
 generic append, generic (non-`svc.demo.hello`) durable audit/rollback writes,
 executable candidate-byte mapping, provider auto-load, broad mutation, ARTSTOR,
 GPT/superblock metadata, and installed rollback state all STAY denied unless the

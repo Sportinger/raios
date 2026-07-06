@@ -102,7 +102,7 @@ pub use crate::event_log_types::{
     ModuleLoaderIdentitySourceEvidence, ModuleLoaderLiveLoadBoundarySourceEvidence,
     ModuleLoaderRuntimeExecutionCommitGateSourceEvidence,
     ModuleLoaderServiceRegistryMutationBoundarySourceEvidence, ModuleLocalApprovalReference,
-    ModuleLocalAttestationReference, ModuleManifestReference,
+    ModuleLocalAttestationReference, ModuleManifestReference, ModulePromotionSignatureReference,
     ModuleServiceSlotAllocationIntentSourceEvidence,
     ModuleServiceSlotAllocatorAuthorityDecisionSourceEvidence,
     ModuleServiceSlotAllocatorAuthoritySourceEvidence,
@@ -130,7 +130,8 @@ pub use crate::event_log_types::{
     RecoveryRollbackApplyAuthorizationReference, RecoveryRollbackPreviewAuthorizationReference,
     RecoveryServiceInventorySideEffectBoundaryReference, DEFAULT_EVENT_LIMIT, EVENT_CAPACITY,
     HELLO_RECOVERY_ROLLBACK_INSPECT_SOURCE_REFERENCE_SELFTEST_CASES,
-    PROVIDER_BINDING_GATE_SELFTEST_CASES, PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
+    MAX_PROMOTION_SIGNATURE_DER_LEN, PROVIDER_BINDING_GATE_SELFTEST_CASES,
+    PROVIDER_CONTEXT_INJECTION_GATE_SELFTEST_CASES,
 };
 use crate::event_log_types::{
     ConsumedProviderBinding, ModuleAuditRollbackReferenceGateCheck,
@@ -1678,6 +1679,32 @@ impl EventLog {
             };
             if let Some(event) = self.events[source] {
                 if let EventBindings::ModuleLocalAttestationReference(binding) = event.bindings {
+                    return Some((
+                        EventId {
+                            sequence: event.sequence,
+                        },
+                        binding,
+                    ));
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    #[allow(dead_code)]
+    fn latest_module_promotion_signature_reference(
+        &self,
+    ) -> Option<(EventId, ModulePromotionSignatureReference)> {
+        let mut idx = 0usize;
+        while idx < self.len {
+            let source = if self.next_slot > idx {
+                self.next_slot - idx - 1
+            } else {
+                EVENT_CAPACITY + self.next_slot - idx - 1
+            };
+            if let Some(event) = self.events[source] {
+                if let EventBindings::ModulePromotionSignatureReference(binding) = event.bindings {
                     return Some((
                         EventId {
                             sequence: event.sequence,
@@ -5461,6 +5488,26 @@ pub fn record_module_local_attestation_reference(
     })
 }
 
+pub fn record_module_promotion_signature_reference(
+    binding: ModulePromotionSignatureReference,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind: "module.promotion_signature_reference.retained",
+        source_method: "module.attestation_diagnostic",
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome: "retained_hash_reference_load_still_denied",
+        requested_capability: "cap.module.grant_diagnostic.read",
+        risk: "observe",
+        subject: "agent.session.serial",
+        resource: "live_service_graph",
+        reason: "promotion_signature_reference_valid_for_current_boot",
+        evidence: MODULE_LOCAL_ATTESTATION_REFERENCE_EVIDENCE,
+        bindings: EventBindings::ModulePromotionSignatureReference(binding),
+    })
+}
+
 pub fn record_module_local_approval_reference(binding: ModuleLocalApprovalReference) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
@@ -6772,6 +6819,12 @@ pub fn latest_module_vm_test_report_reference() -> Option<(EventId, ModuleVmTest
 pub fn latest_module_local_attestation_reference(
 ) -> Option<(EventId, ModuleLocalAttestationReference)> {
     LOG.lock().latest_module_local_attestation_reference()
+}
+
+#[allow(dead_code)]
+pub fn latest_module_promotion_signature_reference(
+) -> Option<(EventId, ModulePromotionSignatureReference)> {
+    LOG.lock().latest_module_promotion_signature_reference()
 }
 
 pub fn latest_module_local_approval_reference() -> Option<(EventId, ModuleLocalApprovalReference)> {

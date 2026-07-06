@@ -118,6 +118,9 @@ pub(crate) fn emit_module_attestation_diagnostic(method: &str) {
     } else {
         None
     };
+    let promotion_signature_recorded_event_id =
+        module_promotion_signature_binding_from_check(&check)
+            .map(event_log::record_module_promotion_signature_reference);
     let retained = event_log::latest_module_local_attestation_reference();
 
     begin_response("module.attestation_diagnostic");
@@ -131,6 +134,10 @@ pub(crate) fn emit_module_attestation_diagnostic(method: &str) {
             f("classification", s("local_only")),
             f("test_infrastructure", no()),
             f("mutates_global_event_log", b(check.valid)),
+            f(
+                "promotion_signature_retained",
+                b(promotion_signature_recorded_event_id.is_some()),
+            ),
             f(
                 "global_event_log_mutation",
                 s(if check.valid {
@@ -769,8 +776,6 @@ fn evaluate_module_local_attestation_reference<'a>(
     )
 }
 
-const MAX_PROMOTION_SIGNATURE_DER_LEN: usize = 80;
-
 fn verify_promotion_signature_hex(signature_hex: &[u8], payload: &[u8; 32]) -> bool {
     let Some((signature_der, signature_len)) = decode_promotion_signature_der_hex(signature_hex)
     else {
@@ -784,12 +789,12 @@ fn verify_promotion_signature_hex(signature_hex: &[u8], payload: &[u8; 32]) -> b
 
 fn decode_promotion_signature_der_hex(
     signature_hex: &[u8],
-) -> Option<([u8; MAX_PROMOTION_SIGNATURE_DER_LEN], usize)> {
+) -> Option<([u8; event_log::MAX_PROMOTION_SIGNATURE_DER_LEN], usize)> {
     if !promotion_signature_hex_candidate(signature_hex) {
         return None;
     }
 
-    let mut out = [0u8; MAX_PROMOTION_SIGNATURE_DER_LEN];
+    let mut out = [0u8; event_log::MAX_PROMOTION_SIGNATURE_DER_LEN];
     let mut idx = 0usize;
     while idx < signature_hex.len() / 2 {
         let high = hex_nibble(signature_hex[idx * 2])?;
@@ -803,7 +808,7 @@ fn decode_promotion_signature_der_hex(
 fn promotion_signature_hex_candidate(signature_hex: &[u8]) -> bool {
     !signature_hex.is_empty()
         && signature_hex.len() % 2 == 0
-        && signature_hex.len() / 2 <= MAX_PROMOTION_SIGNATURE_DER_LEN
+        && signature_hex.len() / 2 <= event_log::MAX_PROMOTION_SIGNATURE_DER_LEN
         && signature_hex.iter().all(|byte| hex_nibble(*byte).is_some())
 }
 
@@ -1155,6 +1160,24 @@ fn module_local_attestation_binding_from_check(
         vm_report_hash: check.vm_report_hash?,
         local_attestation_hash: check.local_attestation_hash?,
         signature_verified: check.signature_verified,
+    })
+}
+
+fn module_promotion_signature_binding_from_check(
+    check: &ModuleLocalAttestationReferenceCheck<'_>,
+) -> Option<event_log::ModulePromotionSignatureReference> {
+    if !check.signature_verified {
+        return None;
+    }
+    let (signature_der, signature_len) =
+        decode_promotion_signature_der_hex(check.promotion_signature_der?)?;
+    Some(event_log::ModulePromotionSignatureReference {
+        attestation_reference_hash: check.expected_attestation_reference_hash?,
+        promotion_authority_key_sha256:
+            raios_core::promotion_attestation::PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256,
+        signature_der,
+        signature_len,
+        signature_verified: true,
     })
 }
 
