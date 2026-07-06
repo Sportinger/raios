@@ -104,6 +104,7 @@ mod console;
 mod current_boot_service;
 mod descriptor_sources;
 mod e1000;
+mod echo_service;
 mod entropy;
 mod event_log;
 mod event_log_evidence;

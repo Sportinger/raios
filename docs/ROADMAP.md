@@ -434,16 +434,26 @@ so no re-sign needed; byte-identity proof 1130/1130 keys, order
 identical). Verified: hello-rollback-dry-run
 `shadow-20260706-065903-26760.json` 214/214.
 
+M5 slice 3 done (2026-07-06): echo has a service identity —
+ECHO_SERVICE_DESCRIPTOR (echo-valued ids/aliases/caps/slots/inventory)
+in echo_service.rs + a signed current-boot load descriptor
+(svc.demo.echo.current_boot_load.*) binding the echo wasm artifact and
+authorizing current-boot wasm execution under env.log+env.counter_get;
+build.rs verifies it fail-closed. Verified: quick
+`shadow-20260706-071031-25824.json` 465/465.
+
 Exact next task:
 
 ```text
-M5 slice 3 (echo service descriptor + load plan): add an ECHO
-ServiceDescriptor instance + a current-boot load/service descriptor for
-svc.demo.echo (its own P-256 signature; the existing wasm artifact
-identity descriptor stays as-is), authorizing current-boot wasm
-execution under the fixed import set. No lifecycle wiring yet. Verify
-build (fail-closed) + quick. Then slices 4-5 (echo wasm start path via
-the shared shell; lifecycle completion + generated echo needles).
+M5 slice 4 (echo wasm start path): split wasm.echo_probe's positive run
+into a reusable run_echo_service; wire echo through the shared shell so
+module.load_ephemeral svc.demo.echo / service.start / service.health /
+service.inventory / service.stop / service.drop drive the generic
+lifecycle, start executes the wasm under the envelope, and lifecycle
+audit events + inventory use the descriptor-driven path (M5-3). Add the
+echo dispatch rows to the MethodEntry table. Then slice 5: generated
+echo needles + full profile; measure the TOTAL net line cost of the
+second service for the M5 verdict.
 ```
 
 ## Capability Milestones
