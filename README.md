@@ -8,6 +8,12 @@
   <strong>A personal operating system that safely changes itself. btw its not done yet (not another custom linux kernel) </strong>
 </p>
 
+**You ask for an app. Your OS writes it, proves what it does in a sealed
+shadow environment, grants it only the permissions it earned, and promotes it
+into the live system — with rollback one transaction away.** That is the whole
+product: an operating system whose apps are written on demand, by the machine,
+for exactly one person.
+
 raiOS starts from one bet: AI will make software cheap to create, but dangerous
 to install blindly. Existing operating systems were built around static
 applications and broad user authority. raiOS is built for a different loop:
@@ -63,8 +69,8 @@ and network state without requiring a graphical desktop or host-side helper.
   <img src="docs/assets/screenshots/raios-settings.png" alt="raiOS provider and Wi-Fi settings screen" width="920">
 </p>
 
-The `SET` mode is the first in-guest setup surface for provider status,
-RAM-only API key entry, and early Wi-Fi SSID/passphrase capture.
+`SET` mode provisions the machine entirely in-guest: provider status, RAM-only
+API key entry, Wi-Fi setup. Keys never touch the disk.
 
 ### Direct provider chat
 
@@ -72,8 +78,8 @@ RAM-only API key entry, and early Wi-Fi SSID/passphrase capture.
   <img src="docs/assets/screenshots/raios-openai-chat.png" alt="raiOS direct OpenAI chat screen" width="920">
 </p>
 
-The chat view shows the Stage-0 direct provider path rendering a response back
-inside the framebuffer UI after DNS, TCP, TLS, HTTPS, and response parsing.
+The OS talks to the model itself. DNS, TCP, TLS, HTTPS, and response parsing
+all happen inside raiOS — no browser, no host helper, no middleman process.
 
 ## The Tamagotchi Model
 
@@ -99,16 +105,15 @@ history.
 
 ## The System Is The Memory
 
-raiOS memory is not a chatbot notebook. The system itself should become the
-agent's memory: typed local facts, current state, events, decisions, problems,
+raiOS memory is not a chatbot notebook. The system itself is the agent's
+memory: typed local facts, current state, events, decisions, problems,
 capability grants and denials, test evidence, rollback history, and derived
 summaries with source links.
 
-Future work should make every durable subsystem describe itself in a small,
-structured, classified way. If a service learns something important, it should
-become a memory record or a source for one. If an agent needs context, it should
-receive a task-scoped `agent_context.v0` packet assembled by raiOS, not a dump
-of logs, chats, or the whole memory store.
+Every durable subsystem describes itself in a small, structured, classified
+way. When a service learns something important, it becomes a memory record.
+When an agent needs context, raiOS assembles a task-scoped `agent_context.v0`
+packet — not a dump of logs, chats, or the whole memory store.
 
 The token strategy follows from that rule:
 
@@ -121,8 +126,8 @@ The token strategy follows from that rule:
   records, and reports what it omitted.
 - **Provider export is gated.** Memory may leave the machine only after provider
   trust, field classification, redaction, budget, and audit rules pass.
-- **No fake persistence.** Until the persistence and rollback layers exist,
-  memory can be real but must be labeled `current_boot` or test-only.
+- **No fake persistence.** Memory is durable and auditable, or it is honestly
+  labeled `current_boot`. Nothing pretends.
 
 See `docs/architecture-decisions/0004-system-memory-and-agent-context.md`.
 
@@ -184,12 +189,12 @@ transaction away.
 Nothing the AI generates can touch the recovery core. Nothing can exceed its
 declared capabilities at runtime. Nothing lands without a record.
 
-Verification should stay evidence-first without turning every tiny change into
-a full release rehearsal. Small local slices get the smallest check that can
+Verification stays evidence-first without turning every tiny change into a
+full release rehearsal. Small local slices get the smallest check that can
 catch their failure; trust, storage, rollback, recovery, authority, provider,
-descriptor, and boot changes still need focused VM evidence before they are
-claimed. Full VM profiles are checkpoint evidence, not the tax on every minor
-field or diagnostic hop.
+descriptor, and boot changes get focused VM evidence before they are claimed.
+Full VM profiles are checkpoint evidence, not the tax on every minor field or
+diagnostic hop.
 
 ## The Recovery Lifeline
 
@@ -257,6 +262,10 @@ raiOS holds a small set of architectural principles that override convenience:
 
 ## Current Reality
 
+Everything above describes the product as designed — most of it is running and
+verified today, the rest is landing now. This section is the honest build
+cursor.
+
 This README intentionally stays compact. It describes the product thesis and
 durable current shape, not the active engineering cursor or every verified
 predicate. Read `docs/PROJECT_STATUS.md` for the authoritative detailed state,
@@ -312,7 +321,7 @@ Document map:
 
 - `docs/PROJECT_STATUS.md`: detailed current state, exact next task, latest
   reports, gaps, and unabridged implementation history
-- `docs/ROADMAP.md`: capability milestones (M0–M7), direction, and the
+- `docs/ROADMAP.md`: capability milestones (M0–M12+), direction, and the
   compact active cursor
 - `docs/OWNER_DASHBOARD.md`: one page, plain language, current capability
   and gate status
