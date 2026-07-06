@@ -1,4 +1,4 @@
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 
 use crate::{
     agent_protocol_support::{
@@ -71,6 +71,23 @@ pub(crate) fn emit_wasm_echo_probe() {
                 record_str_or_null(probe.forbidden_missing_import_name),
             ),
             f("capability_boundary_held", b(probe.forbidden_boundary_held)),
+            f(
+                "hardening_case_count",
+                V::U64(wasm_runtime::WASM_HARDENING_CASE_COUNT as u64),
+            ),
+            f(
+                "hardening_passed_count",
+                V::U64(count_hardening_passed(&probe.hardening_cases)),
+            ),
+            f(
+                "hardening_all_passed",
+                b(count_hardening_passed(&probe.hardening_cases)
+                    == wasm_runtime::WASM_HARDENING_CASE_COUNT as u64),
+            ),
+            f(
+                "hardening_cases",
+                record_hardening_cases(&probe.hardening_cases),
+            ),
             f("accepts_external_artifact_bytes", b(false)),
             f("maps_executable_pages", b(false)),
             f("writes_persistent_state", b(false)),
@@ -88,4 +105,33 @@ fn record_return_value(value: Option<i32>) -> V<'static> {
         Some(value) if value >= 0 => V::U64(value as u64),
         _ => V::Null,
     }
+}
+
+fn count_hardening_passed(cases: &[wasm_runtime::WasmHardeningCase]) -> u64 {
+    let mut count = 0u64;
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        if cases[idx].passed {
+            count += 1;
+        }
+        idx += 1;
+    }
+    count
+}
+
+fn record_hardening_cases(cases: &[wasm_runtime::WasmHardeningCase]) -> V<'static> {
+    let mut values = Vec::new();
+    let mut idx = 0usize;
+    while idx < cases.len() {
+        let case = cases[idx];
+        values.push(V::InlineObject(vec![
+            f("name", s(case.name)),
+            f("mechanism", s(case.mechanism)),
+            f("expected_outcome", s(case.expected_outcome)),
+            f("actual_outcome", s(case.actual_outcome)),
+            f("passed", b(case.passed)),
+        ]));
+        idx += 1;
+    }
+    V::Array(values)
 }

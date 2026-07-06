@@ -4,7 +4,7 @@ use spin::Mutex;
 use wasmi::{
     core::{Trap, TrapCode},
     errors::LinkerError,
-    Caller, Config, Engine, Extern, Linker, Module, Store, Value,
+    Caller, Config, Engine, Extern, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Value,
 };
 
 use crate::serial;
@@ -17,8 +17,26 @@ const FORBIDDEN_WRITE_WASM_MODULE: &[u8] = &[
     0x01, 0x03, 0x65, 0x6e, 0x76, 0x0f, 0x66, 0x6f, 0x72, 0x62, 0x69, 0x64, 0x64, 0x65, 0x6e, 0x5f,
     0x77, 0x72, 0x69, 0x74, 0x65, 0x00, 0x00,
 ];
+const MALFORMED_WASM_MODULE: &[u8] = b"\0bsm\x01\0\0\0";
+const OVER_MEMORY_WASM_MODULE: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x03, 0x01, 0x00, 0x02,
+];
+const FUEL_LOOP_WASM_MODULE: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02,
+    0x01, 0x00, 0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, 0x0a, 0x09, 0x01, 0x07, 0x00,
+    0x03, 0x40, 0x0c, 0x00, 0x0b, 0x0b,
+];
+const UNREACHABLE_WASM_MODULE: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02,
+    0x01, 0x00, 0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, 0x0a, 0x05, 0x01, 0x03, 0x00,
+    0x00, 0x0b,
+];
 const MAX_WASM_LOG_BYTES: usize = 256;
+const WASM_MEMORY_PAGE_BYTES: usize = 64 * 1024;
 pub(crate) const ECHO_WASM_FUEL_BUDGET: u64 = 10_000;
+const FUEL_EXHAUSTION_BUDGET: u64 = 1;
+const GUEST_TRAP_FUEL_BUDGET: u64 = 100;
+pub(crate) const WASM_HARDENING_CASE_COUNT: usize = 4;
 pub(crate) const FORBIDDEN_IMPORT_MODULE: &str = "env";
 pub(crate) const FORBIDDEN_IMPORT_NAME: &str = "forbidden_write";
 
@@ -65,12 +83,23 @@ pub(crate) struct EchoProbe {
     pub(crate) forbidden_missing_import_module: Option<&'static str>,
     pub(crate) forbidden_missing_import_name: Option<&'static str>,
     pub(crate) forbidden_boundary_held: bool,
+    pub(crate) hardening_cases: [WasmHardeningCase; WASM_HARDENING_CASE_COUNT],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct WasmHardeningCase {
+    pub(crate) name: &'static str,
+    pub(crate) mechanism: &'static str,
+    pub(crate) expected_outcome: &'static str,
+    pub(crate) actual_outcome: &'static str,
+    pub(crate) passed: bool,
 }
 
 pub(crate) fn run_echo_probe() -> EchoProbe {
     let validation_ok = validate_echo_wasm_artifact();
     let positive = execute_echo_module(validation_ok);
     let negative = instantiate_forbidden_import_module();
+    let hardening_cases = run_hardening_cases();
 
     EchoProbe {
         artifact_hash: ECHO_WASM_ARTIFACT_BYTES_HASH,
@@ -89,6 +118,7 @@ pub(crate) fn run_echo_probe() -> EchoProbe {
         forbidden_missing_import_module: negative.missing_import_module,
         forbidden_missing_import_name: negative.missing_import_name,
         forbidden_boundary_held: negative.boundary_held,
+        hardening_cases,
     }
 }
 
@@ -99,6 +129,7 @@ fn validate_module_bytes(bytes: &[u8]) -> bool {
 
 struct EnvelopeState {
     log_line: Option<String>,
+    limits: StoreLimits,
 }
 
 struct PositiveRun {
@@ -129,7 +160,7 @@ fn execute_echo_module(validation_ok: bool) -> PositiveRun {
         Ok(module) => Box::new(module),
         Err(_) => return positive_run(false, "module_compile_failed", None, 0, None),
     };
-    let mut store = Box::new(Store::new(&engine, EnvelopeState { log_line: None }));
+    let mut store = Box::new(Store::new(&engine, default_state()));
     if store.add_fuel(ECHO_WASM_FUEL_BUDGET).is_err() {
         return positive_run(false, "fuel_metering_unavailable", None, 0, None);
     }
@@ -224,7 +255,7 @@ fn instantiate_forbidden_import_module() -> NegativeRun {
             }
         }
     };
-    let mut store = Box::new(Store::new(&engine, EnvelopeState { log_line: None }));
+    let mut store = Box::new(Store::new(&engine, default_state()));
     let mut linker = Box::new(Linker::<EnvelopeState>::new(&engine));
     if !define_capability_envelope(&mut linker) {
         return NegativeRun {
@@ -277,6 +308,161 @@ fn instantiate_forbidden_import_module() -> NegativeRun {
     }
 }
 
+fn run_hardening_cases() -> [WasmHardeningCase; WASM_HARDENING_CASE_COUNT] {
+    [
+        malformed_bytes_case(),
+        over_memory_case(),
+        fuel_exhaustion_case(),
+        guest_trap_case(),
+    ]
+}
+
+fn malformed_bytes_case() -> WasmHardeningCase {
+    let wasm = Vec::from(MALFORMED_WASM_MODULE).into_boxed_slice();
+    let engine = metered_engine();
+    let actual = if Module::new(&engine, &*wasm).is_err() {
+        "module_new_error"
+    } else {
+        "module_new_ok"
+    };
+
+    hardening_case(
+        "malformed_bytes",
+        "wasmi::Module::new",
+        "module_new_error",
+        actual,
+    )
+}
+
+fn over_memory_case() -> WasmHardeningCase {
+    let wasm = Vec::from(OVER_MEMORY_WASM_MODULE).into_boxed_slice();
+    let engine = metered_engine();
+    let module = match Module::new(&engine, &*wasm) {
+        Ok(module) => Box::new(module),
+        Err(_) => {
+            return hardening_case(
+                "over_memory",
+                "wasmi::StoreLimitsBuilder::memory_size+Store::limiter",
+                "limiter_instantiation_error",
+                "module_new_error",
+            )
+        }
+    };
+    let mut store = Box::new(Store::new(&engine, limited_state(WASM_MEMORY_PAGE_BYTES)));
+    store.limiter(|state| &mut state.limits);
+    let linker = Box::new(Linker::<EnvelopeState>::new(&engine));
+    let actual = match linker.instantiate(&mut *store, &module) {
+        Ok(instance) => match instance.start(&mut *store) {
+            Ok(_) => "instantiation_ok",
+            Err(_) => "start_trap",
+        },
+        Err(wasmi::Error::Instantiation(_)) | Err(wasmi::Error::Memory(_)) => {
+            "limiter_instantiation_error"
+        }
+        Err(_) => "other_instantiation_error",
+    };
+
+    hardening_case(
+        "over_memory",
+        "wasmi::StoreLimitsBuilder::memory_size+Store::limiter",
+        "limiter_instantiation_error",
+        actual,
+    )
+}
+
+fn fuel_exhaustion_case() -> WasmHardeningCase {
+    hardening_case(
+        "fuel_exhaustion",
+        "wasmi::Config::consume_fuel+Store::add_fuel",
+        "fuel_exhausted",
+        run_trap_module(
+            FUEL_LOOP_WASM_MODULE,
+            FUEL_EXHAUSTION_BUDGET,
+            ExpectedTrap::OutOfFuel,
+        ),
+    )
+}
+
+fn guest_trap_case() -> WasmHardeningCase {
+    hardening_case(
+        "guest_trap",
+        "wasm_unreachable_trap",
+        "guest_trap",
+        run_trap_module(
+            UNREACHABLE_WASM_MODULE,
+            GUEST_TRAP_FUEL_BUDGET,
+            ExpectedTrap::Unreachable,
+        ),
+    )
+}
+
+fn run_trap_module(bytes: &[u8], fuel_budget: u64, expected: ExpectedTrap) -> &'static str {
+    let wasm = Vec::from(bytes).into_boxed_slice();
+    let engine = metered_engine();
+    let module = match Module::new(&engine, &*wasm) {
+        Ok(module) => Box::new(module),
+        Err(_) => return "module_new_error",
+    };
+    let mut store = Box::new(Store::new(&engine, default_state()));
+    if store.add_fuel(fuel_budget).is_err() {
+        return "fuel_metering_unavailable";
+    }
+    let linker = Box::new(Linker::<EnvelopeState>::new(&engine));
+    let instance = match linker.instantiate(&mut *store, &module) {
+        Ok(instance) => match instance.start(&mut *store) {
+            Ok(instance) => instance,
+            Err(error) => return classify_trap_error(error, expected),
+        },
+        Err(_) => return "instantiation_error",
+    };
+    let Some(func) = instance
+        .get_export(&*store, "run")
+        .and_then(Extern::into_func)
+    else {
+        return "entrypoint_missing";
+    };
+    let mut outputs = Vec::<Value>::new().into_boxed_slice();
+    match func.call(&mut *store, &[], &mut outputs) {
+        Ok(()) => "run_success",
+        Err(error) => classify_trap_error(error, expected),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ExpectedTrap {
+    OutOfFuel,
+    Unreachable,
+}
+
+fn classify_trap_error(error: wasmi::Error, expected: ExpectedTrap) -> &'static str {
+    let wasmi::Error::Trap(trap) = error else {
+        return "run_error";
+    };
+    match (expected, trap.trap_code()) {
+        (ExpectedTrap::OutOfFuel, Some(TrapCode::OutOfFuel)) => "fuel_exhausted",
+        (ExpectedTrap::Unreachable, Some(TrapCode::UnreachableCodeReached)) => "guest_trap",
+        (_, Some(TrapCode::OutOfFuel)) => "fuel_exhausted",
+        (_, Some(TrapCode::UnreachableCodeReached)) => "guest_trap",
+        (_, Some(_)) => "other_trap",
+        (_, None) => "trap_without_code",
+    }
+}
+
+fn hardening_case(
+    name: &'static str,
+    mechanism: &'static str,
+    expected_outcome: &'static str,
+    actual_outcome: &'static str,
+) -> WasmHardeningCase {
+    WasmHardeningCase {
+        name,
+        mechanism,
+        expected_outcome,
+        actual_outcome,
+        passed: actual_outcome == expected_outcome,
+    }
+}
+
 fn positive_run(
     instantiation_ok: bool,
     run_outcome: &'static str,
@@ -297,6 +483,25 @@ fn metered_engine() -> Box<Engine> {
     let mut config = Config::default();
     config.consume_fuel(true);
     Box::new(Engine::new(&config))
+}
+
+fn default_state() -> EnvelopeState {
+    EnvelopeState {
+        log_line: None,
+        limits: StoreLimitsBuilder::new().build(),
+    }
+}
+
+fn limited_state(memory_size: usize) -> EnvelopeState {
+    EnvelopeState {
+        log_line: None,
+        limits: StoreLimitsBuilder::new()
+            .memory_size(memory_size)
+            .instances(1)
+            .memories(1)
+            .tables(0)
+            .build(),
+    }
 }
 
 fn define_capability_envelope(linker: &mut Linker<EnvelopeState>) -> bool {

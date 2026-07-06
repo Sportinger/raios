@@ -1444,6 +1444,28 @@
         if (-not $wasmNegativeOk) {
             throw "Expected wasm.echo_probe forbidden-import link-failure evidence"
         }
+        $wasmHardeningCases = @($wasmResult.hardening_cases)
+        $wasmExpectedHardeningCases = @(
+            @{ Name = "malformed_bytes"; Expected = "module_new_error" },
+            @{ Name = "over_memory"; Expected = "limiter_instantiation_error" },
+            @{ Name = "fuel_exhaustion"; Expected = "fuel_exhausted" },
+            @{ Name = "guest_trap"; Expected = "guest_trap" }
+        )
+        $wasmHardeningOk = $wasmResult.hardening_all_passed -and ([int]$wasmResult.hardening_case_count -eq 4) -and ([int]$wasmResult.hardening_passed_count -eq 4) -and ($wasmHardeningCases.Count -eq 4)
+        Add-Predicate -Name "quick:wasm_echo_probe_hardening_summary" -Expected "4/4 wasm hardening cases passed" -Passed $wasmHardeningOk -Actual $(if ($wasmHardeningOk) { "matched" } else { ($wasmResult | ConvertTo-Json -Compress -Depth 5) })
+        if (-not $wasmHardeningOk) {
+            throw "Expected wasm.echo_probe hardening summary evidence"
+        }
+        for ($caseIdx = 0; $caseIdx -lt $wasmExpectedHardeningCases.Count; $caseIdx++) {
+            $expectedCase = $wasmExpectedHardeningCases[$caseIdx]
+            $actualCase = $wasmHardeningCases[$caseIdx]
+            $mechanismPresent = -not [string]::IsNullOrWhiteSpace([string]$actualCase.mechanism)
+            $caseOk = ($actualCase.name -eq $expectedCase.Name) -and ($actualCase.expected_outcome -eq $expectedCase.Expected) -and ($actualCase.actual_outcome -eq $expectedCase.Expected) -and $actualCase.passed -and $mechanismPresent
+            Add-Predicate -Name "quick:wasm_echo_probe_hardening_$($expectedCase.Name)" -Expected "$($expectedCase.Name) -> $($expectedCase.Expected)" -Passed $caseOk -Actual $(if ($caseOk) { "mechanism=$($actualCase.mechanism)" } else { ($actualCase | ConvertTo-Json -Compress -Depth 4) })
+            if (-not $caseOk) {
+                throw "Expected wasm.echo_probe hardening case $($expectedCase.Name)"
+            }
+        }
         $wasmNonAuthorizingOk = $wasmResult.accepts_external_artifact_bytes -eq $false -and $wasmResult.maps_executable_pages -eq $false -and $wasmResult.writes_persistent_state -eq $false -and $wasmResult.mutates_service_inventory -eq $false -and $wasmResult.mutates_global_event_log -eq $false -and $wasmResult.evidence_complete
         Add-Predicate -Name "quick:wasm_echo_probe_non_authorizing" -Expected "external bytes/executable pages/persistence/inventory/global-event-log mutation denied" -Passed $wasmNonAuthorizingOk -Actual $(if ($wasmNonAuthorizingOk) { "matched" } else { ($wasmResult | ConvertTo-Json -Compress -Depth 3) })
         if (-not $wasmNonAuthorizingOk) {
@@ -1469,6 +1491,25 @@
             @{ Name = "quick:wasm_echo_probe_negative_module_needle"; Text = '"negative_missing_import_module": "env"' },
             @{ Name = "quick:wasm_echo_probe_negative_name_needle"; Text = '"negative_missing_import_name": "forbidden_write"' },
             @{ Name = "quick:wasm_echo_probe_boundary_needle"; Text = '"capability_boundary_held": true' },
+            @{ Name = "quick:wasm_echo_probe_hardening_count_needle"; Text = '"hardening_case_count": 4' },
+            @{ Name = "quick:wasm_echo_probe_hardening_passed_count_needle"; Text = '"hardening_passed_count": 4' },
+            @{ Name = "quick:wasm_echo_probe_hardening_all_passed_needle"; Text = '"hardening_all_passed": true' },
+            @{ Name = "quick:wasm_echo_probe_hardening_malformed_name_needle"; Text = '"name": "malformed_bytes"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_malformed_mechanism_needle"; Text = '"mechanism": "wasmi::Module::new"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_malformed_expected_needle"; Text = '"expected_outcome": "module_new_error"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_malformed_actual_needle"; Text = '"actual_outcome": "module_new_error"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_over_memory_name_needle"; Text = '"name": "over_memory"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_over_memory_mechanism_needle"; Text = '"mechanism": "wasmi::StoreLimitsBuilder::memory_size+Store::limiter"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_over_memory_expected_needle"; Text = '"expected_outcome": "limiter_instantiation_error"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_over_memory_actual_needle"; Text = '"actual_outcome": "limiter_instantiation_error"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_fuel_name_needle"; Text = '"name": "fuel_exhaustion"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_fuel_mechanism_needle"; Text = '"mechanism": "wasmi::Config::consume_fuel+Store::add_fuel"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_fuel_expected_needle"; Text = '"expected_outcome": "fuel_exhausted"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_fuel_actual_needle"; Text = '"actual_outcome": "fuel_exhausted"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_guest_trap_name_needle"; Text = '"name": "guest_trap"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_guest_trap_mechanism_needle"; Text = '"mechanism": "wasm_unreachable_trap"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_guest_trap_expected_needle"; Text = '"expected_outcome": "guest_trap"' },
+            @{ Name = "quick:wasm_echo_probe_hardening_guest_trap_actual_needle"; Text = '"actual_outcome": "guest_trap"' },
             @{ Name = "quick:wasm_echo_probe_no_external_bytes_needle"; Text = '"accepts_external_artifact_bytes": false' },
             @{ Name = "quick:wasm_echo_probe_no_executable_pages_needle"; Text = '"maps_executable_pages": false' },
             @{ Name = "quick:wasm_echo_probe_no_persistence_needle"; Text = '"writes_persistent_state": false' },
