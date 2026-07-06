@@ -1,5 +1,7 @@
+use alloc::vec::Vec;
 use core::{ptr, sync::atomic};
 
+use raios_core::gpt_layout::LayoutStatus;
 use sha2::{Digest, Sha256};
 use spin::Mutex;
 
@@ -9,6 +11,34 @@ use crate::{memory, pci, pci::PciMassStorageController};
 mod persist_detect;
 
 pub(crate) use persist_detect::PersistLayoutEvidence;
+
+pub(crate) struct PersistReclogRegionRead {
+    pub(crate) layout: PersistLayoutEvidence,
+    pub(crate) reason: &'static str,
+    pub(crate) read_attempted: bool,
+    pub(crate) read_completed: bool,
+    pub(crate) region_bounds_valid: bool,
+    pub(crate) absolute_start_lba: u64,
+    pub(crate) lba_count: u64,
+    pub(crate) byte_count: u64,
+    pub(crate) bytes: Option<Vec<u8>>,
+}
+
+impl PersistReclogRegionRead {
+    fn missing(layout: PersistLayoutEvidence, reason: &'static str) -> Self {
+        Self {
+            layout,
+            reason,
+            read_attempted: false,
+            read_completed: false,
+            region_bounds_valid: false,
+            absolute_start_lba: 0,
+            lba_count: 0,
+            byte_count: 0,
+            bytes: None,
+        }
+    }
+}
 
 const AHCI_SUBCLASS: u8 = 0x06;
 const AHCI_BAR: u8 = 5;
@@ -764,6 +794,13 @@ pub(crate) fn detect_persist_layout(controller: PciMassStorageController) -> Per
     evidence
 }
 
+pub(crate) fn read_persist_reclog_region(
+    controller: PciMassStorageController,
+) -> PersistReclogRegionRead {
+    let layout = detect_persist_layout(controller);
+    unsafe { read_persist_reclog_region_uncached(controller, layout) }
+}
+
 pub(crate) fn write_readback_scratch_sector_image(
     controller: PciMassStorageController,
     planned_image: &[u8; SECTOR_BYTES],
@@ -1403,6 +1440,120 @@ fn build_read_only_block_driver(
         binds_partition_inventory,
         supports_read: true,
         supports_write: false,
+    }
+}
+
+unsafe fn read_persist_reclog_region_uncached(
+    controller: PciMassStorageController,
+    layout: PersistLayoutEvidence,
+) -> PersistReclogRegionRead {
+    if layout.gpt.status != LayoutStatus::Present || layout.data.status != LayoutStatus::Present {
+        return PersistReclogRegionRead::missing(layout, layout.reason);
+    }
+    if layout.port_index == u8::MAX {
+        return PersistReclogRegionRead::missing(layout, "persist_reclog_port_missing");
+    }
+    if layout.data.reclog_lba_count == 0
+        || layout.data.reclog_start_lba > layout.gpt.seed_data_lba_count
+        || layout.data.reclog_lba_count
+            > layout
+                .gpt
+                .seed_data_lba_count
+                .saturating_sub(layout.data.reclog_start_lba)
+    {
+        let mut read =
+            PersistReclogRegionRead::missing(layout, "persist_reclog_region_bounds_invalid");
+        read.region_bounds_valid = false;
+        return read;
+    }
+
+    let Some(absolute_start_lba) = layout
+        .gpt
+        .seed_data_first_lba
+        .checked_add(layout.data.reclog_start_lba)
+    else {
+        return PersistReclogRegionRead::missing(layout, "persist_reclog_start_lba_overflow");
+    };
+    let Some(byte_count) = layout
+        .data
+        .reclog_lba_count
+        .checked_mul(SECTOR_BYTES as u64)
+    else {
+        return PersistReclogRegionRead::missing(layout, "persist_reclog_byte_count_overflow");
+    };
+    let Ok(byte_count_usize) = usize::try_from(byte_count) else {
+        return PersistReclogRegionRead::missing(layout, "persist_reclog_byte_count_too_large");
+    };
+
+    let Some(bar) = pci::read_bar_info(controller.address, AHCI_BAR) else {
+        return PersistReclogRegionRead::missing(layout, "ahci_abar_missing");
+    };
+    if !bar.is_memory() {
+        return PersistReclogRegionRead::missing(layout, "ahci_abar_not_mmio");
+    }
+    let map_len = usize::min(bar.size as usize, MAX_PROBE_LEN);
+    if map_len < MIN_PROBE_LEN {
+        return PersistReclogRegionRead::missing(layout, "ahci_abar_probe_range_too_small");
+    }
+    let Ok(mapping) = memory::map_mmio(bar.base, map_len) else {
+        return PersistReclogRegionRead::missing(layout, "ahci_abar_mmio_map_failed");
+    };
+    let base = mapping.as_ptr::<u8>();
+    let port_offset = PORT_BASE + layout.port_index as usize * PORT_STRIDE;
+    if port_offset + PORT_CI + core::mem::size_of::<u32>() > mapping.len() {
+        return PersistReclogRegionRead::missing(layout, "persist_reclog_port_range_unavailable");
+    }
+    let ssts = read32(base, port_offset + PORT_SSTS);
+    let signature = read32(base, port_offset + PORT_SIG);
+    if (ssts & 0x0f) != 0x03 || ((ssts >> 8) & 0x0f) != 0x01 || signature != SATA_SIG_ATA {
+        return PersistReclogRegionRead::missing(layout, "persist_reclog_port_not_ready");
+    }
+
+    let mut bytes = Vec::new();
+    bytes.resize(byte_count_usize, 0);
+    let buffer = ptr::addr_of_mut!(SCRATCH_BUFFER.0).cast::<u8>();
+    let mut sector = 0u64;
+    while sector < layout.data.reclog_lba_count {
+        ptr::write_bytes(buffer, 0, SECTOR_BYTES);
+        if let Err(reason) = issue_read_sector_into(
+            controller,
+            base,
+            port_offset,
+            absolute_start_lba + sector,
+            buffer,
+            "persist_reclog_sector_buffer_phys_missing",
+            "persist_reclog_sector_read_timeout",
+            "persist_reclog_sector_read_task_file_error",
+            "persist_reclog_sector_read_incomplete",
+        ) {
+            let mut read = PersistReclogRegionRead::missing(layout, reason);
+            read.read_attempted = true;
+            read.region_bounds_valid = true;
+            read.absolute_start_lba = absolute_start_lba;
+            read.lba_count = layout.data.reclog_lba_count;
+            read.byte_count = byte_count;
+            return read;
+        }
+
+        let out = sector as usize * SECTOR_BYTES;
+        let mut idx = 0usize;
+        while idx < SECTOR_BYTES {
+            bytes[out + idx] = ptr::read_volatile(buffer.add(idx));
+            idx += 1;
+        }
+        sector += 1;
+    }
+
+    PersistReclogRegionRead {
+        layout,
+        reason: "persist_reclog_region_read_completed",
+        read_attempted: true,
+        read_completed: true,
+        region_bounds_valid: true,
+        absolute_start_lba,
+        lba_count: layout.data.reclog_lba_count,
+        byte_count,
+        bytes: Some(bytes),
     }
 }
 

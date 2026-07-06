@@ -2730,11 +2730,27 @@ closed (Invalid) instead of overflow-panicking in debug builds. Verified:
 quick 562/562 + raios-core 42/42. Max adversarial review: could-not-refute
 (strictly read-only, fail-closed on every corruption, empirically fuzzed, no
 persistence claim).
-NEXT — M7B-1 (RECLOG frame codec + chain-validating recovery SCAN, still
-read-only: raios-core durable_record_frame.rs + seed-kernel durable_store.rs +
-a torn-tail fixture), then M7B-2 (the first real scoped durable APPEND to
-`append.record_log.seed_data` with the M3 write-readback-inspect discipline).
-Keep
+M7B-1 DONE (2026-07-06, RECLOG read/scan, still read-only): the kernel scans the
+SEED_DATA RECLOG region and chain-validates RAIOSRC0 frames (magic |
+frame_len≥512 &%512 | payload_len | seq | prev_frame_sha256 | payload_sha256 |
+payload | zero pad; header_len=88), reporting typed head/tail/count + torn-tail
+via `durable.record_log_scan`. Pure codec+scan in `raios-core/src/durable_record_frame.rs`
+(51 host tests incl. bad magic/payload-hash/prev-hash/seq gap+dup/torn/multi-sector,
+frame_len=0 rejected); `seed-kernel/src/durable_store.rs` reads the bounded RECLOG
+region (sector<4096) via the existing READ_DMA_EXT and feeds scan_reclog; scan
+STOPS at the first invalid frame (torn tail = evidence, not authority); appends
+stay `capability_denied`, evidence local_only/current_boot. `make-gpt-persist-image.py`
+gained `--seed-reclog-fixture empty|valid:N|valid:N,torn`; the persistence profile
+proves chain-head/count/torn-tail/empty via child-VM fixtures. Orchestrator harness
+fix: child-VM boot/answer timeout raised 45s→180s (they booted too slowly under
+4-VM contention — flake, not a kernel hang; the max adversarial review confirmed
+the scan terminates + is bounded, could-not-refute). Verified: `-Profile persistence`
+19/19 + raios-core 51/51.
+NEXT — M7B-2: the FIRST REAL persistence WRITE. Scoped durable APPEND to
+`append.record_log.seed_data` ONLY, with the M3 build→verify-region→write→readback→inspect
+→report discipline (generalize the write-boundary chain for the RECLOG span; the
+shared writes_enabled / generic authorizes_append / RAIOS_AUDITRB_V0 semantics /
+BOOTCTL / ARTSTOR all STAY denied; store-full → deny, no rotation). Keep
 persistence, generic (non-`svc.demo.hello`) durable audit/rollback writes,
 executable candidate-byte mapping, provider auto-load, broad mutation, and
 installed rollback state denied unless the M6D-2/M7 gates say otherwise.

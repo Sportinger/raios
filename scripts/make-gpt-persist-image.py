@@ -57,6 +57,11 @@ RECLOG_LBA_COUNT = 4096
 ARTSTOR_START_LBA = 8192
 ARTSTOR_LBA_COUNT = SEED_DATA_LBA_COUNT - ARTSTOR_START_LBA
 
+RECLOG_MAGIC = b"RAIOSRC0"
+RECLOG_HEADER_LEN = 88
+RECLOG_PREV_FRAME_SHA256_OFFSET = 24
+RECLOG_PAYLOAD_SHA256_OFFSET = 56
+
 REGIONS = (
     ("BOOTCTL", BOOTCTL_START_LBA, BOOTCTL_LBA_COUNT),
     ("RECLOG", RECLOG_START_LBA, RECLOG_LBA_COUNT),
@@ -75,6 +80,12 @@ class Partition:
     @property
     def last_lba(self) -> int:
         return self.first_lba + self.lba_count - 1
+
+
+@dataclass(frozen=True)
+class ReclogFixture:
+    frame_count: int = 0
+    torn_tail: bool = False
 
 
 PARTITIONS = (
@@ -134,6 +145,36 @@ def load_fat32_builder():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module.Fat32Builder
+
+
+def parse_reclog_fixture(spec: str | None) -> ReclogFixture:
+    if spec is None or spec == "" or spec == "empty":
+        return ReclogFixture()
+
+    frame_count: int | None = None
+    torn_tail = False
+    for raw_part in spec.replace("+", ",").split(","):
+        part = raw_part.strip().lower()
+        if not part:
+            continue
+        if part == "torn":
+            torn_tail = True
+        elif part.isdigit():
+            frame_count = int(part)
+        elif part.startswith("valid:"):
+            frame_count = int(part.split(":", 1)[1])
+        elif part.startswith("frames:"):
+            frame_count = int(part.split(":", 1)[1])
+        else:
+            raise ValueError(f"unsupported RECLOG fixture spec: {spec}")
+
+    if frame_count is None:
+        raise ValueError(f"RECLOG fixture spec needs a frame count: {spec}")
+    if frame_count < 0:
+        raise ValueError("RECLOG fixture frame count must not be negative")
+    if torn_tail and frame_count == 0:
+        raise ValueError("torn RECLOG fixture needs at least one valid frame")
+    return ReclogFixture(frame_count=frame_count, torn_tail=torn_tail)
 
 
 def protective_mbr() -> bytes:
@@ -215,11 +256,47 @@ def write_at(handle, lba: int, data: bytes) -> None:
     handle.write(data)
 
 
-def build_image(output: Path) -> None:
+def reclog_payload(seq: int) -> bytes:
+    return f'{{\r\n  "fixture": "m7b-reclog",\r\n  "seq": {seq}\r\n}}'.encode("ascii")
+
+
+def build_reclog_frame(seq: int, prev_frame_sha256: bytes, payload: bytes, frame_len: int = SECTOR_SIZE) -> bytes:
+    if len(prev_frame_sha256) != 32:
+        raise ValueError("prev_frame_sha256 must be 32 bytes")
+    if frame_len % SECTOR_SIZE != 0 or frame_len < SECTOR_SIZE:
+        raise ValueError("RECLOG frame_len must be a non-zero sector multiple")
+    if len(payload) > frame_len - RECLOG_HEADER_LEN:
+        raise ValueError("RECLOG payload does not fit in frame")
+
+    frame = bytearray(frame_len)
+    frame[0:8] = RECLOG_MAGIC
+    struct.pack_into("<IIQ", frame, 8, frame_len, len(payload), seq)
+    frame[RECLOG_PREV_FRAME_SHA256_OFFSET : RECLOG_PREV_FRAME_SHA256_OFFSET + 32] = prev_frame_sha256
+    frame[RECLOG_PAYLOAD_SHA256_OFFSET : RECLOG_PAYLOAD_SHA256_OFFSET + 32] = hashlib.sha256(payload).digest()
+    frame[RECLOG_HEADER_LEN : RECLOG_HEADER_LEN + len(payload)] = payload
+    return bytes(frame)
+
+
+def seed_reclog_fixture(handle, fixture: ReclogFixture) -> None:
+    if fixture.frame_count == 0 and not fixture.torn_tail:
+        return
+
+    handle.seek((SEED_DATA_START_LBA + RECLOG_START_LBA) * SECTOR_SIZE)
+    prev_hash = b"\0" * 32
+    for seq in range(1, fixture.frame_count + 1):
+        frame = build_reclog_frame(seq, prev_hash, reclog_payload(seq))
+        handle.write(frame)
+        prev_hash = hashlib.sha256(frame).digest()
+    if fixture.torn_tail:
+        handle.write(b"TORNTAIL" + (b"\xA5" * (SECTOR_SIZE - 8)))
+
+
+def build_image(output: Path, reclog_fixture_spec: str | None = None) -> None:
     assert_not_release_output(output)
     if ARTSTOR_LBA_COUNT <= 0:
         raise RuntimeError("SEED_DATA is too small for ARTSTOR")
 
+    reclog_fixture = parse_reclog_fixture(reclog_fixture_spec)
     output.parent.mkdir(parents=True, exist_ok=True)
     entries = gpt_entries()
     entries_crc = crc32(entries)
@@ -238,6 +315,7 @@ def build_image(output: Path) -> None:
         write_at(handle, ESP_B_START_LBA, empty_esp)
         write_at(handle, SEED_DATA_START_LBA, sb)
         write_at(handle, SEED_DATA_START_LBA + 1, sb)
+        seed_reclog_fixture(handle, reclog_fixture)
         write_at(handle, BACKUP_GPT_ENTRIES_LBA, entries)
         write_at(handle, BACKUP_GPT_HEADER_LBA, backup_header)
 
@@ -345,6 +423,136 @@ def parse_superblock(data: bytes, expected_data_lba_count: int) -> dict[str, obj
     }
 
 
+def all_zero(data: bytes) -> bool:
+    return all(byte == 0 for byte in data)
+
+
+def parse_reclog_frame(data: bytes, offset: int, expected_seq: int, expected_prev_hash: bytes) -> tuple[dict[str, object] | None, str | None]:
+    if offset + RECLOG_HEADER_LEN > len(data):
+        return None, "truncated_frame_header"
+    header = data[offset : offset + RECLOG_HEADER_LEN]
+    if header[:8] != RECLOG_MAGIC:
+        return None, "bad_magic"
+    frame_len, payload_len, seq = struct.unpack_from("<IIQ", header, 8)
+    if frame_len < SECTOR_SIZE or frame_len % SECTOR_SIZE != 0:
+        return None, "bad_frame_len"
+    if offset + frame_len > len(data):
+        return None, "frame_len_out_of_bounds"
+    if payload_len > frame_len - RECLOG_HEADER_LEN:
+        return None, "payload_len_out_of_bounds"
+    if seq != expected_seq:
+        return None, "bad_seq"
+
+    frame = data[offset : offset + frame_len]
+    if frame[RECLOG_PREV_FRAME_SHA256_OFFSET : RECLOG_PREV_FRAME_SHA256_OFFSET + 32] != expected_prev_hash:
+        return None, "bad_prev_frame_sha256"
+    payload = frame[RECLOG_HEADER_LEN : RECLOG_HEADER_LEN + payload_len]
+    payload_hash = hashlib.sha256(payload).digest()
+    if frame[RECLOG_PAYLOAD_SHA256_OFFSET : RECLOG_PAYLOAD_SHA256_OFFSET + 32] != payload_hash:
+        return None, "bad_payload_sha256"
+    if not all_zero(frame[RECLOG_HEADER_LEN + payload_len :]):
+        return None, "frame_padding_nonzero"
+
+    frame_hash = hashlib.sha256(frame).digest()
+    return {
+        "offset": offset,
+        "frame_len": frame_len,
+        "payload_len": payload_len,
+        "seq": seq,
+        "frame_sha256": frame_hash.hex(),
+        "payload_sha256": payload_hash.hex(),
+    }, None
+
+
+def scan_reclog(data: bytes) -> dict[str, object]:
+    if len(data) == 0:
+        return {
+            "status": "valid_empty",
+            "head_seq": 0,
+            "tail_seq": 0,
+            "count": 0,
+            "terminated_reason": "empty_region",
+            "torn_tail": False,
+            "first_invalid_offset": 0,
+            "valid_prefix_chain": True,
+            "full_region_valid": True,
+            "head_frame_sha256": None,
+            "tail_frame_sha256": None,
+        }
+    if len(data) % SECTOR_SIZE != 0:
+        return {
+            "status": "invalid",
+            "head_seq": 0,
+            "tail_seq": 0,
+            "count": 0,
+            "terminated_reason": "region_not_sector_aligned",
+            "torn_tail": False,
+            "first_invalid_offset": 0,
+            "valid_prefix_chain": False,
+            "full_region_valid": False,
+            "head_frame_sha256": None,
+            "tail_frame_sha256": None,
+        }
+
+    offset = 0
+    expected_seq = 1
+    expected_prev_hash = b"\0" * 32
+    count = 0
+    head_hash = None
+    tail_hash = None
+    while offset < len(data):
+        if all_zero(data[offset:]):
+            return {
+                "status": "valid_empty" if count == 0 else "valid",
+                "head_seq": 1 if count else 0,
+                "tail_seq": count,
+                "count": count,
+                "terminated_reason": "zero_filled",
+                "torn_tail": False,
+                "first_invalid_offset": offset,
+                "valid_prefix_chain": True,
+                "full_region_valid": True,
+                "head_frame_sha256": head_hash,
+                "tail_frame_sha256": tail_hash,
+            }
+        frame, reason = parse_reclog_frame(data, offset, expected_seq, expected_prev_hash)
+        if frame is None:
+            return {
+                "status": "torn_tail" if count else "invalid",
+                "head_seq": 1 if count else 0,
+                "tail_seq": count,
+                "count": count,
+                "terminated_reason": reason,
+                "torn_tail": count > 0,
+                "first_invalid_offset": offset,
+                "valid_prefix_chain": True,
+                "full_region_valid": False,
+                "head_frame_sha256": head_hash,
+                "tail_frame_sha256": tail_hash,
+            }
+        if count == 0:
+            head_hash = str(frame["frame_sha256"])
+        tail_hash = str(frame["frame_sha256"])
+        count += 1
+        expected_seq += 1
+        expected_prev_hash = bytes.fromhex(str(frame["frame_sha256"]))
+        offset += int(frame["frame_len"])
+
+    return {
+        "status": "valid_empty" if count == 0 else "valid",
+        "head_seq": 1 if count else 0,
+        "tail_seq": count,
+        "count": count,
+        "terminated_reason": "region_exhausted",
+        "torn_tail": False,
+        "first_invalid_offset": len(data),
+        "valid_prefix_chain": True,
+        "full_region_valid": True,
+        "head_frame_sha256": head_hash,
+        "tail_frame_sha256": tail_hash,
+    }
+
+
 def inspect_image(path: Path) -> dict[str, object]:
     size = path.stat().st_size
     if size % SECTOR_SIZE != 0:
@@ -381,11 +589,18 @@ def inspect_image(path: Path) -> dict[str, object]:
 
         sb0 = sb1 = None
         sb0_bytes = sb1_bytes = b""
+        reclog_scan = None
         if seed_data is not None:
             sb0_bytes = read_at(handle, int(seed_data["first_lba"]), SECTOR_SIZE)
             sb1_bytes = read_at(handle, int(seed_data["first_lba"]) + 1, SECTOR_SIZE)
             sb0 = parse_superblock(sb0_bytes, int(seed_data["lba_count"]))
             sb1 = parse_superblock(sb1_bytes, int(seed_data["lba_count"]))
+            reclog_bytes = read_at(
+                handle,
+                int(seed_data["first_lba"]) + RECLOG_START_LBA,
+                RECLOG_LBA_COUNT * SECTOR_SIZE,
+            )
+            reclog_scan = scan_reclog(reclog_bytes)
 
     gpt_header_valid = primary["signature"] == "EFI PART" and backup["signature"] == "EFI PART"
     gpt_crc_checked = bool(
@@ -413,6 +628,7 @@ def inspect_image(path: Path) -> dict[str, object]:
         "partitions": partitions,
         "superblock": sb0,
         "superblock_copy": sb1,
+        "reclog_scan": reclog_scan,
         "constants": {
             "BOOTCTL": {"start_lba": BOOTCTL_START_LBA, "lba_count": BOOTCTL_LBA_COUNT},
             "RECLOG": {"start_lba": RECLOG_START_LBA, "lba_count": RECLOG_LBA_COUNT},
@@ -438,6 +654,14 @@ def print_summary(info: dict[str, object]) -> None:
     )
     for region in sb["regions"]:
         print("  {tag} start_lba={start_lba} lba_count={lba_count}".format(**region))
+    scan = info.get("reclog_scan")
+    if scan:
+        print(
+            "reclog scan: status={status} count={count} head_seq={head_seq} "
+            "tail_seq={tail_seq} torn_tail={torn_tail} terminated_reason={terminated_reason}".format(
+                **scan
+            )
+        )
     print(f"superblock hex head: {sb['hex_head']}")
 
 
@@ -453,10 +677,35 @@ def validate_or_raise(info: dict[str, object]) -> None:
         raise ValueError("self-check failed: " + ", ".join(failed))
 
 
+def validate_reclog_fixture_or_raise(info: dict[str, object], fixture: ReclogFixture) -> None:
+    scan = info.get("reclog_scan")
+    if not isinstance(scan, dict):
+        raise ValueError("self-check failed: reclog_scan missing")
+    expected_status = "torn_tail" if fixture.torn_tail else ("valid_empty" if fixture.frame_count == 0 else "valid")
+    failures = []
+    if scan.get("status") != expected_status:
+        failures.append(f"status expected {expected_status} got {scan.get('status')}")
+    if int(scan.get("count", -1)) != fixture.frame_count:
+        failures.append(f"count expected {fixture.frame_count} got {scan.get('count')}")
+    if bool(scan.get("torn_tail")) != fixture.torn_tail:
+        failures.append(f"torn_tail expected {fixture.torn_tail} got {scan.get('torn_tail')}")
+    if fixture.frame_count > 0 and int(scan.get("head_seq", 0)) != 1:
+        failures.append(f"head_seq expected 1 got {scan.get('head_seq')}")
+    if fixture.frame_count > 0 and int(scan.get("tail_seq", 0)) != fixture.frame_count:
+        failures.append(f"tail_seq expected {fixture.frame_count} got {scan.get('tail_seq')}")
+    if failures:
+        raise ValueError("RECLOG fixture self-check failed: " + "; ".join(failures))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-check", action="store_true", help="accepted for explicit self-check invocations")
     parser.add_argument("--inspect-json", type=Path, help="inspect an existing image and print JSON")
+    parser.add_argument(
+        "--seed-reclog-fixture",
+        default="empty",
+        help="seed RECLOG fixture: empty, valid:N, or valid:N,torn",
+    )
     parser.add_argument("output", nargs="?", type=Path)
     args = parser.parse_args()
 
@@ -466,10 +715,16 @@ def main() -> int:
             return 0
         if args.output is None:
             parser.error("output path is required unless --inspect-json is used")
-        build_image(args.output)
+        reclog_fixture = parse_reclog_fixture(args.seed_reclog_fixture)
+        build_image(args.output, args.seed_reclog_fixture)
         info = inspect_image(args.output)
         validate_or_raise(info)
+        validate_reclog_fixture_or_raise(info, reclog_fixture)
         print_summary(info)
+        print(
+            f"reclog fixture: frames_seeded={reclog_fixture.frame_count} "
+            f"torn_tail={str(reclog_fixture.torn_tail).lower()} validation=passed"
+        )
         print("self-check: passed")
         return 0
     except Exception as exc:

@@ -3,11 +3,11 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M7 underway — making things survive a restart. A real test
-disk (never your real one) is built, attached, and the kernel now reads and
-checks it safely: it recognizes the storage layout and refuses to trust a
-corrupted or missing disk — all read-only, no writing yet. Writing durable
-records is the next step).
+Updated: 2026-07-06 (M7 underway — making things survive a restart. The kernel
+now reads the test disk's layout AND its durable-record log, checking the whole
+chain and spotting a cut-off/damaged tail — still all read-only. The next step
+is the first real WRITE: safely appending a durable record and reading it back
+to confirm it.).
 
 ## What raiOS can actually do today
 

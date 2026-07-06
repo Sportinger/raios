@@ -54,8 +54,17 @@ typed `persist.layout` evidence (present/absent/invalid) — pure parsers in
 raios-core (`gpt_layout.rs`/`seed_data_layout.rs`, 42 host tests incl. every
 corruption fixture), read via the existing AHCI `READ_DMA_EXT` (no write path,
 no driver rework); corruption/absent → fail-closed, kernel continues without
-persistence; on-demand only (not at boot). Next: **M7B** (RECLOG durable-record
-read/scan, then scoped durable append — the first real persistence write).
+persistence; on-demand only (not at boot). **M7B-1 done:** the kernel SCANS the
+SEED_DATA RECLOG region and validates the full RAIOSRC0 hash chain frame by
+frame, reporting typed head/tail/count + torn-tail evidence via
+`durable.record_log_scan` — still READ-ONLY (appends stay capability_denied);
+pure frame codec + scan in raios-core (`durable_record_frame.rs`, 51 host tests
+incl. bad-magic/hash/seq/torn/multi-sector), bounded region read (sector<4096),
+fail-closed at the first invalid frame; a `--seed-reclog-fixture` builder flag +
+child-VM torn/chain/empty fixtures prove it in-guest. Next: **M7B-2** — the FIRST
+REAL persistence WRITE: scoped durable append to `append.record_log.seed_data`
+with the M3 build→verify→write→readback→inspect discipline (every other write
+stays denied).
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small

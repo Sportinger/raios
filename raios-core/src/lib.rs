@@ -4,6 +4,7 @@ extern crate alloc;
 
 use sha2::{Digest, Sha256};
 
+pub mod durable_record_frame;
 pub mod gpt_layout;
 pub mod promotion_attestation;
 pub mod record;

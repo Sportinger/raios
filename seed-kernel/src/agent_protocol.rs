@@ -1,3 +1,6 @@
+#[path = "durable_store.rs"]
+mod durable_store;
+
 use crate::{
     agent_protocol_memory::{
         emit_memory_capability_denied, emit_memory_context, emit_memory_profile, emit_memory_query,
@@ -328,6 +331,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     envelope_method!("system.capabilities", Exact, ["capabilities", "caps"], [route!("caps" => "system.capabilities"), route!("capabilities" => "system.capabilities"), route!("system.capabilities" => "system.capabilities")], 3, "system.capabilities", "cap.system.capabilities.read", "agent_command_envelope.current_boot.serial.system_capabilities.v0", "system.capabilities", MethodAction::Read0(emit_capabilities)),
     envelope_method!("device.graph", Exact, ["devicegraph"], [route!("devicegraph" => "device.graph"), route!("device.graph" => "device.graph")], 4, "device.graph", "cap.device.graph.read", "agent_command_envelope.current_boot.serial.device_graph.v0", "device.graph", MethodAction::ReadRuntime(emit_device_graph)),
     method!("persist.layout", Exact, ["system.persist_layout"], [route!("persist.layout"), route!("system.persist_layout" => "persist.layout")], MethodAction::Read0(emit_persist_layout)),
+    method!("durable.record_log_scan", Exact, ["persist.reclog_scan"], [route!("durable.record_log_scan"), route!("persist.reclog_scan" => "durable.record_log_scan")], MethodAction::Read0(durable_store::emit_durable_record_log_scan)),
     envelope_method!("problem.list", Exact, ["problems"], [route!("problems" => "problem.list"), route!("problem.list" => "problem.list")], 17, "problem.list", "cap.problem.list.read", "agent_command_envelope.current_boot.serial.problem_list.v0", "problem.list", MethodAction::ReadRuntime(emit_problem_list)),
     envelope_method!("service.inventory", Exact, ["services"], [route!("services" => "service.inventory"), route!("service.inventory" => "service.inventory")], 5, "service.inventory", "cap.service.inventory.read", "agent_command_envelope.current_boot.serial.service_inventory.v0", "service.inventory", MethodAction::ReadRuntime(emit_service_inventory)),
     pred_method!("service.descriptor_source_trust_selftest", hello_service::is_descriptor_source_trust_selftest_method, [route!("service.descriptor_source_trust_selftest")], MethodAction::Response0Read(hello_service::emit_descriptor_source_trust_selftest)),
