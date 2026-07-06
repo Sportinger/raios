@@ -4,11 +4,14 @@ extern crate alloc;
 
 use sha2::{Digest, Sha256};
 
+pub mod artifact_blob_frame;
 pub mod boot_control;
 pub mod durable_record_frame;
 pub mod gpt_layout;
 pub mod promotion_attestation;
 pub mod record;
+pub mod scoped_artifact_persist_append;
+pub mod scoped_artifact_store_blob;
 pub mod scoped_boot_control_replace;
 pub mod scoped_promotion_transaction_append;
 pub mod scoped_rollback_apply;

@@ -2965,11 +2965,37 @@ bridge from M6's RAM promotion loop to M7 persistence: an AI-authored module's
 promotion now leaves a durable, independently re-verifiable transaction in the log
 — dev-tier, ready for M7D to re-check after reboot.
 
-NEXT — **M7D** (persistent artifact store + boot-time re-promotion — survive an
-actual reboot): the THIRD scoped write target `blob.artifact_store.seed_data`
-(ARTSTOR) + `raios.artifact_persist.v0` binding the promotion-transaction hash, then
-a two-boot proof that re-verifies this persisted chain after reboot before
-re-promoting. RECLOG
+M7D (persistent artifact store + boot-time re-promotion — survive an actual reboot)
+is split M7D-1 (persist) → M7D-2 (reboot proof). M7D-1 is split 1a (raios-core) →
+1b (kernel). **M7D-1a DONE (2026-07-07, raios-core host-only, grants nothing):**
+the content-addressed `RAIOSAR0` ARTSTOR blob codec
+(`raios-core/src/artifact_blob_frame.rs` — magic|frame_len|payload_len|payload_sha256|
+wasm|pad, header 48, NO seq/prev chain: authority lives in the RECLOG record, not
+the blob) + TWO new pinned scoped evaluators:
+`scoped_artifact_store_blob` (target `blob.artifact_store.seed_data`, ARTSTOR span,
+`write_span_out_of_artstor` + `artifact_store_full` + full write-readback gauntlet +
+signature/grant/dev-tier + a NEW `promotion_transaction_verified` gate,
+`persistence_claimed` pinned false — 32 distinct denials) and
+`scoped_artifact_persist_append` (a structural clone of the M6D-2 promotion-append
+evaluator for the RECLOG `raios.artifact_persist.v0` record — its OWN schema, because
+`scoped_seed_data_append` must NOT be widened). ZERO kernel/harness edits; existing
+evaluators (`scoped_seed_data_append`/`scoped_boot_control_replace`/
+`scoped_promotion_transaction_append`/`durable_record_frame`) byte-for-byte unchanged.
+Verified: raios-core 97/97. HONEST TARGET-COUNT NOTE: the map's "3 scoped write
+targets" is an undercount — live scoped write targets are now
+`append.record_log.seed_data` (M7B-2), `replace.boot_control.seed_data` (M7C-2b),
+`append.promotion_transaction.seed_data` (M6D-2), and (M7D-1) `blob.artifact_store.seed_data`
++ `append.artifact_persist.seed_data`; every other write stays `capability_denied`.
+REMAINING — **M7D-1b** (kernel): AHCI ARTSTOR read+write helpers + a new
+`seed-kernel/src/artifact_store.rs` (persist a promoted candidate's wasm blob →
+readback → chain the artifact_persist RECLOG record as the single commit point;
+enumerate after rescan, STILL INERT) + the load() post-promotion persist hook (gated
+on `durable_promotion_transaction.performed && kind==promote` this boot, SAFE-denied,
+ARTSTOR-full-denied, blob grants NO load authority) + persistence needles
+(artifact-persisted / blob-hash-verified / blob-without-record-is-garbage /
+persist-denied-in-safe). Then **M7D-2** — boot-time re-promotion + the two-boot proof
+(a promoted service survives reboot and answers live, re-verifying the persisted chain
+through the SAME M6 gates — no bypass). RECLOG
 generic append, generic (non-`svc.demo.hello`) durable audit/rollback writes,
 executable candidate-byte mapping, provider auto-load, broad mutation, ARTSTOR,
 GPT/superblock metadata, and installed rollback state all STAY denied unless the
