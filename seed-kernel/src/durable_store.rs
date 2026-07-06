@@ -8,6 +8,7 @@ use crate::{
     ahci, pci,
 };
 use raios_core::{
+    boot_control::BootPosture,
     durable_record_frame::{
         durable_record_log_scan_fields, parse_reclog_frame, plan_reclog_append, scan_reclog,
         PlannedAppend, RecordLogScan, DURABLE_RECORD_LOG_SCAN_SCHEMA,
@@ -96,6 +97,27 @@ pub(crate) fn emit_durable_record_log_scan() {
 
 pub(crate) fn emit_durable_record_log_append() {
     let evidence = current_boot_reclog_scan();
+    // M7C-2a: boot-control SAFE posture disables the durable append (more-restrictive
+    // precondition, evaluated before any plan/write). Normal|Probation preserve prior
+    // behavior; Safe|PersistenceUnavailable now deny. Probation MUST stay allowed so a
+    // boot-success audit append can escape probation (M7C-2b).
+    if !matches!(
+        super::boot_control::current_boot_posture(),
+        BootPosture::Normal | BootPosture::Probation
+    ) {
+        emit_append_record(
+            &evidence,
+            None,
+            None,
+            None,
+            false,
+            "capability_denied",
+            "boot_control_safe_mode",
+            "evidence_only",
+            None,
+        );
+        return;
+    }
     let payload = durable_record_payload_bytes();
     let planned = match plan_reclog_append(&evidence.scan, &payload, evidence.reclog_byte_count) {
         Ok(planned) => planned,

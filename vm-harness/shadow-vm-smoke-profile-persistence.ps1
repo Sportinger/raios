@@ -89,7 +89,8 @@ function Invoke-ReclogFixtureScanProbe {
     param(
         [string]$FixtureSpec,
         [string]$Label,
-        [string]$Method = "durable.record_log_scan"
+        [string]$Method = "durable.record_log_scan",
+        [string]$BootCtlSpec = ""
     )
 
     if (-not $script:ReclogFixtureProbeIndex) {
@@ -108,9 +109,14 @@ function Invoke-ReclogFixtureScanProbe {
     $vars = Join-Path $RunDir "ovmf-vars-reclog-$suffix.fd"
     $qemu = "C:\Program Files\qemu\qemu-system-x86_64.exe"
 
-    $buildOutput = & python $builder --self-check --seed-reclog-fixture $FixtureSpec $fixturePersist 2>&1
+    $builderArgs = @("--self-check", "--seed-reclog-fixture", $FixtureSpec)
+    if ($BootCtlSpec) {
+        $builderArgs += @("--seed-bootctl", $BootCtlSpec)
+    }
+    $builderArgs += $fixturePersist
+    $buildOutput = & python $builder @builderArgs 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw "RECLOG fixture build failed ($FixtureSpec): $($buildOutput -join [Environment]::NewLine)"
+        throw "RECLOG fixture build failed ($FixtureSpec / bootctl=$BootCtlSpec): $($buildOutput -join [Environment]::NewLine)"
     }
 
     Copy-Item -LiteralPath $ResolvedImage -Destination $fixtureImage -Force
@@ -390,7 +396,7 @@ Add-Predicate `
     -Passed $pendingNotConsumedInSafe `
     -Actual $(if ($pendingNotConsumedInSafe) { "matched" } else { ($safePendingBootControl | ConvertTo-Json -Compress -Depth 8) })
 
-$append = Invoke-ReclogFixtureScanProbe -FixtureSpec "valid:2" -Label "append" -Method "durable.record_log_append"
+$append = Invoke-ReclogFixtureScanProbe -FixtureSpec "valid:2" -BootCtlSpec "valid-a" -Label "append" -Method "durable.record_log_append"
 $appendAuthorized = (
     $append.schema -eq "raios.durable_record_log_append.v0" -and
     $append.durable_append -eq "appended" -and
@@ -426,7 +432,7 @@ Add-Predicate `
     -Passed $appendChainHead `
     -Actual $(if ($appendChainHead) { "matched" } else { ($append | ConvertTo-Json -Compress -Depth 8) })
 
-$fullAppend = Invoke-ReclogFixtureScanProbe -FixtureSpec "full" -Label "full-append" -Method "durable.record_log_append"
+$fullAppend = Invoke-ReclogFixtureScanProbe -FixtureSpec "full" -BootCtlSpec "valid-a" -Label "full-append" -Method "durable.record_log_append"
 $fullDenied = (
     $fullAppend.durable_append -eq "capability_denied" -and
     -not [bool]$fullAppend.performed -and
@@ -437,6 +443,19 @@ Add-Predicate `
     -Expected "full RECLOG fixture denies append without rotation" `
     -Passed $fullDenied `
     -Actual $(if ($fullDenied) { "matched" } else { ($fullAppend | ConvertTo-Json -Compress -Depth 8) })
+
+$safeAppend = Invoke-ReclogFixtureScanProbe -FixtureSpec "valid:2" -BootCtlSpec "both-invalid" -Label "safe-append" -Method "durable.record_log_append"
+$persistDeniedInSafe = (
+    $safeAppend.durable_append -eq "capability_denied" -and
+    -not [bool]$safeAppend.performed -and
+    $safeAppend.reason -eq "boot_control_safe_mode" -and
+    $safeAppend.authority -eq "evidence_only"
+)
+Add-Predicate `
+    -Name "persist-denied-in-safe" `
+    -Expected "durable append denied (boot_control_safe_mode) when boot control is SAFE, even with RECLOG room" `
+    -Passed $persistDeniedInSafe `
+    -Actual $(if ($persistDeniedInSafe) { "matched" } else { ($safeAppend | ConvertTo-Json -Compress -Depth 8) })
 
 Send-AgentCommand -Command "agent module.audit_rollback_write_policy_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_write_policy_selftest" -Name "generic-target-still-denied:write_policy_selftest"
 Assert-LogContains -Name "generic-target-still-denied:write_policy_status" -Needle '"actual_status": "denied_write_path_unimplemented"' -TimeoutSeconds 1
@@ -512,6 +531,6 @@ Add-Predicate `
     -Passed $absentPassed `
     -Actual $absentActual
 
-if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $fullDenied -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
+if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $fullDenied -and $persistDeniedInSafe -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
     throw "Persistence kernel layout validation failed"
 }

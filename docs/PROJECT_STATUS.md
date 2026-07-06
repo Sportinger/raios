@@ -2846,7 +2846,24 @@ case, both fail closed to identical SAFE posture); FULL regression 8168/8168
 GREEN (`shadow-20260706-213833-33436.json`, hash-verified
 d37d8f8ccccc08452f74f22663b7623e7e439a30c15264a07874546c5d05ee09).
 
-NEXT — M7C-2: boot-success marker WRITE. A booted kernel that meets the map-3.4
+M7C-2 is split into three sub-slices (each its own commit, persistence
+checkpoint): 2a SAFE-gates-the-append, 2b the boot-success WRITE, 2c offline
+owner tooling. **M7C-2a DONE (2026-07-06):** `emit_durable_record_log_append`
+now gains an additive, strictly-more-restrictive posture PRECONDITION — when
+`current_boot_posture()` (M7C-1) is Safe or PersistenceUnavailable the durable
+append is `capability_denied` (reason `boot_control_safe_mode`) before any
+plan/write; Normal|Probation are byte-identical to before (Probation MUST stay
+allowed so a boot-success audit append can escape probation in 2b). The two
+existing append probes (`durable-append-authorized`, `durable-store-full-denied`)
+are reseeded with `--seed-bootctl valid-a` (Normal) so they stay green, and a
+NEW `persist-denied-in-safe` needle (RECLOG room + both-invalid boot control →
+SAFE → denied) proves the gate. Verified: raios-core 70/70 (unchanged);
+`-Profile persistence` 35/35; `-Profile module-audit-rollback` 1709/1709
+UNCHANGED-GREEN. (FULL is deferred to the M7C-2 close — verified that
+`durable.record_log_append` is exercised ONLY in the persistence profile and a
+persist disk is attached only there, so the gate cannot affect FULL.)
+
+REMAINING — M7C-2b (boot-success WRITE) + M7C-2c (offline tooling). A booted kernel that meets the map-3.4
 success criteria durably marks success into BOOTCTL via a NEW scoped evaluator
 `raios-core/src/scoped_boot_control_replace.rs` (second scoped target
 `replace.boot_control.seed_data`, ping-pong write→readback→verify, mirroring the
