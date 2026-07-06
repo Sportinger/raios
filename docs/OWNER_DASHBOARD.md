@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M2 closed via ADR 0006; M3 First Durable Write open).
+Updated: 2026-07-06 early morning (M3 CLOSED — first real durable write).
 
 ## What raiOS can actually do today
 
@@ -47,12 +47,18 @@ count landed at ~126.5k (not the original ~20k); the optional extra
 shrink (changing output vocabulary) is deferred and remains YOUR call —
 say the word and it gets scheduled.
 
-Now active: **M3 First Durable Write** — raiOS performs its first real,
-policy-authorized, durable disk write: a rollback-transaction append to
-the dedicated audit region, and a hello rollback actually APPLIES using
-it. This is the moment the system graduates from "can only describe
-changes" to "can safely make one". Scoping worker is mapping the
-existing denial gates now.
+**M3 is CLOSED** — the biggest capability jump so far: raiOS performed
+its first real, policy-authorized, durable disk write (one exact
+512-byte rollback transaction, written, read back, hash-verified), and
+the hello rollback now ACTUALLY APPLIES using that transaction as its
+authority record. The system graduated from "can only describe and deny
+changes" to "can safely make one and prove it". Everything else stays
+fail-closed. Closure: full profile 7,825/7,825 green.
+
+Now active: **M4 Wasm Isolation** — a service runs inside an in-kernel
+Wasm interpreter and physically cannot call an authority outside its
+granted imports. Scoping (interpreter choice, capability envelope
+design) is underway.
 
 ## Top risk
 

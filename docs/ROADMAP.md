@@ -17,7 +17,18 @@ vocabulary).
 
 Last updated: 2026-07-05.
 
-Current milestone: **M3 First Durable Write** (see Capability Milestones).
+Current milestone: **M4 Wasm Isolation** (see Capability Milestones).
+
+**M3 First Durable Write closed 2026-07-06.** Capability sentence
+verified TRUE: raiOS performs its first real, policy-authorized, durable
+mutation — a rollback-transaction append to the RAIOS_AUDITRB_V0 LBA1
+region with readback + hash inspection — and the hello hot-swap rollback
+actually APPLIES using it (the transaction is the authority record).
+Closure evidence: FULL profile `shadow-20260706-035553-13924.json`,
+7825/7825 predicates (the count grew with the applied-path needles).
+Slices M3-1..M3-6 (commits 8f1aa71..81fb374); fail-closed posture
+preserved everywhere else (generic module authority denied, scratch
+never durable authority, LBA0/boot metadata unwritable).
 
 **M2 Ceremony Collapse closed 2026-07-06** under the re-scoped capability
 sentence of ADR 0006 (byte-identical collapse floor accepted; vocabulary
@@ -353,14 +364,19 @@ actual serial output). Verified: hello-rollback-dry-run 214/214, quick
 416/416, module-audit-rollback 1626/1626 (generic module authority
 still denied).
 
+M3 closed (see above).
+
 Exact next task:
 
 ```text
-M3 closure: run the FULL profile over the applied-reality tree; if
-green, evaluate the M3 capability sentence ("first real,
-policy-authorized, durable mutation... and a hello hot-swap rollback
-actually applies using it") — it should now be TRUE; close M3, open M4
-(Wasm isolation), update dashboard, report to owner.
+Open M4 with a scoping slice (read-only packet): survey no_std Wasm
+interpreter candidates (wasmi-class, no JIT) for vendoring — version,
+license, no_std/alloc requirements, code size, interpreter safety
+posture; map where the module artifact chain would hand bytes to the
+interpreter (descriptor/attestation chain from M-map docs); design the
+host-function import surface = capability envelope; slice plan for M4
+(vendor + minimal instantiate; hello/echo compiled to wasm32; deliberate
+exceed-capability test failing at the boundary).
 ```
 
 ## Capability Milestones
