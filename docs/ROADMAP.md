@@ -15,9 +15,10 @@ vocabulary).
 
 ## Agent Handoff Cursor
 
-Last updated: 2026-07-05.
+Last updated: 2026-07-06.
 
-Current milestone: **M6 Promotion Loop v0** (see Capability Milestones).
+Current milestone: **M6 Promotion Loop v0** (see Capability Milestones),
+sub-milestone M6A; slice M6A-1 (candidate-intake mechanism) done.
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small
@@ -479,19 +480,34 @@ M6A external candidate identity → M6B verified grant → M6C promotion →
 M6D rollback (6-10 slices). The denial edifice was built for exactly
 this loop; M6 turns hash-reference denials into real authorities.
 
+M6A-1 done (2026-07-06): the runtime candidate-intake MECHANISM exists.
+`module_candidate_intake.rs` accepts arbitrary bounded bytes
+(`intake_external_wasm_candidate`), computes the SHA-256 in-guest,
+validates via `wasm_runtime::validate_module_bytes` (wasmi::Module::new),
+and returns an inert `ExternalWasmCandidate` — `load_attempted`,
+`authorizes_load`, `execution_attempted`, `authorizes_execution`,
+`writes_persistent_state` hard-false on EVERY path. Probe covers three
+real cases (echo bytes valid+retained, malformed retained-invalid,
+oversize>256KiB rejected-not-retained); evidence emitted through the
+record model on the existing `wasm.echo_probe` response. LOAD STAYS
+DENIED — no grant, no promotion, no authority file touched. Per the v0
+scope the byte SOURCE is still a fixed test vector labeled
+`pending_m6a_slice2`; real external delivery arrives with slice 2.
+Verified: quick `shadow-20260706-093418-2968.json` 562/562 incl. 8
+`quick:wasm_echo_probe_candidate_*` needles (one flaked-then-green
+host-transport run classified in PROJECT_STATUS).
+
 Exact next task:
 
 ```text
-M6A slice 1 (candidate intake): accept a bounded EXTERNAL wasm artifact
-as an inert current-boot candidate at RUNTIME (not build-embedded) — a
-new agent method (e.g. module.submit_candidate) takes bytes (as a
-hex/base64 serial payload or a fixed test vector for v0), retains them
-RAM-only, computes the SHA-256 in-guest, validates via
-wasmi::Module::new, and emits candidate evidence through the record
-model. LOAD STAYS DENIED (no grant, no promotion yet). Fail-closed:
-malformed/oversized bytes rejected with evidence. Verify: quick +
-focused. This is the first artifact that exists WITHOUT the build-time
-P-256 chain. Then M6A-2 (candidate-specific Shadow VM report binding).
+M6A slice 2 (real external delivery + Shadow binding): make
+`-ArtifactPath` deliver a real EXTERNAL .wasm to the running kernel (a
+new agent method module.submit_candidate taking the serial payload, or
+harness-fed bytes) so the candidate is no longer a build-embedded test
+vector, and bind a candidate-specific `raios.vm_test_report.v0` hash to
+that exact artifact SHA-256. Replace the `pending_m6a_slice2` delivery
+label with the real channel. LOAD STILL DENIED until M6B grant. Verify:
+focused Shadow profile driving the external artifact end to end.
 ```
 ```
 

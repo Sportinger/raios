@@ -26,6 +26,25 @@ profiles, protocol probes, and failure modes.
 
 Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
 
+- 2026-07-06 `shadow-20260706-092454-23172.json` (quick profile, M6A-1
+  working tree): 348/350 predicates passed; the 2 failures are both the
+  single command `agent audit.events 72` (expecting
+  `RAIOS_AGENT_END memory.recent_events`), which timed out. Verdict:
+  **host-transport** (harness serial-reader overrun on the large
+  audit.events scrape), NOT the resolved 2026-07-05 stack overflow.
+  Evidence: report self-classification `serial_transport_failure: null`
+  and `qemu_process.before_teardown.state = "running"` (QEMU alive at
+  teardown, harness killed it — no `qemu_exited`); serial log grew to
+  3.75 MB, ~2.3 MB *past* the reader's stuck offset 1,429,462 with no
+  panic/page-fault and a single boot (BdsDxe only at offsets 87/197);
+  the guest reached 66 END markers including the heavy
+  `module.load_ephemeral`/`service.rollback_apply`. The new M6A-1
+  `candidate_intake` capability is exonerated and verified: all 8
+  `quick:wasm_echo_probe_candidate_*` predicates passed. Same "asked for
+  too much data at once" scrape class as the 2026-07-03 audit-window
+  failures. CONFIRMED intermittent host-transport: clean retry (no code
+  change) `shadow-20260706-093418-2968.json` passed 562/562, the same
+  `audit.events`/`memory.recent_events` commands green.
 - 2026-07-05 `shadow-20260705-114125-1380.json` (recovery profile,
   uncommitted M2-4 working tree): 433/433 reached predicates passed, then
   the NEW M0-2 instrumentation classified the death in 0.5s:
@@ -2493,17 +2512,30 @@ bracket. IMPORTANT for every M2 port: the existing kernel hashers hash
 canonical `key=value` LINES, not JSON bytes (`module_evidence.rs:4538` +
 `:542`), so each ported gate must map its old hash convention explicitly.
 
-Current exact next task (milestone M2 Ceremony Collapse,
-`docs/ROADMAP.md`): port the first small kernel emitter to
-`raios_core::record` — pick a tiny `*_emit.rs` module (~200 lines, e.g. a
-recovery emit module), keep serial output byte-identical (proven by
-quick/focused profile needles), and delete more lines than the slice
-adds. The `hello_service.rs` dedup and de-hello-ification (with signed
-source snapshot chain update) stay inside M2.
-Keep persistence, durable audit writes, rollback-store writes, transaction
-append, rollback application, external unsigned artifact intake, executable
-candidate-byte mapping, provider auto-load, broad mutation, and installed
-rollback state denied.
+Current exact next task (milestone M6 Promotion Loop v0, sub-milestone
+M6A, `docs/ROADMAP.md`): M6A-1 candidate-intake MECHANISM is DONE
+(2026-07-06). `seed-kernel/src/module_candidate_intake.rs` accepts
+arbitrary bounded bytes (`intake_external_wasm_candidate`, 256 KiB cap),
+computes the SHA-256 in-guest, validates via
+`wasm_runtime::validate_module_bytes` (wasmi::Module::new), and returns an
+inert `ExternalWasmCandidate` with `load_attempted` / `authorizes_load` /
+`execution_attempted` / `authorizes_execution` / `writes_persistent_state`
+hard-false on EVERY path; the probe covers echo-valid-retained,
+malformed-retained-invalid, and oversize-rejected; evidence emits through
+the record model on the existing `wasm.echo_probe` response
+(`agent_protocol_wasm.rs`). No authority/load-gate/dispatch/descriptor file
+touched. Verified: quick `shadow-20260706-093418-2968.json` 562/562 incl. 8
+`quick:wasm_echo_probe_candidate_*` needles. Per v0 scope the byte SOURCE is
+a fixed test vector labeled `pending_m6a_slice2`.
+NEXT — M6A slice 2: deliver a REAL external `.wasm` to the running kernel
+(a `module.submit_candidate` serial payload or harness `-ArtifactPath`)
+replacing the test vector, and bind a candidate-specific
+`raios.vm_test_report.v0` to that exact artifact hash. Load stays denied
+until M6B grant.
+Keep persistence, generic (non-`svc.demo.hello`) durable audit/rollback
+writes, external artifact LOAD and execution, executable candidate-byte
+mapping, provider auto-load, broad mutation, and installed rollback state
+denied. External candidate INTAKE is now allowed but strictly inert.
 
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with

@@ -6,12 +6,13 @@ use crate::{
         record_bool as b, record_field as f, record_sha, record_static_str_array, record_str as s,
         record_str_or_null,
     },
-    wasm_runtime,
+    module_candidate_intake, wasm_runtime,
 };
 use raios_core::record::Value as V;
 
 pub(crate) fn emit_wasm_echo_probe() {
     let probe = wasm_runtime::run_echo_probe();
+    let candidate_probe = module_candidate_intake::run_candidate_intake_probe();
 
     begin_response("wasm.echo_probe");
     emit_record_fields_trailing_comma(
@@ -93,6 +94,10 @@ pub(crate) fn emit_wasm_echo_probe() {
             f("writes_persistent_state", b(false)),
             f("mutates_service_inventory", b(false)),
             f("mutates_global_event_log", b(false)),
+            f(
+                "candidate_intake",
+                record_candidate_intake_probe(&candidate_probe),
+            ),
         ],
         6,
     );
@@ -134,4 +139,105 @@ fn record_hardening_cases(cases: &[wasm_runtime::WasmHardeningCase]) -> V<'stati
         idx += 1;
     }
     V::Array(values)
+}
+
+fn record_candidate_intake_probe(
+    probe: &module_candidate_intake::CandidateIntakeProbe,
+) -> V<'static> {
+    V::InlineObject(vec![
+        f(
+            "max_external_wasm_candidate_bytes",
+            V::U64(module_candidate_intake::MAX_EXTERNAL_WASM_CANDIDATE_BYTES as u64),
+        ),
+        f(
+            "external_delivery_channel",
+            s(module_candidate_intake::EXTERNAL_WASM_CANDIDATE_DELIVERY_CHANNEL),
+        ),
+        f("case_count", V::U64(3)),
+        f(
+            "echo_external_candidate",
+            record_candidate_intake_case(
+                "echo_external_test_vector",
+                &probe.echo_external_candidate,
+            ),
+        ),
+        f(
+            "malformed_under_bound_candidate",
+            record_candidate_intake_case(
+                "malformed_under_bound",
+                &probe.malformed_under_bound_candidate,
+            ),
+        ),
+        f(
+            "oversize_candidate",
+            record_candidate_intake_case("oversize_rejected", &probe.oversize_candidate),
+        ),
+        f("all_load_denied", b(all_candidate_load_denied(probe))),
+        f(
+            "all_execution_denied",
+            b(all_candidate_execution_denied(probe)),
+        ),
+        f(
+            "all_persistence_denied",
+            b(all_candidate_persistence_denied(probe)),
+        ),
+    ])
+}
+
+fn record_candidate_intake_case(
+    name: &'static str,
+    outcome: &module_candidate_intake::ExternalWasmCandidateOutcome,
+) -> V<'static> {
+    V::InlineObject(vec![
+        f("case", s(name)),
+        f("byte_len", V::U64(outcome.byte_len as u64)),
+        f("artifact_sha256", record_sha(outcome.artifact_sha256)),
+        f("wasm_valid", b(outcome.wasm_valid)),
+        f("scope", s(outcome.scope)),
+        f("retained_in_ram", b(outcome.retained_in_ram)),
+        f("rejected", b(outcome.rejected)),
+        f("reason", s(outcome.reason)),
+        f("load_attempted", b(outcome.load_attempted)),
+        f("execution_attempted", b(outcome.execution_attempted)),
+        f("authorizes_load", b(outcome.authorizes_load)),
+        f("authorizes_execution", b(outcome.authorizes_execution)),
+        f(
+            "writes_persistent_state",
+            b(outcome.writes_persistent_state),
+        ),
+        f(
+            "external_delivery_channel",
+            s(outcome.external_delivery_channel),
+        ),
+    ])
+}
+
+fn all_candidate_load_denied(probe: &module_candidate_intake::CandidateIntakeProbe) -> bool {
+    candidate_load_denied(&probe.echo_external_candidate)
+        && candidate_load_denied(&probe.malformed_under_bound_candidate)
+        && candidate_load_denied(&probe.oversize_candidate)
+}
+
+fn all_candidate_execution_denied(probe: &module_candidate_intake::CandidateIntakeProbe) -> bool {
+    candidate_execution_denied(&probe.echo_external_candidate)
+        && candidate_execution_denied(&probe.malformed_under_bound_candidate)
+        && candidate_execution_denied(&probe.oversize_candidate)
+}
+
+fn all_candidate_persistence_denied(probe: &module_candidate_intake::CandidateIntakeProbe) -> bool {
+    !probe.echo_external_candidate.writes_persistent_state
+        && !probe
+            .malformed_under_bound_candidate
+            .writes_persistent_state
+        && !probe.oversize_candidate.writes_persistent_state
+}
+
+fn candidate_load_denied(outcome: &module_candidate_intake::ExternalWasmCandidateOutcome) -> bool {
+    !outcome.load_attempted && !outcome.authorizes_load
+}
+
+fn candidate_execution_denied(
+    outcome: &module_candidate_intake::ExternalWasmCandidateOutcome,
+) -> bool {
+    !outcome.execution_attempted && !outcome.authorizes_execution
 }

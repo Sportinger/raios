@@ -3,7 +3,8 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 morning (M5 CLOSED — second service proved the rebuild).
+Updated: 2026-07-06 (M6A-1 — raiOS can now take in an outside program as a
+checked, inert candidate; loading it still refused).
 
 ## What raiOS can actually do today
 
@@ -13,8 +14,13 @@ Updated: 2026-07-06 morning (M5 CLOSED — second service proved the rebuild).
 - The system can describe itself through typed read-only commands
   (snapshot, devices, services, problems, event log).
 - One built-in demo service can be loaded, hot-swapped v1<->v2, and
-  rollback-previewed — all RAM-only. Nothing can be written to disk yet,
-  and no externally-built module can run yet.
+  rollback-previewed — all RAM-only.
+- NEW (M6A-1): raiOS can now take a Wasm program that did NOT come baked
+  into the system, check that it is real (hash + parse), and hold it in
+  memory as an inert "candidate" — while running, loading, and saving it
+  stay firmly refused. This is the receiving door for outside code; giving
+  that code any rights is a later, gated step. Delivery from truly outside
+  the image arrives next slice (today the bytes are a labeled test sample).
 
 ## Gate status
 
@@ -70,7 +76,10 @@ Now active: **M6 Promotion Loop v0** — the FINAL milestone and the
 project's first true product moment: one AI-authored artifact travels
 the whole safe loop end to end — authored, tested in the Shadow VM,
 capability-granted, promoted live, and rolled back — with evidence at
-every step. Scoping the gap between what exists and what this needs.
+every step. Split into M6A (candidate intake) → M6B (grant) → M6C
+(promote) → M6D (rollback). **M6A-1 done**: the receiving door exists
+(above). Next (M6A-2): deliver a real outside Wasm file to the running
+system and bind a test report to it — loading still refused until M6B.
 
 ## Top risk
 

@@ -135,7 +135,7 @@ pub(crate) fn run_echo_service() -> EchoRunEvidence {
     execute_echo_module(validate_echo_wasm_artifact())
 }
 
-fn validate_module_bytes(bytes: &[u8]) -> bool {
+pub(crate) fn validate_module_bytes(bytes: &[u8]) -> bool {
     let engine = Box::new(wasmi::Engine::default());
     wasmi::Module::new(&engine, bytes).is_ok()
 }
