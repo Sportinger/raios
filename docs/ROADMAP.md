@@ -331,16 +331,27 @@ decision is emitted as a NEW standalone `RAIOS_ROLLBACK_APPLY_SCOPE_DECISION`
 record after the rollback-apply response — additive only, all existing
 needles green (`shadow-20260706-022318-7556.json`, 203/203); re-signed.
 
+M3-3 done (2026-07-06): **the first policy-authorized durable write in
+raiOS history.** A positive scope decision routes into the existing AHCI
+LBA1 target-region path via thin authorized-append wrappers (no driver
+behavior change); the new `raios.scoped_rollback_authorized_append.v0`
+evidence records write + readback + inspection hashes; rollback state
+application stays denied (slice 3). Verified: hello-rollback-dry-run
+207/207 incl. 4 new authorized-append needles
+(`shadow-20260706-024250-3116.json`) + quick regression 417/417.
+
 Exact next task:
 
 ```text
-M3 slice 2 (authorized append): route a POSITIVE scope decision into the
-existing target-region LBA1 write/readback path (per the map's
-transaction flow steps 4-6) — the first policy-authorized durable write.
-Harness: hello-rollback-dry-run needles for the authorized path flip
-per the map's needle list (scoped only; generic module authority stays
-denied). Verify: hello-rollback-dry-run + quick. Then slice 3 (verified
-apply mutates hello state citing the transaction).
+M3 slice 3 (verified apply): after authorized append + readback +
+inspection succeed, the hello rollback ACTUALLY APPLIES — state machine
+transitions citing the transaction hash / write-readback hash /
+inspection hash as its record; on any mismatch the state stays put with
+explicit denial. Needles: the rollback-apply-denied expectations flip to
+applied-with-evidence per the map (scoped only). Verify:
+hello-rollback-dry-run + quick + module-audit-rollback. Then slice 4/5:
+module profile alignment + M3 closure (full profile; capability sentence
+check).
 ```
 
 ## Capability Milestones

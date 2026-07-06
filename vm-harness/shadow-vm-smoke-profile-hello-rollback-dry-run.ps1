@@ -1,3 +1,31 @@
+    function Get-LastMarkerJsonAfterOffset {
+        param(
+            [string]$Prefix,
+            [int]$Offset,
+            [string]$Name
+        )
+
+        $content = Get-SerialLogContent -Path $SerialLog
+        if ($null -eq $content) {
+            throw "No serial log content found in $SerialLog"
+        }
+        $slice = if ($Offset -lt $content.Length) { $content.Substring($Offset) } else { "" }
+        $markerIndex = $slice.LastIndexOf($Prefix, [System.StringComparison]::Ordinal)
+        $passed = $markerIndex -ge 0
+        Add-Predicate -Name $Name -Expected "serial_contains_after_offset:$Prefix" -Passed $passed -Actual $(if ($passed) { "found_after_offset:$Offset" } else { Get-SerialLogTail -Path $SerialLog })
+        if (-not $passed) {
+            throw "Expected marker '$Prefix' after serial offset $Offset"
+        }
+
+        $jsonStart = $markerIndex + $Prefix.Length
+        $lineEnd = $slice.IndexOf("`n", $jsonStart, [System.StringComparison]::Ordinal)
+        if ($lineEnd -lt 0) {
+            $lineEnd = $slice.Length
+        }
+        $json = $slice.Substring($jsonStart, $lineEnd - $jsonStart).Trim()
+        return $json | ConvertFrom-Json
+    }
+
     Send-AgentCommand -Command "recovery.rollback_inspect_source_reference_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.rollback_inspect_source_reference_selftest"
     $helloInspectSourceSelftest = Get-LastAgentResponseJson -Method "recovery.rollback_inspect_source_reference_selftest"
     if ($helloInspectSourceSelftest.body.result.schema -ne "raios.recovery_rollback_inspect_source_reference_selftest.v0" -or $helloInspectSourceSelftest.body.result.case_count -ne 7 -or $helloInspectSourceSelftest.body.result.passed_count -ne 7 -or -not $helloInspectSourceSelftest.body.result.all_passed) {
@@ -169,6 +197,7 @@
         throw "Expected recovery rollback inspect to retain a non-authorizing source reference over the verified sector inspection"
     }
 
+    $helloDryRunApplyOffset = Get-SerialLogOffset
     Send-AgentCommand -Command "service.rollback_apply svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.rollback_apply"
     $helloDryRunApply = Get-LastAgentResponseJson -Method "service.rollback_apply"
     if ($helloDryRunApply.t -ne "error" -or $helloDryRunApply.body.code -ne "capability_denied" -or $helloDryRunApply.body.reason -ne "rollback_apply_authority_missing") {
@@ -309,6 +338,34 @@
     if ($helloDryRunApply.body.source_durable_policy_write_authority_decision_hash -ne $helloPolicyWriteAuthorityDecision.decision_hash -or $helloDryRunApply.body.source_recovery_rollback_inspect_source_reference_hash -ne $helloInspectSource.reference_hash -or -not $helloDryRunApply.body.retained_durable_policy_write_authority_decision_verified -or -not $helloDryRunApply.body.retained_recovery_rollback_inspect_source_reference_validated) {
         throw "Expected top-level rollback apply denial hash to bind durable policy decision and retained recovery inspect-source evidence"
     }
+    $helloAuthorizedAppend = Get-LastMarkerJsonAfterOffset -Prefix "RAIOS_ROLLBACK_AUTHORIZED_APPEND" -Offset $helloDryRunApplyOffset -Name "hello_rollback_dry_run:authorized_append_marker"
+    if ($helloAuthorizedAppend.schema -ne "raios.scoped_rollback_authorized_append.v0" -or $helloAuthorizedAppend.id -ne "scoped_rollback_authorized_append.current_boot.svc.demo.hello.v0" -or $helloAuthorizedAppend.status -ne "performed" -or $helloAuthorizedAppend.reason -ne "authorized_lba1_transaction_append_readback_and_inspection_verified" -or -not $helloAuthorizedAppend.transaction_append_performed) {
+        throw "Expected scoped rollback authorized append evidence to report a performed append"
+    }
+    if (-not $helloAuthorizedAppend.append_hash.StartsWith("sha256:") -or -not $helloAuthorizedAppend.scope_decision.authorized -or -not $helloAuthorizedAppend.scope_decision.decision_hash.StartsWith("sha256:")) {
+        throw "Expected authorized append evidence to bind the positive scope decision hash"
+    }
+    if ($helloAuthorizedAppend.target_scope.target_region_id -ne "target_region.audit_rollback.current_boot" -or $helloAuthorizedAppend.target_scope.target_region_marker -ne "RAIOS_AUDITRB_V0" -or $helloAuthorizedAppend.target_scope.target_start_lba -ne 1 -or $helloAuthorizedAppend.target_scope.target_lba_count -ne 1 -or $helloAuthorizedAppend.target_scope.target_byte_count -ne 512) {
+        throw "Expected authorized append to stay confined to the RAIOS_AUDITRB_V0 LBA1/512-byte target span"
+    }
+    if ($helloAuthorizedAppend.source_hashes.sector_plan_hash -ne $helloDryRunEvidence.source_sector_plan_hash -or $helloAuthorizedAppend.source_hashes.write_readback_hash -ne $helloDryRunEvidence.source_target_region_write_readback_hash -or $helloAuthorizedAppend.source_hashes.inspection_hash -ne $helloSectorInspection.inspection_hash) {
+        throw "Expected authorized append to bind the same scoped sector plan, write/readback, and inspection evidence"
+    }
+    if ($helloAuthorizedAppend.sector_hashes.planned_sector_image_hash -ne $helloDryRunEvidence.planned_sector_image_hash -or $helloAuthorizedAppend.sector_hashes.readback_sector_image_hash -ne $helloDryRunEvidence.readback_sector_image_hash -or $helloAuthorizedAppend.sector_hashes.inspected_sector_image_hash -ne $helloSectorInspection.sector_image_hash) {
+        throw "Expected authorized append to bind planned, readback, and inspected sector hashes"
+    }
+    if ($helloAuthorizedAppend.transaction_hashes.audit_record_image_hash -ne $helloSectorInspection.audit_record_image_hash -or $helloAuthorizedAppend.transaction_hashes.rollback_transaction_image_hash -ne $helloSectorInspection.rollback_transaction_image_hash -or $helloAuthorizedAppend.transaction_hashes.rollback_transaction_image_hash -ne $helloAuthorizedAppend.transaction_hashes.inspected_rollback_transaction_image_hash) {
+        throw "Expected authorized append to bind audit-record and rollback-transaction hashes"
+    }
+    if ($helloAuthorizedAppend.sector_layout.audit_record_offset -ne 0 -or $helloAuthorizedAppend.sector_layout.rollback_transaction_offset -ne $helloAuthorizedAppend.sector_layout.audit_record_byte_length -or $helloAuthorizedAppend.sector_layout.padding_offset -ne ($helloAuthorizedAppend.sector_layout.audit_record_byte_length + $helloAuthorizedAppend.sector_layout.rollback_transaction_byte_length) -or $helloAuthorizedAppend.sector_layout.padding_byte_length -ne 32) {
+        throw "Expected authorized append to verify canonical offsets and zero-padding length"
+    }
+    if (-not $helloAuthorizedAppend.write_readback.write_attempted -or -not $helloAuthorizedAppend.write_readback.write_completed -or -not $helloAuthorizedAppend.write_readback.readback_completed -or -not $helloAuthorizedAppend.write_readback.readback_matches_planned_image -or -not $helloAuthorizedAppend.inspection.read_attempted -or -not $helloAuthorizedAppend.inspection.read_completed -or -not $helloAuthorizedAppend.inspection.sector_hash_verified -or -not $helloAuthorizedAppend.inspection.audit_record_hash_verified -or -not $helloAuthorizedAppend.inspection.rollback_transaction_hash_verified -or -not $helloAuthorizedAppend.inspection.offsets_verified -or -not $helloAuthorizedAppend.inspection.padding_zeroed -or -not $helloAuthorizedAppend.inspection.target_span_verified -or -not $helloAuthorizedAppend.inspection.inspection_verified) {
+        throw "Expected authorized append to prove write/readback plus post-write inspection"
+    }
+    if (-not $helloAuthorizedAppend.side_effects.authorizes_media_write -or -not $helloAuthorizedAppend.side_effects.authorizes_append -or -not $helloAuthorizedAppend.side_effects.authorizes_transaction_append -or -not $helloAuthorizedAppend.side_effects.writes_durable_audit_log -or -not $helloAuthorizedAppend.side_effects.writes_rollback_store -or -not $helloAuthorizedAppend.side_effects.appends_rollback_transaction -or $helloAuthorizedAppend.side_effects.applies_rollback -or $helloAuthorizedAppend.side_effects.mutates_service_state -or $helloAuthorizedAppend.side_effects.installs_rollback_state) {
+        throw "Expected authorized append side effects to stop at append/readback evidence without applying rollback"
+    }
 
     $helloRecoveryInspectEnvelopeCommand = "agent command_envelope schema=raios.agent_command_envelope.v0 target_method=recovery.rollback_inspect requested_capability=cap.recovery.rollback_inspect.read classification=local_only"
     Send-AgentCommand -Command $helloRecoveryInspectEnvelopeCommand -ExpectedMarker "RAIOS_AGENT_END recovery.rollback_inspect"
@@ -347,6 +404,9 @@
     }
 
     Send-AgentCommand -Command "agent audit.events 96" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+    Assert-LogContains -Name "hello_rollback_dry_run:authorized_append_schema" -Needle '"schema": "raios.scoped_rollback_authorized_append.v0"' -TimeoutSeconds 1
+    Assert-LogContains -Name "hello_rollback_dry_run:authorized_append_performed" -Needle '"transaction_append_performed": true' -TimeoutSeconds 1
+    Assert-LogContains -Name "hello_rollback_dry_run:authorized_append_no_apply" -Needle '"applies_rollback": false' -TimeoutSeconds 1
     Assert-LogContains -Name "hello_rollback_dry_run:audit_binding_schema" -Needle '"rollback_transaction_writer_storage_transaction_append_dry_run_schema": "raios.ram_only_hello_service_rollback_transaction_append_dry_run.v0"' -TimeoutSeconds 1
     Assert-LogContains -Name "hello_rollback_dry_run:audit_binding_hash" -Needle '"rollback_transaction_writer_storage_transaction_append_dry_run_hash": "sha256:' -TimeoutSeconds 1
     Assert-LogContains -Name "hello_rollback_dry_run:audit_binding_blocked" -Needle '"rollback_transaction_writer_storage_transaction_append_dry_run_blocked_by_authority_denial_gate": true' -TimeoutSeconds 1

@@ -795,6 +795,24 @@ pub(crate) fn write_readback_audit_rollback_target_sector_image(
     evidence
 }
 
+pub(crate) fn write_readback_audit_rollback_target_sector_image_for_authorized_append(
+    controller: PciMassStorageController,
+    planned_image: &[u8; SECTOR_BYTES],
+    planned_image_hash: [u8; 32],
+) -> AhciAuditRollbackTargetSectorWriteReadbackEvidence {
+    let scratch = probe(controller).scratch_write_readback;
+    let evidence = unsafe {
+        write_readback_audit_rollback_target_sector_image_uncached(
+            controller,
+            scratch,
+            planned_image,
+            planned_image_hash,
+        )
+    };
+    *AUDIT_ROLLBACK_TARGET_SECTOR_WRITE_READBACK.lock() = Some(evidence);
+    evidence
+}
+
 pub(crate) fn cached_audit_rollback_target_sector_write_readback(
     planned_image_hash: [u8; 32],
 ) -> Option<AhciAuditRollbackTargetSectorWriteReadbackEvidence> {
@@ -828,6 +846,36 @@ pub(crate) fn inspect_audit_rollback_target_sector_image(
         }
     }
 
+    let scratch = probe(controller).scratch_write_readback;
+    let evidence = unsafe {
+        inspect_audit_rollback_target_sector_image_uncached(
+            controller,
+            scratch,
+            expected_sector_image_hash,
+            audit_record_offset,
+            audit_record_byte_length,
+            rollback_transaction_offset,
+            rollback_transaction_byte_length,
+            padding_offset,
+            padding_byte_length,
+        )
+    };
+    if evidence.available {
+        *AUDIT_ROLLBACK_TARGET_SECTOR_INSPECTION.lock() = Some(evidence);
+    }
+    evidence
+}
+
+pub(crate) fn inspect_audit_rollback_target_sector_image_for_authorized_append(
+    controller: PciMassStorageController,
+    expected_sector_image_hash: [u8; 32],
+    audit_record_offset: usize,
+    audit_record_byte_length: usize,
+    rollback_transaction_offset: usize,
+    rollback_transaction_byte_length: usize,
+    padding_offset: usize,
+    padding_byte_length: usize,
+) -> AhciAuditRollbackTargetSectorInspectionEvidence {
     let scratch = probe(controller).scratch_write_readback;
     let evidence = unsafe {
         inspect_audit_rollback_target_sector_image_uncached(

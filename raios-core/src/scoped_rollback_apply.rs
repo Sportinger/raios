@@ -3,6 +3,11 @@ pub const SCOPED_ROLLBACK_APPLY_DECISION_SCHEMA: &str =
 pub const SCOPED_ROLLBACK_APPLY_DECISION_ID: &str =
     "scoped_rollback_apply_authorization.current_boot.svc.demo.hello.v0";
 pub const SCOPED_ROLLBACK_APPLY_DECISION_MARKER: &str = "RAIOS_ROLLBACK_APPLY_SCOPE_DECISION";
+pub const SCOPED_ROLLBACK_AUTHORIZED_APPEND_SCHEMA: &str =
+    "raios.scoped_rollback_authorized_append.v0";
+pub const SCOPED_ROLLBACK_AUTHORIZED_APPEND_ID: &str =
+    "scoped_rollback_authorized_append.current_boot.svc.demo.hello.v0";
+pub const SCOPED_ROLLBACK_AUTHORIZED_APPEND_MARKER: &str = "RAIOS_ROLLBACK_AUTHORIZED_APPEND";
 
 pub const EXPECTED_METHOD: &str = "service.rollback_apply";
 pub const EXPECTED_SERVICE_ID: &str = "svc.demo.hello";
@@ -140,6 +145,104 @@ impl<'a> ScopedRollbackApplyInput<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScopedRollbackApplyDecision {
     pub authorized: bool,
+    pub status: &'static str,
+    pub reason: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub struct ScopedRollbackAuthorizedAppendInput {
+    pub scope_decision_authorized: bool,
+    pub scope_decision_hash: Option<[u8; 32]>,
+    pub target_start_lba: Option<u64>,
+    pub target_lba_count: Option<u64>,
+    pub target_byte_count: Option<u64>,
+    pub append_record_hash: Option<[u8; 32]>,
+    pub sector_plan_hash: Option<[u8; 32]>,
+    pub write_readback_hash: Option<[u8; 32]>,
+    pub inspection_hash: Option<[u8; 32]>,
+    pub write_readback_source_sector_plan_hash: Option<[u8; 32]>,
+    pub inspection_source_sector_plan_hash: Option<[u8; 32]>,
+    pub inspection_source_write_readback_hash: Option<[u8; 32]>,
+    pub sector_plan_sector_image_hash: Option<[u8; 32]>,
+    pub planned_sector_image_hash: Option<[u8; 32]>,
+    pub readback_sector_image_hash: Option<[u8; 32]>,
+    pub expected_sector_image_hash: Option<[u8; 32]>,
+    pub inspected_sector_image_hash: Option<[u8; 32]>,
+    pub append_record_audit_record_image_hash: Option<[u8; 32]>,
+    pub inspected_audit_record_image_hash: Option<[u8; 32]>,
+    pub append_record_rollback_transaction_image_hash: Option<[u8; 32]>,
+    pub inspected_rollback_transaction_image_hash: Option<[u8; 32]>,
+    pub audit_record_offset: Option<u64>,
+    pub audit_record_byte_length: Option<u64>,
+    pub rollback_transaction_offset: Option<u64>,
+    pub rollback_transaction_byte_length: Option<u64>,
+    pub padding_offset: Option<u64>,
+    pub padding_byte_length: Option<u64>,
+    pub write_attempted: bool,
+    pub write_completed: bool,
+    pub readback_completed: bool,
+    pub readback_matches_planned_image: bool,
+    pub inspection_read_attempted: bool,
+    pub inspection_read_completed: bool,
+    pub sector_hash_verified: bool,
+    pub audit_record_hash_verified: bool,
+    pub rollback_transaction_hash_verified: bool,
+    pub offsets_verified: bool,
+    pub padding_zeroed: bool,
+    pub target_span_verified: bool,
+    pub inspection_verified: bool,
+}
+
+impl ScopedRollbackAuthorizedAppendInput {
+    pub const fn empty() -> Self {
+        Self {
+            scope_decision_authorized: false,
+            scope_decision_hash: None,
+            target_start_lba: None,
+            target_lba_count: None,
+            target_byte_count: None,
+            append_record_hash: None,
+            sector_plan_hash: None,
+            write_readback_hash: None,
+            inspection_hash: None,
+            write_readback_source_sector_plan_hash: None,
+            inspection_source_sector_plan_hash: None,
+            inspection_source_write_readback_hash: None,
+            sector_plan_sector_image_hash: None,
+            planned_sector_image_hash: None,
+            readback_sector_image_hash: None,
+            expected_sector_image_hash: None,
+            inspected_sector_image_hash: None,
+            append_record_audit_record_image_hash: None,
+            inspected_audit_record_image_hash: None,
+            append_record_rollback_transaction_image_hash: None,
+            inspected_rollback_transaction_image_hash: None,
+            audit_record_offset: None,
+            audit_record_byte_length: None,
+            rollback_transaction_offset: None,
+            rollback_transaction_byte_length: None,
+            padding_offset: None,
+            padding_byte_length: None,
+            write_attempted: false,
+            write_completed: false,
+            readback_completed: false,
+            readback_matches_planned_image: false,
+            inspection_read_attempted: false,
+            inspection_read_completed: false,
+            sector_hash_verified: false,
+            audit_record_hash_verified: false,
+            rollback_transaction_hash_verified: false,
+            offsets_verified: false,
+            padding_zeroed: false,
+            target_span_verified: false,
+            inspection_verified: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScopedRollbackAuthorizedAppendDecision {
+    pub performed: bool,
     pub status: &'static str,
     pub reason: &'static str,
 }
@@ -446,6 +549,196 @@ pub fn evaluate_scoped_rollback_apply(
     }
 }
 
+pub fn evaluate_scoped_rollback_authorized_append(
+    input: &ScopedRollbackAuthorizedAppendInput,
+) -> ScopedRollbackAuthorizedAppendDecision {
+    macro_rules! require_hash {
+        ($field:ident, $reason:literal) => {
+            match input.$field {
+                Some(value) => value,
+                None => return append_denied($reason),
+            }
+        };
+    }
+    macro_rules! require_u64 {
+        ($field:ident, $expected:expr, $missing:literal, $mismatch:literal) => {
+            match input.$field {
+                Some(value) if value == $expected => {}
+                Some(_) => return append_denied($mismatch),
+                None => return append_denied($missing),
+            }
+        };
+    }
+
+    if !input.scope_decision_authorized {
+        return append_denied("scope_decision_not_authorized");
+    }
+    require_hash!(scope_decision_hash, "missing_scope_decision_hash");
+    require_hash!(append_record_hash, "missing_append_record_hash");
+    let sector_plan_hash = require_hash!(sector_plan_hash, "missing_sector_plan_hash");
+    let write_readback_hash = require_hash!(write_readback_hash, "missing_write_readback_hash");
+    require_hash!(inspection_hash, "missing_inspection_hash");
+    require_u64!(
+        target_start_lba,
+        EXPECTED_TARGET_START_LBA,
+        "missing_target_start_lba",
+        "target_start_lba_out_of_scope"
+    );
+    require_u64!(
+        target_lba_count,
+        EXPECTED_TARGET_LBA_COUNT,
+        "missing_target_lba_count",
+        "target_lba_count_out_of_scope"
+    );
+    require_u64!(
+        target_byte_count,
+        EXPECTED_TARGET_BYTE_COUNT,
+        "missing_target_byte_count",
+        "target_byte_count_out_of_scope"
+    );
+
+    if require_hash!(
+        write_readback_source_sector_plan_hash,
+        "missing_write_readback_source_sector_plan_hash"
+    ) != sector_plan_hash
+    {
+        return append_denied("write_readback_sector_plan_hash_mismatch");
+    }
+    if require_hash!(
+        inspection_source_sector_plan_hash,
+        "missing_inspection_source_sector_plan_hash"
+    ) != sector_plan_hash
+    {
+        return append_denied("inspection_sector_plan_hash_mismatch");
+    }
+    if require_hash!(
+        inspection_source_write_readback_hash,
+        "missing_inspection_source_write_readback_hash"
+    ) != write_readback_hash
+    {
+        return append_denied("inspection_write_readback_hash_mismatch");
+    }
+
+    let sector_hash = require_hash!(sector_plan_sector_image_hash, "missing_sector_image_hash");
+    if require_hash!(
+        planned_sector_image_hash,
+        "missing_planned_sector_image_hash"
+    ) != sector_hash
+        || require_hash!(
+            readback_sector_image_hash,
+            "missing_readback_sector_image_hash"
+        ) != sector_hash
+        || require_hash!(
+            expected_sector_image_hash,
+            "missing_expected_sector_image_hash"
+        ) != sector_hash
+        || require_hash!(
+            inspected_sector_image_hash,
+            "missing_inspected_sector_image_hash"
+        ) != sector_hash
+    {
+        return append_denied("sector_image_hash_mismatch");
+    }
+
+    let audit_hash = require_hash!(
+        append_record_audit_record_image_hash,
+        "missing_append_audit_record_image_hash"
+    );
+    if require_hash!(
+        inspected_audit_record_image_hash,
+        "missing_inspected_audit_record_image_hash"
+    ) != audit_hash
+    {
+        return append_denied("audit_record_image_hash_mismatch");
+    }
+    let rollback_hash = require_hash!(
+        append_record_rollback_transaction_image_hash,
+        "missing_append_rollback_transaction_image_hash"
+    );
+    if require_hash!(
+        inspected_rollback_transaction_image_hash,
+        "missing_inspected_rollback_transaction_image_hash"
+    ) != rollback_hash
+    {
+        return append_denied("rollback_transaction_image_hash_mismatch");
+    }
+
+    let audit_record_byte_length = match input.audit_record_byte_length {
+        Some(value) => value,
+        None => return append_denied("missing_audit_record_byte_length"),
+    };
+    let rollback_transaction_byte_length = match input.rollback_transaction_byte_length {
+        Some(value) => value,
+        None => return append_denied("missing_rollback_transaction_byte_length"),
+    };
+    match input.audit_record_offset {
+        Some(0) => {}
+        Some(_) => return append_denied("audit_record_offset_mismatch"),
+        None => return append_denied("missing_audit_record_offset"),
+    }
+    match input.rollback_transaction_offset {
+        Some(value) if value == audit_record_byte_length => {}
+        Some(_) => return append_denied("rollback_transaction_offset_mismatch"),
+        None => return append_denied("missing_rollback_transaction_offset"),
+    }
+    let expected_padding_offset =
+        audit_record_byte_length.saturating_add(rollback_transaction_byte_length);
+    match input.padding_offset {
+        Some(value) if value == expected_padding_offset => {}
+        Some(_) => return append_denied("padding_offset_mismatch"),
+        None => return append_denied("missing_padding_offset"),
+    }
+    match input.padding_byte_length {
+        Some(value)
+            if value == EXPECTED_TARGET_BYTE_COUNT.saturating_sub(expected_padding_offset) => {}
+        Some(_) => return append_denied("padding_byte_length_mismatch"),
+        None => return append_denied("missing_padding_byte_length"),
+    }
+
+    if !input.write_attempted {
+        return append_denied("write_not_attempted");
+    }
+    if !input.write_completed {
+        return append_denied("write_not_completed");
+    }
+    if !input.readback_completed {
+        return append_denied("readback_not_completed");
+    }
+    if !input.readback_matches_planned_image {
+        return append_denied("readback_hash_mismatch");
+    }
+    if !input.inspection_read_attempted || !input.inspection_read_completed {
+        return append_denied("inspection_read_missing");
+    }
+    if !input.sector_hash_verified {
+        return append_denied("sector_hash_not_verified");
+    }
+    if !input.audit_record_hash_verified {
+        return append_denied("audit_record_hash_not_verified");
+    }
+    if !input.rollback_transaction_hash_verified {
+        return append_denied("rollback_transaction_hash_not_verified");
+    }
+    if !input.offsets_verified {
+        return append_denied("offsets_not_verified");
+    }
+    if !input.padding_zeroed {
+        return append_denied("padding_not_zeroed");
+    }
+    if !input.target_span_verified {
+        return append_denied("target_span_not_verified");
+    }
+    if !input.inspection_verified {
+        return append_denied("inspection_not_verified");
+    }
+
+    ScopedRollbackAuthorizedAppendDecision {
+        performed: true,
+        status: "performed",
+        reason: "authorized_lba1_transaction_append_readback_and_inspection_verified",
+    }
+}
+
 fn require_str(
     actual: Option<&str>,
     expected: &str,
@@ -462,6 +755,14 @@ fn require_str(
 fn denied(reason: &'static str) -> ScopedRollbackApplyDecision {
     ScopedRollbackApplyDecision {
         authorized: false,
+        status: "denied",
+        reason,
+    }
+}
+
+fn append_denied(reason: &'static str) -> ScopedRollbackAuthorizedAppendDecision {
+    ScopedRollbackAuthorizedAppendDecision {
+        performed: false,
         status: "denied",
         reason,
     }
@@ -531,6 +832,51 @@ mod tests {
             retained_inspection_hash: Some(h(10)),
             retained_source_sector_plan_hash: Some(h(6)),
             retained_source_target_region_write_readback_hash: Some(h(7)),
+        }
+    }
+
+    fn valid_append_input() -> ScopedRollbackAuthorizedAppendInput {
+        ScopedRollbackAuthorizedAppendInput {
+            scope_decision_authorized: true,
+            scope_decision_hash: Some(h(40)),
+            target_start_lba: Some(EXPECTED_TARGET_START_LBA),
+            target_lba_count: Some(EXPECTED_TARGET_LBA_COUNT),
+            target_byte_count: Some(EXPECTED_TARGET_BYTE_COUNT),
+            append_record_hash: Some(h(41)),
+            sector_plan_hash: Some(h(42)),
+            write_readback_hash: Some(h(43)),
+            inspection_hash: Some(h(44)),
+            write_readback_source_sector_plan_hash: Some(h(42)),
+            inspection_source_sector_plan_hash: Some(h(42)),
+            inspection_source_write_readback_hash: Some(h(43)),
+            sector_plan_sector_image_hash: Some(h(45)),
+            planned_sector_image_hash: Some(h(45)),
+            readback_sector_image_hash: Some(h(45)),
+            expected_sector_image_hash: Some(h(45)),
+            inspected_sector_image_hash: Some(h(45)),
+            append_record_audit_record_image_hash: Some(h(46)),
+            inspected_audit_record_image_hash: Some(h(46)),
+            append_record_rollback_transaction_image_hash: Some(h(47)),
+            inspected_rollback_transaction_image_hash: Some(h(47)),
+            audit_record_offset: Some(0),
+            audit_record_byte_length: Some(200),
+            rollback_transaction_offset: Some(200),
+            rollback_transaction_byte_length: Some(280),
+            padding_offset: Some(480),
+            padding_byte_length: Some(32),
+            write_attempted: true,
+            write_completed: true,
+            readback_completed: true,
+            readback_matches_planned_image: true,
+            inspection_read_attempted: true,
+            inspection_read_completed: true,
+            sector_hash_verified: true,
+            audit_record_hash_verified: true,
+            rollback_transaction_hash_verified: true,
+            offsets_verified: true,
+            padding_zeroed: true,
+            target_span_verified: true,
+            inspection_verified: true,
         }
     }
 
@@ -617,6 +963,88 @@ mod tests {
             assert!(!decision.authorized, "{reason}");
             assert_eq!(decision.status, "denied");
             assert_eq!(decision.reason, reason);
+        }
+    }
+
+    #[test]
+    fn authorized_append_requires_decision_write_readback_and_inspection() {
+        let decision = evaluate_scoped_rollback_authorized_append(&valid_append_input());
+        assert_eq!(
+            decision,
+            ScopedRollbackAuthorizedAppendDecision {
+                performed: true,
+                status: "performed",
+                reason: "authorized_lba1_transaction_append_readback_and_inspection_verified"
+            }
+        );
+    }
+
+    #[test]
+    fn authorized_append_denies_mismatched_or_missing_evidence() {
+        let cases: [(&str, fn(&mut ScopedRollbackAuthorizedAppendInput)); 9] = [
+            (
+                "scope_decision_not_authorized",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.scope_decision_authorized = false;
+                },
+            ),
+            (
+                "target_start_lba_out_of_scope",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.target_start_lba = Some(2);
+                },
+            ),
+            (
+                "inspection_write_readback_hash_mismatch",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.inspection_source_write_readback_hash = Some(h(99));
+                },
+            ),
+            (
+                "sector_image_hash_mismatch",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.readback_sector_image_hash = Some(h(98));
+                },
+            ),
+            (
+                "audit_record_image_hash_mismatch",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.inspected_audit_record_image_hash = Some(h(97));
+                },
+            ),
+            (
+                "rollback_transaction_image_hash_mismatch",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.inspected_rollback_transaction_image_hash = Some(h(96));
+                },
+            ),
+            (
+                "padding_byte_length_mismatch",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.padding_byte_length = Some(31);
+                },
+            ),
+            (
+                "write_not_completed",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.write_completed = false;
+                },
+            ),
+            (
+                "inspection_not_verified",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.inspection_verified = false;
+                },
+            ),
+        ];
+
+        for (reason, mutate) in cases {
+            let mut input = valid_append_input();
+            mutate(&mut input);
+            let decision = evaluate_scoped_rollback_authorized_append(&input);
+            assert_eq!(decision.status, "denied");
+            assert_eq!(decision.reason, reason);
+            assert!(!decision.performed);
         }
     }
 }

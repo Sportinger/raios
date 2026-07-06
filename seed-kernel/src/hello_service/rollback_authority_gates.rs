@@ -3672,6 +3672,30 @@ pub(crate) fn hello_rollback_target_region_write_readback_dry_run(
     )
 }
 
+pub(crate) fn hello_rollback_target_region_authorized_append_write_readback(
+    snapshot: Snapshot,
+    probation: HelloHotSwapProbationRecord,
+    sector_plan: RollbackAppendSectorPlanDryRun,
+    foundation: RollbackWriterStorageFoundation,
+    target_region_media_write_policy_preflight: TargetRegionMediaWritePolicyPreflight,
+) -> RollbackTargetRegionWriteReadbackDryRun {
+    let planned_image = hello_rollback_append_sector_image(snapshot, probation);
+    let evidence = pci::find_mass_storage_controller().map(|controller| {
+        ahci::write_readback_audit_rollback_target_sector_image_for_authorized_append(
+            controller,
+            &planned_image,
+            sector_plan.sector_image_hash,
+        )
+    });
+    hello_rollback_target_region_write_readback_dry_run_from_evidence(
+        sector_plan,
+        foundation,
+        target_region_media_write_policy_preflight,
+        evidence,
+        "pci_mass_storage_controller_missing",
+    )
+}
+
 pub(crate) fn hello_rollback_target_region_write_readback_dry_run_from_materializer(
     sector_plan: RollbackAppendSectorPlanDryRun,
     foundation: RollbackWriterStorageFoundation,
@@ -3862,6 +3886,32 @@ pub(crate) fn hello_rollback_target_region_sector_inspection(
 ) -> RollbackTargetRegionSectorInspection {
     let evidence = pci::find_mass_storage_controller().map(|controller| {
         ahci::inspect_audit_rollback_target_sector_image(
+            controller,
+            sector_plan.sector_image_hash,
+            sector_plan.audit_record_offset as usize,
+            sector_plan.audit_record_byte_length as usize,
+            sector_plan.rollback_transaction_offset as usize,
+            sector_plan.rollback_transaction_byte_length as usize,
+            sector_plan.padding_offset as usize,
+            sector_plan.padding_byte_length as usize,
+        )
+    });
+    hello_rollback_target_region_sector_inspection_from_evidence(
+        append_record,
+        sector_plan,
+        target_region_write,
+        evidence,
+        "pci_mass_storage_controller_missing",
+    )
+}
+
+pub(crate) fn hello_rollback_target_region_authorized_append_sector_inspection(
+    append_record: RollbackAppendRecordDryRun,
+    sector_plan: RollbackAppendSectorPlanDryRun,
+    target_region_write: RollbackTargetRegionWriteReadbackDryRun,
+) -> RollbackTargetRegionSectorInspection {
+    let evidence = pci::find_mass_storage_controller().map(|controller| {
+        ahci::inspect_audit_rollback_target_sector_image_for_authorized_append(
             controller,
             sector_plan.sector_image_hash,
             sector_plan.audit_record_offset as usize,
