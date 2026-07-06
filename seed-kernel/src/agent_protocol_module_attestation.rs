@@ -1154,6 +1154,7 @@ fn module_local_attestation_binding_from_check(
         computed_grant_hash: check.computed_grant_hash?,
         vm_report_hash: check.vm_report_hash?,
         local_attestation_hash: check.local_attestation_hash?,
+        signature_verified: check.signature_verified,
     })
 }
 

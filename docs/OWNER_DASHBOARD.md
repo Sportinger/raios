@@ -3,9 +3,9 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M6B-1 — raiOS can now cryptographically CHECK a
-promotion-authority signature; still grants nothing. The next step needs YOUR
-signing key + go-ahead before it can grant any rights).
+Updated: 2026-07-06 (M6B-2 — the first real "YES": raiOS now grants a checked,
+signed program its rights, honestly labeled "dev key, not owner-sealed".
+Loading/running is the next step (M6C); your own key seals it for real later).
 
 ## What raiOS can actually do today
 
@@ -80,15 +80,14 @@ moment: one AI-authored artifact travels
 the whole safe loop end to end — authored, tested in the Shadow VM,
 capability-granted, promoted live, and rolled back — with evidence at
 every step. Split into M6A (candidate intake) → M6B (grant) → M6C
-(promote) → M6D (rollback). **M6A COMPLETE + M6B-1 done.** The receiving
-door works end-to-end, and raiOS can now cryptographically CHECK a
-"promotion authority" signature (the single key that says "this outside
-program is allowed here") — but still grants NOTHING. Today that key is a
-loudly-marked, publicly-known PLACEHOLDER that grants nothing.
-**Next: M6B-2, the first step that actually grants rights. It is BLOCKED
-until (1) you generate your own promotion key K and keep it off the
-machine, (2) it replaces the placeholder, and (3) you approve. See ADR
-0007 for the three points to ratify.**
+(promote) → M6D (rollback). **M6A COMPLETE + M6B done (M6B-1 + M6B-2).**
+The receiving door works, raiOS checks the "promotion authority" signature,
+and now — the first real YES — it **grants** a checked, signed program its
+rights, honestly stamped "dev key, not owner-sealed". It still does NOT load
+or run anything. Today's signing key is a deliberate DEV key (so the whole
+loop can be built and tested); **your own key K seals it for real later** —
+that swap is the one step that flips "dev" to "owned". **Next: M6C — actually
+load and run a granted program (under the sandbox), then M6D — undo it.**
 
 ## Top risk
 

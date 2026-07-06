@@ -3,16 +3,24 @@ use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 pub const PROMOTION_AUTHORITY_IS_PLACEHOLDER: bool = true;
 
 /*
-SECURITY: NON-RATIFIED PLACEHOLDER PROMOTION AUTHORITY KEY.
+SECURITY: DEVELOPMENT PROMOTION AUTHORITY KEY (not owner-sealed).
 
-This public key grants nothing today. The matching private scalar is the known
-in-repo TEST fixture scalar 1, encoded as 32-byte big-endian
-0x0000000000000000000000000000000000000000000000000000000000000001, and is
-used only by #[cfg(test)] signing code below.
+The matching private scalar is the known in-repo TEST fixture scalar 1, encoded
+as 32-byte big-endian
+0x0000000000000000000000000000000000000000000000000000000000000001, and is used
+only by #[cfg(test)] signing code below. Because the private scalar is public,
+anyone can forge a signature under this key — that is acceptable ONLY under the
+development trust tier.
 
-This key MUST be replaced by the owner-generated promotion key K from ADR 0007
-before ANY grant or promotion slice. No grant slice may authorize while
-PROMOTION_AUTHORITY_IS_PLACEHOLDER is true.
+Ratified owner decision (ADR 0007, "M6B-2 Enforcement Precondition"): for
+development this dev key is deliberately given full function — a signature that
+verifies MAY drive a capability grant (M6B-2) and, in later slices, load/run —
+but EVERY such authorization MUST carry trust_tier="dev_key_not_owner_sealed".
+While PROMOTION_AUTHORITY_IS_PLACEHOLDER is true the system is NOT owner-sealed:
+no owner-authority may be claimed. Replacing this key with the owner-generated
+promotion key K (and flipping this flag) is the later sealing ceremony that
+turns dev_key_not_owner_sealed into owner_sealed. Any slice that consumes a
+grant for real load/promotion MUST emit the dev tier honestly until then.
 */
 pub const PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SEC1: &[u8] = &[
     0x04, 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40,

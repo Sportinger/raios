@@ -18,12 +18,17 @@ vocabulary).
 Last updated: 2026-07-06.
 
 Current milestone: **M6 Promotion Loop v0** (see Capability Milestones).
-Sub-milestone **M6A (external candidate identity) COMPLETE** — M6A-1
-(intake mechanism) + M6A-2a (real serial delivery) + M6A-2b (real
-candidate identity bound in module-evidence). Next: **M6B (verified
-grant)** — the first slice that grants the delivered candidate real
-authority; needs owner go-ahead (it is the first "gives external code
-rights" step).
+**M6A (external candidate identity) COMPLETE** (M6A-1 intake + M6A-2a real
+serial delivery + M6A-2b real identity). **M6B (verified grant) done:**
+M6B-1 verifies a pinned dev-key P-256 promotion signature; M6B-2 is the
+FIRST authority flip — `grants_capability=true` (labeled
+`trust_tier=dev_key_not_owner_sealed`) when evidence is valid AND the
+attestation is signature_verified AND bound to this grant; load stays
+denied. Owner decision (ADR 0007): the dev key gets full grant function;
+owner key K is the later sealing ceremony. Next: **M6C (promotion/load)** —
+slot + loader → instantiate & run a granted candidate under the M4 wasm
+envelope (can_load_now may flip true under the dev tier), then M6D
+(rollback).
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small

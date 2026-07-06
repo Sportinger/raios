@@ -20,6 +20,11 @@ enum GrantSelftestMutation {
     Stale,
     MismatchedManifestHash,
     UnsafePolicyHash,
+    SignedFullyBoundAttestation,
+    NoRetainedAttestation,
+    UnsignedFullyBoundAttestation,
+    SignedDifferentGrantAttestation,
+    SignedShadowedByUnsignedAttestation,
 }
 
 const fn grant_case(
@@ -37,7 +42,9 @@ const fn grant_case(
     }
 }
 
-const GRANT_CASES: [CaseSpec<GrantSelftestMutation>; MODULE_GRANT_SELFTEST_CASES] = [
+const MODULE_GRANT_AUTHORITY_SELFTEST_CASES: usize = MODULE_GRANT_SELFTEST_CASES + 5;
+
+const GRANT_CASES: [CaseSpec<GrantSelftestMutation>; MODULE_GRANT_AUTHORITY_SELFTEST_CASES] = [
     grant_case(
         "absent_reference",
         "missing",
@@ -68,6 +75,36 @@ const GRANT_CASES: [CaseSpec<GrantSelftestMutation>; MODULE_GRANT_SELFTEST_CASES
         "computed_grant_hash_mismatch",
         GrantSelftestMutation::UnsafePolicyHash,
     ),
+    grant_case(
+        "signed_fully_bound_attestation_grants_capability",
+        "valid_hash_reference_load_still_denied",
+        "hash_reference_valid_but_loader_audit_rollback_and_slot_missing",
+        GrantSelftestMutation::SignedFullyBoundAttestation,
+    ),
+    grant_case(
+        "no_retained_attestation_no_grant",
+        "valid_hash_reference_load_still_denied",
+        "hash_reference_valid_but_loader_audit_rollback_and_slot_missing",
+        GrantSelftestMutation::NoRetainedAttestation,
+    ),
+    grant_case(
+        "unsigned_hash_valid_attestation_no_grant",
+        "valid_hash_reference_load_still_denied",
+        "hash_reference_valid_but_loader_audit_rollback_and_slot_missing",
+        GrantSelftestMutation::UnsignedFullyBoundAttestation,
+    ),
+    grant_case(
+        "signed_different_grant_attestation_no_grant",
+        "valid_hash_reference_load_still_denied",
+        "hash_reference_valid_but_loader_audit_rollback_and_slot_missing",
+        GrantSelftestMutation::SignedDifferentGrantAttestation,
+    ),
+    grant_case(
+        "signed_record_shadowed_by_unsigned_retain_no_grant",
+        "valid_hash_reference_load_still_denied",
+        "hash_reference_valid_but_loader_audit_rollback_and_slot_missing",
+        GrantSelftestMutation::SignedShadowedByUnsignedAttestation,
+    ),
 ];
 
 #[rustfmt::skip]
@@ -81,6 +118,9 @@ pub(crate) fn emit_module_grant_diagnostic(method: &str) {
         None
     };
     let retained = event_log::latest_module_computed_grant_reference();
+    let retained_attestation =
+        event_log::latest_module_local_attestation_reference().map(|(_, reference)| reference);
+    let authority = module_grant_authority_from_attestation(&check, retained_attestation);
 
     begin_response("module.grant_diagnostic");
     emit_record_fields_trailing_comma(
@@ -114,7 +154,7 @@ pub(crate) fn emit_module_grant_diagnostic(method: &str) {
     emit_record_property_line("computed_grant_reference", module_grant_reference_fields(&check), true);
     emit_module_grant_retained_reference(&check, recorded_event_id, retained, true);
     emit_module_grant_gate_state(&check, true);
-    emit_module_grant_policy_result(&check, true);
+    emit_module_grant_policy_result(&check, authority.grants_capability, authority.trust_tier, true);
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     if !check.valid {
@@ -183,6 +223,10 @@ pub(crate) fn emit_module_grant_diagnostic_selftest() {
             f("loader", s("unavailable")),
             f("service_slot", s("unallocated")),
             f("case_count", V::U64(cases.len() as u64)),
+            f(
+                "co_emission_invariant",
+                s("grants_capability_true_implies_trust_tier_dev_key_not_owner_sealed"),
+            ),
             f("passed", b(passed)),
             f("cases", V::Array(case_records)),
         ],
@@ -317,12 +361,18 @@ fn emit_module_grant_retained_reference(
 }
 
 #[rustfmt::skip]
-fn emit_module_grant_policy_result(check: &ModuleGrantReferenceCheck<'_>, comma: bool) {
+fn emit_module_grant_policy_result(
+    check: &ModuleGrantReferenceCheck<'_>,
+    grants_capability: bool,
+    trust_tier: &str,
+    comma: bool,
+) {
     emit_record_property_line(
         "policy_result",
         vec![
             f("computed_candidate_present", b(check.valid)),
-            f("grants_capability", no()),
+            f("grants_capability", b(grants_capability)),
+            f("trust_tier", s(trust_tier)),
             f("grants_load_now", no()),
             f("authorizes_guest_load", no()),
             f("can_load_now", no()),
@@ -336,6 +386,49 @@ fn emit_module_grant_policy_result(check: &ModuleGrantReferenceCheck<'_>, comma:
         ],
         comma,
     );
+}
+
+#[derive(Clone, Copy)]
+struct ModuleGrantAuthorityResult {
+    grants_capability: bool,
+    trust_tier: &'static str,
+    can_load_now: bool,
+}
+
+fn module_grant_authority_from_attestation(
+    check: &ModuleGrantReferenceCheck<'_>,
+    attestation: Option<event_log::ModuleLocalAttestationReference>,
+) -> ModuleGrantAuthorityResult {
+    let grants_capability = module_grant_grants_capability(check, attestation);
+    ModuleGrantAuthorityResult {
+        grants_capability,
+        trust_tier: module_grant_trust_tier(grants_capability),
+        can_load_now: false,
+    }
+}
+
+fn module_grant_trust_tier(grants_capability: bool) -> &'static str {
+    if grants_capability {
+        "dev_key_not_owner_sealed"
+    } else {
+        "unsealed_no_grant"
+    }
+}
+
+fn module_grant_grants_capability(
+    check: &ModuleGrantReferenceCheck<'_>,
+    attestation: Option<event_log::ModuleLocalAttestationReference>,
+) -> bool {
+    let Some(attestation) = attestation else {
+        return false;
+    };
+    check.valid
+        && attestation.signature_verified
+        && Some(attestation.computed_grant_hash) == check.grant_hash
+        && Some(attestation.manifest_hash) == check.manifest_hash
+        && Some(attestation.artifact_hash) == check.artifact_hash
+        && Some(attestation.vm_report_hash) == check.vm_report_hash
+        && Some(attestation.local_attestation_hash) == check.local_attestation_hash
 }
 
 fn module_grant_binding_from_check(
@@ -577,7 +670,8 @@ fn evaluate_module_grant_reference<'a>(
     }
 }
 
-fn module_grant_selftest_cases() -> [ModuleGrantSelfTestCase; MODULE_GRANT_SELFTEST_CASES] {
+fn module_grant_selftest_cases() -> [ModuleGrantSelfTestCase; MODULE_GRANT_AUTHORITY_SELFTEST_CASES]
+{
     run_selftest_cases_with(
         module_grant_selftest_check(GrantSelftestMutation::Absent),
         &GRANT_CASES,
@@ -661,6 +755,22 @@ fn module_grant_selftest_check(
             Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
             Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
         ),
+        GrantSelftestMutation::SignedFullyBoundAttestation
+        | GrantSelftestMutation::NoRetainedAttestation
+        | GrantSelftestMutation::UnsignedFullyBoundAttestation
+        | GrantSelftestMutation::SignedDifferentGrantAttestation
+        | GrantSelftestMutation::SignedShadowedByUnsignedAttestation => {
+            evaluate_module_grant_reference(
+                true,
+                true,
+                "current_boot",
+                Some(valid_grant),
+                Some(MODULE_GRANT_TEST_MANIFEST_HASH),
+                Some(MODULE_GRANT_TEST_ARTIFACT_HASH),
+                Some(MODULE_GRANT_TEST_VM_REPORT_HASH),
+                Some(MODULE_GRANT_TEST_ATTESTATION_HASH),
+            )
+        }
     }
 }
 
@@ -668,6 +778,15 @@ fn module_grant_selftest_case_from_spec(
     spec: &CaseSpec<GrantSelftestMutation>,
     actual: ModuleGrantReferenceCheck<'_>,
 ) -> ModuleGrantSelfTestCase {
+    let authority = module_grant_authority_from_attestation(
+        &actual,
+        module_grant_selftest_attestation(spec.mutation),
+    );
+    let expected_grants_capability =
+        module_grant_selftest_expected_grants_capability(spec.mutation);
+    let expected_trust_tier = module_grant_trust_tier(expected_grants_capability);
+    let co_emission_invariant =
+        !authority.grants_capability || method_eq(authority.trust_tier, "dev_key_not_owner_sealed");
     ModuleGrantSelfTestCase {
         name: spec.name,
         expected_status: spec.expected_status,
@@ -676,7 +795,72 @@ fn module_grant_selftest_case_from_spec(
         actual_reason: actual.reason,
         passed: method_eq(actual.status, spec.expected_status)
             && method_eq(actual.reason, spec.expected_reason)
-            && !module_grant_check_can_load(&actual),
+            && authority.grants_capability == expected_grants_capability
+            && method_eq(authority.trust_tier, expected_trust_tier)
+            && !authority.can_load_now
+            && !module_grant_check_can_load(&actual)
+            && co_emission_invariant,
+    }
+}
+
+fn module_grant_selftest_expected_grants_capability(mutation: GrantSelftestMutation) -> bool {
+    matches!(mutation, GrantSelftestMutation::SignedFullyBoundAttestation)
+}
+
+fn module_grant_selftest_attestation(
+    mutation: GrantSelftestMutation,
+) -> Option<event_log::ModuleLocalAttestationReference> {
+    match mutation {
+        GrantSelftestMutation::SignedFullyBoundAttestation => {
+            Some(module_grant_selftest_attestation_reference(true))
+        }
+        GrantSelftestMutation::UnsignedFullyBoundAttestation
+        | GrantSelftestMutation::SignedShadowedByUnsignedAttestation => {
+            Some(module_grant_selftest_attestation_reference(false))
+        }
+        GrantSelftestMutation::SignedDifferentGrantAttestation => {
+            let mut reference = module_grant_selftest_attestation_reference(true);
+            reference.computed_grant_hash = [0x66; 32];
+            reference.manifest_hash = [0x77; 32];
+            Some(reference)
+        }
+        _ => None,
+    }
+}
+
+fn module_grant_selftest_attestation_reference(
+    signature_verified: bool,
+) -> event_log::ModuleLocalAttestationReference {
+    event_log::ModuleLocalAttestationReference {
+        attestation_reference_hash: [0xaa; 32],
+        retained_manifest_reference_event_id: module_grant_selftest_event_id(26),
+        retained_artifact_reference_event_id: module_grant_selftest_event_id(28),
+        retained_vm_report_reference_event_id: module_grant_selftest_event_id(29),
+        retained_reference_event_id: module_grant_selftest_event_id(27),
+        manifest_reference_hash: [0x55; 32],
+        artifact_reference_hash: [0x56; 32],
+        vm_report_reference_hash: [0x57; 32],
+        manifest_hash: MODULE_GRANT_TEST_MANIFEST_HASH,
+        artifact_hash: MODULE_GRANT_TEST_ARTIFACT_HASH,
+        computed_grant_hash: computed_module_grant_hash(
+            MODULE_GRANT_TEST_MANIFEST_HASH,
+            MODULE_GRANT_TEST_ARTIFACT_HASH,
+            MODULE_GRANT_TEST_VM_REPORT_HASH,
+            MODULE_GRANT_TEST_ATTESTATION_HASH,
+        ),
+        vm_report_hash: MODULE_GRANT_TEST_VM_REPORT_HASH,
+        local_attestation_hash: MODULE_GRANT_TEST_ATTESTATION_HASH,
+        signature_verified,
+    }
+}
+
+fn module_grant_selftest_event_id(sequence: u64) -> event_log::EventId {
+    let mut candidate = sequence;
+    loop {
+        if let Some(event_id) = event_log::EventId::from_sequence(candidate) {
+            return event_id;
+        }
+        candidate = 1;
     }
 }
 

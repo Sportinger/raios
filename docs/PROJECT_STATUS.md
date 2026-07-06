@@ -26,6 +26,20 @@ profiles, protocol probes, and failure modes.
 
 Failure classification log (rule: AGENTS.md "Failure Classification Rule"):
 
+- 2026-07-06 `shadow-20260706-132514-25060.json` (full profile, M6B-2
+  working tree): 2502/2502 reached predicates passed, then the M0-2
+  instrumentation classified `serial_transport_failure: qemu_exited`
+  (QEMU pid 6364 exited during a 0.5s serial reconnect on port 4565).
+  Verdict: **host-transport (qemu_exited)**, the documented intermittent
+  silent-exit class — NOT a guest crash: no panic/page-fault in the
+  serial log, single boot (BdsDxe only at offsets 87/197, no mid-run
+  reboot), and the guest had already run healthy well past the change
+  into `module.loader_*` hooks. M6B-2 exonerated: the full 10-case grant
+  selftest passed, including `signed_fully_bound_attestation_grants_capability`
+  (the grants_capability=true path), the 4 fail-closed cases, and the
+  co-emission invariant. CONFIRMED intermittent: clean retry (no code
+  change) `shadow-20260706-133249-16364.json` passed 8168/8168.
+
 - 2026-07-06 `shadow-20260706-092454-23172.json` (quick profile, M6A-1
   working tree): 348/350 predicates passed; the 2 failures are both the
   single command `agent audit.events 72` (expecting
@@ -2582,12 +2596,27 @@ CRITICAL — the pinned key is a NON-RATIFIED PLACEHOLDER (the P-256
 generator point, scalar 1, publicly known); `PROMOTION_AUTHORITY_IS_PLACEHOLDER=true`.
 It is safe only because nothing is granted. See ADR 0007 "M6B-2
 Enforcement Precondition".
-NEXT — M6B slice 2 (verified grant), FIRST AUTHORITY FLIP — BLOCKED on
-owner ratification (ADR 0007 points 1-3) AND on gating: the grant path
-MUST hard-refuse while PROMOTION_AUTHORITY_IS_PLACEHOLDER is true, the
-placeholder key MUST be replaced with owner key K, and only then may the
-scoped capability grant flip true while LOAD stays denied until
-audit/rollback/slot exist.
+M6B-2 DONE (2026-07-06): the FIRST authority flip. `module.grant_diagnostic`
+now emits `grants_capability=true` labeled `trust_tier=dev_key_not_owner_sealed`
+ONLY when the evidence chain is valid AND the retained local attestation is
+`signature_verified` (dev-key P-256) AND its five component hashes bind to
+exactly this grant (`module_grant_grants_capability`, grant.rs:418-432, fail-closed
+on None/unsigned/mismatch/shadow). `can_load_now` / `authorizes_guest_load` /
+`grants_load_now` stay `no()` — load needs the M6C slot/loader + M6D
+audit/rollback. Owner decision this session (ADR 0007): the dev key gets full
+GRANT function labeled honestly; NO placeholder hard-refuse; owner key K + load
+are the later sealing/M6C-D work. Verified: FULL `shadow-20260706-133249-16364.json`
+8168/8168 (10-case grant selftest incl. the grants_capability=true case + 4
+fail-closed + co-emission invariant; one qemu_exited flake, green on retry).
+Adversarially reviewed: could-not-refute (no grant without verified+bound
+signature, no load leak, trust_tier co-emitted atomically, no golden churn);
+the code-vs-comment mismatch it flagged is fixed (promotion_attestation.rs
+comment now matches the ratified dev-tier decision).
+NEXT — M6C (promotion / load): allocate a current-boot RAM service slot for a
+granted candidate, wire the loader to instantiate its wasm under the M4
+envelope, and start it as a live service — turning grants_capability into an
+actual (dev-tier) load/run, still fail-closed and rollback-ready (M6D). This is
+where can_load_now may finally flip true under trust_tier=dev_key_not_owner_sealed.
 Keep persistence, generic (non-`svc.demo.hello`) durable audit/rollback
 writes, external artifact LOAD and execution, executable candidate-byte
 mapping, provider auto-load, broad mutation, and installed rollback state

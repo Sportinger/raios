@@ -848,6 +848,7 @@ fn apply_attestation_reference_case(
         LoadGateReferenceMutation::ReferenceHashMismatch => {
             let mismatched = event_log::ModuleLocalAttestationReference {
                 attestation_reference_hash: [0x99; 32],
+                signature_verified: false,
                 ..chain.attestation_reference
             };
             candidate.event_reference = Some(mismatched);
@@ -966,6 +967,7 @@ fn module_load_gate_test_local_attestation_reference(
         computed_grant_hash: retained_reference.computed_grant_hash,
         vm_report_hash: vm_report_reference.vm_report_hash,
         local_attestation_hash: retained_reference.local_attestation_hash,
+        signature_verified: false,
     }
 }
 
@@ -1104,6 +1106,7 @@ fn apply_approval_reference_case(
                 chain.vm_report_reference,
                 event_log::ModuleLocalAttestationReference {
                     local_attestation_hash: [0xbc; 32],
+                    signature_verified: false,
                     ..chain.attestation_reference
                 },
                 chain.retained_reference,

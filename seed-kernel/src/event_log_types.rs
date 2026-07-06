@@ -2122,6 +2122,7 @@ pub struct ModuleLocalAttestationReference {
     pub computed_grant_hash: [u8; 32],
     pub vm_report_hash: [u8; 32],
     pub local_attestation_hash: [u8; 32],
+    pub signature_verified: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
