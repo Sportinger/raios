@@ -427,15 +427,23 @@ matching + health/activation helpers); hello uses it byte-identically
 added to the attested source set + re-signed. Verified: hello-rollback
 214/214 + FULL `shadow-20260706-063034-21036.json` 7825/7825.
 
+M5 slice 2 done (2026-07-06): descriptor-driven
+`record_service_lifecycle`/`record_service_health` in event_log.rs;
+hello wrappers delegate through them (binding type + emitter untouched,
+so no re-sign needed; byte-identity proof 1130/1130 keys, order
+identical). Verified: hello-rollback-dry-run
+`shadow-20260706-065903-26760.json` 214/214.
+
 Exact next task:
 
 ```text
-M5 slice 2 (event-log generalization): add a generic service-lifecycle
-binding + record_service_lifecycle/health parameterized by the
-descriptor; hello routes through it with BYTE-IDENTICAL output (scripted
-proof + full profile). This unblocks echo emitting real lifecycle audit
-events without a hello copy. Then slices 3-5 (echo descriptor, echo wasm
-start path, lifecycle completion) per the map.
+M5 slice 3 (echo service descriptor + load plan): add an ECHO
+ServiceDescriptor instance + a current-boot load/service descriptor for
+svc.demo.echo (its own P-256 signature; the existing wasm artifact
+identity descriptor stays as-is), authorizing current-boot wasm
+execution under the fixed import set. No lifecycle wiring yet. Verify
+build (fail-closed) + quick. Then slices 4-5 (echo wasm start path via
+the shared shell; lifecycle completion + generated echo needles).
 ```
 
 ## Capability Milestones

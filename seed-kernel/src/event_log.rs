@@ -1,5 +1,6 @@
 use spin::Mutex;
 
+use crate::current_boot_service::ServiceDescriptor;
 use crate::event_log_evidence::{
     AGENT_COMMAND_ENVELOPE_DECISION_EVIDENCE, DENIED_EVIDENCE,
     DURABLE_AUDIT_ROLLBACK_WRITE_AUTHORITY_EVIDENCE,
@@ -4426,27 +4427,90 @@ pub fn record_capability_denied(
     })
 }
 
+fn record_service_event(
+    descriptor: &ServiceDescriptor,
+    kind: &'static str,
+    source_method: &'static str,
+    outcome: &'static str,
+    requested_capability: &'static str,
+    risk: &'static str,
+    reason: &'static str,
+    evidence: &'static [&'static str],
+    binding: HelloServiceLifecycleBinding,
+) -> EventId {
+    LOG.lock().record(Event {
+        sequence: 0,
+        kind,
+        source_method,
+        source_transport: "serial-console",
+        classification: "local_only",
+        outcome,
+        requested_capability,
+        risk,
+        subject: "agent.session.serial",
+        resource: descriptor.service_id,
+        reason,
+        evidence,
+        bindings: EventBindings::HelloServiceLifecycle(binding),
+    })
+}
+
+pub(crate) fn record_service_lifecycle(
+    descriptor: &ServiceDescriptor,
+    source_method: &'static str,
+    outcome: &'static str,
+    reason: &'static str,
+    evidence: &'static [&'static str],
+    binding: HelloServiceLifecycleBinding,
+) -> EventId {
+    record_service_event(
+        descriptor,
+        descriptor.event_lifecycle_kind,
+        source_method,
+        outcome,
+        descriptor.service_capability,
+        "modify_ram",
+        reason,
+        evidence,
+        binding,
+    )
+}
+
+pub(crate) fn record_service_health(
+    descriptor: &ServiceDescriptor,
+    source_method: &'static str,
+    outcome: &'static str,
+    reason: &'static str,
+    evidence: &'static [&'static str],
+    binding: HelloServiceLifecycleBinding,
+) -> EventId {
+    record_service_event(
+        descriptor,
+        descriptor.event_health_kind,
+        source_method,
+        outcome,
+        descriptor.health_capability,
+        "observe",
+        reason,
+        evidence,
+        binding,
+    )
+}
+
 pub fn record_hello_service_lifecycle(
     source_method: &'static str,
     outcome: &'static str,
     reason: &'static str,
     binding: HelloServiceLifecycleBinding,
 ) -> EventId {
-    LOG.lock().record(Event {
-        sequence: 0,
-        kind: HELLO_SERVICE_DESCRIPTOR.event_lifecycle_kind,
+    record_service_lifecycle(
+        &HELLO_SERVICE_DESCRIPTOR,
         source_method,
-        source_transport: "serial-console",
-        classification: "local_only",
         outcome,
-        requested_capability: HELLO_SERVICE_DESCRIPTOR.service_capability,
-        risk: "modify_ram",
-        subject: "agent.session.serial",
-        resource: HELLO_SERVICE_DESCRIPTOR.service_id,
         reason,
-        evidence: HELLO_SERVICE_LIFECYCLE_EVIDENCE,
-        bindings: EventBindings::HelloServiceLifecycle(binding),
-    })
+        HELLO_SERVICE_LIFECYCLE_EVIDENCE,
+        binding,
+    )
 }
 
 pub fn record_hello_service_health(
@@ -4455,21 +4519,14 @@ pub fn record_hello_service_health(
     reason: &'static str,
     binding: HelloServiceLifecycleBinding,
 ) -> EventId {
-    LOG.lock().record(Event {
-        sequence: 0,
-        kind: HELLO_SERVICE_DESCRIPTOR.event_health_kind,
+    record_service_health(
+        &HELLO_SERVICE_DESCRIPTOR,
         source_method,
-        source_transport: "serial-console",
-        classification: "local_only",
         outcome,
-        requested_capability: HELLO_SERVICE_DESCRIPTOR.health_capability,
-        risk: "observe",
-        subject: "agent.session.serial",
-        resource: HELLO_SERVICE_DESCRIPTOR.service_id,
         reason,
-        evidence: HELLO_SERVICE_HEALTH_EVIDENCE,
-        bindings: EventBindings::HelloServiceLifecycle(binding),
-    })
+        HELLO_SERVICE_HEALTH_EVIDENCE,
+        binding,
+    )
 }
 
 pub fn record_hello_service_rollback_preview(
@@ -4478,21 +4535,17 @@ pub fn record_hello_service_rollback_preview(
     reason: &'static str,
     binding: HelloServiceLifecycleBinding,
 ) -> EventId {
-    LOG.lock().record(Event {
-        sequence: 0,
-        kind: HELLO_SERVICE_DESCRIPTOR.event_rollback_preview_kind,
+    record_service_event(
+        &HELLO_SERVICE_DESCRIPTOR,
+        HELLO_SERVICE_DESCRIPTOR.event_rollback_preview_kind,
         source_method,
-        source_transport: "serial-console",
-        classification: "local_only",
         outcome,
-        requested_capability: HELLO_SERVICE_DESCRIPTOR.rollback_preview_capability,
-        risk: "observe",
-        subject: "agent.session.serial",
-        resource: HELLO_SERVICE_DESCRIPTOR.service_id,
+        HELLO_SERVICE_DESCRIPTOR.rollback_preview_capability,
+        "observe",
         reason,
-        evidence: HELLO_SERVICE_ROLLBACK_PREVIEW_EVIDENCE,
-        bindings: EventBindings::HelloServiceLifecycle(binding),
-    })
+        HELLO_SERVICE_ROLLBACK_PREVIEW_EVIDENCE,
+        binding,
+    )
 }
 
 pub fn record_hello_recovery_rollback_materialize_dry_run() -> EventId {
@@ -4538,21 +4591,17 @@ pub fn record_hello_service_rollback_apply(
     reason: &'static str,
     binding: HelloServiceLifecycleBinding,
 ) -> EventId {
-    LOG.lock().record(Event {
-        sequence: 0,
-        kind: HELLO_SERVICE_DESCRIPTOR.event_rollback_apply_kind,
+    record_service_event(
+        &HELLO_SERVICE_DESCRIPTOR,
+        HELLO_SERVICE_DESCRIPTOR.event_rollback_apply_kind,
         source_method,
-        source_transport: "serial-console",
-        classification: "local_only",
-        outcome: "capability_denied",
-        requested_capability: HELLO_SERVICE_DESCRIPTOR.rollback_apply_capability,
-        risk: "modify_ram",
-        subject: "agent.session.serial",
-        resource: HELLO_SERVICE_DESCRIPTOR.service_id,
+        "capability_denied",
+        HELLO_SERVICE_DESCRIPTOR.rollback_apply_capability,
+        "modify_ram",
         reason,
-        evidence: HELLO_SERVICE_ROLLBACK_APPLY_EVIDENCE,
-        bindings: EventBindings::HelloServiceLifecycle(binding),
-    })
+        HELLO_SERVICE_ROLLBACK_APPLY_EVIDENCE,
+        binding,
+    )
 }
 
 pub fn record_module_load_ephemeral_denied(
