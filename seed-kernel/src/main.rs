@@ -101,6 +101,7 @@ mod agent_protocol_system;
 mod agent_protocol_wasm;
 mod ahci;
 mod console;
+mod current_boot_service;
 mod descriptor_sources;
 mod e1000;
 mod entropy;

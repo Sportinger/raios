@@ -1,4 +1,5 @@
 use super::*;
+use crate::current_boot_service::ServiceState;
 
 pub(crate) fn artifact_identity_signature_verified(descriptor: LoadDescriptor) -> bool {
     let identity = descriptor.artifact_identity;
@@ -33,68 +34,59 @@ pub(crate) struct Snapshot {
 
 #[derive(Clone, Copy)]
 pub(crate) struct State {
-    pub(crate) loaded: bool,
-    pub(crate) running: bool,
-    pub(crate) generation: u64,
-    pub(crate) state_counter: u64,
+    pub(crate) service: ServiceState,
     pub(crate) state_migration: Option<HelloStateMigrationRecord>,
     pub(crate) hot_swap_probation: Option<HelloHotSwapProbationRecord>,
     pub(crate) applied_rollback: Option<AppliedRollbackRecord>,
     pub(crate) load_descriptor: LoadDescriptor,
-    pub(crate) last_action: &'static str,
-    pub(crate) last_reason: &'static str,
-    pub(crate) last_inventory_change: &'static str,
-    pub(crate) last_event_id: Option<event_log::EventId>,
-    pub(crate) load_event_id: Option<event_log::EventId>,
-    pub(crate) start_event_id: Option<event_log::EventId>,
-    pub(crate) hot_swap_event_id: Option<event_log::EventId>,
-    pub(crate) stop_event_id: Option<event_log::EventId>,
-    pub(crate) drop_event_id: Option<event_log::EventId>,
 }
 
 impl State {
     pub(crate) const fn new() -> Self {
         Self {
-            loaded: false,
-            running: false,
-            generation: 0,
-            state_counter: 0,
+            service: ServiceState::new(),
             state_migration: None,
             hot_swap_probation: None,
             applied_rollback: None,
             load_descriptor: LOAD_DESCRIPTOR,
-            last_action: "none",
-            last_reason: "not_loaded",
-            last_inventory_change: "none",
-            last_event_id: None,
-            load_event_id: None,
-            start_event_id: None,
-            hot_swap_event_id: None,
-            stop_event_id: None,
-            drop_event_id: None,
         }
     }
 
     pub(crate) fn snapshot(self) -> Snapshot {
+        let service = self.service;
         Snapshot {
-            loaded: self.loaded,
-            running: self.running,
-            generation: self.generation,
-            state_counter: self.state_counter,
+            loaded: service.loaded,
+            running: service.running,
+            generation: service.generation,
+            state_counter: service.state_counter,
             state_migration: self.state_migration,
             hot_swap_probation: self.hot_swap_probation,
             applied_rollback: self.applied_rollback,
             load_descriptor: self.load_descriptor,
-            last_action: self.last_action,
-            last_reason: self.last_reason,
-            last_inventory_change: self.last_inventory_change,
-            last_event_id: self.last_event_id,
-            load_event_id: self.load_event_id,
-            start_event_id: self.start_event_id,
-            hot_swap_event_id: self.hot_swap_event_id,
-            stop_event_id: self.stop_event_id,
-            drop_event_id: self.drop_event_id,
+            last_action: service.last_action,
+            last_reason: service.last_reason,
+            last_inventory_change: service.last_inventory_change,
+            last_event_id: service.last_event_id,
+            load_event_id: service.load_event_id,
+            start_event_id: service.start_event_id,
+            hot_swap_event_id: service.hot_swap_event_id,
+            stop_event_id: service.stop_event_id,
+            drop_event_id: service.drop_event_id,
         }
+    }
+}
+
+impl core::ops::Deref for State {
+    type Target = ServiceState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.service
+    }
+}
+
+impl core::ops::DerefMut for State {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.service
     }
 }
 

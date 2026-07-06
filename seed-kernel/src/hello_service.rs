@@ -17,10 +17,10 @@ use crate::{
         module_audit_rollback_storage_layout_snapshot,
     },
     agent_protocol_support::{
-        begin_response, end_response, json_sha256, json_str, method_eq, method_head_eq, raw,
-        raw_bool, raw_fmt, raw_line,
+        begin_response, end_response, json_sha256, json_str, method_eq, raw, raw_bool, raw_fmt,
+        raw_line,
     },
-    ahci, descriptor_sources, event_log, pci,
+    ahci, current_boot_service, descriptor_sources, event_log, pci,
 };
 
 mod command_targets;

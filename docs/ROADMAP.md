@@ -420,16 +420,22 @@ live positive service path is still hello-hardcoded at dispatch,
 inventory, event-log binding, descriptor lookup, capability table, and
 audit schemas — M5 legitimately includes generalizing those.
 
+M5 slice 1 done (2026-07-06): shared `current_boot_service.rs` extracted
+(ServiceDescriptor + generic ServiceState + descriptor/alias target
+matching + health/activation helpers); hello uses it byte-identically
+(scripted proof: 0 changed output sources, 168 route cases 0 mismatches);
+added to the attested source set + re-signed. Verified: hello-rollback
+214/214 + FULL `shadow-20260706-063034-21036.json` 7825/7825.
+
 Exact next task:
 
 ```text
-M5 slice 1 (generic shell, byte-identical for hello): extract the
-ServiceDescriptor + minimal generic ServiceState + target matching into
-shared current-boot-service code; hello uses it with ZERO output change
-(re-sign hello since moved code is in its attested source set). Verify
-hello-rollback-dry-run + quick + full byte-identical. Then slices 2-5
-per the map (event-log generalization, echo descriptor, echo wasm start
-path, lifecycle completion).
+M5 slice 2 (event-log generalization): add a generic service-lifecycle
+binding + record_service_lifecycle/health parameterized by the
+descriptor; hello routes through it with BYTE-IDENTICAL output (scripted
+proof + full profile). This unblocks echo emitting real lifecycle audit
+events without a hello copy. Then slices 3-5 (echo descriptor, echo wasm
+start path, lifecycle completion) per the map.
 ```
 
 ## Capability Milestones

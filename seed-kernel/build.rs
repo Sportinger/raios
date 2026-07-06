@@ -6,6 +6,7 @@ use std::{env, fmt::Write as _, fs, path::PathBuf};
 // in declaration order from seed-kernel/src/hello_service.rs.
 const HELLO_ARTIFACT_SOURCE_SET: &[&str] = &[
     "seed-kernel/src/hello_service.rs",
+    "seed-kernel/src/current_boot_service.rs",
     "seed-kernel/src/hello_service/command_targets.rs",
     "seed-kernel/src/hello_service/constants.rs",
     "seed-kernel/src/hello_service/descriptor_identity.rs",

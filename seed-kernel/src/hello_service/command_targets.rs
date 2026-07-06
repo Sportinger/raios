@@ -1,5 +1,13 @@
 use super::*;
 
+fn load_target(descriptor: LoadDescriptor) -> current_boot_service::LoadTarget<'static> {
+    current_boot_service::LoadTarget {
+        service_id: descriptor.service_id,
+        artifact_id: descriptor.artifact_id,
+        descriptor_id: descriptor.id,
+    }
+}
+
 pub(crate) fn load_request(method: &str) -> Option<LoadRequest> {
     load_request_for_head(method, "module.load_ephemeral")
         .or_else(|| load_request_for_head(method, "service.load_ephemeral"))
@@ -10,11 +18,7 @@ pub(crate) fn hot_swap_request(method: &str) -> Option<LoadRequest> {
 }
 
 pub(crate) fn load_request_for_head(method: &str, head: &'static str) -> Option<LoadRequest> {
-    let method = method.trim();
-    if !method_head_eq(method, head) {
-        return None;
-    }
-    let target = method[head.len()..].trim();
+    let target = current_boot_service::method_target(method, head)?;
     let descriptor = verified_load_descriptor_for_target(target, head == "service.hot_swap")?;
     Some(LoadRequest {
         source_method: head,
@@ -53,7 +57,7 @@ pub(crate) fn verified_load_descriptor_for_target(
 pub(crate) fn descriptor_source_for_target(
     target: &str,
 ) -> Option<descriptor_sources::DescriptorSourceRecord> {
-    if descriptor_source_target_matches_locator(
+    if current_boot_service::descriptor_source_target_matches_locator(
         target,
         descriptor_sources::HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR,
     ) || target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.host_bound_alias)
@@ -93,69 +97,53 @@ pub(crate) fn descriptor_source_target_matches(
     target: &str,
     source: descriptor_sources::DescriptorSourceRecord,
 ) -> bool {
-    descriptor_source_target_matches_locator(target, source.locator)
-        || (source.locator == descriptor_sources::HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR
-            && target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.host_bound_alias))
-}
-
-pub(crate) fn descriptor_source_target_matches_locator(target: &str, locator: &str) -> bool {
-    target.eq_ignore_ascii_case(locator)
+    current_boot_service::descriptor_source_target_matches(
+        target,
+        source.locator,
+        descriptor_sources::HELLO_HOST_BOUND_DESCRIPTOR_SOURCE_LOCATOR,
+        HELLO_SERVICE_DESCRIPTOR,
+    )
 }
 
 pub(crate) fn replacement_target_matches(target: &str) -> bool {
-    target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.replacement_service_id)
-        || target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.replacement_alias)
-        || target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.replacement_artifact_identity_id)
+    current_boot_service::replacement_target_matches(target, HELLO_SERVICE_DESCRIPTOR)
 }
 
 pub(crate) fn reset_state_hot_swap_target(method: &str) -> bool {
-    let method = method.trim();
-    if !method_head_eq(method, "service.hot_swap") {
-        return false;
-    }
-    let target = method["service.hot_swap".len()..].trim();
-    target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.reset_state_service_id)
-        || target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.reset_state_alias)
+    current_boot_service::reset_state_hot_swap_target(method, HELLO_SERVICE_DESCRIPTOR)
 }
 
 pub(crate) fn target_arg_matches(method: &str, head: &str) -> bool {
-    let method = method.trim();
-    if !method_head_eq(method, head) {
-        return false;
-    }
-    let target = method[head.len()..].trim();
-    descriptor_target_matches(target, LOAD_DESCRIPTOR)
+    current_boot_service::target_arg_matches(
+        method,
+        head,
+        load_target(LOAD_DESCRIPTOR),
+        HELLO_SERVICE_DESCRIPTOR,
+    )
 }
 
 pub(crate) fn descriptor_target_matches(target: &str, descriptor: LoadDescriptor) -> bool {
-    target.eq_ignore_ascii_case(descriptor.service_id)
-        || target.eq_ignore_ascii_case(HELLO_SERVICE_DESCRIPTOR.primary_alias)
-        || target.eq_ignore_ascii_case(descriptor.artifact_id)
-        || target.eq_ignore_ascii_case(descriptor.id)
+    current_boot_service::descriptor_target_matches(
+        target,
+        load_target(descriptor),
+        HELLO_SERVICE_DESCRIPTOR,
+    )
 }
 
 pub(crate) fn health_state(snapshot: Snapshot) -> &'static str {
-    if snapshot.running {
-        HELLO_SERVICE_DESCRIPTOR.inventory_health_running
-    } else if snapshot.loaded {
-        HELLO_SERVICE_DESCRIPTOR.inventory_health_stopped
-    } else {
-        HELLO_SERVICE_DESCRIPTOR.inventory_health_missing
-    }
+    current_boot_service::health_state(snapshot.loaded, snapshot.running, HELLO_SERVICE_DESCRIPTOR)
 }
 
 pub(crate) fn service_slot_activation_status(snapshot: Snapshot) -> &'static str {
-    if snapshot.running {
-        SERVICE_SLOT_ACTIVATION_ACTIVE_STATUS
-    } else if snapshot.loaded {
-        SERVICE_SLOT_ACTIVATION_STOPPED_STATUS
-    } else if snapshot.last_action == "drop" && snapshot.last_reason == "dropped" {
-        SERVICE_SLOT_ACTIVATION_CLEARED_STATUS
-    } else {
-        SERVICE_SLOT_ACTIVATION_MISSING_STATUS
-    }
+    current_boot_service::service_slot_activation_status(
+        snapshot.loaded,
+        snapshot.running,
+        snapshot.last_action,
+        snapshot.last_reason,
+        HELLO_SERVICE_DESCRIPTOR,
+    )
 }
 
 pub(crate) fn service_slot_activation_active(snapshot: Snapshot) -> bool {
-    snapshot.loaded
+    current_boot_service::service_slot_activation_active(snapshot.loaded)
 }
