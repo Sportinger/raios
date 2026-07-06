@@ -2889,11 +2889,31 @@ filling the host disk mid-run as needles grew). Verified: raios-core 79/79;
 prior unchanged); `-Profile module-audit-rollback` 1709/1709 UNCHANGED-GREEN; max
 adversarial review could_not_refute (0 findings, all 7 attack classes refuted).
 
-REMAINING — M7C-2c (offline owner tooling): `scripts/switch-boot-slot.ps1`
-(explicit `-Apply`, refuses `release/` + non-GPT images) + a new additive
-`--stage-slot`/`--set-pending` subcommand in `make-gpt-persist-image.py` reusing
-the shared Python boot-control codec, plus a non-gating OVMF ESP-selection
-experiment + map addendum. Then the M7C-2 close: FULL regression + docs. RECLOG
+**M7C-2c DONE (2026-07-06, offline owner tooling, host-only):**
+`scripts/switch-boot-slot.ps1` (dry-run by default, `-Apply` to write, refuses
+`release/` + non-GPT images) + an additive `--stage-slot`/`--set-pending`
+subcommand in `make-gpt-persist-image.py` that ping-pong-writes a `winner.seq+1`
+pending record into the LOSER BOOTCTL slot (and optionally stages a `--payload-dir`
+ESP via the existing `Fat32Builder`), reusing the SINGLE existing Python
+boot-control codec mirrored with raios-core. Plus a non-gating
+`scripts/experiments/ovmf-esp-selection.ps1` observation + a map addendum
+(observed OVMF v2.70 default-HD-boot Not Found → EFI shell, both ESPs FS0/FS1, no
+stub ran → inconclusive; deterministic firmware slot boot NOT claimed). ZERO
+Rust/kernel/vm-harness change; `build_image`/fixture path untouched. Verified by
+host self-checks + independent re-run (set-pending ping-pongs the new slot to win;
+dry-run writes nothing; `-Apply` advances pending; release/ + non-GPT refused by
+both layers; scan-secrets clean).
+
+**M7C COMPLETE (2026-07-06).** Boot control read + write closed end to end. FULL
+regression 8168/8168 GREEN (`shadow-20260706-231420-33040.json`, hash-verified
+d56803735146f5a77fd6454dc36a987467a972a35dd1a31eb5b23090d1f758e5). raiOS now has
+TWO of the three M7 scoped write targets live (`append.record_log.seed_data`,
+`replace.boot_control.seed_data`); the third (`blob.artifact_store.seed_data`) is
+M7D. Still within-boot dev-tier (`persistence_claimed:false`).
+
+NEXT — per the M7-0 sequencing: **M6D-2** (durable promotion transaction into
+SEED_DATA RECLOG, a prerequisite for M7D re-promotion) → **M7D** (persistent
+artifact store + boot-time re-promotion — survive an actual reboot). RECLOG
 generic append, generic (non-`svc.demo.hello`) durable audit/rollback writes,
 executable candidate-byte mapping, provider auto-load, broad mutation, ARTSTOR,
 GPT/superblock metadata, and installed rollback state all STAY denied unless the

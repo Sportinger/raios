@@ -91,8 +91,27 @@ reported via `boot.control_read`. SAFE is entered on both-slots-invalid,
 ambiguous equal-seq, or `safe_mode`; nothing is consumed/marked-good (that is
 M7C-2). Writes NOTHING (WRITE_DMA_EXT uncalled). `MAX_PENDING_BOOT_ATTEMPTS=3`
 is a v0-provisional, owner-overridable threshold. `current_boot_posture()` is
-exposed for the next slice to consume. Next: **M7C-2** — boot-success marker
-WRITE (scoped `replace.boot_control.seed_data`) + SAFE-disables-append wiring.
+exposed for the next slice to consume.
+
+**M7C-2 done → M7C COMPLETE (2026-07-06).** Three sub-slices: **2a** wired
+`current_boot_posture()` into the durable append so SAFE/PersistenceUnavailable
+deny it (`boot_control_safe_mode`) — the posture flag now does real work, not
+paperwork; **2b** the FIRST BOOTCTL write — a booted kernel that passes the
+map-3.4 success criteria (evaluated once) ping-pong-writes a `winner.seq+1`
+record into the LOSER BOOTCTL slot via the NEW scoped target
+`replace.boot_control.seed_data` (validate-all → write-one-slot → readback →
+reparse → re-read-assert), advances `last_good` only on a genuine Probation
+success, and appends a RECLOG audit record — crash-safe (a torn write damages
+only the loser; the winner stays authoritative); **2c** offline owner tooling
+(`scripts/switch-boot-slot.ps1`, dry-run by default, refuses `release/`+non-GPT)
++ a `--stage-slot`/`--set-pending` Python codec subcommand + a non-gating OVMF
+observation. raiOS now has TWO of the three M7 scoped write targets live
+(`append.record_log.seed_data`, `replace.boot_control.seed_data`); everything
+else stays `capability_denied`. Still within-boot dev-tier
+(`persistence_claimed:false`); deterministic firmware slot boot NOT claimed.
+Next: **M7D** — persistent artifact store + boot-time re-promotion (survive an
+actual reboot), preceded by **M6D-2** (durable promotion transaction into
+SEED_DATA), per the M7-0 sequencing.
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small

@@ -3,15 +3,14 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M7 underway — making things survive a restart. NEW: raiOS
-just did its FIRST REAL persistent WRITE. It safely appended one durable record
-to the test disk's log — building it, checking the spot is inside the allowed
-log area, writing it, reading it back, and confirming it is byte-for-byte
-identical before saying "done". Every other place on the disk (the disk's own
-map, the boot-control area, the big storage area) stays refused, and a full log
-is refused too — no overwriting. An independent security check could not break
-it. Still within a single boot for now; surviving an actual reboot is the next
-milestones. The next step is boot control (M7C).).
+Updated: 2026-07-06 (M7 underway — making things survive a restart. raiOS now
+has TWO of its three safe disk-write abilities live: (1) it appends durable
+records to a log — build, bounds-check, write, read back, confirm byte-identical
+before saying "done"; and NEW (2) it safely marks a boot as successful and does
+crash-safe A/B boot-slot switching, entering a safe "recovery" mode if the
+control record is missing/damaged (M7C complete). Every other place on the disk
+stays refused. Independent security checks could not break either write. Still
+within a single boot; surviving an actual reboot is next (M7D).).
 
 ## What raiOS can actually do today
 
@@ -34,13 +33,13 @@ milestones. The next step is boot control (M7C).).
 ## Gate status
 
 - Full verification profile: **GREEN** as of 2026-07-06 — 8,168/8,168
-  checks passed in one run (report shadow-20260706-213833-33436.json,
-  hash-verified) after the boot-control-read slice (M7C-1). The focused
-  persistence profile is now 34/34 (adds boot-control-read, safe-posture,
-  pending-not-consumed needles) and the audit-rollback profile is
-  unchanged-green (1,709/1,709). The old "mystery" failures are explained:
-  the test tooling asked for too much data at once and then misread its
-  own connection loss — no bug in the OS itself.
+  checks passed in one run (report shadow-20260706-231420-33040.json,
+  hash-verified) after M7C complete (boot control read + write). The focused
+  persistence profile is now 40/40 (adds the boot-control read, SAFE-posture,
+  boot-success-mark, ping-pong, and last-good needles) and the audit-rollback
+  profile is unchanged-green (1,709/1,709). The old "mystery" failures are
+  explained: the test tooling asked for too much data at once and then misread
+  its own connection loss — no bug in the OS itself.
 - Working tree: the ~36,900-line backlog was committed 2026-07-04 in
   three honest commits; release binaries are no longer tracked in git.
 
@@ -100,12 +99,18 @@ later** (the sealing ceremony is the very last step).
 Done so far: the kernel reads the disk's layout + its durable log (M7A/M7B-1,
 read-only); performs its **first real safe WRITE** — appending one durable
 record and reading it back to confirm it, every other disk area still refused
-(M7B-2); and now **reads the boot-control area** to decide which system copy
-(A/B) to boot and whether to enter a safe "recovery" mode when the control
-record is missing/damaged (M7C-1, still read-only — it decides but writes
-nothing yet). **Next: M7C-2** (safely mark a boot as successful + let safe-mode
-switch off saving), then M7D (survive an actual reboot), then the durable
-promotion save (M6D-2 into the disk).
+(M7B-2); reads the boot-control area to decide which system copy (A/B) to boot and
+whether to enter a safe "recovery" mode (M7C-1); and now — NEW — **safely marks
+a boot as successful** and lets safe-mode switch off saving (M7C-2). Concretely:
+when a boot passes its health checks, the system writes a "this copy booted OK"
+record into the *spare* boot slot and reads it back to confirm — so a power cut
+mid-write can only damage the spare, never the copy that's currently trusted
+(crash-safe A/B switching). And if the boot-control record is missing or
+damaged, the system refuses to save anything (safe recovery mode). There's also
+a small offline tool for you to pre-select which copy boots next. raiOS now has
+**two** of its three safe disk-write abilities live (the log, and boot control);
+everything else stays refused. **Next: M7D** — survive an actual reboot, preceded
+by saving the promotion record durably (M6D-2).
 
 ## Top risk
 
