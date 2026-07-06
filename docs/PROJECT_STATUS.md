@@ -2662,13 +2662,39 @@ evaluation all-false path and loader_runtime selftest stay unchanged.
 and not-loaded-projection truth cases. Worker checks only (no VM per packet):
 `cargo fmt --all -- --check`, release build, and `scripts\scan-secrets.ps1`.
 
-NEXT — M6D (durable promotion transaction via the M3 append/readback/inspect
-substrate + rollback plan/executor) — this flips the GENERIC durable load gate.
-Then M7+. Keep persistence, generic (non-`svc.demo.hello`) durable
-audit/rollback writes, executable candidate-byte mapping, provider auto-load,
-broad mutation, and installed rollback state denied unless the M6D/M7 gates say
-otherwise. External candidate INTAKE remains allowed over the real serial
-channel; dev-key-granted current-boot external candidate load/run is RAM-only
+M6D-1 DONE (2026-07-06, RAM-only verified un-promote / rollback): A
+dev-key-granted external Wasm candidate that is loaded and running this boot
+can be UN-PROMOTED through a verified rollback path: at load the
+granted-candidate service records a RAM-only rollback plan (artifact_hash +
+pre-load service-inventory hash + ram_only_service_slot_id + cleanup-actions
+hash) captured on the successful can_load branch BEFORE the slot flip, and
+`service.rollback_apply svc.dev.granted_candidate` stops -> drops/clears-bytes
+-> frees the RAM slot -> removes it from service.inventory, then verifies the
+re-projected inventory hash equals the captured pre-load baseline before
+recording the un-promote ??? returning capability_denied (fail-closed) when no
+promotion was recorded this boot; every response labeled
+trust_tier=dev_key_not_owner_sealed with owner_sealed=false, durable=false,
+persistence=none. `seed-kernel/src/granted_candidate_service.rs` stores a
+`PromotionRecord` in RAM only, uses
+`module_evidence::computed_module_rollback_plan_hash`, clears retained
+candidate bytes through `module_candidate_intake::clear`, and does not reuse
+`drop_service()` for rollback. The granted selftest is now 8 cases, adding
+recorded-promotion restore verification, no-promotion fail-closed denial, and
+one-shot second-apply denial. `shadow-vm-smoke.ps1 -Profile m6d-rollback` is
+wired for orchestrator VM proof; live PS5.1 dev-key signing remains
+informational, with the positive rollback path proven by the in-guest selftest.
+M6D-1 does not touch `raios-core/src/scoped_rollback_apply.rs`, AHCI/storage
+authority, rollback writer bindings, or the generic durable
+`raios.module_load_gate.v0`; no disk write or persistence is introduced.
+
+NEXT - M6D-2 (deferred durable promotion transaction via the M3
+append/readback/inspect substrate + rollback plan/executor) - this is the
+first M6D slice that may flip the GENERIC durable load gate. Then M7+. Keep
+persistence, generic (non-`svc.demo.hello`) durable audit/rollback writes,
+executable candidate-byte mapping, provider auto-load, broad mutation, and
+installed rollback state denied unless the M6D-2/M7 gates say otherwise.
+External candidate INTAKE remains allowed over the real serial channel;
+dev-key-granted current-boot external candidate load/run/rollback is RAM-only
 and not owner-sealed.
 
 Latest host-tool verification: after the 2026-07-03 local report-timestamp

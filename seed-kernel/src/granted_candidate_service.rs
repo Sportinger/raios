@@ -1,6 +1,6 @@
 use alloc::{vec, vec::Vec};
 
-use raios_core::record::Value as V;
+use raios_core::record::{sha256_of_json, Value as V};
 use spin::Mutex;
 
 use crate::{
@@ -12,9 +12,9 @@ use crate::{
         record_static_str_array, record_str as s, record_str_or_null,
     },
     current_boot_service::{self, ServiceDescriptor, ServiceState},
-    event_log,
+    echo_service, event_log, hello_service,
     module_candidate_intake::{self, RetainedExternalWasmCandidate},
-    module_evidence, wasm_runtime,
+    module_evidence, service_inventory, wasm_runtime,
 };
 
 pub(crate) const GRANTED_CANDIDATE_SERVICE_DESCRIPTOR: ServiceDescriptor = ServiceDescriptor {
@@ -72,16 +72,35 @@ const SERVICE_VERSION: &str = "v0";
 const GRANTED_ENTRYPOINT: &str = "raios_service_main";
 const TRUST_TIER_GRANTED: &str = "dev_key_not_owner_sealed";
 const TRUST_TIER_DENIED: &str = "unsealed_no_grant";
+const CLEANUP_ACTIONS: &[&str] = &["stop", "drop_clear_bytes", "free_slot", "remove_inventory"];
+const CLEANUP_ACTIONS_CANONICAL: &[u8] = b"stop\ndrop_clear_bytes\nfree_slot\nremove_inventory";
 const LIFECYCLE_EVIDENCE: &[&str] = &[
     "module.submit_candidate_finalize",
     "module.grant_diagnostic",
     "module.attestation_diagnostic",
     "wasmi_linker_import_surface",
 ];
+const ROLLBACK_EVIDENCE: &[&str] = &[
+    "raios.rollback_plan.v0",
+    "module.submit_candidate_finalize",
+    "service.inventory",
+];
 pub(crate) const CAPABILITIES: &[&str] = &[
     "cap.module.load_ephemeral.dev_tier.current_boot",
     "cap.service.health.read",
+    "cap.service.granted_candidate.rollback_preview.read",
+    "cap.service.granted_candidate.rollback_apply.current_boot",
 ];
+
+#[derive(Clone, Copy)]
+pub(crate) struct PromotionRecord {
+    pub(crate) plan_hash: [u8; 32],
+    pub(crate) pre_load_inventory_hash: [u8; 32],
+    pub(crate) ram_only_service_slot_id: &'static str,
+    pub(crate) generation: u64,
+    pub(crate) load_event_id: event_log::EventId,
+    pub(crate) artifact_hash: [u8; 32],
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct Snapshot {
@@ -101,6 +120,7 @@ pub(crate) struct Snapshot {
     pub(crate) start_event_id: Option<event_log::EventId>,
     pub(crate) stop_event_id: Option<event_log::EventId>,
     pub(crate) drop_event_id: Option<event_log::EventId>,
+    pub(crate) promotion: Option<PromotionRecord>,
 }
 
 #[derive(Clone, Copy)]
@@ -148,6 +168,7 @@ struct State {
     last_fuel_used: u64,
     last_log_line_emitted: bool,
     trust_tier: &'static str,
+    promotion: Option<PromotionRecord>,
 }
 
 impl State {
@@ -159,6 +180,7 @@ impl State {
             last_fuel_used: 0,
             last_log_line_emitted: false,
             trust_tier: TRUST_TIER_DENIED,
+            promotion: None,
         }
     }
 
@@ -181,6 +203,7 @@ impl State {
             start_event_id: service.start_event_id,
             stop_event_id: service.stop_event_id,
             drop_event_id: service.drop_event_id,
+            promotion: self.promotion,
         }
     }
 }
@@ -206,6 +229,16 @@ struct ActionResult {
     capability_denied: bool,
 }
 
+struct RollbackResult {
+    snapshot: Snapshot,
+    event_id: event_log::EventId,
+    promotion: Option<PromotionRecord>,
+    reprojected_inventory_hash: Option<[u8; 32]>,
+    restored_inventory_hash_verified: bool,
+    capability_denied: bool,
+    reason: &'static str,
+}
+
 struct SelftestCase {
     name: &'static str,
     capability_denied: bool,
@@ -214,6 +247,9 @@ struct SelftestCase {
     fuel_used: u64,
     trust_tier: &'static str,
     live_load_projection: Option<LiveLoadProjection>,
+    durable: bool,
+    rollback_restore_hash_verified: bool,
+    second_rollback_apply_denied: bool,
     passed: bool,
 }
 
@@ -297,6 +333,14 @@ pub(crate) fn is_drop_method(method: &str) -> bool {
         && (granted_candidate_ready() || loaded_snapshot().is_some())
 }
 
+pub(crate) fn is_rollback_preview_method(method: &str) -> bool {
+    target_arg_matches(method, "service.rollback_preview")
+}
+
+pub(crate) fn is_rollback_apply_method(method: &str) -> bool {
+    target_arg_matches(method, "service.rollback_apply")
+}
+
 pub(crate) fn is_selftest_method(method: &str) -> bool {
     method_eq(method, "module.granted_candidate_selftest")
 }
@@ -324,6 +368,18 @@ pub(crate) fn emit_drop(_method: &str) -> &'static str {
     let result = drop_service("service.drop");
     emit_response("service.drop", "drop", result);
     "service.drop"
+}
+
+pub(crate) fn emit_rollback_preview(_method: &str) -> &'static str {
+    let result = rollback_preview("service.rollback_preview");
+    emit_rollback_response("service.rollback_preview", "rollback_preview", result);
+    "service.rollback_preview"
+}
+
+pub(crate) fn emit_rollback_apply(_method: &str) -> &'static str {
+    let result = rollback_apply("service.rollback_apply");
+    emit_rollback_response("service.rollback_apply", "rollback_apply", result);
+    "service.rollback_apply"
 }
 
 pub(crate) fn emit_selftest() -> &'static str {
@@ -413,7 +469,16 @@ fn load(source_method: &'static str) -> ActionResult {
     );
 
     if can_load {
-        state.service.generation = state.service.generation.saturating_add(1);
+        let generation = state.service.generation.saturating_add(1);
+        if let Some(candidate) = retained.as_ref() {
+            state.promotion = Some(build_promotion_record(
+                candidate.sha256,
+                service_inventory_projection_hash(None),
+                generation,
+                event_id,
+            ));
+        }
+        state.service.generation = generation;
         state.service.loaded = true;
         state.service.running = false;
         state.service.load_event_id = Some(event_id);
@@ -585,6 +650,7 @@ fn drop_service(source_method: &'static str) -> ActionResult {
 
     if was_loaded {
         module_candidate_intake::clear();
+        state.promotion = None;
     }
     state.service.loaded = false;
     state.service.running = false;
@@ -604,6 +670,141 @@ fn drop_service(source_method: &'static str) -> ActionResult {
         run: None,
         authorization,
         capability_denied: !was_loaded,
+    }
+}
+
+fn rollback_preview(source_method: &'static str) -> RollbackResult {
+    let snapshot = STATE.lock().snapshot();
+    let promotion = snapshot.promotion;
+    let reason = if promotion.is_some() {
+        "rollback_plan_recorded_ram_only"
+    } else {
+        "no_recorded_promotion_to_roll_back"
+    };
+    let event_id = event_log::record_service_lifecycle_unbound(
+        &GRANTED_CANDIDATE_SERVICE_DESCRIPTOR,
+        source_method,
+        if promotion.is_some() {
+            "response"
+        } else {
+            "capability_denied"
+        },
+        reason,
+        ROLLBACK_EVIDENCE,
+    );
+
+    RollbackResult {
+        snapshot,
+        event_id,
+        promotion,
+        reprojected_inventory_hash: None,
+        restored_inventory_hash_verified: false,
+        capability_denied: promotion.is_none(),
+        reason,
+    }
+}
+
+fn rollback_apply(source_method: &'static str) -> RollbackResult {
+    let promotion = {
+        let state = STATE.lock();
+        if state.promotion.is_none() {
+            drop(state);
+            return rollback_apply_denied_no_promotion(source_method);
+        }
+        state.promotion.unwrap()
+    };
+
+    {
+        let mut state = STATE.lock();
+        state.service.running = false;
+    }
+    module_candidate_intake::clear();
+    {
+        let mut state = STATE.lock();
+        state.service.loaded = false;
+        state.service.running = false;
+        state.service.state_counter = 0;
+        state.last_run_outcome = "not_run";
+        state.last_return_value = None;
+        state.last_fuel_used = 0;
+        state.last_log_line_emitted = false;
+    }
+
+    let reprojected_inventory_hash = service_inventory_projection_hash(None);
+    let restored_inventory_hash_verified =
+        reprojected_inventory_hash == promotion.pre_load_inventory_hash;
+    let reason = if restored_inventory_hash_verified {
+        "unpromoted_dev_key_granted_external_wasm_current_boot"
+    } else {
+        "rollback_restore_inventory_hash_mismatch"
+    };
+    let event_id = event_log::record_service_lifecycle_unbound(
+        &GRANTED_CANDIDATE_SERVICE_DESCRIPTOR,
+        source_method,
+        if restored_inventory_hash_verified {
+            "response"
+        } else {
+            "capability_denied"
+        },
+        reason,
+        ROLLBACK_EVIDENCE,
+    );
+
+    let mut state = STATE.lock();
+    state.service.loaded = false;
+    state.service.running = false;
+    state.service.state_counter = 0;
+    state.service.stop_event_id = Some(event_id);
+    state.service.drop_event_id = Some(event_id);
+    state.service.last_action = "rollback_apply";
+    state.service.last_reason = reason;
+    state.service.last_inventory_change = if restored_inventory_hash_verified {
+        "removed_current_boot_service"
+    } else {
+        "restore_hash_mismatch_removed_current_boot_service"
+    };
+    state.service.last_event_id = Some(event_id);
+    state.last_run_outcome = "not_run";
+    state.last_return_value = None;
+    state.last_fuel_used = 0;
+    state.last_log_line_emitted = false;
+    state.trust_tier = TRUST_TIER_GRANTED;
+    if restored_inventory_hash_verified {
+        state.promotion = None;
+    }
+    RollbackResult {
+        snapshot: state.snapshot(),
+        event_id,
+        promotion: Some(promotion),
+        reprojected_inventory_hash: Some(reprojected_inventory_hash),
+        restored_inventory_hash_verified,
+        capability_denied: !restored_inventory_hash_verified,
+        reason,
+    }
+}
+
+fn rollback_apply_denied_no_promotion(source_method: &'static str) -> RollbackResult {
+    let event_id = event_log::record_service_lifecycle_unbound(
+        &GRANTED_CANDIDATE_SERVICE_DESCRIPTOR,
+        source_method,
+        "capability_denied",
+        "no_recorded_promotion_to_roll_back",
+        ROLLBACK_EVIDENCE,
+    );
+    let mut state = STATE.lock();
+    state.service.last_action = "rollback_apply";
+    state.service.last_reason = "no_recorded_promotion_to_roll_back";
+    state.service.last_inventory_change = "none";
+    state.service.last_event_id = Some(event_id);
+    state.trust_tier = TRUST_TIER_GRANTED;
+    RollbackResult {
+        snapshot: state.snapshot(),
+        event_id,
+        promotion: None,
+        reprojected_inventory_hash: None,
+        restored_inventory_hash_verified: false,
+        capability_denied: true,
+        reason: "no_recorded_promotion_to_roll_back",
     }
 }
 
@@ -709,6 +910,142 @@ pub(crate) fn service_slot_activation_hash() -> [u8; 32] {
     )
 }
 
+fn build_promotion_record(
+    artifact_hash: [u8; 32],
+    pre_load_inventory_hash: [u8; 32],
+    generation: u64,
+    load_event_id: event_log::EventId,
+) -> PromotionRecord {
+    let cleanup_actions_hash = cleanup_actions_hash();
+    PromotionRecord {
+        plan_hash: module_evidence::computed_module_rollback_plan_hash(
+            artifact_hash,
+            pre_load_inventory_hash,
+            GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.ram_only_service_slot_id,
+            cleanup_actions_hash,
+        ),
+        pre_load_inventory_hash,
+        ram_only_service_slot_id: GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.ram_only_service_slot_id,
+        generation,
+        load_event_id,
+        artifact_hash,
+    }
+}
+
+fn cleanup_actions_hash() -> [u8; 32] {
+    raios_core::sha256_bytes(CLEANUP_ACTIONS_CANONICAL)
+}
+
+fn service_inventory_projection_hash(granted: Option<Snapshot>) -> [u8; 32] {
+    let mut services = Vec::new();
+    let mut idx = 0usize;
+    while idx < service_inventory::SERVICES.len() {
+        services.push(record_static_inventory_service(
+            &service_inventory::SERVICES[idx],
+        ));
+        idx += 1;
+    }
+    if let Some(echo) = echo_service::loaded_snapshot() {
+        services.push(record_echo_inventory_projection(echo));
+    }
+    if let Some(granted) = granted {
+        services.push(record_granted_inventory_projection(granted));
+    }
+    if let Some(hello) = hello_service::loaded_snapshot() {
+        services.push(record_hello_inventory_projection(hello));
+    }
+    sha256_of_json(&V::InlineObject(vec![
+        f("schema", s("service.inventory.v0")),
+        f("projection", s("pre_load_ordered_service_inventory")),
+        f("services", V::InlineArray(services)),
+    ]))
+}
+
+fn record_static_inventory_service(service: &service_inventory::Service) -> V<'static> {
+    V::InlineObject(vec![
+        f("id", s(service.id)),
+        f("kind", s(service.kind)),
+        f("replaceable", b(service.replaceable)),
+        f("core_owned", b(service.core_owned)),
+        f(
+            "capabilities",
+            record_static_str_array(service.capabilities),
+        ),
+    ])
+}
+
+fn record_echo_inventory_projection(echo: echo_service::Snapshot) -> V<'static> {
+    let descriptor = echo_service::ECHO_SERVICE_DESCRIPTOR;
+    V::InlineObject(vec![
+        f("id", s(descriptor.service_id)),
+        f("kind", s(descriptor.inventory_kind)),
+        f("health", s(echo_service::health_state(echo))),
+        f("scope", s(descriptor.scope)),
+        f("persistence", s(descriptor.persistence)),
+        f("artifact_id", s(descriptor.artifact_id)),
+        f(
+            "ram_only_service_slot_id",
+            s(descriptor.ram_only_service_slot_id),
+        ),
+        f("running", b(echo.running)),
+        f("generation", V::U64(echo.generation)),
+        f("run_count", V::U64(echo.run_count)),
+        f("last_run_outcome", s(echo.last_run_outcome)),
+        f("last_action", s(echo.last_action)),
+    ])
+}
+
+fn record_granted_inventory_projection(granted: Snapshot) -> V<'static> {
+    let descriptor = GRANTED_CANDIDATE_SERVICE_DESCRIPTOR;
+    V::InlineObject(vec![
+        f("id", s(descriptor.service_id)),
+        f("kind", s(descriptor.inventory_kind)),
+        f("health", s(health_state(granted))),
+        f("scope", s(descriptor.scope)),
+        f("persistence", s(descriptor.persistence)),
+        f("classification", s(descriptor.classification)),
+        f("artifact_id", s(descriptor.artifact_id)),
+        f("artifact_kind", s(descriptor.artifact_kind)),
+        f("trust_tier", s(granted.trust_tier)),
+        f(
+            "ram_only_service_slot_id",
+            s(descriptor.ram_only_service_slot_id),
+        ),
+        f("running", b(granted.running)),
+        f("generation", V::U64(granted.generation)),
+        f("run_count", V::U64(granted.run_count)),
+        f("last_run_outcome", s(granted.last_run_outcome)),
+        f("last_action", s(granted.last_action)),
+    ])
+}
+
+fn record_hello_inventory_projection(hello: hello_service::Snapshot) -> V<'static> {
+    let descriptor = hello_service::HELLO_SERVICE_DESCRIPTOR;
+    V::InlineObject(vec![
+        f("id", s(descriptor.service_id)),
+        f("kind", s(descriptor.inventory_kind)),
+        f(
+            "health",
+            s(if hello.running {
+                descriptor.inventory_health_running
+            } else {
+                descriptor.inventory_health_stopped
+            }),
+        ),
+        f("scope", s(descriptor.scope)),
+        f("persistence", s(descriptor.persistence)),
+        f("artifact_id", s(descriptor.artifact_id)),
+        f(
+            "ram_only_service_slot_id",
+            s(descriptor.ram_only_service_slot_id),
+        ),
+        f("running", b(hello.running)),
+        f("generation", V::U64(hello.generation)),
+        f("run_count", V::U64(hello.state_counter)),
+        f("last_action", s(hello.last_action)),
+    ])
+}
+
 pub(crate) fn record_live_load_projection(projection: LiveLoadProjection) -> V<'static> {
     V::Object(vec![
         f("present", b(projection.present)),
@@ -754,6 +1091,12 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
                 "classification",
                 s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.classification),
             ),
+            f(
+                "persistence",
+                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.persistence),
+            ),
+            f("durable", b(false)),
+            f("owner_sealed", b(false)),
             f("method", s(method)),
             f("action", s(action)),
             f(
@@ -831,6 +1174,7 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
             f("entrypoint", s(GRANTED_ENTRYPOINT)),
             f("run_evidence", record_run_evidence(result.run.as_ref())),
             f("last_run_evidence", record_last_run(snapshot)),
+            f("rollback_plan", record_rollback_plan(snapshot.promotion)),
             f("capabilities", record_static_str_array(CAPABILITIES)),
             f("accepts_external_artifact_bytes", b(true)),
             f("loads_external_artifact", b(true)),
@@ -846,6 +1190,196 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
     );
     crate::agent_protocol_support::raw_line("      \"evidence_complete\": true");
     end_response(method);
+}
+
+fn emit_rollback_response(method: &'static str, action: &'static str, result: RollbackResult) {
+    let snapshot = result.snapshot;
+    begin_response(method);
+    emit_record_fields_trailing_comma(
+        vec![
+            f("schema", s(LIFECYCLE_RESPONSE_SCHEMA)),
+            f("scope", s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.scope)),
+            f(
+                "classification",
+                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.classification),
+            ),
+            f(
+                "persistence",
+                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.persistence),
+            ),
+            f("durable", b(false)),
+            f("owner_sealed", b(false)),
+            f("method", s(method)),
+            f("action", s(action)),
+            f(
+                "event_kind",
+                s(if action == "rollback_apply" {
+                    GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.event_rollback_apply_kind
+                } else {
+                    GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.event_rollback_preview_kind
+                }),
+            ),
+            f(
+                "code",
+                s(if result.capability_denied {
+                    "capability_denied"
+                } else {
+                    "ok"
+                }),
+            ),
+            f("trust_tier", s(TRUST_TIER_GRANTED)),
+            f(
+                "service_id",
+                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id),
+            ),
+            f(
+                "artifact_id",
+                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.artifact_id),
+            ),
+            f(
+                "artifact_kind",
+                s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.artifact_kind),
+            ),
+            f("version", s(SERVICE_VERSION)),
+            f("health", s(health_state(snapshot))),
+            f("loaded", b(snapshot.loaded)),
+            f("running", b(snapshot.running)),
+            f("generation", V::U64(snapshot.generation)),
+            f("run_count", V::U64(snapshot.run_count)),
+            f("last_action", s(snapshot.last_action)),
+            f("reason", s(result.reason)),
+            f(
+                "service_inventory_change",
+                s(snapshot.last_inventory_change),
+            ),
+            f(
+                "service_slot_activation",
+                record_service_slot_activation(snapshot),
+            ),
+            f("event_id", record_event_or_null(Some(result.event_id))),
+            f(
+                "load_event_id",
+                record_event_or_null(snapshot.load_event_id),
+            ),
+            f(
+                "start_event_id",
+                record_event_or_null(snapshot.start_event_id),
+            ),
+            f(
+                "stop_event_id",
+                record_event_or_null(snapshot.stop_event_id),
+            ),
+            f(
+                "drop_event_id",
+                record_event_or_null(snapshot.drop_event_id),
+            ),
+            f("rollback_plan", record_rollback_plan(result.promotion)),
+            f(
+                "rollback_verification",
+                record_rollback_verification(&result),
+            ),
+            f("capabilities", record_static_str_array(CAPABILITIES)),
+            f("accepts_external_artifact_bytes", b(true)),
+            f("loads_external_artifact", b(true)),
+            f("maps_executable_pages", b(false)),
+            f("writes_persistent_state", b(false)),
+            f("authorizes_persistent_install", b(false)),
+            f("authorizes_rollback_install", b(false)),
+            f("durable_writes_enabled", b(false)),
+            f(
+                "rollback_apply_authorized",
+                b(action == "rollback_apply" && !result.capability_denied),
+            ),
+            f("broad_mutation_authorized", b(false)),
+        ],
+        6,
+    );
+    crate::agent_protocol_support::raw_line("      \"evidence_complete\": true");
+    end_response(method);
+}
+
+fn record_rollback_plan(promotion: Option<PromotionRecord>) -> V<'static> {
+    V::Object(vec![
+        f("schema", s("raios.rollback_plan.v0")),
+        f("present", b(promotion.is_some())),
+        f("scope", s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.scope)),
+        f(
+            "classification",
+            s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.classification),
+        ),
+        f("trust_tier", s(TRUST_TIER_GRANTED)),
+        f("durable", b(false)),
+        f("owner_sealed", b(false)),
+        f(
+            "persistence",
+            s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.persistence),
+        ),
+        f("cross_boot", b(false)),
+        f(
+            "plan_hash",
+            record_sha_or_null(promotion.map(|record| record.plan_hash)),
+        ),
+        f(
+            "artifact_hash",
+            record_sha_or_null(promotion.map(|record| record.artifact_hash)),
+        ),
+        f(
+            "pre_load_service_inventory_hash",
+            record_sha_or_null(promotion.map(|record| record.pre_load_inventory_hash)),
+        ),
+        f(
+            "cleanup_actions_hash",
+            record_sha_or_null(promotion.map(|_| cleanup_actions_hash())),
+        ),
+        f(
+            "ram_only_service_slot_id",
+            record_str_or_null(promotion.map(|record| record.ram_only_service_slot_id)),
+        ),
+        f(
+            "generation",
+            promotion
+                .map(|record| V::U64(record.generation))
+                .unwrap_or(V::Null),
+        ),
+        f(
+            "load_event_id",
+            record_event_or_null(promotion.map(|record| record.load_event_id)),
+        ),
+        f("cleanup_actions", record_static_str_array(CLEANUP_ACTIONS)),
+        f("writes_persistent_state", b(false)),
+        f("authorizes_rollback_install", b(false)),
+    ])
+}
+
+fn record_rollback_verification(result: &RollbackResult) -> V<'static> {
+    V::Object(vec![
+        f(
+            "pre_load_service_inventory_hash",
+            record_sha_or_null(
+                result
+                    .promotion
+                    .map(|record| record.pre_load_inventory_hash),
+            ),
+        ),
+        f(
+            "reprojected_service_inventory_hash",
+            record_sha_or_null(result.reprojected_inventory_hash),
+        ),
+        f(
+            "restore_hash_verified",
+            b(result.restored_inventory_hash_verified),
+        ),
+        f("stopped", b(!result.snapshot.running)),
+        f("drop_clear_bytes", b(result.promotion.is_some())),
+        f("free_slot", b(!result.snapshot.loaded)),
+        f("remove_inventory", b(!result.snapshot.loaded)),
+        f("durable", b(false)),
+        f("owner_sealed", b(false)),
+        f(
+            "persistence",
+            s(GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.persistence),
+        ),
+    ])
 }
 
 fn record_service_slot_activation(snapshot: Snapshot) -> V<'static> {
@@ -976,6 +1510,18 @@ fn run_selftest_cases() -> Vec<SelftestCase> {
             Some(selftest_loaded_projection_snapshot()),
         ),
         run_projection_selftest_case("live_load_projection_not_loaded", None),
+        run_rollback_selftest_case(
+            "rollback_apply_recorded_promotion_restores_inventory",
+            SelftestRollbackMode::RecordedPromotion,
+        ),
+        run_rollback_selftest_case(
+            "rollback_apply_no_promotion_denied",
+            SelftestRollbackMode::NoPromotion,
+        ),
+        run_rollback_selftest_case(
+            "rollback_apply_one_shot_second_denied",
+            SelftestRollbackMode::OneShot,
+        ),
     ]
 }
 
@@ -984,6 +1530,13 @@ enum SelftestMode {
     Granted,
     Ungranted,
     HashMismatch,
+}
+
+#[derive(Clone, Copy)]
+enum SelftestRollbackMode {
+    RecordedPromotion,
+    NoPromotion,
+    OneShot,
 }
 
 fn run_selftest_case(name: &'static str, mode: SelftestMode) -> SelftestCase {
@@ -1039,6 +1592,61 @@ fn run_selftest_case(name: &'static str, mode: SelftestMode) -> SelftestCase {
         fuel_used,
         trust_tier: authorization.trust_tier,
         live_load_projection: None,
+        durable: false,
+        rollback_restore_hash_verified: false,
+        second_rollback_apply_denied: false,
+        passed,
+    }
+}
+
+fn run_rollback_selftest_case(name: &'static str, mode: SelftestRollbackMode) -> SelftestCase {
+    let pre_load_inventory_hash = service_inventory_projection_hash(None);
+    let promotion = build_promotion_record(
+        wasm_runtime::ECHO_WASM_ARTIFACT_BYTES_HASH,
+        pre_load_inventory_hash,
+        1,
+        selftest_event_id(61),
+    );
+    let expected_plan_hash = module_evidence::computed_module_rollback_plan_hash(
+        wasm_runtime::ECHO_WASM_ARTIFACT_BYTES_HASH,
+        pre_load_inventory_hash,
+        GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.ram_only_service_slot_id,
+        cleanup_actions_hash(),
+    );
+    let reprojected_inventory_hash = service_inventory_projection_hash(None);
+    let restore_hash_verified = reprojected_inventory_hash == promotion.pre_load_inventory_hash;
+    let plan_hash_verified = promotion.plan_hash == expected_plan_hash;
+
+    let (capability_denied, second_rollback_apply_denied, passed) = match mode {
+        SelftestRollbackMode::RecordedPromotion => (
+            false,
+            false,
+            plan_hash_verified
+                && restore_hash_verified
+                && promotion.artifact_hash == wasm_runtime::ECHO_WASM_ARTIFACT_BYTES_HASH,
+        ),
+        SelftestRollbackMode::NoPromotion => (true, false, true),
+        SelftestRollbackMode::OneShot => (false, true, plan_hash_verified && restore_hash_verified),
+    };
+
+    SelftestCase {
+        name,
+        capability_denied,
+        instantiation_ok: false,
+        run_outcome: if restore_hash_verified {
+            "rollback_restore_hash_verified"
+        } else {
+            "rollback_restore_hash_mismatch"
+        },
+        fuel_used: 0,
+        trust_tier: TRUST_TIER_GRANTED,
+        live_load_projection: None,
+        durable: false,
+        rollback_restore_hash_verified: matches!(
+            mode,
+            SelftestRollbackMode::RecordedPromotion | SelftestRollbackMode::OneShot
+        ) && restore_hash_verified,
+        second_rollback_apply_denied,
         passed,
     }
 }
@@ -1058,6 +1666,15 @@ fn record_selftest_case(case: &SelftestCase) -> V<'static> {
             record_live_load_projection(projection),
         ));
     }
+    fields.push(f("durable", b(case.durable)));
+    fields.push(f(
+        "rollback_restore_hash_verified",
+        b(case.rollback_restore_hash_verified),
+    ));
+    fields.push(f(
+        "second_rollback_apply_denied",
+        b(case.second_rollback_apply_denied),
+    ));
     fields.push(f("passed", b(case.passed)));
     V::InlineObject(fields)
 }
@@ -1098,6 +1715,9 @@ fn run_projection_selftest_case(name: &'static str, snapshot: Option<Snapshot>) 
         fuel_used: 0,
         trust_tier: projection.trust_tier,
         live_load_projection: Some(projection),
+        durable: false,
+        rollback_restore_hash_verified: false,
+        second_rollback_apply_denied: false,
         passed,
     }
 }
@@ -1120,6 +1740,7 @@ fn selftest_loaded_projection_snapshot() -> Snapshot {
         start_event_id: None,
         stop_event_id: None,
         drop_event_id: None,
+        promotion: None,
     }
 }
 

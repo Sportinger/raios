@@ -3,11 +3,11 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M6C-2 — the granted outside program now RUNS and the
-diagnostics tell the truth about it: inventory shows it, the slot diagnostic
-shows its RAM slot, and loader-runtime shows the live dev-key RAM-only run
-without pretending native/durable/owner-sealed loading exists. Undo/durable-save
-(M6D) and your own key sealing come next).
+Updated: 2026-07-06 (M6D-1 - the granted outside program can now be undone
+inside the current boot: rollback_apply stops it, clears its retained bytes,
+removes its RAM slot from inventory, and verifies the inventory is back to the
+pre-load baseline. Durable save remains M6D-2; your own key sealing comes
+later).
 
 ## What raiOS can actually do today
 
@@ -82,16 +82,14 @@ moment: one AI-authored artifact travels
 the whole safe loop end to end — authored, tested in the Shadow VM,
 capability-granted, promoted live, and rolled back — with evidence at
 every step. Split into M6A (candidate intake) → M6B (grant) → M6C
-(promote) → M6D (rollback). **M6A + M6B + M6C done.** The full early loop
-now works: a real outside program is received over the console, checked,
-its identity recorded, granted its rights, loaded, and run inside the sandbox.
-M6C-2 fixed the honest-read surfaces: when that RAM-only dev-key service is
-live, service inventory, slot diagnostics, and loader-runtime projection all
-show it without claiming durable/native/owner-sealed authority. Today's signing
-key is a deliberate DEV key so the whole loop can be built and tested; **your
-own key K seals it for real later** — that swap flips "dev" to "owned".
-**Next: M6D — undo a run (rollback) + durable save, then M7+ (survive a
-restart).**
+(promote) -> M6D (rollback). **M6A + M6B + M6C + M6D-1 done.** The
+dev-tier RAM loop now works: a real outside program is received over the
+console, checked, its identity recorded, granted its rights, loaded, run inside
+the sandbox, and rolled back in RAM through a verified undo path. M6D-1 does
+not save anything to disk and does not claim durable/native/owner-sealed
+authority. Today's signing key is a deliberate DEV key so the loop can be built
+and tested; **your own key K seals it for real later**. **Next: M6D-2 - durable
+save, then M7+ (survive a restart).**
 
 ## Top risk
 

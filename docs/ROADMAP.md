@@ -32,8 +32,13 @@ UNCHANGED M4 envelope (`granted_candidate_service.rs`), and the live run is
 truthfully visible in `service.inventory`, `module.service_slot_diagnostic`,
 and one additive `module.loader_runtime` projection. Native page-mapping
 loader readiness, persistence/durable writes, owner-seal, and native guest load
-stay false. Next: **M6D** (durable promotion transaction + rollback
-plan/executor), then M7+.
+stay false. **M6D-1 done:** that RAM-only dev-key service can now be
+UN-PROMOTED through `service.rollback_apply svc.dev.granted_candidate`, which
+uses a recorded RAM rollback plan, clears the retained bytes, removes the RAM
+slot from `service.inventory`, and verifies the projected inventory hash is
+back to the pre-load baseline. Persistence/durable writes, owner-seal, and the
+generic durable load gate still stay denied. Next: **M6D-2** (deferred durable
+promotion transaction + rollback plan/executor), then M7+.
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small
