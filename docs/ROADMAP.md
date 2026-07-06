@@ -411,17 +411,25 @@ failure evidenced).
 
 M4 closed (see above).
 
+M5-1 done: design map at
+`docs/plan-reviews/m5-second-service-map-2026-07-06.md`. Recommended
+path: extract a shared `current_boot_service` shell driven by
+ServiceDescriptor (NOT a hello copy = 19k+ lines = fail). Estimate
+~900-1,800 net lines for the minimal echo surface. Honest verdict: the
+live positive service path is still hello-hardcoded at dispatch,
+inventory, event-log binding, descriptor lookup, capability table, and
+audit schemas — M5 legitimately includes generalizing those.
+
 Exact next task:
 
 ```text
-Open M5 (Second Service Proof) with a scoping slice: the echo wasm guest
-already exists and runs isolated. M5's test: promote svc.demo.echo to a
-REAL current-boot service (load/start/health/inventory/stop) costing
-ONLY a ServiceDescriptor + state machine — reusing the M2 ServiceDescriptor,
-the M3 durable-write path, and the M4 wasm envelope, with NO new
-emitters/hash-chains/harness profiles beyond generated needles. Map what
-echo needs vs what hello already provides; if it costs tens of thousands
-of lines, the architecture failed its own claim — measure honestly.
+M5 slice 1 (generic shell, byte-identical for hello): extract the
+ServiceDescriptor + minimal generic ServiceState + target matching into
+shared current-boot-service code; hello uses it with ZERO output change
+(re-sign hello since moved code is in its attested source set). Verify
+hello-rollback-dry-run + quick + full byte-identical. Then slices 2-5
+per the map (event-log generalization, echo descriptor, echo wasm start
+path, lifecycle completion).
 ```
 
 ## Capability Milestones
