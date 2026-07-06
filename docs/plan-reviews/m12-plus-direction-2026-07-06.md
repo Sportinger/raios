@@ -7,6 +7,14 @@ milestone opens, following the M6/M7-M11 map conventions — including the
 mandatory Slice 0 "map revalidation" (re-check every file:line claim against
 HEAD, update and commit the map before implementation).
 
+**ORCHESTRATOR RULE: nothing in this document is dispatchable.** No worker
+packet may be derived from it. When an M12+ item becomes relevant, the only
+valid action is: STOP, present the relevant OWNER DECISION block to the owner,
+and only after written owner approval author a full design map in
+`docs/plan-reviews/` following the M7-M11 map conventions (including Slice 0
+revalidation). Milestone numbers for M12+ items are assigned by the owner when
+each opens; the order list at the end is priority, not numbering.
+
 Execution preconditions for everything here: M6 (promotion loop) CLOSED, M7
 (persistence) CLOSED, plus the per-item prerequisites below. Nothing starts
 early because a worker has spare capacity: the order M7 → M8 → M9 → M10 → M11
