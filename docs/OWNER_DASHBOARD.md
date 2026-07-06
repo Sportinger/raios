@@ -3,7 +3,7 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 morning (M4 CLOSED — real Wasm isolation works).
+Updated: 2026-07-06 morning (M5 CLOSED — second service proved the rebuild).
 
 ## What raiOS can actually do today
 
@@ -57,11 +57,20 @@ fails to load. Four hostile-guest cases (broken bytes, memory hog,
 infinite loop, crash) all end as clean evidence, never a kernel crash.
 Proven: 465/465 checks incl. 49 wasm-specific ones.
 
-Now active: **M5 Second Service Proof** — the acceptance test of the
-whole rebuild: adding a SECOND service (the echo wasm guest, which
-already runs isolated) should cost only a descriptor + a state machine,
-not another huge file. If it does, M2's refactor and M4's runtime truly
-generalized. Scoping now.
+**M5 is CLOSED — the rebuild is vindicated.** Adding a whole second
+service (echo, which loads, runs its sandboxed wasm, reports health,
+appears in the inventory, stops) cost **~1,060 lines** — a descriptor
+plus a small state machine reusing everything built in M2–M4. A copy of
+the old approach would have been ~19,000 lines. That number IS the proof
+that the giant refactor worked: the system can now grow by services, not
+by monoliths. Verified: 486/486 checks (67 echo-specific) + full profile
+7,825/7,825.
+
+Now active: **M6 Promotion Loop v0** — the FINAL milestone and the
+project's first true product moment: one AI-authored artifact travels
+the whole safe loop end to end — authored, tested in the Shadow VM,
+capability-granted, promoted live, and rolled back — with evidence at
+every step. Scoping the gap between what exists and what this needs.
 
 ## Top risk
 

@@ -17,7 +17,18 @@ vocabulary).
 
 Last updated: 2026-07-05.
 
-Current milestone: **M5 Second Service Proof** (see Capability Milestones).
+Current milestone: **M6 Promotion Loop v0** (see Capability Milestones).
+
+**M5 Second Service Proof closed 2026-07-06.** Capability sentence
+verified TRUE: adding svc.demo.echo cost only a descriptor + a small
+state machine (net +1,064 kernel lines) — no new emitters, hash chains,
+or harness profiles beyond generated needles; a hello copy would have
+been ~19k. Echo loads/starts (runs its wasm under the M4 envelope)/
+health/inventory/stop/drop through the shared shell, fail-closed to its
+two imports. Evidence: quick `shadow-20260706-073224-7536.json` 486/486
+(67 echo needles) + FULL `shadow-20260706-073633-23460.json` 7825/7825.
+Slices M5-1..M5-5 (commits db52116..a10f209). The M2 record model, M3
+durable-write posture, and M4 wasm envelope generalized.
 
 **M4 Wasm Isolation closed 2026-07-06.** Capability sentence verified
 TRUE: a service runs inside the in-kernel wasmi interpreter and cannot
@@ -457,12 +468,24 @@ M5-5 +800) — a descriptor + a small state machine reusing the M2 record
 model, M3 durable-write posture, and M4 wasm envelope. A hello copy
 would have been ~19k. The architecture generalized.
 
+M5 closed (see the cursor top). 
+
 Exact next task:
 
 ```text
-M5 closure: full profile over the echo-service tree; if green, the M5
-capability sentence holds — close M5, open M6 (Promotion Loop v0), update
-dashboard, report to owner.
+Open M6 Promotion Loop v0 with a scoping slice (read-only): M6 = one
+external, AI-authored artifact travels the FULL loop — authored,
+Shadow-VM verified, capability-granted, promoted into the live system,
+and rolled back — with evidence at each step. Map what already exists
+(echo is an attested wasm service that loads/starts/stops; hello proves
+rollback-apply with a durable transaction; the Shadow VM produces
+vm_test_report.v0) vs the missing links: (1) an artifact authored
+OUTSIDE the signed build (not embedded at build time) — how does an
+externally-provided .wasm get an identity/attestation without the
+build-time P-256 chain? (2) a promotion transaction that moves it from
+candidate to live under the gate chain; (3) a rollback of that
+promotion. Output: the M6 design map, the honest gap list, and a slice
+plan. This is the project's first true product milestone.
 ```
 
 ## Capability Milestones
