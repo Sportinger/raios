@@ -513,6 +513,27 @@ Add-Predicate `
     -Passed $appendChainHead `
     -Actual $(if ($appendChainHead) { "matched" } else { ($append | ConvertTo-Json -Compress -Depth 8) })
 
+$promotionSelftest = Invoke-ReclogFixtureScanProbe -FixtureSpec "valid:2" -BootCtlSpec "valid-a" -Label "promotion-transaction-selftest" -Method "module.promotion_transaction_selftest"
+$promotionCases = @($promotionSelftest.cases)
+$promotionSelftestOk = (
+    $promotionSelftest.schema -eq "raios.promotion_transaction_append_selftest.v0" -and
+    [bool]$promotionSelftest.passed -and
+    [int64]$promotionSelftest.case_count -eq 8 -and
+    (@($promotionCases | Where-Object { $_.case -eq "promote_authorized_reparse" -and $_.actual_status -eq "appended" -and $_.reparsed -eq $true }).Count -eq 1) -and
+    (@($promotionCases | Where-Object { $_.case -eq "unpromote_authorized_reparse" -and $_.actual_status -eq "appended" -and $_.reparsed -eq $true }).Count -eq 1) -and
+    (@($promotionCases | Where-Object { $_.case -eq "wrong_schema_denied" -and $_.actual_reason -eq "record_schema_mismatch" }).Count -eq 1) -and
+    (@($promotionCases | Where-Object { $_.case -eq "wrong_target_denied" -and $_.actual_reason -eq "target_out_of_scope" }).Count -eq 1) -and
+    (@($promotionCases | Where-Object { $_.case -eq "wrong_kind_denied" -and $_.actual_reason -eq "transaction_kind_out_of_scope" }).Count -eq 1) -and
+    (@($promotionCases | Where-Object { $_.case -eq "signature_not_verified_denied" -and $_.actual_reason -eq "signature_not_verified" }).Count -eq 1) -and
+    (@($promotionCases | Where-Object { $_.case -eq "safe_posture_denied" -and $_.actual_reason -eq "boot_control_safe_mode" }).Count -eq 1) -and
+    (@($promotionCases | Where-Object { $_.case -eq "signature_reference_missing_denied" -and $_.actual_reason -eq "promotion_signature_reference_missing" }).Count -eq 1)
+)
+Add-Predicate `
+    -Name "promotion-transaction-selftest-authorizes-and-denies-scoped-reclog" `
+    -Expected "promotion transaction selftest authorizes promote/unpromote reparses and denies wrong schema/target/kind, unverified signature, SAFE, and missing signature" `
+    -Passed $promotionSelftestOk `
+    -Actual $(if ($promotionSelftestOk) { "matched" } else { ($promotionSelftest | ConvertTo-Json -Compress -Depth 10) })
+
 $fullAppend = Invoke-ReclogFixtureScanProbe -FixtureSpec "full" -BootCtlSpec "valid-a" -Label "full-append" -Method "durable.record_log_append"
 $fullDenied = (
     $fullAppend.durable_append -eq "capability_denied" -and
@@ -612,6 +633,6 @@ Add-Predicate `
     -Passed $absentPassed `
     -Actual $absentActual
 
-if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $bootSuccessMarked -and $bootControlWritePingpong -and $lastGoodAdvance -and $failureCountKeepsLastGood -and $markDeniedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $fullDenied -and $persistDeniedInSafe -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
+if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $bootSuccessMarked -and $bootControlWritePingpong -and $lastGoodAdvance -and $failureCountKeepsLastGood -and $markDeniedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $promotionSelftestOk -and $fullDenied -and $persistDeniedInSafe -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
     throw "Persistence kernel layout validation failed"
 }

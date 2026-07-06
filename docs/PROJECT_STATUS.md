@@ -2926,23 +2926,50 @@ reason the M6D-2b durable record can carry a REAL re-verifiable signature (not a
 summary). RAM-only, no durable write, no owner-sealed/cross-reboot claim,
 `PROMOTION_AUTHORITY_IS_PLACEHOLDER` stays true. Verified: raios-core 79/79
 (unchanged); `-Profile module-audit-rollback` 1709/1709 UNCHANGED-GREEN.
-REMAINING — **M6D-2b:** a new `raios.promotion_transaction.v0` record (one
-`write_json` object binding the full M6 chain — artifact/manifest/vm_report/
-local_attestation/computed_grant hashes, the 4 retained reference-event-id
-strings verbatim, the recomputable attestation_reference_hash, the retained
-signature DER + key fingerprint, plus rollback_plan/pre_load-inventory/slot; for
-un-promote also reprojected_inventory_hash + restore_hash_verified + cleanup
-flags) appended via a NEW sibling scoped evaluator
-`scoped_promotion_transaction_append` on RAIOS_DATA_RECLOG (own method/target/
-schema pins + signature-verified + grant-binding + dev-tier authority gates,
-SAFE-gated), hooked on a VERIFIED promote (load) and VERIFIED un-promote
-(rollback_apply) — fail-closed if the signature reference is absent. The record is
-a COMPLETE self-contained re-verification input so M7D can re-verify the chain
-after reboot (recompute the 32-byte attestation_reference_hash, verify the stored
-DER over it — never trust a stored hash). Dev-tier throughout
-(`persistence_claimed`/`owner_sealed`/`cross_reboot_proven` all false). Then
-**M7D** (persistent artifact store + boot-time re-promotion — survive an actual
-reboot). RECLOG
+**M6D-2b DONE (2026-07-07) → M6D-2 COMPLETE.** On a VERIFIED dev-key promote
+(module LOAD) and VERIFIED un-promote (rollback_apply), raiOS now durably appends
+one self-contained `raios.promotion_transaction.v0` RECLOG record binding the full
+M6 chain (artifact/manifest/vm_report/local_attestation/computed_grant hashes, the
+4 retained reference-event-id strings verbatim, the recomputable
+attestation_reference_hash, the retained signature DER + key fingerprint, plus
+rollback_plan/pre_load-inventory/slot/generation; for un-promote also
+reprojected_inventory_hash + restore_hash_verified + cleanup flags) via a NEW
+sibling scoped evaluator `scoped_promotion_transaction_append` on RAIOS_DATA_RECLOG
+(own method/target/schema pins + 8 added authority pins — signature_verified,
+grant_binds_capability, trust_tier=dev_key_not_owner_sealed, owner_sealed=false,
+promotion_authority_is_placeholder=true, persistence_claimed=false; 40 distinct
+denials). It reuses the payload-agnostic RECLOG codec + the M7B-2 `write_readback_reclog_append`
+writer UNCHANGED (append past the validated tail — a bad seq/prev can only torn the
+NEW tail, never overwrite a boot-marker frame), is SAFE-gated (`boot_control_safe_mode`)
+and complete-or-absent (denies `promotion_signature_reference_missing` when the
+signature is absent), and is hooked NESTED-ONLY + best-effort (the durable append
+never blocks or alters the RAM promote/rollback loop). The record is a COMPLETE
+self-contained re-verification input so M7D can recompute the 32-byte
+attestation_reference_hash and re-verify the stored DER over it (never trusting a
+stored hash/bool). Dev-tier throughout (`persistence_claimed`/`owner_sealed`/
+`cross_reboot_proven` all false, `PROMOTION_AUTHORITY_IS_PLACEHOLDER` true). ZERO
+edits to `scoped_seed_data_append`/`scoped_boot_control_replace`/`scoped_rollback_apply`/
+the write-boundary chain/the boot-marker path/the generic load gate/grant blocked_by/
+audit_rollback diagnostic. Also FIXED a PRE-EXISTING stale needle: the m6c-promotion
+profile asserted `granted_candidate selftest case_count==5` but M6D-1 (c61bf93) had
+grown the selftest to 8 cases (adding 3 rollback cases) without updating it — red
+since M6D-1, never caught because M6D-1 verified via m6d-rollback (==8), not m6c;
+corrected to `==8`. Verified: raios-core 82/82; `-Profile persistence` 41/41;
+`-Profile m6c-promotion` 180/180; `-Profile m6d-rollback` 186/186; max adversarial
+review could_not_refute (all 7 attack classes; one unreachable NIT — EventIdString
+caps at 8 digits, i.e. ≥100,000,000 events/boot, never approached).
+`-Profile module-audit-rollback` 1709/1709 UNCHANGED-GREEN; FULL regression
+8168/8168 GREEN (`shadow-20260707-004402-31444.json`, hash-verified
+7c12f653941147b54a9ddf5d8c698db304ffa3f1036bc96849132d34f00aca5b). M6D-2 is the
+bridge from M6's RAM promotion loop to M7 persistence: an AI-authored module's
+promotion now leaves a durable, independently re-verifiable transaction in the log
+— dev-tier, ready for M7D to re-check after reboot.
+
+NEXT — **M7D** (persistent artifact store + boot-time re-promotion — survive an
+actual reboot): the THIRD scoped write target `blob.artifact_store.seed_data`
+(ARTSTOR) + `raios.artifact_persist.v0` binding the promotion-transaction hash, then
+a two-boot proof that re-verifies this persisted chain after reboot before
+re-promoting. RECLOG
 generic append, generic (non-`svc.demo.hello`) durable audit/rollback writes,
 executable candidate-byte mapping, provider auto-load, broad mutation, ARTSTOR,
 GPT/superblock metadata, and installed rollback state all STAY denied unless the

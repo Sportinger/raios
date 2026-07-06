@@ -109,8 +109,14 @@ mid-write can only damage the spare, never the copy that's currently trusted
 damaged, the system refuses to save anything (safe recovery mode). There's also
 a small offline tool for you to pre-select which copy boots next. raiOS now has
 **two** of its three safe disk-write abilities live (the log, and boot control);
-everything else stays refused. **Next: M7D** — survive an actual reboot, preceded
-by saving the promotion record durably (M6D-2).
+everything else stays refused. And NEW (M6D-2): when raiOS accepts and runs an
+AI-authored module, it writes a durable "promotion receipt" into the log — a
+complete, self-contained record (all the fingerprints plus the dev-key signature)
+that a future boot can *independently re-check* before trusting that module again.
+That is the bridge that makes a promotion survivable. Still within-boot dev-tier
+(the real reboot proof is M7D). **Next: M7D** — survive an actual reboot: the third
+disk-write ability (storing the module's code itself), then re-verifying everything
+after a restart before re-running it.
 
 ## Top risk
 

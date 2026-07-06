@@ -109,9 +109,18 @@ observation. raiOS now has TWO of the three M7 scoped write targets live
 (`append.record_log.seed_data`, `replace.boot_control.seed_data`); everything
 else stays `capability_denied`. Still within-boot dev-tier
 (`persistence_claimed:false`); deterministic firmware slot boot NOT claimed.
-Next: **M7D** — persistent artifact store + boot-time re-promotion (survive an
-actual reboot), preceded by **M6D-2** (durable promotion transaction into
-SEED_DATA), per the M7-0 sequencing.
+**M6D-2 done (2026-07-07).** The bridge from M6's RAM promotion loop to M7
+persistence: on a verified dev-key promote (and un-promote), raiOS durably appends
+a self-contained `raios.promotion_transaction.v0` RECLOG record (the full M6
+evidence chain + the retained dev-key signature) via a NEW sibling scoped evaluator
+`scoped_promotion_transaction_append` — a complete re-verification input so M7D can
+recompute the attestation hash and re-verify the signature after reboot; dev-tier
+throughout (M2a retained the signature DER in RAM; 2b writes the record, SAFE-gated,
+complete-or-absent, nested-only best-effort). Next: **M7D** — persistent artifact
+store + boot-time re-promotion (survive an actual reboot): the THIRD scoped write
+target `blob.artifact_store.seed_data` (ARTSTOR) + `raios.artifact_persist.v0`
+binding the promotion-transaction hash, then a two-boot proof re-verifying the
+persisted chain before re-promoting.
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small

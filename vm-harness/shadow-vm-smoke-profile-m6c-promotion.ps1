@@ -286,7 +286,7 @@ Send-AgentCommand -Command "agent module.granted_candidate_selftest" -ExpectedMa
 $selftest = Get-LastAgentResponseJson -Method "module.granted_candidate_selftest"
 $selftestOk = (
     $selftest.body.result.passed -eq $true -and
-    [int]$selftest.body.result.case_count -eq 5
+    [int]$selftest.body.result.case_count -eq 8
 )
 Add-Predicate -Name "m6c:in_guest_selftest_positive_and_negative_gates" -Expected "selftest proves granted run, ungranted denial, hash-mismatch denial, and live projection truth cases" -Passed $selftestOk -Actual $(if ($selftestOk) { "matched" } else { ($selftest.body.result | ConvertTo-Json -Compress -Depth 8) })
 if (-not $selftestOk) {
@@ -372,6 +372,19 @@ if ($liveSignatureVerified) {
     if (-not $loadOk) {
         throw "Expected granted candidate load response"
     }
+
+    $durablePromotion = $loadResult.durable_promotion_transaction
+    $durablePromotionOk = (
+        $durablePromotion.code -eq "capability_denied" -and
+        $durablePromotion.performed -eq $false -and
+        $durablePromotion.transaction_kind -eq "promote" -and
+        $durablePromotion.persistence_claimed -eq $false -and
+        $durablePromotion.owner_sealed -eq $false -and
+        $durablePromotion.cross_reboot_proven -eq $false -and
+        $durablePromotion.trust_tier -eq "dev_key_not_owner_sealed" -and
+        $durablePromotion.promotion_authority_is_placeholder -eq $true
+    )
+    Add-Predicate -Name "m6c:durable_promotion_transaction_dev_tier_denied_without_persist_disk" -Expected "load response carries nested dev-tier promotion transaction evidence that denies without claiming persistence" -Passed $durablePromotionOk -Actual $(if ($durablePromotionOk) { "matched" } else { ($durablePromotion | ConvertTo-Json -Compress -Depth 8) })
 
     Send-AgentCommand -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "m6c:granted_candidate_start"
     $start = Get-LastAgentResponseJson -Method "service.start"

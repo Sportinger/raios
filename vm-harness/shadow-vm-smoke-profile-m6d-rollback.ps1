@@ -433,6 +433,19 @@ if ($liveSignatureVerified) {
         throw "Expected granted candidate load response"
     }
 
+    $durablePromotion = $loadResult.durable_promotion_transaction
+    $durablePromotionOk = (
+        $durablePromotion.code -eq "capability_denied" -and
+        $durablePromotion.performed -eq $false -and
+        $durablePromotion.transaction_kind -eq "promote" -and
+        $durablePromotion.persistence_claimed -eq $false -and
+        $durablePromotion.owner_sealed -eq $false -and
+        $durablePromotion.cross_reboot_proven -eq $false -and
+        $durablePromotion.trust_tier -eq "dev_key_not_owner_sealed" -and
+        $durablePromotion.promotion_authority_is_placeholder -eq $true
+    )
+    Add-Predicate -Name "m6d:durable_promotion_transaction_dev_tier_denied_without_persist_disk" -Expected "load response carries nested dev-tier promotion transaction evidence that denies without claiming persistence" -Passed $durablePromotionOk -Actual $(if ($durablePromotionOk) { "matched" } else { ($durablePromotion | ConvertTo-Json -Compress -Depth 8) })
+
     Send-AgentCommand -Command "service.start svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "m6d:granted_candidate_start"
     $start = Get-LastAgentResponseJson -Method "service.start"
     $startResult = $start.body.result
@@ -540,6 +553,19 @@ if ($liveSignatureVerified) {
     if (-not $rollbackOk) {
         throw "Expected granted candidate rollback_apply to verify restore hash"
     }
+
+    $durableUnpromote = $rollbackResult.rollback_verification.durable_unpromote_transaction
+    $durableUnpromoteOk = (
+        $durableUnpromote.code -eq "capability_denied" -and
+        $durableUnpromote.performed -eq $false -and
+        $durableUnpromote.transaction_kind -eq "unpromote" -and
+        $durableUnpromote.persistence_claimed -eq $false -and
+        $durableUnpromote.owner_sealed -eq $false -and
+        $durableUnpromote.cross_reboot_proven -eq $false -and
+        $durableUnpromote.trust_tier -eq "dev_key_not_owner_sealed" -and
+        $durableUnpromote.promotion_authority_is_placeholder -eq $true
+    )
+    Add-Predicate -Name "m6d:durable_unpromote_transaction_dev_tier_denied_without_persist_disk" -Expected "rollback response carries nested dev-tier un-promote transaction evidence that denies without claiming persistence" -Passed $durableUnpromoteOk -Actual $(if ($durableUnpromoteOk) { "matched" } else { ($durableUnpromote | ConvertTo-Json -Compress -Depth 8) })
 
     Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "m6d:post_rollback_service_inventory_projection"
     $postRollbackInventory = Get-LastAgentResponseJson -Method "service.inventory"

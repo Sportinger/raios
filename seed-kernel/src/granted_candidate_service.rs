@@ -4,6 +4,7 @@ use raios_core::record::{sha256_of_json, Value as V};
 use spin::Mutex;
 
 use crate::{
+    agent_protocol::durable_store,
     agent_protocol_module_grant,
     agent_protocol_module_types::ModuleGrantReferenceCheck,
     agent_protocol_support::{
@@ -226,6 +227,7 @@ struct ActionResult {
     event_id: event_log::EventId,
     run: Option<wasm_runtime::EchoRunEvidence>,
     authorization: AuthorizationEvidence,
+    durable_promotion_transaction: durable_store::PromotionTransactionAppendEvidence,
     capability_denied: bool,
 }
 
@@ -235,6 +237,7 @@ struct RollbackResult {
     promotion: Option<PromotionRecord>,
     reprojected_inventory_hash: Option<[u8; 32]>,
     restored_inventory_hash_verified: bool,
+    durable_unpromote_transaction: durable_store::PromotionTransactionAppendEvidence,
     capability_denied: bool,
     reason: &'static str,
 }
@@ -446,58 +449,87 @@ fn load(source_method: &'static str) -> ActionResult {
     let (grant_check, retained_attestation) = current_grant_inputs();
     let authorization =
         evaluate_authorization(&grant_check, retained_attestation, retained.as_ref());
-    let mut state = STATE.lock();
-    let slot_available = !state.service.loaded;
-    let can_load = authorization.can_execute && slot_available && wasm_runtime::loader_available();
-    let reason = if can_load {
-        "loaded_dev_key_granted_external_wasm_current_boot"
-    } else if state.service.loaded && authorization.can_execute {
-        "already_loaded"
-    } else {
-        authorization.denial_reason
-    };
-    let event_id = event_log::record_service_lifecycle_unbound(
-        &GRANTED_CANDIDATE_SERVICE_DESCRIPTOR,
-        source_method,
-        if can_load || (state.service.loaded && authorization.can_execute) {
-            "response"
+    let mut promotion_for_append = None;
+    let (snapshot, event_id, capability_denied) = {
+        let mut state = STATE.lock();
+        let slot_available = !state.service.loaded;
+        let can_load =
+            authorization.can_execute && slot_available && wasm_runtime::loader_available();
+        let reason = if can_load {
+            "loaded_dev_key_granted_external_wasm_current_boot"
+        } else if state.service.loaded && authorization.can_execute {
+            "already_loaded"
         } else {
-            "capability_denied"
-        },
-        reason,
-        LIFECYCLE_EVIDENCE,
-    );
+            authorization.denial_reason
+        };
+        let event_id = event_log::record_service_lifecycle_unbound(
+            &GRANTED_CANDIDATE_SERVICE_DESCRIPTOR,
+            source_method,
+            if can_load || (state.service.loaded && authorization.can_execute) {
+                "response"
+            } else {
+                "capability_denied"
+            },
+            reason,
+            LIFECYCLE_EVIDENCE,
+        );
 
-    if can_load {
-        let generation = state.service.generation.saturating_add(1);
-        if let Some(candidate) = retained.as_ref() {
-            state.promotion = Some(build_promotion_record(
-                candidate.sha256,
-                service_inventory_projection_hash(None),
-                generation,
-                event_id,
-            ));
+        if can_load {
+            let generation = state.service.generation.saturating_add(1);
+            if let Some(candidate) = retained.as_ref() {
+                let promotion = build_promotion_record(
+                    candidate.sha256,
+                    service_inventory_projection_hash(None),
+                    generation,
+                    event_id,
+                );
+                state.promotion = Some(promotion);
+                promotion_for_append = Some(promotion);
+            }
+            state.service.generation = generation;
+            state.service.loaded = true;
+            state.service.running = false;
+            state.service.load_event_id = Some(event_id);
         }
-        state.service.generation = generation;
-        state.service.loaded = true;
-        state.service.running = false;
-        state.service.load_event_id = Some(event_id);
-    }
-    state.service.last_action = "load";
-    state.service.last_reason = reason;
-    state.service.last_inventory_change = if can_load {
-        "upserted_current_boot_service"
-    } else {
-        "none"
+        state.service.last_action = "load";
+        state.service.last_reason = reason;
+        state.service.last_inventory_change = if can_load {
+            "upserted_current_boot_service"
+        } else {
+            "none"
+        };
+        state.service.last_event_id = Some(event_id);
+        state.trust_tier = authorization.trust_tier;
+        (
+            state.snapshot(),
+            event_id,
+            !can_load && !(state.service.loaded && authorization.can_execute),
+        )
     };
-    state.service.last_event_id = Some(event_id);
-    state.trust_tier = authorization.trust_tier;
+    let durable_promotion_transaction = promotion_for_append
+        .map(|promotion| {
+            append_promotion_transaction(
+                durable_store::PromotionTransactionKind::Promote,
+                promotion,
+                None,
+                false,
+                None,
+                false,
+            )
+        })
+        .unwrap_or_else(|| {
+            durable_store::promotion_transaction_append_denied(
+                durable_store::PromotionTransactionKind::Promote,
+                "promotion_transaction_not_attempted",
+            )
+        });
     ActionResult {
-        snapshot: state.snapshot(),
+        snapshot,
         event_id,
         run: None,
         authorization,
-        capability_denied: !can_load && !(state.service.loaded && authorization.can_execute),
+        durable_promotion_transaction,
+        capability_denied,
     }
 }
 
@@ -584,6 +616,10 @@ fn start(source_method: &'static str) -> ActionResult {
         event_id,
         run,
         authorization,
+        durable_promotion_transaction: durable_store::promotion_transaction_append_denied(
+            durable_store::PromotionTransactionKind::Promote,
+            "promotion_transaction_not_attempted",
+        ),
         capability_denied: !can_execute,
     }
 }
@@ -627,6 +663,10 @@ fn stop(source_method: &'static str) -> ActionResult {
         event_id,
         run: None,
         authorization,
+        durable_promotion_transaction: durable_store::promotion_transaction_append_denied(
+            durable_store::PromotionTransactionKind::Promote,
+            "promotion_transaction_not_attempted",
+        ),
         capability_denied: !state.service.loaded,
     }
 }
@@ -669,6 +709,10 @@ fn drop_service(source_method: &'static str) -> ActionResult {
         event_id,
         run: None,
         authorization,
+        durable_promotion_transaction: durable_store::promotion_transaction_append_denied(
+            durable_store::PromotionTransactionKind::Promote,
+            "promotion_transaction_not_attempted",
+        ),
         capability_denied: !was_loaded,
     }
 }
@@ -699,6 +743,10 @@ fn rollback_preview(source_method: &'static str) -> RollbackResult {
         promotion,
         reprojected_inventory_hash: None,
         restored_inventory_hash_verified: false,
+        durable_unpromote_transaction: durable_store::promotion_transaction_append_denied(
+            durable_store::PromotionTransactionKind::Unpromote,
+            "promotion_transaction_not_attempted",
+        ),
         capability_denied: promotion.is_none(),
         reason,
     }
@@ -749,6 +797,21 @@ fn rollback_apply(source_method: &'static str) -> RollbackResult {
         reason,
         ROLLBACK_EVIDENCE,
     );
+    let durable_unpromote_transaction = if restored_inventory_hash_verified {
+        append_promotion_transaction(
+            durable_store::PromotionTransactionKind::Unpromote,
+            promotion,
+            Some(event_id),
+            true,
+            Some(reprojected_inventory_hash),
+            true,
+        )
+    } else {
+        durable_store::promotion_transaction_append_denied(
+            durable_store::PromotionTransactionKind::Unpromote,
+            "rollback_restore_inventory_hash_mismatch",
+        )
+    };
 
     let mut state = STATE.lock();
     state.service.loaded = false;
@@ -778,6 +841,7 @@ fn rollback_apply(source_method: &'static str) -> RollbackResult {
         promotion: Some(promotion),
         reprojected_inventory_hash: Some(reprojected_inventory_hash),
         restored_inventory_hash_verified,
+        durable_unpromote_transaction,
         capability_denied: !restored_inventory_hash_verified,
         reason,
     }
@@ -803,6 +867,10 @@ fn rollback_apply_denied_no_promotion(source_method: &'static str) -> RollbackRe
         promotion: None,
         reprojected_inventory_hash: None,
         restored_inventory_hash_verified: false,
+        durable_unpromote_transaction: durable_store::promotion_transaction_append_denied(
+            durable_store::PromotionTransactionKind::Unpromote,
+            "no_recorded_promotion_to_roll_back",
+        ),
         capability_denied: true,
         reason: "no_recorded_promotion_to_roll_back",
     }
@@ -930,6 +998,85 @@ fn build_promotion_record(
         load_event_id,
         artifact_hash,
     }
+}
+
+fn append_promotion_transaction(
+    transaction_kind: durable_store::PromotionTransactionKind,
+    promotion: PromotionRecord,
+    rollback_apply_event_id: Option<event_log::EventId>,
+    restore_hash_verified: bool,
+    reprojected_inventory_hash: Option<[u8; 32]>,
+    cleanup_performed: bool,
+) -> durable_store::PromotionTransactionAppendEvidence {
+    let Some((_, signature)) = event_log::latest_module_promotion_signature_reference() else {
+        return durable_store::promotion_transaction_append_denied(
+            transaction_kind,
+            "promotion_signature_reference_missing",
+        );
+    };
+    let Some((_, computed_grant)) = event_log::latest_module_computed_grant_reference() else {
+        return durable_store::promotion_transaction_append_denied(
+            transaction_kind,
+            "promotion_evidence_reference_missing",
+        );
+    };
+    let Some((_, attestation)) = event_log::latest_module_local_attestation_reference() else {
+        return durable_store::promotion_transaction_append_denied(
+            transaction_kind,
+            "promotion_evidence_reference_missing",
+        );
+    };
+
+    let grant_check =
+        agent_protocol_module_grant::module_grant_check_from_retained(Some(computed_grant));
+    let grant_binds_capability = agent_protocol_module_grant::module_grant_grants_capability(
+        &grant_check,
+        Some(attestation),
+    );
+    let unpromote = transaction_kind == durable_store::PromotionTransactionKind::Unpromote;
+    let record = durable_store::PromotionTransactionRecord {
+        transaction_kind,
+        computed_grant_hash: computed_grant.computed_grant_hash,
+        manifest_hash: computed_grant.manifest_hash,
+        artifact_hash: computed_grant.artifact_hash,
+        vm_report_hash: computed_grant.vm_report_hash,
+        local_attestation_hash: computed_grant.local_attestation_hash,
+        retained_manifest_reference_event_id: attestation.retained_manifest_reference_event_id,
+        retained_artifact_reference_event_id: attestation.retained_artifact_reference_event_id,
+        retained_vm_report_reference_event_id: attestation.retained_vm_report_reference_event_id,
+        retained_reference_event_id: attestation.retained_reference_event_id,
+        manifest_reference_hash: attestation.manifest_reference_hash,
+        artifact_reference_hash: attestation.artifact_reference_hash,
+        vm_report_reference_hash: attestation.vm_report_reference_hash,
+        attestation_reference_hash: attestation.attestation_reference_hash,
+        signature_der: signature.signature_der,
+        signature_len: signature.signature_len,
+        signature_verified: signature.signature_verified,
+        signature_attestation_reference_hash: signature.attestation_reference_hash,
+        promotion_authority_key_sha256: signature.promotion_authority_key_sha256,
+        grant_binds_capability,
+        rollback_plan_hash: promotion.plan_hash,
+        pre_load_inventory_hash: promotion.pre_load_inventory_hash,
+        ram_only_service_slot_id: promotion.ram_only_service_slot_id,
+        generation: promotion.generation,
+        load_event_id: promotion.load_event_id,
+        rollback_apply_event_id,
+        reprojected_inventory_hash,
+        restore_hash_verified,
+        stopped: cleanup_performed,
+        drop_clear_bytes: cleanup_performed,
+        free_slot: cleanup_performed,
+        remove_inventory: cleanup_performed,
+        service_id: GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id,
+        artifact_id: GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.artifact_id,
+        requested_capability: if unpromote {
+            GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.rollback_apply_capability
+        } else {
+            GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_capability
+        },
+        load_mode: "wasmi_interpreter_ram_only",
+    };
+    durable_store::append_promotion_transaction(&record)
 }
 
 fn cleanup_actions_hash() -> [u8; 32] {
@@ -1175,6 +1322,12 @@ fn emit_response(method: &'static str, action: &'static str, result: ActionResul
             f("run_evidence", record_run_evidence(result.run.as_ref())),
             f("last_run_evidence", record_last_run(snapshot)),
             f("rollback_plan", record_rollback_plan(snapshot.promotion)),
+            f(
+                "durable_promotion_transaction",
+                durable_store::promotion_transaction_append_evidence_record(
+                    result.durable_promotion_transaction,
+                ),
+            ),
             f("capabilities", record_static_str_array(CAPABILITIES)),
             f("accepts_external_artifact_bytes", b(true)),
             f("loads_external_artifact", b(true)),
@@ -1373,7 +1526,12 @@ fn record_rollback_verification(result: &RollbackResult) -> V<'static> {
         f("drop_clear_bytes", b(result.promotion.is_some())),
         f("free_slot", b(!result.snapshot.loaded)),
         f("remove_inventory", b(!result.snapshot.loaded)),
-        f("durable", b(false)),
+        f(
+            "durable_unpromote_transaction",
+            durable_store::promotion_transaction_append_evidence_record(
+                result.durable_unpromote_transaction,
+            ),
+        ),
         f("owner_sealed", b(false)),
         f(
             "persistence",
