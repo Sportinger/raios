@@ -2746,17 +2746,67 @@ fix: child-VM boot/answer timeout raised 45s→180s (they booted too slowly unde
 4-VM contention — flake, not a kernel hang; the max adversarial review confirmed
 the scan terminates + is bounded, could-not-refute). Verified: `-Profile persistence`
 19/19 + raios-core 51/51.
-NEXT — M7B-2: the FIRST REAL persistence WRITE. Scoped durable APPEND to
-`append.record_log.seed_data` ONLY, with the M3 build→verify-region→write→readback→inspect
-→report discipline (generalize the write-boundary chain for the RECLOG span; the
-shared writes_enabled / generic authorizes_append / RAIOS_AUDITRB_V0 semantics /
-BOOTCTL / ARTSTOR all STAY denied; store-full → deny, no rotation). Keep
-persistence, generic (non-`svc.demo.hello`) durable audit/rollback writes,
-executable candidate-byte mapping, provider auto-load, broad mutation, and
-installed rollback state denied unless the M6D-2/M7 gates say otherwise.
-External candidate INTAKE remains allowed over the real serial channel;
-dev-key-granted current-boot external candidate load/run/rollback is RAM-only
-and not owner-sealed.
+M7B-2 DONE (2026-07-06, the FIRST REAL persistence WRITE): raiOS performs a
+scoped durable APPEND to `append.record_log.seed_data` ONLY, with full M3
+build→verify-region→write→readback→inspect→report discipline. It builds a
+`raios.durable_record.v0` boot-lifecycle frame chained to the scanned tail
+(seq=tail+1, prev=tail_frame_sha256), verifies the target span lies fully inside
+the pinned RECLOG bounds, writes the multi-sector span, RE-READS it from disk,
+proves it byte-identical (readback sha256 == planned frame_sha256) and re-parses
+it as a valid chained frame, and only THEN reports `appended` via
+`durable.record_log_append`. Store-full → deny (no rotation); torn/invalid tail
+→ deny (NO overwrite); within-boot only (`persistence_claimed:false`, dev-tier,
+RAM ring still authoritative for current_boot UI).
+STALE-MAP CORRECTION (caught by the max-effort scope, verified vs HEAD): the map
+packet's "generalize the write-boundary chain for the RECLOG span" wording was
+WRONG — that chain (`agent_protocol_module_write_boundary_*.rs`) structurally
+always-denies and its `writes_enabled`/`authorizes_append` booleans are SHARED
+cross-target, so a positive branch there would grant generic write to EVERY
+module. M3-3 (the first durable write) touched ZERO boundary-chain files; M7B-2
+mirrors THAT: a NEW sibling evaluator `raios-core/src/scoped_seed_data_append.rs`
+with its OWN pins (EXPECTED_METHOD=`durable.record_log_append`,
+TARGET=`append.record_log.seed_data`, SCHEMA=`raios.durable_record.v0`,
+REGION_MARKER=`RAIOS_DATA_RECLOG`) + range/chain/write-readback-reparse gauntlet
+(32 distinct typed denials). The AHCI writer `write_readback_reclog_append` loops
+the existing `issue_write_sector` over the frame sectors, validating EVERY LBA in
+`[seed_data_first_lba+16, +4112)` BEFORE any write (no partial-write escape);
+`issue_dma_command` untouched; `scoped_rollback_apply.rs` and the shared read-only
+`durable_record_log_scan_fields` literals untouched (scan method stays
+capability_denied). The RECLOG region is pinned by `seed_data_layout::parse_region`
+to EXACTLY start_lba=16 / lba_count=4096 (superblock SHA256-checked), so a corrupt
+superblock cannot relocate or enlarge the write span.
+HONESTY NOTE (from the max adversarial review, verdict could_not_refute): several
+of the evaluator's pins are fed consistent kernel-derived values on both operands
+(e.g. `payload_sha256` == `planned_payload_sha256`), so the evaluator RECORDS the
+decision more than it INDEPENDENTLY re-derives it — the actual enforcement rests on
+the AHCI writer's own in-bounds guards plus the disk readback + `parse_reclog_frame`
+reparse + full-region rescan (count+1 / new tail seq+hash). This mirrors the M3
+evaluator's single-trusted-caller pattern and is non-exploitable; recorded here
+rather than overclaimed, per the "evidence must not masquerade as enforcement" rule.
+Write set: `durable_record_frame.rs` (public `plan_reclog_append` + host tests),
+`scoped_seed_data_append.rs` (NEW), `lib.rs`, `ahci.rs` (additive span writer),
+`durable_store.rs` (append emitter + deterministic payload), `agent_protocol.rs`
+(one dispatch row), `make-gpt-persist-image.py` (`full` fixture), persistence
+profile (append/readback/chain/store-full/generic-still-denied needles).
+Verified: raios-core 60/60; `-Profile persistence` 31/31 (durable-append-authorized
++ durable-readback-hash + durable-chain-head + durable-store-full-denied +
+generic-target-still-denied); `-Profile module-audit-rollback` 1709/1709
+UNCHANGED-GREEN (M3 pins + generic module denial intact); max adversarial review
+could_not_refute; FULL regression 8168/8168 GREEN
+(`shadow-20260706-203739-23872.json`, hash-verified
+8f64c4133d4b51edc3e885e40db69eec78b5880210e64e62e48ab5c41cdf84d5). One persistence run was a
+host-transport flake (partial serial delivery of the append command — child VM
+booted, kernel idle at prompt, no write attempted; classified host-transport,
+retried green).
+
+NEXT — M7C: boot control. BOOTCTL (LBA 2..10, start 2 count 8) A/B slot + SAFE-boot record with the
+same scoped-evaluator + write/readback/inspect discipline; RECLOG append,
+generic (non-`svc.demo.hello`) durable audit/rollback writes, executable
+candidate-byte mapping, provider auto-load, broad mutation, ARTSTOR, GPT/superblock
+metadata, and installed rollback state all STAY denied unless the M7C/M6D-2 gates
+say otherwise. External candidate INTAKE remains allowed over the real serial
+channel; dev-key-granted current-boot external candidate load/run/rollback is
+RAM-only and not owner-sealed.
 
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with

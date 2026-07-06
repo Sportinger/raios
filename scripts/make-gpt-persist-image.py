@@ -159,6 +159,8 @@ def parse_reclog_fixture(spec: str | None) -> ReclogFixture:
             continue
         if part == "torn":
             torn_tail = True
+        elif part == "full":
+            frame_count = RECLOG_LBA_COUNT
         elif part.isdigit():
             frame_count = int(part)
         elif part.startswith("valid:"):
@@ -172,8 +174,12 @@ def parse_reclog_fixture(spec: str | None) -> ReclogFixture:
         raise ValueError(f"RECLOG fixture spec needs a frame count: {spec}")
     if frame_count < 0:
         raise ValueError("RECLOG fixture frame count must not be negative")
+    if frame_count > RECLOG_LBA_COUNT:
+        raise ValueError(f"RECLOG fixture frame count exceeds region sectors: {frame_count}")
     if torn_tail and frame_count == 0:
         raise ValueError("torn RECLOG fixture needs at least one valid frame")
+    if torn_tail and frame_count >= RECLOG_LBA_COUNT:
+        raise ValueError("torn RECLOG fixture needs room for the torn sector")
     return ReclogFixture(frame_count=frame_count, torn_tail=torn_tail)
 
 
@@ -704,7 +710,7 @@ def main() -> int:
     parser.add_argument(
         "--seed-reclog-fixture",
         default="empty",
-        help="seed RECLOG fixture: empty, valid:N, or valid:N,torn",
+        help="seed RECLOG fixture: empty, valid:N, full, or valid:N,torn",
     )
     parser.add_argument("output", nargs="?", type=Path)
     args = parser.parse_args()

@@ -61,10 +61,25 @@ frame, reporting typed head/tail/count + torn-tail evidence via
 pure frame codec + scan in raios-core (`durable_record_frame.rs`, 51 host tests
 incl. bad-magic/hash/seq/torn/multi-sector), bounded region read (sector<4096),
 fail-closed at the first invalid frame; a `--seed-reclog-fixture` builder flag +
-child-VM torn/chain/empty fixtures prove it in-guest. Next: **M7B-2** — the FIRST
-REAL persistence WRITE: scoped durable append to `append.record_log.seed_data`
-with the M3 build→verify→write→readback→inspect discipline (every other write
-stays denied).
+child-VM torn/chain/empty fixtures prove it in-guest. **M7B-2 done (2026-07-06):
+the FIRST REAL persistence WRITE.** raiOS builds a `raios.durable_record.v0`
+boot-lifecycle frame chained to the scanned tail (seq=tail+1, prev=tail hash),
+proves the target span lies fully inside the pinned RECLOG bounds, writes the
+multi-sector span, READS IT BACK from disk, verifies it byte-identical
+(readback sha256 == planned frame sha256) and re-parses it as a valid chained
+frame, then reports `appended` — via `durable.record_log_append`. A NEW pinned
+evaluator `raios-core/src/scoped_seed_data_append.rs` gates it (own EXPECTED_*
+method/target/schema/RECLOG-marker pins + range/chain/write-readback-reparse
+gauntlet, 32 distinct denials); the AHCI writer loops the existing
+`issue_write_sector` over the frame sectors, validating every LBA in bounds
+BEFORE any write (no partial-write escape), `issue_dma_command` untouched.
+Store-full → deny (no rotation); torn tail → deny (no overwrite); within-boot
+only (`persistence_claimed:false`, dev-tier, RAM ring still authoritative).
+IMPORTANT correction: the max-effort scope caught that the map's older
+"generalize the write-boundary chain" wording was STALE — that chain's booleans
+are shared cross-target and flipping them would grant generic write to every
+module; the real write went through a separate scoped evaluator (mirroring M3),
+ZERO write-boundary edits. Next: **M7C** — boot control (BOOTCTL A/B + SAFE).
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small

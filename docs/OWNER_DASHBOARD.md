@@ -3,11 +3,15 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M7 underway — making things survive a restart. The kernel
-now reads the test disk's layout AND its durable-record log, checking the whole
-chain and spotting a cut-off/damaged tail — still all read-only. The next step
-is the first real WRITE: safely appending a durable record and reading it back
-to confirm it.).
+Updated: 2026-07-06 (M7 underway — making things survive a restart. NEW: raiOS
+just did its FIRST REAL persistent WRITE. It safely appended one durable record
+to the test disk's log — building it, checking the spot is inside the allowed
+log area, writing it, reading it back, and confirming it is byte-for-byte
+identical before saying "done". Every other place on the disk (the disk's own
+map, the boot-control area, the big storage area) stays refused, and a full log
+is refused too — no overwriting. An independent security check could not break
+it. Still within a single boot for now; surviving an actual reboot is the next
+milestones. The next step is boot control (M7C).).
 
 ## What raiOS can actually do today
 
@@ -29,12 +33,13 @@ to confirm it.).
 
 ## Gate status
 
-- Full verification profile: **GREEN** as of 2026-07-04 — 7,814/7,814
-  checks passed in one run (report shadow-20260704-184615-9224.json,
-  hash-verified). First green since 2026-07-02. The old "mystery"
+- Full verification profile: **GREEN** as of 2026-07-06 — 8,168/8,168
+  checks passed in one run (report shadow-20260706-203739-23872.json,
+  hash-verified) after the first-real-write slice (M7B-2). The append
+  slice also passed its focused persistence profile (31/31) and left the
+  audit-rollback profile unchanged-green (1,709/1,709). The old "mystery"
   failures are explained: the test tooling asked for too much data at
-  once and then misread its own connection loss — no bug in the OS
-  itself.
+  once and then misread its own connection loss — no bug in the OS itself.
 - Working tree: the ~36,900-line backlog was committed 2026-07-04 in
   three honest commits; release binaries are no longer tracked in git.
 
@@ -82,14 +87,20 @@ moment: one AI-authored artifact travels
 the whole safe loop end to end — authored, tested in the Shadow VM,
 capability-granted, promoted live, and rolled back — with evidence at
 every step. Split into M6A (candidate intake) → M6B (grant) → M6C
-(promote) -> M6D (rollback). **M6A + M6B + M6C + M6D-1 done.** The
-dev-tier RAM loop now works: a real outside program is received over the
-console, checked, its identity recorded, granted its rights, loaded, run inside
-the sandbox, and rolled back in RAM through a verified undo path. M6D-1 does
-not save anything to disk and does not claim durable/native/owner-sealed
-authority. Today's signing key is a deliberate DEV key so the loop can be built
-and tested; **your own key K seals it for real later**. **Next: M6D-2 - durable
-save, then M7+ (survive a restart).**
+(promote) -> M6D (rollback). **M6 COMPLETE (dev-tier RAM loop closed).** A real
+outside program is received over the console, checked, its identity recorded,
+granted its rights, loaded, run inside the sandbox, and rolled back in RAM
+through a verified undo path. It does not yet save to disk and does not claim
+durable/native/owner-sealed authority. Today's signing key is a deliberate DEV
+key so the loop can be built and tested; **your own key K seals it for real
+later** (the sealing ceremony is the very last step).
+
+**M7 Persistence Foundation now active — making things survive a restart.**
+Done so far: the kernel reads the disk's layout + its durable log (M7A/M7B-1,
+read-only), and — NEW — performs its **first real safe WRITE**: appending one
+durable record and reading it back to confirm it, with every other disk area
+still refused (M7B-2). **Next: M7C boot control**, then M7D (survive an actual
+reboot), then the durable promotion save (M6D-2 into the disk).
 
 ## Top risk
 

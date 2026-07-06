@@ -9,6 +9,7 @@ pub mod gpt_layout;
 pub mod promotion_attestation;
 pub mod record;
 pub mod scoped_rollback_apply;
+pub mod scoped_seed_data_append;
 pub mod seed_data_layout;
 
 /// Computes the SHA-256 digest for `bytes` and returns the raw 32-byte digest.

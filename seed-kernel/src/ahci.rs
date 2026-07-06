@@ -24,6 +24,36 @@ pub(crate) struct PersistReclogRegionRead {
     pub(crate) bytes: Option<Vec<u8>>,
 }
 
+pub(crate) struct ReclogAppendWriteEvidence {
+    pub(crate) reason: &'static str,
+    pub(crate) write_attempted: bool,
+    pub(crate) write_completed: bool,
+    pub(crate) readback_completed: bool,
+    pub(crate) span_in_bounds: bool,
+    pub(crate) absolute_start_lba: u64,
+    pub(crate) reclog_lba_count: u64,
+    pub(crate) byte_count: u64,
+    pub(crate) write_offset: u64,
+    pub(crate) readback: Option<Vec<u8>>,
+}
+
+impl ReclogAppendWriteEvidence {
+    fn missing(reason: &'static str, write_offset: u64) -> Self {
+        Self {
+            reason,
+            write_attempted: false,
+            write_completed: false,
+            readback_completed: false,
+            span_in_bounds: false,
+            absolute_start_lba: 0,
+            reclog_lba_count: 0,
+            byte_count: 0,
+            write_offset,
+            readback: None,
+        }
+    }
+}
+
 impl PersistReclogRegionRead {
     fn missing(layout: PersistLayoutEvidence, reason: &'static str) -> Self {
         Self {
@@ -799,6 +829,188 @@ pub(crate) fn read_persist_reclog_region(
 ) -> PersistReclogRegionRead {
     let layout = detect_persist_layout(controller);
     unsafe { read_persist_reclog_region_uncached(controller, layout) }
+}
+
+pub(crate) unsafe fn write_readback_reclog_append(
+    controller: PciMassStorageController,
+    write_offset: u64,
+    frame: &[u8],
+) -> ReclogAppendWriteEvidence {
+    let layout = detect_persist_layout(controller);
+    if layout.gpt.status != LayoutStatus::Present || layout.data.status != LayoutStatus::Present {
+        return ReclogAppendWriteEvidence::missing(layout.reason, write_offset);
+    }
+    if layout.port_index == u8::MAX {
+        return ReclogAppendWriteEvidence::missing("persist_reclog_port_missing", write_offset);
+    }
+    if layout.data.reclog_lba_count == 0
+        || layout.data.reclog_start_lba > layout.gpt.seed_data_lba_count
+        || layout.data.reclog_lba_count
+            > layout
+                .gpt
+                .seed_data_lba_count
+                .saturating_sub(layout.data.reclog_start_lba)
+    {
+        return ReclogAppendWriteEvidence::missing(
+            "persist_reclog_region_bounds_invalid",
+            write_offset,
+        );
+    }
+
+    let Some(absolute_start_lba) = layout
+        .gpt
+        .seed_data_first_lba
+        .checked_add(layout.data.reclog_start_lba)
+    else {
+        return ReclogAppendWriteEvidence::missing(
+            "persist_reclog_start_lba_overflow",
+            write_offset,
+        );
+    };
+    let Some(byte_count) = layout
+        .data
+        .reclog_lba_count
+        .checked_mul(SECTOR_BYTES as u64)
+    else {
+        return ReclogAppendWriteEvidence::missing(
+            "persist_reclog_byte_count_overflow",
+            write_offset,
+        );
+    };
+
+    let Some(bar) = pci::read_bar_info(controller.address, AHCI_BAR) else {
+        return ReclogAppendWriteEvidence::missing("ahci_abar_missing", write_offset);
+    };
+    if !bar.is_memory() {
+        return ReclogAppendWriteEvidence::missing("ahci_abar_not_mmio", write_offset);
+    }
+    let map_len = usize::min(bar.size as usize, MAX_PROBE_LEN);
+    if map_len < MIN_PROBE_LEN {
+        return ReclogAppendWriteEvidence::missing("ahci_abar_probe_range_too_small", write_offset);
+    }
+    let Ok(mapping) = memory::map_mmio(bar.base, map_len) else {
+        return ReclogAppendWriteEvidence::missing("ahci_abar_mmio_map_failed", write_offset);
+    };
+    let base = mapping.as_ptr::<u8>();
+    let port_offset = PORT_BASE + layout.port_index as usize * PORT_STRIDE;
+    if port_offset + PORT_CI + core::mem::size_of::<u32>() > mapping.len() {
+        return ReclogAppendWriteEvidence::missing(
+            "persist_reclog_port_range_unavailable",
+            write_offset,
+        );
+    }
+    let ssts = read32(base, port_offset + PORT_SSTS);
+    let signature = read32(base, port_offset + PORT_SIG);
+    if (ssts & 0x0f) != 0x03 || ((ssts >> 8) & 0x0f) != 0x01 || signature != SATA_SIG_ATA {
+        return ReclogAppendWriteEvidence::missing("persist_reclog_port_not_ready", write_offset);
+    }
+
+    let mut evidence = ReclogAppendWriteEvidence {
+        reason: "persist_reclog_append_span_validated",
+        write_attempted: false,
+        write_completed: false,
+        readback_completed: false,
+        span_in_bounds: false,
+        absolute_start_lba,
+        reclog_lba_count: layout.data.reclog_lba_count,
+        byte_count,
+        write_offset,
+        readback: None,
+    };
+
+    if frame.is_empty() || frame.len() % SECTOR_BYTES != 0 {
+        evidence.reason = "reclog_append_frame_len_out_of_scope";
+        return evidence;
+    }
+    if write_offset % SECTOR_BYTES as u64 != 0 {
+        evidence.reason = "reclog_append_write_offset_misaligned";
+        return evidence;
+    }
+    if write_offset
+        .checked_add(frame.len() as u64)
+        .map(|end| end > byte_count)
+        .unwrap_or(true)
+    {
+        evidence.reason = "durable_store_full";
+        return evidence;
+    }
+    let Some(reclog_end_lba) = absolute_start_lba.checked_add(layout.data.reclog_lba_count) else {
+        evidence.reason = "persist_reclog_end_lba_overflow";
+        return evidence;
+    };
+
+    let sector_count = frame.len() / SECTOR_BYTES;
+    let start_sector = write_offset / SECTOR_BYTES as u64;
+    let mut sector = 0usize;
+    while sector < sector_count {
+        let Some(lba) = absolute_start_lba
+            .checked_add(start_sector)
+            .and_then(|base_lba| base_lba.checked_add(sector as u64))
+        else {
+            evidence.reason = "persist_reclog_append_lba_overflow";
+            return evidence;
+        };
+        if lba < absolute_start_lba || lba >= reclog_end_lba {
+            evidence.reason = "write_span_out_of_reclog";
+            return evidence;
+        }
+        sector += 1;
+    }
+    evidence.span_in_bounds = true;
+
+    let buffer = ptr::addr_of_mut!(SCRATCH_BUFFER.0).cast::<u8>();
+    sector = 0;
+    while sector < sector_count {
+        let lba = absolute_start_lba + start_sector + sector as u64;
+        let frame_offset = sector * SECTOR_BYTES;
+        let mut idx = 0usize;
+        while idx < SECTOR_BYTES {
+            ptr::write_volatile(buffer.add(idx), frame[frame_offset + idx]);
+            idx += 1;
+        }
+        evidence.write_attempted = true;
+        if let Err(reason) = issue_write_sector(controller, base, port_offset, lba, buffer) {
+            evidence.reason = reason;
+            return evidence;
+        }
+        sector += 1;
+    }
+    evidence.write_completed = true;
+
+    let mut readback = Vec::new();
+    readback.resize(frame.len(), 0);
+    sector = 0;
+    while sector < sector_count {
+        let lba = absolute_start_lba + start_sector + sector as u64;
+        ptr::write_bytes(buffer, 0, SECTOR_BYTES);
+        if let Err(reason) = issue_read_sector_into(
+            controller,
+            base,
+            port_offset,
+            lba,
+            buffer,
+            "persist_reclog_append_readback_buffer_phys_missing",
+            "persist_reclog_append_readback_timeout",
+            "persist_reclog_append_readback_task_file_error",
+            "persist_reclog_append_readback_incomplete",
+        ) {
+            evidence.reason = reason;
+            return evidence;
+        }
+
+        let out = sector * SECTOR_BYTES;
+        let mut idx = 0usize;
+        while idx < SECTOR_BYTES {
+            readback[out + idx] = ptr::read_volatile(buffer.add(idx));
+            idx += 1;
+        }
+        sector += 1;
+    }
+
+    evidence.readback_completed = true;
+    evidence.reason = "persist_reclog_append_write_readback_completed";
+    evidence.readback = Some(readback);
+    evidence
 }
 
 pub(crate) fn write_readback_scratch_sector_image(

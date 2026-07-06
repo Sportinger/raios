@@ -1,4 +1,4 @@
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 
 use crate::{
     record::{Field, Value},
@@ -18,6 +18,7 @@ const RECLOG_FRAME_LEN_OFFSET: usize = 8;
 const RECLOG_PAYLOAD_LEN_OFFSET: usize = 12;
 const RECLOG_SEQ_OFFSET: usize = 16;
 const SHA256_LEN: usize = 32;
+const MAX_APPEND_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParsedReclogFrame {
@@ -47,6 +48,34 @@ pub struct RecordLogScan {
     pub full_region_valid: bool,
     pub head_frame_sha256: Option<[u8; 32]>,
     pub tail_frame_sha256: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlannedAppend {
+    pub write_offset: u64,
+    pub seq: u64,
+    pub prev_frame_sha256: [u8; 32],
+    pub frame: Vec<u8>,
+    pub frame_len: u64,
+    pub payload_sha256: [u8; 32],
+    pub frame_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AppendDenied {
+    ReclogNotAppendable,
+    DurableStoreFull,
+    PayloadTooLargeForFrame,
+}
+
+impl AppendDenied {
+    pub const fn reason(self) -> &'static str {
+        match self {
+            Self::ReclogNotAppendable => "reclog_not_appendable",
+            Self::DurableStoreFull => "durable_store_full",
+            Self::PayloadTooLargeForFrame => "payload_too_large_for_frame",
+        }
+    }
 }
 
 impl RecordLogScan {
@@ -143,6 +172,49 @@ pub fn parse_reclog_frame(
         seq,
         frame_sha256: sha256_bytes(frame),
         payload_sha256,
+    })
+}
+
+pub fn plan_reclog_append(
+    scan: &RecordLogScan,
+    payload: &[u8],
+    reclog_byte_count: u64,
+) -> Result<PlannedAppend, AppendDenied> {
+    if !scan.full_region_valid || scan.first_invalid_offset % RECLOG_SECTOR_SIZE as u64 != 0 {
+        return Err(AppendDenied::ReclogNotAppendable);
+    }
+    if payload.len() > MAX_APPEND_PAYLOAD_LEN {
+        return Err(AppendDenied::PayloadTooLargeForFrame);
+    }
+
+    let write_offset = scan.first_invalid_offset;
+    let seq = if scan.count == 0 {
+        1
+    } else {
+        scan.tail_seq
+            .checked_add(1)
+            .ok_or(AppendDenied::ReclogNotAppendable)?
+    };
+    let prev_frame_sha256 = scan.tail_frame_sha256.unwrap_or([0u8; 32]);
+    let frame_len = rounded_frame_len(payload.len())?;
+    let end = write_offset
+        .checked_add(frame_len as u64)
+        .ok_or(AppendDenied::DurableStoreFull)?;
+    if end > reclog_byte_count {
+        return Err(AppendDenied::DurableStoreFull);
+    }
+
+    let frame = build_reclog_frame(seq, prev_frame_sha256, payload, frame_len);
+    let payload_sha256 = sha256_bytes(payload);
+    let frame_sha256 = sha256_bytes(&frame);
+    Ok(PlannedAppend {
+        write_offset,
+        seq,
+        prev_frame_sha256,
+        frame,
+        frame_len: frame_len as u64,
+        payload_sha256,
+        frame_sha256,
     })
 }
 
@@ -250,6 +322,34 @@ fn optional_sha256(value: Option<[u8; 32]>) -> Value<'static> {
     }
 }
 
+fn rounded_frame_len(payload_len: usize) -> Result<usize, AppendDenied> {
+    let needed = RECLOG_FRAME_HEADER_LEN
+        .checked_add(payload_len)
+        .ok_or(AppendDenied::PayloadTooLargeForFrame)?;
+    let rounded = needed
+        .checked_add(RECLOG_SECTOR_SIZE - 1)
+        .ok_or(AppendDenied::PayloadTooLargeForFrame)?
+        / RECLOG_SECTOR_SIZE
+        * RECLOG_SECTOR_SIZE;
+    Ok(usize::max(RECLOG_SECTOR_SIZE, rounded))
+}
+
+fn build_reclog_frame(seq: u64, prev_hash: [u8; 32], payload: &[u8], frame_len: usize) -> Vec<u8> {
+    let payload_hash = sha256_bytes(payload);
+    let mut out = vec![0u8; frame_len];
+    out[RECLOG_MAGIC_OFFSET..RECLOG_MAGIC_OFFSET + RECLOG_MAGIC.len()]
+        .copy_from_slice(RECLOG_MAGIC);
+    write_u32(&mut out, RECLOG_FRAME_LEN_OFFSET, frame_len as u32);
+    write_u32(&mut out, RECLOG_PAYLOAD_LEN_OFFSET, payload.len() as u32);
+    write_u64(&mut out, RECLOG_SEQ_OFFSET, seq);
+    out[RECLOG_PREV_FRAME_SHA256_OFFSET..RECLOG_PREV_FRAME_SHA256_OFFSET + SHA256_LEN]
+        .copy_from_slice(&prev_hash);
+    out[RECLOG_PAYLOAD_SHA256_OFFSET..RECLOG_PAYLOAD_SHA256_OFFSET + SHA256_LEN]
+        .copy_from_slice(&payload_hash);
+    out[RECLOG_FRAME_HEADER_LEN..RECLOG_FRAME_HEADER_LEN + payload.len()].copy_from_slice(payload);
+    out
+}
+
 fn invalid(offset: usize, reason: &'static str) -> FrameInvalid {
     FrameInvalid {
         reason,
@@ -270,6 +370,18 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
 
 fn read_u64(bytes: &[u8], offset: usize) -> u64 {
     (read_u32(bytes, offset) as u64) | ((read_u32(bytes, offset + 4) as u64) << 32)
+}
+
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset] = value as u8;
+    bytes[offset + 1] = (value >> 8) as u8;
+    bytes[offset + 2] = (value >> 16) as u8;
+    bytes[offset + 3] = (value >> 24) as u8;
+}
+
+fn write_u64(bytes: &mut [u8], offset: usize, value: u64) {
+    write_u32(bytes, offset, value as u32);
+    write_u32(bytes, offset + 4, (value >> 32) as u32);
 }
 
 #[cfg(test)]
@@ -294,18 +406,7 @@ mod tests {
 
     fn frame(seq: u64, prev_hash: [u8; 32], frame_len: usize) -> (Vec<u8>, [u8; 32]) {
         let payload = payload(seq);
-        let payload_hash = sha256_bytes(&payload);
-        let mut out = vec![0u8; frame_len];
-        out[0..8].copy_from_slice(RECLOG_MAGIC);
-        write_u32(&mut out, RECLOG_FRAME_LEN_OFFSET, frame_len as u32);
-        write_u32(&mut out, RECLOG_PAYLOAD_LEN_OFFSET, payload.len() as u32);
-        write_u64(&mut out, RECLOG_SEQ_OFFSET, seq);
-        out[RECLOG_PREV_FRAME_SHA256_OFFSET..RECLOG_PREV_FRAME_SHA256_OFFSET + SHA256_LEN]
-            .copy_from_slice(&prev_hash);
-        out[RECLOG_PAYLOAD_SHA256_OFFSET..RECLOG_PAYLOAD_SHA256_OFFSET + SHA256_LEN]
-            .copy_from_slice(&payload_hash);
-        out[RECLOG_FRAME_HEADER_LEN..RECLOG_FRAME_HEADER_LEN + payload.len()]
-            .copy_from_slice(&payload);
+        let out = build_reclog_frame(seq, prev_hash, &payload, frame_len);
         let hash = sha256_bytes(&out);
         (out, hash)
     }
@@ -436,15 +537,92 @@ mod tests {
         );
     }
 
-    fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-        bytes[offset] = value as u8;
-        bytes[offset + 1] = (value >> 8) as u8;
-        bytes[offset + 2] = (value >> 16) as u8;
-        bytes[offset + 3] = (value >> 24) as u8;
+    #[test]
+    fn append_plan_empty_region_starts_seq_one_at_offset_zero() {
+        let region = vec![0u8; RECLOG_SECTOR_SIZE * 2];
+        let scan = scan_reclog(&region);
+        let planned = plan_reclog_append(&scan, b"first", region.len() as u64).unwrap();
+
+        assert_eq!(planned.seq, 1);
+        assert_eq!(planned.prev_frame_sha256, [0u8; 32]);
+        assert_eq!(planned.write_offset, 0);
+        assert_eq!(planned.frame_len, RECLOG_SECTOR_SIZE as u64);
+        assert_eq!(planned.payload_sha256, sha256_bytes(b"first"));
+        assert_eq!(planned.frame_sha256, sha256_bytes(&planned.frame));
     }
 
-    fn write_u64(bytes: &mut [u8], offset: usize, value: u64) {
-        write_u32(bytes, offset, value as u32);
-        write_u32(bytes, offset + 4, (value >> 32) as u32);
+    #[test]
+    fn append_plan_chains_after_tail_frame() {
+        let region = region_with_frames(3, RECLOG_SECTOR_SIZE);
+        let scan = scan_reclog(&region);
+        let planned = plan_reclog_append(&scan, b"next", region.len() as u64).unwrap();
+
+        assert_eq!(planned.seq, 4);
+        assert_eq!(planned.prev_frame_sha256, scan.tail_frame_sha256.unwrap());
+        assert_eq!(planned.write_offset, scan.first_invalid_offset);
+    }
+
+    #[test]
+    fn append_plan_denies_full_store_but_accepts_exact_boundary() {
+        let region = region_with_frames(1, RECLOG_SECTOR_SIZE);
+        let scan = scan_reclog(&region);
+        let planned = plan_reclog_append(&scan, b"fits", region.len() as u64).unwrap();
+
+        assert_eq!(
+            plan_reclog_append(&scan, b"fits", planned.write_offset + planned.frame_len - 1)
+                .unwrap_err(),
+            AppendDenied::DurableStoreFull
+        );
+        assert!(
+            plan_reclog_append(&scan, b"fits", planned.write_offset + planned.frame_len).is_ok()
+        );
+    }
+
+    #[test]
+    fn append_plan_builds_multisector_frame_when_payload_crosses_one_sector() {
+        let region = vec![0u8; RECLOG_SECTOR_SIZE * 3];
+        let scan = scan_reclog(&region);
+        let payload = vec![7u8; RECLOG_SECTOR_SIZE - RECLOG_FRAME_HEADER_LEN + 1];
+        let planned = plan_reclog_append(&scan, &payload, region.len() as u64).unwrap();
+
+        assert_eq!(planned.frame_len, (RECLOG_SECTOR_SIZE * 2) as u64);
+    }
+
+    #[test]
+    fn append_plan_round_trips_through_scan_and_parse() {
+        let mut region = region_with_frames(2, RECLOG_SECTOR_SIZE);
+        let before = scan_reclog(&region);
+        let planned = plan_reclog_append(&before, b"round-trip", region.len() as u64).unwrap();
+        let offset = planned.write_offset as usize;
+        region[offset..offset + planned.frame.len()].copy_from_slice(&planned.frame);
+
+        let after = scan_reclog(&region);
+        assert_eq!(after.count, before.count + 1);
+        assert_eq!(after.tail_seq, planned.seq);
+        assert_eq!(after.tail_frame_sha256, Some(planned.frame_sha256));
+        assert!(
+            parse_reclog_frame(&region, offset, planned.seq, planned.prev_frame_sha256).is_ok()
+        );
+    }
+
+    #[test]
+    fn append_plan_denies_torn_tail_and_oversized_payload() {
+        let mut region = region_with_frames(1, RECLOG_SECTOR_SIZE);
+        region[RECLOG_SECTOR_SIZE..RECLOG_SECTOR_SIZE + 8].copy_from_slice(b"GARBAGE!");
+        let scan = scan_reclog(&region);
+
+        assert_eq!(
+            plan_reclog_append(&scan, b"next", region.len() as u64).unwrap_err(),
+            AppendDenied::ReclogNotAppendable
+        );
+        assert_eq!(
+            plan_reclog_append(
+                &scan_reclog(&vec![0u8; RECLOG_SECTOR_SIZE * 10]),
+                &vec![1u8; MAX_APPEND_PAYLOAD_LEN + 1],
+                (RECLOG_SECTOR_SIZE * 10) as u64,
+            )
+            .unwrap_err(),
+            AppendDenied::PayloadTooLargeForFrame
+        );
     }
 }

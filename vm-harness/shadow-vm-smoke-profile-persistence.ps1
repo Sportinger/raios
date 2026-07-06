@@ -88,7 +88,8 @@ function Invoke-NoPersistDiskLayoutProbe {
 function Invoke-ReclogFixtureScanProbe {
     param(
         [string]$FixtureSpec,
-        [string]$Label
+        [string]$Label,
+        [string]$Method = "durable.record_log_scan"
     )
 
     if (-not $script:ReclogFixtureProbeIndex) {
@@ -148,11 +149,11 @@ function Invoke-ReclogFixtureScanProbe {
         if (-not (Wait-ForLogText -Path $fixtureLog -Needle "SERIAL CONSOLE READY" -TimeoutSeconds $childTimeout)) {
             throw "RECLOG fixture child VM did not reach serial console: $(Get-SerialLogTail -Path $fixtureLog)"
         }
-        Send-SerialText -Port $fixturePort -Text "agent durable.record_log_scan`r" -TimeoutSeconds $childTimeout
-        if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END durable.record_log_scan" -TimeoutSeconds $childTimeout)) {
-            throw "RECLOG fixture child VM did not answer durable.record_log_scan: $(Get-SerialLogTail -Path $fixtureLog)"
+        Send-SerialText -Port $fixturePort -Text "agent $Method`r" -TimeoutSeconds $childTimeout
+        if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END $Method" -TimeoutSeconds $childTimeout)) {
+            throw "RECLOG fixture child VM did not answer ${Method}: $(Get-SerialLogTail -Path $fixtureLog)"
         }
-        return (Get-ProfileAgentResponseJson -Path $fixtureLog -Method "durable.record_log_scan").body.result
+        return (Get-ProfileAgentResponseJson -Path $fixtureLog -Method $Method).body.result
     }
     finally {
         if ($child -and -not $child.HasExited) {
@@ -260,6 +261,62 @@ Add-Predicate `
     -Passed $appendDenied `
     -Actual $(if ($appendDenied) { "matched" } else { ($emptyScan | ConvertTo-Json -Compress -Depth 8) })
 
+$append = Invoke-ReclogFixtureScanProbe -FixtureSpec "valid:2" -Label "append" -Method "durable.record_log_append"
+$appendAuthorized = (
+    $append.schema -eq "raios.durable_record_log_append.v0" -and
+    $append.durable_append -eq "appended" -and
+    [bool]$append.performed -and
+    $append.authority -eq "scoped_seed_data_append_authorized" -and
+    [int64]$append.seq -eq 3 -and
+    $append.record_schema -eq "raios.durable_record.v0" -and
+    $append.region_marker -eq "RAIOS_DATA_RECLOG"
+)
+Add-Predicate `
+    -Name "durable-append-authorized" `
+    -Expected "durable.record_log_append appends one scoped SEED_DATA RECLOG frame after valid:2" `
+    -Passed $appendAuthorized `
+    -Actual $(if ($appendAuthorized) { "matched" } else { ($append | ConvertTo-Json -Compress -Depth 8) })
+
+$appendReadbackHash = (
+    $append.readback_sha256 -eq $append.frame_sha256 -and
+    [bool]$append.reparse_valid
+)
+Add-Predicate `
+    -Name "durable-readback-hash" `
+    -Expected "append readback_sha256 matches frame_sha256 and persisted frame reparses" `
+    -Passed $appendReadbackHash `
+    -Actual $(if ($appendReadbackHash) { "matched" } else { ($append | ConvertTo-Json -Compress -Depth 8) })
+
+$appendChainHead = (
+    [int64]$append.tail_seq_after -eq ([int64]$append.tail_seq_before + 1) -and
+    [int64]$append.count_after -eq ([int64]$append.count_before + 1)
+)
+Add-Predicate `
+    -Name "durable-chain-head" `
+    -Expected "append rescan advances tail_seq and count by exactly one" `
+    -Passed $appendChainHead `
+    -Actual $(if ($appendChainHead) { "matched" } else { ($append | ConvertTo-Json -Compress -Depth 8) })
+
+$fullAppend = Invoke-ReclogFixtureScanProbe -FixtureSpec "full" -Label "full-append" -Method "durable.record_log_append"
+$fullDenied = (
+    $fullAppend.durable_append -eq "capability_denied" -and
+    -not [bool]$fullAppend.performed -and
+    $fullAppend.reason -eq "durable_store_full"
+)
+Add-Predicate `
+    -Name "durable-store-full-denied" `
+    -Expected "full RECLOG fixture denies append without rotation" `
+    -Passed $fullDenied `
+    -Actual $(if ($fullDenied) { "matched" } else { ($fullAppend | ConvertTo-Json -Compress -Depth 8) })
+
+Send-AgentCommand -Command "agent module.audit_rollback_write_policy_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_write_policy_selftest" -Name "generic-target-still-denied:write_policy_selftest"
+Assert-LogContains -Name "generic-target-still-denied:write_policy_status" -Needle '"actual_status": "denied_write_path_unimplemented"' -TimeoutSeconds 1
+Assert-LogContains -Name "generic-target-still-denied:write_policy_reason" -Needle '"actual_reason": "durable_audit_rollback_writer_unimplemented"' -TimeoutSeconds 1
+
+Send-AgentCommand -Command "agent module.audit_rollback_write_boundary_selftest" -ExpectedMarker "RAIOS_AGENT_END module.audit_rollback_write_boundary_selftest" -Name "generic-target-still-denied:write_boundary_selftest"
+Assert-LogContains -Name "generic-target-still-denied:write_boundary_status" -Needle '"actual_status": "denied_write_path_unimplemented"' -TimeoutSeconds 1
+Assert-LogContains -Name "generic-target-still-denied:write_boundary_reason" -Needle '"actual_reason": "durable_audit_rollback_writer_unimplemented"' -TimeoutSeconds 1
+
 $chainScan = Invoke-ReclogFixtureScanProbe -FixtureSpec "valid:3" -Label "chain"
 $chainHeadOk = (
     $chainScan.status -eq "valid" -and
@@ -269,7 +326,7 @@ $chainHeadOk = (
     -not [bool]$chainScan.torn_tail
 )
 Add-Predicate `
-    -Name "durable-chain-head" `
+    -Name "durable-scan-chain-head" `
     -Expected "kernel scan reports the head of a valid seeded RECLOG hash chain" `
     -Passed $chainHeadOk `
     -Actual $(if ($chainHeadOk) { "matched" } else { ($chainScan | ConvertTo-Json -Compress -Depth 8) })
@@ -326,6 +383,6 @@ Add-Predicate `
     -Passed $absentPassed `
     -Actual $absentActual
 
-if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
+if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $fullDenied -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
     throw "Persistence kernel layout validation failed"
 }
