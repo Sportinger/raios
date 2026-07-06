@@ -5,7 +5,10 @@ use crate::agent_protocol_support::{
     begin_error, emit_record_fields, emit_record_fields_trailing_comma, emit_record_value_fragment,
     end_error,
 };
-use raios_core::record::{Field, Value as V};
+use raios_core::{
+    record::{sha256_of_json, Field, Value as V},
+    scoped_rollback_apply as scoped_apply,
+};
 
 macro_rules! j {
     ($key:literal => $value:expr,) => {
@@ -33,6 +36,13 @@ fn b(value: bool) -> V<'static> {
 
 fn u(value: u64) -> V<'static> {
     V::U64(value)
+}
+
+fn u_opt(value: Option<u64>) -> V<'static> {
+    match value {
+        Some(value) => u(value),
+        None => V::Null,
+    }
 }
 
 fn sha(value: [u8; 32]) -> V<'static> {
@@ -3543,6 +3553,375 @@ pub(crate) fn emit_rollback_apply_denied(
         4,
     );
     end_error(method);
+    emit_scoped_rollback_apply_decision_marker(method, snapshot);
+}
+
+fn emit_scoped_rollback_apply_decision_marker(method: &'static str, snapshot: Snapshot) {
+    raw(scoped_apply::SCOPED_ROLLBACK_APPLY_DECISION_MARKER);
+    raw(" ");
+    emit_record_value_fragment(scoped_rollback_apply_decision_value(method, snapshot), 0);
+    raw_line("");
+}
+
+fn scoped_rollback_apply_decision_value(method: &'static str, snapshot: Snapshot) -> V<'static> {
+    let input = scoped_rollback_apply_input(method, snapshot);
+    let decision = scoped_apply::evaluate_scoped_rollback_apply(&input);
+    let decision_hash = sha256_of_json(&inline(scoped_rollback_apply_decision_fields(
+        input, decision, None,
+    )));
+    inline(scoped_rollback_apply_decision_fields(
+        input,
+        decision,
+        Some(decision_hash),
+    ))
+}
+
+fn scoped_rollback_apply_decision_fields(
+    input: scoped_apply::ScopedRollbackApplyInput<'static>,
+    decision: scoped_apply::ScopedRollbackApplyDecision,
+    decision_hash: Option<[u8; 32]>,
+) -> Vec<Field<'static>> {
+    vec![
+        j!("schema" => s(scoped_apply::SCOPED_ROLLBACK_APPLY_DECISION_SCHEMA)),
+        j!("id" => s(scoped_apply::SCOPED_ROLLBACK_APPLY_DECISION_ID)),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("persistence" => s("none")),
+        j!("decision_hash" => sha_opt(decision_hash)),
+        j!("method" => s_opt(input.method)),
+        j!("service_id" => s_opt(input.service_id)),
+        j!("authorized" => b(decision.authorized)),
+        j!("status" => s(decision.status)),
+        j!("reason" => s(decision.reason)),
+        j!("target_scope" => inline(vec![
+                j!("target_region_id" => s_opt(input.target_region_id)),
+                j!("target_region_marker" => s_opt(input.target_region_marker)),
+                j!("target_start_lba" => u_opt(input.target_start_lba)),
+                j!("target_lba_count" => u_opt(input.target_lba_count)),
+                j!("target_byte_count" => u_opt(input.target_byte_count)),
+                j!("audit_ledger_target_id" => s_opt(input.audit_ledger_target_id)),
+                j!("audit_record_schema" => s_opt(input.audit_record_schema)),
+                j!("rollback_store_target_id" => s_opt(input.rollback_store_target_id)),
+                j!("rollback_transaction_schema" => s_opt(input.rollback_transaction_schema)),
+            ]),
+        ),
+        j!("state_scope" => inline(vec![
+                j!("probation_status" => s_opt(input.probation_status)),
+                j!("probation_hash" => sha_opt(input.probation_hash)),
+                j!("probation_accepted" => b(input.probation_accepted)),
+                j!("rollback_preview_status" => s_opt(input.rollback_preview_status)),
+                j!("rollback_preview_hash" => sha_opt(input.rollback_preview_hash)),
+                j!("current_state_hash" => sha_opt(input.current_state_hash)),
+                j!("current_state_counter" => u_opt(input.current_state_counter)),
+                j!("probation_new_state_hash" => sha_opt(input.probation_new_state_hash)),
+                j!("probation_new_state_counter" => u_opt(input.probation_new_state_counter)),
+                j!("state_migration_hash" => sha_opt(input.state_migration_hash)),
+            ]),
+        ),
+        j!("evidence_readiness" => inline(vec![
+                j!("scratch_readiness_verified" => b(input.scratch_readiness_verified)),
+                j!("append_record_ready" => b(input.append_record_ready)),
+                j!("sector_plan_ready" => b(input.sector_plan_ready)),
+                j!("target_region_write_readback_verified" => b(input.target_region_write_readback_verified)),
+                j!("transaction_append_dry_run_verified" => b(input.transaction_append_dry_run_verified)),
+                j!("target_region_sector_inspection_verified" => b(input.target_region_sector_inspection_verified)),
+                j!("durable_policy_write_authority_decision_verified" => b(input.durable_policy_write_authority_decision_verified)),
+                j!("retained_inspect_source_reference_validated" => b(input.retained_inspect_source_reference_validated)),
+            ]),
+        ),
+        j!("source_hashes" => inline(vec![
+                j!("append_record_hash" => sha_opt(input.append_record_hash)),
+                j!("sector_plan_hash" => sha_opt(input.sector_plan_hash)),
+                j!("target_region_write_readback_hash" => sha_opt(input.target_region_write_readback_hash)),
+                j!("transaction_append_dry_run_hash" => sha_opt(input.transaction_append_dry_run_hash)),
+                j!("transaction_append_source_sector_plan_hash" => sha_opt(input.transaction_append_source_sector_plan_hash)),
+                j!("transaction_append_source_target_region_write_readback_hash" => sha_opt(input.transaction_append_source_target_region_write_readback_hash)),
+                j!("durable_policy_write_authority_decision_hash" => sha_opt(input.durable_policy_write_authority_decision_hash)),
+                j!("policy_source_transaction_append_dry_run_hash" => sha_opt(input.policy_source_transaction_append_dry_run_hash)),
+                j!("policy_source_target_region_sector_inspection_hash" => sha_opt(input.policy_source_target_region_sector_inspection_hash)),
+                j!("target_region_sector_inspection_hash" => sha_opt(input.target_region_sector_inspection_hash)),
+                j!("inspection_source_sector_plan_hash" => sha_opt(input.inspection_source_sector_plan_hash)),
+                j!("inspection_source_target_region_write_readback_hash" => sha_opt(input.inspection_source_target_region_write_readback_hash)),
+            ]),
+        ),
+        j!("sector_hashes" => inline(vec![
+                j!("sector_plan_sector_image_hash" => sha_opt(input.sector_plan_sector_image_hash)),
+                j!("planned_sector_image_hash" => sha_opt(input.planned_sector_image_hash)),
+                j!("readback_sector_image_hash" => sha_opt(input.readback_sector_image_hash)),
+                j!("expected_sector_image_hash" => sha_opt(input.expected_sector_image_hash)),
+                j!("inspected_sector_image_hash" => sha_opt(input.inspected_sector_image_hash)),
+            ]),
+        ),
+        j!("record_hashes" => inline(vec![
+                j!("append_record_audit_record_image_hash" => sha_opt(input.append_record_audit_record_image_hash)),
+                j!("inspected_audit_record_image_hash" => sha_opt(input.inspected_audit_record_image_hash)),
+                j!("append_record_rollback_transaction_image_hash" => sha_opt(input.append_record_rollback_transaction_image_hash)),
+                j!("inspected_rollback_transaction_image_hash" => sha_opt(input.inspected_rollback_transaction_image_hash)),
+            ]),
+        ),
+        j!("retained_inspection" => inline(vec![
+                j!("retained_inspect_source_reference_hash" => sha_opt(input.retained_inspect_source_reference_hash)),
+                j!("retained_inspection_hash" => sha_opt(input.retained_inspection_hash)),
+                j!("retained_source_sector_plan_hash" => sha_opt(input.retained_source_sector_plan_hash)),
+                j!("retained_source_target_region_write_readback_hash" => sha_opt(input.retained_source_target_region_write_readback_hash)),
+            ]),
+        ),
+        j!("side_effects" => inline(vec![
+                j!("write_attempted" => b(false)),
+                j!("writes_durable_audit_log" => b(false)),
+                j!("writes_rollback_store" => b(false)),
+                j!("appends_rollback_transaction" => b(false)),
+                j!("applies_rollback" => b(false)),
+                j!("mutates_service_state" => b(false)),
+            ]),
+        ),
+    ]
+}
+
+fn scoped_rollback_apply_input(
+    method: &'static str,
+    snapshot: Snapshot,
+) -> scoped_apply::ScopedRollbackApplyInput<'static> {
+    let mut input = scoped_apply::ScopedRollbackApplyInput::empty();
+    input.method = Some(method);
+    input.service_id = Some(SERVICE_ID);
+    input.target_region_id =
+        Some(rollback_storage_layout::AUDIT_ROLLBACK_TARGET_REGION_DISCOVERY_ID);
+    input.target_region_marker = Some(ahci::AUDIT_ROLLBACK_TARGET_REGION_MARKER);
+    input.audit_ledger_target_id =
+        Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_ID);
+    input.audit_record_schema =
+        Some(rollback_storage_layout::AUDIT_ROLLBACK_AUDIT_APPEND_TARGET_SCHEMA);
+    input.rollback_store_target_id =
+        Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_ID);
+    input.rollback_transaction_schema =
+        Some(rollback_storage_layout::AUDIT_ROLLBACK_ROLLBACK_APPEND_TARGET_SCHEMA);
+    input.target_start_lba = Some(scoped_apply::EXPECTED_TARGET_START_LBA);
+    input.target_lba_count = Some(scoped_apply::EXPECTED_TARGET_LBA_COUNT);
+    input.target_byte_count = Some(scoped_apply::EXPECTED_TARGET_BYTE_COUNT);
+
+    let Some(probation) = snapshot.hot_swap_probation else {
+        return input;
+    };
+
+    let foundation = rollback_writer_storage_foundation();
+    let append_record = hello_rollback_append_record_dry_run(snapshot, probation, foundation);
+    let sector_plan = hello_rollback_append_sector_plan_dry_run(snapshot, probation, append_record);
+    let sector_write =
+        hello_rollback_append_sector_write_readback_dry_run(snapshot, probation, sector_plan);
+    let target_region_media_write_policy_preflight =
+        hello_target_region_media_write_policy_preflight(foundation);
+    let target_region_write = hello_rollback_target_region_write_readback_dry_run_from_materializer(
+        sector_plan,
+        foundation,
+        target_region_media_write_policy_preflight,
+    );
+    let durable_writer_policy_preflight = hello_rollback_durable_writer_policy_preflight(
+        foundation,
+        append_record,
+        sector_plan,
+        target_region_write,
+    );
+    let durable_append_preflight = hello_rollback_durable_append_authority_preflight(
+        foundation,
+        append_record,
+        sector_plan,
+        sector_write,
+        target_region_media_write_policy_preflight,
+        target_region_write,
+        durable_writer_policy_preflight,
+    );
+    let media_write_authority_gate =
+        hello_rollback_media_write_authority_gate(durable_append_preflight, target_region_write);
+    let durable_append_transaction_authorization_gate =
+        hello_rollback_durable_append_transaction_authorization_gate(
+            durable_writer_policy_preflight,
+            append_record,
+            sector_plan,
+            target_region_write,
+        );
+    let append_engine_readiness_decision = hello_rollback_append_engine_readiness_decision(
+        durable_append_transaction_authorization_gate,
+    );
+    let durable_append_authority_decision = hello_rollback_durable_append_authority_decision(
+        durable_append_preflight,
+        media_write_authority_gate,
+        append_engine_readiness_decision,
+    );
+    let durable_audit_policy_decision =
+        hello_rollback_durable_audit_policy_decision(durable_append_authority_decision);
+    let durable_audit_policy_candidate =
+        hello_rollback_durable_audit_policy_candidate(durable_audit_policy_decision, append_record);
+    let durable_audit_policy_acceptance_gate =
+        hello_rollback_durable_audit_policy_acceptance_gate(durable_audit_policy_candidate);
+    let durable_audit_policy_ledger_candidate =
+        hello_rollback_durable_audit_policy_ledger_candidate(durable_audit_policy_acceptance_gate);
+    let durable_audit_policy_ledger_aware_acceptance_result =
+        hello_rollback_durable_audit_policy_ledger_aware_acceptance_result(
+            durable_audit_policy_ledger_candidate,
+        );
+    let durable_audit_policy_write_authority_availability =
+        hello_rollback_durable_audit_policy_write_authority_availability(
+            durable_audit_policy_ledger_aware_acceptance_result,
+            durable_audit_policy_ledger_candidate,
+            target_region_media_write_policy_preflight,
+            target_region_write,
+        );
+    let durable_policy_ledger_availability = hello_rollback_durable_policy_ledger_availability(
+        durable_audit_policy_write_authority_availability,
+    );
+    let durable_audit_policy_availability =
+        hello_rollback_durable_audit_policy_availability(durable_policy_ledger_availability);
+    let durable_append_authority_availability =
+        hello_rollback_durable_append_authority_availability(durable_audit_policy_availability);
+    let transaction_append_availability_decision =
+        hello_rollback_transaction_append_availability_decision(
+            durable_append_authority_availability,
+            append_engine_readiness_decision,
+            durable_writer_policy_preflight,
+        );
+    let transaction_append_authority_denial_gate =
+        hello_rollback_transaction_append_authority_denial_gate(
+            transaction_append_availability_decision,
+        );
+    let durable_policy_ledger_availability_dry_run =
+        hello_rollback_durable_policy_ledger_availability_dry_run(
+            durable_policy_ledger_availability,
+            durable_audit_policy_write_authority_availability,
+            transaction_append_authority_denial_gate,
+            target_region_write,
+        );
+    let durable_audit_policy_availability_dry_run =
+        hello_rollback_durable_audit_policy_availability_dry_run(
+            durable_audit_policy_availability,
+            durable_policy_ledger_availability_dry_run,
+            transaction_append_authority_denial_gate,
+            target_region_write,
+        );
+    let durable_append_authority_availability_dry_run =
+        hello_rollback_durable_append_authority_availability_dry_run(
+            durable_append_authority_availability,
+            durable_audit_policy_availability_dry_run,
+            transaction_append_authority_denial_gate,
+            target_region_write,
+        );
+    let transaction_append_dry_run = hello_rollback_transaction_append_dry_run(
+        transaction_append_authority_denial_gate,
+        append_record,
+        sector_plan,
+        target_region_write,
+    );
+    let target_region_sector_inspection =
+        hello_rollback_target_region_sector_inspection_from_retained_inspect(
+            append_record,
+            sector_plan,
+            target_region_write,
+        );
+    let durable_policy_write_authority_decision =
+        hello_rollback_durable_policy_write_authority_decision(
+            durable_append_authority_availability_dry_run,
+            durable_audit_policy_write_authority_availability,
+            durable_audit_policy_availability,
+            durable_append_authority_availability,
+            transaction_append_dry_run,
+            target_region_sector_inspection,
+        );
+    let retained_source =
+        recovery_rollback_inspect_source_reference_state(target_region_sector_inspection);
+
+    input.probation_status = Some(probation.status);
+    input.probation_hash = Some(probation.probation_hash);
+    input.probation_accepted = probation.accepted;
+    input.rollback_preview_status = Some(HELLO_ROLLBACK_PREVIEW_STATUS);
+    input.rollback_preview_hash = Some(hello_rollback_preview_hash(snapshot, probation));
+    input.current_state_hash = Some(hello_state_hash(snapshot.state_counter));
+    input.current_state_counter = Some(snapshot.state_counter);
+    input.probation_new_state_hash = Some(probation.new_state_hash);
+    input.probation_new_state_counter = Some(probation.new_state_counter);
+    input.state_migration_hash = Some(probation.state_migration_hash);
+    input.scratch_readiness_verified = foundation.scratch_writer_dry_run_ready
+        && sector_write.write_completed
+        && sector_write.readback_completed
+        && sector_write.readback_matches_planned_image;
+    input.append_record_ready = append_record.target_range_ready
+        && append_record.target_start_lba == scoped_apply::EXPECTED_TARGET_START_LBA
+        && append_record.target_lba_count == scoped_apply::EXPECTED_TARGET_LBA_COUNT
+        && append_record.target_byte_count == scoped_apply::EXPECTED_TARGET_BYTE_COUNT
+        && append_record.total_record_byte_length <= append_record.target_byte_count;
+    input.sector_plan_ready = sector_plan.target_range_ready
+        && sector_plan.target_start_lba == scoped_apply::EXPECTED_TARGET_START_LBA
+        && sector_plan.target_lba_count == scoped_apply::EXPECTED_TARGET_LBA_COUNT
+        && sector_plan.target_byte_count == scoped_apply::EXPECTED_TARGET_BYTE_COUNT
+        && sector_plan.audit_record_offset == 0
+        && sector_plan.rollback_transaction_offset == append_record.audit_record_byte_length
+        && sector_plan.padding_offset == append_record.total_record_byte_length;
+    input.target_region_write_readback_verified = target_region_write.label_found
+        && target_region_write.target_range_ready
+        && target_region_write.write_completed
+        && target_region_write.readback_completed
+        && target_region_write.readback_matches_planned_image;
+    input.transaction_append_dry_run_verified = transaction_append_dry_run
+        .authority_denial_gate_verified
+        && transaction_append_dry_run.target_span_verified
+        && transaction_append_dry_run.target_region_write_readback_verified
+        && transaction_append_dry_run.append_image_ready;
+    input.target_region_sector_inspection_verified =
+        target_region_sector_inspection.inspection_verified;
+    input.durable_policy_write_authority_decision_verified = durable_policy_write_authority_decision
+        .transaction_append_dry_run_verified
+        && durable_policy_write_authority_decision.target_region_sector_inspection_verified
+        && durable_policy_write_authority_decision.write_authority_evidence_verified
+        && durable_policy_write_authority_decision.audit_policy_availability_evidence_verified
+        && durable_policy_write_authority_decision
+            .durable_append_authority_availability_evidence_verified
+        && durable_policy_write_authority_decision.target_span_verified;
+    input.retained_inspect_source_reference_validated = retained_source.ram_audit_validated;
+    input.append_record_hash = Some(append_record.dry_run_hash);
+    input.sector_plan_hash = Some(sector_plan.plan_hash);
+    input.target_region_write_readback_hash = Some(target_region_write.dry_run_hash);
+    input.transaction_append_dry_run_hash = Some(transaction_append_dry_run.dry_run_hash);
+    input.transaction_append_source_sector_plan_hash =
+        Some(transaction_append_dry_run.source_sector_plan_hash);
+    input.transaction_append_source_target_region_write_readback_hash =
+        Some(transaction_append_dry_run.source_target_region_write_readback_hash);
+    input.durable_policy_write_authority_decision_hash =
+        Some(durable_policy_write_authority_decision.decision_hash);
+    input.policy_source_transaction_append_dry_run_hash =
+        Some(durable_policy_write_authority_decision.source_transaction_append_dry_run_hash);
+    input.policy_source_target_region_sector_inspection_hash =
+        Some(durable_policy_write_authority_decision.source_target_region_sector_inspection_hash);
+    input.target_region_sector_inspection_hash =
+        Some(target_region_sector_inspection.inspection_hash);
+    input.inspection_source_sector_plan_hash =
+        Some(target_region_sector_inspection.source_sector_plan_hash);
+    input.inspection_source_target_region_write_readback_hash =
+        Some(target_region_sector_inspection.source_target_region_write_readback_hash);
+    input.sector_plan_sector_image_hash = Some(sector_plan.sector_image_hash);
+    input.planned_sector_image_hash = Some(target_region_write.planned_sector_image_hash);
+    input.readback_sector_image_hash = Some(target_region_write.readback_sector_image_hash);
+    input.expected_sector_image_hash =
+        Some(target_region_sector_inspection.expected_sector_image_hash);
+    input.inspected_sector_image_hash = Some(target_region_sector_inspection.sector_image_hash);
+    input.append_record_audit_record_image_hash = Some(append_record.audit_record_image_hash);
+    input.inspected_audit_record_image_hash =
+        Some(target_region_sector_inspection.audit_record_image_hash);
+    input.append_record_rollback_transaction_image_hash =
+        Some(append_record.rollback_transaction_image_hash);
+    input.inspected_rollback_transaction_image_hash =
+        Some(target_region_sector_inspection.rollback_transaction_image_hash);
+    input.retained_inspect_source_reference_hash = retained_source
+        .reference
+        .map(|reference| reference.reference_hash);
+    input.retained_inspection_hash = retained_source
+        .reference
+        .map(|reference| reference.inspection_hash);
+    input.retained_source_sector_plan_hash = retained_source
+        .reference
+        .map(|reference| reference.source_sector_plan_hash);
+    input.retained_source_target_region_write_readback_hash = retained_source
+        .reference
+        .map(|reference| reference.source_target_region_write_readback_hash);
+    input
 }
 
 pub(crate) fn emit_rollback_preview_response(

@@ -321,19 +321,26 @@ DECISION + needle updates + an ADR).
 Checkpoint resolved via ADR 0006 (M2 closed re-scoped; batch-6
 vocabulary compaction optional/deferred, owner may still choose it).
 
+M3-1 done (2026-07-06): design map saved at
+`docs/plan-reviews/m3-durable-write-map-2026-07-06.md` (region contract,
+10-gate denial chain, minimal single-use hello-scoped grant, transaction
+flow, 5-slice plan, needle-flip list, authority-leak risks).
+M3-2 done (2026-07-06): the scoped-grant evaluator exists as PURE
+host-tested logic (`raios-core/src/scoped_rollback_apply.rs`) and its
+decision is emitted as a NEW standalone `RAIOS_ROLLBACK_APPLY_SCOPE_DECISION`
+record after the rollback-apply response — additive only, all existing
+needles green (`shadow-20260706-022318-7556.json`, 203/203); re-signed.
+
 Exact next task:
 
 ```text
-Open M3 with a scoping slice (read-only packet): map the existing
-write-authority denial chain end to end — the RAIOS_AUDITRB_V0 LBA1
-region contract (docs/image-layout-v0.md?), the AHCI write/readback
-evidence already verified, the append-intent/payload-hash/write-policy
-gates, and exactly which policy constant(s) currently deny the
-transaction append. Output: the authority-grant design (which gate
-flips, what evidence it must cite), the transaction append + readback +
-hash verification flow, and the slice plan for making rollback apply a
-real evidenced state change. Verify profile: hello-rollback-dry-run +
-module-audit-rollback + full at closure.
+M3 slice 2 (authorized append): route a POSITIVE scope decision into the
+existing target-region LBA1 write/readback path (per the map's
+transaction flow steps 4-6) — the first policy-authorized durable write.
+Harness: hello-rollback-dry-run needles for the authorized path flip
+per the map's needle list (scoped only; generic module authority stays
+denied). Verify: hello-rollback-dry-run + quick. Then slice 3 (verified
+apply mutates hello state citing the transaction).
 ```
 
 ## Capability Milestones

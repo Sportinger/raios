@@ -5,6 +5,7 @@ extern crate alloc;
 use sha2::{Digest, Sha256};
 
 pub mod record;
+pub mod scoped_rollback_apply;
 
 /// Computes the SHA-256 digest for `bytes` and returns the raw 32-byte digest.
 pub fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
