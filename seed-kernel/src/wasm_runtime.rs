@@ -86,6 +86,16 @@ pub(crate) struct EchoProbe {
     pub(crate) hardening_cases: [WasmHardeningCase; WASM_HARDENING_CASE_COUNT],
 }
 
+pub(crate) struct EchoRunEvidence {
+    pub(crate) validation_ok: bool,
+    pub(crate) instantiation_ok: bool,
+    pub(crate) run_outcome: &'static str,
+    pub(crate) return_value: Option<i32>,
+    pub(crate) fuel_budget: u64,
+    pub(crate) fuel_used: u64,
+    pub(crate) log_line: Option<String>,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct WasmHardeningCase {
     pub(crate) name: &'static str,
@@ -96,8 +106,7 @@ pub(crate) struct WasmHardeningCase {
 }
 
 pub(crate) fn run_echo_probe() -> EchoProbe {
-    let validation_ok = validate_echo_wasm_artifact();
-    let positive = execute_echo_module(validation_ok);
+    let positive = run_echo_service();
     let negative = instantiate_forbidden_import_module();
     let hardening_cases = run_hardening_cases();
 
@@ -105,11 +114,11 @@ pub(crate) fn run_echo_probe() -> EchoProbe {
         artifact_hash: ECHO_WASM_ARTIFACT_BYTES_HASH,
         descriptor_hash: ECHO_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH,
         signature_envelope_hash: ECHO_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH,
-        validation_ok,
+        validation_ok: positive.validation_ok,
         instantiation_ok: positive.instantiation_ok,
         run_outcome: positive.run_outcome,
         return_value: positive.return_value,
-        fuel_budget: ECHO_WASM_FUEL_BUDGET,
+        fuel_budget: positive.fuel_budget,
         fuel_used: positive.fuel_used,
         log_line: positive.log_line,
         forbidden_validation_ok: negative.validation_ok,
@@ -122,6 +131,10 @@ pub(crate) fn run_echo_probe() -> EchoProbe {
     }
 }
 
+pub(crate) fn run_echo_service() -> EchoRunEvidence {
+    execute_echo_module(validate_echo_wasm_artifact())
+}
+
 fn validate_module_bytes(bytes: &[u8]) -> bool {
     let engine = Box::new(wasmi::Engine::default());
     wasmi::Module::new(&engine, bytes).is_ok()
@@ -130,14 +143,6 @@ fn validate_module_bytes(bytes: &[u8]) -> bool {
 struct EnvelopeState {
     log_line: Option<String>,
     limits: StoreLimits,
-}
-
-struct PositiveRun {
-    instantiation_ok: bool,
-    run_outcome: &'static str,
-    return_value: Option<i32>,
-    fuel_used: u64,
-    log_line: Option<String>,
 }
 
 struct NegativeRun {
@@ -149,24 +154,25 @@ struct NegativeRun {
     boundary_held: bool,
 }
 
-fn execute_echo_module(validation_ok: bool) -> PositiveRun {
+fn execute_echo_module(validation_ok: bool) -> EchoRunEvidence {
     if !validation_ok {
-        return positive_run(false, "validation_failed", None, 0, None);
+        return positive_run(false, false, "validation_failed", None, 0, None);
     }
 
     let wasm = Vec::from(ECHO_WASM_ARTIFACT_BYTES).into_boxed_slice();
     let engine = metered_engine();
     let module = match Module::new(&engine, &*wasm) {
         Ok(module) => Box::new(module),
-        Err(_) => return positive_run(false, "module_compile_failed", None, 0, None),
+        Err(_) => return positive_run(true, false, "module_compile_failed", None, 0, None),
     };
     let mut store = Box::new(Store::new(&engine, default_state()));
     if store.add_fuel(ECHO_WASM_FUEL_BUDGET).is_err() {
-        return positive_run(false, "fuel_metering_unavailable", None, 0, None);
+        return positive_run(true, false, "fuel_metering_unavailable", None, 0, None);
     }
     let mut linker = Box::new(Linker::<EnvelopeState>::new(&engine));
     if !define_capability_envelope(&mut linker) {
         return positive_run(
+            true,
             false,
             "capability_envelope_definition_failed",
             None,
@@ -180,6 +186,7 @@ fn execute_echo_module(validation_ok: bool) -> PositiveRun {
             Ok(instance) => instance,
             Err(_) => {
                 return positive_run(
+                    true,
                     false,
                     "instantiation_start_trap",
                     None,
@@ -190,6 +197,7 @@ fn execute_echo_module(validation_ok: bool) -> PositiveRun {
         },
         Err(_) => {
             return positive_run(
+                true,
                 false,
                 "instantiation_failed",
                 None,
@@ -204,6 +212,7 @@ fn execute_echo_module(validation_ok: bool) -> PositiveRun {
         .and_then(Extern::into_func)
     else {
         return positive_run(
+            true,
             true,
             "entrypoint_missing",
             None,
@@ -223,6 +232,7 @@ fn execute_echo_module(validation_ok: bool) -> PositiveRun {
             };
             positive_run(
                 true,
+                true,
                 outcome,
                 return_value,
                 store.fuel_consumed().unwrap_or(0),
@@ -230,6 +240,7 @@ fn execute_echo_module(validation_ok: bool) -> PositiveRun {
             )
         }
         Err(_) => positive_run(
+            true,
             true,
             "trap",
             None,
@@ -464,16 +475,19 @@ fn hardening_case(
 }
 
 fn positive_run(
+    validation_ok: bool,
     instantiation_ok: bool,
     run_outcome: &'static str,
     return_value: Option<i32>,
     fuel_used: u64,
     log_line: Option<String>,
-) -> PositiveRun {
-    PositiveRun {
+) -> EchoRunEvidence {
+    EchoRunEvidence {
+        validation_ok,
         instantiation_ok,
         run_outcome,
         return_value,
+        fuel_budget: ECHO_WASM_FUEL_BUDGET,
         fuel_used,
         log_line,
     }

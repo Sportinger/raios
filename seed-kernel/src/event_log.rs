@@ -4438,6 +4438,53 @@ fn record_service_event(
     evidence: &'static [&'static str],
     binding: HelloServiceLifecycleBinding,
 ) -> EventId {
+    record_service_event_with_bindings(
+        descriptor,
+        kind,
+        source_method,
+        outcome,
+        requested_capability,
+        risk,
+        reason,
+        evidence,
+        EventBindings::HelloServiceLifecycle(binding),
+    )
+}
+
+fn record_service_event_unbound(
+    descriptor: &ServiceDescriptor,
+    kind: &'static str,
+    source_method: &'static str,
+    outcome: &'static str,
+    requested_capability: &'static str,
+    risk: &'static str,
+    reason: &'static str,
+    evidence: &'static [&'static str],
+) -> EventId {
+    record_service_event_with_bindings(
+        descriptor,
+        kind,
+        source_method,
+        outcome,
+        requested_capability,
+        risk,
+        reason,
+        evidence,
+        EventBindings::None,
+    )
+}
+
+fn record_service_event_with_bindings(
+    descriptor: &ServiceDescriptor,
+    kind: &'static str,
+    source_method: &'static str,
+    outcome: &'static str,
+    requested_capability: &'static str,
+    risk: &'static str,
+    reason: &'static str,
+    evidence: &'static [&'static str],
+    bindings: EventBindings,
+) -> EventId {
     LOG.lock().record(Event {
         sequence: 0,
         kind,
@@ -4451,7 +4498,7 @@ fn record_service_event(
         resource: descriptor.service_id,
         reason,
         evidence,
-        bindings: EventBindings::HelloServiceLifecycle(binding),
+        bindings,
     })
 }
 
@@ -4494,6 +4541,44 @@ pub(crate) fn record_service_health(
         reason,
         evidence,
         binding,
+    )
+}
+
+pub(crate) fn record_service_lifecycle_unbound(
+    descriptor: &ServiceDescriptor,
+    source_method: &'static str,
+    outcome: &'static str,
+    reason: &'static str,
+    evidence: &'static [&'static str],
+) -> EventId {
+    record_service_event_unbound(
+        descriptor,
+        descriptor.event_lifecycle_kind,
+        source_method,
+        outcome,
+        descriptor.service_capability,
+        "modify_ram",
+        reason,
+        evidence,
+    )
+}
+
+pub(crate) fn record_service_health_unbound(
+    descriptor: &ServiceDescriptor,
+    source_method: &'static str,
+    outcome: &'static str,
+    reason: &'static str,
+    evidence: &'static [&'static str],
+) -> EventId {
+    record_service_event_unbound(
+        descriptor,
+        descriptor.event_health_kind,
+        source_method,
+        outcome,
+        descriptor.health_capability,
+        "observe",
+        reason,
+        evidence,
     )
 }
 

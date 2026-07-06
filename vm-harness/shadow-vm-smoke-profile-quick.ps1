@@ -1,4 +1,4 @@
-        function Get-LastMarkerJsonAfterOffset {
+﻿        function Get-LastMarkerJsonAfterOffset {
             param(
                 [string]$Prefix,
                 [int]$Offset,
@@ -3086,3 +3086,83 @@
         Assert-LogContains -Name "quick:audit_events_hello_host_bound_binds_hash" -Needle '"binds_source_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_validated" -Needle '"load_descriptor_source_validated": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_ram_only" -Needle '"persistence": "none"' -TimeoutSeconds 1
+
+        $echoLoadOffset = Get-SerialLogOffset
+        Send-AgentCommand -Command "module.load_ephemeral svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral"
+        $echoLoad = Get-LastAgentResponseJson -Method "module.load_ephemeral"
+        $echoLoadResult = $echoLoad.body.result
+        $echoLoadOk = $echoLoad.t -eq "response" -and $echoLoad.body.method -eq "module.load_ephemeral" -and $echoLoadResult.schema -eq "raios.ram_only_echo_service.lifecycle_response.v0" -and $echoLoadResult.service_id -eq "svc.demo.echo" -and $echoLoadResult.action -eq "load" -and $echoLoadResult.loaded -and -not $echoLoadResult.running -and $echoLoadResult.reason -eq "loaded_wasm_current_boot_service" -and $echoLoadResult.load_descriptor.source_validated -and $echoLoadResult.load_descriptor.authorizes_current_boot_wasm_execution -and $echoLoadResult.artifact_load_plan_preflight_status -eq "accepted_wasm_current_boot_only"
+        Add-Predicate -Name "quick:echo_lifecycle_load" -Expected "svc.demo.echo loaded from signed current-boot wasm descriptor" -Passed $echoLoadOk -Actual $(if ($echoLoadOk) { "matched" } else { ($echoLoadResult | ConvertTo-Json -Compress -Depth 6) })
+        if (-not $echoLoadOk) {
+            throw "Expected module.load_ephemeral svc.demo.echo to load the current-boot wasm service"
+        }
+
+        Send-AgentCommand -Command "service.start svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END service.start"
+        $echoStart = Get-LastAgentResponseJson -Method "service.start"
+        $echoStartResult = $echoStart.body.result
+        $echoRun = $echoStartResult.run_evidence
+        $echoStartOk = $echoStart.t -eq "response" -and $echoStart.body.method -eq "service.start" -and $echoStartResult.action -eq "start" -and $echoStartResult.loaded -and $echoStartResult.running -and $echoStartResult.reason -eq "wasm_run_success" -and $echoRun.present -and $echoRun.validation_ok -and $echoRun.instantiation_ok -and $echoRun.run_outcome -eq "success" -and [int]$echoRun.return_value_i32 -eq 0 -and [int64]$echoRun.fuel_used -gt 0 -and $echoRun.log_line -like "echo counter=*"
+        Add-Predicate -Name "quick:echo_lifecycle_start_runs_wasm" -Expected "service.start executes echo wasm, return 0, fuel_used > 0, guest log captured" -Passed $echoStartOk -Actual $(if ($echoStartOk) { "fuel_used=$($echoRun.fuel_used) log_line=$($echoRun.log_line)" } else { ($echoStartResult | ConvertTo-Json -Compress -Depth 6) })
+        if (-not $echoStartOk) {
+            throw "Expected service.start svc.demo.echo to execute the wasm body"
+        }
+        $echoGuestLog = (Get-SerialLogContent -Path $SerialLog).Substring($echoLoadOffset).Contains("WASM_GUEST_LOG echo counter=")
+        Add-Predicate -Name "quick:echo_lifecycle_start_serial_log" -Expected "serial_contains_after_offset:WASM_GUEST_LOG echo counter=" -Passed $echoGuestLog -Actual $(if ($echoGuestLog) { "found_after_offset:$echoLoadOffset" } else { Get-SerialLogTail -Path $SerialLog })
+        if (-not $echoGuestLog) {
+            throw "Expected service.start svc.demo.echo to emit the wasm guest log line"
+        }
+        $echoImportSurfaceOk = @($echoStartResult.granted_host_imports).Count -eq 2 -and @($echoStartResult.granted_host_imports) -contains "env.log" -and @($echoStartResult.granted_host_imports) -contains "env.counter_get" -and [int]$echoStartResult.host_import_count -eq 2 -and $echoStartResult.capability_envelope -eq "wasmi_linker_import_surface" -and -not $echoStartResult.accepts_external_artifact_bytes -and -not $echoStartResult.maps_executable_pages -and -not $echoStartResult.writes_persistent_state -and -not $echoStartResult.durable_writes_enabled -and -not $echoStartResult.rollback_apply_authorized -and -not $echoStartResult.broad_mutation_authorized
+        Add-Predicate -Name "quick:echo_lifecycle_import_surface_fail_closed" -Expected "only env.log/env.counter_get granted; storage/rollback/broad mutation denied" -Passed $echoImportSurfaceOk -Actual $(if ($echoImportSurfaceOk) { "matched" } else { ($echoStartResult | ConvertTo-Json -Compress -Depth 5) })
+        if (-not $echoImportSurfaceOk) {
+            throw "Expected echo service to expose only its two wasm imports and keep mutation surfaces denied"
+        }
+
+        Send-AgentCommand -Command "service.health svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END service.health"
+        $echoHealth = Get-LastAgentResponseJson -Method "service.health"
+        $echoHealthResult = $echoHealth.body.result
+        $echoHealthOk = $echoHealthResult.schema -eq "raios.ram_only_echo_service.health_response.v0" -and $echoHealthResult.service_id -eq "svc.demo.echo" -and $echoHealthResult.health -eq "healthy" -and $echoHealthResult.loaded -and $echoHealthResult.running
+        Add-Predicate -Name "quick:echo_lifecycle_health" -Expected "echo health is healthy while running" -Passed $echoHealthOk -Actual $(if ($echoHealthOk) { "matched" } else { ($echoHealthResult | ConvertTo-Json -Compress -Depth 5) })
+        if (-not $echoHealthOk) {
+            throw "Expected service.health svc.demo.echo to report healthy running state"
+        }
+
+        Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
+        $echoInventory = Get-LastAgentResponseJson -Method "service.inventory"
+        $echoInventoryService = @($echoInventory.body.result.services | Where-Object { $_.id -eq "svc.demo.echo" })[0]
+        $echoInventoryOk = $null -ne $echoInventoryService -and $echoInventoryService.health -eq "healthy" -and $echoInventoryService.running -and $echoInventoryService.artifact_id -eq "wasm:svc.demo.echo" -and $echoInventoryService.capability_envelope -eq "wasmi_linker_import_surface" -and [int]$echoInventoryService.host_import_count -eq 2 -and [int]$echoInventoryService.run_count -ge 1
+        Add-Predicate -Name "quick:echo_lifecycle_inventory_lists_echo" -Expected "service.inventory lists running svc.demo.echo" -Passed $echoInventoryOk -Actual $(if ($echoInventoryOk) { "matched" } else { ($echoInventory.body.result | ConvertTo-Json -Compress -Depth 5) })
+        if (-not $echoInventoryOk) {
+            throw "Expected service.inventory to list svc.demo.echo after load/start"
+        }
+
+        Send-AgentCommand -Command "service.stop svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END service.stop"
+        $echoStop = Get-LastAgentResponseJson -Method "service.stop"
+        $echoStopResult = $echoStop.body.result
+        $echoStopOk = $echoStopResult.schema -eq "raios.ram_only_echo_service.lifecycle_response.v0" -and $echoStopResult.service_id -eq "svc.demo.echo" -and $echoStopResult.action -eq "stop" -and $echoStopResult.loaded -and -not $echoStopResult.running -and $echoStopResult.reason -eq "stopped"
+        Add-Predicate -Name "quick:echo_lifecycle_stop" -Expected "svc.demo.echo stopped but still loaded" -Passed $echoStopOk -Actual $(if ($echoStopOk) { "matched" } else { ($echoStopResult | ConvertTo-Json -Compress -Depth 5) })
+        if (-not $echoStopOk) {
+            throw "Expected service.stop svc.demo.echo to stop the loaded service"
+        }
+
+        Send-AgentCommand -Command "service.drop svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END service.drop"
+        $echoDrop = Get-LastAgentResponseJson -Method "service.drop"
+        $echoDropResult = $echoDrop.body.result
+        $echoDropOk = $echoDropResult.schema -eq "raios.ram_only_echo_service.lifecycle_response.v0" -and $echoDropResult.service_id -eq "svc.demo.echo" -and $echoDropResult.action -eq "drop" -and -not $echoDropResult.loaded -and -not $echoDropResult.running -and $echoDropResult.reason -eq "dropped"
+        Add-Predicate -Name "quick:echo_lifecycle_drop" -Expected "svc.demo.echo dropped from current boot" -Passed $echoDropOk -Actual $(if ($echoDropOk) { "matched" } else { ($echoDropResult | ConvertTo-Json -Compress -Depth 5) })
+        if (-not $echoDropOk) {
+            throw "Expected service.drop svc.demo.echo to drop the current-boot service"
+        }
+
+        Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory"
+        $echoInventoryAfterDrop = Get-LastAgentResponseJson -Method "service.inventory"
+        $echoRemoved = $null -eq (@($echoInventoryAfterDrop.body.result.services | Where-Object { $_.id -eq "svc.demo.echo" })[0])
+        Add-Predicate -Name "quick:echo_lifecycle_inventory_removes_echo" -Expected "service.inventory no longer lists svc.demo.echo after drop" -Passed $echoRemoved -Actual $(if ($echoRemoved) { "removed" } else { ($echoInventoryAfterDrop.body.result | ConvertTo-Json -Compress -Depth 4) })
+        if (-not $echoRemoved) {
+            throw "Expected service.inventory to remove svc.demo.echo after drop"
+        }
+
+        Send-AgentCommand -Command "agent audit.events 24" -ExpectedMarker "RAIOS_AGENT_END memory.recent_events"
+        Assert-LogContains -Name "quick:echo_lifecycle_audit_kind" -Needle '"kind": "raios.ram_only_echo_service.lifecycle"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:echo_lifecycle_audit_health_kind" -Needle '"kind": "raios.ram_only_echo_service.health"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:echo_lifecycle_audit_resource" -Needle '"resource": "svc.demo.echo"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:echo_lifecycle_audit_start_source" -Needle '"source_method": "service.start"' -TimeoutSeconds 1

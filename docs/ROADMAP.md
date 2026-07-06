@@ -442,18 +442,27 @@ authorizing current-boot wasm execution under env.log+env.counter_get;
 build.rs verifies it fail-closed. Verified: quick
 `shadow-20260706-071031-25824.json` 465/465.
 
+M5 slices 4-5 done (2026-07-06): **echo is a real second current-boot
+service.** module.load_ephemeral / service.start (executes the wasm
+under the M4 envelope) / service.health / service.inventory /
+service.stop / service.drop all drive svc.demo.echo through the shared
+current_boot_service shell + descriptor-driven event records + echo
+dispatch rows; echo stays fail-closed (only its two imports; no durable
+write/rollback/broad mutation). Verified: quick
+`shadow-20260706-073224-7536.json` 486/486 incl. 67 echo needles.
+
+**M5 VERDICT — PASS.** Total second-service kernel cost (db52116..HEAD,
+seed-kernel/src): net +1,064 lines (M5-2 +124, M5-3 +49, M5-4 +91,
+M5-5 +800) — a descriptor + a small state machine reusing the M2 record
+model, M3 durable-write posture, and M4 wasm envelope. A hello copy
+would have been ~19k. The architecture generalized.
+
 Exact next task:
 
 ```text
-M5 slice 4 (echo wasm start path): split wasm.echo_probe's positive run
-into a reusable run_echo_service; wire echo through the shared shell so
-module.load_ephemeral svc.demo.echo / service.start / service.health /
-service.inventory / service.stop / service.drop drive the generic
-lifecycle, start executes the wasm under the envelope, and lifecycle
-audit events + inventory use the descriptor-driven path (M5-3). Add the
-echo dispatch rows to the MethodEntry table. Then slice 5: generated
-echo needles + full profile; measure the TOTAL net line cost of the
-second service for the M5 verdict.
+M5 closure: full profile over the echo-service tree; if green, the M5
+capability sentence holds — close M5, open M6 (Promotion Loop v0), update
+dashboard, report to owner.
 ```
 
 ## Capability Milestones

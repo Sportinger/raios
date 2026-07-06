@@ -4,7 +4,7 @@ use crate::{
         indent, json_opt_str, json_sha256, json_sha256_option, json_str, raw, raw_bool, raw_fmt,
         raw_line,
     },
-    hello_service, provider, serial, service_inventory, system_status,
+    echo_service, hello_service, provider, serial, service_inventory, system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
@@ -621,6 +621,7 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
     let status = SystemSnapshot::collect(None, runtime);
     let provider = provider::snapshot();
     let hello = hello_service::loaded_snapshot();
+    let echo = echo_service::loaded_snapshot();
     begin_response("service.inventory");
     raw_line("      \"schema\": \"service.inventory.v0\",");
     raw_line("      \"services\": [");
@@ -648,11 +649,14 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
         raw(", \"capabilities\": [");
         emit_inline_string_array(service.capabilities);
         raw("]}");
-        if idx + 1 != service_inventory::SERVICES.len() || hello.is_some() {
+        if idx + 1 != service_inventory::SERVICES.len() || hello.is_some() || echo.is_some() {
             raw(",");
         }
         crlf();
         idx += 1;
+    }
+    if let Some(echo) = echo {
+        emit_echo_service_inventory(echo, hello.is_some());
     }
     if let Some(hello) = hello {
         emit_hello_service_inventory(hello);
@@ -806,6 +810,93 @@ fn emit_hello_service_inventory(hello: hello_service::Snapshot) {
     raw(", \"capabilities\": [");
     emit_inline_string_array(hello_service::CAPABILITIES);
     raw("]}");
+    crlf();
+}
+
+fn emit_echo_service_inventory(echo: echo_service::Snapshot, comma: bool) {
+    let descriptor = echo_service::ECHO_SERVICE_DESCRIPTOR;
+    indent(8);
+    raw("{");
+    raw("\"id\": ");
+    json_str(descriptor.service_id);
+    raw(", \"kind\": ");
+    json_str(descriptor.inventory_kind);
+    raw(", \"health\": ");
+    json_str(echo_service::health_state(echo));
+    raw(", \"replaceable\": ");
+    raw_bool(descriptor.inventory_replaceable);
+    raw(", \"core_owned\": ");
+    raw_bool(descriptor.inventory_core_owned);
+    raw(", \"last_error\": null");
+    raw(", \"scope\": ");
+    json_str(descriptor.scope);
+    raw(", \"persistence\": ");
+    json_str(descriptor.persistence);
+    raw(", \"artifact_id\": ");
+    json_str(descriptor.artifact_id);
+    raw(", \"version\": \"v0\"");
+    raw(", \"artifact_identity_id\": ");
+    json_str("builtin_artifact_identity.svc.demo.echo.wasm.v0");
+    raw(", \"artifact_identity_hash\": ");
+    json_sha256(echo_service::ECHO_LOAD_DESCRIPTOR_ARTIFACT_IDENTITY_HASH);
+    raw(", \"artifact_bytes_sha256\": ");
+    json_sha256(echo_service::ECHO_LOAD_DESCRIPTOR_ARTIFACT_BYTES_HASH);
+    raw(", \"artifact_load_plan_preflight_id\": ");
+    json_str(descriptor.artifact_load_plan_preflight_id);
+    raw(", \"artifact_load_plan_preflight_hash\": ");
+    json_sha256(echo_service::ECHO_LOAD_DESCRIPTOR_HASH);
+    raw(", \"artifact_load_plan_preflight_status\": ");
+    json_str(descriptor.artifact_load_plan_preflight_status);
+    raw(", \"service_slot_activation_id\": ");
+    json_str(descriptor.service_slot_activation_id);
+    raw(", \"service_slot_activation_hash\": ");
+    json_sha256(echo_service::service_slot_activation_hash());
+    raw(", \"service_slot_activation_status\": ");
+    json_str(echo_service::service_slot_activation_status(echo));
+    raw(", \"service_slot_activation_active\": ");
+    raw_bool(echo_service::service_slot_activation_active(echo));
+    raw(", \"ram_only_service_slot_id\": ");
+    json_str(descriptor.ram_only_service_slot_id);
+    raw(", \"load_descriptor_schema\": \"raios.current_boot_load_descriptor.v0\"");
+    raw(", \"load_descriptor_id\": \"load_descriptor.current_boot.svc.demo.echo.v0\"");
+    raw(", \"load_descriptor_source_locator\": \"current_boot.service_load_descriptor.svc.demo.echo.v0\"");
+    raw(", \"load_descriptor_source_kind\": \"current_boot_wasm_service_load_descriptor_source\"");
+    raw(", \"load_descriptor_source_validated\": true");
+    raw(", \"load_descriptor_source_hash\": ");
+    json_sha256(echo_service::ECHO_LOAD_DESCRIPTOR_HASH);
+    raw(", \"load_descriptor_source_signature_envelope_hash\": ");
+    json_sha256(echo_service::ECHO_LOAD_DESCRIPTOR_SIGNATURE_ENVELOPE_HASH);
+    raw(", \"capability_envelope\": \"wasmi_linker_import_surface\"");
+    raw(", \"granted_host_imports\": [");
+    emit_inline_string_array(&["env.log", "env.counter_get"]);
+    raw("]");
+    raw(", \"host_import_count\": 2");
+    raw(", \"entrypoint\": \"raios_service_main\"");
+    raw(", \"running\": ");
+    raw_bool(echo.running);
+    raw(", \"generation\": ");
+    raw_fmt(format_args!("{}", echo.generation));
+    raw(", \"run_count\": ");
+    raw_fmt(format_args!("{}", echo.run_count));
+    raw(", \"last_run_outcome\": ");
+    json_str(echo.last_run_outcome);
+    raw(", \"last_return_value_i32\": ");
+    match echo.last_return_value {
+        Some(value) if value >= 0 => raw_fmt(format_args!("{}", value)),
+        _ => raw("null"),
+    }
+    raw(", \"last_fuel_used\": ");
+    raw_fmt(format_args!("{}", echo.last_fuel_used));
+    raw(", \"last_log_line_emitted\": ");
+    raw_bool(echo.last_log_line_emitted);
+    raw(", \"last_action\": ");
+    json_str(echo.last_action);
+    raw(", \"capabilities\": [");
+    emit_inline_string_array(echo_service::CAPABILITIES);
+    raw("]}");
+    if comma {
+        raw(",");
+    }
     crlf();
 }
 
