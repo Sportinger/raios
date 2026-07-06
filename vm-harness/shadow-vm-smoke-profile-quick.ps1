@@ -1411,6 +1411,77 @@
         Assert-LogContains -Name "quick:recovery_no_load" -Needle '"loads_recovery_artifact": false' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:recovery_load_not_attempted" -Needle '"load_attempted": false' -TimeoutSeconds 1
 
+        $wasmProbeOffset = Get-SerialLogOffset
+        Send-AgentCommand -Command "agent wasm.echo_probe" -ExpectedMarker "RAIOS_AGENT_END wasm.echo_probe"
+        $wasmProbe = Get-LastAgentResponseJson -Method "wasm.echo_probe"
+        $wasmResult = $wasmProbe.body.result
+        $wasmShapeOk = $wasmProbe.t -eq "response" -and $wasmProbe.body.method -eq "wasm.echo_probe" -and $wasmResult.schema -eq "raios.wasm_echo_probe.v0" -and $wasmResult.scope -eq "current_boot" -and $wasmResult.classification -eq "local_only" -and $wasmResult.test_infrastructure -eq $false -and $wasmResult.method -eq "wasm.echo_probe" -and $wasmResult.service_id -eq "svc.demo.echo" -and $wasmResult.artifact_id -eq "wasm:svc.demo.echo"
+        Add-Predicate -Name "quick:wasm_echo_probe_response_shape" -Expected "raios.wasm_echo_probe.v0 local_only current_boot response" -Passed $wasmShapeOk -Actual $(if ($wasmShapeOk) { "matched" } else { ($wasmProbe | ConvertTo-Json -Compress -Depth 4) })
+        if (-not $wasmShapeOk) {
+            throw "Expected typed wasm.echo_probe response shape"
+        }
+        foreach ($field in @("artifact_sha256", "artifact_identity_descriptor_sha256", "artifact_signature_envelope_sha256")) {
+            $value = [string]$wasmResult.PSObject.Properties[$field].Value
+            if (-not $value.StartsWith("sha256:")) {
+                throw "Expected wasm.echo_probe $field to expose sha256 evidence"
+            }
+        }
+        Add-Predicate -Name "quick:wasm_echo_probe_artifact_hashes" -Expected "sha256 artifact hashes present" -Passed $true -Actual "matched"
+        $wasmGrantedImports = @($wasmResult.granted_host_imports)
+        $wasmNegativeImports = @($wasmResult.negative_module_imports)
+        $wasmImportsOk = $wasmResult.capability_envelope -eq "wasmi_linker_import_surface" -and [int]$wasmResult.host_import_count -eq 2 -and $wasmGrantedImports.Count -eq 2 -and $wasmGrantedImports[0] -eq "env.log" -and $wasmGrantedImports[1] -eq "env.counter_get" -and $wasmNegativeImports.Count -eq 1 -and $wasmNegativeImports[0] -eq "env.forbidden_write"
+        Add-Predicate -Name "quick:wasm_echo_probe_import_surface" -Expected "env.log/env.counter_get granted; env.forbidden_write negative-only" -Passed $wasmImportsOk -Actual $(if ($wasmImportsOk) { "matched" } else { "granted=$($wasmGrantedImports -join ',') negative=$($wasmNegativeImports -join ',')" })
+        if (-not $wasmImportsOk) {
+            throw "Expected wasm.echo_probe import surface evidence"
+        }
+        $wasmRunOk = $wasmResult.validation_ok -and $wasmResult.instantiation_ok -and $wasmResult.entrypoint -eq "raios_service_main" -and $wasmResult.run_outcome -eq "success" -and [int]$wasmResult.return_value_i32 -eq 0 -and [int64]$wasmResult.fuel_budget -eq 10000 -and [int64]$wasmResult.fuel_used -gt 0 -and $wasmResult.log_prefix -eq "WASM_GUEST_LOG" -and $wasmResult.log_line_emitted -and $wasmResult.log_line -like "echo counter=*"
+        Add-Predicate -Name "quick:wasm_echo_probe_positive_run" -Expected "validation/instantiation/run success, return 0, fuel_used > 0, guest log evidence" -Passed $wasmRunOk -Actual $(if ($wasmRunOk) { "fuel_used=$($wasmResult.fuel_used) log_line=$($wasmResult.log_line)" } else { ($wasmResult | ConvertTo-Json -Compress -Depth 3) })
+        if (-not $wasmRunOk) {
+            throw "Expected wasm.echo_probe positive run evidence"
+        }
+        $wasmNegativeOk = $wasmResult.negative_probe -eq "forbidden_import_link_failure" -and $wasmResult.negative_validation_ok -and $wasmResult.negative_instantiation_ok -eq $false -and $wasmResult.negative_link_error_kind -eq "missing_definition" -and $wasmResult.negative_missing_import_module -eq "env" -and $wasmResult.negative_missing_import_name -eq "forbidden_write" -and $wasmResult.capability_boundary_held
+        Add-Predicate -Name "quick:wasm_echo_probe_forbidden_import_link_failure" -Expected "forbidden import validation ok but instantiation denied by missing_definition" -Passed $wasmNegativeOk -Actual $(if ($wasmNegativeOk) { "matched" } else { ($wasmResult | ConvertTo-Json -Compress -Depth 3) })
+        if (-not $wasmNegativeOk) {
+            throw "Expected wasm.echo_probe forbidden-import link-failure evidence"
+        }
+        $wasmNonAuthorizingOk = $wasmResult.accepts_external_artifact_bytes -eq $false -and $wasmResult.maps_executable_pages -eq $false -and $wasmResult.writes_persistent_state -eq $false -and $wasmResult.mutates_service_inventory -eq $false -and $wasmResult.mutates_global_event_log -eq $false -and $wasmResult.evidence_complete
+        Add-Predicate -Name "quick:wasm_echo_probe_non_authorizing" -Expected "external bytes/executable pages/persistence/inventory/global-event-log mutation denied" -Passed $wasmNonAuthorizingOk -Actual $(if ($wasmNonAuthorizingOk) { "matched" } else { ($wasmResult | ConvertTo-Json -Compress -Depth 3) })
+        if (-not $wasmNonAuthorizingOk) {
+            throw "Expected wasm.echo_probe to stay read-only and non-authorizing"
+        }
+        $wasmProbeLog = Get-SerialLogContent -Path $SerialLog
+        $wasmProbeAfter = if ($wasmProbeLog.Length -gt $wasmProbeOffset) { $wasmProbeLog.Substring([int]$wasmProbeOffset) } else { "" }
+        $wasmGuestLogSideEffect = $wasmProbeAfter.Contains("WASM_GUEST_LOG echo counter=")
+        Add-Predicate -Name "quick:wasm_echo_probe_serial_guest_log" -Expected "serial_contains_after_offset:WASM_GUEST_LOG echo counter=" -Passed $wasmGuestLogSideEffect -Actual $(if ($wasmGuestLogSideEffect) { "found_after_offset:$wasmProbeOffset" } else { Get-SerialLogTail -Path $SerialLog })
+        if (-not $wasmGuestLogSideEffect) {
+            throw "Expected wasm.echo_probe to emit the WASM_GUEST_LOG serial side effect"
+        }
+        foreach ($needle in @(
+            @{ Name = "quick:wasm_echo_probe_schema_needle"; Text = '"schema": "raios.wasm_echo_probe.v0"' },
+            @{ Name = "quick:wasm_echo_probe_artifact_hash_needle"; Text = '"artifact_sha256": "sha256:' },
+            @{ Name = "quick:wasm_echo_probe_validation_needle"; Text = '"validation_ok": true' },
+            @{ Name = "quick:wasm_echo_probe_instantiation_needle"; Text = '"instantiation_ok": true' },
+            @{ Name = "quick:wasm_echo_probe_run_success_needle"; Text = '"run_outcome": "success"' },
+            @{ Name = "quick:wasm_echo_probe_return_value_needle"; Text = '"return_value_i32": 0' },
+            @{ Name = "quick:wasm_echo_probe_log_prefix_needle"; Text = '"log_prefix": "WASM_GUEST_LOG"' },
+            @{ Name = "quick:wasm_echo_probe_negative_probe_needle"; Text = '"negative_probe": "forbidden_import_link_failure"' },
+            @{ Name = "quick:wasm_echo_probe_negative_link_needle"; Text = '"negative_link_error_kind": "missing_definition"' },
+            @{ Name = "quick:wasm_echo_probe_negative_module_needle"; Text = '"negative_missing_import_module": "env"' },
+            @{ Name = "quick:wasm_echo_probe_negative_name_needle"; Text = '"negative_missing_import_name": "forbidden_write"' },
+            @{ Name = "quick:wasm_echo_probe_boundary_needle"; Text = '"capability_boundary_held": true' },
+            @{ Name = "quick:wasm_echo_probe_no_external_bytes_needle"; Text = '"accepts_external_artifact_bytes": false' },
+            @{ Name = "quick:wasm_echo_probe_no_executable_pages_needle"; Text = '"maps_executable_pages": false' },
+            @{ Name = "quick:wasm_echo_probe_no_persistence_needle"; Text = '"writes_persistent_state": false' },
+            @{ Name = "quick:wasm_echo_probe_no_inventory_mutation_needle"; Text = '"mutates_service_inventory": false' },
+            @{ Name = "quick:wasm_echo_probe_no_global_event_log_mutation_needle"; Text = '"mutates_global_event_log": false' }
+        )) {
+            $needleFound = $wasmProbeAfter.Contains($needle.Text)
+            Add-Predicate -Name $needle.Name -Expected "serial_contains_after_offset:$($needle.Text)" -Passed $needleFound -Actual $(if ($needleFound) { "found_after_offset:$wasmProbeOffset" } else { Get-SerialLogTail -Path $SerialLog })
+            if (-not $needleFound) {
+                throw "Expected wasm.echo_probe serial needle '$($needle.Text)'"
+            }
+        }
+
         Send-AgentCommand -Command "service.descriptor_source_trust_selftest" -ExpectedMarker "RAIOS_AGENT_END service.descriptor_source_trust_selftest"
         $descriptorTrustSelftest = Get-LastAgentResponseJson -Method "service.descriptor_source_trust_selftest"
         if ($descriptorTrustSelftest.body.result.schema -ne "raios.descriptor_source_trust_selftest.v0") {

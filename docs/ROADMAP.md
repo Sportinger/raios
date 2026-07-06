@@ -386,16 +386,23 @@ yet). Verified: quick `shadow-20260706-050625-19120.json` 416/416.
 (Worker was sandbox-blocked on rustup; orchestrator installed the
 wasm32-unknown-unknown target for nightly-2024-10-15.)
 
+M4 slices 3-4 done (2026-07-06): **the isolation boundary is real and
+VM-proven.** The attested echo module executes inside the wasmi envelope
+(Linker defines exactly env.log + env.counter_get; fuel-metered;
+heap-only; non-panicking hosts); `wasm.echo_probe` surfaces typed
+evidence; the negative proof — a module importing env.forbidden_write —
+fails AT INSTANTIATION with a link error. Verified in the VM: quick
+profile `shadow-20260706-052847-5000.json`, 441/441 incl. 25 new wasm
+needles (guest log line observed on serial; exceed-capability link
+failure evidenced).
+
 Exact next task:
 
 ```text
-M4 slices 3-4: instantiate the attested echo module (no imports; a
-diagnostic agent command surfaces validation/instantiation evidence),
-then the capability envelope — a wasmi Linker built from the computed
-grant defining exactly env.log + env.counter_get, positive run writes
-the guest log line; negative test: a module importing a non-granted
-function fails AT INSTANTIATION (link error), surfaced as typed
-evidence. Verify: quick + focused; full at M4 closure.
+M4 slices 5-6: trap hardening probes (malformed wasm bytes, over-memory
+growth, fuel exhaustion, guest trap — each surfaced as typed evidence,
+never a kernel hang/panic), then M4 closure: full profile + capability
+sentence evaluation.
 ```
 
 ## Capability Milestones
