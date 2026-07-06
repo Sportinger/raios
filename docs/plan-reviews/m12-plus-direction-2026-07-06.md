@@ -15,6 +15,33 @@ and only after written owner approval author a full design map in
 revalidation). Milestone numbers for M12+ items are assigned by the owner when
 each opens; the order list at the end is priority, not numbering.
 
+## Owner answers on record (2026-07-06)
+
+The owner answered four vision questions; these are standing decisions and
+bind every later design map:
+
+1. **First post-build tool:** the owner's own first wish is a text editor.
+   But raiOS must NOT hardcode any particular first app — what a user builds
+   first after installing raiOS is user-specific by design. The wish flow
+   stays generic; no privileged "starter app" exists.
+2. **The bonded Surface Pro 4 is a TEST machine only** (the owner's only
+   other machine is a laptop). Consequence: Wi-Fi Option A (Marvell 88W8897
+   driver) is DEPRIORITIZED to an optional research lane; USB-Ethernet /
+   wired / QEMU networking is sufficient for the current bond. A future
+   daily-driver bond would arrive via re-binding (item 3) and re-opens the
+   question for THAT machine's hardware.
+3. **Audience: everyone who likes the philosophy.** Ideally more people than
+   the owner run their own raiOS, and ideally users can SHARE built modules
+   with each other. Module sharing is therefore owner-confirmed vision, not
+   speculation — it lands through item 2 (external distribution), and shared
+   modules still enter each receiving machine as evidence-gated candidates
+   (download = candidate intake, NEVER install; local attestation stays the
+   sole authority).
+4. **Local AI model support: possible, but a user-built addon**, not a
+   roadmap milestone. Consequence for M10: the provider-adapter contract must
+   stay transport- and provider-agnostic so a local-inference adapter CAN be
+   built as a normal replaceable service later, without core changes.
+
 Execution preconditions for everything here: M6 (promotion loop) CLOSED, M7
 (persistence) CLOSED, plus the per-item prerequisites below. Nothing starts
 early because a worker has spare capacity: the order M7 → M8 → M9 → M10 → M11
@@ -59,18 +86,19 @@ the first firmware-upload slice.
 prior art, no emulated test target, silent firmware-hang failure modes. This
 is the one item where "we decide not to do it" is a respectable outcome.
 
-**OWNER DECISION (before the milestone opens).**
-- Option A: full 88W8897 driver + WPA2 supplicant. True to the Tamagotchi bond
-  (the machine's own radio). Highest cost/risk, weakest verification.
-- Option B: USB-Ethernet adapter with a CDC-ECM (or RNDIS) class driver.
-  CDC-ECM is a simple documented USB class; xHCI already exists; frames plug
-  into smoltcp essentially where e1000 does; QEMU can emulate a USB network
-  device, so golden needles CAN cover it. A fraction of Option A's effort.
-  Cost: a dongle on the Surface — wired-over-USB, not wireless.
-- Option C: B now, A later as a research lane that may be abandoned.
-**Recommendation: Option C.** B delivers "the bonded machine gets real network
-without QEMU" cheaply and verifiably; A stays honest as high-risk research
-instead of blocking the roadmap.
+**OWNER DECISION — ANSWERED 2026-07-06 (see "Owner answers on record").**
+The Surface Pro 4 is a test machine only, so Option A loses its main
+justification. Decided direction: **Option B (USB-Ethernet, CDC-ECM class
+driver)** when the milestone opens; Option A stays an optional research lane
+that may be abandoned without shame, re-evaluated only if a future re-bind
+target machine actually needs wireless.
+- Option A: full 88W8897 driver + WPA2 supplicant. Highest cost/risk, weakest
+  verification (QEMU cannot emulate the chip).
+- Option B (CHOSEN): USB-Ethernet adapter with a CDC-ECM (or RNDIS) class
+  driver. CDC-ECM is a simple documented USB class; xHCI already exists;
+  frames plug into smoltcp essentially where e1000 does; QEMU can emulate a
+  USB network device, so golden needles CAN cover it. A fraction of Option
+  A's effort. Cost: a dongle on the Surface — wired-over-USB, not wireless.
 
 **Design-map author investigates first.** PCIe-mwifiex vs SDIO attachment on
 Surface Pro 4; where the firmware blob legally comes from and how it is
@@ -84,7 +112,11 @@ fidelity for the harness.
 
 **What it is.** Today every artifact is repo-local: build-time signed and
 embedded, or (after M6) candidate bytes injected via the serial harness. This
-item makes raiOS fetch artifacts over the network: the parked `ota/`
+item makes raiOS fetch artifacts over the network — and per the owner's
+2026-07-06 answer it now carries the confirmed vision of **module sharing
+between raiOS users** ("im besten Fall kann man gebaute Module sharen"): a
+user's promoted, evidence-carrying module can be published and another user's
+raiOS can receive it as a candidate. The parked `ota/`
 (BLAKE3+Ed25519 sign/verify CLI), `registry/` (content-addressed store with
 non-authorizing evidence records), and `fake-cloud/` (WebSocket
 verify-and-publish server) become a real distribution lane, plus a device-side

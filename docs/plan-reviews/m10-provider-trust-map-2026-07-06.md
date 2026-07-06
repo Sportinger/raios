@@ -17,6 +17,14 @@ honest owner-attested time authority recorded as evidence, and a host-proven
 WebPKI chain-validation core staged for M11's TLS-service extraction — without
 weakening a single existing denial.
 
+**Owner decision on record (2026-07-06):** local AI models (self-hosted
+inference) are a legitimate future USER-BUILT addon, not a roadmap milestone.
+Binding consequence for every M10 slice: the provider contract and descriptors
+must stay transport- and provider-agnostic (no cloud-only assumptions like
+mandatory WebPKI for every provider class — a LAN/localhost provider needs a
+different trust story), so a local-inference adapter can later be added as a
+normal replaceable service without touching the contract.
+
 ## Baseline (verified 2026-07-06)
 
 | Area | Exists today | Gap |
