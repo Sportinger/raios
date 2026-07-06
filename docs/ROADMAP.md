@@ -375,17 +375,27 @@ wasmi::Module::new compile-proof (seed-kernel/src/wasm_runtime.rs);
 zero-warning build; quick profile green
 (`shadow-20260706-044149-25532.json`, 416/416).
 
+M4 slice 2 done (2026-07-06): the first Wasm guest exists —
+wasm-guests/svc-demo-echo (55-line no_std cdylib, exports
+raios_service_main, imports exactly env.log + env.counter_get), built
+via scripts/build-wasm-guest.ps1 to an ATTESTED artifact
+(seed-kernel/artifacts/svc.demo.echo.wasm, descriptor + P-256 signature,
+fail-closed build verification at build.rs:414/420); the kernel
+heap-validates the embedded bytes via wasmi::Module::new (no execution
+yet). Verified: quick `shadow-20260706-050625-19120.json` 416/416.
+(Worker was sandbox-blocked on rustup; orchestrator installed the
+wasm32-unknown-unknown target for nightly-2024-10-15.)
+
 Exact next task:
 
 ```text
-M4 slice 2: wasm guest crate (wasm32-unknown-unknown, no_std cdylib,
-exports raios_service_main, imports env.log + env.counter_get) +
-generalize the build.rs artifact attestation so the wasm bytes are an
-attested artifact like the current builtin (rustup target add
-wasm32-unknown-unknown --toolchain nightly-2024-10-15 required). Verify:
-wasm build + descriptor/hash selftests + quick. Then slices 3-6 per the
-map (instantiate; linker-from-grant; demo service through interpreter;
-trap hardening; full profile at closure).
+M4 slices 3-4: instantiate the attested echo module (no imports; a
+diagnostic agent command surfaces validation/instantiation evidence),
+then the capability envelope — a wasmi Linker built from the computed
+grant defining exactly env.log + env.counter_get, positive run writes
+the guest log line; negative test: a module importing a non-granted
+function fails AT INSTANTIATION (link error), surfaced as typed
+evidence. Verify: quick + focused; full at M4 closure.
 ```
 
 ## Capability Milestones

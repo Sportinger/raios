@@ -51,6 +51,14 @@ fn main() {
         "cargo:rerun-if-changed=descriptors/svc.demo.hello.builtin_artifact_identity.v2.p256.sig.der.hex"
     );
     println!("cargo:rerun-if-changed=artifacts/svc.demo.hello.builtin.artifact");
+    println!("cargo:rerun-if-changed=artifacts/svc.demo.echo.wasm");
+    println!("cargo:rerun-if-changed=descriptors/svc.demo.echo.wasm_artifact_identity.desc");
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.demo.echo.wasm_artifact_identity.p256.pub.hex"
+    );
+    println!(
+        "cargo:rerun-if-changed=descriptors/svc.demo.echo.wasm_artifact_identity.p256.sig.der.hex"
+    );
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let repo_root = manifest_dir.parent().unwrap();
@@ -384,6 +392,113 @@ pub(crate) const HELLO_HOST_BOUND_DESCRIPTOR_SOURCE: &str = {};\n",
             rust_string(&artifact_reference_text),
             rust_byte_array(&artifact_reference_hash),
             rust_string(&host_source)
+        ),
+    )
+    .unwrap();
+    attest_echo_wasm_artifact(&manifest_dir, &out_dir);
+}
+
+fn attest_echo_wasm_artifact(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
+    let artifact_path = manifest_dir.join("artifacts/svc.demo.echo.wasm");
+    let descriptor_path =
+        manifest_dir.join("descriptors/svc.demo.echo.wasm_artifact_identity.desc");
+    let public_key_path =
+        manifest_dir.join("descriptors/svc.demo.echo.wasm_artifact_identity.p256.pub.hex");
+    let signature_path =
+        manifest_dir.join("descriptors/svc.demo.echo.wasm_artifact_identity.p256.sig.der.hex");
+
+    let artifact_bytes = fs::read(artifact_path).unwrap();
+    let descriptor_source = fs::read_to_string(descriptor_path).unwrap();
+    let public_key = read_hex_file(public_key_path);
+    let signature_der = read_hex_file(signature_path);
+    verify_p256_signature(&public_key, &signature_der, descriptor_source.as_bytes());
+
+    let artifact_hash = Sha256::digest(&artifact_bytes);
+    let artifact_hash_hex = sha256_hex(&artifact_hash);
+    let expected_artifact_hash = format!("sha256:{}", artifact_hash_hex);
+    assert_eq!(
+        text_field(&descriptor_source, "artifact_reference_bytes_sha256"),
+        Some(expected_artifact_hash.as_str())
+    );
+    assert_eq!(
+        text_field(&descriptor_source, "id"),
+        Some("builtin_artifact_identity.svc.demo.echo.wasm.v0")
+    );
+    assert_eq!(
+        text_field(&descriptor_source, "service_id"),
+        Some("svc.demo.echo")
+    );
+    assert_eq!(
+        text_field(&descriptor_source, "artifact_id"),
+        Some("wasm:svc.demo.echo")
+    );
+    assert_eq!(
+        text_field(&descriptor_source, "artifact_reference_locator"),
+        Some("seed-kernel/artifacts/svc.demo.echo.wasm")
+    );
+    assert_eq!(
+        text_field(&descriptor_source, "accepts_external_artifact_bytes"),
+        Some("false")
+    );
+    assert_eq!(
+        text_field(
+            &descriptor_source,
+            "validates_artifact_with_wasmi_module_new"
+        ),
+        Some("true")
+    );
+    assert_eq!(
+        text_field(&descriptor_source, "executes_artifact"),
+        Some("false")
+    );
+    assert_eq!(
+        text_field(&descriptor_source, "links_imports"),
+        Some("false")
+    );
+    assert_eq!(
+        text_field(&descriptor_source, "maps_executable_pages"),
+        Some("false")
+    );
+
+    let descriptor_hash = Sha256::digest(descriptor_source.as_bytes());
+    let descriptor_hash_hex = sha256_hex(&descriptor_hash);
+    let public_key_hash = Sha256::digest(&public_key);
+    let public_key_hash_hex = sha256_hex(&public_key_hash);
+    let signature_hash = Sha256::digest(&signature_der);
+    let signature_hash_hex = sha256_hex(&signature_hash);
+    let envelope_text = format!(
+        "schema=raios.builtin_artifact_identity_signature_envelope.v0\n\
+id=artifact_identity_signature.wasm.svc.demo.echo.v0\n\
+algorithm=ecdsa_p256_sha256_asn1_der\n\
+payload_identity_id=builtin_artifact_identity.svc.demo.echo.wasm.v0\n\
+payload_artifact_id=wasm:svc.demo.echo\n\
+payload_sha256=sha256:{}\n\
+public_key_sha256=sha256:{}\n\
+signature_sha256=sha256:{}\n\
+verification_phase=runtime_before_wasm_artifact_validation\n\
+trust_scope=current_boot_wasm_artifact_identity_candidate\n\
+classification=local_only\n\
+authorizes_external_artifact_load=false\n\
+authorizes_persistent_install=false\n\
+authorizes_rollback_install=false",
+        descriptor_hash_hex, public_key_hash_hex, signature_hash_hex
+    );
+    let envelope_hash = Sha256::digest(envelope_text.as_bytes());
+
+    fs::write(
+        out_dir.join("echo_wasm_artifact.rs"),
+        format!(
+            "pub(crate) const ECHO_WASM_ARTIFACT_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/artifacts/svc.demo.echo.wasm\"));\n\
+pub(crate) const ECHO_WASM_ARTIFACT_BYTES_HASH: [u8; 32] = {};\n\
+pub(crate) const ECHO_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_SOURCE: &str = {};\n\
+pub(crate) const ECHO_WASM_ARTIFACT_IDENTITY_DESCRIPTOR_HASH: [u8; 32] = {};\n\
+pub(crate) const ECHO_WASM_ARTIFACT_SIGNATURE_ENVELOPE_TEXT: &str = {};\n\
+pub(crate) const ECHO_WASM_ARTIFACT_SIGNATURE_ENVELOPE_HASH: [u8; 32] = {};\n",
+            rust_byte_array(&artifact_hash),
+            rust_string(&descriptor_source),
+            rust_byte_array(&descriptor_hash),
+            rust_string(&envelope_text),
+            rust_byte_array(&envelope_hash)
         ),
     )
     .unwrap();
