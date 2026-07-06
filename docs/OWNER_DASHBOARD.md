@@ -3,11 +3,11 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M6 COMPLETE — the whole safe loop works: an outside
-program is received, checked, granted, run in the sandbox, and cleanly undone.
-Now starting M7: making things survive a restart. First step done — a real
-test disk (never your real one) is built and attached; the kernel reads it
-next).
+Updated: 2026-07-06 (M7 underway — making things survive a restart. A real test
+disk (never your real one) is built, attached, and the kernel now reads and
+checks it safely: it recognizes the storage layout and refuses to trust a
+corrupted or missing disk — all read-only, no writing yet. Writing durable
+records is the next step).
 
 ## What raiOS can actually do today
 

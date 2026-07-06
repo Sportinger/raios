@@ -5,6 +5,11 @@ use spin::Mutex;
 
 use crate::{memory, pci, pci::PciMassStorageController};
 
+#[path = "persist_detect.rs"]
+mod persist_detect;
+
+pub(crate) use persist_detect::PersistLayoutEvidence;
+
 const AHCI_SUBCLASS: u8 = 0x06;
 const AHCI_BAR: u8 = 5;
 const MIN_PROBE_LEN: usize = 0x180;
@@ -59,6 +64,7 @@ const AUDIT_ROLLBACK_TARGET_REGION_LBA_COUNT: u64 = 1;
 const WAIT_ITERS: usize = 1_000_000;
 
 static PROBE: Mutex<Option<AhciReadOnlyProbe>> = Mutex::new(None);
+static PERSIST_LAYOUT: Mutex<Option<PersistLayoutEvidence>> = Mutex::new(None);
 static SCRATCH_SECTOR_WRITE_READBACK: Mutex<Option<AhciScratchSectorWriteReadbackEvidence>> =
     Mutex::new(None);
 static AUDIT_ROLLBACK_TARGET_SECTOR_WRITE_READBACK: Mutex<
@@ -745,6 +751,17 @@ pub(crate) fn probe(controller: PciMassStorageController) -> AhciReadOnlyProbe {
     let probe = probe_uncached(controller);
     *cached = Some(probe);
     probe
+}
+
+pub(crate) fn detect_persist_layout(controller: PciMassStorageController) -> PersistLayoutEvidence {
+    let mut cached = PERSIST_LAYOUT.lock();
+    if let Some(evidence) = *cached {
+        return evidence;
+    }
+
+    let evidence = unsafe { persist_detect::detect_uncached(controller) };
+    *cached = Some(evidence);
+    evidence
 }
 
 pub(crate) fn write_readback_scratch_sector_image(

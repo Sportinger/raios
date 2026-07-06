@@ -47,8 +47,15 @@ transaction into SEED_DATA; then M7D re-verifies it after reboot. **M7A-1 done:*
 a harness run attaches a real GPT persist disk (SEED_ESP_A/B 128 MiB + SEED_DATA
 raw region map with `RAIOS_DATA_SB_V0` superblock: BOOTCTL/RECLOG/ARTSTOR) as a
 4th QEMU drive (`bus=ide.3`) with hard release/ refusal — no production image
-touched; host-side GPT/superblock validation green. Next: **M7A-2** (kernel
-read-only GPT + SEED_DATA detection with typed evidence).
+touched; host-side GPT/superblock validation green. **M7A-2 done:** the kernel
+now READ-ONLY parses + validates the GPT (protective MBR, header/entry-array
+CRC32, type-GUID/name match) and the `RAIOS_DATA_SB_V0` superblock and reports
+typed `persist.layout` evidence (present/absent/invalid) — pure parsers in
+raios-core (`gpt_layout.rs`/`seed_data_layout.rs`, 42 host tests incl. every
+corruption fixture), read via the existing AHCI `READ_DMA_EXT` (no write path,
+no driver rework); corruption/absent → fail-closed, kernel continues without
+persistence; on-demand only (not at boot). Next: **M7B** (RECLOG durable-record
+read/scan, then scoped durable append — the first real persistence write).
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small

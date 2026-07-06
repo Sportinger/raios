@@ -2709,9 +2709,31 @@ builder stdout into its return value). image-layout-v0.md gained the V0 partitio
 type GUIDs + raw-region-map note. Verified: `-Profile persistence` 7/7 (4th drive
 attaches, kernel boots) + quick regression green (one audit.events host-transport
 flake, green on retry).
-NEXT — M7A-2 (kernel read-only GPT + SEED_DATA detection with typed evidence;
-new seed-kernel/src/gpt.rs + seed_data_layout.rs, raios-core record entries +
-host fixture tests; zero writes). Then M7B (RECLOG scan + scoped durable append).
+M7A-2 DONE (2026-07-06, kernel read-only GPT/SEED_DATA detection): the kernel
+finds + validates SEED_DATA on the harness GPT disk and reports typed
+`persist.layout` evidence (present/absent/invalid) with ZERO writes. Pure
+parsers in `raios-core/src/gpt_layout.rs` + `seed_data_layout.rs` (protective
+MBR, GPT header + entry-array CRC32, ESP/SEED_DATA type-GUID/name, superblock
+magic/version/region/hash + LBA1-copy) with 42 host tests incl. every corruption
+fixture (bad CRCs, truncated, absurd counts w/ checked_mul, duplicate/missing
+SEED_DATA, hash/copy mismatch). `seed-kernel/src/persist_detect.rs` reads sectors
+from the 4th AHCI port via the existing `READ_DMA_EXT` (no WRITE_DMA_EXT, no
+driver rework, no write-boundary touched); `persist.layout` is a Read0 method,
+on-demand (not at boot), evidence local_only/current_boot,
+write_attempted/writes_enabled/persistence_claimed all false. Corruption/absent
+→ fail-closed, kernel continues without persistence. Orchestrator hardening from
+the max adversarial review: `persist_detect.rs` now uses `checked_add(1)` for the
+LBA1 superblock read so a maliciously-emulated `first_lba=u64::MAX` device fails
+closed (Invalid) instead of overflow-panicking in debug builds. Verified:
+`-Profile persistence` 12/12 (kernel GPT/superblock needles + no-disk
+`gpt-absent-fail-closed` child run + `kernel_layout_read_only_current_boot`) +
+quick 562/562 + raios-core 42/42. Max adversarial review: could-not-refute
+(strictly read-only, fail-closed on every corruption, empirically fuzzed, no
+persistence claim).
+NEXT — M7B-1 (RECLOG frame codec + chain-validating recovery SCAN, still
+read-only: raios-core durable_record_frame.rs + seed-kernel durable_store.rs +
+a torn-tail fixture), then M7B-2 (the first real scoped durable APPEND to
+`append.record_log.seed_data` with the M3 write-readback-inspect discipline).
 Keep
 persistence, generic (non-`svc.demo.hello`) durable audit/rollback writes,
 executable candidate-byte mapping, provider auto-load, broad mutation, and

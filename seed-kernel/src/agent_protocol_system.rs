@@ -1,14 +1,18 @@
+use alloc::vec;
+
 use crate::{
     agent_protocol_support::{
-        begin_response, crlf, emit_inline_string_array, emit_static_string_array, end_response,
-        indent, json_opt_str, json_sha256, json_sha256_option, json_str, raw, raw_bool, raw_fmt,
-        raw_line,
+        begin_response, crlf, emit_inline_string_array, emit_record_fields,
+        emit_static_string_array, end_response, indent, json_opt_str, json_sha256,
+        json_sha256_option, json_str, raw, raw_bool, raw_fmt, raw_line, record_bool as b,
+        record_field as f, record_str as s,
     },
-    echo_service, granted_candidate_service, hello_service, provider, serial, service_inventory,
-    system_status,
+    ahci, echo_service, granted_candidate_service, hello_service, pci, provider, serial,
+    service_inventory, system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
+use raios_core::record::Value as V;
 pub(crate) struct Capability {
     pub(crate) id: &'static str,
     pub(crate) risk: &'static str,
@@ -115,6 +119,13 @@ pub(crate) const CAPABILITIES: &[Capability] = &[
         granted: true,
         scope: "current_boot",
         summary: "read known local problems and gaps",
+    },
+    Capability {
+        id: "cap.persist.layout.read",
+        risk: "observe",
+        granted: true,
+        scope: "current_boot",
+        summary: "read current-boot GPT and SEED_DATA layout evidence",
     },
     Capability {
         id: "cap.memory.profile.read",
@@ -264,6 +275,7 @@ pub(crate) const READ_METHODS: &[&str] = &[
     "system.capabilities",
     "system.boot_log",
     "device.graph",
+    "persist.layout",
     "problem.list",
     "service.inventory",
     "service.health",
@@ -580,6 +592,49 @@ pub(crate) fn emit_boot_log() {
     }
     raw_line("      ]");
     end_response("system.boot_log");
+}
+
+pub(crate) fn emit_persist_layout() {
+    let evidence = match pci::find_mass_storage_controller() {
+        Some(controller) => ahci::detect_persist_layout(controller),
+        None => ahci::PersistLayoutEvidence::absent("ahci_controller_not_observed"),
+    };
+    let port = if evidence.port_index == u8::MAX {
+        V::Null
+    } else {
+        V::U64(evidence.port_index as u64)
+    };
+
+    begin_response("persist.layout");
+    emit_record_fields(
+        vec![
+            f("schema", s("persist.layout.v0")),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("status", s(evidence.status())),
+            f("reason", s(evidence.reason)),
+            f("source", s(evidence.source)),
+            f("source_port_index", port),
+            f("controller_present", b(evidence.controller_present)),
+            f("read_attempted", b(evidence.read_attempted)),
+            f("read_completed", b(evidence.read_completed)),
+            f("read_only", b(true)),
+            f("write_attempted", b(evidence.write_attempted)),
+            f("write_dma_ext_called", b(evidence.write_dma_ext_called)),
+            f("writes_enabled", b(evidence.writes_enabled)),
+            f("persistence_claimed", b(evidence.persistence_claimed)),
+            f(
+                "gpt_layout",
+                raios_core::gpt_layout::gpt_layout_record(&evidence.gpt),
+            ),
+            f(
+                "data_layout",
+                raios_core::seed_data_layout::data_layout_record(&evidence.data),
+            ),
+        ],
+        6,
+    );
+    end_response("persist.layout");
 }
 
 pub(crate) fn emit_device_graph(runtime: ui::RuntimeStatus) {
