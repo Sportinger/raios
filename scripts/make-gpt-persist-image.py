@@ -63,6 +63,7 @@ BOOT_CONTROL_VERSION = 0
 BOOTCTL_SLOT_SIZE = 2048
 BOOTCTL_SLOT_HEADER_LEN = 52
 BOOTCTL_SLOT_COUNT = 2
+BOOTCTL_STORAGE_SLOT_SECTORS = BOOTCTL_SLOT_SIZE // SECTOR_SIZE
 BOOTCTL_SLOT_MAX_PAYLOAD_LEN = BOOTCTL_SLOT_SIZE - BOOTCTL_SLOT_HEADER_LEN
 BOOTCTL_PAYLOAD_SHA256_OFFSET = 20
 BOOTCTL_PAYLOAD_OFFSET = 52
@@ -253,6 +254,20 @@ def slot_state_name(value: int) -> str:
     if value not in names:
         raise ValueError(f"bad BOOTCTL slot state: {value}")
     return names[value]
+
+
+def slot_state_id(value: str) -> int:
+    normalized = value.lower()
+    names = {
+        "empty": SLOT_STATE_EMPTY,
+        "candidate": SLOT_STATE_CANDIDATE,
+        "pending": SLOT_STATE_PENDING,
+        "good": SLOT_STATE_GOOD,
+        "bad": SLOT_STATE_BAD,
+    }
+    if normalized not in names:
+        raise ValueError(f"bad BOOTCTL slot state: {value}")
+    return names[normalized]
 
 
 def normal_boot_control_fields() -> dict[str, object]:
@@ -472,6 +487,161 @@ def seed_bootctl_fixture(handle, spec: str | None) -> None:
     handle.seek((SEED_DATA_START_LBA + BOOTCTL_START_LBA) * SECTOR_SIZE)
     handle.write(storage_slot_a)
     handle.write(storage_slot_b)
+
+
+def boot_control_record_to_fields(record: dict[str, object] | None) -> dict[str, object]:
+    if record is None:
+        return normal_boot_control_fields()
+    slots = record["slots"]
+    boot_attempt = record["boot_attempt"]
+    return {
+        "active": record["active"],
+        "last_good": record["last_good"],
+        "pending": record["pending"],
+        "safe_mode": bool(record["safe_mode"]),
+        "boot_attempt_slot": boot_attempt["slot"],
+        "boot_attempt_generation": int(boot_attempt["generation"]),
+        "success_marked": bool(boot_attempt["success_marked"]),
+        "slot_a_generation": int(slots["A"]["generation"]),
+        "slot_a_state": slot_state_id(str(slots["A"]["state"])),
+        "slot_a_failure_count": int(slots["A"]["failure_count"]),
+        "slot_b_generation": int(slots["B"]["generation"]),
+        "slot_b_state": slot_state_id(str(slots["B"]["state"])),
+        "slot_b_failure_count": int(slots["B"]["failure_count"]),
+    }
+
+
+def boot_control_authority(scan: dict[str, object]) -> tuple[str | None, dict[str, object] | None, int, str]:
+    decision = scan["decision"]
+    authoritative = decision.get("authoritative_bootctl_slot")
+    if authoritative in {"A", "B"}:
+        record = scan[f"storage_slot_{str(authoritative).lower()}"]
+        return str(authoritative), record, int(record["seq"]), "B" if authoritative == "A" else "A"
+    reason = str(decision.get("reason"))
+    if reason in {"no_valid_boot_control_slot", "both_slots_invalid"}:
+        return None, None, 0, "A"
+    raise ValueError(f"cannot choose loser BOOTCTL slot without an authoritative record: {reason}")
+
+
+def payload_files(payload_dir: Path) -> list[tuple[str, Path]]:
+    root = payload_dir.resolve()
+    if not root.is_dir():
+        raise ValueError(f"payload directory does not exist: {payload_dir}")
+    files: list[tuple[str, Path]] = []
+    for source in sorted(path for path in root.rglob("*") if path.is_file()):
+        image_path = source.relative_to(root).as_posix()
+        files.append((image_path, source))
+    if not files:
+        raise ValueError(f"payload directory is empty: {payload_dir}")
+    return files
+
+
+def build_payload_esp(payload_dir: Path) -> tuple[bytes, list[str]]:
+    builder = load_fat32_builder()(ESP_SLOT_BYTES)
+    staged: list[str] = []
+    for image_path, source in payload_files(payload_dir):
+        builder.add_file(image_path, source.read_bytes())
+        staged.append(image_path)
+    return builder.build(), staged
+
+
+def validate_existing_gpt_image(image: Path) -> dict[str, object]:
+    info = inspect_image(image)
+    required = ("gpt_header_valid", "gpt_seed_data_found", "data_superblock_valid")
+    failed = [name for name in required if not info.get(name)]
+    if failed:
+        raise ValueError(f"refusing non-GPT or unprovisioned persist image: {', '.join(failed)}")
+    return info
+
+
+def prepare_pending_fields(record: dict[str, object] | None, target_slot: str) -> dict[str, object]:
+    fields = boot_control_record_to_fields(record)
+    slot_prefix = "slot_a" if target_slot == "A" else "slot_b"
+    fields["pending"] = target_slot
+    fields["safe_mode"] = False
+    fields["boot_attempt_slot"] = target_slot
+    fields["boot_attempt_generation"] = int(fields[f"{slot_prefix}_generation"])
+    fields["success_marked"] = False
+    fields[f"{slot_prefix}_state"] = SLOT_STATE_PENDING
+    fields[f"{slot_prefix}_failure_count"] = 0
+    return fields
+
+
+def bootctl_slot_relative_lba(storage_slot: str) -> int:
+    return BOOTCTL_START_LBA + (0 if storage_slot == "A" else BOOTCTL_STORAGE_SLOT_SECTORS)
+
+
+def esp_start_lba(payload_slot: str) -> int:
+    return ESP_A_START_LBA if payload_slot == "A" else ESP_B_START_LBA
+
+
+def apply_boot_slot_update(
+    image: Path,
+    stage_slot: str | None,
+    payload_dir: Path | None,
+    set_pending: str | None,
+) -> dict[str, object]:
+    assert_not_release_output(image)
+    if not image.exists():
+        raise FileNotFoundError(image)
+    if stage_slot is not None and payload_dir is None:
+        raise ValueError("--stage-slot requires --payload-dir")
+    if payload_dir is not None and stage_slot is None:
+        raise ValueError("--payload-dir requires --stage-slot")
+    if stage_slot and set_pending and stage_slot != set_pending:
+        raise ValueError("--stage-slot and --set-pending must name the same slot when combined")
+    target_slot = stage_slot or set_pending
+    if target_slot is None:
+        raise ValueError("--stage-slot or --set-pending is required")
+
+    pre = validate_existing_gpt_image(image)
+    authoritative, record, authoritative_seq, loser = boot_control_authority(pre["bootctl_read"])
+    new_seq = authoritative_seq + 1
+    fields = prepare_pending_fields(record, target_slot)
+    slot_bytes = build_boot_control_slot(new_seq, fields)
+    payload_image = None
+    staged_files: list[str] = []
+    if payload_dir is not None:
+        payload_image, staged_files = build_payload_esp(payload_dir)
+
+    plan = {
+        "image": str(image),
+        "target_payload_slot": target_slot,
+        "stage_payload": payload_dir is not None,
+        "payload_dir": None if payload_dir is None else str(payload_dir),
+        "payload_files": staged_files,
+        "esp_start_lba": None if payload_image is None else esp_start_lba(target_slot),
+        "authoritative_storage_slot": authoritative,
+        "authoritative_seq": authoritative_seq,
+        "written_storage_slot": loser,
+        "new_seq": new_seq,
+        "bootctl_relative_lba": bootctl_slot_relative_lba(loser),
+        "bootctl_absolute_lba": SEED_DATA_START_LBA + bootctl_slot_relative_lba(loser),
+        "pending": target_slot,
+        "success_marked": False,
+        "slot_state": "pending",
+    }
+
+    with image.open("r+b") as handle:
+        if payload_image is not None:
+            write_at(handle, esp_start_lba(target_slot), payload_image)
+        write_at(handle, SEED_DATA_START_LBA + bootctl_slot_relative_lba(loser), slot_bytes)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    post = inspect_image(image)
+    post_bootctl = post["bootctl_read"]
+    post_decision = post_bootctl["decision"]
+    winner = post_bootctl[f"storage_slot_{loser.lower()}"]
+    if (
+        post_decision.get("authoritative_bootctl_slot") != loser
+        or int(post_decision.get("seq") or 0) != new_seq
+        or winner.get("pending") != target_slot
+        or winner["slots"][target_slot]["state"] != "pending"
+        or bool(winner["boot_attempt"]["success_marked"])
+    ):
+        raise ValueError("post-write BOOTCTL scan did not find the new pending record as winner")
+    return {"operation": "stage_slot" if stage_slot else "set_pending", "plan": plan, "post_bootctl_read": post_bootctl}
 
 
 def build_image(
@@ -1027,6 +1197,7 @@ def inspect_image(path: Path) -> dict[str, object]:
                 "slot_size": BOOTCTL_SLOT_SIZE,
                 "slot_header_len": BOOTCTL_SLOT_HEADER_LEN,
                 "payload_len": BOOTCTL_PAYLOAD_LEN,
+                "storage_slot_sectors": BOOTCTL_STORAGE_SLOT_SECTORS,
                 "max_pending_boot_attempts": MAX_PENDING_BOOT_ATTEMPTS,
             },
             "RECLOG": {"start_lba": RECLOG_START_LBA, "lba_count": RECLOG_LBA_COUNT},
@@ -1158,6 +1329,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-check", action="store_true", help="accepted for explicit self-check invocations")
     parser.add_argument("--inspect-json", type=Path, help="inspect an existing image and print JSON")
+    parser.add_argument("--assert-not-release", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--image", type=Path, help="existing GPT persist image for offline slot updates")
+    parser.add_argument("--stage-slot", choices=("A", "B"), help="stage --payload-dir into this ESP and set it pending")
+    parser.add_argument("--payload-dir", type=Path, help="directory to stage into the selected ESP")
+    parser.add_argument("--set-pending", choices=("A", "B"), help="set pending to this slot without staging files")
     parser.add_argument(
         "--seed-reclog-fixture",
         default="empty",
@@ -1172,8 +1348,21 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        if args.assert_not_release:
+            assert_not_release_output(args.assert_not_release)
+            print("release guard: passed")
+            return 0
         if args.inspect_json:
+            if args.image or args.stage_slot or args.payload_dir or args.set_pending:
+                parser.error("--inspect-json cannot be combined with offline slot update flags")
             print(json.dumps(inspect_image(args.inspect_json), indent=2))
+            return 0
+        if args.image or args.stage_slot or args.payload_dir or args.set_pending:
+            image = args.image or args.output
+            if image is None:
+                parser.error("--image or positional image path is required for offline slot updates")
+            result = apply_boot_slot_update(image, args.stage_slot, args.payload_dir, args.set_pending)
+            print(json.dumps(result, indent=2))
             return 0
         if args.output is None:
             parser.error("output path is required unless --inspect-json is used")

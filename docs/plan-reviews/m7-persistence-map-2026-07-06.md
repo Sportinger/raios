@@ -368,3 +368,26 @@ Report format: full report JSON path + sha256, docs updated, milestone
 ## 7. Estimate and verdict
 
 Nine implementation slices plus revalidation and closure. Risky boundaries: M7B-2 (first real persistence write — keep it as scoped as M3 was), M7C-2 (bootloader honesty — do not overclaim slot boot), M7D-2 (the reboot proof; also the payoff). Three OWNER DECISIONS are marked inline with recommendations (3.2 storage mechanism → raw region map; 3.3 capacity → deny-when-full; 3.4 firmware slot selection fallback), so a cheap orchestrator only escalates, never designs. M7 ends the current_boot-only era for exactly three scoped targets — `append.record_log.seed_data`, `replace.boot_control.seed_data`, `blob.artifact_store.seed_data` — and every other write stays `capability_denied`.
+
+## OVMF ESP-selection experiment (M7C-2c)
+
+M7C-2c adds a non-gating observation script at
+`scripts/experiments/ovmf-esp-selection.ps1`. The script can boot a
+harness-built GPT persist disk directly under OVMF with a fresh vars pflash
+copy, `-display none`, serial-to-log, and no Limine/stage0 `-kernel` wiring.
+No VM needle, profile predicate, `Add-Predicate`, or slot-choice assertion is
+defined by this experiment.
+
+No bootable self-identifying `BOOTX64.EFI` stub is authored in this slice. When
+run without explicit staged payloads, the script measures only whatever OVMF
+serial/stderr boot or ESP/FS enumeration is observable for the GPT disk. If a
+future run stages real SLOT A / SLOT B EFI payloads, the result remains
+observational until a separate boot-manager decision lands.
+
+Observed result for M7C-2c on this host: one non-gating direct-OVMF run without
+staged EFI stubs timed out after recording firmware output. OVMF/EDK II reported
+`UEFI v2.70 (EDK II, 0x00010000)`, failed to load the default QEMU hard disk
+boot entry as `Not Found`, entered the EFI internal shell, and enumerated both
+ESP filesystems as `FS0`/`HD0a65535a1` and `FS1`/`HD0a65535a2`. No
+self-identifying `SLOT A` or `SLOT B` payload ran, so the result is
+inconclusive. Deterministic firmware slot boot is **not** claimed in M7.
