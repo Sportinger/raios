@@ -72,8 +72,8 @@ that the giant refactor worked: the system can now grow by services, not
 by monoliths. Verified: 486/486 checks (67 echo-specific) + full profile
 7,825/7,825.
 
-Now active: **M6 Promotion Loop v0** — the FINAL milestone and the
-project's first true product moment: one AI-authored artifact travels
+Now active: **M6 Promotion Loop v0** — the project's first true product
+moment: one AI-authored artifact travels
 the whole safe loop end to end — authored, tested in the Shadow VM,
 capability-granted, promoted live, and rolled back — with evidence at
 every step. Split into M6A (candidate intake) → M6B (grant) → M6C
@@ -89,6 +89,15 @@ See `docs/plan-reviews/review-4-deep-scope-code-and-process-2026-07.md`.
 
 ## Next milestones (docs/ROADMAP.md)
 
-M1 host tests + CI -> M2 shrink code ~10x -> M3 first real disk write ->
-M4 real service isolation (Wasm) -> M5 second service -> M6 first external
-AI-built service through the full safe-promotion loop.
+M6 first external AI-built service through the full safe-promotion loop
+-> M7 things survive a restart (persistence + automatic fall-back to the
+last good state) -> M8 emergency lifeline -> M9 real long-term memory ->
+M10 stronger provider trust + a second AI provider -> M11 shrinking the
+core (network parsing moves out into replaceable services) -> M12+ Wi-Fi,
+downloading modules over the network, moving to new hardware.
+
+NEW (2026-07-06): M7-M11 are fully pre-planned as step-by-step maps with
+ready-made worker instructions, plus a procedure handbook
+(`docs/ORCHESTRATOR_PLAYBOOK.md`). Purpose: cheaper AI agents can keep
+building correctly even without an expensive orchestrator model. Every
+map starts with a mandatory "check the plan against reality" step.

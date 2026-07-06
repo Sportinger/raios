@@ -606,12 +606,58 @@ live system, and rolled back — with evidence at every step."
 This is the project's first true product milestone; everything before it is
 substrate.
 
-### M7 and beyond (direction, not yet planned in detail)
+### M7 Persistence Foundation (pre-planned)
 
-Persistent image layout (GPT `SEED_ESP_A/B` + `SEED_DATA` per
-`docs/image-layout-v0.md`), durable memory records (ADR 0004 Phase D),
-recovery agent lifeline (ADR 0003), provider WebPKI + trusted time,
-provider-agnostic adapters, bare-metal Wi-Fi.
+Capability sentence: "A promoted artifact and its evidence survive a
+reboot, and a bad boot automatically falls back to last-good." GPT
+`SEED_ESP_A/B` + `SEED_DATA` per `docs/image-layout-v0.md`; sub-milestones
+M7A layout detection (read-only) → M7B durable record store → M7C boot
+control/A-B/SAFE → M7D persistent artifact store + evidence-gated boot-time
+re-promotion. Map: `docs/plan-reviews/m7-persistence-map-2026-07-06.md`.
+
+### M8 Recovery Agent Lifeline (pre-planned)
+
+Capability sentence: "When the world above breaks, a minimal pinned
+serial-first path still diagnoses and restores last-good — restoring
+known-good state only, never promoting anything new." (ADR 0003 /
+archived Phase 8.) Map:
+`docs/plan-reviews/m8-recovery-lifeline-map-2026-07-06.md`.
+
+### M9 Durable Memory & Context Broker v1 (pre-planned)
+
+Capability sentence: "Typed, classified, provenance-bound memory records
+survive reboot with append/readback evidence, and budgeted
+agent_context.v0 packets draw on them with explicit omissions — provider
+export stays fail-closed end-to-end." (ADR 0004 Phase D.) Map:
+`docs/plan-reviews/m9-durable-memory-map-2026-07-06.md`.
+
+### M10 Provider Trust Hardening & Adapters (pre-planned)
+
+Capability sentence: "Provider connections validate real certificate
+chains under an honest time authority, through a provider-agnostic
+adapter proven by a second provider." Map:
+`docs/plan-reviews/m10-provider-trust-map-2026-07-06.md`.
+
+### M11 Kernel Slimming / Services-out-of-kernel (pre-planned)
+
+Capability sentence: "The kernel does not parse the internet — TLS/HTTP
+protocol logic runs as a replaceable, capability-scoped Wasm service, and
+the kernel measurably shrinks." The concrete path toward the end vision:
+a slim permanent core (boot + network bring-up + ledger + recovery) with
+everything else loaded as replaceable services. Map:
+`docs/plan-reviews/m11-kernel-slimming-map-2026-07-06.md`.
+
+### M12+ (direction, not slice-planned)
+
+Bare-metal Wi-Fi vs USB-Ethernet, external artifact distribution
+(unparking `ota/`/`registry/`/`fake-cloud/` — requires a new ADR),
+re-binding to new hardware, core-generation handoff. Direction doc:
+`docs/plan-reviews/m12-plus-direction-2026-07-06.md`.
+
+All M7-M11 maps were pre-planned 2026-07-06 (before M6 closed) and carry
+a MANDATORY Slice 0 that revalidates every file:line claim against HEAD
+before implementation. Execution procedure for orchestrators (including
+cheap/mid-tier models): `docs/ORCHESTRATOR_PLAYBOOK.md`.
 
 ## Active Execution Rules
 

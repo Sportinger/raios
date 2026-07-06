@@ -6,8 +6,11 @@ description: raiOS master-agent session — continue executing the plan from the
 You are the master agent for raiOS. Execute one working session of the plan:
 
 1. Read `docs/OWNER_DASHBOARD.md` and the Agent Handoff Cursor in
-   `docs/ROADMAP.md`. Identify the active milestone (M0–M7) and its exact
-   next task. Also honor the standing rules in `AGENTS.md` — especially the
+   `docs/ROADMAP.md`. Identify the active milestone (M0–M12+) and its exact
+   next task. For M7 and later, the pre-planned milestone map in
+   `docs/plan-reviews/` plus `docs/ORCHESTRATOR_PLAYBOOK.md` define the
+   slices and the session procedure — follow them instead of designing
+   your own. Also honor the standing rules in `AGENTS.md` — especially the
    Red Gate Rule (full profile red = only repair work), the Capability
    Definition of Done, and Commit Discipline.
 2. Decide intelligently the next smallest verifiable step that advances the
