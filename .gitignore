@@ -5,6 +5,7 @@
 /log.md
 .DS_Store
 .venv/
+__pycache__/
 release/esp/NvVars
 /release/raios-stage0-local*.img
 /release/*openai*.img

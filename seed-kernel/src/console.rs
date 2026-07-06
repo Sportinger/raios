@@ -13,7 +13,7 @@ use crate::{
 };
 
 const COMMAND_WIDTH: usize = 4096;
-const OUTPUT_WIDTH: usize = 104;
+const OUTPUT_WIDTH: usize = 2048;
 const OUTPUT_LINES: usize = 8;
 const CHAT_LINES: usize = 10;
 const MAX_BYTES_PER_POLL: usize = 64;
