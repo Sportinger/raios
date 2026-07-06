@@ -1,3 +1,5 @@
+#[path = "boot_control.rs"]
+mod boot_control;
 #[path = "durable_store.rs"]
 mod durable_store;
 
@@ -333,6 +335,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("persist.layout", Exact, ["system.persist_layout"], [route!("persist.layout"), route!("system.persist_layout" => "persist.layout")], MethodAction::Read0(emit_persist_layout)),
     method!("durable.record_log_scan", Exact, ["persist.reclog_scan"], [route!("durable.record_log_scan"), route!("persist.reclog_scan" => "durable.record_log_scan")], MethodAction::Read0(durable_store::emit_durable_record_log_scan)),
     method!("durable.record_log_append", Exact, ["persist.reclog_append"], [route!("durable.record_log_append"), route!("persist.reclog_append" => "durable.record_log_append")], MethodAction::Read0(durable_store::emit_durable_record_log_append)),
+    method!("boot.control_read", Exact, ["persist.boot_control"], [route!("boot.control_read"), route!("persist.boot_control" => "boot.control_read")], MethodAction::Read0(boot_control::emit_boot_control_read)),
     envelope_method!("problem.list", Exact, ["problems"], [route!("problems" => "problem.list"), route!("problem.list" => "problem.list")], 17, "problem.list", "cap.problem.list.read", "agent_command_envelope.current_boot.serial.problem_list.v0", "problem.list", MethodAction::ReadRuntime(emit_problem_list)),
     envelope_method!("service.inventory", Exact, ["services"], [route!("services" => "service.inventory"), route!("service.inventory" => "service.inventory")], 5, "service.inventory", "cap.service.inventory.read", "agent_command_envelope.current_boot.serial.service_inventory.v0", "service.inventory", MethodAction::ReadRuntime(emit_service_inventory)),
     pred_method!("service.descriptor_source_trust_selftest", hello_service::is_descriptor_source_trust_selftest_method, [route!("service.descriptor_source_trust_selftest")], MethodAction::Response0Read(hello_service::emit_descriptor_source_trust_selftest)),

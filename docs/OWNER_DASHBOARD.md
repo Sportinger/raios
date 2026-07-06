@@ -34,12 +34,13 @@ milestones. The next step is boot control (M7C).).
 ## Gate status
 
 - Full verification profile: **GREEN** as of 2026-07-06 — 8,168/8,168
-  checks passed in one run (report shadow-20260706-203739-23872.json,
-  hash-verified) after the first-real-write slice (M7B-2). The append
-  slice also passed its focused persistence profile (31/31) and left the
-  audit-rollback profile unchanged-green (1,709/1,709). The old "mystery"
-  failures are explained: the test tooling asked for too much data at
-  once and then misread its own connection loss — no bug in the OS itself.
+  checks passed in one run (report shadow-20260706-213833-33436.json,
+  hash-verified) after the boot-control-read slice (M7C-1). The focused
+  persistence profile is now 34/34 (adds boot-control-read, safe-posture,
+  pending-not-consumed needles) and the audit-rollback profile is
+  unchanged-green (1,709/1,709). The old "mystery" failures are explained:
+  the test tooling asked for too much data at once and then misread its
+  own connection loss — no bug in the OS itself.
 - Working tree: the ~36,900-line backlog was committed 2026-07-04 in
   three honest commits; release binaries are no longer tracked in git.
 
@@ -97,10 +98,14 @@ later** (the sealing ceremony is the very last step).
 
 **M7 Persistence Foundation now active — making things survive a restart.**
 Done so far: the kernel reads the disk's layout + its durable log (M7A/M7B-1,
-read-only), and — NEW — performs its **first real safe WRITE**: appending one
-durable record and reading it back to confirm it, with every other disk area
-still refused (M7B-2). **Next: M7C boot control**, then M7D (survive an actual
-reboot), then the durable promotion save (M6D-2 into the disk).
+read-only); performs its **first real safe WRITE** — appending one durable
+record and reading it back to confirm it, every other disk area still refused
+(M7B-2); and now **reads the boot-control area** to decide which system copy
+(A/B) to boot and whether to enter a safe "recovery" mode when the control
+record is missing/damaged (M7C-1, still read-only — it decides but writes
+nothing yet). **Next: M7C-2** (safely mark a boot as successful + let safe-mode
+switch off saving), then M7D (survive an actual reboot), then the durable
+promotion save (M6D-2 into the disk).
 
 ## Top risk
 

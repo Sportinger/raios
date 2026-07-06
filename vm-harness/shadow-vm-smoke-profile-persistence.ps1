@@ -163,6 +163,83 @@ function Invoke-ReclogFixtureScanProbe {
     }
 }
 
+function Invoke-BootControlFixtureProbe {
+    param(
+        [string]$FixtureSpec,
+        [string]$Label
+    )
+
+    if (-not $script:BootControlFixtureProbeIndex) {
+        $script:BootControlFixtureProbeIndex = 0
+    }
+    $script:BootControlFixtureProbeIndex += 1
+    $suffix = "$Label-$($script:BootControlFixtureProbeIndex)"
+    $fixturePort = $SerialTcpPort + 300 + $script:BootControlFixtureProbeIndex
+    $fixtureLog = Join-Path $RunDir "serial-bootctl-$suffix.log"
+    $fixtureErr = [System.IO.Path]::ChangeExtension($fixtureLog, ".err.txt")
+    $fixtureImage = Join-Path $RunDir "raios-stage0-bootctl-$suffix.img"
+    $fixtureScratch = Join-Path $RunDir "raios-stage0-bootctl-$suffix-scratch.img"
+    $fixtureAuditRollback = Join-Path $RunDir "raios-stage0-bootctl-$suffix-audit-rollback-target.img"
+    $fixturePersist = Join-Path $RunDir "raios-persist-bootctl-$suffix.img"
+    $code = Join-Path $RunDir "edk2-code-bootctl-$suffix.fd"
+    $vars = Join-Path $RunDir "ovmf-vars-bootctl-$suffix.fd"
+    $qemu = "C:\Program Files\qemu\qemu-system-x86_64.exe"
+
+    $buildOutput = & python $builder --self-check --seed-bootctl $FixtureSpec $fixturePersist 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "BOOTCTL fixture build failed ($FixtureSpec): $($buildOutput -join [Environment]::NewLine)"
+    }
+
+    Copy-Item -LiteralPath $ResolvedImage -Destination $fixtureImage -Force
+    Copy-Item -LiteralPath $ScratchImage -Destination $fixtureScratch -Force
+    Copy-Item -LiteralPath $AuditRollbackTargetImage -Destination $fixtureAuditRollback -Force
+    Copy-Item -LiteralPath "C:\Program Files\qemu\share\edk2-x86_64-code.fd" -Destination $code -Force
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "release\ovmf_vars.fd") -Destination $vars -Force
+    Remove-Item -LiteralPath $fixtureLog, $fixtureErr -Force -ErrorAction SilentlyContinue
+
+    $driveId = "raiospersist_bootctl_$($script:BootControlFixtureProbeIndex)"
+    $qemuArgs = @(
+        "-machine", "q35",
+        "-m", "512M",
+        "-drive", "if=pflash,format=raw,readonly=on,file=$code",
+        "-drive", "if=pflash,format=raw,file=$vars",
+        "-drive", "file=$fixtureImage,format=raw,if=ide",
+        "-drive", "file=$fixtureScratch,format=raw,if=none,id=raiosscratch_bootctl_$($script:BootControlFixtureProbeIndex)",
+        "-device", "ide-hd,drive=raiosscratch_bootctl_$($script:BootControlFixtureProbeIndex),bus=ide.1,unit=0",
+        "-drive", "file=$fixtureAuditRollback,format=raw,if=none,id=raiosauditrollback_bootctl_$($script:BootControlFixtureProbeIndex)",
+        "-device", "ide-hd,drive=raiosauditrollback_bootctl_$($script:BootControlFixtureProbeIndex),bus=ide.2,unit=0",
+        "-drive", "file=$fixturePersist,format=raw,if=none,id=$driveId",
+        "-device", "ide-hd,drive=$driveId,bus=ide.3,unit=0",
+        "-cpu", "max",
+        "-device", "qemu-xhci,id=xhci_bootctl_$($script:BootControlFixtureProbeIndex)",
+        "-device", "usb-kbd,bus=xhci_bootctl_$($script:BootControlFixtureProbeIndex).0",
+        "-device", "usb-tablet,bus=xhci_bootctl_$($script:BootControlFixtureProbeIndex).0",
+        "-chardev", "socket,id=seedserial_bootctl_$($script:BootControlFixtureProbeIndex),host=127.0.0.1,port=$fixturePort,server=on,wait=off,logfile=$fixtureLog,logappend=off",
+        "-serial", "chardev:seedserial_bootctl_$($script:BootControlFixtureProbeIndex)",
+        "-display", "none",
+        "-no-reboot"
+    )
+
+    $child = Start-Process -FilePath $qemu -ArgumentList $qemuArgs -PassThru -RedirectStandardError $fixtureErr -WindowStyle Hidden
+    try {
+        $childTimeout = [Math]::Max(180, $TimeoutSeconds * 4)
+        if (-not (Wait-ForLogText -Path $fixtureLog -Needle "SERIAL CONSOLE READY" -TimeoutSeconds $childTimeout)) {
+            throw "BOOTCTL fixture child VM did not reach serial console: $(Get-SerialLogTail -Path $fixtureLog)"
+        }
+        Send-SerialText -Port $fixturePort -Text "agent boot.control_read`r" -TimeoutSeconds $childTimeout
+        if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END boot.control_read" -TimeoutSeconds $childTimeout)) {
+            throw "BOOTCTL fixture child VM did not answer boot.control_read: $(Get-SerialLogTail -Path $fixtureLog)"
+        }
+        return (Get-ProfileAgentResponseJson -Path $fixtureLog -Method "boot.control_read").body.result
+    }
+    finally {
+        if ($child -and -not $child.HasExited) {
+            Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
+            try { $child.WaitForExit(5000) | Out-Null } catch {}
+        }
+    }
+}
+
 $builder = Join-Path $RepoRoot "scripts\make-gpt-persist-image.py"
 $inspectJson = & python $builder --inspect-json $PersistDiskImage
 if ($LASTEXITCODE -ne 0) {
@@ -260,6 +337,58 @@ Add-Predicate `
     -Expected "durable append remains capability_denied while RECLOG scan is read-only" `
     -Passed $appendDenied `
     -Actual $(if ($appendDenied) { "matched" } else { ($emptyScan | ConvertTo-Json -Compress -Depth 8) })
+
+$bootControl = Invoke-BootControlFixtureProbe -FixtureSpec "valid-a" -Label "valid-a"
+$bootControlRead = (
+    $bootControl.schema -eq "raios.boot_control_read.v0" -and
+    $bootControl.posture -eq "Normal" -and
+    $bootControl.selected_storage_slot -eq "A" -and
+    $bootControl.selected_payload_slot -eq "A" -and
+    $bootControl.authoritative_bootctl_slot -eq "A" -and
+    -not [bool]$bootControl.pending_consumed -and
+    [bool]$bootControl.read_only -and
+    -not [bool]$bootControl.write_attempted -and
+    -not [bool]$bootControl.write_dma_ext_called -and
+    -not [bool]$bootControl.writes_enabled -and
+    -not [bool]$bootControl.persistence_claimed
+)
+Add-Predicate `
+    -Name "boot-control-read" `
+    -Expected "valid-a BOOTCTL fixture reads as Normal with authoritative storage slot A and read-only evidence" `
+    -Passed $bootControlRead `
+    -Actual $(if ($bootControlRead) { "matched" } else { ($bootControl | ConvertTo-Json -Compress -Depth 8) })
+
+$invalidBootControl = Invoke-BootControlFixtureProbe -FixtureSpec "both-invalid" -Label "both-invalid"
+$safePostureBothSlotsInvalid = (
+    $invalidBootControl.schema -eq "raios.boot_control_read.v0" -and
+    $invalidBootControl.posture -eq "Safe" -and
+    $invalidBootControl.decision_reason -eq "both_slots_invalid" -and
+    $null -eq $invalidBootControl.selected_storage_slot -and
+    $null -eq $invalidBootControl.selected_payload_slot -and
+    $null -eq $invalidBootControl.authoritative_bootctl_slot -and
+    -not [bool]$invalidBootControl.pending_consumed -and
+    -not [bool]$invalidBootControl.would_mark_good
+)
+Add-Predicate `
+    -Name "safe-posture-both-slots-invalid" `
+    -Expected "corrupted BOOTCTL storage slots enter Safe posture without selecting a payload slot" `
+    -Passed $safePostureBothSlotsInvalid `
+    -Actual $(if ($safePostureBothSlotsInvalid) { "matched" } else { ($invalidBootControl | ConvertTo-Json -Compress -Depth 8) })
+
+$safePendingBootControl = Invoke-BootControlFixtureProbe -FixtureSpec "pending-safe" -Label "pending-safe"
+$pendingNotConsumedInSafe = (
+    $safePendingBootControl.schema -eq "raios.boot_control_read.v0" -and
+    $safePendingBootControl.posture -eq "Safe" -and
+    $safePendingBootControl.safe_mode -eq $true -and
+    $safePendingBootControl.pending -eq "B" -and
+    -not [bool]$safePendingBootControl.pending_consumed -and
+    -not [bool]$safePendingBootControl.would_mark_good
+)
+Add-Predicate `
+    -Name "pending-not-consumed-in-safe" `
+    -Expected "safe_mode BOOTCTL fixture keeps pending=B unconsumed and marks nothing good" `
+    -Passed $pendingNotConsumedInSafe `
+    -Actual $(if ($pendingNotConsumedInSafe) { "matched" } else { ($safePendingBootControl | ConvertTo-Json -Compress -Depth 8) })
 
 $append = Invoke-ReclogFixtureScanProbe -FixtureSpec "valid:2" -Label "append" -Method "durable.record_log_append"
 $appendAuthorized = (
@@ -383,6 +512,6 @@ Add-Predicate `
     -Passed $absentPassed `
     -Actual $absentActual
 
-if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $fullDenied -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
+if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $fullDenied -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
     throw "Persistence kernel layout validation failed"
 }

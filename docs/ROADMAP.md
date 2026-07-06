@@ -79,7 +79,20 @@ IMPORTANT correction: the max-effort scope caught that the map's older
 "generalize the write-boundary chain" wording was STALE — that chain's booleans
 are shared cross-target and flipping them would grant generic write to every
 module; the real write went through a separate scoped evaluator (mirroring M3),
-ZERO write-boundary edits. Next: **M7C** — boot control (BOOTCTL A/B + SAFE).
+ZERO write-boundary edits.
+
+**M7C-1 done (2026-07-06): boot control READ + state machine + SAFE posture
+(read-only).** The kernel reads the BOOTCTL region's two 2048-byte ping-pong
+slots (`RAIOSBC0` envelope wrapping a fixed binary boot-control payload — raiOS
+has no kernel JSON reader, so on-disk is binary like the superblock/RECLOG),
+picks the highest-valid-seq slot, and runs a pure fail-closed state machine that
+selects the boot slot + posture (Normal/Probation/Safe/PersistenceUnavailable),
+reported via `boot.control_read`. SAFE is entered on both-slots-invalid,
+ambiguous equal-seq, or `safe_mode`; nothing is consumed/marked-good (that is
+M7C-2). Writes NOTHING (WRITE_DMA_EXT uncalled). `MAX_PENDING_BOOT_ATTEMPTS=3`
+is a v0-provisional, owner-overridable threshold. `current_boot_posture()` is
+exposed for the next slice to consume. Next: **M7C-2** — boot-success marker
+WRITE (scoped `replace.boot_control.seed_data`) + SAFE-disables-append wiring.
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small

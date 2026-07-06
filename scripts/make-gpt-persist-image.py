@@ -57,6 +57,44 @@ RECLOG_LBA_COUNT = 4096
 ARTSTOR_START_LBA = 8192
 ARTSTOR_LBA_COUNT = SEED_DATA_LBA_COUNT - ARTSTOR_START_LBA
 
+BOOTCTL_MAGIC = b"RAIOSBC0"
+BOOTCTL_PAYLOAD_MAGIC = b"RAIOSBP0"
+BOOT_CONTROL_VERSION = 0
+BOOTCTL_SLOT_SIZE = 2048
+BOOTCTL_SLOT_HEADER_LEN = 52
+BOOTCTL_SLOT_COUNT = 2
+BOOTCTL_SLOT_MAX_PAYLOAD_LEN = BOOTCTL_SLOT_SIZE - BOOTCTL_SLOT_HEADER_LEN
+BOOTCTL_PAYLOAD_SHA256_OFFSET = 20
+BOOTCTL_PAYLOAD_OFFSET = 52
+BOOTCTL_PAYLOAD_STRUCT = "<8sIBBBBBBQQBIQBI"
+BOOTCTL_PAYLOAD_LEN = struct.calcsize(BOOTCTL_PAYLOAD_STRUCT)
+BOOTCTL_PAYLOAD_MAGIC_OFFSET = 0
+BOOTCTL_PAYLOAD_VERSION_OFFSET = 8
+BOOTCTL_ACTIVE_SLOT_OFFSET = 12
+BOOTCTL_LAST_GOOD_SLOT_OFFSET = 13
+BOOTCTL_PENDING_SLOT_OFFSET = 14
+BOOTCTL_SAFE_MODE_OFFSET = 15
+BOOTCTL_BOOT_ATTEMPT_SLOT_OFFSET = 16
+BOOTCTL_BOOT_ATTEMPT_SUCCESS_MARKED_OFFSET = 17
+BOOTCTL_BOOT_ATTEMPT_GENERATION_OFFSET = 18
+BOOTCTL_SLOT_A_GENERATION_OFFSET = 26
+BOOTCTL_SLOT_A_STATE_OFFSET = 34
+BOOTCTL_SLOT_A_FAILURE_COUNT_OFFSET = 35
+BOOTCTL_SLOT_B_GENERATION_OFFSET = 39
+BOOTCTL_SLOT_B_STATE_OFFSET = 47
+BOOTCTL_SLOT_B_FAILURE_COUNT_OFFSET = 48
+MAX_PENDING_BOOT_ATTEMPTS = 3
+
+SLOT_ID_NONE = 0
+SLOT_ID_A = 1
+SLOT_ID_B = 2
+
+SLOT_STATE_EMPTY = 0
+SLOT_STATE_CANDIDATE = 1
+SLOT_STATE_PENDING = 2
+SLOT_STATE_GOOD = 3
+SLOT_STATE_BAD = 4
+
 RECLOG_MAGIC = b"RAIOSRC0"
 RECLOG_HEADER_LEN = 88
 RECLOG_PREV_FRAME_SHA256_OFFSET = 24
@@ -183,6 +221,134 @@ def parse_reclog_fixture(spec: str | None) -> ReclogFixture:
     return ReclogFixture(frame_count=frame_count, torn_tail=torn_tail)
 
 
+def slot_name(value: int) -> str | None:
+    if value == SLOT_ID_NONE:
+        return None
+    if value == SLOT_ID_A:
+        return "A"
+    if value == SLOT_ID_B:
+        return "B"
+    raise ValueError(f"bad BOOTCTL slot id: {value}")
+
+
+def slot_id(value: str | None) -> int:
+    if value is None:
+        return SLOT_ID_NONE
+    normalized = value.upper()
+    if normalized == "A":
+        return SLOT_ID_A
+    if normalized == "B":
+        return SLOT_ID_B
+    raise ValueError(f"bad BOOTCTL slot id: {value}")
+
+
+def slot_state_name(value: int) -> str:
+    names = {
+        SLOT_STATE_EMPTY: "empty",
+        SLOT_STATE_CANDIDATE: "candidate",
+        SLOT_STATE_PENDING: "pending",
+        SLOT_STATE_GOOD: "good",
+        SLOT_STATE_BAD: "bad",
+    }
+    if value not in names:
+        raise ValueError(f"bad BOOTCTL slot state: {value}")
+    return names[value]
+
+
+def normal_boot_control_fields() -> dict[str, object]:
+    return {
+        "active": "A",
+        "last_good": "A",
+        "pending": None,
+        "safe_mode": False,
+        "boot_attempt_slot": "A",
+        "boot_attempt_generation": 1,
+        "success_marked": True,
+        "slot_a_generation": 1,
+        "slot_a_state": SLOT_STATE_GOOD,
+        "slot_a_failure_count": 0,
+        "slot_b_generation": 2,
+        "slot_b_state": SLOT_STATE_EMPTY,
+        "slot_b_failure_count": 0,
+    }
+
+
+def build_boot_control_payload(fields: dict[str, object]) -> bytes:
+    return struct.pack(
+        BOOTCTL_PAYLOAD_STRUCT,
+        BOOTCTL_PAYLOAD_MAGIC,
+        BOOT_CONTROL_VERSION,
+        slot_id(fields["active"]),
+        slot_id(fields["last_good"]),
+        slot_id(fields["pending"]),
+        1 if fields["safe_mode"] else 0,
+        slot_id(fields["boot_attempt_slot"]),
+        1 if fields["success_marked"] else 0,
+        int(fields["boot_attempt_generation"]),
+        int(fields["slot_a_generation"]),
+        int(fields["slot_a_state"]),
+        int(fields["slot_a_failure_count"]),
+        int(fields["slot_b_generation"]),
+        int(fields["slot_b_state"]),
+        int(fields["slot_b_failure_count"]),
+    )
+
+
+def build_boot_control_slot(seq: int, fields: dict[str, object]) -> bytes:
+    payload = build_boot_control_payload(fields)
+    if len(payload) != BOOTCTL_PAYLOAD_LEN:
+        raise ValueError(f"BOOTCTL payload length drift: {len(payload)}")
+    if len(payload) > BOOTCTL_SLOT_MAX_PAYLOAD_LEN:
+        raise ValueError("BOOTCTL payload does not fit in storage slot")
+    slot = bytearray(BOOTCTL_SLOT_SIZE)
+    slot[0:8] = BOOTCTL_MAGIC
+    struct.pack_into("<I", slot, 8, len(payload))
+    struct.pack_into("<Q", slot, 12, seq)
+    slot[BOOTCTL_PAYLOAD_SHA256_OFFSET : BOOTCTL_PAYLOAD_SHA256_OFFSET + 32] = hashlib.sha256(payload).digest()
+    slot[BOOTCTL_PAYLOAD_OFFSET : BOOTCTL_PAYLOAD_OFFSET + len(payload)] = payload
+    return bytes(slot)
+
+
+def boot_control_fields_for_fixture(spec: str) -> tuple[bytes, bytes]:
+    normalized = spec.strip().lower()
+    empty = b"\0" * BOOTCTL_SLOT_SIZE
+    if normalized == "valid-a":
+        return build_boot_control_slot(1, normal_boot_control_fields()), empty
+    if normalized == "ab":
+        fields_a = normal_boot_control_fields()
+        fields_b = normal_boot_control_fields()
+        fields_b.update(
+            {
+                "active": "B",
+                "last_good": "B",
+                "boot_attempt_slot": "B",
+                "slot_b_state": SLOT_STATE_GOOD,
+            }
+        )
+        return build_boot_control_slot(5, fields_a), build_boot_control_slot(9, fields_b)
+    if normalized == "both-invalid":
+        bad_magic = bytearray(build_boot_control_slot(1, normal_boot_control_fields()))
+        bad_magic[0] = ord("X")
+        bad_hash = bytearray(build_boot_control_slot(2, normal_boot_control_fields()))
+        bad_hash[BOOTCTL_PAYLOAD_SHA256_OFFSET] ^= 1
+        return bytes(bad_magic), bytes(bad_hash)
+    if normalized in {"pending", "pending-safe", "pending-exhausted"}:
+        fields = normal_boot_control_fields()
+        fields.update(
+            {
+                "pending": "B",
+                "success_marked": False,
+                "slot_b_state": SLOT_STATE_PENDING,
+            }
+        )
+        if normalized == "pending-safe":
+            fields["safe_mode"] = True
+        if normalized == "pending-exhausted":
+            fields["slot_b_failure_count"] = MAX_PENDING_BOOT_ATTEMPTS
+        return build_boot_control_slot(1, fields), empty
+    raise ValueError(f"unsupported BOOTCTL fixture spec: {spec}")
+
+
 def protective_mbr() -> bytes:
     mbr = bytearray(SECTOR_SIZE)
     mbr[446 + 4] = 0xEE
@@ -297,7 +463,22 @@ def seed_reclog_fixture(handle, fixture: ReclogFixture) -> None:
         handle.write(b"TORNTAIL" + (b"\xA5" * (SECTOR_SIZE - 8)))
 
 
-def build_image(output: Path, reclog_fixture_spec: str | None = None) -> None:
+def seed_bootctl_fixture(handle, spec: str | None) -> None:
+    if spec is None or spec == "" or spec.strip().lower() in {"none", "empty"}:
+        return
+    storage_slot_a, storage_slot_b = boot_control_fields_for_fixture(spec)
+    if len(storage_slot_a) != BOOTCTL_SLOT_SIZE or len(storage_slot_b) != BOOTCTL_SLOT_SIZE:
+        raise ValueError("BOOTCTL fixture slot length drift")
+    handle.seek((SEED_DATA_START_LBA + BOOTCTL_START_LBA) * SECTOR_SIZE)
+    handle.write(storage_slot_a)
+    handle.write(storage_slot_b)
+
+
+def build_image(
+    output: Path,
+    reclog_fixture_spec: str | None = None,
+    bootctl_fixture_spec: str | None = None,
+) -> None:
     assert_not_release_output(output)
     if ARTSTOR_LBA_COUNT <= 0:
         raise RuntimeError("SEED_DATA is too small for ARTSTOR")
@@ -322,6 +503,7 @@ def build_image(output: Path, reclog_fixture_spec: str | None = None) -> None:
         write_at(handle, SEED_DATA_START_LBA, sb)
         write_at(handle, SEED_DATA_START_LBA + 1, sb)
         seed_reclog_fixture(handle, reclog_fixture)
+        seed_bootctl_fixture(handle, bootctl_fixture_spec)
         write_at(handle, BACKUP_GPT_ENTRIES_LBA, entries)
         write_at(handle, BACKUP_GPT_HEADER_LBA, backup_header)
 
@@ -559,6 +741,201 @@ def scan_reclog(data: bytes) -> dict[str, object]:
     }
 
 
+def parse_slot_id_value(value: int, reason: str) -> tuple[str | None, str | None]:
+    if value == SLOT_ID_NONE:
+        return None, None
+    if value == SLOT_ID_A:
+        return "A", None
+    if value == SLOT_ID_B:
+        return "B", None
+    return None, reason
+
+
+def parse_slot_state_value(value: int, reason: str) -> tuple[str | None, str | None]:
+    try:
+        return slot_state_name(value), None
+    except ValueError:
+        return None, reason
+
+
+def parse_bool_value(value: int, reason: str) -> tuple[bool | None, str | None]:
+    if value == 0:
+        return False, None
+    if value == 1:
+        return True, None
+    return None, reason
+
+
+def parse_boot_control_slot(data: bytes) -> tuple[dict[str, object] | None, str | None]:
+    if len(data) != BOOTCTL_SLOT_SIZE:
+        return None, "slot_size_mismatch"
+    if all_zero(data):
+        return None, "zero_filled_slot"
+    if data[:8] != BOOTCTL_MAGIC:
+        return None, "bad_magic"
+    payload_len = struct.unpack_from("<I", data, 8)[0]
+    seq = struct.unpack_from("<Q", data, 12)[0]
+    if payload_len > BOOTCTL_SLOT_MAX_PAYLOAD_LEN:
+        return None, "payload_len_out_of_bounds"
+    if payload_len != BOOTCTL_PAYLOAD_LEN:
+        return None, "payload_len_mismatch"
+    payload_end = BOOTCTL_PAYLOAD_OFFSET + payload_len
+    if payload_end > BOOTCTL_SLOT_SIZE:
+        return None, "payload_len_out_of_bounds"
+    payload = data[BOOTCTL_PAYLOAD_OFFSET:payload_end]
+    payload_hash = hashlib.sha256(payload).digest()
+    if data[BOOTCTL_PAYLOAD_SHA256_OFFSET : BOOTCTL_PAYLOAD_SHA256_OFFSET + 32] != payload_hash:
+        return None, "bad_payload_sha256"
+    if not all_zero(data[payload_end:]):
+        return None, "slot_padding_nonzero"
+    if payload[BOOTCTL_PAYLOAD_MAGIC_OFFSET : BOOTCTL_PAYLOAD_MAGIC_OFFSET + 8] != BOOTCTL_PAYLOAD_MAGIC:
+        return None, "bad_payload_magic"
+    if struct.unpack_from("<I", payload, BOOTCTL_PAYLOAD_VERSION_OFFSET)[0] != BOOT_CONTROL_VERSION:
+        return None, "payload_version_mismatch"
+
+    active, reason = parse_slot_id_value(payload[BOOTCTL_ACTIVE_SLOT_OFFSET], "bad_active_slot")
+    if reason:
+        return None, reason
+    last_good, reason = parse_slot_id_value(payload[BOOTCTL_LAST_GOOD_SLOT_OFFSET], "bad_last_good_slot")
+    if reason:
+        return None, reason
+    pending, reason = parse_slot_id_value(payload[BOOTCTL_PENDING_SLOT_OFFSET], "bad_pending_slot")
+    if reason:
+        return None, reason
+    safe_mode, reason = parse_bool_value(payload[BOOTCTL_SAFE_MODE_OFFSET], "bad_safe_mode")
+    if reason:
+        return None, reason
+    attempt_slot, reason = parse_slot_id_value(
+        payload[BOOTCTL_BOOT_ATTEMPT_SLOT_OFFSET], "bad_boot_attempt_slot"
+    )
+    if reason:
+        return None, reason
+    success_marked, reason = parse_bool_value(
+        payload[BOOTCTL_BOOT_ATTEMPT_SUCCESS_MARKED_OFFSET], "bad_success_marked"
+    )
+    if reason:
+        return None, reason
+    slot_a_state, reason = parse_slot_state_value(payload[BOOTCTL_SLOT_A_STATE_OFFSET], "bad_slot_a_state")
+    if reason:
+        return None, reason
+    slot_b_state, reason = parse_slot_state_value(payload[BOOTCTL_SLOT_B_STATE_OFFSET], "bad_slot_b_state")
+    if reason:
+        return None, reason
+
+    return {
+        "valid": True,
+        "seq": seq,
+        "payload_len": payload_len,
+        "storage_sha256": hashlib.sha256(data).hexdigest(),
+        "payload_sha256": payload_hash.hex(),
+        "active": active,
+        "last_good": last_good,
+        "pending": pending,
+        "safe_mode": safe_mode,
+        "boot_attempt": {
+            "slot": attempt_slot,
+            "generation": struct.unpack_from("<Q", payload, BOOTCTL_BOOT_ATTEMPT_GENERATION_OFFSET)[0],
+            "success_marked": success_marked,
+        },
+        "slots": {
+            "A": {
+                "generation": struct.unpack_from("<Q", payload, BOOTCTL_SLOT_A_GENERATION_OFFSET)[0],
+                "state": slot_a_state,
+                "failure_count": struct.unpack_from("<I", payload, BOOTCTL_SLOT_A_FAILURE_COUNT_OFFSET)[0],
+            },
+            "B": {
+                "generation": struct.unpack_from("<Q", payload, BOOTCTL_SLOT_B_GENERATION_OFFSET)[0],
+                "state": slot_b_state,
+                "failure_count": struct.unpack_from("<I", payload, BOOTCTL_SLOT_B_FAILURE_COUNT_OFFSET)[0],
+            },
+        },
+    }, None
+
+
+def boot_slot_bootable(record: dict[str, object], slot: str | None) -> bool:
+    if slot not in {"A", "B"}:
+        return False
+    state = record["slots"][slot]["state"]
+    return state in {"candidate", "pending", "good"}
+
+
+def evaluate_boot_control_record(storage_slot: str, record: dict[str, object]) -> dict[str, object]:
+    pending = record["pending"]
+    failure_count = None
+    if pending in {"A", "B"}:
+        failure_count = int(record["slots"][pending]["failure_count"])
+    if record["safe_mode"]:
+        return boot_control_decision(storage_slot, record, None, "Safe", "safe_mode_requested", failure_count)
+    if pending is None:
+        selected = record["active"] if boot_slot_bootable(record, record["active"]) else None
+        reason = "active_slot_selected" if selected else "selected_payload_slot_not_bootable"
+        posture = "Normal" if selected else "Safe"
+        return boot_control_decision(storage_slot, record, selected, posture, reason, None)
+    if failure_count is not None and failure_count >= MAX_PENDING_BOOT_ATTEMPTS:
+        selected = record["last_good"] if boot_slot_bootable(record, record["last_good"]) else None
+        reason = "pending_failure_count_exhausted" if selected else "selected_payload_slot_not_bootable"
+        posture = "Normal" if selected else "Safe"
+        return boot_control_decision(storage_slot, record, selected, posture, reason, failure_count)
+    if not record["boot_attempt"]["success_marked"]:
+        selected = pending if boot_slot_bootable(record, pending) else None
+        reason = "pending_slot_selected_for_probation" if selected else "selected_payload_slot_not_bootable"
+        posture = "Probation" if selected else "Safe"
+        return boot_control_decision(storage_slot, record, selected, posture, reason, failure_count)
+    selected = record["active"] if boot_slot_bootable(record, record["active"]) else None
+    reason = "pending_success_already_marked_read_only" if selected else "selected_payload_slot_not_bootable"
+    posture = "Normal" if selected else "Safe"
+    return boot_control_decision(storage_slot, record, selected, posture, reason, failure_count)
+
+
+def boot_control_decision(
+    storage_slot: str | None,
+    record: dict[str, object] | None,
+    selected_payload_slot: str | None,
+    posture: str,
+    reason: str,
+    failure_count: int | None,
+) -> dict[str, object]:
+    return {
+        "selected_storage_slot": storage_slot,
+        "selected_payload_slot": selected_payload_slot,
+        "posture": posture,
+        "authoritative_bootctl_slot": storage_slot,
+        "seq": None if record is None else record["seq"],
+        "pending_consumed": False,
+        "would_mark_good": False,
+        "failure_count": failure_count,
+        "reason": reason,
+        "max_pending_boot_attempts": MAX_PENDING_BOOT_ATTEMPTS,
+    }
+
+
+def scan_boot_control(data: bytes) -> dict[str, object]:
+    if len(data) != BOOTCTL_SLOT_SIZE * BOOTCTL_SLOT_COUNT:
+        raise ValueError(f"BOOTCTL region length drift: {len(data)}")
+    slot_a, reason_a = parse_boot_control_slot(data[:BOOTCTL_SLOT_SIZE])
+    slot_b, reason_b = parse_boot_control_slot(data[BOOTCTL_SLOT_SIZE:])
+    if slot_a and slot_b:
+        if slot_a["seq"] == slot_b["seq"] and slot_a["storage_sha256"] != slot_b["storage_sha256"]:
+            decision = boot_control_decision(None, None, None, "Safe", "ambiguous_boot_control_slots", None)
+        elif int(slot_a["seq"]) >= int(slot_b["seq"]):
+            decision = evaluate_boot_control_record("A", slot_a)
+        else:
+            decision = evaluate_boot_control_record("B", slot_b)
+    elif slot_a:
+        decision = evaluate_boot_control_record("A", slot_a)
+    elif slot_b:
+        decision = evaluate_boot_control_record("B", slot_b)
+    elif reason_a == "zero_filled_slot" and reason_b == "zero_filled_slot":
+        decision = boot_control_decision(None, None, None, "Safe", "no_valid_boot_control_slot", None)
+    else:
+        decision = boot_control_decision(None, None, None, "Safe", "both_slots_invalid", None)
+    return {
+        "storage_slot_a": slot_a or {"valid": False, "reason": reason_a},
+        "storage_slot_b": slot_b or {"valid": False, "reason": reason_b},
+        "decision": decision,
+    }
+
+
 def inspect_image(path: Path) -> dict[str, object]:
     size = path.stat().st_size
     if size % SECTOR_SIZE != 0:
@@ -596,11 +973,18 @@ def inspect_image(path: Path) -> dict[str, object]:
         sb0 = sb1 = None
         sb0_bytes = sb1_bytes = b""
         reclog_scan = None
+        bootctl_read = None
         if seed_data is not None:
             sb0_bytes = read_at(handle, int(seed_data["first_lba"]), SECTOR_SIZE)
             sb1_bytes = read_at(handle, int(seed_data["first_lba"]) + 1, SECTOR_SIZE)
             sb0 = parse_superblock(sb0_bytes, int(seed_data["lba_count"]))
             sb1 = parse_superblock(sb1_bytes, int(seed_data["lba_count"]))
+            bootctl_bytes = read_at(
+                handle,
+                int(seed_data["first_lba"]) + BOOTCTL_START_LBA,
+                BOOTCTL_LBA_COUNT * SECTOR_SIZE,
+            )
+            bootctl_read = scan_boot_control(bootctl_bytes)
             reclog_bytes = read_at(
                 handle,
                 int(seed_data["first_lba"]) + RECLOG_START_LBA,
@@ -634,9 +1018,17 @@ def inspect_image(path: Path) -> dict[str, object]:
         "partitions": partitions,
         "superblock": sb0,
         "superblock_copy": sb1,
+        "bootctl_read": bootctl_read,
         "reclog_scan": reclog_scan,
         "constants": {
-            "BOOTCTL": {"start_lba": BOOTCTL_START_LBA, "lba_count": BOOTCTL_LBA_COUNT},
+            "BOOTCTL": {
+                "start_lba": BOOTCTL_START_LBA,
+                "lba_count": BOOTCTL_LBA_COUNT,
+                "slot_size": BOOTCTL_SLOT_SIZE,
+                "slot_header_len": BOOTCTL_SLOT_HEADER_LEN,
+                "payload_len": BOOTCTL_PAYLOAD_LEN,
+                "max_pending_boot_attempts": MAX_PENDING_BOOT_ATTEMPTS,
+            },
             "RECLOG": {"start_lba": RECLOG_START_LBA, "lba_count": RECLOG_LBA_COUNT},
             "ARTSTOR": {"start_lba": ARTSTOR_START_LBA, "lba_count": ARTSTOR_LBA_COUNT},
         },
@@ -667,6 +1059,13 @@ def print_summary(info: dict[str, object]) -> None:
             "tail_seq={tail_seq} torn_tail={torn_tail} terminated_reason={terminated_reason}".format(
                 **scan
             )
+        )
+    bootctl = info.get("bootctl_read")
+    if bootctl:
+        decision = bootctl["decision"]
+        print(
+            "bootctl read: posture={posture} authoritative={authoritative_bootctl_slot} "
+            "selected_payload={selected_payload_slot} reason={reason}".format(**decision)
         )
     print(f"superblock hex head: {sb['hex_head']}")
 
@@ -703,6 +1102,58 @@ def validate_reclog_fixture_or_raise(info: dict[str, object], fixture: ReclogFix
         raise ValueError("RECLOG fixture self-check failed: " + "; ".join(failures))
 
 
+def validate_boot_control_fixture_or_raise(info: dict[str, object], spec: str | None) -> None:
+    bootctl = info.get("bootctl_read")
+    if not isinstance(bootctl, dict):
+        raise ValueError("self-check failed: bootctl_read missing")
+    decision = bootctl.get("decision")
+    if not isinstance(decision, dict):
+        raise ValueError("self-check failed: bootctl decision missing")
+    normalized = "none" if spec is None or spec == "" else spec.strip().lower()
+    expected = {
+        "none": ("Safe", None, None, "no_valid_boot_control_slot"),
+        "empty": ("Safe", None, None, "no_valid_boot_control_slot"),
+        "valid-a": ("Normal", "A", "A", "active_slot_selected"),
+        "ab": ("Normal", "B", "B", "active_slot_selected"),
+        "both-invalid": ("Safe", None, None, "both_slots_invalid"),
+        "pending": ("Probation", "A", "B", "pending_slot_selected_for_probation"),
+        "pending-safe": ("Safe", "A", None, "safe_mode_requested"),
+        "pending-exhausted": ("Normal", "A", "A", "pending_failure_count_exhausted"),
+    }
+    if normalized not in expected:
+        raise ValueError(f"unsupported BOOTCTL fixture spec: {spec}")
+    posture, authoritative, selected_payload, reason = expected[normalized]
+    failures = []
+    if decision.get("posture") != posture:
+        failures.append(f"posture expected {posture} got {decision.get('posture')}")
+    if decision.get("authoritative_bootctl_slot") != authoritative:
+        failures.append(
+            f"authoritative expected {authoritative} got {decision.get('authoritative_bootctl_slot')}"
+        )
+    if decision.get("selected_payload_slot") != selected_payload:
+        failures.append(
+            f"selected_payload expected {selected_payload} got {decision.get('selected_payload_slot')}"
+        )
+    if decision.get("reason") != reason:
+        failures.append(f"reason expected {reason} got {decision.get('reason')}")
+    if bool(decision.get("pending_consumed")):
+        failures.append("pending_consumed expected false")
+    if bool(decision.get("would_mark_good")):
+        failures.append("would_mark_good expected false")
+    if int(decision.get("max_pending_boot_attempts", -1)) != MAX_PENDING_BOOT_ATTEMPTS:
+        failures.append(
+            "max_pending_boot_attempts expected "
+            f"{MAX_PENDING_BOOT_ATTEMPTS} got {decision.get('max_pending_boot_attempts')}"
+        )
+    if normalized == "pending-exhausted" and int(decision.get("failure_count", -1)) != MAX_PENDING_BOOT_ATTEMPTS:
+        failures.append(
+            "failure_count expected "
+            f"{MAX_PENDING_BOOT_ATTEMPTS} got {decision.get('failure_count')}"
+        )
+    if failures:
+        raise ValueError("BOOTCTL fixture self-check failed: " + "; ".join(failures))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-check", action="store_true", help="accepted for explicit self-check invocations")
@@ -711,6 +1162,11 @@ def main() -> int:
         "--seed-reclog-fixture",
         default="empty",
         help="seed RECLOG fixture: empty, valid:N, full, or valid:N,torn",
+    )
+    parser.add_argument(
+        "--seed-bootctl",
+        default=None,
+        help="seed BOOTCTL fixture: valid-a, ab, both-invalid, pending, pending-safe, or pending-exhausted",
     )
     parser.add_argument("output", nargs="?", type=Path)
     args = parser.parse_args()
@@ -722,14 +1178,20 @@ def main() -> int:
         if args.output is None:
             parser.error("output path is required unless --inspect-json is used")
         reclog_fixture = parse_reclog_fixture(args.seed_reclog_fixture)
-        build_image(args.output, args.seed_reclog_fixture)
+        build_image(args.output, args.seed_reclog_fixture, args.seed_bootctl)
         info = inspect_image(args.output)
         validate_or_raise(info)
         validate_reclog_fixture_or_raise(info, reclog_fixture)
+        validate_boot_control_fixture_or_raise(info, args.seed_bootctl)
         print_summary(info)
         print(
             f"reclog fixture: frames_seeded={reclog_fixture.frame_count} "
             f"torn_tail={str(reclog_fixture.torn_tail).lower()} validation=passed"
+        )
+        print(
+            "bootctl fixture: "
+            f"spec={args.seed_bootctl or 'none'} "
+            f"max_pending_boot_attempts={MAX_PENDING_BOOT_ATTEMPTS} validation=passed"
         )
         print("self-check: passed")
         return 0

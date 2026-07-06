@@ -2799,12 +2799,65 @@ host-transport flake (partial serial delivery of the append command — child VM
 booted, kernel idle at prompt, no write attempted; classified host-transport,
 retried green).
 
-NEXT — M7C: boot control. BOOTCTL (LBA 2..10, start 2 count 8) A/B slot + SAFE-boot record with the
-same scoped-evaluator + write/readback/inspect discipline; RECLOG append,
-generic (non-`svc.demo.hello`) durable audit/rollback writes, executable
-candidate-byte mapping, provider auto-load, broad mutation, ARTSTOR, GPT/superblock
-metadata, and installed rollback state all STAY denied unless the M7C/M6D-2 gates
-say otherwise. External candidate INTAKE remains allowed over the real serial
+M7C-1 DONE (2026-07-06, boot-control READ + state machine + SAFE posture,
+READ-ONLY): the kernel reads the BOOTCTL region (SEED_DATA rel LBA 2 count 8 =
+two 2048-byte ping-pong storage slots A[0..2048)/B[2048..4096)), validates each
+`RAIOSBC0` slot envelope (magic | payload_len | seq | payload_sha256 | fixed
+binary payload | zero pad), picks the highest-valid-seq slot, and runs a PURE
+fail-closed state machine (`raios-core/src/boot_control.rs`) that selects the
+boot slot + posture (Normal/Probation/Safe/PersistenceUnavailable) and reports
+it via `boot.control_read`. SAFE is entered on both-slots-invalid, ambiguous
+equal-seq-different-content, `safe_mode`, a non-bootable/None selected slot, or
+pending past the failure threshold (falls back to last_good). `pending_consumed`
+and `would_mark_good` are ALWAYS false this slice (consume/mark-good is M7C-2).
+KEY ARCHITECTURE FACT: raiOS has NO kernel-side record/JSON READER (only
+`write_json`), so the on-disk boot-control payload is a PINNED FIXED BINARY
+struct decoded at fixed offsets (mirroring the superblock/RECLOG precedent), NOT
+parsed JSON; the record-model + `write_json` contract is honored at the
+`raios.boot_control_read.v0` EVIDENCE layer only. The on-disk const layout lives
+in ONE raios-core module mirrored byte-for-byte by `make-gpt-persist-image.py`.
+`MAX_PENDING_BOOT_ATTEMPTS=3` is a v0-PROVISIONAL, OWNER-OVERRIDABLE threshold
+(the spec leaves it open, image-layout-v0.md:354) — recorded as an owner
+decision, changeable. Timestamps/UUIDs (started_utc/last_success_utc/attempt_id)
+render as `null` — bare metal has no RTC/UUID; the state machine keys only on
+slot/seq/state/generation/failure_count/success_marked/safe_mode.
+READ-ONLY proof: no WRITE_DMA_EXT and no sector write in the boot-control path
+(the kernel read mirrors the RECLOG read via `issue_read_sector_into` bounded to
+`bootctl_lba_count`); no `replace.boot_control.seed_data` target exists yet;
+`scoped_seed_data_append.rs`, `scoped_rollback_apply.rs`, the write-boundary
+chain, the shared `durable_record_log_scan_fields`, and the RECLOG append path
+are all untouched. `current_boot_posture()` is EXPOSED but consumed by no write
+path this slice. Write set: raios-core `boot_control.rs` (NEW, codec + state
+machine + evidence + 10 host tests incl. 6 scenarios + 16-reason envelope
+truth-table + exact-bytes render), `lib.rs`, seed-kernel `boot_control.rs` (NEW,
+bounded AHCI read + emit + posture accessor), `ahci.rs` (additive read-only
+BOOTCTL region read), `agent_protocol.rs` (one dispatch row),
+`make-gpt-persist-image.py` (`--seed-bootctl` fixtures + const mirror + self-check),
+persistence profile (boot-control-read / safe-posture-both-slots-invalid /
+pending-not-consumed-in-safe needles).
+Verified: raios-core 70/70; `-Profile persistence` 34/34 (3 new boot-control
+needles + all 31 prior unchanged); `-Profile module-audit-rollback` 1709/1709
+UNCHANGED-GREEN; max adversarial review could_not_refute (all 6 attack classes
+refuted: no write path, no read escape/panic, fail-closed state machine, no
+false authority, Python/raios-core const layout byte-identical, additive-only
+diff; one documented NIT — the Python builder self-check oracle returns a
+different decision_reason than the kernel for the unreachable None-target-slot
+case, both fail closed to identical SAFE posture); FULL regression 8168/8168
+GREEN (`shadow-20260706-213833-33436.json`, hash-verified
+d37d8f8ccccc08452f74f22663b7623e7e439a30c15264a07874546c5d05ee09).
+
+NEXT — M7C-2: boot-success marker WRITE. A booted kernel that meets the map-3.4
+success criteria durably marks success into BOOTCTL via a NEW scoped evaluator
+`raios-core/src/scoped_boot_control_replace.rs` (second scoped target
+`replace.boot_control.seed_data`, ping-pong write→readback→verify, mirroring the
+M7B-2 separate-scoped-evaluator pattern — NOT a write-boundary flip), appends a
+RECLOG audit record, advances last_good, and wires `current_boot_posture()` into
+`emit_durable_record_log_append` so SAFE disables the durable append (+ a
+persist-denied-in-safe needle). RECLOG generic append, generic
+(non-`svc.demo.hello`) durable audit/rollback writes, executable candidate-byte
+mapping, provider auto-load, broad mutation, ARTSTOR, GPT/superblock metadata,
+and installed rollback state all STAY denied unless the M7C-2/M6D-2 gates say
+otherwise. External candidate INTAKE remains allowed over the real serial
 channel; dev-key-granted current-boot external candidate load/run/rollback is
 RAM-only and not owner-sealed.
 
