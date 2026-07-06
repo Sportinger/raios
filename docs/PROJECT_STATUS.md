@@ -2687,9 +2687,32 @@ M6D-1 does not touch `raios-core/src/scoped_rollback_apply.rs`, AHCI/storage
 authority, rollback writer bindings, or the generic durable
 `raios.module_load_gate.v0`; no disk write or persistence is introduced.
 
-NEXT - M6D-2 (deferred durable promotion transaction via the M3
-append/readback/inspect substrate + rollback plan/executor) - this is the
-first M6D slice that may flip the GENERIC durable load gate. Then M7+. Keep
+M6 COMPLETE (2026-07-06): the dev-tier promotion loop is closed end to end —
+delivered -> identity -> grant -> load -> RUN -> rolled back, all RAM-only,
+fail-closed, honestly labeled dev_key_not_owner_sealed, each slice
+max-adversarially reviewed.
+
+M7 PERSISTENCE FOUNDATION now active (map m7-persistence-map-2026-07-06.md,
+revalidated M7-0 c08a636). M7-0 recorded the divergence: M6D-2 (durable
+promotion transaction) was deferred and is a prerequisite for M7D; sequence
+M7A -> M7B (SEED_DATA RECLOG store) -> M6D-2-into-SEED_DATA -> M7D.
+M7A-1 DONE (2026-07-06, host-side infra, no kernel): `scripts/make-gpt-persist-image.py`
+builds a real GPT persist disk (protective MBR + primary/backup GPT with correct
+CRC32s; SEED_ESP_A/B 128 MiB FAT32 + SEED_DATA custom type GUID
+5EEDDA7A-...-000000000001 carrying a `RAIOS_DATA_SB_V0` superblock at LBA0/1 with
+region table BOOTCTL 2/8, RECLOG 16/4096, ARTSTOR 8192/516096); it hard-refuses
+release/ output paths. Harness wires it as a 4th QEMU drive (`bus=ide.3`,
+`id=raiospersist0`) behind an optional `-PersistDiskPath`; new
+`shadow-vm-smoke-profile-persistence.ps1` validates GPT header/CRC/SEED_DATA/superblock
+host-side. Fixed an orchestrator harness bug (Resolve-PersistDiskImage leaked the
+builder stdout into its return value). image-layout-v0.md gained the V0 partition
+type GUIDs + raw-region-map note. Verified: `-Profile persistence` 7/7 (4th drive
+attaches, kernel boots) + quick regression green (one audit.events host-transport
+flake, green on retry).
+NEXT — M7A-2 (kernel read-only GPT + SEED_DATA detection with typed evidence;
+new seed-kernel/src/gpt.rs + seed_data_layout.rs, raios-core record entries +
+host fixture tests; zero writes). Then M7B (RECLOG scan + scoped durable append).
+Keep
 persistence, generic (non-`svc.demo.hello`) durable audit/rollback writes,
 executable candidate-byte mapping, provider auto-load, broad mutation, and
 installed rollback state denied unless the M6D-2/M7 gates say otherwise.

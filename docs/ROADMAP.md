@@ -37,8 +37,18 @@ UN-PROMOTED through `service.rollback_apply svc.dev.granted_candidate`, which
 uses a recorded RAM rollback plan, clears the retained bytes, removes the RAM
 slot from `service.inventory`, and verifies the projected inventory hash is
 back to the pre-load baseline. Persistence/durable writes, owner-seal, and the
-generic durable load gate still stay denied. Next: **M6D-2** (deferred durable
-promotion transaction + rollback plan/executor), then M7+.
+generic durable load gate still stay denied. **M6 COMPLETE** (dev-tier RAM loop:
+delivered → identity → grant → load → RUN → rolled back).
+
+**Now active: M7 Persistence Foundation** (map `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
+revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
+SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion
+transaction into SEED_DATA; then M7D re-verifies it after reboot. **M7A-1 done:**
+a harness run attaches a real GPT persist disk (SEED_ESP_A/B 128 MiB + SEED_DATA
+raw region map with `RAIOS_DATA_SB_V0` superblock: BOOTCTL/RECLOG/ARTSTOR) as a
+4th QEMU drive (`bus=ide.3`) with hard release/ refusal — no production image
+touched; host-side GPT/superblock validation green. Next: **M7A-2** (kernel
+read-only GPT + SEED_DATA detection with typed evidence).
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small

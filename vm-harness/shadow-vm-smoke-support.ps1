@@ -12,6 +12,83 @@ function Resolve-OptionalPath {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Get-UnresolvedFullPath {
+    param([string]$Path)
+
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Path))
+}
+
+function Test-PathUnderDirectory {
+    param(
+        [string]$Path,
+        [string]$Directory
+    )
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path).TrimEnd([char]'\', [char]'/')
+    $fullDirectory = [System.IO.Path]::GetFullPath($Directory).TrimEnd([char]'\', [char]'/')
+    return $fullPath.Equals($fullDirectory, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $fullPath.StartsWith("$fullDirectory$([System.IO.Path]::DirectorySeparatorChar)", [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-PersistDiskPathSafe {
+    param([string]$Path)
+
+    $fullPath = Get-UnresolvedFullPath -Path $Path
+    $releaseRoot = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot "release"))
+    $stage0Image = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot "release\raios-stage0.img"))
+    if (Test-PathUnderDirectory -Path $fullPath -Directory $releaseRoot) {
+        throw "PersistDiskPath must not be under release/: $fullPath"
+    }
+    if ($fullPath.Equals($stage0Image, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "PersistDiskPath must not be the production boot image: $fullPath"
+    }
+    return $fullPath
+}
+
+function Resolve-PersistDiskImage {
+    param(
+        [string]$PersistDiskPath,
+        [string]$RunDir
+    )
+
+    $candidate = if ($PersistDiskPath) {
+        Assert-PersistDiskPathSafe -Path $PersistDiskPath
+    }
+    else {
+        Assert-PersistDiskPathSafe -Path (Join-Path $RunDir "raios-persist-gpt.img")
+    }
+
+    $builder = Join-Path $RepoRoot "scripts\make-gpt-persist-image.py"
+    if (Test-Path -LiteralPath $candidate) {
+        $inspectJson = & python $builder --inspect-json $candidate
+        if ($LASTEXITCODE -ne 0) {
+            throw "Existing persist disk failed validation: $candidate"
+        }
+        $inspection = ($inspectJson -join [Environment]::NewLine) | ConvertFrom-Json
+        if (-not (
+            [bool]$inspection.gpt_header_valid -and
+            [bool]$inspection.gpt_crc_checked -and
+            [bool]$inspection.gpt_seed_data_found -and
+            [bool]$inspection.data_superblock_valid
+        )) {
+            throw "Existing persist disk failed validation: $candidate"
+        }
+    }
+    else {
+        # Discard the builder's chatty stdout ("wrote <path>", table, hex head)
+        # so it does NOT leak into this function's return stream (which would make
+        # the returned value an array whose first element is "wrote C:\...").
+        $null = & python $builder --self-check $candidate 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Persist disk build failed with exit code $LASTEXITCODE"
+        }
+    }
+    return (Resolve-Path -LiteralPath $candidate).Path
+}
+
 function Get-FileSha256OrNull {
     param([string]$Path)
     if (-not $Path) {
@@ -131,7 +208,8 @@ function New-HardwareProfile {
     param(
         [string]$Nic,
         [bool]$ScratchDrive = $false,
-        [bool]$AuditRollbackTargetDrive = $false
+        [bool]$AuditRollbackTargetDrive = $false,
+        [bool]$PersistDrive = $false
     )
 
     $networkDevice = if ($Nic -eq "e1000") {
@@ -141,7 +219,7 @@ function New-HardwareProfile {
         "none"
     }
 
-    return [ordered]@{
+    $profile = [ordered]@{
         profile = "raios.shadow_vm.q35_xhci.v0"
         machine = "q35"
         memory = "512M"
@@ -159,6 +237,10 @@ function New-HardwareProfile {
         )
         network = $networkDevice
     }
+    if ($PersistDrive) {
+        $profile.persist_drive = "ide_raw_gpt_persist_v0"
+    }
+    return $profile
 }
 
 function Wait-ForLogText {

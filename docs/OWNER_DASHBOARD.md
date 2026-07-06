@@ -3,11 +3,11 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M6D-1 - the granted outside program can now be undone
-inside the current boot: rollback_apply stops it, clears its retained bytes,
-removes its RAM slot from inventory, and verifies the inventory is back to the
-pre-load baseline. Durable save remains M6D-2; your own key sealing comes
-later).
+Updated: 2026-07-06 (M6 COMPLETE — the whole safe loop works: an outside
+program is received, checked, granted, run in the sandbox, and cleanly undone.
+Now starting M7: making things survive a restart. First step done — a real
+test disk (never your real one) is built and attached; the kernel reads it
+next).
 
 ## What raiOS can actually do today
 

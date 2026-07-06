@@ -2,6 +2,7 @@ param(
     [string]$Image = "$PSScriptRoot\..\release\raios-stage0.img",
     [string]$ScratchImage = "",
     [string]$AuditRollbackTargetImage = "",
+    [string]$PersistDiskPath = "",
     [string]$SerialLog = "$env:TEMP\raios-stage0.serial.txt",
     [ValidateSet("file", "tcp")]
     [string]$SerialMode = "file",
@@ -68,6 +69,13 @@ if ($AuditRollbackTargetImage) {
     $qemuArgs += @(
         "-drive", "file=$((Resolve-Path $AuditRollbackTargetImage).Path),format=raw,if=none,id=raiosauditrollback0",
         "-device", "ide-hd,drive=raiosauditrollback0,bus=ide.2,unit=0"
+    )
+}
+
+if ($PersistDiskPath) {
+    $qemuArgs += @(
+        "-drive", "file=$((Resolve-Path $PersistDiskPath).Path),format=raw,if=none,id=raiospersist0",
+        "-device", "ide-hd,drive=raiospersist0,bus=ide.3,unit=0"
     )
 }
 

@@ -3,13 +3,14 @@ param(
     [string]$Image = "",
     [string]$ArtifactPath = "",
     [string]$ManifestPath = "",
+    [string]$PersistDiskPath = "",
     [string]$ReportDir = "$PSScriptRoot\..\release\vm-reports",
     [int]$TimeoutSeconds = 45,
     [switch]$Network,
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m6d-rollback")]
+    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m6d-rollback", "persistence")]
     [string]$Profile = "full"
 )
 
@@ -39,6 +40,7 @@ $HardwareProfile = $null
 $ResolvedImage = $null
 $ScratchImage = $null
 $AuditRollbackTargetImage = $null
+$PersistDiskImage = $null
 $ResolvedArtifact = $null
 $ResolvedManifest = $null
 $ManifestValidation = $null
@@ -115,8 +117,12 @@ try {
         $auditRollbackTargetStream.Dispose()
     }
 
+    if ($Profile -eq "persistence" -or $PersistDiskPath) {
+        $PersistDiskImage = Resolve-PersistDiskImage -PersistDiskPath $PersistDiskPath -RunDir $RunDir
+    }
+
     $Nic = if ($Network) { "e1000" } else { "none" }
-    $HardwareProfile = New-HardwareProfile -Nic $Nic -ScratchDrive $true -AuditRollbackTargetDrive $true
+    $HardwareProfile = New-HardwareProfile -Nic $Nic -ScratchDrive $true -AuditRollbackTargetDrive $true -PersistDrive ($null -ne $PersistDiskImage)
     $QemuArgList = @(
         "-StopExisting",
         "-Image", $ResolvedImage,
@@ -143,6 +149,12 @@ try {
         Cpu = "max"
         Nic = $Nic
     }
+    if ($PersistDiskImage) {
+        $QemuArgList += @(
+            "-PersistDiskPath", $PersistDiskImage
+        )
+        $runParams.PersistDiskPath = $PersistDiskImage
+    }
 
     $runOutput = & $RunScript @runParams
     foreach ($line in $runOutput) {
@@ -165,6 +177,11 @@ try {
     Assert-LogContains -Name "boot:usb_xhci_ready" -Needle "status USB-XHCI: READY" -TimeoutSeconds $TimeoutSeconds
 
     :SmokeProfileValidation while ($true) {
+        if ($Profile -eq "persistence") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-persistence.ps1")
+            break SmokeProfileValidation
+        }
+
         . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-common.ps1")
 
         if ($Profile -eq "provider-memory") {

@@ -83,6 +83,20 @@ SEED_DATA      remaining space, minimum 256 MiB for development images
 SEED_RECOVERY  optional 128 MiB, omitted until recovery assets exist
 ```
 
+Partition type GUIDs (V0, added 2026-07-06 for M7A):
+
+```text
+SEED_ESP_A / SEED_ESP_B   C12A7328-F81F-11D2-BA4B-00A0C93EC93B  (standard EFI System Partition)
+SEED_DATA                 5EEDDA7A-C0DE-4A55-9A15-000000000001  (raiOS DATA, custom V0 type)
+```
+
+Note (M7A raw-region-map realization): the SEED_DATA filesystem question is
+resolved for V0 as a raw region map (no FAT) — a `RAIOS_DATA_SB_V0` superblock at
+SEED_DATA LBA0 (copy at LBA1) whose region table maps BOOTCTL / RECLOG / ARTSTOR;
+the kernel validates it read-only and never writes SEED_DATA LBA0/1. The full
+region/frame formats and the OVMF slot-selection findings are the M7-CLOSE
+addendum; see `docs/plan-reviews/m7-persistence-map-2026-07-06.md` sections 3.2-3.5.
+
 `SEED_ESP_A` and `SEED_ESP_B` contain complete bootable slot payloads:
 
 ```text
