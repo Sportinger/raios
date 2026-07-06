@@ -49,13 +49,21 @@ serializer+hasher lives in `raios-core/src/record.rs` (Value :13, Field :29,
 ## Design decisions (fixed by this map — no judgment left open)
 
 1. **First durable record kinds — smallest authority-bearing set.** In order:
-   (a) capability grant and denial records, (b) promotion/rollback transaction
-   mirror records (locators binding to the M6 durable transactions already in
-   the audit region — hash references, NOT copies), (c) decision records (owner
-   approvals, ADR references), (d) problem records (open/resolve via
-   supersede). Raw events stay in the RAM ring of 256; periodic durable event
-   snapshots are explicitly OUT of M9 (future direction only). Chat history is
-   never a durable record kind.
+   (a) capability grant records plus a BOUNDED subset of denial records —
+   durable denial records are written ONLY for authority-changing denials
+   (module load, rollback apply, memory.* mutations, provider export);
+   routine protocol denials (the hundreds the smoke profiles fire per run
+   across ~180 methods) stay RAM-ring events only, or the per-boot quota
+   exhausts minutes into any profile. Denials OF durable memory writes
+   themselves (e.g. `memory_write_quota_exhausted`) are NEVER durably
+   recorded — RAM event only, no self-recording recursion. (b)
+   promotion/rollback transaction mirror records (locators binding to the M6
+   durable transactions expected in the audit region — hash references, NOT
+   copies; Slice 0 confirms what M6 actually persisted, since M6 was open at
+   authoring), (c) decision records (owner approvals, ADR references), (d)
+   problem records (open/resolve via supersede). Raw events stay in the RAM
+   ring of 256; periodic durable event snapshots are explicitly OUT of M9
+   (future direction only). Chat history is never a durable record kind.
 2. **Schema = record-model entry only** (mechanism-before-vocabulary, ADR 0005
    §3). `raios.memory_record.v0` is implemented in `raios-core` on the existing
    Value/Field model with the single serializer+hasher; no hand-rolled emit/hash
@@ -76,7 +84,13 @@ serializer+hasher lives in `raios-core/src/record.rs` (Value :13, Field :29,
    schema validation + hash via raios-core; (2) classification gate (secret →
    deny, unknown → local_only); (3) kind/authority gate (agent-proposed records
    may only be kind `observation` with authority `event`; policy/decision/grant
-   kinds are system-authored only); (4) quota gate — per-boot durable memory
+   kinds are system-authored only; the agent path may also only SUPERSEDE
+   records that are themselves agent-authored `observation`/authority-`event`
+   records — a `supersedes` reference to any system-authored or
+   higher-authority record id → typed denial `supersede_authority_exceeded`,
+   otherwise agent observations could suppress decisions/grants/denials from
+   future context, a second weaker authority system beside the capability
+   ledger); (4) quota gate — per-boot durable memory
    write budget, default 128 records / 32 KiB per boot, exhaustion → typed
    denial `memory_write_quota_exhausted` (defaults revisable later, fail-closed
    now); (5) append to the M7B store; (6) readback + hash compare; (7) inspect
@@ -114,11 +128,16 @@ serializer+hasher lives in `raios-core/src/record.rs` (Value :13, Field :29,
 ## OWNER DECISIONS (ask before the affected slice)
 
 - **OD-1 (before M9B-1): may agent-proposed observations land durable in v1?**
+  Covers BOTH `memory.record_observation` and `memory.supersede_fact` (the
+  supersede-authority rule in decision 5(3) applies in every option).
   Options: (a) yes, restricted — kind `observation`, authority `event`,
   classification ≤ local_only, quota-bounded [RECOMMENDED — it is the smallest
   real capability and every gate is fail-closed]; (b) no — agent proposals stay
   current_boot-retained only, durable writes remain system-authored in v1;
-  (c) yes plus durable `decision` proposals — REJECT, policy-by-provider risk.
+  under (b), slice M9B-1 is replaced by "proposals retained current_boot-only,
+  both methods stay denied" and the M9 close statement drops the agent-write
+  clause; (c) yes plus durable `decision` proposals — REJECT,
+  policy-by-provider risk.
 - **OD-2 (before M9C-1): is `recovery_minimal` exposed over the M8 recovery
   lifeline?** Options: (a) no — profile exists on the rich path only, lifeline
   keeps its pinned protocol untouched [RECOMMENDED for M9; lifeline changes
@@ -160,9 +179,9 @@ Goal: Re-verify every file:line and interface claim in docs/plan-reviews/m9-dura
 Read first: docs/plan-reviews/m9-durable-memory-map-2026-07-06.md; docs/plan-reviews/m6-promotion-loop-map-2026-07-06.md; the M7 map in docs/plan-reviews/; seed-kernel/src/agent_protocol_memory.rs; seed-kernel/src/agent_protocol_provider.rs; raios-core/src/record.rs; vm-harness/shadow-vm-smoke.ps1; docs/PROJECT_STATUS.md
 Allowed write set: docs/plan-reviews/m9-durable-memory-map-2026-07-06.md only
 Forbidden: any source, harness, or release file change; renumbering milestones or slices
-Constraints: for each claim record CONFIRMED or DIVERGED with the new file:line; name the real M7B append/readback API; check whether shadow-vm-smoke.ps1 supports a two-boot (write, reboot, readback) sequence
-Definition of done: map updated and committed; a DIVERGED list (possibly empty) exists in the commit message
-Report format: table of claim -> CONFIRMED/DIVERGED(new location); M7B API summary; two-boot support yes/no; STOP flags if any
+Constraints: for each claim record CONFIRMED or DIVERGED with the new file:line; name the real M7B append/readback API; check whether shadow-vm-smoke.ps1 supports a two-boot (write, reboot, readback) sequence; ADDITIONALLY enumerate and write into this map, as exact file:line lists, the call sites later packets reference: (a) the authority-changing grant/denial decision sites M9A-2 hooks (module load, rollback apply, memory mutations, provider export — per design decision 1), (b) the M6 promotion/rollback transaction commit sites and what M6 actually persisted to RAIOS_AUDITRB_V0, (c) the problem open/resolve emission sites, (d) the single provider request binding call site in the openai path; flag any of these that live in the attested source set (list in seed-kernel/build.rs)
+Definition of done: map updated with all four call-site lists and no remaining "(from Slice 0)" placeholders in any packet; a DIVERGED list (possibly empty) exists in the report
+Report format: table of claim -> CONFIRMED/DIVERGED(new location); the four call-site lists; M7B API summary; two-boot support yes/no; attested-source flags; STOP flags if any
 ```
 
 ### M9A-1 — `raios.memory_record.v0` in the record model (host-side)

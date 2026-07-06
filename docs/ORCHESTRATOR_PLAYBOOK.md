@@ -2,9 +2,10 @@
 
 Authored 2026-07-06 ahead of M7+ execution. Intended home: `docs/ORCHESTRATOR_PLAYBOOK.md`.
 Companion files: `AGENTS.md` (the rules), the active milestone map in
-`docs/plan-reviews/` (the design), this file (the procedure). A session run
-from ONLY these three files plus `docs/DEBUGGING.md` lookups must be
-acceptable.
+`docs/plan-reviews/` (the design), this file (the procedure). These three
+files are the procedural spine of a session; the CLAUDE.md/AGENTS.md
+required-context list still applies, and `docs/DEBUGGING.md` is the command
+reference.
 
 ## 1. Who this is for
 
@@ -30,12 +31,23 @@ yourself.
    active milestone and last verified state.
 3. Read the active milestone map in `docs/plan-reviews/` (the cursor names
    it). Find the first slice not marked done.
+   Then read the map's execution-preconditions header block. If any named
+   milestone is not marked closed AND owner-confirmed in the ROADMAP cursor,
+   STOP and report — do not run Slice 0, do not dispatch anything.
 4. Run `git status --short`. Expected: clean, or only files you know about
    from a previous interrupted session. **Unexpected dirty files or any
    unexpected ` D` (deleted) entry = stop-the-line: do not dispatch, report
    to the owner.** Never revert or sweep foreign changes.
-5. Red Gate check: find the newest `release/vm-reports/shadow-*.json`, read
-   its `result` field and `profile`. If the newest FULL-profile report says
+5. Red Gate check. The Red Gate is decided ONLY by the newest report whose
+   `profile` field is `full`. List the recent reports:
+
+   ```powershell
+   Get-ChildItem release\vm-reports\shadow-*.json | Sort-Object LastWriteTime -Descending | Select-Object -First 8 | ForEach-Object { $j = Get-Content $_.FullName -Raw | ConvertFrom-Json; "$($_.Name) $($j.profile) $($j.result)" }
+   ```
+
+   If the newest report of ANY profile is `failed` and has no classification
+   entry in `docs/PROJECT_STATUS.md`, your first task is classifying it
+   (section 5). If the newest FULL-profile report says
    `"result": "failed"`, the Red Gate Rule applies (AGENTS.md, verbatim):
    *"While the full Shadow VM profile is red, the only permitted work is
    fixing it: no new slices, no new gates, no new schemas. Every commit
@@ -62,37 +74,70 @@ before dispatching.
 
 Every M7+ map slice embeds a ready-to-paste Codex worker packet. Paste it
 verbatim; only fill in placeholders the map marks as fill-in (e.g. a report
-filename or hash from a previous slice). Dispatch per the `codex-worker`
-skill:
+filename or hash from a previous slice).
+
+**Global packet interpretation rules (these override the packet text in
+every map):**
+
+- **Never dispatch a packet that still contains an unresolved placeholder**
+  like "(from Slice 0)" or "named by Slice 0" — substitute the concrete
+  file:line list from the committed Slice 0 map revision first. If Slice 0
+  did not produce it, that is a map defect: fix the map first.
+- **Workers cannot commit** (the sandbox denies `.git/index.lock`). If a
+  packet's Definition of done mentions committing or a commit message,
+  ignore that part: committing is always your job (§3.5).
+- **Workers cannot run the VM harness** (QEMU spawn + TCP listeners are
+  blocked in their sandbox). If a packet's Definition of done requires a
+  profile to be green, that check moves to YOUR verification step (§3.4).
+  Workers verify with builds/host tests only (`cargo check`,
+  `cargo test --locked -p raios-core`, `scripts\build-seed-kernel.ps1`).
+- **Attested sources:** if a packet's work turns out to require editing a
+  file in the attested source set (list in `seed-kernel/build.rs`), the
+  worker must STOP and report, not edit. You decide, then run the re-sign
+  step yourself (section 6).
+
+Canonical dispatch (the packet goes through a file — a here-string breaks on
+embedded fenced blocks, and unclosed stdin hangs codex forever):
 
 ```powershell
-codex exec -s workspace-write -C C:\Users\admin\Documents\raios2 -o C:\Users\admin\Documents\raios2\target\worker-reports\<packet-id>.md @'
-<packet prompt pasted verbatim from the map>
-'@
+Set-Content -Encoding utf8 target\worker-packets\<packet-id>.md -Value $packetText
+Get-Content target\worker-packets\<packet-id>.md -Raw | codex exec -s workspace-write -C C:\Users\admin\Documents\raios2 -o C:\Users\admin\Documents\raios2\target\worker-reports\<packet-id>.md -
 ```
 
 Mechanics that matter (all verified incidents, not theory):
 
 - **stdin gotcha:** dispatched from a non-TTY, codex waits forever on
-  "Reading additional input from stdin...". Close stdin: `'' | codex exec ...`
-  or pipe the packet file: `Get-Content packet.md -Raw | codex exec -s workspace-write -o out.md -`
+  "Reading additional input from stdin...". The trailing `-` in the
+  canonical form closes stdin by piping the packet. Never dispatch without
+  it.
 - `-s workspace-write` always. **NEVER** use
   `--dangerously-bypass-approvals-and-sandbox`.
 - `-o <file>` captures the worker's final report; read it after completion.
-- Default effort: add `-c model_reasoning_effort=high` unless the map says
-  the packet is risky (trust/rollback/boot) — then leave the user-config
-  xhigh default.
+- Effort: if the packet carries an `Effort:` line, copy it as
+  `-c model_reasoning_effort=<value>`; if absent, use the user-config
+  default (do not override).
 - Usage limit: codex exits 1 with "You've hit your usage limit ... try again
   at <time>". Wait past the stated reset; do not retry-loop.
-- `git status --short` BEFORE dispatch and again BEFORE commit.
+- `git status --short` BEFORE dispatch (snapshot it — §3.3 needs it) and
+  again BEFORE commit.
 
 ### 3.3 Review the worker report
 
 Check: did it stay inside the allowed write set (compare `git status --short`
 against the packet), did it run the checks the packet required with real
-pasted output, did it report scope creep instead of fixing it. A worker that
-touched forbidden files = revert those files' changes are NOT accepted;
-dispatch a fix via resume or restore from HEAD and report.
+pasted output, did it report scope creep instead of fixing it.
+
+If the worker changed files OUTSIDE its allowed write set, follow this
+procedure exactly:
+
+1. Compare the current `git status --short` against your pre-dispatch
+   snapshot.
+2. A file the worker changed that was CLEAN before dispatch: restore only
+   that file with `git checkout -- <file>`, and log the violation in your
+   review of the worker report.
+3. A file that was already dirty BEFORE dispatch is foreign work — never
+   touch it; if the worker also edited it, stop and report to the owner.
+4. Never use `git clean`, never restore whole directories.
 
 ### 3.4 Run the slice's verification YOURSELF
 
@@ -110,13 +155,20 @@ then read the report JSON yourself:
 - The map slice names new needles/evidence that MUST exist in this run.
   Grep the report's `predicates` array for them. A green run that lacks the
   slice's new needles is NOT verification of the slice.
+- The map slice's fail-closed list ("what must stay denied") must map 1:1
+  to denial needles present in this run's `predicates`. If a fail-closed
+  requirement has no corresponding needle, treat the slice as unverified
+  and STOP — that is a map/profile defect; fix the profile or the map,
+  never drop the requirement.
 - Confirm the `.sha256` sidecar exists next to the report.
 
 ### 3.5 Commit (orchestrator-only duty)
 
 Workers cannot commit (sandbox denies `.git/index.lock`). Before committing:
 `git status --short` again; foreign files never ride along; run
-`scripts\scan-secrets.ps1` if anything near keys/images/ESP was touched.
+`scripts\scan-secrets.ps1` unconditionally before EVERY commit (AGENTS.md
+rule — no "was anything key-related touched" judgment call), and before any
+push additionally `scripts\scan-secrets.ps1 -GitHistory`.
 Message format, matching recent history (`git log --oneline`):
 
 ```text
@@ -148,9 +200,14 @@ slice ends with uncommitted source changes.
 
 Run the AGENTS.md End-Of-Session Checks and paste their output: file-size
 check on touched `.rs` files (none above 5,000 lines without a documented
-split plan), gate check (newest full-profile report `result: passed` and
-newer than the last commit, OR an explicit Red Gate note naming the repair
-work), and `cargo fmt --all -- --check`.
+split plan), the gate check, and `cargo fmt --all -- --check`.
+
+Operative reading of the gate check (so it is not a judgment call): the
+gate passes if the newest FULL-profile report is green, PROVIDED every
+commit since that full run names a green quick/focused report for its own
+tier. A fresh full run is mandatory only at milestone closure and after
+trust/boot/storage boundary changes (the map marks these). Anything
+stricter the active map says wins.
 
 ## 4. Verification matrix
 
@@ -176,7 +233,11 @@ Exact commands (from `docs/DEBUGGING.md`; run from the repo root):
 # quick (~5 min, ~486 needles as of M5)
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile quick
 
-# FULL (~17 min, 7,825 needles as of M5) — use an outer tool timeout of at least 30 minutes
+# FULL (~17 min, 7,825 needles as of M5) — MUST run as a background task,
+# never foreground: shell tools kill foreground commands at ~10 min, which
+# kills QEMU mid-run and produces a FALSE-red report. If that ever happens,
+# classify the report as host-transport/orchestrator-timeout, NOT as Red
+# Gate input. Run in background, wait for completion, then read the report.
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile full -TimeoutSeconds 300 -SerialWriteChunkSize 16 -SerialWriteDelayMilliseconds 10
 
 # focused examples (the map names which one a slice needs)
@@ -185,7 +246,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.p
 powershell -NoProfile -ExecutionPolicy Bypass -File vm-harness\shadow-vm-smoke.ps1 -Profile recovery -TimeoutSeconds 180
 ```
 
-Build + package when a slice requires a fresh image before the smoke:
+Build + package — unconditional rule: after ANY change under `seed-kernel/`
+or the vendored deps, ALWAYS build then package before any smoke.
+`package-stage0.ps1` only stages the already-built kernel binary; the
+harness never runs cargo. A report generated without rebuilding verifies
+the OLD kernel and is NOT evidence for the slice. Docs-only and
+raios-core-only slices may skip the rebuild.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release
@@ -202,8 +268,11 @@ keep their `%TEMP%\raios-shadow-*` dir, passed runs auto-clean it).
 New focused profiles: when a map slice defines a NEW named profile, the
 worker packet includes adding it to the `-Profile` `ValidateSet` in
 `vm-harness/shadow-vm-smoke.ps1` (line ~12 at time of writing — verify at
-execution) plus a `shadow-vm-smoke-profile-<name>.ps1` slice file. Follow the
-map; do not design profiles yourself.
+execution), a `shadow-vm-smoke-profile-<name>.ps1` slice file, AND the
+dot-source dispatch branch inside `shadow-vm-smoke.ps1` (~lines 168-217)
+that actually wires the profile in — ValidateSet + file alone produces a
+profile that validates but only runs the common boot needles (a shallow
+false green). Follow the map; do not design profiles yourself.
 
 ## 5. Failure protocol
 
@@ -241,6 +310,14 @@ Then:
   only when the map slice explicitly says outputs change, and then only with
   old-vs-new key-order proofs per the M2 discipline (scripted comparison
   showing 0 missing fields and identical ordering, kept as evidence).
+- **Bounded worker-failure protocol:** worker crashed, exited nonzero for a
+  non-usage-limit reason, or its `-o` report file is missing/empty → check
+  `git status --short`, apply the §3.3 restore rules if the tree changed,
+  then re-dispatch the SAME packet once. Worker reports a stop condition →
+  do not re-dispatch; surface it to the owner. Maximum 2 fix-resumes per
+  slice; a third red run = stop the session and report, naming the report
+  files. If trust/storage/boot code is implicated in a still-red state,
+  restore the packet's write set to HEAD before stopping.
 - Red Gate Rule, verbatim (AGENTS.md): *"While the full Shadow VM profile is
   red, the only permitted work is fixing it: no new slices, no new gates, no
   new schemas. Every commit message must name the passing report file for
@@ -258,7 +335,11 @@ Then:
   `docs/plan-reviews/m2-de-hello-ify-plan-2026-07-05.md`; verify the exact
   binary path at execution time). Map packets that touch attested sources
   include the re-sign step — do not skip it, and do not "fix" a signature
-  failure by weakening build.rs.
+  failure by weakening build.rs. BEFORE dispatching any such packet, check
+  the tool exists (`Test-Path target\descriptor-resign`) — it lives under
+  gitignored `target/`, so `cargo clean` or a fresh clone silently deletes
+  it. If it is missing, that is a STOP-tripwire (recreating signing tooling
+  is trust-model-adjacent; section 7 item 1).
 - **CRLF:** signed source bytes are EOL-sensitive; a Windows checkout once
   broke the signed snapshots via CRLF conversion (fixed by `.gitattributes`
   forcing LF, commit `943a9a0`). If attestation fails right after a
