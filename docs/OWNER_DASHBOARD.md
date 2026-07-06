@@ -3,8 +3,9 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M6A-2a — a real outside program can now be handed to
-raiOS over the console; checked, held inert, loading still refused).
+Updated: 2026-07-06 (M6A COMPLETE — a real outside program can be handed to
+raiOS over the console, checked, held inert with its real identity on record;
+loading still refused. Next step grants rights — needs your go-ahead).
 
 ## What raiOS can actually do today
 
@@ -79,10 +80,12 @@ moment: one AI-authored artifact travels
 the whole safe loop end to end — authored, tested in the Shadow VM,
 capability-granted, promoted live, and rolled back — with evidence at
 every step. Split into M6A (candidate intake) → M6B (grant) → M6C
-(promote) → M6D (rollback). **M6A-1 + M6A-2a done**: the receiving door
-exists and takes a real outside program over the console (above). Next
-(M6A-2b): give that delivered program its own test report — loading still
-refused until M6B.
+(promote) → M6D (rollback). **M6A COMPLETE** (M6A-1 intake + M6A-2a real
+delivery + M6A-2b real-identity evidence): the receiving door works
+end-to-end and the system records the delivered program's real identity,
+still refusing to load it. **Next: M6B — the first step that actually
+grants the delivered program rights. That is a real trust decision, so it
+waits for your go-ahead.**
 
 ## Top risk
 

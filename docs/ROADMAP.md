@@ -17,9 +17,13 @@ vocabulary).
 
 Last updated: 2026-07-06.
 
-Current milestone: **M6 Promotion Loop v0** (see Capability Milestones),
-sub-milestone M6A; slices M6A-1 (intake mechanism) + M6A-2a (real serial
-delivery) done; next M6A-2b (candidate-specific vm_test_report binding).
+Current milestone: **M6 Promotion Loop v0** (see Capability Milestones).
+Sub-milestone **M6A (external candidate identity) COMPLETE** — M6A-1
+(intake mechanism) + M6A-2a (real serial delivery) + M6A-2b (real
+candidate identity bound in module-evidence). Next: **M6B (verified
+grant)** — the first slice that grants the delivered candidate real
+authority; needs owner go-ahead (it is the first "gives external code
+rights" step).
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small
@@ -516,18 +520,31 @@ sink, no panic/OOB/bound-bypass/lock/state-leak. Known residual: wasm
 validation (`wasmi::Module::new`) runs on attacker bytes, bounded but not
 time/fuel-bounded — a later hardening candidate (see PROJECT_STATUS).
 
+M6A-2b done (2026-07-06): the module-evidence cross-check now evaluates
+the REAL delivered-candidate artifact identity. In
+`shadow-vm-smoke-profile-full-module-evidence.ps1` the synthetic `2222…`
+candidate artifact hash is replaced by the on-disk echo wasm SHA
+(computed via `Get-FileSha256OrNull`, anchored to the known ECHO hash
+`f81f9442…abd2` == the intake `artifact_sha256`), flowing through the
+grant + artifact-reference canonicals and their echo assertions; a new
+`protocol:module_evidence_real_candidate_sha_matches_echo` predicate and
+the existing `can_load_now: false` assertions prove real identity + load
+denied. Zero kernel change. Honest gap: vm_test_report/local_attestation
+identities remain synthetic (report-file hash is post-run; a real binding
+is a later land-if-cheap step). Verified: FULL profile
+`shadow-20260706-104758-19976.json` 8160/8160.
+
 Exact next task:
 
 ```text
-M6A slice 2b (harness-only evidence, ZERO kernel change): bind a
-candidate-specific `raios.vm_test_report.v0` carrying the EXACT
-delivered-candidate artifact SHA-256 — replace the synthetic 2222…/3333…
-constants in shadow-vm-smoke-profile-full-module-evidence.ps1 with the
-real -ArtifactPath SHA, assert the four-way equality chain (report ==
-candidate_artifact_ref == intake.artifact_sha256 == ECHO hash), and add a
-predicate that can_load_now=false REMAINS after the real binding. LOAD
-STILL DENIED until M6B grant. Verify: focused module-evidence profile +
-FULL regression.
+M6B slice 1 (verified grant) — FIRST AUTHORITY STEP, owner go-ahead
+required: turn the computed capability grant for the delivered candidate
+from a retained hash-reference diagnostic into an authorizing decision
+(bind manifest + real artifact SHA + vm_test_report + local attestation),
+while still denying LOAD until audit/rollback/slot exist. This is the
+first slice that moves a `Denied*`/hash-reference toward a real authority
+— design it fail-closed, evidence-bound, one narrow capability. See the
+m6 map: M6B (verified grant) → M6C (promotion) → M6D (rollback).
 ```
 ```
 

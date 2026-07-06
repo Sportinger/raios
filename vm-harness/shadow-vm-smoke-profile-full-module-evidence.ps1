@@ -77,7 +77,23 @@
     Assert-LogContains -Name "protocol:module_grant_diag_loader_unavailable" -Needle '"loader", "state": "unavailable"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_diag_slot_unallocated" -Needle '"service_slot", "state": "unallocated"' -TimeoutSeconds 1
 
-    $moduleGrantArtifactHash = "2222222222222222222222222222222222222222222222222222222222222222"
+    # M6A-2b: bind the REAL delivered-candidate artifact identity (the echo
+    # wasm actually delivered over the serial channel in M6A-2a) instead of a
+    # synthetic 2222... placeholder, so the module-evidence cross-check
+    # evaluates the real candidate SHA-256 while load stays denied. Computed
+    # from the on-disk artifact and anchored to the known ECHO hash (== the
+    # intake artifact_sha256 proven in the candidate-delivery profile).
+    $echoCandidateArtifactPath = Join-Path $RepoRoot "seed-kernel\artifacts\svc.demo.echo.wasm"
+    $moduleGrantArtifactHash = Get-FileSha256OrNull -Path $echoCandidateArtifactPath
+    $expectedEchoCandidateSha = "f81f9442de3729f58f9d5c43b186a4223e3f0ed0bdde20e94722da8d5733abd2"
+    $realCandidateShaOk = ($null -ne $moduleGrantArtifactHash) -and ($moduleGrantArtifactHash -eq $expectedEchoCandidateSha)
+    Add-Predicate -Name "protocol:module_evidence_real_candidate_sha_matches_echo" -Expected "candidate artifact sha256 == delivered echo wasm == $expectedEchoCandidateSha" -Passed $realCandidateShaOk -Actual $(if ($realCandidateShaOk) { "matched" } else { "got=$moduleGrantArtifactHash path=$echoCandidateArtifactPath" })
+    if (-not $realCandidateShaOk) {
+        throw "M6A-2b: real echo candidate artifact SHA missing or != known ECHO hash"
+    }
+    # vm_test_report / local_attestation identities remain synthetic here
+    # (report-file hash is generated post-run; binding a real one is a later
+    # land-if-cheap step) — documented gap, not a fake capability.
     $moduleGrantReportHash = "3333333333333333333333333333333333333333333333333333333333333333"
     $moduleGrantAttestationHash = "4444444444444444444444444444444444444444444444444444444444444444"
     $moduleGrantCanonical = @(

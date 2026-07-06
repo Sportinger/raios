@@ -2550,12 +2550,22 @@ covers malformed→module_new_error without panic; time/fuel-bounding the
 validation is a candidate for a later hardening slice. Also: each
 submit_* call writes one fixed read-audit entry (static strings, bounded
 ring — no attacker bytes) like every read method.
-NEXT — M6A slice 2b (harness-only evidence): bind a candidate-specific
-`raios.vm_test_report.v0` carrying the EXACT delivered-candidate artifact
-SHA-256 (replace the synthetic 2222…/3333… constants in
-`shadow-vm-smoke-profile-full-module-evidence.ps1`) so the kernel
-load-gate cross-check evaluates the real candidate identity — while load
-stays denied (assert can_load_now=false remains). Zero kernel change.
+M6A-2b DONE (2026-07-06, harness-only, zero kernel change): the
+module-evidence cross-check now evaluates the REAL delivered-candidate
+artifact identity — `shadow-vm-smoke-profile-full-module-evidence.ps1`
+computes the echo wasm SHA from disk (anchored to the known ECHO hash
+`f81f9442…abd2` == intake `artifact_sha256`) in place of the synthetic
+`2222…`, with a new `protocol:module_evidence_real_candidate_sha_matches_echo`
+predicate and `can_load_now: false` preserved. Honest gap:
+vm_test_report/local_attestation hashes stay synthetic (post-run report
+hash; later land-if-cheap). Verified: FULL `shadow-20260706-104758-19976.json`
+8160/8160. **Sub-milestone M6A (external candidate identity) COMPLETE.**
+NEXT — M6B slice 1 (verified grant), FIRST AUTHORITY STEP (owner go-ahead
+required): turn the computed capability grant for the delivered candidate
+from a retained hash-reference diagnostic into a real authorizing decision
+(manifest + real artifact SHA + vm_test_report + local attestation),
+fail-closed, one narrow capability, while LOAD stays denied until
+audit/rollback/slot exist.
 Keep persistence, generic (non-`svc.demo.hello`) durable audit/rollback
 writes, external artifact LOAD and execution, executable candidate-byte
 mapping, provider auto-load, broad mutation, and installed rollback state
