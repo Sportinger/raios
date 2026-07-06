@@ -1,7 +1,10 @@
 use alloc::vec::Vec;
 use core::{ptr, sync::atomic};
 
-use raios_core::gpt_layout::LayoutStatus;
+use raios_core::{
+    boot_control::{BOOTCTL_REGION_BYTE_COUNT, BOOTCTL_SLOT_SIZE, BOOTCTL_STORAGE_SLOT_SECTORS},
+    gpt_layout::LayoutStatus,
+};
 use sha2::{Digest, Sha256};
 use spin::Mutex;
 
@@ -49,6 +52,19 @@ pub(crate) struct ReclogAppendWriteEvidence {
     pub(crate) readback: Option<Vec<u8>>,
 }
 
+pub(crate) struct BootctlSlotWriteEvidence {
+    pub(crate) reason: &'static str,
+    pub(crate) write_attempted: bool,
+    pub(crate) write_completed: bool,
+    pub(crate) readback_completed: bool,
+    pub(crate) span_in_bounds: bool,
+    pub(crate) absolute_start_lba: u64,
+    pub(crate) bootctl_lba_count: u64,
+    pub(crate) byte_count: u64,
+    pub(crate) write_offset: u64,
+    pub(crate) readback: Option<Vec<u8>>,
+}
+
 impl ReclogAppendWriteEvidence {
     fn missing(reason: &'static str, write_offset: u64) -> Self {
         Self {
@@ -59,6 +75,23 @@ impl ReclogAppendWriteEvidence {
             span_in_bounds: false,
             absolute_start_lba: 0,
             reclog_lba_count: 0,
+            byte_count: 0,
+            write_offset,
+            readback: None,
+        }
+    }
+}
+
+impl BootctlSlotWriteEvidence {
+    fn missing(reason: &'static str, write_offset: u64) -> Self {
+        Self {
+            reason,
+            write_attempted: false,
+            write_completed: false,
+            readback_completed: false,
+            span_in_bounds: false,
+            absolute_start_lba: 0,
+            bootctl_lba_count: 0,
             byte_count: 0,
             write_offset,
             readback: None,
@@ -1044,6 +1077,201 @@ pub(crate) unsafe fn write_readback_reclog_append(
 
     evidence.readback_completed = true;
     evidence.reason = "persist_reclog_append_write_readback_completed";
+    evidence.readback = Some(readback);
+    evidence
+}
+
+pub(crate) unsafe fn write_readback_bootctl_slot(
+    controller: PciMassStorageController,
+    write_offset: u64,
+    slot_bytes: &[u8; BOOTCTL_SLOT_SIZE],
+) -> BootctlSlotWriteEvidence {
+    let layout = detect_persist_layout(controller);
+    if layout.gpt.status != LayoutStatus::Present || layout.data.status != LayoutStatus::Present {
+        return BootctlSlotWriteEvidence::missing(layout.reason, write_offset);
+    }
+    if layout.port_index == u8::MAX {
+        return BootctlSlotWriteEvidence::missing("persist_bootctl_port_missing", write_offset);
+    }
+    if layout.data.bootctl_lba_count == 0
+        || layout.data.bootctl_start_lba > layout.gpt.seed_data_lba_count
+        || layout.data.bootctl_lba_count
+            > layout
+                .gpt
+                .seed_data_lba_count
+                .saturating_sub(layout.data.bootctl_start_lba)
+    {
+        return BootctlSlotWriteEvidence::missing(
+            "persist_bootctl_region_bounds_invalid",
+            write_offset,
+        );
+    }
+
+    let Some(absolute_start_lba) = layout
+        .gpt
+        .seed_data_first_lba
+        .checked_add(layout.data.bootctl_start_lba)
+    else {
+        return BootctlSlotWriteEvidence::missing(
+            "persist_bootctl_start_lba_overflow",
+            write_offset,
+        );
+    };
+    let Some(byte_count) = layout
+        .data
+        .bootctl_lba_count
+        .checked_mul(SECTOR_BYTES as u64)
+    else {
+        return BootctlSlotWriteEvidence::missing(
+            "persist_bootctl_byte_count_overflow",
+            write_offset,
+        );
+    };
+
+    let Some(bar) = pci::read_bar_info(controller.address, AHCI_BAR) else {
+        return BootctlSlotWriteEvidence::missing("ahci_abar_missing", write_offset);
+    };
+    if !bar.is_memory() {
+        return BootctlSlotWriteEvidence::missing("ahci_abar_not_mmio", write_offset);
+    }
+    let map_len = usize::min(bar.size as usize, MAX_PROBE_LEN);
+    if map_len < MIN_PROBE_LEN {
+        return BootctlSlotWriteEvidence::missing("ahci_abar_probe_range_too_small", write_offset);
+    }
+    let Ok(mapping) = memory::map_mmio(bar.base, map_len) else {
+        return BootctlSlotWriteEvidence::missing("ahci_abar_mmio_map_failed", write_offset);
+    };
+    let base = mapping.as_ptr::<u8>();
+    let port_offset = PORT_BASE + layout.port_index as usize * PORT_STRIDE;
+    if port_offset + PORT_CI + core::mem::size_of::<u32>() > mapping.len() {
+        return BootctlSlotWriteEvidence::missing(
+            "persist_bootctl_port_range_unavailable",
+            write_offset,
+        );
+    }
+    let ssts = read32(base, port_offset + PORT_SSTS);
+    let signature = read32(base, port_offset + PORT_SIG);
+    if (ssts & 0x0f) != 0x03 || ((ssts >> 8) & 0x0f) != 0x01 || signature != SATA_SIG_ATA {
+        return BootctlSlotWriteEvidence::missing("persist_bootctl_port_not_ready", write_offset);
+    }
+
+    let mut evidence = BootctlSlotWriteEvidence {
+        reason: "persist_bootctl_slot_span_validated",
+        write_attempted: false,
+        write_completed: false,
+        readback_completed: false,
+        span_in_bounds: false,
+        absolute_start_lba,
+        bootctl_lba_count: layout.data.bootctl_lba_count,
+        byte_count,
+        write_offset,
+        readback: None,
+    };
+
+    if slot_bytes.len() != BOOTCTL_SLOT_SIZE {
+        evidence.reason = "bootctl_slot_len_out_of_scope";
+        return evidence;
+    }
+    if write_offset != 0 && write_offset != BOOTCTL_SLOT_SIZE as u64 {
+        evidence.reason = "bootctl_write_offset_not_slot_aligned";
+        return evidence;
+    }
+    if byte_count != BOOTCTL_REGION_BYTE_COUNT as u64 {
+        evidence.reason = "bootctl_byte_count_out_of_scope";
+        return evidence;
+    }
+    if layout.data.bootctl_lba_count != BOOTCTL_STORAGE_SLOT_SECTORS * 2 {
+        evidence.reason = "bootctl_lba_count_out_of_scope";
+        return evidence;
+    }
+    if write_offset
+        .checked_add(BOOTCTL_SLOT_SIZE as u64)
+        .map(|end| end > byte_count)
+        .unwrap_or(true)
+    {
+        evidence.reason = "bootctl_region_full";
+        return evidence;
+    }
+    let Some(bootctl_end_lba) = absolute_start_lba.checked_add(layout.data.bootctl_lba_count)
+    else {
+        evidence.reason = "persist_bootctl_end_lba_overflow";
+        return evidence;
+    };
+
+    let sector_count = BOOTCTL_STORAGE_SLOT_SECTORS as usize;
+    let start_sector = write_offset / SECTOR_BYTES as u64;
+    let mut sector = 0usize;
+    while sector < sector_count {
+        let Some(lba) = absolute_start_lba
+            .checked_add(start_sector)
+            .and_then(|base_lba| base_lba.checked_add(sector as u64))
+        else {
+            evidence.reason = "persist_bootctl_slot_lba_overflow";
+            return evidence;
+        };
+        if lba < absolute_start_lba || lba >= bootctl_end_lba {
+            evidence.reason = "write_span_out_of_bootctl";
+            return evidence;
+        }
+        if start_sector != 0 && start_sector != BOOTCTL_STORAGE_SLOT_SECTORS {
+            evidence.reason = "write_span_out_of_bootctl";
+            return evidence;
+        }
+        sector += 1;
+    }
+    evidence.span_in_bounds = true;
+
+    let buffer = ptr::addr_of_mut!(SCRATCH_BUFFER.0).cast::<u8>();
+    sector = 0;
+    while sector < sector_count {
+        let lba = absolute_start_lba + start_sector + sector as u64;
+        let slot_offset = sector * SECTOR_BYTES;
+        let mut idx = 0usize;
+        while idx < SECTOR_BYTES {
+            ptr::write_volatile(buffer.add(idx), slot_bytes[slot_offset + idx]);
+            idx += 1;
+        }
+        evidence.write_attempted = true;
+        if let Err(reason) = issue_write_sector(controller, base, port_offset, lba, buffer) {
+            evidence.reason = reason;
+            return evidence;
+        }
+        sector += 1;
+    }
+    evidence.write_completed = true;
+
+    let mut readback = Vec::new();
+    readback.resize(BOOTCTL_SLOT_SIZE, 0);
+    sector = 0;
+    while sector < sector_count {
+        let lba = absolute_start_lba + start_sector + sector as u64;
+        ptr::write_bytes(buffer, 0, SECTOR_BYTES);
+        if let Err(reason) = issue_read_sector_into(
+            controller,
+            base,
+            port_offset,
+            lba,
+            buffer,
+            "persist_bootctl_slot_readback_buffer_phys_missing",
+            "persist_bootctl_slot_readback_timeout",
+            "persist_bootctl_slot_readback_task_file_error",
+            "persist_bootctl_slot_readback_incomplete",
+        ) {
+            evidence.reason = reason;
+            return evidence;
+        }
+
+        let out = sector * SECTOR_BYTES;
+        let mut idx = 0usize;
+        while idx < SECTOR_BYTES {
+            readback[out + idx] = ptr::read_volatile(buffer.add(idx));
+            idx += 1;
+        }
+        sector += 1;
+    }
+
+    evidence.readback_completed = true;
+    evidence.reason = "persist_bootctl_slot_write_readback_completed";
     evidence.readback = Some(readback);
     evidence
 }

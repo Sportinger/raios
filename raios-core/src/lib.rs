@@ -9,6 +9,7 @@ pub mod durable_record_frame;
 pub mod gpt_layout;
 pub mod promotion_attestation;
 pub mod record;
+pub mod scoped_boot_control_replace;
 pub mod scoped_rollback_apply;
 pub mod scoped_seed_data_append;
 pub mod seed_data_layout;

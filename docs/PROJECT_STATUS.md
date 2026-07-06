@@ -2863,20 +2863,43 @@ UNCHANGED-GREEN. (FULL is deferred to the M7C-2 close — verified that
 `durable.record_log_append` is exercised ONLY in the persistence profile and a
 persist disk is attached only there, so the gate cannot affect FULL.)
 
-REMAINING — M7C-2b (boot-success WRITE) + M7C-2c (offline tooling). A booted kernel that meets the map-3.4
-success criteria durably marks success into BOOTCTL via a NEW scoped evaluator
-`raios-core/src/scoped_boot_control_replace.rs` (second scoped target
-`replace.boot_control.seed_data`, ping-pong write→readback→verify, mirroring the
-M7B-2 separate-scoped-evaluator pattern — NOT a write-boundary flip), appends a
-RECLOG audit record, advances last_good, and wires `current_boot_posture()` into
-`emit_durable_record_log_append` so SAFE disables the durable append (+ a
-persist-denied-in-safe needle). RECLOG generic append, generic
-(non-`svc.demo.hello`) durable audit/rollback writes, executable candidate-byte
-mapping, provider auto-load, broad mutation, ARTSTOR, GPT/superblock metadata,
-and installed rollback state all STAY denied unless the M7C-2/M6D-2 gates say
-otherwise. External candidate INTAKE remains allowed over the real serial
-channel; dev-key-granted current-boot external candidate load/run/rollback is
-RAM-only and not owner-sealed.
+**M7C-2b DONE (2026-07-06, the FIRST BOOTCTL write):** a booted kernel that
+meets the map-3.4 boot-success criteria (evaluated ONCE at mark time, actively
+driving the AHCI/superblock/boot-control reads) durably marks success by
+ping-pong-writing a `winner.seq+1` record into the LOSER BOOTCTL storage slot
+through a NEW scoped target `replace.boot_control.seed_data`
+(`raios-core/src/scoped_boot_control_replace.rs`, 32 distinct denials incl.
+`target_not_loser_slot` / `bad_seq_not_strictly_greater` / `write_span_out_of_bootctl`):
+validate-all → write exactly one 2048B/4-sector slot → readback → reparse →
+evaluate → re-read-and-assert (loser now wins by seq, last_good advanced, pending
+consumed) → append a RECLOG audit record (reusing the UNCHANGED
+`scoped_seed_data_append` gate directly, no nested response envelope). Crash-safe
+ping-pong: a torn write damages only the loser; the current winner stays
+authoritative. `last_good` advances ONLY on a genuine CASE-A Probation success
+(never to an abandoned/exhausted pending — CASE C keeps it; already-marked is
+idempotent). The AHCI writer `write_readback_bootctl_slot` hard-pins
+byte_count==4096 / lba_count==8 / offset∈{0,2048} and validates every sector LBA
+inside the BOOTCTL span BEFORE any write; `issue_dma_command` untouched; the write
+never touches the superblock/GPT/RECLOG/ARTSTOR/winner-slot. `persistence_claimed`
+and deterministic-slot-boot both false. Harness robustness: each child-VM fixture
+probe now DELETES its large images after answering (the persistence profile was
+filling the host disk mid-run as needles grew). Verified: raios-core 79/79;
+`-Profile persistence` 40/40 (5 new: boot-success-marked / boot-control-write-pingpong
+/ last-good-advance / failure-count-keeps-last-good / mark-denied-in-safe; all 35
+prior unchanged); `-Profile module-audit-rollback` 1709/1709 UNCHANGED-GREEN; max
+adversarial review could_not_refute (0 findings, all 7 attack classes refuted).
+
+REMAINING — M7C-2c (offline owner tooling): `scripts/switch-boot-slot.ps1`
+(explicit `-Apply`, refuses `release/` + non-GPT images) + a new additive
+`--stage-slot`/`--set-pending` subcommand in `make-gpt-persist-image.py` reusing
+the shared Python boot-control codec, plus a non-gating OVMF ESP-selection
+experiment + map addendum. Then the M7C-2 close: FULL regression + docs. RECLOG
+generic append, generic (non-`svc.demo.hello`) durable audit/rollback writes,
+executable candidate-byte mapping, provider auto-load, broad mutation, ARTSTOR,
+GPT/superblock metadata, and installed rollback state all STAY denied unless the
+M7C-2/M6D-2 gates say otherwise. External candidate INTAKE remains allowed over
+the real serial channel; dev-key-granted current-boot external candidate
+load/run/rollback is RAM-only and not owner-sealed.
 
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with

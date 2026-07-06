@@ -149,6 +149,17 @@ pub struct BootPayloadSlot {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BootControlFields {
+    pub active: BootSlotId,
+    pub last_good: BootSlotId,
+    pub pending: BootSlotId,
+    pub safe_mode: bool,
+    pub boot_attempt: BootAttempt,
+    pub slot_a: BootPayloadSlot,
+    pub slot_b: BootPayloadSlot,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParsedBootControl {
     pub payload_len: u32,
     pub seq: u64,
@@ -214,6 +225,185 @@ impl BootControlDecision {
             reason,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BootSuccessMarkPlan {
+    pub write_offset: u64,
+    pub written_storage_slot: BootStorageSlot,
+    pub new_seq: u64,
+    pub marked_slot: BootSlotId,
+    pub would_mark_good: bool,
+    pub pending_consumed: bool,
+    pub payload_sha256: [u8; 32],
+    pub frame_sha256: [u8; 32],
+    pub slot_bytes: [u8; BOOTCTL_SLOT_SIZE],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MarkDenied {
+    reason: &'static str,
+}
+
+impl MarkDenied {
+    pub const fn reason(self) -> &'static str {
+        self.reason
+    }
+}
+
+pub fn build_boot_control_slot(seq: u64, fields: &BootControlFields) -> [u8; BOOTCTL_SLOT_SIZE] {
+    let payload = build_boot_control_payload(fields);
+    let payload_hash = sha256_bytes(&payload);
+    let mut out = [0u8; BOOTCTL_SLOT_SIZE];
+    out[BOOTCTL_MAGIC_OFFSET..BOOTCTL_MAGIC_OFFSET + BOOTCTL_MAGIC.len()]
+        .copy_from_slice(BOOTCTL_MAGIC);
+    write_u32(&mut out, BOOTCTL_PAYLOAD_LEN_OFFSET, payload.len() as u32);
+    write_u64(&mut out, BOOTCTL_SEQ_OFFSET, seq);
+    out[BOOTCTL_PAYLOAD_SHA256_OFFSET..BOOTCTL_PAYLOAD_SHA256_OFFSET + SHA256_LEN]
+        .copy_from_slice(&payload_hash);
+    out[BOOTCTL_PAYLOAD_OFFSET..BOOTCTL_PAYLOAD_OFFSET + payload.len()].copy_from_slice(&payload);
+    out
+}
+
+pub fn plan_boot_success_mark(
+    current: &ParsedBootControl,
+    authoritative_storage_slot: BootStorageSlot,
+    decision: &BootControlDecision,
+) -> Result<BootSuccessMarkPlan, MarkDenied> {
+    if decision.authoritative_bootctl_slot != Some(authoritative_storage_slot) {
+        return Err(mark_denied("authoritative_storage_slot_mismatch"));
+    }
+    if decision.seq != Some(current.seq) {
+        return Err(mark_denied("authoritative_seq_mismatch"));
+    }
+    if current.safe_mode {
+        return Err(mark_denied("safe_mode_requested"));
+    }
+    if !matches!(
+        decision.posture,
+        BootPosture::Normal | BootPosture::Probation
+    ) {
+        return Err(mark_denied("boot_posture_not_markable"));
+    }
+
+    let selected = decision.selected_payload_slot;
+    let Some(selected_payload) = current.slot(selected) else {
+        return Err(mark_denied("selected_payload_slot_missing"));
+    };
+    if !selected_payload.state.is_bootable() {
+        return Err(mark_denied("selected_payload_slot_not_bootable"));
+    }
+
+    let mut fields = fields_from_parsed(current);
+    let mut would_mark_good = false;
+    let mut pending_consumed = false;
+
+    match decision.posture {
+        BootPosture::Probation => {
+            if current.pending == BootSlotId::None || selected != current.pending {
+                return Err(mark_denied("probation_pending_slot_mismatch"));
+            }
+            if current.boot_attempt.success_marked {
+                return Err(mark_denied("already_marked"));
+            }
+            if selected_payload.state != BootPayloadSlotState::Pending {
+                return Err(mark_denied("pending_slot_not_pending"));
+            }
+            if selected_payload.failure_count >= MAX_PENDING_BOOT_ATTEMPTS {
+                return Err(mark_denied("pending_failure_count_exhausted"));
+            }
+
+            fields.active = selected;
+            fields.last_good = selected;
+            fields.pending = BootSlotId::None;
+            fields.boot_attempt = BootAttempt {
+                slot: selected,
+                generation: selected_payload.generation,
+                success_marked: true,
+            };
+            set_payload_slot(
+                &mut fields,
+                selected,
+                BootPayloadSlot {
+                    generation: selected_payload.generation,
+                    state: BootPayloadSlotState::Good,
+                    failure_count: 0,
+                },
+            );
+            would_mark_good = true;
+            pending_consumed = true;
+        }
+        BootPosture::Normal => {
+            if current.pending != BootSlotId::None {
+                let Some(pending_payload) = current.slot(current.pending) else {
+                    return Err(mark_denied("pending_slot_missing"));
+                };
+                if pending_payload.failure_count < MAX_PENDING_BOOT_ATTEMPTS {
+                    return Err(mark_denied("pending_not_exhausted"));
+                }
+                set_payload_slot(
+                    &mut fields,
+                    current.pending,
+                    BootPayloadSlot {
+                        generation: pending_payload.generation,
+                        state: BootPayloadSlotState::Bad,
+                        failure_count: pending_payload.failure_count,
+                    },
+                );
+                fields.pending = BootSlotId::None;
+                pending_consumed = true;
+            } else if current.boot_attempt.slot == selected
+                && current.boot_attempt.generation == selected_payload.generation
+                && current.boot_attempt.success_marked
+            {
+                return Err(mark_denied("already_marked"));
+            }
+
+            fields.active = selected;
+            fields.last_good = selected;
+            fields.boot_attempt = BootAttempt {
+                slot: selected,
+                generation: selected_payload.generation,
+                success_marked: true,
+            };
+            set_payload_slot(
+                &mut fields,
+                selected,
+                BootPayloadSlot {
+                    generation: selected_payload.generation,
+                    state: BootPayloadSlotState::Good,
+                    failure_count: 0,
+                },
+            );
+        }
+        BootPosture::Safe | BootPosture::PersistenceUnavailable => {
+            return Err(mark_denied("boot_posture_not_markable"));
+        }
+    }
+
+    let new_seq = current
+        .seq
+        .checked_add(1)
+        .ok_or(mark_denied("seq_overflow"))?;
+    let written_storage_slot = loser_slot(authoritative_storage_slot);
+    let write_offset = storage_slot_write_offset(written_storage_slot);
+    let slot_bytes = build_boot_control_slot(new_seq, &fields);
+    let payload_sha256 = sha256_bytes(
+        &slot_bytes[BOOTCTL_PAYLOAD_OFFSET..BOOTCTL_PAYLOAD_OFFSET + BOOTCTL_PAYLOAD_LEN],
+    );
+    let frame_sha256 = sha256_bytes(&slot_bytes);
+
+    Ok(BootSuccessMarkPlan {
+        write_offset,
+        written_storage_slot,
+        new_seq,
+        marked_slot: selected,
+        would_mark_good,
+        pending_consumed,
+        payload_sha256,
+        frame_sha256,
+        slot_bytes,
+    })
 }
 
 pub fn parse_boot_slot(bytes: &[u8]) -> Result<ParsedBootControl, &'static str> {
@@ -545,6 +735,89 @@ fn pending_failure_count(control: ParsedBootControl) -> Option<u32> {
     control.slot(control.pending).map(|slot| slot.failure_count)
 }
 
+fn build_boot_control_payload(fields: &BootControlFields) -> [u8; BOOTCTL_PAYLOAD_LEN] {
+    let mut out = [0u8; BOOTCTL_PAYLOAD_LEN];
+    out[BOOTCTL_PAYLOAD_MAGIC_OFFSET..BOOTCTL_PAYLOAD_MAGIC_OFFSET + BOOTCTL_PAYLOAD_MAGIC.len()]
+        .copy_from_slice(BOOTCTL_PAYLOAD_MAGIC);
+    write_u32(
+        &mut out,
+        BOOTCTL_PAYLOAD_VERSION_OFFSET,
+        BOOT_CONTROL_VERSION,
+    );
+    out[BOOTCTL_ACTIVE_SLOT_OFFSET] = slot_id_byte(fields.active);
+    out[BOOTCTL_LAST_GOOD_SLOT_OFFSET] = slot_id_byte(fields.last_good);
+    out[BOOTCTL_PENDING_SLOT_OFFSET] = slot_id_byte(fields.pending);
+    out[BOOTCTL_SAFE_MODE_OFFSET] = fields.safe_mode as u8;
+    out[BOOTCTL_BOOT_ATTEMPT_SLOT_OFFSET] = slot_id_byte(fields.boot_attempt.slot);
+    out[BOOTCTL_BOOT_ATTEMPT_SUCCESS_MARKED_OFFSET] = fields.boot_attempt.success_marked as u8;
+    write_u64(
+        &mut out,
+        BOOTCTL_BOOT_ATTEMPT_GENERATION_OFFSET,
+        fields.boot_attempt.generation,
+    );
+    write_u64(
+        &mut out,
+        BOOTCTL_SLOT_A_GENERATION_OFFSET,
+        fields.slot_a.generation,
+    );
+    out[BOOTCTL_SLOT_A_STATE_OFFSET] = state_byte(fields.slot_a.state);
+    write_u32(
+        &mut out,
+        BOOTCTL_SLOT_A_FAILURE_COUNT_OFFSET,
+        fields.slot_a.failure_count,
+    );
+    write_u64(
+        &mut out,
+        BOOTCTL_SLOT_B_GENERATION_OFFSET,
+        fields.slot_b.generation,
+    );
+    out[BOOTCTL_SLOT_B_STATE_OFFSET] = state_byte(fields.slot_b.state);
+    write_u32(
+        &mut out,
+        BOOTCTL_SLOT_B_FAILURE_COUNT_OFFSET,
+        fields.slot_b.failure_count,
+    );
+    out
+}
+
+fn fields_from_parsed(control: &ParsedBootControl) -> BootControlFields {
+    BootControlFields {
+        active: control.active,
+        last_good: control.last_good,
+        pending: control.pending,
+        safe_mode: control.safe_mode,
+        boot_attempt: control.boot_attempt,
+        slot_a: control.slot_a,
+        slot_b: control.slot_b,
+    }
+}
+
+fn set_payload_slot(fields: &mut BootControlFields, slot: BootSlotId, payload: BootPayloadSlot) {
+    match slot {
+        BootSlotId::None => {}
+        BootSlotId::A => fields.slot_a = payload,
+        BootSlotId::B => fields.slot_b = payload,
+    }
+}
+
+const fn loser_slot(slot: BootStorageSlot) -> BootStorageSlot {
+    match slot {
+        BootStorageSlot::A => BootStorageSlot::B,
+        BootStorageSlot::B => BootStorageSlot::A,
+    }
+}
+
+pub const fn storage_slot_write_offset(slot: BootStorageSlot) -> u64 {
+    match slot {
+        BootStorageSlot::A => 0,
+        BootStorageSlot::B => BOOTCTL_SLOT_SIZE as u64,
+    }
+}
+
+fn mark_denied(reason: &'static str) -> MarkDenied {
+    MarkDenied { reason }
+}
+
 fn boot_attempt_value(attempt: BootAttempt) -> Value<'static> {
     Value::Object(vec![
         Field::new("slot", slot_id_value(attempt.slot)),
@@ -639,6 +912,24 @@ fn parse_bool(value: u8, reason: &'static str) -> Result<bool, &'static str> {
     }
 }
 
+fn slot_id_byte(slot: BootSlotId) -> u8 {
+    match slot {
+        BootSlotId::None => SLOT_ID_NONE,
+        BootSlotId::A => SLOT_ID_A,
+        BootSlotId::B => SLOT_ID_B,
+    }
+}
+
+fn state_byte(state: BootPayloadSlotState) -> u8 {
+    match state {
+        BootPayloadSlotState::Empty => SLOT_STATE_EMPTY,
+        BootPayloadSlotState::Candidate => SLOT_STATE_CANDIDATE,
+        BootPayloadSlotState::Pending => SLOT_STATE_PENDING,
+        BootPayloadSlotState::Good => SLOT_STATE_GOOD,
+        BootPayloadSlotState::Bad => SLOT_STATE_BAD,
+    }
+}
+
 fn all_zero(bytes: &[u8]) -> bool {
     bytes.iter().all(|byte| *byte == 0)
 }
@@ -652,6 +943,18 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
 
 fn read_u64(bytes: &[u8], offset: usize) -> u64 {
     (read_u32(bytes, offset) as u64) | ((read_u32(bytes, offset + 4) as u64) << 32)
+}
+
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset] = value as u8;
+    bytes[offset + 1] = (value >> 8) as u8;
+    bytes[offset + 2] = (value >> 16) as u8;
+    bytes[offset + 3] = (value >> 24) as u8;
+}
+
+fn write_u64(bytes: &mut [u8], offset: usize, value: u64) {
+    write_u32(bytes, offset, value as u32);
+    write_u32(bytes, offset + 4, (value >> 32) as u32);
 }
 
 pub const fn bootctl_start_lba() -> u64 {
@@ -712,64 +1015,23 @@ mod tests {
     }
 
     fn slot(seq: u64, fixture: Fixture) -> [u8; BOOTCTL_SLOT_SIZE] {
-        let payload = payload(fixture);
-        let payload_hash = sha256_bytes(&payload);
-        let mut out = [0u8; BOOTCTL_SLOT_SIZE];
-        out[BOOTCTL_MAGIC_OFFSET..BOOTCTL_MAGIC_OFFSET + BOOTCTL_MAGIC.len()]
-            .copy_from_slice(BOOTCTL_MAGIC);
-        write_u32(&mut out, BOOTCTL_PAYLOAD_LEN_OFFSET, payload.len() as u32);
-        write_u64(&mut out, BOOTCTL_SEQ_OFFSET, seq);
-        out[BOOTCTL_PAYLOAD_SHA256_OFFSET..BOOTCTL_PAYLOAD_SHA256_OFFSET + SHA256_LEN]
-            .copy_from_slice(&payload_hash);
-        out[BOOTCTL_PAYLOAD_OFFSET..BOOTCTL_PAYLOAD_OFFSET + payload.len()]
-            .copy_from_slice(&payload);
-        out
+        build_boot_control_slot(seq, &fields(fixture))
     }
 
-    fn payload(fixture: Fixture) -> [u8; BOOTCTL_PAYLOAD_LEN] {
-        let mut out = [0u8; BOOTCTL_PAYLOAD_LEN];
-        out[BOOTCTL_PAYLOAD_MAGIC_OFFSET
-            ..BOOTCTL_PAYLOAD_MAGIC_OFFSET + BOOTCTL_PAYLOAD_MAGIC.len()]
-            .copy_from_slice(BOOTCTL_PAYLOAD_MAGIC);
-        write_u32(
-            &mut out,
-            BOOTCTL_PAYLOAD_VERSION_OFFSET,
-            BOOT_CONTROL_VERSION,
-        );
-        out[BOOTCTL_ACTIVE_SLOT_OFFSET] = slot_id_byte(fixture.active);
-        out[BOOTCTL_LAST_GOOD_SLOT_OFFSET] = slot_id_byte(fixture.last_good);
-        out[BOOTCTL_PENDING_SLOT_OFFSET] = slot_id_byte(fixture.pending);
-        out[BOOTCTL_SAFE_MODE_OFFSET] = fixture.safe_mode as u8;
-        out[BOOTCTL_BOOT_ATTEMPT_SLOT_OFFSET] = slot_id_byte(fixture.boot_attempt_slot);
-        out[BOOTCTL_BOOT_ATTEMPT_SUCCESS_MARKED_OFFSET] = fixture.success_marked as u8;
-        write_u64(
-            &mut out,
-            BOOTCTL_BOOT_ATTEMPT_GENERATION_OFFSET,
-            fixture.boot_attempt_generation,
-        );
-        write_u64(
-            &mut out,
-            BOOTCTL_SLOT_A_GENERATION_OFFSET,
-            fixture.slot_a.generation,
-        );
-        out[BOOTCTL_SLOT_A_STATE_OFFSET] = state_byte(fixture.slot_a.state);
-        write_u32(
-            &mut out,
-            BOOTCTL_SLOT_A_FAILURE_COUNT_OFFSET,
-            fixture.slot_a.failure_count,
-        );
-        write_u64(
-            &mut out,
-            BOOTCTL_SLOT_B_GENERATION_OFFSET,
-            fixture.slot_b.generation,
-        );
-        out[BOOTCTL_SLOT_B_STATE_OFFSET] = state_byte(fixture.slot_b.state);
-        write_u32(
-            &mut out,
-            BOOTCTL_SLOT_B_FAILURE_COUNT_OFFSET,
-            fixture.slot_b.failure_count,
-        );
-        out
+    fn fields(fixture: Fixture) -> BootControlFields {
+        BootControlFields {
+            active: fixture.active,
+            last_good: fixture.last_good,
+            pending: fixture.pending,
+            safe_mode: fixture.safe_mode,
+            boot_attempt: BootAttempt {
+                slot: fixture.boot_attempt_slot,
+                generation: fixture.boot_attempt_generation,
+                success_marked: fixture.success_marked,
+            },
+            slot_a: fixture.slot_a,
+            slot_b: fixture.slot_b,
+        }
     }
 
     fn with_payload_byte(
@@ -790,36 +1052,6 @@ mod tests {
         storage_b: Result<ParsedBootControl, &'static str>,
     ) -> BootControlDecision {
         evaluate_boot_control(storage_a, storage_b)
-    }
-
-    fn slot_id_byte(slot: BootSlotId) -> u8 {
-        match slot {
-            BootSlotId::None => SLOT_ID_NONE,
-            BootSlotId::A => SLOT_ID_A,
-            BootSlotId::B => SLOT_ID_B,
-        }
-    }
-
-    fn state_byte(state: BootPayloadSlotState) -> u8 {
-        match state {
-            BootPayloadSlotState::Empty => SLOT_STATE_EMPTY,
-            BootPayloadSlotState::Candidate => SLOT_STATE_CANDIDATE,
-            BootPayloadSlotState::Pending => SLOT_STATE_PENDING,
-            BootPayloadSlotState::Good => SLOT_STATE_GOOD,
-            BootPayloadSlotState::Bad => SLOT_STATE_BAD,
-        }
-    }
-
-    fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-        bytes[offset] = value as u8;
-        bytes[offset + 1] = (value >> 8) as u8;
-        bytes[offset + 2] = (value >> 16) as u8;
-        bytes[offset + 3] = (value >> 24) as u8;
-    }
-
-    fn write_u64(bytes: &mut [u8], offset: usize, value: u64) {
-        write_u32(bytes, offset, value as u32);
-        write_u32(bytes, offset + 4, (value >> 32) as u32);
     }
 
     #[test]
@@ -939,6 +1171,162 @@ mod tests {
         assert_eq!(decision.selected_payload_slot, BootSlotId::B);
         assert!(!decision.pending_consumed);
         assert!(!decision.would_mark_good);
+    }
+
+    #[test]
+    fn build_boot_control_slot_round_trips_fields_and_hashes() {
+        let fixture = Fixture::normal_a();
+        let bytes = build_boot_control_slot(42, &fields(fixture));
+        let parsed = parse_boot_slot(&bytes).unwrap();
+
+        assert_eq!(parsed.seq, 42);
+        assert_eq!(parsed.active, fixture.active);
+        assert_eq!(parsed.last_good, fixture.last_good);
+        assert_eq!(parsed.pending, fixture.pending);
+        assert_eq!(parsed.safe_mode, fixture.safe_mode);
+        assert_eq!(parsed.boot_attempt.slot, fixture.boot_attempt_slot);
+        assert_eq!(
+            parsed.boot_attempt.generation,
+            fixture.boot_attempt_generation
+        );
+        assert_eq!(parsed.boot_attempt.success_marked, fixture.success_marked);
+        assert_eq!(parsed.slot_a, fixture.slot_a);
+        assert_eq!(parsed.slot_b, fixture.slot_b);
+        assert_eq!(parsed.storage_sha256, sha256_bytes(&bytes));
+        assert_eq!(
+            parsed.payload_sha256,
+            sha256_bytes(
+                &bytes[BOOTCTL_PAYLOAD_OFFSET..BOOTCTL_PAYLOAD_OFFSET + BOOTCTL_PAYLOAD_LEN]
+            )
+        );
+    }
+
+    #[test]
+    fn plan_case_a_probation_marks_pending_good_and_advances_last_good() {
+        let mut fixture = Fixture::normal_a();
+        fixture.pending = BootSlotId::B;
+        fixture.success_marked = false;
+        fixture.slot_b.state = BootPayloadSlotState::Pending;
+        let current = parse_boot_slot(&slot(1, fixture)).unwrap();
+        let decision = evaluate_chosen(BootStorageSlot::A, current);
+
+        let plan = plan_boot_success_mark(&current, BootStorageSlot::A, &decision).unwrap();
+        let planned = parse_boot_slot(&plan.slot_bytes).unwrap();
+
+        assert_eq!(plan.write_offset, BOOTCTL_SLOT_SIZE as u64);
+        assert_eq!(plan.written_storage_slot, BootStorageSlot::B);
+        assert_eq!(plan.new_seq, 2);
+        assert_eq!(plan.marked_slot, BootSlotId::B);
+        assert!(plan.would_mark_good);
+        assert!(plan.pending_consumed);
+        assert_eq!(planned.active, BootSlotId::B);
+        assert_eq!(planned.last_good, BootSlotId::B);
+        assert_eq!(planned.pending, BootSlotId::None);
+        assert!(planned.boot_attempt.success_marked);
+        assert_eq!(planned.slot_b.state, BootPayloadSlotState::Good);
+        assert_eq!(planned.slot_b.failure_count, 0);
+        assert_eq!(plan.payload_sha256, planned.payload_sha256);
+        assert_eq!(plan.frame_sha256, planned.storage_sha256);
+
+        let after = evaluate_boot_control(
+            parse_boot_slot(&slot(1, fixture)),
+            parse_boot_slot(&plan.slot_bytes),
+        );
+        assert_eq!(after.authoritative_bootctl_slot, Some(BootStorageSlot::B));
+        assert_eq!(after.posture, BootPosture::Normal);
+    }
+
+    #[test]
+    fn plan_case_b_normal_unmarked_marks_selected_without_double_advance() {
+        let mut fixture = Fixture::normal_a();
+        fixture.success_marked = false;
+        let current = parse_boot_slot(&slot(7, fixture)).unwrap();
+        let decision = evaluate_chosen(BootStorageSlot::A, current);
+
+        let plan = plan_boot_success_mark(&current, BootStorageSlot::A, &decision).unwrap();
+        let planned = parse_boot_slot(&plan.slot_bytes).unwrap();
+
+        assert_eq!(plan.new_seq, 8);
+        assert_eq!(plan.written_storage_slot, BootStorageSlot::B);
+        assert!(!plan.would_mark_good);
+        assert!(!plan.pending_consumed);
+        assert_eq!(planned.active, BootSlotId::A);
+        assert_eq!(planned.last_good, BootSlotId::A);
+        assert_eq!(planned.pending, BootSlotId::None);
+        assert!(planned.boot_attempt.success_marked);
+    }
+
+    #[test]
+    fn plan_case_b_already_marked_is_idempotent_denial() {
+        let current = parse_boot_slot(&slot(7, Fixture::normal_a())).unwrap();
+        let decision = evaluate_chosen(BootStorageSlot::A, current);
+
+        assert_eq!(
+            plan_boot_success_mark(&current, BootStorageSlot::A, &decision)
+                .unwrap_err()
+                .reason(),
+            "already_marked"
+        );
+    }
+
+    #[test]
+    fn plan_case_c_pending_exhausted_keeps_last_good() {
+        let mut fixture = Fixture::normal_a();
+        fixture.pending = BootSlotId::B;
+        fixture.success_marked = false;
+        fixture.slot_b.state = BootPayloadSlotState::Pending;
+        fixture.slot_b.failure_count = MAX_PENDING_BOOT_ATTEMPTS;
+        let current = parse_boot_slot(&slot(1, fixture)).unwrap();
+        let decision = evaluate_chosen(BootStorageSlot::A, current);
+
+        let plan = plan_boot_success_mark(&current, BootStorageSlot::A, &decision).unwrap();
+        let planned = parse_boot_slot(&plan.slot_bytes).unwrap();
+
+        assert_eq!(plan.new_seq, 2);
+        assert_eq!(planned.last_good, BootSlotId::A);
+        assert_eq!(planned.active, BootSlotId::A);
+        assert_eq!(planned.pending, BootSlotId::None);
+        assert_eq!(planned.slot_b.state, BootPayloadSlotState::Bad);
+        assert!(!plan.would_mark_good);
+        assert!(plan.pending_consumed);
+    }
+
+    #[test]
+    fn plan_case_d_safe_refuses_to_mark() {
+        let mut fixture = Fixture::normal_a();
+        fixture.safe_mode = true;
+        let current = parse_boot_slot(&slot(1, fixture)).unwrap();
+        let decision = evaluate_chosen(BootStorageSlot::A, current);
+
+        assert_eq!(
+            plan_boot_success_mark(&current, BootStorageSlot::A, &decision)
+                .unwrap_err()
+                .reason(),
+            "safe_mode_requested"
+        );
+    }
+
+    #[test]
+    fn plan_seq_is_strictly_greater_than_both_current_slots_and_targets_loser() {
+        let fixture_a = Fixture::normal_a();
+        let mut fixture_b = Fixture::normal_a();
+        fixture_b.active = BootSlotId::B;
+        fixture_b.last_good = BootSlotId::B;
+        fixture_b.boot_attempt_slot = BootSlotId::B;
+        fixture_b.success_marked = false;
+        fixture_b.slot_b.state = BootPayloadSlotState::Good;
+        let a = parse_boot_slot(&slot(5, fixture_a));
+        let b = parse_boot_slot(&slot(9, fixture_b));
+        let decision = evaluate_boot_control(a, b);
+        let current = b.unwrap();
+
+        let plan = plan_boot_success_mark(&current, BootStorageSlot::B, &decision).unwrap();
+
+        assert_eq!(plan.new_seq, 10);
+        assert!(plan.new_seq > 5);
+        assert!(plan.new_seq > 9);
+        assert_eq!(plan.written_storage_slot, BootStorageSlot::A);
+        assert_eq!(plan.write_offset, 0);
     }
 
     #[test]

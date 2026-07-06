@@ -166,13 +166,18 @@ function Invoke-ReclogFixtureScanProbe {
             Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
             try { $child.WaitForExit(5000) | Out-Null } catch {}
         }
+        # Reclaim this probe's large images once the child has answered (keep the
+        # serial log for debugging). Many child probes run per persistence profile;
+        # without this the RunDir accumulates GBs and fills the host disk mid-run.
+        Remove-Item -LiteralPath $fixtureImage, $fixtureScratch, $fixtureAuditRollback, $fixturePersist, $code, $vars -Force -ErrorAction SilentlyContinue
     }
 }
 
 function Invoke-BootControlFixtureProbe {
     param(
         [string]$FixtureSpec,
-        [string]$Label
+        [string]$Label,
+        [string]$Method = "boot.control_read"
     )
 
     if (-not $script:BootControlFixtureProbeIndex) {
@@ -232,17 +237,21 @@ function Invoke-BootControlFixtureProbe {
         if (-not (Wait-ForLogText -Path $fixtureLog -Needle "SERIAL CONSOLE READY" -TimeoutSeconds $childTimeout)) {
             throw "BOOTCTL fixture child VM did not reach serial console: $(Get-SerialLogTail -Path $fixtureLog)"
         }
-        Send-SerialText -Port $fixturePort -Text "agent boot.control_read`r" -TimeoutSeconds $childTimeout
-        if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END boot.control_read" -TimeoutSeconds $childTimeout)) {
-            throw "BOOTCTL fixture child VM did not answer boot.control_read: $(Get-SerialLogTail -Path $fixtureLog)"
+        Send-SerialText -Port $fixturePort -Text "agent $Method`r" -TimeoutSeconds $childTimeout
+        if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END $Method" -TimeoutSeconds $childTimeout)) {
+            throw "BOOTCTL fixture child VM did not answer ${Method}: $(Get-SerialLogTail -Path $fixtureLog)"
         }
-        return (Get-ProfileAgentResponseJson -Path $fixtureLog -Method "boot.control_read").body.result
+        return (Get-ProfileAgentResponseJson -Path $fixtureLog -Method $Method).body.result
     }
     finally {
         if ($child -and -not $child.HasExited) {
             Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
             try { $child.WaitForExit(5000) | Out-Null } catch {}
         }
+        # Reclaim this probe's large images once the child has answered (keep the
+        # serial log for debugging). Many child probes run per persistence profile;
+        # without this the RunDir accumulates GBs and fills the host disk mid-run.
+        Remove-Item -LiteralPath $fixtureImage, $fixtureScratch, $fixtureAuditRollback, $fixturePersist, $code, $vars -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -396,6 +405,78 @@ Add-Predicate `
     -Passed $pendingNotConsumedInSafe `
     -Actual $(if ($pendingNotConsumedInSafe) { "matched" } else { ($safePendingBootControl | ConvertTo-Json -Compress -Depth 8) })
 
+$bootSuccessMark = Invoke-BootControlFixtureProbe -FixtureSpec "pending" -Label "pending-mark" -Method "boot.control_mark_success"
+$bootSuccessMarked = (
+    $bootSuccessMark.schema -eq "raios.boot_control_success_mark.v0" -and
+    $bootSuccessMark.status -eq "replaced" -and
+    [bool]$bootSuccessMark.performed -and
+    [bool]$bootSuccessMark.criteria.all_passed -and
+    $bootSuccessMark.authority -eq "scoped_boot_control_replace_authorized" -and
+    [bool]$bootSuccessMark.audit_append.performed
+)
+Add-Predicate `
+    -Name "boot-success-marked" `
+    -Expected "pending BOOTCTL fixture marks boot success through the scoped BOOTCTL replace authority and appends audit evidence" `
+    -Passed $bootSuccessMarked `
+    -Actual $(if ($bootSuccessMarked) { "matched" } else { ($bootSuccessMark | ConvertTo-Json -Compress -Depth 10) })
+
+$bootControlWritePingpong = (
+    $bootSuccessMark.written_storage_slot -eq "B" -and
+    [int64]$bootSuccessMark.new_seq -eq 2 -and
+    [bool]$bootSuccessMark.readback_matches -and
+    $bootSuccessMark.after_authoritative_bootctl_slot -eq "B" -and
+    [int64]$bootSuccessMark.writer_write_offset -eq 2048 -and
+    [bool]$bootSuccessMark.span_in_bounds
+)
+Add-Predicate `
+    -Name "boot-control-write-pingpong" `
+    -Expected "boot success write targets loser storage slot B, uses new_seq=2, reads back, and the rewritten slot wins" `
+    -Passed $bootControlWritePingpong `
+    -Actual $(if ($bootControlWritePingpong) { "matched" } else { ($bootSuccessMark | ConvertTo-Json -Compress -Depth 10) })
+
+$lastGoodAdvance = (
+    [bool]$bootSuccessMark.would_mark_good -and
+    [bool]$bootSuccessMark.pending_consumed -and
+    $bootSuccessMark.after_last_good -eq "B" -and
+    $null -eq $bootSuccessMark.after_pending -and
+    $bootSuccessMark.after_posture -eq "Normal"
+)
+Add-Predicate `
+    -Name "last-good-advance" `
+    -Expected "CASE-A probation success advances last_good to B, consumes pending, and returns to Normal posture" `
+    -Passed $lastGoodAdvance `
+    -Actual $(if ($lastGoodAdvance) { "matched" } else { ($bootSuccessMark | ConvertTo-Json -Compress -Depth 10) })
+
+$pendingExhaustedMark = Invoke-BootControlFixtureProbe -FixtureSpec "pending-exhausted" -Label "pending-exhausted-mark" -Method "boot.control_mark_success"
+$failureCountKeepsLastGood = (
+    $pendingExhaustedMark.schema -eq "raios.boot_control_success_mark.v0" -and
+    $pendingExhaustedMark.status -eq "replaced" -and
+    [bool]$pendingExhaustedMark.performed -and
+    $pendingExhaustedMark.after_last_good -eq "A" -and
+    $pendingExhaustedMark.after_authoritative_bootctl_slot -eq "B" -and
+    $pendingExhaustedMark.after_posture -eq "Normal"
+)
+Add-Predicate `
+    -Name "failure-count-keeps-last-good" `
+    -Expected "pending-exhausted success mark records the fallback result without advancing last_good away from A" `
+    -Passed $failureCountKeepsLastGood `
+    -Actual $(if ($failureCountKeepsLastGood) { "matched" } else { ($pendingExhaustedMark | ConvertTo-Json -Compress -Depth 10) })
+
+$safeMarkDenied = Invoke-BootControlFixtureProbe -FixtureSpec "both-invalid" -Label "safe-mark-denied" -Method "boot.control_mark_success"
+$markDeniedInSafe = (
+    $safeMarkDenied.schema -eq "raios.boot_control_success_mark.v0" -and
+    $safeMarkDenied.status -eq "capability_denied" -and
+    -not [bool]$safeMarkDenied.performed -and
+    $safeMarkDenied.code -eq "capability_denied" -and
+    -not [bool]$safeMarkDenied.write_attempted -and
+    -not [bool]$safeMarkDenied.criteria.boot_control_valid
+)
+Add-Predicate `
+    -Name "mark-denied-in-safe" `
+    -Expected "Safe BOOTCTL posture denies boot success marking before any BOOTCTL write" `
+    -Passed $markDeniedInSafe `
+    -Actual $(if ($markDeniedInSafe) { "matched" } else { ($safeMarkDenied | ConvertTo-Json -Compress -Depth 10) })
+
 $append = Invoke-ReclogFixtureScanProbe -FixtureSpec "valid:2" -BootCtlSpec "valid-a" -Label "append" -Method "durable.record_log_append"
 $appendAuthorized = (
     $append.schema -eq "raios.durable_record_log_append.v0" -and
@@ -531,6 +612,6 @@ Add-Predicate `
     -Passed $absentPassed `
     -Actual $absentActual
 
-if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $fullDenied -and $persistDeniedInSafe -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
+if (-not ($kernelGptHeaderValid -and $kernelGptCrcChecked -and $kernelSeedDataFound -and $kernelSuperblockValid -and $readOnly -and $emptyLogValid -and $appendDenied -and $bootControlRead -and $safePostureBothSlotsInvalid -and $pendingNotConsumedInSafe -and $bootSuccessMarked -and $bootControlWritePingpong -and $lastGoodAdvance -and $failureCountKeepsLastGood -and $markDeniedInSafe -and $appendAuthorized -and $appendReadbackHash -and $appendChainHead -and $fullDenied -and $persistDeniedInSafe -and $chainHeadOk -and $chainCountOk -and $tornOk -and $absentPassed)) {
     throw "Persistence kernel layout validation failed"
 }
