@@ -366,17 +366,26 @@ still denied).
 
 M3 closed (see above).
 
+M4-1 done: design map at
+`docs/plan-reviews/m4-wasm-isolation-map-2026-07-06.md`. M4-2 done
+(2026-07-06): wasmi =0.31.2 vendored and pinned (permissive licenses
+verified; wasmparser-nostd is Apache-2.0-with-LLVM-exception), wired via
+[patch.crates-io], compiled INTO the no_std kernel with a
+wasmi::Module::new compile-proof (seed-kernel/src/wasm_runtime.rs);
+zero-warning build; quick profile green
+(`shadow-20260706-044149-25532.json`, 416/416).
+
 Exact next task:
 
 ```text
-Open M4 with a scoping slice (read-only packet): survey no_std Wasm
-interpreter candidates (wasmi-class, no JIT) for vendoring — version,
-license, no_std/alloc requirements, code size, interpreter safety
-posture; map where the module artifact chain would hand bytes to the
-interpreter (descriptor/attestation chain from M-map docs); design the
-host-function import surface = capability envelope; slice plan for M4
-(vendor + minimal instantiate; hello/echo compiled to wasm32; deliberate
-exceed-capability test failing at the boundary).
+M4 slice 2: wasm guest crate (wasm32-unknown-unknown, no_std cdylib,
+exports raios_service_main, imports env.log + env.counter_get) +
+generalize the build.rs artifact attestation so the wasm bytes are an
+attested artifact like the current builtin (rustup target add
+wasm32-unknown-unknown --toolchain nightly-2024-10-15 required). Verify:
+wasm build + descriptor/hash selftests + quick. Then slices 3-6 per the
+map (instantiate; linker-from-grant; demo service through interpreter;
+trap hardening; full profile at closure).
 ```
 
 ## Capability Milestones

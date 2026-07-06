@@ -131,6 +131,7 @@ mod time;
 mod tls_io;
 mod ui;
 mod usb;
+mod wasm_runtime;
 mod wifi;
 
 #[used]

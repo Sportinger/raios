@@ -10,5 +10,19 @@ members = [
 resolver = "2"
 
 [patch.crates-io]
+autocfg = { path = "vendor/autocfg-1.5.1" }
+downcast-rs = { path = "vendor/downcast-rs-1.2.1" }
 embedded-tls = { path = "vendor/embedded-tls-0.17.0" }
+indexmap-nostd = { path = "vendor/indexmap-nostd-0.4.0" }
+libm = { path = "vendor/libm-0.2.16" }
+lock_api = { path = "vendor/lock_api-0.4.14" }
+num-traits = { path = "vendor/num-traits-0.2.19" }
+paste = { path = "vendor/paste-1.0.15" }
+scopeguard = { path = "vendor/scopeguard-1.2.0" }
+smallvec = { path = "vendor/smallvec-1.15.1" }
+spin = { path = "vendor/spin-0.9.8" }
+wasmi = { path = "vendor/wasmi-0.31.2" }
+wasmi_arena = { path = "vendor/wasmi_arena-0.4.1" }
+wasmi_core = { path = "vendor/wasmi_core-0.13.0" }
+wasmparser-nostd = { path = "vendor/wasmparser-nostd-0.100.1" }
 
