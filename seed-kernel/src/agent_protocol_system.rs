@@ -4,7 +4,8 @@ use crate::{
         indent, json_opt_str, json_sha256, json_sha256_option, json_str, raw, raw_bool, raw_fmt,
         raw_line,
     },
-    echo_service, hello_service, provider, serial, service_inventory, system_status,
+    echo_service, granted_candidate_service, hello_service, provider, serial, service_inventory,
+    system_status,
     system_status::{RowState, SystemSnapshot},
     ui, wifi,
 };
@@ -622,6 +623,7 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
     let provider = provider::snapshot();
     let hello = hello_service::loaded_snapshot();
     let echo = echo_service::loaded_snapshot();
+    let granted = granted_candidate_service::loaded_snapshot();
     begin_response("service.inventory");
     raw_line("      \"schema\": \"service.inventory.v0\",");
     raw_line("      \"services\": [");
@@ -649,14 +651,21 @@ pub(crate) fn emit_service_inventory(runtime: ui::RuntimeStatus) {
         raw(", \"capabilities\": [");
         emit_inline_string_array(service.capabilities);
         raw("]}");
-        if idx + 1 != service_inventory::SERVICES.len() || hello.is_some() || echo.is_some() {
+        if idx + 1 != service_inventory::SERVICES.len()
+            || hello.is_some()
+            || echo.is_some()
+            || granted.is_some()
+        {
             raw(",");
         }
         crlf();
         idx += 1;
     }
     if let Some(echo) = echo {
-        emit_echo_service_inventory(echo, hello.is_some());
+        emit_echo_service_inventory(echo, hello.is_some() || granted.is_some());
+    }
+    if let Some(granted) = granted {
+        emit_granted_candidate_service_inventory(granted, hello.is_some());
     }
     if let Some(hello) = hello {
         emit_hello_service_inventory(hello);
@@ -893,6 +902,85 @@ fn emit_echo_service_inventory(echo: echo_service::Snapshot, comma: bool) {
     json_str(echo.last_action);
     raw(", \"capabilities\": [");
     emit_inline_string_array(echo_service::CAPABILITIES);
+    raw("]}");
+    if comma {
+        raw(",");
+    }
+    crlf();
+}
+
+fn emit_granted_candidate_service_inventory(
+    granted: granted_candidate_service::Snapshot,
+    comma: bool,
+) {
+    let descriptor = granted_candidate_service::GRANTED_CANDIDATE_SERVICE_DESCRIPTOR;
+    indent(8);
+    raw("{");
+    raw("\"id\": ");
+    json_str(descriptor.service_id);
+    raw(", \"kind\": ");
+    json_str(descriptor.inventory_kind);
+    raw(", \"health\": ");
+    json_str(granted_candidate_service::health_state(granted));
+    raw(", \"replaceable\": ");
+    raw_bool(descriptor.inventory_replaceable);
+    raw(", \"core_owned\": ");
+    raw_bool(descriptor.inventory_core_owned);
+    raw(", \"last_error\": null");
+    raw(", \"scope\": ");
+    json_str(descriptor.scope);
+    raw(", \"persistence\": ");
+    json_str(descriptor.persistence);
+    raw(", \"classification\": ");
+    json_str(descriptor.classification);
+    raw(", \"artifact_id\": ");
+    json_str(descriptor.artifact_id);
+    raw(", \"artifact_kind\": ");
+    json_str(descriptor.artifact_kind);
+    raw(", \"version\": \"v0\"");
+    raw(", \"trust_tier\": ");
+    json_str(granted.trust_tier);
+    raw(", \"service_slot_activation_id\": ");
+    json_str(granted_candidate_service::service_slot_activation_id());
+    raw(", \"service_slot_activation_hash\": ");
+    json_sha256(granted_candidate_service::service_slot_activation_hash());
+    raw(", \"service_slot_activation_status\": ");
+    json_str(granted_candidate_service::service_slot_activation_status(
+        granted,
+    ));
+    raw(", \"service_slot_activation_active\": ");
+    raw_bool(granted_candidate_service::service_slot_activation_active(
+        granted,
+    ));
+    raw(", \"ram_only_service_slot_id\": ");
+    json_str(granted_candidate_service::ram_only_service_slot_id());
+    raw(", \"capability_envelope\": \"wasmi_linker_import_surface\"");
+    raw(", \"granted_host_imports\": [");
+    emit_inline_string_array(&["env.log", "env.counter_get"]);
+    raw("]");
+    raw(", \"host_import_count\": 2");
+    raw(", \"entrypoint\": \"raios_service_main\"");
+    raw(", \"running\": ");
+    raw_bool(granted.running);
+    raw(", \"generation\": ");
+    raw_fmt(format_args!("{}", granted.generation));
+    raw(", \"run_count\": ");
+    raw_fmt(format_args!("{}", granted.run_count));
+    raw(", \"last_run_outcome\": ");
+    json_str(granted.last_run_outcome);
+    raw(", \"last_return_value_i32\": ");
+    match granted.last_return_value {
+        Some(value) if value >= 0 => raw_fmt(format_args!("{}", value)),
+        _ => raw("null"),
+    }
+    raw(", \"last_fuel_used\": ");
+    raw_fmt(format_args!("{}", granted.last_fuel_used));
+    raw(", \"last_log_line_emitted\": ");
+    raw_bool(granted.last_log_line_emitted);
+    raw(", \"last_action\": ");
+    json_str(granted.last_action);
+    raw(", \"capabilities\": [");
+    emit_inline_string_array(granted_candidate_service::CAPABILITIES);
     raw("]}");
     if comma {
         raw(",");

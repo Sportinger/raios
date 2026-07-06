@@ -2642,15 +2642,34 @@ the selftest. (2) the live wasm execution path shares the M4/M5 echo runner and
 does NOT wire the wasm memory `limiter` (guest memory bounded by address
 space + host allocator, fuel bounds CPU) — identical surface to echo, a
 defense-in-depth candidate for a later hardening pass.
-NEXT — M6C-2 (optional, non-authorizing): project the live granted run into the
-loader_runtime + service_slot diagnostics + the slot's inventory/health. Then
-M6D (durable promotion transaction via the M3 append/readback/inspect substrate
-+ rollback plan/executor) — this flips the GENERIC durable load gate. Then M7+.
-Keep persistence, generic (non-`svc.demo.hello`) durable audit/rollback
-writes, external artifact LOAD and execution, executable candidate-byte
-mapping, provider auto-load, broad mutation, and installed rollback state
-denied. External candidate INTAKE (now over the real serial channel) is
-allowed but load-denied and non-executing.
+M6C-2 DONE (2026-07-06, non-authorizing honesty slice): After M6C-2,
+inspecting service.inventory, module.service_slot_diagnostic, and
+module.loader_runtime WHILE a dev-key-granted external candidate is actually
+loaded this boot shows the live loaded service, its allocated RAM slot, and the
+dev-tier accepted/loaded/can-load-now run reflected truthfully
+(trust_tier=dev_key_not_owner_sealed) instead of the current hardcoded
+absent/unallocated/false ??? with maps_executable_pages, durable/persistent,
+native guest-load, and owner-sealed still false and nothing newly granted,
+loaded, or written. `granted_candidate_service::live_load_projection()` is the
+single current-boot source for the live projection and is derived from
+`loaded_snapshot()`; guardrail booleans stay literal false. `service.inventory`
+adds `svc.dev.granted_candidate` only while loaded; `module.service_slot_diagnostic`
+adds a separate `live_granted_service_slot` object without changing the
+reservation-reference policy/selftest; `module.loader_runtime` adds one
+`live_granted_load_projection` block while its native readiness header/policy/
+evaluation all-false path and loader_runtime selftest stay unchanged.
+`module.granted_candidate_selftest` now has 5 cases, adding loaded-projection
+and not-loaded-projection truth cases. Worker checks only (no VM per packet):
+`cargo fmt --all -- --check`, release build, and `scripts\scan-secrets.ps1`.
+
+NEXT — M6D (durable promotion transaction via the M3 append/readback/inspect
+substrate + rollback plan/executor) — this flips the GENERIC durable load gate.
+Then M7+. Keep persistence, generic (non-`svc.demo.hello`) durable
+audit/rollback writes, executable candidate-byte mapping, provider auto-load,
+broad mutation, and installed rollback state denied unless the M6D/M7 gates say
+otherwise. External candidate INTAKE remains allowed over the real serial
+channel; dev-key-granted current-boot external candidate load/run is RAM-only
+and not owner-sealed.
 
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with

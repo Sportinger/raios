@@ -11,7 +11,7 @@ use crate::{
         record_sha_fields, record_sha_or_null, record_str as s, record_str_or_null,
         run_selftest_cases_with, CaseSpec,
     },
-    event_log,
+    event_log, granted_candidate_service,
     module_evidence::{
         self, ram_only_service_slot_id_valid, ModuleServiceSlotReservationHashInput,
     },
@@ -131,6 +131,9 @@ pub(crate) fn emit_module_service_slot_diagnostic(method: &str) {
     emit_module_service_slot_reference_object(&check, true);
     emit_module_service_slot_retained_reference(&check, recorded_event_id, retained, true);
     emit_module_service_slot_policy_result(&check, true);
+    if let Some(snapshot) = granted_candidate_service::loaded_snapshot() {
+        emit_live_granted_service_slot(snapshot, true);
+    }
     emit_record_value_property_line(
         "blocked_by",
         V::Array(vec![
@@ -141,6 +144,62 @@ pub(crate) fn emit_module_service_slot_diagnostic(method: &str) {
         false,
     );
     end_response("module.service_slot_diagnostic");
+}
+
+fn emit_live_granted_service_slot(snapshot: granted_candidate_service::Snapshot, comma: bool) {
+    let projection = granted_candidate_service::live_load_projection();
+    emit_record_property_line(
+        "live_granted_service_slot",
+        vec![
+            f("state", s("allocated")),
+            f(
+                "service_id",
+                s(granted_candidate_service::GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_id),
+            ),
+            f(
+                "ram_only_service_slot_id",
+                s(granted_candidate_service::ram_only_service_slot_id()),
+            ),
+            f(
+                "service_slot_allocated",
+                b(projection.service_slot_allocated),
+            ),
+            f("running", b(projection.running)),
+            f(
+                "health",
+                s(granted_candidate_service::health_state(snapshot)),
+            ),
+            f(
+                "service_slot_activation_id",
+                s(granted_candidate_service::service_slot_activation_id()),
+            ),
+            f(
+                "service_slot_activation_hash",
+                record_sha_or_null(Some(
+                    granted_candidate_service::service_slot_activation_hash(),
+                )),
+            ),
+            f(
+                "service_slot_activation_status",
+                s(granted_candidate_service::service_slot_activation_status(
+                    snapshot,
+                )),
+            ),
+            f(
+                "service_slot_activation_active",
+                b(granted_candidate_service::service_slot_activation_active(
+                    snapshot,
+                )),
+            ),
+            f("trust_tier", s(projection.trust_tier)),
+            f("load_mechanism", s(projection.load_mechanism)),
+            f("maps_executable_pages", no()),
+            f("durable", no()),
+            f("owner_sealed", no()),
+            f("authorizes_native_guest_load", no()),
+        ],
+        comma,
+    );
 }
 
 #[rustfmt::skip]

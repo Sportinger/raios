@@ -104,6 +104,43 @@ pub(crate) struct Snapshot {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct LiveLoadProjection {
+    pub(crate) present: bool,
+    pub(crate) accepts_external_artifact_bytes: bool,
+    pub(crate) loads_artifact: bool,
+    pub(crate) can_load_now: bool,
+    pub(crate) service_slot_allocated: bool,
+    pub(crate) running: bool,
+    pub(crate) run_outcome: &'static str,
+    pub(crate) trust_tier: &'static str,
+    pub(crate) load_mechanism: &'static str,
+    pub(crate) maps_executable_pages: bool,
+    pub(crate) durable: bool,
+    pub(crate) owner_sealed: bool,
+    pub(crate) authorizes_native_guest_load: bool,
+}
+
+impl LiveLoadProjection {
+    const fn absent() -> Self {
+        Self {
+            present: false,
+            accepts_external_artifact_bytes: false,
+            loads_artifact: false,
+            can_load_now: false,
+            service_slot_allocated: false,
+            running: false,
+            run_outcome: "not_loaded",
+            trust_tier: TRUST_TIER_DENIED,
+            load_mechanism: "none",
+            maps_executable_pages: false,
+            durable: false,
+            owner_sealed: false,
+            authorizes_native_guest_load: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 struct State {
     service: ServiceState,
     last_run_outcome: &'static str,
@@ -176,6 +213,7 @@ struct SelftestCase {
     run_outcome: &'static str,
     fuel_used: u64,
     trust_tier: &'static str,
+    live_load_projection: Option<LiveLoadProjection>,
     passed: bool,
 }
 
@@ -190,8 +228,54 @@ pub(crate) fn loaded_snapshot() -> Option<Snapshot> {
     }
 }
 
+pub(crate) fn live_load_projection() -> LiveLoadProjection {
+    live_load_projection_from_snapshot(loaded_snapshot())
+}
+
+fn live_load_projection_from_snapshot(snapshot: Option<Snapshot>) -> LiveLoadProjection {
+    let Some(snapshot) = snapshot else {
+        return LiveLoadProjection::absent();
+    };
+    let loaded = snapshot.loaded;
+    LiveLoadProjection {
+        present: loaded,
+        accepts_external_artifact_bytes: loaded,
+        loads_artifact: loaded,
+        can_load_now: loaded,
+        service_slot_allocated: loaded,
+        running: snapshot.running,
+        run_outcome: if loaded {
+            snapshot.last_run_outcome
+        } else {
+            "not_loaded"
+        },
+        trust_tier: if loaded {
+            TRUST_TIER_GRANTED
+        } else {
+            TRUST_TIER_DENIED
+        },
+        load_mechanism: if loaded {
+            "wasmi_interpreter_ram_only"
+        } else {
+            "none"
+        },
+        maps_executable_pages: false,
+        durable: false,
+        owner_sealed: false,
+        authorizes_native_guest_load: false,
+    }
+}
+
 pub(crate) fn slot_allocatable() -> bool {
     !STATE.lock().service.loaded
+}
+
+pub(crate) fn ram_only_service_slot_id() -> &'static str {
+    GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.ram_only_service_slot_id
+}
+
+pub(crate) fn service_slot_activation_id() -> &'static str {
+    GRANTED_CANDIDATE_SERVICE_DESCRIPTOR.service_slot_activation_id
 }
 
 pub(crate) fn is_load_method(method: &str) -> bool {
@@ -625,6 +709,33 @@ pub(crate) fn service_slot_activation_hash() -> [u8; 32] {
     )
 }
 
+pub(crate) fn record_live_load_projection(projection: LiveLoadProjection) -> V<'static> {
+    V::Object(vec![
+        f("present", b(projection.present)),
+        f(
+            "accepts_external_artifact_bytes",
+            b(projection.accepts_external_artifact_bytes),
+        ),
+        f("loads_artifact", b(projection.loads_artifact)),
+        f("can_load_now", b(projection.can_load_now)),
+        f(
+            "service_slot_allocated",
+            b(projection.service_slot_allocated),
+        ),
+        f("running", b(projection.running)),
+        f("run_outcome", s(projection.run_outcome)),
+        f("trust_tier", s(projection.trust_tier)),
+        f("load_mechanism", s(projection.load_mechanism)),
+        f("maps_executable_pages", b(projection.maps_executable_pages)),
+        f("durable", b(projection.durable)),
+        f("owner_sealed", b(projection.owner_sealed)),
+        f(
+            "authorizes_native_guest_load",
+            b(projection.authorizes_native_guest_load),
+        ),
+    ])
+}
+
 fn run_succeeded(run: &wasm_runtime::EchoRunEvidence) -> bool {
     run.validation_ok
         && run.instantiation_ok
@@ -860,6 +971,11 @@ fn run_selftest_cases() -> Vec<SelftestCase> {
         run_selftest_case("granted_bytes_present_runs", SelftestMode::Granted),
         run_selftest_case("ungranted_no_instantiation", SelftestMode::Ungranted),
         run_selftest_case("hash_mismatch_no_instantiation", SelftestMode::HashMismatch),
+        run_projection_selftest_case(
+            "live_load_projection_loaded_snapshot",
+            Some(selftest_loaded_projection_snapshot()),
+        ),
+        run_projection_selftest_case("live_load_projection_not_loaded", None),
     ]
 }
 
@@ -922,20 +1038,89 @@ fn run_selftest_case(name: &'static str, mode: SelftestMode) -> SelftestCase {
         run_outcome,
         fuel_used,
         trust_tier: authorization.trust_tier,
+        live_load_projection: None,
         passed,
     }
 }
 
 fn record_selftest_case(case: &SelftestCase) -> V<'static> {
-    V::InlineObject(vec![
+    let mut fields = vec![
         f("case", s(case.name)),
         f("capability_denied", b(case.capability_denied)),
         f("instantiation_ok", b(case.instantiation_ok)),
         f("run_outcome", s(case.run_outcome)),
         f("fuel_used", V::U64(case.fuel_used)),
         f("trust_tier", s(case.trust_tier)),
-        f("passed", b(case.passed)),
-    ])
+    ];
+    if let Some(projection) = case.live_load_projection {
+        fields.push(f(
+            "live_load_projection",
+            record_live_load_projection(projection),
+        ));
+    }
+    fields.push(f("passed", b(case.passed)));
+    V::InlineObject(fields)
+}
+
+fn run_projection_selftest_case(name: &'static str, snapshot: Option<Snapshot>) -> SelftestCase {
+    let projection = live_load_projection_from_snapshot(snapshot);
+    let loaded = snapshot.is_some();
+    let positives_match = projection.present
+        && projection.accepts_external_artifact_bytes
+        && projection.loads_artifact
+        && projection.can_load_now
+        && projection.service_slot_allocated
+        && projection.running
+        && projection.run_outcome == "success"
+        && projection.trust_tier == TRUST_TIER_GRANTED
+        && projection.load_mechanism == "wasmi_interpreter_ram_only";
+    let all_projected_bools_false = !projection.present
+        && !projection.accepts_external_artifact_bytes
+        && !projection.loads_artifact
+        && !projection.can_load_now
+        && !projection.service_slot_allocated
+        && !projection.running;
+    let guardrails_false = !projection.maps_executable_pages
+        && !projection.durable
+        && !projection.owner_sealed
+        && !projection.authorizes_native_guest_load;
+    let passed = if loaded {
+        positives_match && guardrails_false
+    } else {
+        all_projected_bools_false && guardrails_false
+    };
+
+    SelftestCase {
+        name,
+        capability_denied: !loaded,
+        instantiation_ok: false,
+        run_outcome: projection.run_outcome,
+        fuel_used: 0,
+        trust_tier: projection.trust_tier,
+        live_load_projection: Some(projection),
+        passed,
+    }
+}
+
+fn selftest_loaded_projection_snapshot() -> Snapshot {
+    Snapshot {
+        loaded: true,
+        running: true,
+        generation: 1,
+        run_count: 1,
+        last_run_outcome: "success",
+        last_return_value: Some(0),
+        last_fuel_used: 1,
+        last_log_line_emitted: true,
+        last_action: "start",
+        last_reason: "started_dev_key_granted_external_wasm_current_boot",
+        last_inventory_change: "upserted_current_boot_service",
+        trust_tier: TRUST_TIER_GRANTED,
+        load_event_id: None,
+        start_event_id: None,
+        stop_event_id: None,
+        drop_event_id: None,
+    }
 }
 
 fn selftest_retained_candidate(mode: SelftestMode) -> RetainedExternalWasmCandidate {

@@ -9,6 +9,7 @@ use crate::agent_protocol_support::{
 use crate::{
     agent_protocol_module_service_slot_allocator_projection::latest_module_service_slot_allocator_readiness_projection,
     agent_protocol_module_types::*, agent_protocol_support::*, event_log,
+    granted_candidate_service,
 };
 
 macro_rules! push_status_reason {
@@ -1047,6 +1048,8 @@ pub(crate) fn emit_module_loader_runtime() {
     raw_line(",");
     emit_module_loader_runtime_facts(candidate, evaluation);
     raw_line(",");
+    emit_live_granted_load_projection();
+    raw_line(",");
     emit_record_property_line(
         "policy_result",
         module_loader_runtime_policy_result_fields(candidate, evaluation),
@@ -1058,6 +1061,15 @@ pub(crate) fn emit_module_loader_runtime() {
         false,
     );
     end_response("module.loader_runtime");
+}
+
+fn emit_live_granted_load_projection() {
+    let projection = granted_candidate_service::live_load_projection();
+    emit_record_value_property_line(
+        "live_granted_load_projection",
+        granted_candidate_service::record_live_load_projection(projection),
+        false,
+    );
 }
 
 pub(crate) fn emit_module_loader_runtime_selftest() {

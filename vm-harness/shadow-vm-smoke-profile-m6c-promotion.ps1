@@ -286,11 +286,53 @@ Send-AgentCommand -Command "agent module.granted_candidate_selftest" -ExpectedMa
 $selftest = Get-LastAgentResponseJson -Method "module.granted_candidate_selftest"
 $selftestOk = (
     $selftest.body.result.passed -eq $true -and
-    [int]$selftest.body.result.case_count -eq 3
+    [int]$selftest.body.result.case_count -eq 5
 )
-Add-Predicate -Name "m6c:in_guest_selftest_positive_and_negative_gates" -Expected "selftest proves granted run, ungranted denial, hash-mismatch denial" -Passed $selftestOk -Actual $(if ($selftestOk) { "matched" } else { ($selftest.body.result | ConvertTo-Json -Compress -Depth 8) })
+Add-Predicate -Name "m6c:in_guest_selftest_positive_and_negative_gates" -Expected "selftest proves granted run, ungranted denial, hash-mismatch denial, and live projection truth cases" -Passed $selftestOk -Actual $(if ($selftestOk) { "matched" } else { ($selftest.body.result | ConvertTo-Json -Compress -Depth 8) })
 if (-not $selftestOk) {
     throw "Expected granted_candidate selftest to pass"
+}
+$selftestCases = @($selftest.body.result.cases)
+$projectionLoadedCase = @($selftestCases | Where-Object { $_.case -eq "live_load_projection_loaded_snapshot" })[0]
+$projectionLoaded = $projectionLoadedCase.live_load_projection
+$projectionLoadedOk = (
+    $projectionLoadedCase.passed -eq $true -and
+    $projectionLoaded.present -eq $true -and
+    $projectionLoaded.accepts_external_artifact_bytes -eq $true -and
+    $projectionLoaded.loads_artifact -eq $true -and
+    $projectionLoaded.can_load_now -eq $true -and
+    $projectionLoaded.service_slot_allocated -eq $true -and
+    $projectionLoaded.running -eq $true -and
+    $projectionLoaded.run_outcome -eq "success" -and
+    $projectionLoaded.trust_tier -eq "dev_key_not_owner_sealed" -and
+    $projectionLoaded.load_mechanism -eq "wasmi_interpreter_ram_only" -and
+    $projectionLoaded.maps_executable_pages -eq $false -and
+    $projectionLoaded.durable -eq $false -and
+    $projectionLoaded.owner_sealed -eq $false -and
+    $projectionLoaded.authorizes_native_guest_load -eq $false
+)
+Add-Predicate -Name "m6c:projection_selftest_loaded_truth" -Expected "loaded projection positives true, guardrails false, trust_tier dev_key_not_owner_sealed" -Passed $projectionLoadedOk -Actual $(if ($projectionLoadedOk) { "matched" } else { ($projectionLoadedCase | ConvertTo-Json -Compress -Depth 8) })
+if (-not $projectionLoadedOk) {
+    throw "Expected loaded live projection selftest case"
+}
+$projectionAbsentCase = @($selftestCases | Where-Object { $_.case -eq "live_load_projection_not_loaded" })[0]
+$projectionAbsent = $projectionAbsentCase.live_load_projection
+$projectionAbsentOk = (
+    $projectionAbsentCase.passed -eq $true -and
+    $projectionAbsent.present -eq $false -and
+    $projectionAbsent.accepts_external_artifact_bytes -eq $false -and
+    $projectionAbsent.loads_artifact -eq $false -and
+    $projectionAbsent.can_load_now -eq $false -and
+    $projectionAbsent.service_slot_allocated -eq $false -and
+    $projectionAbsent.running -eq $false -and
+    $projectionAbsent.maps_executable_pages -eq $false -and
+    $projectionAbsent.durable -eq $false -and
+    $projectionAbsent.owner_sealed -eq $false -and
+    $projectionAbsent.authorizes_native_guest_load -eq $false
+)
+Add-Predicate -Name "m6c:projection_selftest_not_loaded_false" -Expected "not-loaded projection keeps every projected boolean false" -Passed $projectionAbsentOk -Actual $(if ($projectionAbsentOk) { "matched" } else { ($projectionAbsentCase | ConvertTo-Json -Compress -Depth 8) })
+if (-not $projectionAbsentOk) {
+    throw "Expected not-loaded live projection selftest case"
 }
 
 if ($liveSignatureVerified) {
@@ -358,6 +400,65 @@ if ($liveSignatureVerified) {
     if (-not $guestLogOk) {
         throw "Expected granted candidate run to emit WASM_GUEST_LOG"
     }
+
+    Send-AgentCommand -Command "agent module.loader_runtime" -ExpectedMarker "RAIOS_AGENT_END module.loader_runtime" -Name "m6c:live_loader_runtime_projection"
+    $loaderRuntime = Get-LastAgentResponseJson -Method "module.loader_runtime"
+    $loaderProjection = $loaderRuntime.body.result.live_granted_load_projection
+    $loaderProjectionOk = (
+        $loaderProjection.present -eq $true -and
+        $loaderProjection.accepts_external_artifact_bytes -eq $true -and
+        $loaderProjection.loads_artifact -eq $true -and
+        $loaderProjection.can_load_now -eq $true -and
+        $loaderProjection.service_slot_allocated -eq $true -and
+        $loaderProjection.running -eq $true -and
+        $loaderProjection.run_outcome -eq "success" -and
+        $loaderProjection.trust_tier -eq "dev_key_not_owner_sealed" -and
+        $loaderProjection.load_mechanism -eq "wasmi_interpreter_ram_only" -and
+        $loaderProjection.maps_executable_pages -eq $false -and
+        $loaderProjection.durable -eq $false -and
+        $loaderProjection.owner_sealed -eq $false -and
+        $loaderProjection.authorizes_native_guest_load -eq $false -and
+        $loaderRuntime.body.result.loads_artifact -eq $false -and
+        $loaderRuntime.body.result.maps_executable_pages -eq $false -and
+        $loaderRuntime.body.result.can_load_now -eq $false -and
+        $loaderRuntime.body.result.authorizes_guest_load -eq $false
+    )
+    Add-Predicate -Name "m6c:live_loader_runtime_projection_reflects_granted_run" -Expected "live_granted_load_projection true while native loader readiness stays false" -Passed $loaderProjectionOk -Actual $(if ($loaderProjectionOk) { "matched" } else { ($loaderRuntime.body.result | ConvertTo-Json -Compress -Depth 6) })
+
+    Send-AgentCommand -Command "agent module.service_slot_diagnostic" -ExpectedMarker "RAIOS_AGENT_END module.service_slot_diagnostic" -Name "m6c:live_service_slot_projection"
+    $slotDiagnostic = Get-LastAgentResponseJson -Method "module.service_slot_diagnostic"
+    $liveSlot = $slotDiagnostic.body.result.live_granted_service_slot
+    $liveSlotOk = (
+        $liveSlot.service_id -eq "svc.dev.granted_candidate" -and
+        $liveSlot.ram_only_service_slot_id -eq "ram_only:svc.dev.granted_candidate" -and
+        $liveSlot.service_slot_allocated -eq $true -and
+        $liveSlot.running -eq $true -and
+        $liveSlot.trust_tier -eq "dev_key_not_owner_sealed" -and
+        $liveSlot.load_mechanism -eq "wasmi_interpreter_ram_only" -and
+        $liveSlot.maps_executable_pages -eq $false -and
+        $liveSlot.durable -eq $false -and
+        $liveSlot.owner_sealed -eq $false -and
+        $liveSlot.authorizes_native_guest_load -eq $false -and
+        $slotDiagnostic.body.result.policy_result.allocates_service_slot -eq $false
+    )
+    Add-Predicate -Name "m6c:live_service_slot_diagnostic_reports_allocated_granted_slot" -Expected "live_granted_service_slot shows allocated RAM slot while reservation policy remains non-authorizing" -Passed $liveSlotOk -Actual $(if ($liveSlotOk) { "matched" } else { ($slotDiagnostic.body.result | ConvertTo-Json -Compress -Depth 6) })
+
+    Send-AgentCommand -Command "services" -ExpectedMarker "RAIOS_AGENT_END service.inventory" -Name "m6c:live_service_inventory_projection"
+    $inventory = Get-LastAgentResponseJson -Method "service.inventory"
+    $grantedInventory = @($inventory.body.result.services | Where-Object { $_.id -eq "svc.dev.granted_candidate" })[0]
+    $inventoryOk = (
+        $grantedInventory.kind -eq "service" -and
+        $grantedInventory.health -eq "healthy" -and
+        $grantedInventory.scope -eq "current_boot" -and
+        $grantedInventory.persistence -eq "none" -and
+        $grantedInventory.classification -eq "local_only" -and
+        $grantedInventory.trust_tier -eq "dev_key_not_owner_sealed" -and
+        $grantedInventory.ram_only_service_slot_id -eq "ram_only:svc.dev.granted_candidate" -and
+        $grantedInventory.service_slot_activation_active -eq $true -and
+        $grantedInventory.running -eq $true -and
+        $grantedInventory.last_run_outcome -eq "success"
+    )
+    Add-Predicate -Name "m6c:live_service_inventory_lists_granted_candidate" -Expected "service.inventory lists running dev-tier granted candidate" -Passed $inventoryOk -Actual $(if ($inventoryOk) { "matched" } else { ($inventory.body.result | ConvertTo-Json -Compress -Depth 5) })
 
     Send-AgentCommand -Command "service.drop svc.dev.granted_candidate" -ExpectedMarker "RAIOS_AGENT_END service.drop" -Name "m6c:granted_candidate_drop"
 }

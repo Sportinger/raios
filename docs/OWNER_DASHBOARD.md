@@ -3,10 +3,11 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M6C-1 — a granted outside program now actually RUNS: a
-real Wasm delivered over the console loads and executes in the sandbox,
-honestly labeled "dev key, not owner-sealed". Undo/durable-save (M6D) and your
-own key sealing come next).
+Updated: 2026-07-06 (M6C-2 — the granted outside program now RUNS and the
+diagnostics tell the truth about it: inventory shows it, the slot diagnostic
+shows its RAM slot, and loader-runtime shows the live dev-key RAM-only run
+without pretending native/durable/owner-sealed loading exists. Undo/durable-save
+(M6D) and your own key sealing come next).
 
 ## What raiOS can actually do today
 
@@ -81,17 +82,16 @@ moment: one AI-authored artifact travels
 the whole safe loop end to end — authored, tested in the Shadow VM,
 capability-granted, promoted live, and rolled back — with evidence at
 every step. Split into M6A (candidate intake) → M6B (grant) → M6C
-(promote) → M6D (rollback). **M6A + M6B + M6C-1 done.** The full early loop
+(promote) → M6D (rollback). **M6A + M6B + M6C done.** The full early loop
 now works: a real outside program is received over the console, checked,
-its identity recorded, granted its rights — and now, the milestone moment,
-it **actually loads and runs** inside the sandbox, with real run evidence,
-still honestly stamped "dev key, not owner-sealed". Two independent gates
-plus a hostile-code review confirm only a genuinely granted, matching
-program can run; anything else is refused and never executes. Today's
-signing key is a deliberate DEV key so the whole loop can be built and
-tested; **your own key K seals it for real later** — that swap flips "dev"
-to "owned". **Next: M6D — undo a run (rollback) + durable save, then M7+
-(survive a restart).**
+its identity recorded, granted its rights, loaded, and run inside the sandbox.
+M6C-2 fixed the honest-read surfaces: when that RAM-only dev-key service is
+live, service inventory, slot diagnostics, and loader-runtime projection all
+show it without claiming durable/native/owner-sealed authority. Today's signing
+key is a deliberate DEV key so the whole loop can be built and tested; **your
+own key K seals it for real later** — that swap flips "dev" to "owned".
+**Next: M6D — undo a run (rollback) + durable save, then M7+ (survive a
+restart).**
 
 ## Top risk
 
