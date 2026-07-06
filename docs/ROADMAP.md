@@ -473,19 +473,26 @@ M5 closed (see the cursor top).
 Exact next task:
 
 ```text
-Open M6 Promotion Loop v0 with a scoping slice (read-only): M6 = one
-external, AI-authored artifact travels the FULL loop — authored,
-Shadow-VM verified, capability-granted, promoted into the live system,
-and rolled back — with evidence at each step. Map what already exists
-(echo is an attested wasm service that loads/starts/stops; hello proves
-rollback-apply with a durable transaction; the Shadow VM produces
-vm_test_report.v0) vs the missing links: (1) an artifact authored
-OUTSIDE the signed build (not embedded at build time) — how does an
-externally-provided .wasm get an identity/attestation without the
-build-time P-256 chain? (2) a promotion transaction that moves it from
-candidate to live under the gate chain; (3) a rollback of that
-promotion. Output: the M6 design map, the honest gap list, and a slice
-plan. This is the project's first true product milestone.
+M6-1 done: design map at
+`docs/plan-reviews/m6-promotion-loop-map-2026-07-06.md`. M6 splits into
+M6A external candidate identity → M6B verified grant → M6C promotion →
+M6D rollback (6-10 slices). The denial edifice was built for exactly
+this loop; M6 turns hash-reference denials into real authorities.
+
+Exact next task:
+
+```text
+M6A slice 1 (candidate intake): accept a bounded EXTERNAL wasm artifact
+as an inert current-boot candidate at RUNTIME (not build-embedded) — a
+new agent method (e.g. module.submit_candidate) takes bytes (as a
+hex/base64 serial payload or a fixed test vector for v0), retains them
+RAM-only, computes the SHA-256 in-guest, validates via
+wasmi::Module::new, and emits candidate evidence through the record
+model. LOAD STAYS DENIED (no grant, no promotion yet). Fail-closed:
+malformed/oversized bytes rejected with evidence. Verify: quick +
+focused. This is the first artifact that exists WITHOUT the build-time
+P-256 chain. Then M6A-2 (candidate-specific Shadow VM report binding).
+```
 ```
 
 ## Capability Milestones
