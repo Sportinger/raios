@@ -1,7 +1,8 @@
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 
 use crate::wasm_runtime;
 use raios_core::sha256_bytes;
+use spin::Mutex;
 
 // Large enough for the current echo Wasm artifact plus growth room, still small
 // enough that M6A v0 never treats arbitrary large runtime bytes as acceptable.
@@ -35,6 +36,15 @@ pub(crate) struct CandidateIntakeProbe {
     pub(crate) malformed_under_bound_candidate: ExternalWasmCandidateOutcome,
     pub(crate) oversize_candidate: ExternalWasmCandidateOutcome,
 }
+
+#[derive(Clone)]
+pub(crate) struct RetainedExternalWasmCandidate {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) sha256: [u8; 32],
+    pub(crate) wasm_valid: bool,
+}
+
+static RETAINED_CANDIDATE: Mutex<Option<RetainedExternalWasmCandidate>> = Mutex::new(None);
 
 #[used]
 static CANDIDATE_INTAKE_PROOF: fn() -> bool = validate_candidate_intake_probe;
@@ -75,6 +85,22 @@ pub(crate) fn run_candidate_intake_probe() -> CandidateIntakeProbe {
         ),
         oversize_candidate: intake_external_wasm_candidate(&oversize),
     }
+}
+
+pub(crate) fn retain(bytes: Vec<u8>, sha256: [u8; 32], wasm_valid: bool) {
+    *RETAINED_CANDIDATE.lock() = Some(RetainedExternalWasmCandidate {
+        bytes,
+        sha256,
+        wasm_valid,
+    });
+}
+
+pub(crate) fn retained() -> Option<RetainedExternalWasmCandidate> {
+    RETAINED_CANDIDATE.lock().clone()
+}
+
+pub(crate) fn clear() {
+    *RETAINED_CANDIDATE.lock() = None;
 }
 
 fn candidate_outcome(

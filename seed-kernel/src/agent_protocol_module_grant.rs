@@ -9,7 +9,7 @@ use crate::{
         record_false as no, record_field as f, record_sha_or_null, record_static_str_array,
         record_str as s, run_selftest_cases_with, CaseSpec,
     },
-    event_log, module_evidence,
+    event_log, granted_candidate_service, module_candidate_intake, module_evidence, wasm_runtime,
 };
 use raios_core::record::Value as V;
 
@@ -120,7 +120,11 @@ pub(crate) fn emit_module_grant_diagnostic(method: &str) {
     let retained = event_log::latest_module_computed_grant_reference();
     let retained_attestation =
         event_log::latest_module_local_attestation_reference().map(|(_, reference)| reference);
-    let authority = module_grant_authority_from_attestation(&check, retained_attestation);
+    let authority = module_grant_authority_from_attestation(
+        &check,
+        retained_attestation,
+        module_grant_live_runtime_readiness(),
+    );
 
     begin_response("module.grant_diagnostic");
     emit_record_fields_trailing_comma(
@@ -153,8 +157,14 @@ pub(crate) fn emit_module_grant_diagnostic(method: &str) {
     );
     emit_record_property_line("computed_grant_reference", module_grant_reference_fields(&check), true);
     emit_module_grant_retained_reference(&check, recorded_event_id, retained, true);
-    emit_module_grant_gate_state(&check, true);
-    emit_module_grant_policy_result(&check, authority.grants_capability, authority.trust_tier, true);
+    emit_module_grant_gate_state(&check, authority.can_load_now, true);
+    emit_module_grant_policy_result(
+        &check,
+        authority.grants_capability,
+        authority.trust_tier,
+        authority.can_load_now,
+        true,
+    );
     raw_line("      \"blocked_by\": [");
     let mut wrote = false;
     if !check.valid {
@@ -225,7 +235,7 @@ pub(crate) fn emit_module_grant_diagnostic_selftest() {
             f("case_count", V::U64(cases.len() as u64)),
             f(
                 "co_emission_invariant",
-                s("grants_capability_true_implies_trust_tier_dev_key_not_owner_sealed"),
+                s("can_load_now_true_implies_trust_tier_dev_key_not_owner_sealed_and_grants_capability"),
             ),
             f("passed", b(passed)),
             f("cases", V::Array(case_records)),
@@ -266,10 +276,19 @@ fn module_grant_reference_fields<'a>(
 
 #[rustfmt::skip]
 fn module_grant_selftest_case_record(case: &ModuleGrantSelfTestCase) -> V<'static> {
-    V::InlineObject(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("can_load", no()), f("load_attempted", no())])
+    let can_load_now = module_grant_selftest_case_can_load_now(case.name);
+    V::InlineObject(vec![f("case", s(case.name)), f("expected_status", s(case.expected_status)), f("expected_reason", s(case.expected_reason)), f("actual_status", s(case.actual_status)), f("actual_reason", s(case.actual_reason)), f("passed", b(case.passed)), f("can_load_now", b(can_load_now)), f("load_attempted", no())])
 }
 
-fn emit_module_grant_gate_state(check: &ModuleGrantReferenceCheck<'_>, comma: bool) {
+fn module_grant_selftest_case_can_load_now(name: &str) -> bool {
+    method_eq(name, "signed_fully_bound_attestation_grants_capability")
+}
+
+fn emit_module_grant_gate_state(
+    check: &ModuleGrantReferenceCheck<'_>,
+    can_load_now: bool,
+    comma: bool,
+) {
     let computed_grant = if check.valid {
         "hash_reference_valid"
     } else if check.has_reference {
@@ -293,7 +312,7 @@ fn emit_module_grant_gate_state(check: &ModuleGrantReferenceCheck<'_>, comma: bo
             f("artifact_loaded", no()),
             f("service_started", no()),
             f("persistence", s("none")),
-            f("can_load", no()),
+            f("can_load", b(can_load_now)),
         ],
         comma,
     );
@@ -365,6 +384,7 @@ fn emit_module_grant_policy_result(
     check: &ModuleGrantReferenceCheck<'_>,
     grants_capability: bool,
     trust_tier: &str,
+    can_load_now: bool,
     comma: bool,
 ) {
     emit_record_property_line(
@@ -375,10 +395,18 @@ fn emit_module_grant_policy_result(
             f("trust_tier", s(trust_tier)),
             f("grants_load_now", no()),
             f("authorizes_guest_load", no()),
-            f("can_load_now", no()),
+            f("can_load_now", b(can_load_now)),
+            f("dev_tier_can_load_now", b(can_load_now)),
             f("service_inventory_change", s("none")),
             f("load_attempted", no()),
-            f("guest_evidence_authority", s("hash_reference_only_no_artifact_bytes")),
+            f(
+                "guest_evidence_authority",
+                s(if can_load_now {
+                    "dev_key_attestation_plus_retained_artifact_bytes"
+                } else {
+                    "hash_reference_only_no_artifact_bytes"
+                }),
+            ),
             f(
                 "required_before_load",
                 record_static_str_array(&["in_guest_evidence_retention", "raios.audit_record.v0", "rollback_plan", "module_loader", "ram_only_service_slot"]),
@@ -395,19 +423,30 @@ struct ModuleGrantAuthorityResult {
     can_load_now: bool,
 }
 
+#[derive(Clone, Copy)]
+struct ModuleGrantRuntimeReadiness {
+    retained_candidate_bytes_present: bool,
+    slot_allocatable: bool,
+    loader_available: bool,
+}
+
 fn module_grant_authority_from_attestation(
     check: &ModuleGrantReferenceCheck<'_>,
     attestation: Option<event_log::ModuleLocalAttestationReference>,
+    readiness: ModuleGrantRuntimeReadiness,
 ) -> ModuleGrantAuthorityResult {
     let grants_capability = module_grant_grants_capability(check, attestation);
     ModuleGrantAuthorityResult {
         grants_capability,
         trust_tier: module_grant_trust_tier(grants_capability),
-        can_load_now: false,
+        can_load_now: grants_capability
+            && readiness.retained_candidate_bytes_present
+            && readiness.slot_allocatable
+            && readiness.loader_available,
     }
 }
 
-fn module_grant_trust_tier(grants_capability: bool) -> &'static str {
+pub(crate) fn module_grant_trust_tier(grants_capability: bool) -> &'static str {
     if grants_capability {
         "dev_key_not_owner_sealed"
     } else {
@@ -415,7 +454,7 @@ fn module_grant_trust_tier(grants_capability: bool) -> &'static str {
     }
 }
 
-fn module_grant_grants_capability(
+pub(crate) fn module_grant_grants_capability(
     check: &ModuleGrantReferenceCheck<'_>,
     attestation: Option<event_log::ModuleLocalAttestationReference>,
 ) -> bool {
@@ -429,6 +468,41 @@ fn module_grant_grants_capability(
         && Some(attestation.artifact_hash) == check.artifact_hash
         && Some(attestation.vm_report_hash) == check.vm_report_hash
         && Some(attestation.local_attestation_hash) == check.local_attestation_hash
+}
+
+pub(crate) fn module_grant_check_from_retained(
+    retained: Option<event_log::ModuleComputedGrantReference>,
+) -> ModuleGrantReferenceCheck<'static> {
+    let Some(reference) = retained else {
+        return evaluate_module_grant_reference(
+            false,
+            true,
+            "current_boot",
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+    };
+    evaluate_module_grant_reference(
+        true,
+        true,
+        "current_boot",
+        Some(reference.computed_grant_hash),
+        Some(reference.manifest_hash),
+        Some(reference.artifact_hash),
+        Some(reference.vm_report_hash),
+        Some(reference.local_attestation_hash),
+    )
+}
+
+fn module_grant_live_runtime_readiness() -> ModuleGrantRuntimeReadiness {
+    ModuleGrantRuntimeReadiness {
+        retained_candidate_bytes_present: module_candidate_intake::retained().is_some(),
+        slot_allocatable: granted_candidate_service::slot_allocatable(),
+        loader_available: wasm_runtime::loader_available(),
+    }
 }
 
 fn module_grant_binding_from_check(
@@ -781,12 +855,15 @@ fn module_grant_selftest_case_from_spec(
     let authority = module_grant_authority_from_attestation(
         &actual,
         module_grant_selftest_attestation(spec.mutation),
+        module_grant_selftest_runtime_readiness(spec.mutation),
     );
     let expected_grants_capability =
         module_grant_selftest_expected_grants_capability(spec.mutation);
     let expected_trust_tier = module_grant_trust_tier(expected_grants_capability);
-    let co_emission_invariant =
-        !authority.grants_capability || method_eq(authority.trust_tier, "dev_key_not_owner_sealed");
+    let expected_can_load_now = expected_grants_capability;
+    let co_emission_invariant = !authority.can_load_now
+        || (authority.grants_capability
+            && method_eq(authority.trust_tier, "dev_key_not_owner_sealed"));
     ModuleGrantSelfTestCase {
         name: spec.name,
         expected_status: spec.expected_status,
@@ -797,9 +874,22 @@ fn module_grant_selftest_case_from_spec(
             && method_eq(actual.reason, spec.expected_reason)
             && authority.grants_capability == expected_grants_capability
             && method_eq(authority.trust_tier, expected_trust_tier)
-            && !authority.can_load_now
+            && authority.can_load_now == expected_can_load_now
             && !module_grant_check_can_load(&actual)
             && co_emission_invariant,
+    }
+}
+
+fn module_grant_selftest_runtime_readiness(
+    mutation: GrantSelftestMutation,
+) -> ModuleGrantRuntimeReadiness {
+    ModuleGrantRuntimeReadiness {
+        retained_candidate_bytes_present: matches!(
+            mutation,
+            GrantSelftestMutation::SignedFullyBoundAttestation
+        ),
+        slot_allocatable: true,
+        loader_available: true,
     }
 }
 

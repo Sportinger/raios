@@ -25,10 +25,14 @@ FIRST authority flip — `grants_capability=true` (labeled
 `trust_tier=dev_key_not_owner_sealed`) when evidence is valid AND the
 attestation is signature_verified AND bound to this grant; load stays
 denied. Owner decision (ADR 0007): the dev key gets full grant function;
-owner key K is the later sealing ceremony. Next: **M6C (promotion/load)** —
-slot + loader → instantiate & run a granted candidate under the M4 wasm
-envelope (can_load_now may flip true under the dev tier), then M6D
-(rollback).
+owner key K is the later sealing ceremony. **M6C-1 (load+run) done:** a
+granted, dev-key-signed external Wasm candidate — delivered over serial —
+now actually LOADS and RUNS as a live current-boot RAM service inside the
+UNCHANGED M4 envelope (`granted_candidate_service.rs`), fail-closed on
+ungranted/unsigned/hash-mismatch, labeled `dev_key_not_owner_sealed`;
+durable audit/rollback + owner-seal stay deferred. Next: **M6C-2**
+(optional: project the live run into loader/slot diagnostics), then **M6D**
+(durable promotion transaction + rollback plan/executor), then M7+.
 
 **M5 Second Service Proof closed 2026-07-06.** Capability sentence
 verified TRUE: adding svc.demo.echo cost only a descriptor + a small

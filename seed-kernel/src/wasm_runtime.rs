@@ -135,6 +135,10 @@ pub(crate) fn run_echo_service() -> EchoRunEvidence {
     execute_echo_module(validate_echo_wasm_artifact())
 }
 
+pub(crate) fn loader_available() -> bool {
+    true
+}
+
 pub(crate) fn validate_module_bytes(bytes: &[u8]) -> bool {
     let engine = Box::new(wasmi::Engine::default());
     wasmi::Module::new(&engine, bytes).is_ok()
@@ -155,11 +159,27 @@ struct NegativeRun {
 }
 
 fn execute_echo_module(validation_ok: bool) -> EchoRunEvidence {
+    execute_validated_module_bytes(
+        ECHO_WASM_ARTIFACT_BYTES,
+        "raios_service_main",
+        validation_ok,
+    )
+}
+
+pub(crate) fn execute_module_bytes(bytes: &[u8], entrypoint: &str) -> EchoRunEvidence {
+    execute_validated_module_bytes(bytes, entrypoint, validate_module_bytes(bytes))
+}
+
+fn execute_validated_module_bytes(
+    bytes: &[u8],
+    entrypoint: &str,
+    validation_ok: bool,
+) -> EchoRunEvidence {
     if !validation_ok {
         return positive_run(false, false, "validation_failed", None, 0, None);
     }
 
-    let wasm = Vec::from(ECHO_WASM_ARTIFACT_BYTES).into_boxed_slice();
+    let wasm = Vec::from(bytes).into_boxed_slice();
     let engine = metered_engine();
     let module = match Module::new(&engine, &*wasm) {
         Ok(module) => Box::new(module),
@@ -208,7 +228,7 @@ fn execute_echo_module(validation_ok: bool) -> EchoRunEvidence {
     };
 
     let Some(func) = instance
-        .get_export(&*store, "raios_service_main")
+        .get_export(&*store, entrypoint)
         .and_then(Extern::into_func)
     else {
         return positive_run(

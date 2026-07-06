@@ -5,7 +5,7 @@
     Assert-LogContains -Name "protocol:module_grant_selftest_no_load" -Needle '"loads_artifact": false' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_case_count" -Needle '"case_count": 10' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_passed" -Needle '"passed": true' -TimeoutSeconds 1
-    Assert-LogContains -Name "protocol:module_grant_selftest_co_emission_invariant" -Needle '"co_emission_invariant": "grants_capability_true_implies_trust_tier_dev_key_not_owner_sealed"' -TimeoutSeconds 1
+    Assert-LogContains -Name "protocol:module_grant_selftest_co_emission_invariant" -Needle '"co_emission_invariant": "can_load_now_true_implies_trust_tier_dev_key_not_owner_sealed_and_grants_capability"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_signed_grants_case" -Needle '"case": "signed_fully_bound_attestation_grants_capability"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_no_attestation_case" -Needle '"case": "no_retained_attestation_no_grant"' -TimeoutSeconds 1
     Assert-LogContains -Name "protocol:module_grant_selftest_unsigned_case" -Needle '"case": "unsigned_hash_valid_attestation_no_grant"' -TimeoutSeconds 1

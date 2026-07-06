@@ -3,9 +3,10 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-06 (M6B-2 — the first real "YES": raiOS now grants a checked,
-signed program its rights, honestly labeled "dev key, not owner-sealed".
-Loading/running is the next step (M6C); your own key seals it for real later).
+Updated: 2026-07-06 (M6C-1 — a granted outside program now actually RUNS: a
+real Wasm delivered over the console loads and executes in the sandbox,
+honestly labeled "dev key, not owner-sealed". Undo/durable-save (M6D) and your
+own key sealing come next).
 
 ## What raiOS can actually do today
 
@@ -80,14 +81,17 @@ moment: one AI-authored artifact travels
 the whole safe loop end to end — authored, tested in the Shadow VM,
 capability-granted, promoted live, and rolled back — with evidence at
 every step. Split into M6A (candidate intake) → M6B (grant) → M6C
-(promote) → M6D (rollback). **M6A COMPLETE + M6B done (M6B-1 + M6B-2).**
-The receiving door works, raiOS checks the "promotion authority" signature,
-and now — the first real YES — it **grants** a checked, signed program its
-rights, honestly stamped "dev key, not owner-sealed". It still does NOT load
-or run anything. Today's signing key is a deliberate DEV key (so the whole
-loop can be built and tested); **your own key K seals it for real later** —
-that swap is the one step that flips "dev" to "owned". **Next: M6C — actually
-load and run a granted program (under the sandbox), then M6D — undo it.**
+(promote) → M6D (rollback). **M6A + M6B + M6C-1 done.** The full early loop
+now works: a real outside program is received over the console, checked,
+its identity recorded, granted its rights — and now, the milestone moment,
+it **actually loads and runs** inside the sandbox, with real run evidence,
+still honestly stamped "dev key, not owner-sealed". Two independent gates
+plus a hostile-code review confirm only a genuinely granted, matching
+program can run; anything else is refused and never executes. Today's
+signing key is a deliberate DEV key so the whole loop can be built and
+tested; **your own key K seals it for real later** — that swap flips "dev"
+to "owned". **Next: M6D — undo a run (rollback) + durable save, then M7+
+(survive a restart).**
 
 ## Top risk
 

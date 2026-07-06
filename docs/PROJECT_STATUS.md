@@ -2612,11 +2612,40 @@ Adversarially reviewed: could-not-refute (no grant without verified+bound
 signature, no load leak, trust_tier co-emitted atomically, no golden churn);
 the code-vs-comment mismatch it flagged is fixed (promotion_attestation.rs
 comment now matches the ratified dev-tier decision).
-NEXT — M6C (promotion / load): allocate a current-boot RAM service slot for a
-granted candidate, wire the loader to instantiate its wasm under the M4
-envelope, and start it as a live service — turning grants_capability into an
-actual (dev-tier) load/run, still fail-closed and rollback-ready (M6D). This is
-where can_load_now may finally flip true under trust_tier=dev_key_not_owner_sealed.
+M6C-1 DONE (2026-07-06): a granted external Wasm candidate now LOADS and RUNS.
+`granted_candidate_service.rs` (new): the accepted+valid finalize retains the
+delivered bytes in `module_candidate_intake::RETAINED_CANDIDATE` (RAM,
+current_boot); a granted-candidate current-boot service loads into its own RAM
+slot and `start()` FAILS CLOSED — it executes `wasm_runtime::execute_module_bytes`
+(extracted from the echo runner, define_capability_envelope UNCHANGED) ONLY when
+`module_grant_grants_capability` (M6B-2: valid + signature_verified + all 5
+hashes) is true AND the retained SHA-256 == the granted artifact_hash. Dispatch
+rows (agent_protocol.rs) route module.load_ephemeral/service.start/stop/drop to
+the granted service only when granted; ungranted falls through to the generic
+DeniedModuleLoadEphemeral. Grant surfaces a dev-tier `can_load_now` true only
+when grant+retained-bytes+slot+loader ready; `module_grant_check_can_load` stays
+false and required_before_load (durable audit+rollback) intact. Every run/response
+labeled `trust_tier=dev_key_not_owner_sealed`. Verified: focused
+`shadow-20260706-145058-10548.json` 178/178 (real echo wasm delivered → granted
+load+run, instantiation_ok/run success/fuel>0/guest log; ungranted → capability_denied,
+no instantiation; generic durable gate stays denied) + FULL
+`shadow-20260706-162211-18496.json` 8168/8168 + raios-core 31/31. Max-effort
+adversarial review: could-not-refute (no run without verified+bound grant, no
+envelope escape, no durable/owner-sealed write, dev-tier can_load_now does not
+leak into the durable gate).
+KNOWN RESIDUALS (honest, labeled): (1) the live end-to-end dev-key SIGNATURE in
+the m6c-promotion profile is unavailable under Windows PowerShell 5.1 / .NET
+Framework P-256 (scalar-1 import + DER) — a TEST-TOOLING gap only; the run
+mechanism is proven by the in-guest granted_candidate selftest and the P-256
+verify by M6B-1 host tests, so the profile marks it informational and relies on
+the selftest. (2) the live wasm execution path shares the M4/M5 echo runner and
+does NOT wire the wasm memory `limiter` (guest memory bounded by address
+space + host allocator, fuel bounds CPU) — identical surface to echo, a
+defense-in-depth candidate for a later hardening pass.
+NEXT — M6C-2 (optional, non-authorizing): project the live granted run into the
+loader_runtime + service_slot diagnostics + the slot's inventory/health. Then
+M6D (durable promotion transaction via the M3 append/readback/inspect substrate
++ rollback plan/executor) — this flips the GENERIC durable load gate. Then M7+.
 Keep persistence, generic (non-`svc.demo.hello`) durable audit/rollback
 writes, external artifact LOAD and execution, executable candidate-byte
 mapping, provider auto-load, broad mutation, and installed rollback state

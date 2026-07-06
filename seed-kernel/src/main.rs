@@ -113,6 +113,7 @@ mod event_log_module_checks;
 mod event_log_provider_selftest;
 mod event_log_types;
 mod framebuffer;
+mod granted_candidate_service;
 mod hello_service;
 mod input;
 mod memory;

@@ -156,7 +156,7 @@ use crate::{
     agent_protocol_wasm::{
         emit_submit_candidate_chunk, emit_submit_candidate_finalize, emit_wasm_echo_probe,
     },
-    echo_service, event_log, hello_service, ui,
+    echo_service, event_log, granted_candidate_service, hello_service, ui,
 };
 
 pub(crate) use crate::agent_protocol_provider::provider_minimal_context_evidence_for_runtime;
@@ -332,6 +332,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     pred_method!("service.descriptor_source_trust_selftest", hello_service::is_descriptor_source_trust_selftest_method, [route!("service.descriptor_source_trust_selftest")], MethodAction::Response0Read(hello_service::emit_descriptor_source_trust_selftest)),
     pred_method!("service.artifact_reference_trust_selftest", hello_service::is_artifact_reference_trust_selftest_method, [route!("service.artifact_reference_trust_selftest")], MethodAction::Response0Read(hello_service::emit_artifact_reference_trust_selftest)),
     pred_method!("service.artifact_load_plan_preflight_selftest", hello_service::is_artifact_load_plan_preflight_selftest_method, [route!("service.artifact_load_plan_preflight_selftest")], MethodAction::Response0Read(hello_service::emit_artifact_load_plan_preflight_selftest)),
+    pred_method!("module.granted_candidate_selftest", granted_candidate_service::is_selftest_method, [route!("module.granted_candidate_selftest")], MethodAction::Response0Read(granted_candidate_service::emit_selftest)),
     pred_envelope_method!("service.health", hello_service::is_health_method, [route!("service.health")], 6, "service.health", "cap.service.health.read", "agent_command_envelope.current_boot.serial.service_health.v0", "service.health svc.demo.hello", MethodAction::ResponseMethod(hello_service::emit_health)),
     pred_method!("service.health", echo_service::is_health_method, [], MethodAction::ResponseMethod(echo_service::emit_health)),
     method!("memory.profile", Exact, ["memprofile"], [route!("memory.profile" => "memory.profile"), route!("memprofile" => "memory.profile")], MethodAction::Read0(emit_memory_profile)),
@@ -495,8 +496,10 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("provider.context_export", Head, ["provider.export_context"], [route!("provider.context_export"), route!("provider.export_context")], MethodAction::DeniedProviderContextExport),
     pred_method!("module.load_ephemeral", hello_service::is_load_start_method, [], MethodAction::ResponseMethod(hello_service::emit_load_start)),
     pred_method!("module.load_ephemeral", echo_service::is_load_method, [], MethodAction::ResponseMethod(echo_service::emit_load)),
+    pred_method!("module.load_ephemeral", granted_candidate_service::is_load_method, [], MethodAction::ResponseMethod(granted_candidate_service::emit_load)),
     pred_method!("service.start", hello_service::is_start_method, [route!("service.start")], MethodAction::ResponseMethod(hello_service::emit_start)),
     pred_method!("service.start", echo_service::is_start_method, [], MethodAction::ResponseMethod(echo_service::emit_start)),
+    pred_method!("service.start", granted_candidate_service::is_start_method, [], MethodAction::ResponseMethod(granted_candidate_service::emit_start)),
     pred_method!("service.restart", hello_service::is_restart_method, [route!("service.restart")], MethodAction::ResponseMethod(hello_service::emit_restart)),
     pred_method!("service.hot_swap", hello_service::is_hot_swap_method, [route!("service.hot_swap")], MethodAction::ResponseMethod(hello_service::emit_hot_swap)),
     pred_envelope_method!("service.rollback_preview", hello_service::is_rollback_preview_method, [route!("service.rollback_preview")], 7, "service.rollback_preview", "cap.service.rollback_preview.read", "agent_command_envelope.current_boot.serial.service_rollback_preview.v0", "service.rollback_preview svc.demo.hello", MethodAction::ResponseMethod(hello_service::emit_rollback_preview)),
@@ -505,8 +508,10 @@ const AGENT_METHODS: &[MethodEntry] = &[
     pred_method!("recovery.rollback_materialize_dry_run", hello_service::is_recovery_rollback_materialize_dry_run_method, [route!("recovery.rollback_materialize_dry_run")], MethodAction::ResponseMaterializeDryRun(hello_service::emit_recovery_rollback_materialize_dry_run)),
     pred_method!("service.stop", hello_service::is_stop_method, [route!("service.stop")], MethodAction::ResponseMethod(hello_service::emit_stop)),
     pred_method!("service.stop", echo_service::is_stop_method, [], MethodAction::ResponseMethod(echo_service::emit_stop)),
+    pred_method!("service.stop", granted_candidate_service::is_stop_method, [], MethodAction::ResponseMethod(granted_candidate_service::emit_stop)),
     pred_method!("service.drop", hello_service::is_drop_method, [route!("service.drop")], MethodAction::ResponseMethod(hello_service::emit_drop)),
     pred_method!("service.drop", echo_service::is_drop_method, [], MethodAction::ResponseMethod(echo_service::emit_drop)),
+    pred_method!("service.drop", granted_candidate_service::is_drop_method, [], MethodAction::ResponseMethod(granted_candidate_service::emit_drop)),
     method!("module.load_ephemeral", Head, ["service.load_ephemeral"], [route!("module.load_ephemeral"), route!("service.load_ephemeral")], MethodAction::DeniedModuleLoadEphemeral),
     method!("recovery.load_artifact", Exact, ["module.load_recovery_artifact"], [route!("recovery.load_artifact"), route!("module.load_recovery_artifact")], MethodAction::DeniedRecoveryArtifactLoad),
     method!("memory.record_observation", Exact, [], [route!("memory.record_observation" => "memory.record_observation")], MethodAction::DeniedMemoryMutation),
