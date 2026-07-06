@@ -340,18 +340,27 @@ application stays denied (slice 3). Verified: hello-rollback-dry-run
 207/207 incl. 4 new authorized-append needles
 (`shadow-20260706-024250-3116.json`) + quick regression 417/417.
 
+M3 slices 3-4 done (2026-07-06): **the hello rollback ACTUALLY APPLIES**
+— after the verified chain (scope decision → authorized append →
+readback match → inspection match) the state machine transitions v2→v1
+citing the transaction/write-readback/inspection hashes as its authority
+record (raios.ram_only_hello_service.rollback_apply_applied_binding.v0);
+post-apply recovery.rollback_inspect retains the applied transaction
+evidence (rollback_applied_transaction_inspected). Deny paths unchanged.
+Quick/dry-run profile needles updated to the applied reality (two
+worker-invented needle fields corrected by the orchestrator against the
+actual serial output). Verified: hello-rollback-dry-run 214/214, quick
+416/416, module-audit-rollback 1626/1626 (generic module authority
+still denied).
+
 Exact next task:
 
 ```text
-M3 slice 3 (verified apply): after authorized append + readback +
-inspection succeed, the hello rollback ACTUALLY APPLIES — state machine
-transitions citing the transaction hash / write-readback hash /
-inspection hash as its record; on any mismatch the state stays put with
-explicit denial. Needles: the rollback-apply-denied expectations flip to
-applied-with-evidence per the map (scoped only). Verify:
-hello-rollback-dry-run + quick + module-audit-rollback. Then slice 4/5:
-module profile alignment + M3 closure (full profile; capability sentence
-check).
+M3 closure: run the FULL profile over the applied-reality tree; if
+green, evaluate the M3 capability sentence ("first real,
+policy-authorized, durable mutation... and a hello hot-swap rollback
+actually applies using it") — it should now be TRUE; close M3, open M4
+(Wasm isolation), update dashboard, report to owner.
 ```
 
 ## Capability Milestones

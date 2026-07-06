@@ -8,6 +8,10 @@ pub const SCOPED_ROLLBACK_AUTHORIZED_APPEND_SCHEMA: &str =
 pub const SCOPED_ROLLBACK_AUTHORIZED_APPEND_ID: &str =
     "scoped_rollback_authorized_append.current_boot.svc.demo.hello.v0";
 pub const SCOPED_ROLLBACK_AUTHORIZED_APPEND_MARKER: &str = "RAIOS_ROLLBACK_AUTHORIZED_APPEND";
+pub const ROLLBACK_INSPECT_APPLIED_TRANSACTION_STATUS: &str =
+    "rollback_applied_transaction_inspected";
+pub const ROLLBACK_INSPECT_APPLIED_TRANSACTION_REASON: &str =
+    "applied_rollback_transaction_evidence_retained_current_boot";
 
 pub const EXPECTED_METHOD: &str = "service.rollback_apply";
 pub const EXPECTED_SERVICE_ID: &str = "svc.demo.hello";
@@ -243,6 +247,13 @@ impl ScopedRollbackAuthorizedAppendInput {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScopedRollbackAuthorizedAppendDecision {
     pub performed: bool,
+    pub status: &'static str,
+    pub reason: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScopedRollbackVerifiedApplyDecision {
+    pub applied: bool,
     pub status: &'static str,
     pub reason: &'static str,
 }
@@ -739,6 +750,65 @@ pub fn evaluate_scoped_rollback_authorized_append(
     }
 }
 
+pub fn evaluate_scoped_rollback_verified_apply(
+    append_input: &ScopedRollbackAuthorizedAppendInput,
+    authorized_append_hash: Option<[u8; 32]>,
+) -> ScopedRollbackVerifiedApplyDecision {
+    macro_rules! require_hash {
+        ($field:ident, $reason:literal) => {
+            match append_input.$field {
+                Some(value) => value,
+                None => return apply_denied($reason),
+            }
+        };
+    }
+
+    if !append_input.scope_decision_authorized {
+        return apply_denied("scope_decision_not_authorized");
+    }
+    if authorized_append_hash.is_none() {
+        return apply_denied("missing_authorized_append_hash");
+    }
+
+    let append_decision = evaluate_scoped_rollback_authorized_append(append_input);
+    if !append_decision.performed {
+        return apply_denied(append_decision.reason);
+    }
+
+    require_hash!(write_readback_hash, "missing_write_readback_hash");
+    require_hash!(inspection_hash, "missing_inspection_hash");
+    let transaction_hash = require_hash!(
+        append_record_rollback_transaction_image_hash,
+        "missing_append_rollback_transaction_image_hash"
+    );
+    if require_hash!(
+        inspected_rollback_transaction_image_hash,
+        "missing_inspected_rollback_transaction_image_hash"
+    ) != transaction_hash
+    {
+        return apply_denied("rollback_transaction_image_hash_mismatch");
+    }
+
+    ScopedRollbackVerifiedApplyDecision {
+        applied: true,
+        status: "current_boot_rollback_applied",
+        reason: "verified_authorized_append_readback_and_inspection",
+    }
+}
+
+pub fn applied_rollback_inspect_evidence_retained(
+    rollback_transaction_hash: Option<[u8; 32]>,
+    write_readback_hash: Option<[u8; 32]>,
+    inspection_hash: Option<[u8; 32]>,
+    inspected_rollback_transaction_hash: [u8; 32],
+    source_target_region_write_readback_hash: [u8; 32],
+    retained_inspection_hash: [u8; 32],
+) -> bool {
+    rollback_transaction_hash == Some(inspected_rollback_transaction_hash)
+        && write_readback_hash == Some(source_target_region_write_readback_hash)
+        && inspection_hash == Some(retained_inspection_hash)
+}
+
 fn require_str(
     actual: Option<&str>,
     expected: &str,
@@ -763,6 +833,14 @@ fn denied(reason: &'static str) -> ScopedRollbackApplyDecision {
 fn append_denied(reason: &'static str) -> ScopedRollbackAuthorizedAppendDecision {
     ScopedRollbackAuthorizedAppendDecision {
         performed: false,
+        status: "denied",
+        reason,
+    }
+}
+
+fn apply_denied(reason: &'static str) -> ScopedRollbackVerifiedApplyDecision {
+    ScopedRollbackVerifiedApplyDecision {
+        applied: false,
         status: "denied",
         reason,
     }
@@ -1046,5 +1124,99 @@ mod tests {
             assert_eq!(decision.reason, reason);
             assert!(!decision.performed);
         }
+    }
+
+    #[test]
+    fn verified_apply_requires_authorized_append_record() {
+        let append_input = valid_append_input();
+        let decision = evaluate_scoped_rollback_verified_apply(&append_input, Some(h(48)));
+        assert_eq!(
+            decision,
+            ScopedRollbackVerifiedApplyDecision {
+                applied: true,
+                status: "current_boot_rollback_applied",
+                reason: "verified_authorized_append_readback_and_inspection"
+            }
+        );
+    }
+
+    #[test]
+    fn verified_apply_denies_missing_or_mismatched_append_chain() {
+        let cases: [(
+            &str,
+            fn(&mut ScopedRollbackAuthorizedAppendInput),
+            Option<[u8; 32]>,
+        ); 5] = [
+            (
+                "missing_authorized_append_hash",
+                |_input: &mut ScopedRollbackAuthorizedAppendInput| {},
+                None,
+            ),
+            (
+                "scope_decision_not_authorized",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.scope_decision_authorized = false;
+                },
+                Some(h(48)),
+            ),
+            (
+                "readback_hash_mismatch",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.readback_matches_planned_image = false;
+                },
+                Some(h(48)),
+            ),
+            (
+                "inspection_not_verified",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.inspection_verified = false;
+                },
+                Some(h(48)),
+            ),
+            (
+                "rollback_transaction_image_hash_mismatch",
+                |input: &mut ScopedRollbackAuthorizedAppendInput| {
+                    input.inspected_rollback_transaction_image_hash = Some(h(96));
+                },
+                Some(h(48)),
+            ),
+        ];
+
+        for (reason, mutate, append_hash) in cases {
+            let mut input = valid_append_input();
+            mutate(&mut input);
+            let decision = evaluate_scoped_rollback_verified_apply(&input, append_hash);
+            assert_eq!(decision.status, "denied");
+            assert_eq!(decision.reason, reason);
+            assert!(!decision.applied);
+        }
+    }
+
+    #[test]
+    fn applied_inspect_retention_requires_same_transaction_hashes() {
+        assert!(applied_rollback_inspect_evidence_retained(
+            Some(h(47)),
+            Some(h(43)),
+            Some(h(44)),
+            h(47),
+            h(43),
+            h(44)
+        ));
+        assert!(!applied_rollback_inspect_evidence_retained(
+            Some(h(96)),
+            Some(h(43)),
+            Some(h(44)),
+            h(47),
+            h(43),
+            h(44)
+        ));
+        assert!(!applied_rollback_inspect_evidence_retained(
+            Some(h(47)),
+            Some(h(96)),
+            Some(h(44)),
+            h(47),
+            h(43),
+            h(44)
+        ));
     }
 }

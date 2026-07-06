@@ -1,3 +1,31 @@
+        function Get-LastMarkerJsonAfterOffset {
+            param(
+                [string]$Prefix,
+                [int]$Offset,
+                [string]$Name
+            )
+
+            $content = Get-SerialLogContent -Path $SerialLog
+            if ($null -eq $content) {
+                throw "No serial log content found in $SerialLog"
+            }
+            $slice = if ($Offset -lt $content.Length) { $content.Substring($Offset) } else { "" }
+            $markerIndex = $slice.LastIndexOf($Prefix, [System.StringComparison]::Ordinal)
+            $passed = $markerIndex -ge 0
+            Add-Predicate -Name $Name -Expected "serial_contains_after_offset:$Prefix" -Passed $passed -Actual $(if ($passed) { "found_after_offset:$Offset" } else { Get-SerialLogTail -Path $SerialLog })
+            if (-not $passed) {
+                throw "Expected marker '$Prefix' after serial offset $Offset"
+            }
+
+            $jsonStart = $markerIndex + $Prefix.Length
+            $lineEnd = $slice.IndexOf("`n", $jsonStart, [System.StringComparison]::Ordinal)
+            if ($lineEnd -lt 0) {
+                $lineEnd = $slice.Length
+            }
+            $json = $slice.Substring($jsonStart, $lineEnd - $jsonStart).Trim()
+            return $json | ConvertFrom-Json
+        }
+
         $HelloLoadPlanPreflightSchema = "raios.current_boot_artifact_load_plan_preflight.v0"
         $HelloLoadPlanPreflightId = "artifact_load_plan_preflight.current_boot.svc.demo.hello.v0"
         $HelloLoadPlanPreflightStatus = "accepted_builtin_current_boot_only"
@@ -2228,79 +2256,78 @@
             throw "Expected recovery rollback inspect to retain target-region sector inspection evidence without append/apply authority"
         }
         $helloRollbackInspectSector = $helloRollbackInspect.body.result.target_region_sector_inspection
+        $helloRollbackInspectTargetWriteReadback = $helloRollbackInspect.body.result.target_region_write_readback
         $helloRollbackInspectSource = $helloRollbackInspect.body.result.retained_recovery_rollback_inspect_source
         if (-not $helloRollbackInspectSource -or $helloRollbackInspectSource.schema -ne $HelloRecoveryRollbackInspectSourceReferenceSchema -or $helloRollbackInspectSource.id -ne $HelloRecoveryRollbackInspectSourceReferenceId -or $helloRollbackInspectSource.status -ne $HelloRecoveryRollbackInspectSourceReferenceStatus -or $helloRollbackInspectSource.reason -ne $HelloRecoveryRollbackInspectSourceReferenceReason -or $helloRollbackInspectSource.source_method -ne "recovery.rollback_inspect" -or $helloRollbackInspectSource.source_event_id -eq $null -or $helloRollbackInspectSource.source_audit_event_id -eq $null -or -not $helloRollbackInspectSource.source_available -or -not $helloRollbackInspectSource.source_matches_sector_inspection -or -not $helloRollbackInspectSource.source_event_retained -or -not $helloRollbackInspectSource.source_audit_event_retained -or $helloRollbackInspectSource.ram_audit_status -ne "retained_audit_event_verified" -or $helloRollbackInspectSource.ram_audit_reason -ne "recovery_rollback_inspect_source_reference_ram_audit_verified" -or -not $helloRollbackInspectSource.ram_audit_validated -or -not $helloRollbackInspectSource.reference_hash.StartsWith("sha256:") -or $helloRollbackInspectSource.source_inspection_hash -ne $helloRollbackInspectSector.inspection_hash -or $helloRollbackInspectSource.target_region_sector_inspection_hash -ne $helloRollbackInspectSector.inspection_hash -or $helloRollbackInspectSource.source_sector_plan_hash -ne $helloRollbackInspectSector.source_sector_plan_hash -or $helloRollbackInspectSource.source_target_region_write_readback_hash -ne $helloRollbackInspectSector.source_target_region_write_readback_hash -or $helloRollbackInspectSource.authorizes_rollback_apply) {
             throw "Expected recovery rollback inspect to retain a source reference over its verified sector inspection without applying rollback"
         }
 
+        $helloRollbackApplyOffset = Get-SerialLogOffset
         Send-AgentCommand -Command "service.rollback_apply svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.rollback_apply"
         $helloRollbackApply = Get-LastAgentResponseJson -Method "service.rollback_apply"
-        Assert-CurrentBootEventId -Name "quick:hello_rollback_apply_event_id" -Value $helloRollbackApply.body.event_id
-        $helloRollbackApplyHash = & $AssertHelloRollbackApplyDenied `
-            -Apply $helloRollbackApply.body `
-            -ExpectedProbationHash $helloHotSwapV2ProbationHash `
-            -ExpectedPreviewHash $helloRollbackPreview.body.result.preview_hash `
-            -ExpectedTargetVersion "v1" `
-            -ExpectedCurrentVersion "v2" `
-            -ExpectedTargetGeneration $helloHotSwap.body.result.service.generation `
-            -ExpectedCurrentGeneration $helloHotSwapV2.body.result.service.generation `
-            -ExpectedTargetArtifactIdentityHash $helloArtifactIdentityHash `
-            -ExpectedCurrentArtifactIdentityHash $helloHotSwapV2.body.result.service.artifact_identity_hash `
-            -ExpectedStateHash $helloHotSwapStateHash `
-            -ExpectedStateMigrationHash $helloHotSwapV2MigrationHash
-        $helloRollbackTransactionPreflightHash = $helloRollbackApply.body.rollback_transaction_preflight.preflight_hash
-        $helloRollbackWriteAuthorityGateHash = $helloRollbackApply.body.rollback_write_authority_gate.gate_hash
-        $helloRollbackAppendIntentGateHash = $helloRollbackApply.body.rollback_append_intent_gate.gate_hash
-        $helloRollbackPayloadEnvelopeGateHash = $helloRollbackApply.body.rollback_payload_envelope_gate.gate_hash
-        $helloRollbackPayloadHash = $helloRollbackApply.body.rollback_payload_envelope_gate.proposed_transaction.payload_hash
-        $helloRollbackPayloadProvenanceHash = $helloRollbackApply.body.rollback_payload_envelope_gate.proposed_transaction.provenance_hash
-        $helloRollbackTransactionWriterStorageAuthorityGateHash = $helloRollbackApply.body.rollback_transaction_writer_storage_authority_gate.gate_hash
-        $helloRollbackApplyDurablePreflight = $helloRollbackApply.body.rollback_transaction_writer_storage_authority_gate.writer_storage_foundation.transaction_writer_readiness.scratch_only_writer_dry_run.append_record_dry_run.sector_plan_dry_run.scratch_sector_write_readback_dry_run.durable_append_authority_preflight
-        $helloRollbackApplyInspectSource = $helloRollbackApplyDurablePreflight.retained_recovery_rollback_inspect_source
-        $helloRollbackApplyPolicyWriteAuthorityDecision = $helloRollbackApplyDurablePreflight.durable_policy_write_authority_decision
-        if ($helloRollbackApply.body.source_durable_policy_write_authority_decision_hash -ne $helloRollbackApplyPolicyWriteAuthorityDecision.decision_hash -or $helloRollbackApply.body.source_recovery_rollback_inspect_source_reference_hash -ne $helloRollbackInspectSource.reference_hash -or -not $helloRollbackApply.body.retained_durable_policy_write_authority_decision_verified -or -not $helloRollbackApply.body.retained_recovery_rollback_inspect_source_reference_validated) {
-            throw "Expected rollback apply denial hash to bind retained durable-policy decision and recovery inspect-source hashes"
+        $helloApplied = $helloRollbackApply.body.result
+        Assert-CurrentBootEventId -Name "quick:hello_rollback_apply_event_id" -Value $helloApplied.event_id
+        Assert-CurrentBootEventId -Name "quick:hello_rollback_apply_audit_event_id" -Value $helloApplied.audit_event_id
+        if ($helloRollbackApply.t -ne "response" -or $helloApplied.schema -ne $HelloRollbackApplySchema -or $helloApplied.id -ne $HelloRollbackApplyId -or $helloApplied.status -ne "current_boot_rollback_applied" -or $helloApplied.reason -ne "verified_authorized_append_readback_and_inspection") {
+            throw "Expected Hello rollback apply to apply after verified append/readback/inspection evidence"
         }
-        if (-not $helloRollbackApplyInspectSource -or $helloRollbackApplyInspectSource.reference_hash -ne $helloRollbackInspectSource.reference_hash -or $helloRollbackApplyInspectSource.source_event_id -ne $helloRollbackInspectSource.source_event_id -or $helloRollbackApplyInspectSource.source_audit_event_id -ne $helloRollbackInspectSource.source_audit_event_id -or $helloRollbackApplyInspectSource.source_inspection_hash -ne $helloRollbackApplyDurablePreflight.target_region_sector_inspection.inspection_hash -or -not $helloRollbackApplyInspectSource.source_available -or -not $helloRollbackApplyInspectSource.source_matches_sector_inspection -or -not $helloRollbackApplyInspectSource.source_event_retained -or -not $helloRollbackApplyInspectSource.source_audit_event_retained -or $helloRollbackApplyInspectSource.ram_audit_status -ne "retained_audit_event_verified" -or $helloRollbackApplyInspectSource.ram_audit_reason -ne "recovery_rollback_inspect_source_reference_ram_audit_verified" -or -not $helloRollbackApplyInspectSource.ram_audit_validated -or $helloRollbackApplyInspectSource.authorizes_rollback_apply) {
-            throw "Expected rollback apply denial to consume retained recovery inspect source reference without authorizing apply"
+        $helloRollbackApplyHash = $helloApplied.rollback_apply_hash
+        if (-not $helloRollbackApplyHash -or -not $helloRollbackApplyHash.StartsWith("sha256:")) {
+            throw "Expected Hello rollback apply response to expose rollback_apply_hash"
+        }
+        if ($helloApplied.authority_record.rollback_transaction_hash -ne $helloRollbackInspectSector.rollback_transaction_image_hash -or $helloApplied.authority_record.write_readback_hash -ne $helloRollbackInspectSector.source_target_region_write_readback_hash -or $helloApplied.authority_record.inspection_hash -ne $helloRollbackInspectSector.inspection_hash) {
+            throw "Expected applied rollback authority record to cite transaction, write/readback, and inspection hashes"
+        }
+        if (-not $helloApplied.authority_record.audit_record_hash -or -not $helloApplied.authority_record.audit_record_hash.StartsWith("sha256:") -or -not $helloApplied.authority_record.authorized_append_hash -or -not $helloApplied.authority_record.authorized_append_hash.StartsWith("sha256:") -or -not $helloApplied.authority_record.scope_decision_hash -or -not $helloApplied.authority_record.scope_decision_hash.StartsWith("sha256:") -or $helloApplied.authority_record.inspected_rollback_transaction_hash -ne $helloApplied.authority_record.rollback_transaction_hash) {
+            throw "Expected applied rollback authority record to bind audit, append, scope, and inspected transaction hashes"
+        }
+        if ($helloApplied.state_transition.from_version -ne "v2" -or $helloApplied.state_transition.to_version -ne "v1" -or $helloApplied.state_transition.from_generation -ne $helloHotSwapV2.body.result.service.generation -or $helloApplied.state_transition.to_generation -ne $helloHotSwap.body.result.service.generation -or -not $helloApplied.state_transition.state_counter_preserved -or -not $helloApplied.state_transition.current_boot_service_state_mutated) {
+            throw "Expected rollback apply to transition current boot service from v2 back to prior v1 state"
+        }
+        if (-not $helloApplied.side_effects.authorizes_media_write -or -not $helloApplied.side_effects.authorizes_append -or -not $helloApplied.side_effects.authorizes_transaction_append -or -not $helloApplied.side_effects.writes_durable_audit_log -or -not $helloApplied.side_effects.writes_rollback_store -or -not $helloApplied.side_effects.appends_rollback_transaction -or -not $helloApplied.side_effects.applies_rollback -or -not $helloApplied.side_effects.mutates_service_state -or $helloApplied.side_effects.installs_rollback_state -or $helloApplied.side_effects.persistent_install -ne "denied" -or $helloApplied.side_effects.external_artifact_load -ne "denied" -or $helloApplied.side_effects.broad_mutation -ne "denied") {
+            throw "Expected rollback apply side effects to mutate only the current-boot service while broad/persistent mutation stays denied"
+        }
+        $helloAuthorizedAppend = Get-LastMarkerJsonAfterOffset -Prefix "RAIOS_ROLLBACK_AUTHORIZED_APPEND" -Offset $helloRollbackApplyOffset -Name "quick:hello_rollback_authorized_append_marker"
+        if ($helloAuthorizedAppend.schema -ne "raios.scoped_rollback_authorized_append.v0" -or $helloAuthorizedAppend.id -ne "scoped_rollback_authorized_append.current_boot.svc.demo.hello.v0" -or $helloAuthorizedAppend.status -ne "performed" -or $helloAuthorizedAppend.reason -ne "authorized_lba1_transaction_append_readback_and_inspection_verified" -or -not $helloAuthorizedAppend.transaction_append_performed) {
+            throw "Expected scoped rollback authorized append evidence to report a performed append"
+        }
+        if (-not $helloAuthorizedAppend.side_effects.authorizes_media_write -or -not $helloAuthorizedAppend.side_effects.authorizes_append -or -not $helloAuthorizedAppend.side_effects.authorizes_transaction_append -or -not $helloAuthorizedAppend.side_effects.writes_durable_audit_log -or -not $helloAuthorizedAppend.side_effects.writes_rollback_store -or -not $helloAuthorizedAppend.side_effects.appends_rollback_transaction -or $helloAuthorizedAppend.side_effects.applies_rollback -or $helloAuthorizedAppend.side_effects.mutates_service_state -or $helloAuthorizedAppend.side_effects.installs_rollback_state) {
+            throw "Expected authorized append marker to append the transaction without applying rollback by itself"
+        }
+
+        Send-AgentCommand -Command "recovery.rollback_inspect svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END recovery.rollback_inspect"
+        $helloRollbackInspectAfterApply = Get-LastAgentResponseJson -Method "recovery.rollback_inspect"
+        $helloRollbackInspectAfterApplySector = $helloRollbackInspectAfterApply.body.result.target_region_sector_inspection
+        $helloRollbackInspectAfterApplyTargetWriteReadback = $helloRollbackInspectAfterApply.body.result.target_region_write_readback
+        $helloRollbackAppliedAuthorityRecord = $helloRollbackInspectAfterApply.body.result.applied_authority_record
+        if ($helloRollbackInspectAfterApply.body.result.schema -ne "raios.recovery_rollback_inspect.v0" -or $helloRollbackInspectAfterApply.body.result.status -ne "rollback_applied_transaction_inspected" -or -not $helloRollbackInspectAfterApply.body.result.read_only -or -not $helloRollbackInspectAfterApply.body.result.materialized_sector_evidence_available -or -not $helloRollbackInspectAfterApply.body.result.inspection_available) {
+            throw "Expected post-apply recovery rollback inspect to expose read-only applied transaction evidence"
+        }
+        if (-not $helloRollbackAppliedAuthorityRecord -or $helloRollbackAppliedAuthorityRecord.schema -ne "raios.rollback_transaction.v0" -or $helloRollbackAppliedAuthorityRecord.source_method -ne "service.rollback_apply" -or $helloRollbackAppliedAuthorityRecord.source_event_id -ne $helloApplied.event_id -or $helloRollbackAppliedAuthorityRecord.source_audit_event_id -ne $helloApplied.audit_event_id -or $helloRollbackAppliedAuthorityRecord.status -ne "current_boot_rollback_applied" -or $helloRollbackAppliedAuthorityRecord.rollback_transaction_hash -ne $helloApplied.authority_record.rollback_transaction_hash -or $helloRollbackAppliedAuthorityRecord.write_readback_hash -ne $helloApplied.authority_record.write_readback_hash -or $helloRollbackAppliedAuthorityRecord.inspection_hash -ne $helloApplied.authority_record.inspection_hash -or $helloRollbackAppliedAuthorityRecord.audit_record_hash -ne $helloApplied.authority_record.audit_record_hash -or $helloRollbackAppliedAuthorityRecord.inspected_rollback_transaction_hash -ne $helloApplied.authority_record.inspected_rollback_transaction_hash -or $helloRollbackAppliedAuthorityRecord.target_region_write_readback_hash -ne $helloRollbackInspectSector.source_target_region_write_readback_hash -or $helloRollbackAppliedAuthorityRecord.target_region_sector_inspection_hash -ne $helloRollbackInspectSector.inspection_hash) {
+            throw "Expected post-apply recovery inspect to reference the applied authority record and same transaction hashes"
+        }
+        if (-not $helloRollbackInspectAfterApplyTargetWriteReadback -or $helloRollbackInspectAfterApplyTargetWriteReadback.dry_run_hash -ne $helloRollbackInspectTargetWriteReadback.dry_run_hash -or $helloRollbackInspectAfterApplyTargetWriteReadback.planned_sector_image_hash -ne $helloRollbackInspectTargetWriteReadback.planned_sector_image_hash -or $helloRollbackInspectAfterApplyTargetWriteReadback.readback_sector_image_hash -ne $helloRollbackInspectTargetWriteReadback.readback_sector_image_hash) {
+            throw "Expected post-apply recovery inspect to retain target-region write/readback evidence"
+        }
+        if (-not $helloRollbackInspectAfterApplySector -or $helloRollbackInspectAfterApplySector.inspection_hash -ne $helloRollbackInspectSector.inspection_hash -or $helloRollbackInspectAfterApplySector.source_sector_plan_hash -ne $helloRollbackInspectSector.source_sector_plan_hash -or $helloRollbackInspectAfterApplySector.source_target_region_write_readback_hash -ne $helloRollbackInspectSector.source_target_region_write_readback_hash -or $helloRollbackInspectAfterApplySector.audit_record_image_hash -ne $helloRollbackInspectSector.audit_record_image_hash -or $helloRollbackInspectAfterApplySector.rollback_transaction_image_hash -ne $helloRollbackInspectSector.rollback_transaction_image_hash) {
+            throw "Expected post-apply recovery inspect to retain the same sector, audit-record, and transaction hashes"
+        }
+        if (-not $helloRollbackInspectAfterApplySector.read_attempted -or -not $helloRollbackInspectAfterApplySector.read_completed -or -not $helloRollbackInspectAfterApplySector.sector_hash_verified -or -not $helloRollbackInspectAfterApplySector.audit_record_hash_verified -or -not $helloRollbackInspectAfterApplySector.rollback_transaction_hash_verified -or -not $helloRollbackInspectAfterApplySector.offsets_verified -or -not $helloRollbackInspectAfterApplySector.padding_zeroed -or -not $helloRollbackInspectAfterApplySector.target_span_verified -or -not $helloRollbackInspectAfterApplySector.target_region_write_readback_verified -or -not $helloRollbackInspectAfterApplySector.inspection_verified) {
+            throw "Expected post-apply recovery inspect to verify target-sector read, hashes, offsets, and padding"
+        }
+        if ($helloRollbackInspectAfterApply.body.result.denied_surfaces.authorizes_media_write -or $helloRollbackInspectAfterApply.body.result.denied_surfaces.authorizes_append -or $helloRollbackInspectAfterApply.body.result.denied_surfaces.authorizes_transaction_append -or $helloRollbackInspectAfterApply.body.result.denied_surfaces.writes_durable_audit_log -or $helloRollbackInspectAfterApply.body.result.denied_surfaces.writes_rollback_store -or $helloRollbackInspectAfterApply.body.result.denied_surfaces.appends_rollback_transaction -or $helloRollbackInspectAfterApply.body.result.denied_surfaces.applies_rollback -or $helloRollbackInspectAfterApply.body.result.denied_surfaces.installs_rollback_state) {
+            throw "Post-apply recovery rollback inspect must remain read-only and non-applying"
         }
 
         Send-AgentCommand -Command "service.health svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.health"
         $helloHealthAfterRollbackApply = Get-LastAgentResponseJson -Method "service.health"
-        if ($helloHealthAfterRollbackApply.body.result.service.version -ne "v2" -or $helloHealthAfterRollbackApply.body.result.service.generation -ne $helloHotSwapV2.body.result.service.generation) {
-            throw "Expected rollback apply denial to leave the active v2 service unchanged"
+        if ($helloHealthAfterRollbackApply.body.result.service.version -ne "v1" -or $helloHealthAfterRollbackApply.body.result.service.generation -ne $helloHotSwap.body.result.service.generation) {
+            throw "Expected rollback apply to leave the active current-boot service at previous-good v1"
         }
-        $helloHealthAfterRollbackApplyStateHash = & $AssertHelloState -Name "hello health after rollback apply denial" -State $helloHealthAfterRollbackApply.body.result.state -ExpectedCounter 3 -ExpectedVersion "v2"
-        if ($helloHealthAfterRollbackApplyStateHash -ne $helloHotSwapV2StateHash) {
-            throw "Expected rollback apply denial to preserve Hello RAM-only state"
+        $helloHealthAfterRollbackApplyStateHash = & $AssertHelloState -Name "hello health after rollback apply" -State $helloHealthAfterRollbackApply.body.result.state -ExpectedCounter 3 -ExpectedVersion "v1"
+        if ($helloHealthAfterRollbackApplyStateHash -ne $helloHotSwapStateHash) {
+            throw "Expected rollback apply to preserve Hello RAM-only state"
         }
-
-        Send-AgentCommand -Command "service.hot_swap svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.hot_swap"
-        $helloHotSwapBack = Get-LastAgentResponseJson -Method "service.hot_swap"
-        Assert-CurrentBootEventId -Name "quick:hello_hot_swap_back_event_id" -Value $helloHotSwapBack.body.result.event_id
-        if ($helloHotSwapBack.body.result.service.version -ne "v1" -or $helloHotSwapBack.body.result.service.artifact_identity_hash -ne $helloArtifactIdentityHash) {
-            throw "Expected service.hot_swap svc.demo.hello to return to the signed v1 built-in candidate"
-        }
-        if ($helloHotSwapBack.body.result.service.generation -ne ($helloHotSwapV2.body.result.service.generation + 1)) {
-            throw "Expected accepted v1 service.hot_swap to advance the loaded hello generation after v2"
-        }
-        $helloHotSwapBackStateHash = & $AssertHelloState -Name "hello v1 hot-swap back response" -State $helloHotSwapBack.body.result.state -ExpectedCounter 3 -ExpectedVersion "v1"
-        if ($helloHotSwapBackStateHash -ne $helloHotSwapV2StateHash) {
-            throw "Expected v1 service.hot_swap back to preserve Hello RAM-only state"
-        }
-        $helloHotSwapBackMigrationHash = & $AssertHelloStateMigration -Name "hello v1 hot-swap back response" -Migration $helloHotSwapBack.body.result.state_migration -ExpectedFromVersion "v2" -ExpectedToVersion "v1" -ExpectedCounter 3 -ExpectedStateHash $helloHotSwapV2StateHash
-        $helloHotSwapBackProbationHash = & $AssertHelloHotSwapProbation `
-            -Name "hello v1 hot-swap back response" `
-            -Probation $helloHotSwapBack.body.result.hot_swap_probation `
-            -ExpectedPreviousVersion "v2" `
-            -ExpectedNewVersion "v1" `
-            -ExpectedPreviousGeneration $helloHotSwapV2.body.result.service.generation `
-            -ExpectedNewGeneration $helloHotSwapBack.body.result.service.generation `
-            -ExpectedPreviousStateHash $helloHotSwapV2StateHash `
-            -ExpectedNewStateHash $helloHotSwapBackStateHash `
-            -ExpectedPreviousArtifactIdentityHash $helloHotSwapV2.body.result.service.artifact_identity_hash `
-            -ExpectedNewArtifactIdentityHash $helloArtifactIdentityHash `
-            -ExpectedStateMigrationHash $helloHotSwapBackMigrationHash
 
         Send-AgentCommand -Command "service.drop svc.demo.hello" -ExpectedMarker "RAIOS_AGENT_END service.drop"
         $helloDrop = Get-LastAgentResponseJson -Method "service.drop"
@@ -2309,7 +2336,7 @@
             throw "Expected dropped hello service after service.drop"
         }
         $helloDropStateHash = & $AssertHelloState -Name "hello drop response" -State $helloDrop.body.result.state -ExpectedCounter 0 -ExpectedVersion "v1"
-        if ($helloDropStateHash -eq $helloHotSwapBackStateHash) {
+        if ($helloDropStateHash -eq $helloHealthAfterRollbackApplyStateHash) {
             throw "Expected service.drop to clear Hello RAM-only state"
         }
         $helloDropActivationHash = & $AssertHelloServiceSlotActivation `
@@ -2633,23 +2660,11 @@
         if ($helloRollbackPreviewEvents.Count -lt 1) {
             throw "Expected rollback preview audit event to bind retained hot-swap probation without rollback apply"
         }
-        $helloRollbackApplyEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.rollback_apply" -and $_.id -eq $helloRollbackApply.body.audit_event_id -and $_.outcome -eq "capability_denied" -and $_.requested_capability -eq "cap.service.rollback_apply.current_boot" -and $_.bindings.schema -eq "raios.ram_only_hello_service.rollback_apply_denial_binding.v0" -and $_.bindings.rollback_preview_hash -eq $helloRollbackPreview.body.result.preview_hash -and $_.bindings.rollback_apply_hash -eq $helloRollbackApplyHash -and $_.bindings.rollback_apply_status -eq $HelloRollbackApplyStatus -and -not $_.bindings.rollback_apply_authorized -and -not $_.bindings.rollback_apply_mutates_service_state -and $_.bindings.rollback_transaction_preflight_schema -eq $HelloRollbackTransactionPreflightSchema -and $_.bindings.rollback_transaction_preflight_id -eq $HelloRollbackTransactionPreflightId -and $_.bindings.rollback_transaction_preflight_hash -eq $helloRollbackTransactionPreflightHash -and $_.bindings.rollback_transaction_preflight_status -eq $HelloRollbackTransactionPreflightStatus -and $_.bindings.rollback_transaction_authority_missing -and $_.bindings.rollback_durable_audit_write_authority_missing -and $_.bindings.rollback_persistent_install_authority_missing -and -not $_.bindings.rollback_transaction_writes_durable_audit_log -and -not $_.bindings.rollback_transaction_writes_rollback_store -and -not $_.bindings.rollback_transaction_installs_rollback_plan -and -not $_.bindings.rollback_transaction_applies_rollback -and $_.bindings.rollback_write_authority_gate_schema -eq $HelloRollbackWriteAuthorityGateSchema -and $_.bindings.rollback_write_authority_gate_id -eq $HelloRollbackWriteAuthorityGateId -and $_.bindings.rollback_write_authority_gate_hash -eq $helloRollbackWriteAuthorityGateHash -and $_.bindings.rollback_write_authority_gate_status -eq $HelloRollbackWriteAuthorityGateStatus -and $_.bindings.rollback_write_authority_required_audit_schema -eq "raios.audit_record.v0" -and $_.bindings.rollback_write_authority_required_rollback_schema -eq "raios.rollback_transaction.v0" -and -not $_.bindings.rollback_durable_audit_write_authority_available -and -not $_.bindings.rollback_store_write_authority_available -and -not $_.bindings.rollback_transaction_append_available -and $_.bindings.hot_swap_probation_hash -eq $helloHotSwapV2ProbationHash -and $_.bindings.hot_swap_probation_previous_artifact_identity_hash -eq $helloArtifactIdentityHash -and $_.bindings.hot_swap_probation_new_artifact_identity_hash -eq $helloHotSwapV2.body.result.service.artifact_identity_hash -and $_.bindings.hot_swap_probation_previous_generation -eq $helloHotSwap.body.result.service.generation -and $_.bindings.hot_swap_probation_new_generation -eq $helloHotSwapV2.body.result.service.generation -and $_.bindings.hello_state_hash -eq $helloHotSwapV2StateHash -and $_.bindings.hello_state_counter -eq 3 -and -not $_.bindings.hot_swap_probation_applies_rollback -and -not $_.bindings.hot_swap_probation_installs_rollback_plan })
+        $helloRollbackApplyEvents = @($recentEvents.body.result.events | Where-Object { $_.kind -eq "raios.ram_only_hello_service.lifecycle" -and $_.id -eq $helloApplied.audit_event_id -and $_.outcome -eq "response" -and $_.requested_capability -eq "cap.service.hello_demo.current_boot" -and $_.bindings.schema -eq "raios.ram_only_hello_service.rollback_apply_applied_binding.v0" -and $_.bindings.rollback_preview_hash -eq $helloRollbackPreview.body.result.preview_hash -and $_.bindings.rollback_apply_hash -eq $helloRollbackApplyHash -and $_.bindings.rollback_apply_status -eq "current_boot_rollback_applied" -and $_.bindings.rollback_apply_authorized -and $_.bindings.rollback_apply_mutates_service_state -and $_.bindings.rollback_transaction_applies_rollback -and $_.bindings.rollback_apply_source_recovery_rollback_inspect_source_reference_hash -eq $helloRollbackInspectSource.reference_hash -and $_.bindings.rollback_apply_source_durable_policy_write_authority_decision_verified -and $_.bindings.rollback_apply_source_recovery_rollback_inspect_source_reference_validated -and $_.bindings.hot_swap_probation_hash -eq $helloHotSwapV2ProbationHash -and $_.bindings.hello_state_counter -eq 3 -and -not $_.bindings.hot_swap_probation_installs_rollback_plan })
         if ($helloRollbackApplyEvents.Count -lt 1) {
-            throw "Expected rollback apply audit event to bind preview/probation/state evidence without mutating service state"
+            throw "Expected rollback apply audit event to bind applied preview/probation/state and transaction evidence"
         }
-        $helloRollbackApplyAppendEvents = @($helloRollbackApplyEvents | Where-Object { $_.bindings.rollback_append_intent_gate_schema -eq $HelloRollbackAppendIntentGateSchema -and $_.bindings.rollback_append_intent_gate_id -eq $HelloRollbackAppendIntentGateId -and $_.bindings.rollback_append_intent_gate_hash -eq $helloRollbackAppendIntentGateHash -and $_.bindings.rollback_append_intent_gate_status -eq $HelloRollbackAppendIntentGateStatus -and $_.bindings.rollback_append_intent_required_audit_schema -eq "raios.audit_record.v0" -and $_.bindings.rollback_append_intent_required_rollback_schema -eq "raios.rollback_transaction.v0" -and -not $_.bindings.rollback_append_intent_available -and -not $_.bindings.rollback_append_durable_audit_store_available -and -not $_.bindings.rollback_append_store_available -and -not $_.bindings.rollback_append_transaction_append_available })
-        if ($helloRollbackApplyAppendEvents.Count -lt 1) {
-            throw "Expected rollback apply audit event to bind append-intent gate evidence without appending a transaction"
-        }
-        $helloRollbackApplyPayloadEvents = @($helloRollbackApplyAppendEvents | Where-Object { $_.bindings.rollback_payload_envelope_gate_schema -eq $HelloRollbackPayloadEnvelopeGateSchema -and $_.bindings.rollback_payload_envelope_gate_id -eq $HelloRollbackPayloadEnvelopeGateId -and $_.bindings.rollback_payload_envelope_gate_hash -eq $helloRollbackPayloadEnvelopeGateHash -and $_.bindings.rollback_payload_envelope_gate_status -eq $HelloRollbackPayloadEnvelopeGateStatus -and $_.bindings.rollback_payload_envelope_required_audit_schema -eq "raios.audit_record.v0" -and $_.bindings.rollback_payload_envelope_required_rollback_schema -eq "raios.rollback_transaction.v0" -and $_.bindings.rollback_payload_schema -eq $HelloRollbackTransactionPayloadSchema -and $_.bindings.rollback_payload_id -eq $HelloRollbackTransactionPayloadId -and $_.bindings.rollback_payload_hash -eq $helloRollbackPayloadHash -and $_.bindings.rollback_payload_status -eq $HelloRollbackTransactionPayloadStatus -and $_.bindings.rollback_payload_provenance_hash -eq $helloRollbackPayloadProvenanceHash -and -not $_.bindings.rollback_payload_writer_available -and -not $_.bindings.rollback_payload_durable_audit_store_available -and -not $_.bindings.rollback_payload_store_available -and -not $_.bindings.rollback_payload_transaction_append_available })
-        if ($helloRollbackApplyPayloadEvents.Count -lt 1) {
-            throw "Expected rollback apply audit event to bind payload-envelope evidence without writing a transaction"
-        }
-        $helloRollbackApplyWriterStorageEvents = @($helloRollbackApplyPayloadEvents | Where-Object { $_.bindings.rollback_transaction_writer_storage_authority_gate_schema -eq $HelloRollbackTransactionWriterStorageAuthorityGateSchema -and $_.bindings.rollback_transaction_writer_storage_authority_gate_id -eq $HelloRollbackTransactionWriterStorageAuthorityGateId -and $_.bindings.rollback_transaction_writer_storage_authority_gate_hash -eq $helloRollbackTransactionWriterStorageAuthorityGateHash -and $_.bindings.rollback_transaction_writer_storage_authority_gate_status -eq $HelloRollbackTransactionWriterStorageAuthorityGateStatus -and $_.bindings.rollback_transaction_writer_storage_required_audit_schema -eq "raios.audit_record.v0" -and $_.bindings.rollback_transaction_writer_storage_required_rollback_schema -eq "raios.rollback_transaction.v0" -and -not $_.bindings.rollback_transaction_writer_storage_transaction_writer_available -and -not $_.bindings.rollback_transaction_writer_storage_durable_audit_store_available -and -not $_.bindings.rollback_transaction_writer_storage_rollback_store_available -and -not $_.bindings.rollback_transaction_writer_storage_append_available })
-        if ($helloRollbackApplyWriterStorageEvents.Count -lt 1) {
-            throw "Expected rollback apply audit event to bind writer/storage authority gate evidence without writing a transaction"
-        }
-        $helloRollbackApplyWriterStorageFoundationEvents = @($helloRollbackApplyWriterStorageEvents | Where-Object { $_.bindings.rollback_transaction_writer_storage_foundation_schema -eq $HelloRollbackTransactionWriterStorageFoundationSchema -and $_.bindings.rollback_transaction_writer_storage_foundation_owner -eq $HelloRollbackTransactionWriterStorageFoundationOwner -and $_.bindings.rollback_transaction_writer_storage_authority_id -eq $HelloRollbackTransactionWriterStorageAuthorityId -and $_.bindings.rollback_transaction_writer_storage_authority_owner -eq $HelloRollbackTransactionWriterStorageAuthorityOwner -and $_.bindings.rollback_transaction_writer_storage_audit_target_id -eq $HelloRollbackTransactionWriterStorageAuditTargetId -and $_.bindings.rollback_transaction_writer_storage_audit_target_schema -eq $HelloRollbackTransactionWriterStorageAuditTargetSchema -and $_.bindings.rollback_transaction_writer_storage_append_target_id -eq $HelloRollbackTransactionWriterStorageTargetId -and $_.bindings.rollback_transaction_writer_storage_append_target_schema -eq $HelloRollbackTransactionWriterStorageTargetSchema -and $_.bindings.rollback_transaction_writer_storage_transaction_writer_owner -eq $HelloRollbackTransactionWriterStorageWriterOwner -and $_.bindings.rollback_transaction_writer_storage_layout_status -eq $HelloRollbackTransactionWriterStorageLayoutStatus -and $_.bindings.rollback_transaction_writer_storage_layout_reason -eq $HelloRollbackTransactionWriterStorageLayoutReason -and $_.bindings.rollback_transaction_writer_storage_append_engine_status -eq $HelloRollbackTransactionWriterStorageAppendEngineStatus -and $_.bindings.rollback_transaction_writer_storage_append_engine_reason -eq $HelloRollbackTransactionWriterStorageAppendEngineReason -and $_.bindings.rollback_transaction_writer_storage_append_contract_status -eq $HelloRollbackTransactionWriterStorageAppendContractStatus -and $_.bindings.rollback_transaction_writer_storage_append_contract_reason -eq $HelloRollbackTransactionWriterStorageAppendContractReason -and $_.bindings.rollback_transaction_writer_storage_transaction_envelope_status -eq $HelloRollbackTransactionWriterStorageEnvelopeStatus -and $_.bindings.rollback_transaction_writer_storage_transaction_envelope_reason -eq $HelloRollbackTransactionWriterStorageEnvelopeReason })
+        $helloRollbackApplyWriterStorageFoundationEvents = @($helloRollbackApplyEvents | Where-Object { $_.bindings.rollback_transaction_writer_storage_foundation_schema -eq $HelloRollbackTransactionWriterStorageFoundationSchema -and $_.bindings.rollback_transaction_writer_storage_foundation_owner -eq $HelloRollbackTransactionWriterStorageFoundationOwner -and $_.bindings.rollback_transaction_writer_storage_authority_id -eq $HelloRollbackTransactionWriterStorageAuthorityId -and $_.bindings.rollback_transaction_writer_storage_authority_owner -eq $HelloRollbackTransactionWriterStorageAuthorityOwner -and $_.bindings.rollback_transaction_writer_storage_audit_target_id -eq $HelloRollbackTransactionWriterStorageAuditTargetId -and $_.bindings.rollback_transaction_writer_storage_audit_target_schema -eq $HelloRollbackTransactionWriterStorageAuditTargetSchema -and $_.bindings.rollback_transaction_writer_storage_append_target_id -eq $HelloRollbackTransactionWriterStorageTargetId -and $_.bindings.rollback_transaction_writer_storage_append_target_schema -eq $HelloRollbackTransactionWriterStorageTargetSchema -and $_.bindings.rollback_transaction_writer_storage_transaction_writer_owner -eq $HelloRollbackTransactionWriterStorageWriterOwner -and $_.bindings.rollback_transaction_writer_storage_layout_status -eq $HelloRollbackTransactionWriterStorageLayoutStatus -and $_.bindings.rollback_transaction_writer_storage_layout_reason -eq $HelloRollbackTransactionWriterStorageLayoutReason -and $_.bindings.rollback_transaction_writer_storage_append_engine_status -eq $HelloRollbackTransactionWriterStorageAppendEngineStatus -and $_.bindings.rollback_transaction_writer_storage_append_engine_reason -eq $HelloRollbackTransactionWriterStorageAppendEngineReason -and $_.bindings.rollback_transaction_writer_storage_append_contract_status -eq $HelloRollbackTransactionWriterStorageAppendContractStatus -and $_.bindings.rollback_transaction_writer_storage_append_contract_reason -eq $HelloRollbackTransactionWriterStorageAppendContractReason -and $_.bindings.rollback_transaction_writer_storage_transaction_envelope_status -eq $HelloRollbackTransactionWriterStorageEnvelopeStatus -and $_.bindings.rollback_transaction_writer_storage_transaction_envelope_reason -eq $HelloRollbackTransactionWriterStorageEnvelopeReason })
         if ($helloRollbackApplyWriterStorageFoundationEvents.Count -lt 1) {
             throw "Expected rollback apply audit event to retain shared writer/storage foundation evidence"
         }
@@ -2784,7 +2799,7 @@
         Assert-LogContains -Name "quick:audit_events_hello_kind" -Needle '"kind": "raios.ram_only_hello_service.lifecycle"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_health_kind" -Needle '"kind": "raios.ram_only_hello_service.health"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_preview_kind" -Needle '"kind": "raios.ram_only_hello_service.rollback_preview"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_kind" -Needle '"kind": "raios.ram_only_hello_service.rollback_apply"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_kind" -Needle '"schema": "raios.ram_only_hello_service.rollback_apply_applied_binding.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_resource" -Needle '"resource": "svc.demo.hello"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor" -Needle "load_descriptor.current_boot.svc.demo.hello.v0" -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_descriptor_source_hash" -Needle '"load_descriptor_source_hash": "sha256:' -TimeoutSeconds 1
@@ -2814,21 +2829,16 @@
         Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_source_inspect_reference" -Needle '"rollback_apply_source_recovery_rollback_inspect_source_reference_hash": "sha256:' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_source_policy_verified" -Needle '"rollback_apply_source_durable_policy_write_authority_decision_verified": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_source_inspect_validated" -Needle '"rollback_apply_source_recovery_rollback_inspect_source_reference_validated": true' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_denied" -Needle '"rollback_apply_authorized": false' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_preflight_hash" -Needle '"rollback_transaction_preflight_hash": "sha256:' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_preflight_missing_authority" -Needle '"rollback_transaction_authority_missing": true' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_preflight_no_durable_write" -Needle '"rollback_transaction_writes_durable_audit_log": false' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_write_gate_hash" -Needle '"rollback_write_authority_gate_hash": "sha256:' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_write_gate_status" -Needle '"rollback_write_authority_gate_status": "denied_missing_durable_write_authority"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_write_gate_unavailable" -Needle '"rollback_store_write_authority_available": false' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_append_gate_hash" -Needle '"rollback_append_intent_gate_hash": "sha256:' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_append_gate_status" -Needle '"rollback_append_intent_gate_status": "denied_missing_rollback_transaction_append_authority"' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_append_gate_unavailable" -Needle '"rollback_append_intent_available": false' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_payload_gate_hash" -Needle '"rollback_payload_envelope_gate_hash": "sha256:' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_payload_hash" -Needle '"rollback_payload_hash": "sha256:' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_payload_writer_unavailable" -Needle '"rollback_payload_writer_available": false' -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_writer_storage_gate_schema" -Needle "raios.ram_only_hello_service_rollback_transaction_writer_storage_authority_gate.v0" -TimeoutSeconds 1
-        Assert-LogContains -Name "quick:audit_events_hello_rollback_writer_storage_gate_hash" -Needle '"rollback_transaction_writer_storage_authority_gate_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_authorized_append_schema" -Needle '"schema": "raios.scoped_rollback_authorized_append.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_authorized_append_performed" -Needle '"transaction_append_performed": true' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_authorized_append_no_apply" -Needle '"applies_rollback": false' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_applied_status" -Needle '"status": "current_boot_rollback_applied"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_recovery_inspect_applied_status" -Needle '"status": "rollback_applied_transaction_inspected"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_recovery_inspect_applied_authority" -Needle '"applied_authority_record": {"schema": "raios.rollback_transaction.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_binding_schema" -Needle '"schema": "raios.ram_only_hello_service.rollback_apply_applied_binding.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_denied" -Needle '"rollback_apply_authorized": true' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_apply_mutates_state" -Needle '"rollback_apply_mutates_service_state": true' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_rollback_transaction_applies" -Needle '"rollback_transaction_applies_rollback": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_writer_storage_foundation" -Needle '"rollback_transaction_writer_storage_foundation_schema": "raios.module_audit_rollback_append_contract.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_writer_storage_authority" -Needle '"rollback_transaction_writer_storage_authority_id": "storage.authority.audit_rollback.current_boot"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_writer_storage_audit_target" -Needle '"rollback_transaction_writer_storage_audit_target_id": "append.audit_ledger.current_boot"' -TimeoutSeconds 1
@@ -2937,9 +2947,12 @@
         Assert-LogContains -Name "quick:audit_events_hello_rollback_target_region_sector_inspection_verified" -Needle '"rollback_transaction_writer_storage_target_region_sector_inspection_verified": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_recovery_inspect_source_reference" -Needle '"rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_schema": "raios.recovery_rollback_inspect_source_reference.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_recovery_inspect_source_reference_hash" -Needle '"rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_hash": "sha256:' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_recovery_inspect_source_reference_audit_event" -Needle '"rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_audit_event_id": ' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_recovery_inspect_source_reference_available" -Needle '"rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_available": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_recovery_inspect_source_reference_matches" -Needle '"rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_matches_sector_inspection": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_recovery_inspect_source_reference_ram_audit" -Needle '"rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_ram_audit_validated": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_recovery_inspect_source_reference_binding" -Needle '"schema": "raios.recovery_rollback_inspect_source_reference_binding.v0"' -TimeoutSeconds 1
+        Assert-LogContains -Name "quick:audit_events_hello_recovery_inspect_source_reference_no_apply" -Needle '"rollback_transaction_writer_storage_recovery_rollback_inspect_source_reference_authorizes_rollback_apply": false' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_policy_write_consumes_sector_inspection" -Needle '"rollback_transaction_writer_storage_durable_policy_write_authority_decision_target_region_sector_inspection_verified": true' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_target_region_write_readback" -Needle '"rollback_transaction_writer_storage_target_region_write_readback_dry_run_schema": "raios.ram_only_hello_service_rollback_target_region_write_readback_dry_run.v0"' -TimeoutSeconds 1
         Assert-LogContains -Name "quick:audit_events_hello_rollback_target_region_write_readback_hash" -Needle '"rollback_transaction_writer_storage_target_region_write_readback_dry_run_hash": "sha256:' -TimeoutSeconds 1

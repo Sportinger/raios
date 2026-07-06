@@ -585,6 +585,34 @@ pub(crate) struct RollbackTransactionAppendDryRun {
 }
 
 #[derive(Clone, Copy)]
+pub(crate) struct ScopedRollbackApplyProof {
+    pub(crate) scope_input: raios_core::scoped_rollback_apply::ScopedRollbackApplyInput<'static>,
+    pub(crate) scope_decision: raios_core::scoped_rollback_apply::ScopedRollbackApplyDecision,
+    pub(crate) scope_decision_hash: [u8; 32],
+    pub(crate) append_input: raios_core::scoped_rollback_apply::ScopedRollbackAuthorizedAppendInput,
+    pub(crate) append_decision:
+        raios_core::scoped_rollback_apply::ScopedRollbackAuthorizedAppendDecision,
+    pub(crate) append_hash: [u8; 32],
+    pub(crate) apply_decision:
+        raios_core::scoped_rollback_apply::ScopedRollbackVerifiedApplyDecision,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct AppliedRollbackRecord {
+    pub(crate) event_id: event_log::EventId,
+    pub(crate) audit_event_id: event_log::EventId,
+    pub(crate) rollback_transaction_hash: [u8; 32],
+    pub(crate) write_readback_hash: [u8; 32],
+    pub(crate) inspection_hash: [u8; 32],
+    pub(crate) audit_record_hash: [u8; 32],
+    pub(crate) inspected_rollback_transaction_hash: [u8; 32],
+    pub(crate) authorized_append_hash: [u8; 32],
+    pub(crate) scope_decision_hash: [u8; 32],
+    pub(crate) target_region_write_readback: RollbackTargetRegionWriteReadbackDryRun,
+    pub(crate) target_region_sector_inspection: RollbackTargetRegionSectorInspection,
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct RollbackTargetRegionSectorInspection {
     pub(crate) inspection_hash: [u8; 32],
     pub(crate) source_sector_plan_hash: [u8; 32],

@@ -43,6 +43,30 @@ pub(crate) fn bind_rollback_apply_denial(
     }
 }
 
+pub(crate) fn bind_rollback_apply_applied(
+    binding: &mut event_log::HelloServiceLifecycleBinding,
+    proof: ScopedRollbackApplyProof,
+) {
+    set_lifecycle_binding_fields!(binding;
+        rollback_apply_schema = Some(HELLO_ROLLBACK_APPLY_SCHEMA),
+        rollback_apply_id = Some(HELLO_ROLLBACK_APPLY_ID),
+        rollback_apply_hash = proof.append_input.append_record_rollback_transaction_image_hash,
+        rollback_apply_source_durable_policy_write_authority_decision_hash = proof.scope_input.durable_policy_write_authority_decision_hash,
+        rollback_apply_source_recovery_rollback_inspect_source_reference_hash = proof.scope_input.retained_inspect_source_reference_hash,
+        rollback_apply_status = Some(HELLO_ROLLBACK_APPLY_APPLIED_STATUS),
+        rollback_apply_source_durable_policy_write_authority_decision_verified = proof.scope_input.durable_policy_write_authority_decision_verified,
+        rollback_apply_source_recovery_rollback_inspect_source_reference_validated = proof.scope_input.retained_inspect_source_reference_validated,
+        rollback_apply_authorized = proof.apply_decision.applied,
+        rollback_apply_mutates_service_state = proof.apply_decision.applied,
+        rollback_transaction_writes_durable_audit_log = proof.append_decision.performed,
+        rollback_transaction_writes_rollback_store = proof.append_decision.performed,
+        rollback_transaction_applies_rollback = proof.apply_decision.applied,
+        rollback_durable_audit_write_authority_available = proof.scope_decision.authorized,
+        rollback_store_write_authority_available = proof.scope_decision.authorized,
+        rollback_transaction_append_available = proof.append_decision.performed,
+    );
+}
+
 pub(crate) fn bind_rollback_transaction_preflight(
     binding: &mut event_log::HelloServiceLifecycleBinding,
     snapshot: Snapshot,

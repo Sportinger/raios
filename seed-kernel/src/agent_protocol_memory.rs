@@ -641,8 +641,8 @@ macro_rules! define_hello_lifecycle_binding_fields {
 }
 
 define_hello_lifecycle_binding_fields! { binding, kind;
-    (Schema, "schema", BindingValue::Str(hello_lifecycle_binding_schema(kind)),),
-    (Status, "status", BindingValue::Str(hello_lifecycle_binding_status(kind)),),
+    (Schema, "schema", BindingValue::Str(hello_lifecycle_binding_schema(kind, binding)),),
+    (Status, "status", BindingValue::Str(hello_lifecycle_binding_status(kind, binding)),),
     (Scope, "scope", BindingValue::Str("current_boot"),),
     (Classification, "classification", BindingValue::Str("local_only"),),
     (LoadDescriptorSchema, "load_descriptor_schema", BindingValue::Str(binding.descriptor_schema),),
@@ -1773,8 +1773,13 @@ define_hello_lifecycle_binding_fields! { binding, kind;
     (Retention, "retention", BindingValue::Str("current_boot_ram_event_log"),),
 }
 
-fn hello_lifecycle_binding_schema(kind: &str) -> &'static str {
-    if kind == "raios.ram_only_hello_service.health" {
+fn hello_lifecycle_binding_schema(
+    kind: &str,
+    binding: &event_log::HelloServiceLifecycleBinding,
+) -> &'static str {
+    if binding.rollback_apply_authorized {
+        "raios.ram_only_hello_service.rollback_apply_applied_binding.v0"
+    } else if kind == "raios.ram_only_hello_service.health" {
         "raios.ram_only_hello_service.health_binding.v0"
     } else if kind == "raios.ram_only_hello_service.rollback_preview" {
         "raios.ram_only_hello_service.rollback_preview_binding.v0"
@@ -1785,8 +1790,13 @@ fn hello_lifecycle_binding_schema(kind: &str) -> &'static str {
     }
 }
 
-fn hello_lifecycle_binding_status(kind: &str) -> &'static str {
-    if kind == "raios.ram_only_hello_service.health" {
+fn hello_lifecycle_binding_status(
+    kind: &str,
+    binding: &event_log::HelloServiceLifecycleBinding,
+) -> &'static str {
+    if binding.rollback_apply_authorized {
+        "current_boot_rollback_applied"
+    } else if kind == "raios.ram_only_hello_service.health" {
         "current_boot_health_read"
     } else if kind == "raios.ram_only_hello_service.rollback_preview" {
         "current_boot_rollback_preview_read"

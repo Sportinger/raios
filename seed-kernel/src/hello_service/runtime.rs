@@ -18,6 +18,7 @@ pub(crate) struct Snapshot {
     pub state_counter: u64,
     pub state_migration: Option<HelloStateMigrationRecord>,
     pub hot_swap_probation: Option<HelloHotSwapProbationRecord>,
+    pub applied_rollback: Option<AppliedRollbackRecord>,
     pub load_descriptor: LoadDescriptor,
     pub last_action: &'static str,
     pub last_reason: &'static str,
@@ -38,6 +39,7 @@ pub(crate) struct State {
     pub(crate) state_counter: u64,
     pub(crate) state_migration: Option<HelloStateMigrationRecord>,
     pub(crate) hot_swap_probation: Option<HelloHotSwapProbationRecord>,
+    pub(crate) applied_rollback: Option<AppliedRollbackRecord>,
     pub(crate) load_descriptor: LoadDescriptor,
     pub(crate) last_action: &'static str,
     pub(crate) last_reason: &'static str,
@@ -59,6 +61,7 @@ impl State {
             state_counter: 0,
             state_migration: None,
             hot_swap_probation: None,
+            applied_rollback: None,
             load_descriptor: LOAD_DESCRIPTOR,
             last_action: "none",
             last_reason: "not_loaded",
@@ -80,6 +83,7 @@ impl State {
             state_counter: self.state_counter,
             state_migration: self.state_migration,
             hot_swap_probation: self.hot_swap_probation,
+            applied_rollback: self.applied_rollback,
             load_descriptor: self.load_descriptor,
             last_action: self.last_action,
             last_reason: self.last_reason,
@@ -246,8 +250,25 @@ pub(crate) fn emit_rollback_preview(_method: &str) -> &'static str {
 }
 
 pub(crate) fn emit_rollback_apply(_method: &str) -> &'static str {
-    let (snapshot, event_id) = rollback_apply("service.rollback_apply");
-    emit_rollback_apply_denied("service.rollback_apply", snapshot, event_id);
+    match rollback_apply("service.rollback_apply") {
+        RollbackApplyResult::Denied { snapshot, event_id } => {
+            emit_rollback_apply_denied("service.rollback_apply", snapshot, event_id);
+        }
+        RollbackApplyResult::Applied {
+            pre_apply_snapshot,
+            snapshot,
+            event_id,
+            proof,
+        } => {
+            emit_rollback_apply_applied(
+                "service.rollback_apply",
+                pre_apply_snapshot,
+                snapshot,
+                event_id,
+                proof,
+            );
+        }
+    }
     "service.rollback_apply"
 }
 

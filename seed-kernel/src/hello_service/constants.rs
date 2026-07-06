@@ -134,6 +134,7 @@ pub(crate) const HELLO_ROLLBACK_APPLY_SCHEMA: &str =
 pub(crate) const HELLO_ROLLBACK_APPLY_ID: &str =
     "hello_rollback_apply.current_boot.svc.demo.hello.v0";
 pub(crate) const HELLO_ROLLBACK_APPLY_STATUS: &str = "denied_missing_rollback_apply_authority";
+pub(crate) const HELLO_ROLLBACK_APPLY_APPLIED_STATUS: &str = "current_boot_rollback_applied";
 pub(crate) const HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_SCHEMA: &str =
     "raios.ram_only_hello_service_rollback_transaction_preflight.v0";
 pub(crate) const HELLO_ROLLBACK_TRANSACTION_PREFLIGHT_ID: &str =

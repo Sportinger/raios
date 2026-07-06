@@ -2906,6 +2906,37 @@ pub(crate) fn recovery_rollback_inspection_evidence(
     Some((target_region_write, sector_inspection))
 }
 
+fn applied_rollback_inspection_evidence(
+    snapshot: Snapshot,
+) -> Option<(
+    AppliedRollbackRecord,
+    RollbackTargetRegionWriteReadbackDryRun,
+    RollbackTargetRegionSectorInspection,
+)> {
+    let record = snapshot.applied_rollback?;
+    let inspection = record.target_region_sector_inspection;
+    if !raios_core::scoped_rollback_apply::applied_rollback_inspect_evidence_retained(
+        Some(record.rollback_transaction_hash),
+        Some(record.write_readback_hash),
+        Some(record.inspection_hash),
+        inspection.rollback_transaction_image_hash,
+        inspection.source_target_region_write_readback_hash,
+        inspection.inspection_hash,
+    ) {
+        return None;
+    }
+    if record.inspected_rollback_transaction_hash != inspection.rollback_transaction_image_hash
+        || record.audit_record_hash != inspection.audit_record_image_hash
+    {
+        return None;
+    }
+    Some((
+        record,
+        record.target_region_write_readback,
+        record.target_region_sector_inspection,
+    ))
+}
+
 pub(crate) fn recovery_rollback_materialization_evidence(
     snapshot: Snapshot,
 ) -> Option<(
@@ -3147,6 +3178,25 @@ fn sector_plan_dry_run_summary_value(record: Option<RollbackAppendSectorPlanDryR
     ])
 }
 
+fn applied_rollback_authority_record_value(record: AppliedRollbackRecord) -> V<'static> {
+    inline(vec![
+        j!("schema" => s("raios.rollback_transaction.v0")),
+        j!("source_method" => s("service.rollback_apply")),
+        j!("source_event_id" => event_opt(Some(record.event_id))),
+        j!("source_audit_event_id" => event_opt(Some(record.audit_event_id))),
+        j!("status" => s(HELLO_ROLLBACK_APPLY_APPLIED_STATUS)),
+        j!("rollback_transaction_hash" => sha(record.rollback_transaction_hash)),
+        j!("write_readback_hash" => sha(record.write_readback_hash)),
+        j!("inspection_hash" => sha(record.inspection_hash)),
+        j!("audit_record_hash" => sha(record.audit_record_hash)),
+        j!("inspected_rollback_transaction_hash" => sha(record.inspected_rollback_transaction_hash)),
+        j!("authorized_append_hash" => sha(record.authorized_append_hash)),
+        j!("scope_decision_hash" => sha(record.scope_decision_hash)),
+        j!("target_region_write_readback_hash" => sha(record.target_region_write_readback.dry_run_hash)),
+        j!("target_region_sector_inspection_hash" => sha(record.target_region_sector_inspection.inspection_hash)),
+    ])
+}
+
 fn recovery_materialize_denied_surfaces_value() -> V<'static> {
     object(vec![
         j!("mutates_service_state" => b(false)),
@@ -3320,7 +3370,17 @@ pub(crate) fn emit_recovery_rollback_inspect_response(
     snapshot: Snapshot,
     event_id: event_log::EventId,
 ) {
-    let evidence = recovery_rollback_inspection_evidence(snapshot);
+    let live_evidence = recovery_rollback_inspection_evidence(snapshot);
+    let applied_evidence = if live_evidence.is_none() {
+        applied_rollback_inspection_evidence(snapshot)
+    } else {
+        None
+    };
+    let applied_authority_record = applied_evidence.map(|(record, _, _)| record);
+    let evidence = live_evidence.or_else(|| {
+        applied_evidence
+            .map(|(_, target_region_write, inspection)| (target_region_write, inspection))
+    });
     let inspection_available = evidence
         .map(|(_, inspection)| inspection.inspection_verified)
         .unwrap_or(false);
@@ -3329,7 +3389,12 @@ pub(crate) fn emit_recovery_rollback_inspect_response(
             materialized_target_region_sector_available(target_region_write)
         })
         .unwrap_or(false);
-    let status = if inspection_available {
+    let applied_transaction_inspected = applied_authority_record.is_some()
+        && inspection_available
+        && materialized_sector_evidence_available;
+    let status = if applied_transaction_inspected {
+        raios_core::scoped_rollback_apply::ROLLBACK_INSPECT_APPLIED_TRANSACTION_STATUS
+    } else if inspection_available {
         HELLO_RECOVERY_ROLLBACK_INSPECT_STATUS
     } else if !snapshot.loaded {
         "service_not_loaded"
@@ -3340,7 +3405,9 @@ pub(crate) fn emit_recovery_rollback_inspect_response(
     } else {
         "target_region_sector_inspection_missing"
     };
-    let reason = if inspection_available {
+    let reason = if applied_transaction_inspected {
+        raios_core::scoped_rollback_apply::ROLLBACK_INSPECT_APPLIED_TRANSACTION_REASON
+    } else if inspection_available {
         "target_region_sector_read_parsed_current_boot"
     } else if !snapshot.loaded {
         "service_not_loaded"
@@ -3351,51 +3418,54 @@ pub(crate) fn emit_recovery_rollback_inspect_response(
     } else {
         "target_region_sector_read_or_parse_failed"
     };
-    if let Some((_, inspection)) = evidence {
+    if let Some((_, inspection)) = live_evidence {
         retain_recovery_rollback_inspect_source_reference(event_id, inspection);
     }
 
     begin_response(method);
-    emit_record_fields(
-        vec![
-            j!("schema" => s(HELLO_RECOVERY_ROLLBACK_INSPECT_SCHEMA)),
-            j!("id" => s(HELLO_RECOVERY_ROLLBACK_INSPECT_ID)),
-            j!("scope" => s("current_boot")),
-            j!("classification" => s("local_only")),
-            j!("persistence" => s("none")),
-            j!("read_only" => b(true)),
-            j!("event_id" => event_opt(Some(event_id))),
-            j!("status" => s(status)),
-            j!("reason" => s(reason)),
-            j!("service_id" => s(SERVICE_ID)),
-            j!("requested_capability" => s(HELLO_SERVICE_DESCRIPTOR.rollback_inspect_capability),
-            ),
-            j!("active_generation" => u(snapshot.generation)),
-            j!("source_probation" => hello_hot_swap_probation_value(snapshot.hot_swap_probation),
-            ),
-            j!("materialized_sector_evidence_available" => b(materialized_sector_evidence_available),
-            ),
-            j!("inspection_available" => b(inspection_available)),
-            j!("target_region_write_readback" => evidence
-                    .map(|(target_region_write, _)| {
-                        target_region_write_readback_value(target_region_write)
-                    })
-                    .unwrap_or(V::Null),
-            ),
-            j!("target_region_sector_inspection" => evidence
-                    .map(|(_, inspection)| target_region_sector_inspection_value(inspection))
-                    .unwrap_or(V::Null),
-            ),
-            j!("retained_recovery_rollback_inspect_source" => evidence
-                    .map(|(_, inspection)| {
-                        recovery_rollback_inspect_source_reference_value(inspection)
-                    })
-                    .unwrap_or(V::Null),
-            ),
-            j!("denied_surfaces" => recovery_inspect_denied_surfaces_value()),
-        ],
-        6,
-    );
+    let mut fields = vec![
+        j!("schema" => s(HELLO_RECOVERY_ROLLBACK_INSPECT_SCHEMA)),
+        j!("id" => s(HELLO_RECOVERY_ROLLBACK_INSPECT_ID)),
+        j!("scope" => s("current_boot")),
+        j!("classification" => s("local_only")),
+        j!("persistence" => s("none")),
+        j!("read_only" => b(true)),
+        j!("event_id" => event_opt(Some(event_id))),
+        j!("status" => s(status)),
+        j!("reason" => s(reason)),
+        j!("service_id" => s(SERVICE_ID)),
+        j!("requested_capability" => s(HELLO_SERVICE_DESCRIPTOR.rollback_inspect_capability),
+        ),
+        j!("active_generation" => u(snapshot.generation)),
+        j!("source_probation" => hello_hot_swap_probation_value(snapshot.hot_swap_probation),
+        ),
+        j!("materialized_sector_evidence_available" => b(materialized_sector_evidence_available),
+        ),
+        j!("inspection_available" => b(inspection_available)),
+        j!("target_region_write_readback" => evidence
+                .map(|(target_region_write, _)| {
+                    target_region_write_readback_value(target_region_write)
+                })
+                .unwrap_or(V::Null),
+        ),
+        j!("target_region_sector_inspection" => evidence
+                .map(|(_, inspection)| target_region_sector_inspection_value(inspection))
+                .unwrap_or(V::Null),
+        ),
+        j!("retained_recovery_rollback_inspect_source" => evidence
+                .map(|(_, inspection)| {
+                    recovery_rollback_inspect_source_reference_value(inspection)
+                })
+                .unwrap_or(V::Null),
+        ),
+        j!("denied_surfaces" => recovery_inspect_denied_surfaces_value()),
+    ];
+    if let Some(record) = applied_authority_record {
+        fields.push(
+            j!("applied_authority_record" => applied_rollback_authority_record_value(record)),
+        );
+    }
+    emit_record_fields(fields, 6);
     end_response(method);
 }
 
@@ -3557,6 +3627,88 @@ pub(crate) fn emit_rollback_apply_denied(
     emit_scoped_rollback_authorized_append_marker(method, snapshot);
 }
 
+pub(crate) fn emit_rollback_apply_applied(
+    method: &'static str,
+    pre_apply_snapshot: Snapshot,
+    snapshot: Snapshot,
+    event_id: event_log::EventId,
+    proof: ScopedRollbackApplyProof,
+) {
+    begin_response(method);
+    emit_record_fields(
+        vec![
+            j!("schema" => s(HELLO_ROLLBACK_APPLY_SCHEMA)),
+            j!("id" => s(HELLO_ROLLBACK_APPLY_ID)),
+            j!("scope" => s("current_boot")),
+            j!("classification" => s("local_only")),
+            j!("persistence" => s("current_boot_target_region_lba1")),
+            j!("status" => s(proof.apply_decision.status)),
+            j!("reason" => s(proof.apply_decision.reason)),
+            j!("event_id" => event_opt(Some(event_id))),
+            j!("audit_event_id" => event_opt(Some(event_id))),
+            j!("service_id" => s(SERVICE_ID)),
+            j!("rollback_apply_hash" => sha_opt(proof.append_input.append_record_rollback_transaction_image_hash)),
+            j!("authority_record" => inline(vec![
+                    j!("schema" => s("raios.rollback_transaction.v0")),
+                    j!("rollback_transaction_hash" => sha_opt(proof.append_input.append_record_rollback_transaction_image_hash)),
+                    j!("authorized_append_hash" => sha(proof.append_hash)),
+                    j!("scope_decision_hash" => sha(proof.scope_decision_hash)),
+                    j!("write_readback_hash" => sha_opt(proof.append_input.write_readback_hash)),
+                    j!("inspection_hash" => sha_opt(proof.append_input.inspection_hash)),
+                    j!("audit_record_hash" => sha_opt(proof.append_input.append_record_audit_record_image_hash)),
+                    j!("inspected_rollback_transaction_hash" => sha_opt(proof.append_input.inspected_rollback_transaction_image_hash)),
+                ]),
+            ),
+            j!("state_transition" => inline(vec![
+                    j!("from_generation" => u(pre_apply_snapshot.generation)),
+                    j!("to_generation" => u(snapshot.generation)),
+                    j!("from_version" => s(service_version(pre_apply_snapshot.load_descriptor))),
+                    j!("to_version" => s(service_version(snapshot.load_descriptor))),
+                    j!("from_descriptor_id" => s(pre_apply_snapshot.load_descriptor.id)),
+                    j!("to_descriptor_id" => s(snapshot.load_descriptor.id)),
+                    j!("state_counter_preserved" => b(pre_apply_snapshot.state_counter == snapshot.state_counter)),
+                    j!("current_boot_service_state_mutated" => b(true)),
+                ]),
+            ),
+            j!("previous_state" => hello_state_value(pre_apply_snapshot)),
+            j!("applied_state" => hello_state_value(snapshot)),
+            j!("source_probation" => hello_hot_swap_probation_value(pre_apply_snapshot.hot_swap_probation)),
+            j!("rollback_target" => probation_target_value(pre_apply_snapshot.hot_swap_probation)),
+            j!("current_candidate" => probation_candidate_value(pre_apply_snapshot.hot_swap_probation)),
+            j!("state_migration" => hello_state_migration_value(pre_apply_snapshot.state_migration)),
+            j!("side_effects" => inline(vec![
+                    j!("authorizes_media_write" => b(proof.scope_decision.authorized)),
+                    j!("authorizes_append" => b(proof.scope_decision.authorized)),
+                    j!("authorizes_transaction_append" => b(proof.scope_decision.authorized)),
+                    j!("writes_durable_audit_log" => b(proof.append_decision.performed)),
+                    j!("writes_rollback_store" => b(proof.append_decision.performed)),
+                    j!("appends_rollback_transaction" => b(proof.append_decision.performed)),
+                    j!("write_attempted" => b(proof.append_input.write_attempted)),
+                    j!("applies_rollback" => b(proof.apply_decision.applied)),
+                    j!("mutates_service_state" => b(proof.apply_decision.applied)),
+                    j!("installs_rollback_state" => b(false)),
+                    j!("persistent_install" => s("denied")),
+                    j!("external_artifact_load" => s("denied")),
+                    j!("candidate_artifact_execution" => s("denied")),
+                    j!("executable_mapping" => s("denied")),
+                    j!("provider_auto_load" => s("denied")),
+                    j!("broad_mutation" => s("denied")),
+                ]),
+            ),
+            j!("service" => hello_response_service_value(
+                    snapshot,
+                    snapshot.load_descriptor,
+                    service_slot_activation_status(snapshot),
+                    service_slot_activation_active(snapshot),
+                ),
+            ),
+        ],
+        6,
+    );
+    end_response(method);
+    emit_scoped_rollback_apply_markers_from_proof(proof);
+}
+
 fn emit_scoped_rollback_apply_decision_marker(method: &'static str, snapshot: Snapshot) {
     raw(scoped_apply::SCOPED_ROLLBACK_APPLY_DECISION_MARKER);
     raw(" ");
@@ -3568,6 +3720,51 @@ fn emit_scoped_rollback_authorized_append_marker(method: &'static str, snapshot:
     raw(scoped_apply::SCOPED_ROLLBACK_AUTHORIZED_APPEND_MARKER);
     raw(" ");
     emit_record_value_fragment(scoped_rollback_authorized_append_value(method, snapshot), 0);
+    raw_line("");
+}
+
+pub(crate) fn perform_scoped_rollback_apply_proof(
+    method: &'static str,
+    snapshot: Snapshot,
+) -> ScopedRollbackApplyProof {
+    let (scope_input, scope_decision, scope_decision_hash) =
+        scoped_rollback_apply_decision_parts(method, snapshot);
+    let append_input = scoped_rollback_authorized_append_input(
+        snapshot,
+        scope_input,
+        scope_decision,
+        scope_decision_hash,
+    );
+    let append_decision = scoped_apply::evaluate_scoped_rollback_authorized_append(&append_input);
+    let append_hash = sha256_of_json(&inline(scoped_rollback_authorized_append_fields(
+        scope_input,
+        scope_decision,
+        scope_decision_hash,
+        append_input,
+        append_decision,
+        None,
+    )));
+    let apply_decision =
+        scoped_apply::evaluate_scoped_rollback_verified_apply(&append_input, Some(append_hash));
+    ScopedRollbackApplyProof {
+        scope_input,
+        scope_decision,
+        scope_decision_hash,
+        append_input,
+        append_decision,
+        append_hash,
+        apply_decision,
+    }
+}
+
+pub(crate) fn emit_scoped_rollback_apply_markers_from_proof(proof: ScopedRollbackApplyProof) {
+    raw(scoped_apply::SCOPED_ROLLBACK_APPLY_DECISION_MARKER);
+    raw(" ");
+    emit_record_value_fragment(scoped_rollback_apply_decision_value_from_proof(proof), 0);
+    raw_line("");
+    raw(scoped_apply::SCOPED_ROLLBACK_AUTHORIZED_APPEND_MARKER);
+    raw(" ");
+    emit_record_value_fragment(scoped_rollback_authorized_append_value_from_proof(proof), 0);
     raw_line("");
 }
 
@@ -3594,6 +3791,14 @@ fn scoped_rollback_apply_decision_parts(
         input, decision, None,
     )));
     (input, decision, decision_hash)
+}
+
+fn scoped_rollback_apply_decision_value_from_proof(proof: ScopedRollbackApplyProof) -> V<'static> {
+    inline(scoped_rollback_apply_decision_fields(
+        proof.scope_input,
+        proof.scope_decision,
+        Some(proof.scope_decision_hash),
+    ))
 }
 
 fn scoped_rollback_apply_decision_fields(
@@ -3723,6 +3928,19 @@ fn scoped_rollback_authorized_append_value(method: &'static str, snapshot: Snaps
         append_input,
         append_decision,
         Some(append_hash),
+    ))
+}
+
+fn scoped_rollback_authorized_append_value_from_proof(
+    proof: ScopedRollbackApplyProof,
+) -> V<'static> {
+    inline(scoped_rollback_authorized_append_fields(
+        proof.scope_input,
+        proof.scope_decision,
+        proof.scope_decision_hash,
+        proof.append_input,
+        proof.append_decision,
+        Some(proof.append_hash),
     ))
 }
 
