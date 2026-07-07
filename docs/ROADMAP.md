@@ -65,9 +65,18 @@ lifeline table + snapshot STILL answer while it is wedged (new `m8-lifeline` pro
 191/191). Survives because Wasm is fuel-metered + cooperative, NOT via hardware
 isolation (post-M11). Review found + fixed one HIGH honesty bug (crashed latch never
 reset → healthy restarted service falsely crashed). Verified m8-lifeline 191/191,
-recovery byte-identical, quick 583/583, FULL 8168/8168, raios-core 111. Next: **M8B —
-the first restore ACTIONS** (recovery.disable_module then restart_last_good), each its
-OWN scoped evaluator, never a shared write-boundary flip. (M7 map
+recovery byte-identical, quick 583/583, FULL 8168/8168, raios-core 111. **M8B-1 done
+(2026-07-07) — the lifeline's FIRST mutating action + FIRST durable write:
+recovery.disable_module.** Disables an exact non-core current-boot module (svc.demo.echo)
+by writing a durable recovery_action.v0 record FIRST (through its OWN new scoped
+evaluator scoped_recovery_action_append — split 1a grants-nothing → 1b executor), THEN
+stopping it; core/lifeline/unknown/SAFE targets denied BEFORE any write. Avoided the two
+map traps (shared write-boundary chain; editing the signed current_boot_service.rs).
+Vocab hash re-pinned 523b719b→03d3985c. Restore-only, grants nothing, dev_key_not_owner_sealed.
+Max adversarial review: no BLOCKER/HIGH, deny-before-mutate fail-closed. Verified
+m8-lifeline 225/225 (durable disable proven live on a valid-a persist disk), recovery
+byte-identical, quick 580/580, FULL 8168/8168, raios-core 115. Next: **M8B-2
+recovery.restart_last_good** (same evaluator, pinned second action_kind). (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
 SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion

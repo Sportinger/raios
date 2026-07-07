@@ -478,6 +478,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("recovery.rollback_apply_authorization_diagnostic_selftest", Head, ["recovery.rollback_apply_authorization_selftest"], [], MethodAction::Read0(emit_recovery_rollback_apply_authorization_diagnostic_selftest)),
     method!("recovery.disable_module_target_binding_diagnostic", Head, ["recovery.disable_module_target_binding"], [], MethodAction::ReadMethod(emit_recovery_disable_module_target_binding_diagnostic)),
     method!("recovery.disable_module_target_binding_diagnostic_selftest", Head, ["recovery.disable_module_target_binding_selftest"], [], MethodAction::Read0(emit_recovery_disable_module_target_binding_diagnostic_selftest)),
+    method!("recovery.disable_module_selftest", Exact, [], [route!("recovery.disable_module_selftest")], MethodAction::Read0(durable_store::emit_recovery_action_selftest)),
     method!("recovery.restart_last_good_target_binding_diagnostic", Head, ["recovery.restart_last_good_target_binding"], [], MethodAction::ReadMethod(emit_recovery_restart_last_good_target_binding_diagnostic)),
     method!("recovery.restart_last_good_target_binding_diagnostic_selftest", Head, ["recovery.restart_last_good_target_binding_selftest"], [], MethodAction::Read0(emit_recovery_restart_last_good_target_binding_diagnostic_selftest)),
     method!("recovery.load_artifact_by_hash_target_binding_diagnostic", Head, ["recovery.load_artifact_by_hash_target_binding"], [], MethodAction::ReadMethod(emit_recovery_load_artifact_by_hash_target_binding_diagnostic)),

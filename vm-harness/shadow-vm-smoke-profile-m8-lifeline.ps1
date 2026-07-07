@@ -13,7 +13,7 @@
 # so baseline agent boot needles already ran. It touches only echo + the lifeline;
 # it grants nothing.
 
-$LifelineVocabularySha256 = "sha256:523b719ba65fd52162d485792de7719b606fe35b7a99c656f6874c24a167819f"
+$LifelineVocabularySha256 = "sha256:03d3985c104de4d025c7b38aa6d484bbe68e0eb3512bc034993663c7b7a112a3"
 
 # --- (a) baseline: echo loads, starts, and is healthy; snapshot is clean -----------
 Send-AgentCommand -Command "module.load_ephemeral svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END module.load_ephemeral" -Name "m8-lifeline:echo_load"
@@ -129,7 +129,10 @@ if (-not $m8PostSnapshotOk) {
 }
 
 # --- (d) mutators still deny while wedged -------------------------------------------
-foreach ($m8Mutator in @("recovery.restart_last_good", "recovery.disable_module", "recovery.rollback", "recovery.load_artifact_by_hash")) {
+# recovery.disable_module is NO LONGER in this loop: it is an implemented executor as of
+# M8B-1 and is exercised (positive + fail-closed) in section (g) below. The OTHER three
+# mutators must still fail closed (needle vi).
+foreach ($m8Mutator in @("recovery.restart_last_good", "recovery.rollback", "recovery.load_artifact_by_hash")) {
     Send-AgentCommand -Command "agent $m8Mutator" -ExpectedMarker "RAIOS_AGENT_END $m8Mutator" -Name "m8-lifeline:mutator_$m8Mutator"
     $m8MutatorResponse = Get-LastAgentResponseJson -Method $m8Mutator
     $m8mr = $m8MutatorResponse.body.result
@@ -188,4 +191,174 @@ $m8PostRestartClean = (
 Add-Predicate -Name "m8-lifeline:post_restart_snapshot_no_false_crash" -Expected "after a successful restart, recovery.snapshot no longer lists echo as crashed (no false crashed report)" -Passed $m8PostRestartClean -Actual $(if ($m8PostRestartClean) { "cleared" } else { ($m8prs | ConvertTo-Json -Compress -Depth 6) })
 if (-not $m8PostRestartClean) {
     throw "Expected recovery.snapshot to report NO crashed services after a successful restart"
+}
+
+# --- (g) M8B-1 recovery.disable_module executor: fail-closed denials (mutate nothing) [needles ii-iv] ---
+# Every invalid target must fail closed in the deny-before-mutate PREFLIGHT: core-owned,
+# the lifeline endpoint itself, an unknown id, and "disable all". None writes a durable
+# record, none mutates live state. Bounded end-marker on every call = hard-stop tripwire.
+$m8DisableDenials = @(
+    @{ Target = "core.serial"; Reason = "target_core_owned"; Label = "core_owned_core_serial" },
+    @{ Target = "recovery.disable_module"; Reason = "target_is_lifeline_endpoint"; Label = "lifeline_endpoint_self" },
+    @{ Target = "svc.nope"; Reason = "target_unknown"; Label = "unknown_id_svc_nope" },
+    @{ Target = "*"; Reason = "target_unknown"; Label = "disable_all_star" }
+)
+foreach ($m8Deny in $m8DisableDenials) {
+    Send-AgentCommand -Command "agent recovery.disable_module $($m8Deny.Target)" -ExpectedMarker "RAIOS_AGENT_END recovery.disable_module" -Name "m8-lifeline:disable_deny_$($m8Deny.Label)"
+    $m8DenyResp = Get-LastAgentResponseJson -Method "recovery.disable_module"
+    $m8dr = $m8DenyResp.body.result
+    $m8DenyOk = (
+        $m8dr.schema -eq "raios.recovery_action.v0" -and
+        $m8dr.action_kind -eq "disable_module" -and
+        $m8dr.method -eq "recovery.disable_module" -and
+        $m8dr.status -eq "capability_denied" -and
+        $m8dr.reason -eq $m8Deny.Reason -and
+        $m8dr.performed -eq $false -and
+        $m8dr.mutates_live_state -eq $false -and
+        $m8dr.durable_append -ne "appended" -and
+        $m8dr.owner_sealed -eq $false -and
+        $m8dr.grants_new_capability -eq $false -and
+        $m8dr.persistence_claimed -eq $false -and
+        $m8dr.promotion_authority_is_placeholder -eq $true
+    )
+    Add-Predicate -Name "m8-lifeline:disable_denied_$($m8Deny.Label)" -Expected "recovery.disable_module $($m8Deny.Target) fails closed ($($m8Deny.Reason)) and mutates nothing" -Passed $m8DenyOk -Actual $(if ($m8DenyOk) { "denied $($m8Deny.Reason)" } else { ($m8dr | ConvertTo-Json -Compress -Depth 6) })
+    if (-not $m8DenyOk) {
+        throw "Expected recovery.disable_module $($m8Deny.Target) to fail closed with $($m8Deny.Reason) and mutate nothing"
+    }
+}
+
+# --- (g2) SAFE-mode + full truth table via the recovery_action selftest [needle v] ----
+# The m8-lifeline VM boots Normal, so SAFE is proven here (not by forcing SAFE): the
+# selftest's safe_posture_denied case plus one preflight case per classification denial.
+Send-AgentCommand -Command "agent recovery.disable_module_selftest" -ExpectedMarker "RAIOS_AGENT_END recovery.disable_module_selftest" -Name "m8-lifeline:disable_selftest"
+$m8Selftest = Get-LastAgentResponseJson -Method "recovery.disable_module_selftest"
+$m8st = $m8Selftest.body.result
+$m8SelftestCases = @($m8st.cases)
+$m8SafeCase = @($m8SelftestCases | Where-Object { $_.case -eq "safe_posture_denied" })[0]
+$m8SelftestOk = (
+    $m8st.schema -eq "raios.recovery_action_append_selftest.v0" -and
+    $m8st.passed -eq $true -and
+    [int]$m8st.case_count -ge 12 -and
+    ($null -ne $m8SafeCase) -and
+    $m8SafeCase.actual_reason -eq "boot_control_safe_mode" -and
+    $m8SafeCase.passed -eq $true -and
+    (@($m8SelftestCases | Where-Object { $_.case -eq "preflight_core_owned_denied" }).Count -eq 1) -and
+    (@($m8SelftestCases | Where-Object { $_.case -eq "preflight_lifeline_endpoint_denied" }).Count -eq 1) -and
+    (@($m8SelftestCases | Where-Object { $_.case -eq "preflight_target_unknown_denied" }).Count -eq 1)
+)
+Add-Predicate -Name "m8-lifeline:disable_selftest_truth_table" -Expected "recovery.disable_module_selftest passes the full truth table incl. safe_posture_denied + one preflight case per classification denial" -Passed $m8SelftestOk -Actual $(if ($m8SelftestOk) { "passed case_count=$([int]$m8st.case_count)" } else { ($m8st | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8SelftestOk) {
+    throw "Expected recovery.disable_module_selftest to pass the full truth table including safe_posture_denied"
+}
+
+# --- (g3) lifeline_table: disable_module now implemented+mutating, vocab re-pinned [needle vii] ---
+Send-AgentCommand -Command "agent recovery.lifeline_table" -ExpectedMarker "RAIOS_AGENT_END recovery.lifeline_table" -Name "m8-lifeline:disable_lifeline_table"
+$m8Table2 = Get-LastAgentResponseJson -Method "recovery.lifeline_table"
+$m8t2 = $m8Table2.body.result
+$m8DisableRow = @($m8t2.methods | Where-Object { $_.name -eq "recovery.disable_module" })[0]
+$m8Table2Ok = (
+    $m8t2.schema -eq "raios.recovery_lifeline_table.v0" -and
+    [int]$m8t2.method_count -eq 6 -and
+    $m8t2.lifeline_vocabulary_sha256 -eq $LifelineVocabularySha256 -and
+    ($null -ne $m8DisableRow) -and
+    $m8DisableRow.implemented -eq $true -and
+    $m8DisableRow.mutating -eq $true
+)
+Add-Predicate -Name "m8-lifeline:disable_module_row_implemented" -Expected "recovery.lifeline_table shows method_count 6, disable_module implemented+mutating, and the re-pinned vocabulary hash" -Passed $m8Table2Ok -Actual $(if ($m8Table2Ok) { "implemented+mutating vocab=$($m8t2.lifeline_vocabulary_sha256)" } else { ($m8t2 | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8Table2Ok) {
+    throw "Expected recovery.lifeline_table to show disable_module implemented+mutating with the re-pinned vocabulary"
+}
+
+# --- (g4) POSITIVE: disable svc.demo.echo for the current boot [needle i] -------------
+# Durable recovery_action record FIRST (appended+readback+reparse-verified), THEN echo
+# is stopped+disabled. The append is the mutating tripwire: a missing/denied append here
+# means the disable never ran.
+$m8DisableOffset = Get-SerialLogOffset
+Send-AgentCommand -Command "agent recovery.disable_module svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END recovery.disable_module" -Name "m8-lifeline:disable_echo"
+$m8Disable = Get-LastAgentResponseJson -Method "recovery.disable_module"
+$m8d = $m8Disable.body.result
+$m8DisableOk = (
+    $m8d.schema -eq "raios.recovery_action.v0" -and
+    $m8d.action_kind -eq "disable_module" -and
+    $m8d.disable_target_id -eq "svc.demo.echo" -and
+    $m8d.disable_target_known_disablable -eq $true -and
+    $m8d.status -eq "ok" -and
+    $m8d.durable_append -eq "appended" -and
+    $m8d.performed -eq $true -and
+    $m8d.reason -eq "authorized_recovery_action_append_readback_reparse_verified" -and
+    $m8d.reparse_valid -eq $true -and
+    ([int]$m8d.count_after -eq ([int]$m8d.count_before + 1)) -and
+    $m8d.mutates_live_state -eq $true -and
+    $m8d.owner_sealed -eq $false -and
+    $m8d.persistence_claimed -eq $false -and
+    $m8d.grants_new_capability -eq $false -and
+    $m8d.promotion_authority_is_placeholder -eq $true -and
+    ([string]$m8d.disable_event_id -like "event.current_boot.*")
+)
+Add-Predicate -Name "m8-lifeline:disable_echo_appended_and_disabled" -Expected "recovery.disable_module svc.demo.echo appends a durable recovery_action record (reparse-verified, count+1) and disables echo for the current boot" -Passed $m8DisableOk -Actual $(if ($m8DisableOk) { "appended+disabled count $([int]$m8d.count_before)->$([int]$m8d.count_after)" } else { ($m8d | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8DisableOk) {
+    throw "Expected recovery.disable_module svc.demo.echo to durably append then disable echo for the current boot"
+}
+
+Send-AgentCommand -Command "agent recovery.snapshot" -ExpectedMarker "RAIOS_AGENT_END recovery.snapshot" -Name "m8-lifeline:post_disable_snapshot"
+$m8DisSnap = Get-LastAgentResponseJson -Method "recovery.snapshot"
+$m8dsnap = $m8DisSnap.body.result
+$m8DisabledList = @($m8dsnap.disabled_modules)
+$m8EchoDisRow = @($m8DisabledList | Where-Object { $_.id -eq "svc.demo.echo" })[0]
+$m8DisSnapOk = (
+    $m8dsnap.schema -eq "raios.recovery_snapshot.v0" -and
+    $m8dsnap.routes_through_wasm -eq $false -and
+    [int]$m8dsnap.disabled_module_count -ge 1 -and
+    ($null -ne $m8EchoDisRow) -and
+    $m8EchoDisRow.health -eq "disabled"
+)
+Add-Predicate -Name "m8-lifeline:post_disable_snapshot_lists_disabled_echo" -Expected "recovery.snapshot lists svc.demo.echo under disabled_modules with health=disabled" -Passed $m8DisSnapOk -Actual $(if ($m8DisSnapOk) { "listed disabled" } else { ($m8dsnap | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8DisSnapOk) {
+    throw "Expected recovery.snapshot to list svc.demo.echo under disabled_modules with health=disabled"
+}
+
+Send-AgentCommand -Command "service.start svc.demo.echo" -ExpectedMarker "RAIOS_AGENT_END service.start" -Name "m8-lifeline:disabled_start_denied"
+$m8DisStart = Get-LastAgentResponseJson -Method "service.start"
+$m8dst = $m8DisStart.body.result
+$m8DisStartOk = (
+    $m8dst.action -eq "start" -and
+    $m8dst.running -eq $false -and
+    $m8dst.reason -eq "service_disabled" -and
+    $m8dst.health -eq "disabled"
+)
+Add-Predicate -Name "m8-lifeline:disabled_start_refused" -Expected "service.start svc.demo.echo is refused while disabled (reason service_disabled, running=false, health=disabled)" -Passed $m8DisStartOk -Actual $(if ($m8DisStartOk) { "refused service_disabled" } else { ($m8dst | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8DisStartOk) {
+    throw "Expected service.start svc.demo.echo to be refused with reason service_disabled while disabled"
+}
+
+# --- (g5) the OTHER three mutators still deny after a real disable happened [needle vi] ---
+foreach ($m8StillDenied in @("recovery.restart_last_good", "recovery.rollback", "recovery.load_artifact_by_hash")) {
+    Send-AgentCommand -Command "agent $m8StillDenied" -ExpectedMarker "RAIOS_AGENT_END $m8StillDenied" -Name "m8-lifeline:post_disable_mutator_$m8StillDenied"
+    $m8SdResp = Get-LastAgentResponseJson -Method $m8StillDenied
+    $m8sd = $m8SdResp.body.result
+    $m8SdDenied = (
+        $m8sd.status -eq "capability_denied" -and
+        $m8sd.method -eq $m8StillDenied -and
+        $m8sd.implemented -eq $false -and
+        $m8sd.mutates_state -eq $false
+    )
+    Add-Predicate -Name "m8-lifeline:post_disable_mutator_denied_$m8StillDenied" -Expected "$m8StillDenied stays capability_denied (implemented=false) even after a real disable happened" -Passed $m8SdDenied -Actual $(if ($m8SdDenied) { "denied" } else { ($m8sd | ConvertTo-Json -Compress -Depth 6) })
+    if (-not $m8SdDenied) {
+        throw "Expected $m8StillDenied to stay capability_denied after a real disable"
+    }
+}
+
+# --- (g6) redaction negative over the whole disable window [needle viii] ---------------
+$m8DisableWindow = (Get-SerialLogContent -Path $SerialLog)
+if ($null -eq $m8DisableWindow) { $m8DisableWindow = "" }
+if ($m8DisableWindow.Length -gt $m8DisableOffset) {
+    $m8DisableWindow = $m8DisableWindow.Substring($m8DisableOffset)
+}
+$m8DisableRedactionOk = $true
+foreach ($m8Secret in @("sk-", "OPENAI_API_KEY", "api_key", "passphrase", "wifi_password", "PSK:")) {
+    if ($m8DisableWindow.Contains($m8Secret)) { $m8DisableRedactionOk = $false }
+}
+Add-Predicate -Name "m8-lifeline:disable_window_redaction_no_secrets" -Expected "the recovery.disable_module output window contains no api-key/passphrase text" -Passed $m8DisableRedactionOk -Actual $(if ($m8DisableRedactionOk) { "redacted" } else { "secret_marker_present" })
+if (-not $m8DisableRedactionOk) {
+    throw "Expected the recovery.disable_module output window to contain no secret markers"
 }

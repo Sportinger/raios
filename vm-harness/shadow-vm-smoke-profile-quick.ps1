@@ -3211,7 +3211,7 @@
             $ltTableRow.implemented -eq $true -and
             $ltSnapshotRow.implemented -eq $true -and
             $ltMutators.Count -eq 4 -and
-            $lt.lifeline_vocabulary_sha256 -eq "sha256:523b719ba65fd52162d485792de7719b606fe35b7a99c656f6874c24a167819f"
+            $lt.lifeline_vocabulary_sha256 -eq "sha256:03d3985c104de4d025c7b38aa6d484bbe68e0eb3512bc034993663c7b7a112a3"
         )
         Add-Predicate -Name "quick:m8a1_lifeline_table" -Expected "recovery.lifeline_table renders the pinned frozen command table with the golden vocabulary hash (grants nothing)" -Passed $lifelineTableOk -Actual $(if ($lifelineTableOk) { "matched" } else { ($lt | ConvertTo-Json -Compress -Depth 6) })
         if (-not $lifelineTableOk) {
@@ -3263,7 +3263,9 @@
             throw "Expected recovery.restart_last_good to return typed capability_denied"
         }
 
-        foreach ($m8aMutator in @("recovery.disable_module", "recovery.rollback", "recovery.load_artifact_by_hash")) {
+        # recovery.disable_module is implemented as of M8B-1b (its own recovery_action.v0 shape,
+        # proven live in the m8-lifeline profile); the still-denied mutators keep the deny check.
+        foreach ($m8aMutator in @("recovery.rollback", "recovery.load_artifact_by_hash")) {
             Send-AgentCommand -Command "agent $m8aMutator" -ExpectedMarker "RAIOS_AGENT_END $m8aMutator"
             $m8aResp = Get-LastAgentResponseJson -Method $m8aMutator
             $m8aResult = $m8aResp.body.result
@@ -3283,17 +3285,17 @@
         }
 
         # Case-insensitive dispatch: an operator under duress typing upper-case still resolves to the
-        # pinned lowercase endpoint and gets a typed denial (not UNKNOWN) on the mutating path.
-        Send-AgentCommand -Command "agent RECOVERY.DISABLE_MODULE" -ExpectedMarker "RAIOS_AGENT_END recovery.disable_module"
-        $lifelineCaseInsensitive = Get-LastAgentResponseJson -Method "recovery.disable_module"
+        # pinned lowercase endpoint and gets a typed denial (not UNKNOWN) on a still-denied mutating path.
+        Send-AgentCommand -Command "agent RECOVERY.ROLLBACK" -ExpectedMarker "RAIOS_AGENT_END recovery.rollback"
+        $lifelineCaseInsensitive = Get-LastAgentResponseJson -Method "recovery.rollback"
         $lci = $lifelineCaseInsensitive.body.result
         $lifelineCaseInsensitiveOk = (
             $lci.status -eq "capability_denied" -and
-            $lci.method -eq "recovery.disable_module" -and
+            $lci.method -eq "recovery.rollback" -and
             $lci.mutating -eq $true -and
             $lci.mutates_state -eq $false
         )
-        Add-Predicate -Name "quick:m8a1_case_insensitive_denied" -Expected "upper-case RECOVERY.DISABLE_MODULE resolves to the pinned lowercase endpoint and returns capability_denied" -Passed $lifelineCaseInsensitiveOk -Actual $(if ($lifelineCaseInsensitiveOk) { "denied" } else { ($lci | ConvertTo-Json -Compress -Depth 5) })
+        Add-Predicate -Name "quick:m8a1_case_insensitive_denied" -Expected "upper-case RECOVERY.ROLLBACK resolves to the pinned lowercase endpoint and returns capability_denied" -Passed $lifelineCaseInsensitiveOk -Actual $(if ($lifelineCaseInsensitiveOk) { "denied" } else { ($lci | ConvertTo-Json -Compress -Depth 5) })
         if (-not $lifelineCaseInsensitiveOk) {
-            throw "Expected upper-case RECOVERY.DISABLE_MODULE to resolve case-insensitively to a typed capability_denied"
+            throw "Expected upper-case RECOVERY.ROLLBACK to resolve case-insensitively to a typed capability_denied"
         }

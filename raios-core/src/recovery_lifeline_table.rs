@@ -65,7 +65,7 @@ pub const LIFELINE_METHODS: &[LifelineMethod] = &[
     LifelineMethod {
         name: METHOD_DISABLE_MODULE,
         capability: "cap.recovery.disable_module",
-        implemented: false,
+        implemented: true,
         mutating: true,
     },
     LifelineMethod {
@@ -160,12 +160,13 @@ mod tests {
                 "recovery.load_artifact_by_hash",
             ]
         );
-        // Implemented reads (M8A-1 table, M8A-2 snapshot); the four mutators stay denied.
+        // Implemented: M8A-1 table, M8A-2 snapshot, M8B-1 disable_module executor;
+        // the other three mutators stay denied.
         assert!(lookup("recovery.lifeline_table").unwrap().implemented);
         assert!(lookup("recovery.snapshot").unwrap().implemented);
+        assert!(lookup("recovery.disable_module").unwrap().implemented);
         for name in [
             "recovery.restart_last_good",
-            "recovery.disable_module",
             "recovery.rollback",
             "recovery.load_artifact_by_hash",
         ] {
@@ -193,7 +194,7 @@ mod tests {
         let hex = core::str::from_utf8(&hex).unwrap();
         assert_eq!(
             hex,
-            "523b719ba65fd52162d485792de7719b606fe35b7a99c656f6874c24a167819f"
+            "03d3985c104de4d025c7b38aa6d484bbe68e0eb3512bc034993663c7b7a112a3"
         );
     }
 }

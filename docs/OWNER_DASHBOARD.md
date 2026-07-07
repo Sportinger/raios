@@ -20,14 +20,19 @@ extended, and it touches none of the normal machinery. Two READ-ONLY rescue comm
 work today: "show me the rescue command list" and NEW "show me a diagnosis snapshot"
 (which parts booted, which services are alive vs broken, which are protected-core vs
 replaceable) — it reads only, leaks no secrets, changes nothing. The four rescue
-ACTIONS (restart-last-good, disable-a-module, roll-back, load-a-saved-artifact) stay
-deliberately refused until built and proven, one careful step at a time. Restore-only,
-never promote. **NEW — die wichtigste Absicherung von M8 ist bewiesen:** selbst wenn
-ein laufender Baustein WIRKLICH abstürzt (echter Absturz, nicht simuliert), **antwortet
-die Rettungsleine weiter** und meldet den Baustein ehrlich als "crashed" — und wenn man
-ihn neu startet, verschwindet die Absturz-Meldung wieder. Sie überlebt, weil KI-Code
-ein Treibstoff-Limit hat und kooperativ läuft — noch NICHT durch echte Hardware-Trennung
-(die kommt erst mit M11).).
+NEW — **die erste echte Rettungs-AKTION funktioniert:** ein schlechtes Modul lässt sich
+jetzt **abschalten** (`disable_module`). Ablauf mit Sicherheitsnetz: raiOS schreibt
+ZUERST einen dauerhaften Prüf-Eintrag auf die Platte und stoppt das Modul erst DANACH —
+und nur, wenn der Eintrag wirklich gelang. **Kern-Dienste, die Rettungsleine selbst und
+unbekannte Ziele werden strikt verweigert, BEVOR irgendetwas geschrieben oder verändert
+wird** (im Test bewiesen: der Kern-Dienst `core.serial` wurde korrekt abgelehnt, nichts
+angetastet). Es wird nur *entfernt*, nie etwas Neues befördert; ehrlich als Entwickler-
+Schlüssel gekennzeichnet. Die restlichen drei Aktionen (neu-starten-letzter-guter,
+zurückrollen, gespeichertes-Artefakt-laden) bleiben weiter verweigert, eine nach der
+anderen. Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
+Baustein WIRKLICH abstürzt, antwortet die Rettungsleine weiter — sie überlebt, weil
+KI-Code ein Treibstoff-Limit hat und kooperativ läuft, noch NICHT durch echte
+Hardware-Trennung (die kommt erst mit M11).).
 
 ## What raiOS can actually do today
 

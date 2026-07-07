@@ -26,6 +26,15 @@ use raios_core::{
         EXPECTED_TARGET_ID as PROMOTION_EXPECTED_TARGET_ID,
         EXPECTED_TRUST_TIER as PROMOTION_EXPECTED_TRUST_TIER,
     },
+    scoped_recovery_action_append::{
+        evaluate_scoped_recovery_action_append, ScopedRecoveryActionAppendInput,
+        EXPECTED_ACTION_KIND as RECOVERY_ACTION_EXPECTED_ACTION_KIND,
+        EXPECTED_METHOD as RECOVERY_ACTION_EXPECTED_METHOD,
+        EXPECTED_RECORD_SCHEMA as RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA,
+        EXPECTED_REGION_MARKER as RECOVERY_ACTION_EXPECTED_REGION_MARKER,
+        EXPECTED_TARGET_ID as RECOVERY_ACTION_EXPECTED_TARGET_ID,
+        EXPECTED_TRUST_TIER as RECOVERY_ACTION_EXPECTED_TRUST_TIER,
+    },
     scoped_seed_data_append::{
         evaluate_scoped_seed_data_append, ScopedSeedDataAppendInput, EXPECTED_METHOD,
         EXPECTED_RECORD_SCHEMA, EXPECTED_REGION_MARKER, EXPECTED_TARGET_ID,
@@ -47,6 +56,17 @@ const PROMOTION_TRANSACTION_RECORD_KIND: &str = "promotion_transaction";
 const PROMOTION_TRANSACTION_RECORD_SCOPE: &str = "origin_boot";
 const PROMOTION_TRANSACTION_TRUST_TIER: &str = "dev_key_not_owner_sealed";
 const PROMOTION_TRANSACTION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
+const RECOVERY_ACTION_SELFTEST_METHOD: &str = "recovery.disable_module_selftest";
+const RECOVERY_ACTION_SELFTEST_SCHEMA: &str = "raios.recovery_action_append_selftest.v0";
+const RECOVERY_ACTION_RECORD_KIND: &str = "recovery_action";
+const RECOVERY_ACTION_RECORD_SCOPE: &str = "current_boot";
+const RECOVERY_ACTION_TRUST_TIER: &str = "dev_key_not_owner_sealed";
+const RECOVERY_ACTION_MAX_PAYLOAD_LEN: usize = 4096 - RECLOG_FRAME_HEADER_LEN;
+pub(crate) const RECOVERY_ACTION_KIND_DISABLE_MODULE: &str = RECOVERY_ACTION_EXPECTED_ACTION_KIND;
+pub(crate) const RECOVERY_ACTION_SCHEMA: &str = RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA;
+pub(crate) const RECOVERY_ACTION_APPEND_TARGET_ID: &str = RECOVERY_ACTION_EXPECTED_TARGET_ID;
+pub(crate) const RECOVERY_ACTION_APPEND_REGION_MARKER: &str =
+    RECOVERY_ACTION_EXPECTED_REGION_MARKER;
 
 struct DurableRecordLogScanEvidence {
     reason: &'static str,
@@ -1077,6 +1097,596 @@ fn selftest_event_id(sequence: u64) -> event_log::EventId {
 }
 
 fn record_promotion_selftest_case(case: &PromotionTransactionSelftestCase) -> V<'static> {
+    V::InlineObject(vec![
+        f("case", s(case.name)),
+        f("expected_status", s(case.expected_status)),
+        f("expected_reason", s(case.expected_reason)),
+        f("actual_status", s(case.actual_status)),
+        f("actual_reason", s(case.actual_reason)),
+        f("reparsed", b(case.reparsed)),
+        f("passed", b(case.passed)),
+    ])
+}
+
+// --- M8B-1 recovery.disable_module durable action record ---------------------------
+//
+// The mutating half of the recovery lifeline appends a `raios.recovery_action.v0`
+// record through the SHARED reclog mechanism (current_boot_reclog_scan / plan / ahci
+// write_readback / parse) authorized ONLY by evaluate_scoped_recovery_action_append.
+// This mirrors append_promotion_transaction EXACTLY, swapping the scoped evaluator and
+// the record payload; it forks no second durable-append implementation. Deny before
+// mutate: SAFE posture and every invalid target class are rejected in the preflight
+// before any plan/write.
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecoveryTargetClassification {
+    LifelineEndpoint,
+    CoreOwned,
+    Unknown,
+    KnownDisablable,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RecoveryActionRecord {
+    pub(crate) action_kind: &'static str,
+    pub(crate) disable_target_id: &'static str,
+    pub(crate) disable_target_is_lifeline_endpoint: bool,
+    pub(crate) disable_target_core_owned: bool,
+    pub(crate) disable_target_known_disablable: bool,
+    pub(crate) grants_new_capability: bool,
+}
+
+impl RecoveryActionRecord {
+    pub(crate) fn classification(&self) -> RecoveryTargetClassification {
+        if self.disable_target_is_lifeline_endpoint {
+            RecoveryTargetClassification::LifelineEndpoint
+        } else if self.disable_target_core_owned {
+            RecoveryTargetClassification::CoreOwned
+        } else if !self.disable_target_known_disablable {
+            RecoveryTargetClassification::Unknown
+        } else {
+            RecoveryTargetClassification::KnownDisablable
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RecoveryActionAppendEvidence {
+    pub(crate) action_kind: &'static str,
+    pub(crate) disable_target_id: &'static str,
+    pub(crate) durable_append: &'static str,
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) authority: &'static str,
+    pub(crate) seq: Option<u64>,
+    pub(crate) write_offset: Option<u64>,
+    pub(crate) frame_len: Option<u64>,
+    pub(crate) payload_sha256: Option<[u8; 32]>,
+    pub(crate) frame_sha256: Option<[u8; 32]>,
+    pub(crate) readback_sha256: Option<[u8; 32]>,
+    pub(crate) reparse_valid: bool,
+    pub(crate) tail_seq_before: Option<u64>,
+    pub(crate) count_before: Option<u64>,
+    pub(crate) tail_seq_after: Option<u64>,
+    pub(crate) count_after: Option<u64>,
+    pub(crate) disable_target_is_lifeline_endpoint: bool,
+    pub(crate) disable_target_core_owned: bool,
+    pub(crate) disable_target_known_disablable: bool,
+    pub(crate) grants_new_capability: bool,
+    pub(crate) trust_tier: &'static str,
+    pub(crate) promotion_authority_is_placeholder: bool,
+    pub(crate) owner_sealed: bool,
+    pub(crate) persistence_claimed: bool,
+}
+
+/// SAFE-mode + invalid-target preflight, mirroring `promotion_transaction_preflight_denial`.
+/// SAFE (posture not Normal|Probation) denies the write before any plan/write; then the
+/// lifeline/core/unknown target classes deny with their pinned reasons. `KnownDisablable`
+/// in a writable posture is the only case that proceeds to the durable gauntlet.
+pub(crate) fn recovery_action_preflight_denial(
+    posture: BootPosture,
+    classification: RecoveryTargetClassification,
+) -> Option<&'static str> {
+    if !matches!(posture, BootPosture::Normal | BootPosture::Probation) {
+        Some("boot_control_safe_mode")
+    } else {
+        match classification {
+            RecoveryTargetClassification::LifelineEndpoint => Some("target_is_lifeline_endpoint"),
+            RecoveryTargetClassification::CoreOwned => Some("target_core_owned"),
+            RecoveryTargetClassification::Unknown => Some("target_unknown"),
+            RecoveryTargetClassification::KnownDisablable => None,
+        }
+    }
+}
+
+pub(crate) fn recovery_action_append_denied(
+    record: &RecoveryActionRecord,
+    reason: &'static str,
+) -> RecoveryActionAppendEvidence {
+    recovery_action_append_evidence(
+        record,
+        "capability_denied",
+        reason,
+        "evidence_only",
+        None,
+        None,
+        None,
+        false,
+        None,
+    )
+}
+
+pub(crate) fn append_recovery_action(
+    record: &RecoveryActionRecord,
+) -> RecoveryActionAppendEvidence {
+    if let Some(reason) = recovery_action_preflight_denial(
+        super::boot_control::current_boot_posture(),
+        record.classification(),
+    ) {
+        return recovery_action_append_denied(record, reason);
+    }
+
+    let before = current_boot_reclog_scan();
+    let payload = recovery_action_payload_bytes(record);
+    let planned = match plan_reclog_append(&before.scan, &payload, before.reclog_byte_count) {
+        Ok(planned) => planned,
+        Err(denied) => {
+            return recovery_action_append_evidence(
+                record,
+                "capability_denied",
+                denied.reason(),
+                "evidence_only",
+                Some(&before),
+                None,
+                None,
+                false,
+                None,
+            )
+        }
+    };
+
+    let Some(controller) = before.controller else {
+        return recovery_action_append_evidence(
+            record,
+            "capability_denied",
+            "ahci_controller_not_observed",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    };
+
+    let write = unsafe {
+        ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
+    };
+    let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
+    let reparse_valid = write
+        .readback
+        .as_deref()
+        .map(|bytes| parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256).is_ok())
+        .unwrap_or(false);
+    let decision = evaluate_scoped_recovery_action_append(&ScopedRecoveryActionAppendInput {
+        method: Some(RECOVERY_ACTION_EXPECTED_METHOD),
+        target_id: Some(RECOVERY_ACTION_EXPECTED_TARGET_ID),
+        record_schema: Some(RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA),
+        region_marker: Some(RECOVERY_ACTION_EXPECTED_REGION_MARKER),
+        frame_len: Some(planned.frame_len),
+        write_offset: Some(planned.write_offset),
+        reclog_byte_count: Some(before.reclog_byte_count),
+        absolute_start_lba: Some(before.reclog_absolute_start_lba),
+        reclog_lba_count: Some(before.reclog_lba_count),
+        seq: Some(planned.seq),
+        tail_seq: Some(before.scan.tail_seq),
+        count: Some(before.scan.count),
+        prev_frame_sha256: Some(planned.prev_frame_sha256),
+        tail_frame_sha256: before.scan.tail_frame_sha256,
+        payload_sha256: Some(planned.payload_sha256),
+        planned_payload_sha256: Some(planned.payload_sha256),
+        planned_frame_sha256: Some(planned.frame_sha256),
+        readback_frame_sha256: readback_sha256,
+        write_attempted: write.write_attempted,
+        write_completed: write.write_completed,
+        readback_completed: write.readback_completed,
+        readback_matches_planned: readback_sha256 == Some(planned.frame_sha256),
+        reparse_valid,
+        span_in_bounds: write.span_in_bounds,
+        action_kind: Some(record.action_kind),
+        disable_target_is_lifeline_endpoint: record.disable_target_is_lifeline_endpoint,
+        disable_target_core_owned: record.disable_target_core_owned,
+        disable_target_known_disablable: record.disable_target_known_disablable,
+        grants_new_capability: record.grants_new_capability,
+        trust_tier: Some(RECOVERY_ACTION_EXPECTED_TRUST_TIER),
+        owner_sealed: false,
+        persistence_claimed: false,
+    });
+
+    if !decision.performed {
+        return recovery_action_append_evidence(
+            record,
+            "capability_denied",
+            decision.reason,
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            None,
+        );
+    }
+
+    let after = current_boot_reclog_scan();
+    let rescan_ok = before
+        .scan
+        .count
+        .checked_add(1)
+        .map(|count| after.scan.count == count)
+        .unwrap_or(false)
+        && after.scan.tail_seq == planned.seq
+        && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
+    if !rescan_ok {
+        return recovery_action_append_evidence(
+            record,
+            "capability_denied",
+            "post_append_rescan_mismatch",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            Some(&after),
+        );
+    }
+
+    recovery_action_append_evidence(
+        record,
+        "appended",
+        decision.reason,
+        "scoped_recovery_action_append_authorized",
+        Some(&before),
+        Some(&planned),
+        readback_sha256,
+        true,
+        Some(&after),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recovery_action_append_evidence(
+    record: &RecoveryActionRecord,
+    durable_append: &'static str,
+    reason: &'static str,
+    authority: &'static str,
+    before: Option<&DurableRecordLogScanEvidence>,
+    planned: Option<&PlannedAppend>,
+    readback_sha256: Option<[u8; 32]>,
+    reparse_valid: bool,
+    after: Option<&DurableRecordLogScanEvidence>,
+) -> RecoveryActionAppendEvidence {
+    RecoveryActionAppendEvidence {
+        action_kind: record.action_kind,
+        disable_target_id: record.disable_target_id,
+        durable_append,
+        performed: durable_append == "appended",
+        reason,
+        authority,
+        seq: planned.map(|planned| planned.seq),
+        write_offset: planned.map(|planned| planned.write_offset),
+        frame_len: planned.map(|planned| planned.frame_len),
+        payload_sha256: planned.map(|planned| planned.payload_sha256),
+        frame_sha256: planned.map(|planned| planned.frame_sha256),
+        readback_sha256,
+        reparse_valid,
+        tail_seq_before: before.map(|before| before.scan.tail_seq),
+        count_before: before.map(|before| before.scan.count),
+        tail_seq_after: after.map(|after| after.scan.tail_seq),
+        count_after: after.map(|after| after.scan.count),
+        disable_target_is_lifeline_endpoint: record.disable_target_is_lifeline_endpoint,
+        disable_target_core_owned: record.disable_target_core_owned,
+        disable_target_known_disablable: record.disable_target_known_disablable,
+        grants_new_capability: record.grants_new_capability,
+        trust_tier: RECOVERY_ACTION_TRUST_TIER,
+        promotion_authority_is_placeholder: PROMOTION_AUTHORITY_IS_PLACEHOLDER,
+        owner_sealed: false,
+        persistence_claimed: false,
+    }
+}
+
+pub(crate) fn recovery_action_payload_bytes(record: &RecoveryActionRecord) -> Vec<u8> {
+    let payload = V::Object(vec![
+        f("schema", s(RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA)),
+        f(
+            "id",
+            s("recovery_action.current_boot.disable_module.svc.demo.echo.v0"),
+        ),
+        f("scope", s(RECOVERY_ACTION_RECORD_SCOPE)),
+        f("classification", s("local_only")),
+        f("record_kind", s(RECOVERY_ACTION_RECORD_KIND)),
+        f("action_kind", s(record.action_kind)),
+        f("disable_target_id", s(record.disable_target_id)),
+        f(
+            "disable_target_is_lifeline_endpoint",
+            b(record.disable_target_is_lifeline_endpoint),
+        ),
+        f(
+            "disable_target_core_owned",
+            b(record.disable_target_core_owned),
+        ),
+        f(
+            "disable_target_known_disablable",
+            b(record.disable_target_known_disablable),
+        ),
+        f("grants_new_capability", b(record.grants_new_capability)),
+        f("trust_tier", s(RECOVERY_ACTION_TRUST_TIER)),
+        f(
+            "promotion_authority_is_placeholder",
+            b(PROMOTION_AUTHORITY_IS_PLACEHOLDER),
+        ),
+        f("owner_sealed", b(false)),
+        f("reversible_this_boot", b(false)),
+        f("mutates_live_state", b(true)),
+        f("persistence_claimed", b(false)),
+    ]);
+    let mut sink = VecSink(Vec::new());
+    write_json(&payload, &mut sink, 0);
+    sink.0
+}
+
+pub(crate) fn emit_recovery_action_selftest() {
+    let cases = recovery_action_selftest_cases();
+    let passed = cases.iter().all(|case| case.passed);
+    let case_records = cases
+        .iter()
+        .map(record_recovery_action_selftest_case)
+        .collect();
+
+    begin_response(RECOVERY_ACTION_SELFTEST_METHOD);
+    emit_record_fields(
+        vec![
+            f("schema", s(RECOVERY_ACTION_SELFTEST_SCHEMA)),
+            f("scope", s("current_boot")),
+            f("classification", s("local_only")),
+            f("test_infrastructure", b(true)),
+            f("mutates_global_event_log", b(false)),
+            f("writes_persistent_state", b(false)),
+            f("case_count", V::U64(cases.len() as u64)),
+            f("passed", b(passed)),
+            f("cases", V::Array(case_records)),
+            f("evidence_complete", b(true)),
+        ],
+        6,
+    );
+    end_response(RECOVERY_ACTION_SELFTEST_METHOD);
+}
+
+#[derive(Clone, Copy)]
+struct RecoveryActionSelftestCase {
+    name: &'static str,
+    expected_status: &'static str,
+    expected_reason: &'static str,
+    actual_status: &'static str,
+    actual_reason: &'static str,
+    reparsed: bool,
+    passed: bool,
+}
+
+#[derive(Clone, Copy)]
+enum RecoverySelftestMutation {
+    WrongSchema,
+    WrongTarget,
+    WrongActionKind,
+    LifelineEndpoint,
+    CoreOwned,
+    TargetUnknown,
+    GrantsCapability,
+}
+
+fn recovery_action_selftest_cases() -> Vec<RecoveryActionSelftestCase> {
+    vec![
+        recovery_action_positive_case(),
+        recovery_action_denial_case("wrong_schema_denied", RecoverySelftestMutation::WrongSchema),
+        recovery_action_denial_case("wrong_target_denied", RecoverySelftestMutation::WrongTarget),
+        recovery_action_denial_case(
+            "wrong_action_kind_denied",
+            RecoverySelftestMutation::WrongActionKind,
+        ),
+        recovery_action_denial_case(
+            "lifeline_endpoint_denied",
+            RecoverySelftestMutation::LifelineEndpoint,
+        ),
+        recovery_action_denial_case("core_owned_denied", RecoverySelftestMutation::CoreOwned),
+        recovery_action_denial_case(
+            "target_unknown_denied",
+            RecoverySelftestMutation::TargetUnknown,
+        ),
+        recovery_action_denial_case(
+            "grants_capability_denied",
+            RecoverySelftestMutation::GrantsCapability,
+        ),
+        recovery_action_preflight_case(
+            "safe_posture_denied",
+            BootPosture::Safe,
+            RecoveryTargetClassification::KnownDisablable,
+            "boot_control_safe_mode",
+        ),
+        recovery_action_preflight_case(
+            "preflight_lifeline_endpoint_denied",
+            BootPosture::Normal,
+            RecoveryTargetClassification::LifelineEndpoint,
+            "target_is_lifeline_endpoint",
+        ),
+        recovery_action_preflight_case(
+            "preflight_core_owned_denied",
+            BootPosture::Normal,
+            RecoveryTargetClassification::CoreOwned,
+            "target_core_owned",
+        ),
+        recovery_action_preflight_case(
+            "preflight_target_unknown_denied",
+            BootPosture::Normal,
+            RecoveryTargetClassification::Unknown,
+            "target_unknown",
+        ),
+    ]
+}
+
+fn recovery_action_positive_case() -> RecoveryActionSelftestCase {
+    let (status, reason, reparsed) = synthetic_recovery_action_decision(None);
+    RecoveryActionSelftestCase {
+        name: "disable_module_authorized_reparse",
+        expected_status: "appended",
+        expected_reason: "authorized_recovery_action_append_readback_reparse_verified",
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "appended"
+            && reason == "authorized_recovery_action_append_readback_reparse_verified"
+            && reparsed,
+    }
+}
+
+fn recovery_action_denial_case(
+    name: &'static str,
+    mutation: RecoverySelftestMutation,
+) -> RecoveryActionSelftestCase {
+    let (status, reason, reparsed) = synthetic_recovery_action_decision(Some(mutation));
+    let expected_reason = match mutation {
+        RecoverySelftestMutation::WrongSchema => "record_schema_mismatch",
+        RecoverySelftestMutation::WrongTarget => "target_out_of_scope",
+        RecoverySelftestMutation::WrongActionKind => "action_kind_out_of_scope",
+        RecoverySelftestMutation::LifelineEndpoint => "target_is_lifeline_endpoint",
+        RecoverySelftestMutation::CoreOwned => "target_core_owned",
+        RecoverySelftestMutation::TargetUnknown => "target_unknown",
+        RecoverySelftestMutation::GrantsCapability => "grants_capability_not_allowed",
+    };
+    RecoveryActionSelftestCase {
+        name,
+        expected_status: "denied",
+        expected_reason,
+        actual_status: status,
+        actual_reason: reason,
+        reparsed,
+        passed: status == "denied" && reason == expected_reason,
+    }
+}
+
+fn recovery_action_preflight_case(
+    name: &'static str,
+    posture: BootPosture,
+    classification: RecoveryTargetClassification,
+    expected_reason: &'static str,
+) -> RecoveryActionSelftestCase {
+    let reason = recovery_action_preflight_denial(posture, classification)
+        .unwrap_or("unexpected_authorized");
+    RecoveryActionSelftestCase {
+        name,
+        expected_status: "denied",
+        expected_reason,
+        actual_status: "denied",
+        actual_reason: reason,
+        reparsed: false,
+        passed: reason == expected_reason,
+    }
+}
+
+fn synthetic_recovery_action_decision(
+    mutation: Option<RecoverySelftestMutation>,
+) -> (&'static str, &'static str, bool) {
+    let scan = RecordLogScan {
+        head_seq: 1,
+        tail_seq: 2,
+        count: 2,
+        terminated_reason: "zero_filled",
+        torn_tail: false,
+        first_invalid_offset: 1024,
+        valid_prefix_chain: true,
+        full_region_valid: true,
+        head_frame_sha256: Some([1; 32]),
+        tail_frame_sha256: Some([2; 32]),
+    };
+    let record = recovery_action_selftest_record();
+    let payload = recovery_action_payload_bytes(&record);
+    if payload.len() > RECOVERY_ACTION_MAX_PAYLOAD_LEN {
+        return ("denied", "payload_too_large_for_frame", false);
+    }
+    let Ok(planned) = plan_reclog_append(&scan, &payload, 4096) else {
+        return ("denied", "plan_failed", false);
+    };
+    let reparsed =
+        parse_reclog_frame(&planned.frame, 0, planned.seq, planned.prev_frame_sha256).is_ok();
+    let mut input = ScopedRecoveryActionAppendInput {
+        method: Some(RECOVERY_ACTION_EXPECTED_METHOD),
+        target_id: Some(RECOVERY_ACTION_EXPECTED_TARGET_ID),
+        record_schema: Some(RECOVERY_ACTION_EXPECTED_RECORD_SCHEMA),
+        region_marker: Some(RECOVERY_ACTION_EXPECTED_REGION_MARKER),
+        frame_len: Some(planned.frame_len),
+        write_offset: Some(planned.write_offset),
+        reclog_byte_count: Some(4096),
+        absolute_start_lba: Some(100),
+        reclog_lba_count: Some(8),
+        seq: Some(planned.seq),
+        tail_seq: Some(scan.tail_seq),
+        count: Some(scan.count),
+        prev_frame_sha256: Some(planned.prev_frame_sha256),
+        tail_frame_sha256: scan.tail_frame_sha256,
+        payload_sha256: Some(planned.payload_sha256),
+        planned_payload_sha256: Some(planned.payload_sha256),
+        planned_frame_sha256: Some(planned.frame_sha256),
+        readback_frame_sha256: Some(planned.frame_sha256),
+        write_attempted: true,
+        write_completed: true,
+        readback_completed: true,
+        readback_matches_planned: true,
+        reparse_valid: reparsed,
+        span_in_bounds: true,
+        action_kind: Some(RECOVERY_ACTION_EXPECTED_ACTION_KIND),
+        disable_target_is_lifeline_endpoint: false,
+        disable_target_core_owned: false,
+        disable_target_known_disablable: true,
+        grants_new_capability: false,
+        trust_tier: Some(RECOVERY_ACTION_EXPECTED_TRUST_TIER),
+        owner_sealed: false,
+        persistence_claimed: false,
+    };
+    if let Some(mutation) = mutation {
+        match mutation {
+            RecoverySelftestMutation::WrongSchema => {
+                input.record_schema = Some("raios.durable_record.v0")
+            }
+            RecoverySelftestMutation::WrongTarget => {
+                input.target_id = Some("append.promotion_transaction.seed_data")
+            }
+            RecoverySelftestMutation::WrongActionKind => {
+                input.action_kind = Some("restart_last_good")
+            }
+            RecoverySelftestMutation::LifelineEndpoint => {
+                input.disable_target_is_lifeline_endpoint = true
+            }
+            RecoverySelftestMutation::CoreOwned => input.disable_target_core_owned = true,
+            RecoverySelftestMutation::TargetUnknown => {
+                input.disable_target_known_disablable = false
+            }
+            RecoverySelftestMutation::GrantsCapability => input.grants_new_capability = true,
+        }
+    }
+    let decision = evaluate_scoped_recovery_action_append(&input);
+    (decision.status, decision.reason, reparsed)
+}
+
+fn recovery_action_selftest_record() -> RecoveryActionRecord {
+    RecoveryActionRecord {
+        action_kind: RECOVERY_ACTION_EXPECTED_ACTION_KIND,
+        disable_target_id: "svc.demo.echo",
+        disable_target_is_lifeline_endpoint: false,
+        disable_target_core_owned: false,
+        disable_target_known_disablable: true,
+        grants_new_capability: false,
+    }
+}
+
+fn record_recovery_action_selftest_case(case: &RecoveryActionSelftestCase) -> V<'static> {
     V::InlineObject(vec![
         f("case", s(case.name)),
         f("expected_status", s(case.expected_status)),

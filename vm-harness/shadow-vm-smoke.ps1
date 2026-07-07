@@ -120,6 +120,18 @@ try {
     if ($Profile -eq "persistence" -or $PersistDiskPath) {
         $PersistDiskImage = Resolve-PersistDiskImage -PersistDiskPath $PersistDiskPath -RunDir $RunDir
     }
+    elseif ($Profile -eq "m8-lifeline") {
+        # M8B-1: recovery.disable_module writes a durable recovery-action record, which
+        # (per the M7C-2a discipline) requires Normal boot posture. Boot m8-lifeline with
+        # a valid-a BOOTCTL persist disk (Normal posture) + an empty reclog so the durable
+        # append lands at seq 1 and live target-classification denials are reached.
+        $m8PersistDisk = Assert-PersistDiskPathSafe -Path (Join-Path $RunDir "raios-persist-m8-lifeline.img")
+        $null = & python (Join-Path $RepoRoot "scripts\make-gpt-persist-image.py") --self-check --seed-bootctl valid-a $m8PersistDisk 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "m8-lifeline persist disk build failed with exit code $LASTEXITCODE"
+        }
+        $PersistDiskImage = (Resolve-Path -LiteralPath $m8PersistDisk).Path
+    }
 
     $Nic = if ($Network) { "e1000" } else { "none" }
     $HardwareProfile = New-HardwareProfile -Nic $Nic -ScratchDrive $true -AuditRollbackTargetDrive $true -PersistDrive ($null -ne $PersistDiskImage)

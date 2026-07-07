@@ -3190,6 +3190,45 @@ unchanged), m8-lifeline 191/191 (survival + the restart-recovery honesty guard),
 byte-identical, FULL 8168/8168. The restore ACTIONS (disable_module, restart_last_good)
 begin at M8B — each its OWN scoped evaluator, never a shared write-boundary flip.
 
+**M8B-1 DONE (2026-07-07) — the lifeline's FIRST mutating action + FIRST durable write:
+`recovery.disable_module`.** Split, mirroring M6B/M7D: **1a (cd37721, grants nothing)** —
+NEW `raios-core/src/scoped_recovery_action_append.rs`, a separately-pinned scoped
+evaluator (EXPECTED_METHOD `durable.recovery_action_append` / TARGET_ID
+`append.recovery_action.seed_data` / SCHEMA `raios.recovery_action.v0` / MARKER
+`RAIOS_DATA_RECLOG` / ACTION_KIND `disable_module`) with the shared write→readback→reparse
+gauntlet + a recovery tail pinning the three disable-target classification bools; 41
+pairwise-distinct denial reasons; nothing called it yet. **1b — the kernel executor:**
+`recovery.disable_module <target>` classifies the target read-only, DENIES core-owned /
+lifeline-endpoint / unknown / SAFE-posture BEFORE any plan/write, then writes a durable
+`raios.recovery_action.v0` record through the SHARED RECLOG mechanism authorized ONLY by
+the 1a evaluator, and ONLY on durable-append success stops+disables echo (a current-boot
+RAM latch in the NON-attested `echo_service.rs`; `HEALTH_DISABLED` takes precedence over
+`crashed`; a disabled module never runs wasm; `start` refuses it; `drop` clears it). The
+CRITICAL trap was avoided: the pre-planning map's "reuse the generalized transaction
+helper" was the SHARED write-boundary chain (grants generic write to every module) and its
+"edit `current_boot_service.rs`" would break the signed hello attestation — BOTH neutralized
+(own evaluator; latch in echo_service.rs; `current_boot_service.rs` byte-identical to HEAD).
+Vocab hash re-pinned `523b719b…→03d3985c…` (only `disable_module.implemented` flipped).
+Restore-only: disable REMOVES a module, grants nothing — `grants_new_capability:false`,
+`owner_sealed:false`, `dev_key_not_owner_sealed`, `reversible_this_boot:false`,
+`persistence_claimed:false`, `PROMOTION_AUTHORITY_IS_PLACEHOLDER:true`. Max-effort
+adversarial review: NO BLOCKER/HIGH — deny-before-mutate provably fail-closed (preflight
+before any write AND re-checked in append_recovery_action; classification exactly-one-of,
+fail-closed to unknown); the durable write passes the REAL classification bools to the 1a
+evaluator (not forged constants); the gauntlet compares readback to the PLANNED frame (no
+M7D-2 self-compare); a disabled module can never run wasm. One MEDIUM (pre-existing,
+latent): autocrlf could smudge the signed `current_boot_service.rs` to CRLF on a fresh
+checkout and break the attestation — fixed separately by adding it to `.gitattributes -text`.
+Test env: the `m8-lifeline` profile now boots a `--seed-bootctl valid-a` persist disk
+(Normal posture) so the durable recovery-action write is exercised LIVE (M8A was read-only
+and needed no disk). Verified: raios-core 115 (vocab hash re-pinned), m8-lifeline 225/225
+(durable append landed + echo stopped; core/lifeline/unknown/`*` denials with distinct
+reasons; selftest truth table incl. safe_posture_denied; disabled-start refused; the three
+remaining mutators still deny; redaction clean), recovery byte-identical, quick 580/580
+(hash + disable_module-shape needles synced), FULL 8168/8168. Next: **M8B-2
+`recovery.restart_last_good`** (extends the SAME recovery-action evaluator with a pinned
+second action_kind — a pinned widening within one authority, never a cross-target flip).
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with
 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-seed-kernel.ps1 -Profile release`,

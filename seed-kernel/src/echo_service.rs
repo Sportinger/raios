@@ -86,6 +86,15 @@ const ECHO_SERVICE_WEDGE_EVIDENCE: &[&str] = &[
 /// `HELLO_ARTIFACT_SOURCE_SET` snapshot (`build.rs`), so any edit to it breaks the
 /// pinned hello artifact attestation. See the final report for the trade-off.
 pub(crate) const HEALTH_CRASHED: &str = "crashed";
+/// Health-lattice value for an echo module that the recovery lifeline disabled for
+/// the current boot (`recovery.disable_module`). Like `HEALTH_CRASHED` it sits ABOVE
+/// the shared `running`/`stopped`/`missing` lattice and takes PRECEDENCE over
+/// `crashed` in `health_state` (a disabled module is deliberately off, whatever its
+/// prior fault state). RAM-only, current-boot; cleared only by `drop`.
+pub(crate) const HEALTH_DISABLED: &str = "disabled";
+/// Method name recorded on the disable lifecycle event (the recovery-lifeline
+/// executor that drives it lives in `recovery_lifeline::emit_disable_module`).
+const RECOVERY_DISABLE_MODULE_METHOD: &str = "recovery.disable_module";
 pub(crate) const CAPABILITIES: &[&str] = &[
     "cap.service.echo_demo.current_boot",
     "cap.service.health.read",
@@ -115,6 +124,8 @@ pub(crate) struct Snapshot {
     pub(crate) last_inventory_change: &'static str,
     pub(crate) crashed: bool,
     pub(crate) last_error_id: Option<event_log::EventId>,
+    pub(crate) disabled: bool,
+    pub(crate) disable_event_id: Option<event_log::EventId>,
     pub(crate) load_event_id: Option<event_log::EventId>,
     pub(crate) start_event_id: Option<event_log::EventId>,
     pub(crate) stop_event_id: Option<event_log::EventId>,
@@ -130,6 +141,8 @@ struct State {
     last_log_line_emitted: bool,
     crashed: bool,
     last_error_id: Option<event_log::EventId>,
+    disabled: bool,
+    disable_event_id: Option<event_log::EventId>,
 }
 
 impl State {
@@ -142,6 +155,8 @@ impl State {
             last_log_line_emitted: false,
             crashed: false,
             last_error_id: None,
+            disabled: false,
+            disable_event_id: None,
         }
     }
 
@@ -161,6 +176,8 @@ impl State {
             last_inventory_change: service.last_inventory_change,
             crashed: self.crashed,
             last_error_id: self.last_error_id,
+            disabled: self.disabled,
+            disable_event_id: self.disable_event_id,
             load_event_id: service.load_event_id,
             start_event_id: service.start_event_id,
             stop_event_id: service.stop_event_id,
@@ -411,11 +428,19 @@ fn load(source_method: &'static str) -> ActionResult {
 }
 
 fn start(source_method: &'static str) -> ActionResult {
-    let was_loaded = STATE.lock().service.loaded;
-    let run = was_loaded.then(wasm_runtime::run_echo_service);
+    let (was_loaded, disabled) = {
+        let state = STATE.lock();
+        (state.service.loaded, state.disabled)
+    };
+    // A module disabled by the recovery lifeline for this boot refuses to start. Block
+    // BEFORE running any wasm so a disabled echo never executes; running stays false.
+    let can_run = was_loaded && !disabled;
+    let run = can_run.then(wasm_runtime::run_echo_service);
     let run_ok = run.as_ref().map(echo_run_succeeded).unwrap_or(false);
     let reason = if !was_loaded {
         "not_loaded"
+    } else if disabled {
+        "service_disabled"
     } else if run_ok {
         "wasm_run_success"
     } else {
@@ -424,7 +449,7 @@ fn start(source_method: &'static str) -> ActionResult {
     let event_id = event_log::record_service_lifecycle_unbound(
         &ECHO_SERVICE_DESCRIPTOR,
         source_method,
-        if was_loaded {
+        if can_run {
             "response"
         } else {
             "capability_denied"
@@ -434,14 +459,15 @@ fn start(source_method: &'static str) -> ActionResult {
     );
 
     let mut state = STATE.lock();
-    if was_loaded {
+    if can_run {
         state.service.running = run_ok;
         state.service.start_event_id = Some(event_id);
         if run_ok {
             // A successful run demonstrates recovery: clear the crashed latch so a
             // restarted, healthy, running service is never falsely reported crashed
             // (honest typed state per ADR 0004). The wedge sets this latch; only a
-            // real successful run (or a drop) clears it.
+            // real successful run (or a drop) clears it. Note: a disabled service can
+            // never reach here (start is blocked), so disabling is never cleared here.
             state.crashed = false;
             state.last_error_id = None;
         }
@@ -457,7 +483,7 @@ fn start(source_method: &'static str) -> ActionResult {
     }
     state.service.last_action = "start";
     state.service.last_reason = reason;
-    state.service.last_inventory_change = if was_loaded {
+    state.service.last_inventory_change = if can_run {
         "updated_current_boot_service"
     } else {
         "none"
@@ -534,6 +560,10 @@ fn drop_service(source_method: &'static str) -> ActionResult {
     // crashed_services (clear the crashed latch alongside loaded/running).
     state.crashed = false;
     state.last_error_id = None;
+    // A dropped module also leaves the disabled set: it is a full removal, not the
+    // current-boot disable latch, so a fresh load/start is not blocked by a stale flag.
+    state.disabled = false;
+    state.disable_event_id = None;
     state.service.drop_event_id = Some(event_id);
     state.service.last_action = "drop";
     state.service.last_reason = reason;
@@ -577,7 +607,9 @@ fn health(source_method: &'static str) -> ActionResult {
 }
 
 pub(crate) fn health_state(snapshot: Snapshot) -> &'static str {
-    if snapshot.crashed {
+    if snapshot.disabled {
+        HEALTH_DISABLED
+    } else if snapshot.crashed {
         HEALTH_CRASHED
     } else {
         current_boot_service::health_state(
@@ -605,6 +637,59 @@ pub(crate) fn crash_view() -> Option<(&'static str, &'static str, Option<event_l
         health_state(snapshot),
         snapshot.last_error_id,
     ))
+}
+
+/// Disable the echo module for the current boot: the mutating half of
+/// `recovery.disable_module`. Stops the service and sets the RAM-only `disabled`
+/// latch so `start()` refuses to run it again this boot, and records a `current_boot`
+/// lifecycle event. This is the ONLY live-state mutation the recovery lifeline
+/// performs and is called ONLY after the durable recovery_action record has been
+/// appended + read back + reparse-verified. Returns the disable lifecycle event id
+/// for the success record. RAM-only, non-persistent; reversible only by `drop`.
+pub(crate) fn disable() -> event_log::EventId {
+    let mut state = STATE.lock();
+    let event_id = event_log::record_service_lifecycle_unbound(
+        &ECHO_SERVICE_DESCRIPTOR,
+        RECOVERY_DISABLE_MODULE_METHOD,
+        "response",
+        "disabled_current_boot",
+        ECHO_SERVICE_LIFECYCLE_EVIDENCE,
+    );
+    state.service.running = false;
+    state.disabled = true;
+    state.disable_event_id = Some(event_id);
+    state.service.last_action = "disable";
+    state.service.last_reason = "disabled_current_boot";
+    state.service.last_inventory_change = "updated_current_boot_service";
+    state.service.last_event_id = Some(event_id);
+    event_id
+}
+
+/// Read-only disabled view for the recovery snapshot's `disabled_modules`, mirroring
+/// `crash_view()`. A plain bool/id read under the STATE lock — it NEVER invokes wasm
+/// and mutates nothing. Returns the stable service id, the `disabled` health value,
+/// and the disable event id when echo is disabled for the current boot; `None`
+/// otherwise.
+pub(crate) fn disabled_view() -> Option<(&'static str, &'static str, Option<event_log::EventId>)> {
+    let snapshot = {
+        let state = STATE.lock();
+        if !state.disabled {
+            return None;
+        }
+        state.snapshot()
+    };
+    Some((
+        ECHO_SERVICE_DESCRIPTOR.service_id,
+        health_state(snapshot),
+        snapshot.disable_event_id,
+    ))
+}
+
+/// Exact (ASCII case-insensitive) id match for the single non-core current-boot
+/// module the recovery lifeline may disable in M8B-1: `svc.demo.echo`. Any other id
+/// (including empty, `*`, or `all`) is not this target.
+pub(crate) fn disable_target_matches(arg: &str) -> bool {
+    raios_core::method_eq(arg.trim(), ECHO_SERVICE_DESCRIPTOR.service_id)
 }
 
 pub(crate) fn service_slot_activation_status(snapshot: Snapshot) -> &'static str {
