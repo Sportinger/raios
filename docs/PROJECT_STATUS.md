@@ -3022,15 +3022,36 @@ hash-verified a2b65b772f722bf1a8c598305aef2f71c1fbb652c346cbc16492f221f962c7c7).
 M7D-1 (persistent artifact store) is COMPLETE — a promoted module's code now lands
 durably on disk, chained to its evidence, yet stays inert until M7D-2 re-verifies it.
 
-NEXT — **M7D-2** (THE PRODUCT MOMENT): boot-time re-promotion + a two-boot proof. Boot 1
+ACTIVE — **M7D-2** (THE PRODUCT MOMENT): boot-time re-promotion + a two-boot proof. Boot 1
 promotes + persists a real external candidate, shuts down; boot 2 on the SAME kept
 persist disk scans the RECLOG artifact_persist records, recomputes each blob sha256 from
-ARTSTOR, re-verifies every referenced hash + the promotion-transaction readback, then
-feeds the candidate through the SAME M6 gate chain (grant, slot allocator, promotion
-authority — NO bypass, no "trusted because stored") and, only on success, instantiates
-it so the service answers live. Anything failing re-verification stays inert +
-`repromotion_denied`; SAFE => zero re-promotion. NEW `seed-kernel/src/repromotion.rs` +
-`vm-harness/shadow-vm-persistence-reboot.ps1` two-boot wrapper. This is the milestone
+ARTSTOR, re-verifies every referenced hash + the promotion-transaction readback + the
+dev-key P-256 signature over the freshly recomputed 32-byte attestation_reference_hash,
+then RECONSTRUCTS the candidate bytes (from the verified blob) + repopulates the 3 RAM
+event-log references FROM the re-verified record (only after the signature re-verify
+passes, copying signature_verified from the RESULT not the stored bool), then feeds it
+through the SAME M6 gate chain (`evaluate_authorization` → `module_grant_grants_capability`
+→ slot allocator → wasm_runtime) — NO bypass, NO parallel trust path, NO "trusted because
+stored" — and, only on success, instantiates it so the service answers live. Anything
+failing re-verification stays inert + `repromotion_denied`; SAFE => zero re-promotion;
+`cross_reboot_proven=true` ONLY on the boot-2 grant record, still dev-tier
+(owner_sealed/persistence_claimed false, trust_tier dev_key_not_owner_sealed).
+PLAN (4 commits, mirrors the M6B-1 verify→M6B-2 flip cadence): **(1)** a reliable p256
+Rust host signer (`ota/cli/src/bin/dev-promotion-signer.rs`, scalar-1, RFC6979,
+byte-identical to `promotion_attestation::verify_promotion_authority_signature`) — the
+existing PS 5.1/.NET signer is documented-unreliable so M6C/M6D fall back to a synthetic
+selftest that never persists; M7D-2 needs a REAL persisted signature; **(2)** NEW
+`seed-kernel/src/repromotion.rs` STEP 0–4 re-verify chain that GRANTS NOTHING (read-only,
+emits `raios.repromotion.v0` + a chained RECLOG audit via a NEW
+`raios-core/src/scoped_repromotion_append.rs`; widen the M7D-1 `artifact_store` enumerator
+to pub(crate); host tests incl. corrupt-blob + tampered-record denial fixtures); **(3)**
+the authority flip (reconstruct + repopulate + dispatch the UNMODIFIED gate via
+`granted_candidate_service::emit_load`/`emit_start`; register `repromotion.run`); **(4)**
+the two-boot harness (`make-gpt-persist-image.py` corrupt/tamper subcommands;
+`run-stage0-qemu.ps1` persist-drive `cache=writethrough` — CRITICAL: the persist drive
+currently has no cache mode → `cache=writeback` → a teardown loses the bytes boot 2 needs;
+NEW `vm-harness/shadow-vm-persistence-reboot.ps1` two-boot wrapper on a KEPT
+`--seed-bootctl valid-a` disk, merged `raios.vm_test_report.v0`). This is the milestone
 that ends the current_boot-only era. RECLOG
 generic append, generic (non-`svc.demo.hello`) durable audit/rollback writes,
 executable candidate-byte mapping, provider auto-load, broad mutation, ARTSTOR,
