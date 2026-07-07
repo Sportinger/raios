@@ -3261,6 +3261,30 @@ mutators still deny; redaction clean), recovery 3833/3833 byte-identical, quick 
 (durable last-good pointer + SAFE integration) then **M8D** (recovery.load_artifact_by_hash
 from the local M7D store only).
 
+**M8C-1 DONE (2026-07-07, READ-ONLY, grants nothing).** `recovery.snapshot` now surfaces the
+durable M7C BOOTCTL state as two additive read-only sub-objects — `durable_last_good`
+(source `bootctl_slot_pointer`; last-good A/B slot, seq, boot_success_mark, safe_mode,
+authoritative slot, failure_count, bootctl payload sha256; honest `available:false` /
+`boot_success_mark:"missing"` when no durable record exists) and `rollback_preview` (a pure
+projection of `evaluate_boot_control`: `would_switch` / `target_bootable` /
+`would_fall_back_to_last_good_on_next_boot`, with `mutates_nothing:true` and
+`mutating_rollback_available_via_lifeline:false`). All from ONE existing read-only bootctl read
+— NO durable write, NO new scoped evaluator, NO new lifeline method, NO vocabulary re-pin
+(stays `4a2c52a5…`, method_count 6). The mutating `recovery.rollback` stays denied
+(implemented:false) per the restore-only-never-promote lane. NO service-set hash is fabricated
+(raiOS has none at HEAD; the last-good is the boot-slot pointer). Max-effort adversarial review:
+nothing above LOW — verified truly read-only (one bootctl read, no write DMA, pure renderers),
+honest missing-evidence (no fabricated slot/seq/hash), no secret leak (only the payload sha256
+as `Value::Sha256`; `storage_sha256` not rendered), additive-only. Two LOW honesty-precision
+items applied: `available` now requires the last-good slot to be BOOTABLE (a non-bootable
+pointer is no usable rollback), and `would_fall_back` requires a genuine last-good target
+(pending-exhausted with no last-good degrades to SAFE, not a fallback). Verified: raios-core 118
+(2 new render tests present+absent, vocab unchanged), m8-lifeline 266/266 (present-path), quick
+581/581 (missing-evidence path), recovery 3833/3833 byte-identical, FULL 8168/8168. The
+recovery diagnosis now includes "which system copy is last-good / are we in safe-mode" and a
+look-but-don't-touch rollback preview. Next: **M8D** (recovery.load_artifact_by_hash, local
+store only, full M6 re-verify, never fetches).
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with

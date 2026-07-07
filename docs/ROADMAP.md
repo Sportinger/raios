@@ -86,7 +86,14 @@ restartable before any write. Vocab hash re-pinned 03d3985c→4a2c52a5. Restore-
 grants nothing. Max review: nothing above LOW. Verified m8-lifeline 265/265 (restart of a
 disabled AND a crashed echo proven live), recovery 3833/3833 byte-identical, quick
 580/580, FULL 8168/8168, raios-core 116. **M8B complete (disable + restart).** Next:
-**M8C** (durable last-good + SAFE integration) then **M8D** (load_artifact_by_hash from
+**M8C-1 done (2026-07-07, read-only):** recovery.snapshot now surfaces the durable M7C
+boot-control state (durable_last_good: last-good A/B slot / seq / boot_success_mark /
+safe_mode, source bootctl_slot_pointer, honest missing-evidence) + a read-only
+rollback_preview (mutates_nothing, mutating_rollback_available_via_lifeline:false) from
+ONE bootctl read — no durable write, no new method, no vocab re-pin (recovery.rollback
+stays denied). Verified m8-lifeline 266/266, quick 581/581, recovery 3833/3833
+byte-identical, FULL 8168/8168, raios-core 118, max review nothing above LOW. Next:
+**M8C** remaining (durable last-good + SAFE) then **M8D** (load_artifact_by_hash from
 the local store). (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the

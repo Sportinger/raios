@@ -35,8 +35,13 @@ prüft die eingebauten Modul-Bytes bei JEDEM Lauf gegen den festen Fingerabdruck
 also nur das bekannte, geprüfte eingebaute Modul laufen, nie etwas Fremdes). Scheitert
 der Neustart, wird ehrlich „gestoppt" gemeldet, nie fälschlich „gesund". Es bringt nur
 Bekannt-Gutes zurück, befördert nichts Neues. **Damit ist der Kern von M8B fertig
-(abschalten + neu-starten).** Die restlichen zwei Aktionen (zurückrollen,
-gespeichertes-Artefakt-laden) bleiben weiter verweigert, eine nach der anderen. Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
+(abschalten + neu-starten).** NEU (M8C-1, nur-lesen): die Diagnose zeigt jetzt auch den
+DAUERHAFTEN Zustand — welche System-Kopie (A/B) die „letzte gute" ist, ob der Sicherheits-
+Modus aktiv ist, ob der letzte Start als erfolgreich markiert wurde — plus eine reine
+**Vorschau** „was würde ein Zurückrollen ändern" (nur anschauen, ändert nichts). Fehlt die
+Information (keine Platte), wird das ehrlich als „nicht verfügbar" gemeldet, nie erfunden.
+Die restlichen zwei Aktionen (zurückrollen ausführen, gespeichertes-Artefakt-laden) bleiben
+weiter verweigert, eine nach der anderen. Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
 Baustein WIRKLICH abstürzt, antwortet die Rettungsleine weiter — sie überlebt, weil
 KI-Code ein Treibstoff-Limit hat und kooperativ läuft, noch NICHT durch echte
 Hardware-Trennung (die kommt erst mit M11).).

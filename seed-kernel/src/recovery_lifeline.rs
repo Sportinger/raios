@@ -95,14 +95,21 @@ fn posture_str(posture: BootPosture) -> &'static str {
 /// broken before deciding to restore. Reads only; writes nothing; redacts secrets
 /// (only structural facts and fixed-vocabulary health states are reported — the
 /// free-form `last_error` detail is deliberately dropped so no wifi/TLS/OpenAI
-/// text can leak). NOTE: `current_boot_posture()` performs a bounded, read-only
-/// BOOTCTL read each call; if storage is wedged it degrades to
-/// `persistence_unavailable` (never hangs) — that degraded value is itself a
-/// diagnostic signal, so the dependency is intentional. A cached boot decision is
-/// deferred to the M8C durable-last-good/SAFE integration.
+/// text can leak). NOTE: `current_boot_last_good_view()` performs ONE bounded,
+/// read-only BOOTCTL read each call, feeding boot_posture AND the M8C-1
+/// durable_last_good/rollback_preview projections from a single decision (no skew);
+/// if storage is wedged it degrades to `persistence_unavailable` (never hangs) with
+/// honest missing-evidence — that degraded value is itself a diagnostic signal, so
+/// the dependency is intentional.
 fn emit_snapshot(method: &'static str, runtime: ui::RuntimeStatus) {
     let status = system_status::SystemSnapshot::collect(None, runtime);
     let provider_state = provider::snapshot();
+    // ONE read-only bootctl read feeds the boot_posture field AND the two M8C-1
+    // durable projections below (durable_last_good + rollback_preview), so posture,
+    // decision, and the authoritative record never skew across separate reads. This
+    // read mutates nothing, appends nothing, and re-pins no vocabulary.
+    let (boot_posture, boot_decision, boot_control_record) =
+        boot_control::current_boot_last_good_view();
 
     let mut rows: Vec<Value<'static>> = Vec::new();
     let mut core_owned_count = 0u64;
@@ -167,10 +174,7 @@ fn emit_snapshot(method: &'static str, runtime: ui::RuntimeStatus) {
             f("transport", s(table::TRANSPORT)),
             f("trust_state", s(table::TRUST_STATE)),
             f("trust_tier", s(table::TRUST_TIER)),
-            f(
-                "boot_posture",
-                s(posture_str(boot_control::current_boot_posture())),
-            ),
+            f("boot_posture", s(posture_str(boot_posture))),
             f("mutates_state", b(false)),
             f("owner_sealed", b(false)),
             f("routes_through_wasm", b(false)),
@@ -190,6 +194,27 @@ fn emit_snapshot(method: &'static str, runtime: ui::RuntimeStatus) {
             f("services", Value::Array(rows)),
             f("crashed_services", Value::Array(crashed_services)),
             f("disabled_modules", Value::Array(disabled_modules)),
+            // M8C-1: read-only durable last-good pointer + rollback-to-last-good
+            // projection, both derived from the SINGLE bootctl read above. They mutate
+            // nothing, add no lifeline method, re-pin no vocabulary, and fail honest
+            // (available:false, boot_success_mark:"missing", null slots) when no
+            // authoritative record exists. rollback_preview is a pure projection:
+            // recovery.rollback stays denied (mutating_rollback_available_via_lifeline
+            // is false; the mutating pointer switch remains M7C's authority).
+            f(
+                "durable_last_good",
+                Value::Object(raios_core::boot_control::recovery_last_good_fields(
+                    &boot_decision,
+                    boot_control_record.as_ref(),
+                )),
+            ),
+            f(
+                "rollback_preview",
+                Value::Object(raios_core::boot_control::recovery_rollback_preview_fields(
+                    &boot_decision,
+                    boot_control_record.as_ref(),
+                )),
+            ),
         ],
         6,
     );

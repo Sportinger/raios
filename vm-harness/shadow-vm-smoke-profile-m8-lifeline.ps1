@@ -61,6 +61,41 @@ if (-not $m8BaselineSnapshotOk) {
     throw "Expected baseline recovery.snapshot to render with no crashed services"
 }
 
+# --- (a2) M8C-1 present-path: durable_last_good + rollback_preview from ONE bootctl read ---
+# The m8-lifeline VM boots Normal off a valid A disk, so the read-only durable last-good
+# pointer projection resolves a real slot/seq/success-mark (source bootctl_slot_pointer,
+# no fabricated hash) and the rollback-to-last-good preview is available and mutates
+# nothing. recovery.rollback stays denied: mutating_rollback_available_via_lifeline is
+# false. These are read-only projections layered onto the SAME snapshot the read-only
+# proofs (mutates_state/routes_through_wasm/owner_sealed all false) still cover.
+$m8Dlg = $m8bs.durable_last_good
+$m8Rbp = $m8bs.rollback_preview
+$m8DurablePresentOk = (
+    $m8bs.mutates_state -eq $false -and
+    $m8bs.routes_through_wasm -eq $false -and
+    $m8bs.owner_sealed -eq $false -and
+    ($null -ne $m8Dlg) -and
+    $m8Dlg.source -eq "bootctl_slot_pointer" -and
+    $m8Dlg.available -eq $true -and
+    (@("A", "B") -contains $m8Dlg.last_good_slot) -and
+    ([int]$m8Dlg.seq -ge 1) -and
+    $m8Dlg.safe_mode -eq $false -and
+    (@("Normal", "normal") -contains $m8Dlg.posture) -and
+    ($m8Dlg.boot_success_mark -ne "missing") -and
+    ($null -ne $m8Dlg.boot_success_mark) -and
+    $m8Dlg.read_only -eq $true -and
+    $m8Dlg.write_attempted -eq $false -and
+    ($null -ne $m8Rbp) -and
+    $m8Rbp.kind -eq "boot_slot_last_good_rollback_preview" -and
+    $m8Rbp.available -eq $true -and
+    $m8Rbp.mutates_nothing -eq $true -and
+    $m8Rbp.mutating_rollback_available_via_lifeline -eq $false
+)
+Add-Predicate -Name "m8-lifeline:baseline_snapshot_durable_last_good_present" -Expected "recovery.snapshot durable_last_good surfaces a real bootctl last-good pointer (Normal, valid-A, source bootctl_slot_pointer, boot_success_mark not missing, read_only) and rollback_preview is available/mutates_nothing with recovery.rollback still denied" -Passed $m8DurablePresentOk -Actual $(if ($m8DurablePresentOk) { "present last_good=$($m8Dlg.last_good_slot) seq=$($m8Dlg.seq) mark=$($m8Dlg.boot_success_mark)" } else { (@{ durable_last_good = $m8Dlg; rollback_preview = $m8Rbp } | ConvertTo-Json -Compress -Depth 6) })
+if (-not $m8DurablePresentOk) {
+    throw "Expected recovery.snapshot durable_last_good/rollback_preview to surface the present bootctl last-good pointer with a read-only, mutates-nothing projection"
+}
+
 # --- (b) REAL wedge: fuel-starved echo invoke traps OutOfFuel and flips crashed ----
 # The ExpectedMarker assertion below is the HARD-STOP tripwire for the wedge itself:
 # if RAIOS_AGENT_END echo.invoke_fuel_starved never appears, the trap took down the

@@ -427,6 +427,23 @@ pub(crate) fn current_boot_posture() -> BootPosture {
     current_boot_bootctl_read().decision.posture
 }
 
+/// Read-only last-good view for the recovery lifeline (M8C-1). Performs ONE bounded,
+/// read-only `current_boot_bootctl_read()` and returns the derived `(posture, decision,
+/// authoritative_record)` so the recovery snapshot can render both the durable
+/// last-good pointer and a rollback-to-last-good projection from a SINGLE read (no
+/// posture/decision skew). Strictly read-only: it writes nothing, appends nothing, and
+/// claims no persistence — it reuses the exact same bootctl read the read-only
+/// `boot.control_read`/posture paths use.
+pub(crate) fn current_boot_last_good_view(
+) -> (BootPosture, BootControlDecision, Option<ParsedBootControl>) {
+    let evidence = current_boot_bootctl_read();
+    (
+        evidence.decision.posture,
+        evidence.decision,
+        evidence.authoritative_record,
+    )
+}
+
 fn current_boot_bootctl_read() -> BootControlEvidence {
     let Some(controller) = pci::find_mass_storage_controller() else {
         return BootControlEvidence::absent("ahci_controller_not_observed");

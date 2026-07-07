@@ -3249,6 +3249,33 @@
             throw "Expected recovery.snapshot to render the live recovery snapshot"
         }
 
+        # M8C-1 missing-path: quick boots with NO persist disk, so there is NO authoritative
+        # bootctl record. The read-only durable_last_good projection MUST fail honest
+        # (available:false, boot_success_mark:"missing", last_good_slot:null) with a real
+        # reason and never fabricate a slot/seq/hash; rollback_preview is unavailable and
+        # mutates nothing (recovery.rollback stays denied via the lifeline).
+        $qDlg = $ls.durable_last_good
+        $qRbp = $ls.rollback_preview
+        $m8c1MissingOk = (
+            ($null -ne $qDlg) -and
+            $qDlg.source -eq "bootctl_slot_pointer" -and
+            $qDlg.available -eq $false -and
+            ($null -eq $qDlg.last_good_slot) -and
+            $qDlg.boot_success_mark -eq "missing" -and
+            (-not [string]::IsNullOrEmpty([string]$qDlg.reason)) -and
+            $qDlg.read_only -eq $true -and
+            $qDlg.write_attempted -eq $false -and
+            ($null -ne $qRbp) -and
+            $qRbp.kind -eq "boot_slot_last_good_rollback_preview" -and
+            $qRbp.available -eq $false -and
+            $qRbp.mutates_nothing -eq $true -and
+            $qRbp.mutating_rollback_available_via_lifeline -eq $false
+        )
+        Add-Predicate -Name "quick:m8c1_durable_last_good_missing_evidence" -Expected "recovery.snapshot durable_last_good fails honest with no persist disk (available:false, boot_success_mark:missing, last_good_slot:null, real reason) and rollback_preview is unavailable/mutates_nothing with recovery.rollback still denied" -Passed $m8c1MissingOk -Actual $(if ($m8c1MissingOk) { "missing_evidence reason=$($qDlg.reason)" } else { (@{ durable_last_good = $qDlg; rollback_preview = $qRbp } | ConvertTo-Json -Compress -Depth 6) })
+        if (-not $m8c1MissingOk) {
+            throw "Expected recovery.snapshot durable_last_good/rollback_preview to report honest missing evidence with no persist disk"
+        }
+
         # M8B-2b: recovery.restart_last_good is now an IMPLEMENTED executor. quick boots with
         # NO persist disk -> non-Normal posture, so it must deny in its SAFE preflight BEFORE
         # any durable append or live mutation: raios.recovery_action.v0, action_kind

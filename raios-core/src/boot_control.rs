@@ -608,6 +608,166 @@ pub fn boot_control_read_fields(
     ]
 }
 
+/// Read-only projection of the durable BOOTCTL last-good pointer for the recovery
+/// snapshot (M8C-1). Surfaces the M7C slot / seq / boot-success-mark / safe-mode /
+/// authoritative slot from an already-performed bootctl read; it renders through the
+/// shared record model, mutates nothing, appends nothing, and claims no persistence
+/// (`read_only:true`, `write_attempted:false`). When no authoritative record exists
+/// (PersistenceUnavailable, SAFE-without-record, or no valid slot => `control` is
+/// `None`) it fails honest: `available:false`, `boot_success_mark:"missing"`,
+/// `last_good_slot:null`, real `reason` — never a fabricated slot / seq / hash. The
+/// only hash rendered is the parsed slot's own `payload_sha256` (there is no durable
+/// service-set hash at HEAD); the pointer `source` is `bootctl_slot_pointer`.
+pub fn recovery_last_good_fields(
+    decision: &BootControlDecision,
+    control: Option<&ParsedBootControl>,
+) -> Vec<Field<'static>> {
+    let boot_success_mark = match control {
+        Some(control) if control.boot_attempt.success_marked => "marked",
+        Some(_) => "unmarked",
+        None => "missing",
+    };
+    vec![
+        Field::new("source", Value::Str("bootctl_slot_pointer")),
+        Field::new("available", Value::Bool(control.is_some())),
+        Field::new("reason", Value::Str(decision.reason)),
+        Field::new("posture", Value::Str(decision.posture.as_str())),
+        Field::new(
+            "safe_mode",
+            control
+                .map(|control| Value::Bool(control.safe_mode))
+                .unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "authoritative_bootctl_slot",
+            storage_slot_value(decision.authoritative_bootctl_slot),
+        ),
+        Field::new("seq", decision.seq.map(Value::U64).unwrap_or(Value::Null)),
+        Field::new(
+            "active_slot",
+            control
+                .map(|control| slot_id_value(control.active))
+                .unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "last_good_slot",
+            control
+                .map(|control| slot_id_value(control.last_good))
+                .unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "pending_slot",
+            control
+                .map(|control| slot_id_value(control.pending))
+                .unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "selected_payload_slot",
+            slot_id_value(decision.selected_payload_slot),
+        ),
+        Field::new("boot_success_mark", Value::Str(boot_success_mark)),
+        Field::new(
+            "failure_count",
+            decision
+                .failure_count
+                .map(|count| Value::U64(count as u64))
+                .unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "max_pending_boot_attempts",
+            Value::U64(MAX_PENDING_BOOT_ATTEMPTS as u64),
+        ),
+        Field::new(
+            "boot_control_payload_sha256",
+            control
+                .map(|control| Value::Sha256(control.payload_sha256))
+                .unwrap_or(Value::Null),
+        ),
+        Field::new("read_only", Value::Bool(true)),
+        Field::new("write_attempted", Value::Bool(false)),
+    ]
+}
+
+/// Read-only projection of what a boot-slot rollback-to-last-good WOULD show (M8C-1),
+/// computed purely from `evaluate_boot_control` output. It mutates nothing and the
+/// mutating pointer switch stays in the M7C boot-control authority: `mutates_nothing`
+/// is always `true` and `mutating_rollback_available_via_lifeline` is always `false`
+/// (`recovery.rollback` stays denied through the lifeline). When no durable record
+/// exists (`control` is `None`) the preview is honestly unavailable with null target
+/// slots and never fabricates a target.
+pub fn recovery_rollback_preview_fields(
+    decision: &BootControlDecision,
+    control: Option<&ParsedBootControl>,
+) -> Vec<Field<'static>> {
+    let has_last_good_target = control
+        .map(|control| control.last_good != BootSlotId::None)
+        .unwrap_or(false);
+    let target_payload = control.and_then(|control| control.slot(control.last_good));
+    let target_bootable = target_payload.map(|slot| slot.state.is_bootable());
+    // A rollback is only "available" when the last-good pointer exists AND that slot is
+    // actually bootable — a non-bootable pointer is no usable rollback target. The raw
+    // pointer stays honestly surfaced via rollback_target_slot + target_bootable.
+    let rollback_available = has_last_good_target && target_bootable == Some(true);
+    let pending_payload = control.and_then(|control| control.slot(control.pending));
+    let pending_failure_count = pending_payload.map(|slot| slot.failure_count);
+    let would_switch = rollback_available
+        && control
+            .map(|control| control.active != control.last_good)
+            .unwrap_or(false);
+    // Only true when there is genuinely a last-good slot to fall back to. With pending
+    // exhausted and NO last-good, the boot logic degrades to SAFE, not a last-good fallback.
+    let would_fall_back = control.map(|control| {
+        has_last_good_target
+            && control.pending != BootSlotId::None
+            && pending_failure_count
+                .map(|count| count >= MAX_PENDING_BOOT_ATTEMPTS)
+                .unwrap_or(false)
+    });
+    vec![
+        Field::new("kind", Value::Str("boot_slot_last_good_rollback_preview")),
+        Field::new("available", Value::Bool(rollback_available)),
+        Field::new("mutates_nothing", Value::Bool(true)),
+        Field::new("would_switch", Value::Bool(would_switch)),
+        Field::new(
+            "current_slot",
+            control
+                .map(|control| slot_id_value(control.active))
+                .unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "rollback_target_slot",
+            control
+                .map(|control| slot_id_value(control.last_good))
+                .unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "target_bootable",
+            target_bootable.map(Value::Bool).unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "pending_slot",
+            control
+                .map(|control| slot_id_value(control.pending))
+                .unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "pending_failure_count",
+            pending_failure_count
+                .map(|count| Value::U64(count as u64))
+                .unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "would_fall_back_to_last_good_on_next_boot",
+            would_fall_back.map(Value::Bool).unwrap_or(Value::Null),
+        ),
+        Field::new(
+            "mutating_rollback_available_via_lifeline",
+            Value::Bool(false),
+        ),
+        Field::new("reason", Value::Str(decision.reason)),
+    ]
+}
+
 fn evaluate_chosen(
     storage_slot: BootStorageSlot,
     control: ParsedBootControl,
@@ -1446,5 +1606,91 @@ mod tests {
             render(&boot_control_read_record(&decision, Some(&parsed))),
             b"{\r\n  \"schema\": \"raios.boot_control_read.v0\",\r\n  \"id\": \"boot_control_read.seed_data.current_boot.v0\",\r\n  \"scope\": \"current_boot\",\r\n  \"classification\": \"local_only\",\r\n  \"boot_control_schema\": \"raios.boot_control.v0\",\r\n  \"active\": \"A\",\r\n  \"last_good\": \"A\",\r\n  \"pending\": null,\r\n  \"safe_mode\": false,\r\n  \"boot_attempt\": {\r\n    \"slot\": \"A\",\r\n    \"generation\": 1,\r\n    \"attempt_id\": null,\r\n    \"started_utc\": null,\r\n    \"success_marked\": true\r\n  },\r\n  \"slots\": {\r\n    \"A\": {\r\n      \"generation\": 1,\r\n      \"state\": \"good\",\r\n      \"failure_count\": 0,\r\n      \"last_success_utc\": null\r\n    },\r\n    \"B\": {\r\n      \"generation\": 2,\r\n      \"state\": \"empty\",\r\n      \"failure_count\": 0,\r\n      \"last_success_utc\": null\r\n    }\r\n  },\r\n  \"decision_reason\": \"active_slot_selected\",\r\n  \"selected_storage_slot\": \"A\",\r\n  \"selected_payload_slot\": \"A\",\r\n  \"posture\": \"Normal\",\r\n  \"authoritative_bootctl_slot\": \"A\",\r\n  \"seq\": 1,\r\n  \"pending_consumed\": false,\r\n  \"would_mark_good\": false,\r\n  \"failure_count\": null,\r\n  \"max_pending_boot_attempts\": 3,\r\n  \"read_only\": true,\r\n  \"write_attempted\": false,\r\n  \"write_dma_ext_called\": false,\r\n  \"writes_enabled\": false,\r\n  \"persistence_claimed\": false\r\n}"
         );
+    }
+
+    #[test]
+    fn recovery_last_good_present_normal_a_surfaces_durable_pointer() {
+        let parsed = parse_boot_slot(&slot(1, Fixture::normal_a())).unwrap();
+        let decision = evaluate_chosen(BootStorageSlot::A, parsed);
+
+        let last_good = render(&Value::Object(recovery_last_good_fields(
+            &decision,
+            Some(&parsed),
+        )));
+        let last_good = std::str::from_utf8(&last_good).unwrap();
+        assert!(last_good.contains("\"source\": \"bootctl_slot_pointer\""));
+        assert!(last_good.contains("\"available\": true"));
+        assert!(last_good.contains("\"reason\": \"active_slot_selected\""));
+        assert!(last_good.contains("\"posture\": \"Normal\""));
+        assert!(last_good.contains("\"safe_mode\": false"));
+        assert!(last_good.contains("\"authoritative_bootctl_slot\": \"A\""));
+        assert!(last_good.contains("\"seq\": 1"));
+        assert!(last_good.contains("\"active_slot\": \"A\""));
+        assert!(last_good.contains("\"last_good_slot\": \"A\""));
+        assert!(last_good.contains("\"pending_slot\": null"));
+        assert!(last_good.contains("\"selected_payload_slot\": \"A\""));
+        assert!(last_good.contains("\"boot_success_mark\": \"marked\""));
+        assert!(!last_good.contains("\"boot_success_mark\": \"missing\""));
+        assert!(last_good.contains("\"max_pending_boot_attempts\": 3"));
+        assert!(last_good.contains("\"boot_control_payload_sha256\": \"sha256:"));
+        assert!(last_good.contains("\"read_only\": true"));
+        assert!(last_good.contains("\"write_attempted\": false"));
+
+        let rollback = render(&Value::Object(recovery_rollback_preview_fields(
+            &decision,
+            Some(&parsed),
+        )));
+        let rollback = std::str::from_utf8(&rollback).unwrap();
+        assert!(rollback.contains("\"kind\": \"boot_slot_last_good_rollback_preview\""));
+        assert!(rollback.contains("\"available\": true"));
+        assert!(rollback.contains("\"mutates_nothing\": true"));
+        // active A == last_good A: rolling back to last-good switches nothing.
+        assert!(rollback.contains("\"would_switch\": false"));
+        assert!(rollback.contains("\"current_slot\": \"A\""));
+        assert!(rollback.contains("\"rollback_target_slot\": \"A\""));
+        assert!(rollback.contains("\"target_bootable\": true"));
+        assert!(rollback.contains("\"pending_slot\": null"));
+        assert!(rollback.contains("\"pending_failure_count\": null"));
+        assert!(rollback.contains("\"would_fall_back_to_last_good_on_next_boot\": false"));
+        assert!(rollback.contains("\"mutating_rollback_available_via_lifeline\": false"));
+        assert!(rollback.contains("\"reason\": \"active_slot_selected\""));
+    }
+
+    #[test]
+    fn recovery_last_good_absent_persistence_unavailable_is_honest_missing() {
+        let decision = BootControlDecision::persistence_unavailable("ahci_controller_not_observed");
+
+        let last_good = render(&Value::Object(recovery_last_good_fields(&decision, None)));
+        let last_good = std::str::from_utf8(&last_good).unwrap();
+        assert!(last_good.contains("\"source\": \"bootctl_slot_pointer\""));
+        assert!(last_good.contains("\"available\": false"));
+        assert!(last_good.contains("\"reason\": \"ahci_controller_not_observed\""));
+        assert!(last_good.contains("\"posture\": \"PersistenceUnavailable\""));
+        assert!(last_good.contains("\"safe_mode\": null"));
+        assert!(last_good.contains("\"authoritative_bootctl_slot\": null"));
+        assert!(last_good.contains("\"seq\": null"));
+        assert!(last_good.contains("\"active_slot\": null"));
+        assert!(last_good.contains("\"last_good_slot\": null"));
+        assert!(last_good.contains("\"selected_payload_slot\": null"));
+        assert!(last_good.contains("\"boot_success_mark\": \"missing\""));
+        assert!(last_good.contains("\"boot_control_payload_sha256\": null"));
+        assert!(last_good.contains("\"read_only\": true"));
+        assert!(last_good.contains("\"write_attempted\": false"));
+
+        let rollback = render(&Value::Object(recovery_rollback_preview_fields(
+            &decision, None,
+        )));
+        let rollback = std::str::from_utf8(&rollback).unwrap();
+        assert!(rollback.contains("\"kind\": \"boot_slot_last_good_rollback_preview\""));
+        assert!(rollback.contains("\"available\": false"));
+        assert!(rollback.contains("\"mutates_nothing\": true"));
+        assert!(rollback.contains("\"would_switch\": false"));
+        assert!(rollback.contains("\"current_slot\": null"));
+        assert!(rollback.contains("\"rollback_target_slot\": null"));
+        assert!(rollback.contains("\"target_bootable\": null"));
+        assert!(rollback.contains("\"pending_failure_count\": null"));
+        assert!(rollback.contains("\"would_fall_back_to_last_good_on_next_boot\": null"));
+        assert!(rollback.contains("\"mutating_rollback_available_via_lifeline\": false"));
+        assert!(rollback.contains("\"reason\": \"ahci_controller_not_observed\""));
     }
 }
