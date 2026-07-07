@@ -3372,9 +3372,54 @@ unknown classification → `local_only` (never public); `MemoryKind` is an 8-val
 input panics. Nothing calls it yet — zero kernel change, zero disk write, no VM, no vocab change.
 Verified: cargo test -p raios-core 133 (8 new: pinned sample sha256 `4ab57d93…`, Value::Sha256 renders
 `sha256:<64hex>`, secret rejected, unknown-kind rejected, observation entity/source required, unknown
-classification → local_only, supersedes round-trips), rustfmt clean, kernel builds (no_std). Next:
-**M9A-2** — the first durable memory write (own scoped evaluator, single-boot proof); the writer must
-construct via `MemoryRecord::new` (the observation entity/source check lives there).
+classification → local_only, supersedes round-trips), rustfmt clean, kernel builds (no_std).
+
+**M9A-2a DONE (2026-07-07, grants nothing, host-only).** NEW `raios-core/src/scoped_memory_record_append.rs`
+— a dedicated CLONE of `scoped_recovery_load_append` with its OWN pinned identity
+(`memory.record_log_append` / `append.memory_record.seed_data` / `raios.memory_record.v0` /
+`RAIOS_DATA_RECLOG`). Authorizes exactly one thing — appending a durable memory-record frame through the
+shared reclog gauntlet (scan → plan → write_readback → reparse → evaluate → rescan) — and re-checks in
+depth what `MemoryRecord::new` already enforces (`secret` never durable, only the 8 authority-bearing
+kinds in scope) plus a new per-boot write-quota pin (`memory_write_quota_exhausted`) and the
+`dev_key_not_owner_sealed` / not-owner-sealed / not-persistence-claimed trust pins. No kernel wires it yet.
+Verified: cargo test -p raios-core 137 (4 new: valid append authorizes, empty-log seq/prev, all 8 kinds in
+scope, full pairwise-unique denial truth table), rustfmt clean.
+
+**M9A-2b DONE (2026-07-07, first durable memory write, single-boot).** raiOS durably records ONE
+system-authored `raios.memory_record.v0` fact — a `capability_denial` of the permanently-denied generic
+durable module-load gate (the REAL denial reasons from `agent_protocol_module_grant.rs`: durable audit
+missing, rollback plan missing, loader unavailable, service slot unallocated) — into the SEED_DATA RECLOG.
+NEW `seed-kernel/src/durable_store.rs::append_memory_record` (a structural clone of `append_recovery_load`)
+adds ONE thing: a RAM-only per-boot write quota (128 records / 32 KiB, a fresh `spin::Mutex` reset every
+boot, reserved before the plan/write and released on any post-reserve denial, never on success) ahead of
+the shared scan → plan → ahci write_readback → reparse → `evaluate_scoped_memory_record_append` → rescan
+gauntlet. NEW `seed-kernel/src/memory_store.rs` is the ONE Read0 driver: builds the fixed record via
+`MemoryRecord::new` (fail-closed; a construction error would be a RAM-only `capability_denied` response,
+never a durable append) and renders `durable_store::append_memory_record`'s evidence on
+`memory.record_log_append`, plus a synthetic `memory.record_log_append_selftest` (NO disk write) proving
+secret classification / unknown kind / the scoped evaluator's own defensive pins / quota exhaustion all
+deny without ever calling the durable writer (no self-recursion). Payload bytes are
+`write_json(record.to_record_value())`, so `payload_sha256 == record.record_sha256()`. Success authority
+`scoped_memory_record_append_authorized`; record `id=mem.capability_denial.module_load_ephemeral_durable.
+current_boot.v0`, `kind=capability_denial`, `classification=local_only`, `authority=core_ledger`,
+`boot_id="current_boot"`; `sequence`/`created_at_ticks` fall back to `0` (no RAM-only, side-effect-free
+peek at the current event-log sequence exists yet). GRANTS NOTHING new: system-authored only, no agent
+write path; every `memory.*` mutation stays denied and provider export stays fail-closed. NEW single-boot
+`memory-durable` VM profile (`vm-harness/shadow-vm-smoke-profile-memory-durable.ps1`, **43/43 predicates
+green**) proves a real durable append + independent follow-up `durable.record_log_scan` agreement, with the
+append's `payload_sha256` pinned to the **golden `record_sha256` (`sha256:1e0d230e…1a77ba8f`)** computed
+in raios-core from the identical `MemoryRecordInput` — so the proof shows the EXACT
+`raios.memory_record.v0` bytes are on disk, not merely a well-formed frame. The fail-closed selftest
+families (secret / unknown-kind / scoped defensive pins) run RAM-only (reclog count/tail unchanged), and a
+live probe (`durable_store::memory_write_quota_probe_exhaustion`) drives the REAL per-boot RAM quota to
+exhaustion AND back (proving the one new primitive fires + refunds, not just the evaluator's synthetic
+`quota_ok=false` pin). Guard needles parse each specific response (memory.record_observation / memory.redact
+capability_denied, provider.context_export denied, memory.context provider_export "disabled") rather than
+whole-log substrings. A max-effort adversarial review returned SHIP (no CRITICAL/HIGH; fail-closed write,
+balanced quota, nothing new granted, signed set untouched); its two MEDIUM proof gaps (prove the live quota;
+pin the exact record hash) and two LOW guard-needle gaps were closed before commit. Regression: `quick`,
+`recovery` (byte-identical), `m6c-promotion`, `full` (8168) all green. Next: **M9A-3** (decision/problem via
+supersede).
 
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp

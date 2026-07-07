@@ -3,14 +3,14 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-07 (**M7 + M8 COMPLETE — a service survives a restart, and the emergency
-rescue line is fully built.** M8 (the Notfall-Rettungsleine) can now, when things break above
-it: diagnose (live + durable last-good/safe-mode), survive a crashed Wasm service, and take four
-safe restore actions — disable a bad module, restart a disabled/crashed one to known-good, and
-re-instate a saved module by fingerprint from the LOCAL store (proven across a real reboot: the
-service comes back and answers live). Every action is deny-before-doing, records a durable proof
-first, restore-only-never-promote, honest dev-key. Next big block: M9 (durable memory).
-M7 detail below.
+Updated: 2026-07-07 (**M7 + M8 COMPLETE, and M9 (durable memory) has BEGUN — raiOS wrote its
+first permanent, typed memory fact to disk, proven byte-exact.** M8 (the Notfall-Rettungsleine) can,
+when things break above it: diagnose (live + durable last-good/safe-mode), survive a crashed Wasm
+service, and take four safe restore actions — disable a bad module, restart a disabled/crashed one to
+known-good, and re-instate a saved module by fingerprint from the LOCAL store (proven across a real
+reboot: the service comes back and answers live). Every action is deny-before-doing, records a durable
+proof first, restore-only-never-promote, honest dev-key. M9 first durable memory write is proven
+(43/43); secrets can never be stored, provider export stays refused. M7/M8/M9 detail below.
 The big one (M7) is done: boot 1 accepts and saves an AI-authored module (its code +
 a signed "promotion receipt"); the machine is powered down and back up; boot 2
 independently re-checks the whole evidence chain from disk — re-doing the signature
@@ -58,7 +58,14 @@ nimmt **keine neuen Bytes** an. **Damit ist M8 KOMPLETT** — die Notfall-Rettun
 diagnostizieren (inkl. dauerhaftem Zustand), einen Absturz überleben, abschalten, neu-starten und
 ein gespeichertes Modul per Fingerabdruck neu-instanzieren — alles nur-wiederherstellen, alles neu
 geprüft, alles ehrlich Entwickler-Schlüssel. Das Ausführen von „zurückrollen" bleibt bewusst
-verweigert (Nicht-Ziel von M8). Nächster großer Block: **M9 (dauerhaftes Gedächtnis).** Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
+verweigert (Nicht-Ziel von M8). **NEU — M9 (dauerhaftes Gedächtnis) hat begonnen: das ERSTE
+dauerhafte Gedächtnis-Faktum ist geschrieben.** raiOS legt jetzt eine ehrliche, permanente Notiz
+auf die Platte — dass eine gefährliche Fähigkeit (ein Modul laden) verweigert bleibt. Bewiesen
+(43/43): die Notiz liegt **byte-genau** auf der Platte (Fingerabdruck stimmt exakt — es ist genau
+diese Notiz, nicht irgendeine), ein Pro-Boot-Limit gegen Überflutung greift **live** und setzt
+sich zurück, **Geheimnisse können NIE gespeichert werden**, und nichts davon darf an einen Anbieter
+gehen. Es wird nur *aufgezeichnet*, nichts Neues erlaubt; ehrlich Entwickler-Schlüssel. Nächster
+Schritt: M9A-3. Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
 Baustein WIRKLICH abstürzt, antwortet die Rettungsleine weiter — sie überlebt, weil
 KI-Code ein Treibstoff-Limit hat und kooperativ läuft, noch NICHT durch echte
 Hardware-Trennung (die kommt erst mit M11).).

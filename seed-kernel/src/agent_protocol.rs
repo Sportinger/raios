@@ -167,7 +167,7 @@ use crate::{
     agent_protocol_wasm::{
         emit_submit_candidate_chunk, emit_submit_candidate_finalize, emit_wasm_echo_probe,
     },
-    echo_service, event_log, granted_candidate_service, hello_service, ui,
+    echo_service, event_log, granted_candidate_service, hello_service, memory_store, ui,
 };
 
 pub(crate) use crate::agent_protocol_provider::provider_minimal_context_evidence_for_runtime;
@@ -342,6 +342,8 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("durable.record_log_scan", Exact, ["persist.reclog_scan"], [route!("durable.record_log_scan"), route!("persist.reclog_scan" => "durable.record_log_scan")], MethodAction::Read0(durable_store::emit_durable_record_log_scan)),
     method!("durable.record_log_append", Exact, ["persist.reclog_append"], [route!("durable.record_log_append"), route!("persist.reclog_append" => "durable.record_log_append")], MethodAction::Read0(durable_store::emit_durable_record_log_append)),
     method!("module.promotion_transaction_selftest", Exact, [], [route!("module.promotion_transaction_selftest")], MethodAction::Read0(durable_store::emit_promotion_transaction_selftest)),
+    method!("memory.record_log_append", Exact, ["persist.memory_record_append"], [route!("memory.record_log_append"), route!("persist.memory_record_append" => "memory.record_log_append")], MethodAction::Read0(memory_store::emit_memory_record_log_append)),
+    method!("memory.record_log_append_selftest", Exact, [], [route!("memory.record_log_append_selftest")], MethodAction::Read0(memory_store::emit_memory_record_log_append_selftest)),
     method!("artifact.store_scan", Exact, ["persist.artifact_store_scan"], [route!("artifact.store_scan"), route!("persist.artifact_store_scan" => "artifact.store_scan")], MethodAction::Read0(artifact_store::emit_artifact_store_scan)),
     method!("module.artifact_store_selftest", Exact, [], [route!("module.artifact_store_selftest")], MethodAction::Read0(artifact_store::emit_artifact_store_selftest)),
     method!("boot.control_read", Exact, ["persist.boot_control"], [route!("boot.control_read"), route!("persist.boot_control" => "boot.control_read")], MethodAction::Read0(boot_control::emit_boot_control_read)),

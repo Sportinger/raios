@@ -117,6 +117,7 @@ mod granted_candidate_service;
 mod hello_service;
 mod input;
 mod memory;
+mod memory_store;
 mod module_candidate_channel;
 mod module_candidate_intake;
 mod module_evidence;

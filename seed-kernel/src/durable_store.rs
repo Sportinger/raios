@@ -1,6 +1,8 @@
 use alloc::{vec, vec::Vec};
 use core::str;
 
+use spin::Mutex;
+
 use crate::{
     agent_protocol_support::{
         begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
@@ -13,11 +15,21 @@ use raios_core::{
     durable_record_frame::{
         durable_record_log_scan_fields, parse_reclog_frame, plan_reclog_append, scan_reclog,
         PlannedAppend, RecordLogScan, DURABLE_RECORD_LOG_SCAN_SCHEMA, RECLOG_FRAME_HEADER_LEN,
+        RECLOG_SECTOR_SIZE,
     },
+    memory_record::MemoryRecord,
     promotion_attestation::{
         PLACEHOLDER_PROMOTION_AUTHORITY_PUBLIC_KEY_SHA256, PROMOTION_AUTHORITY_IS_PLACEHOLDER,
     },
     record::{write_json, Field, Value as V},
+    scoped_memory_record_append::{
+        evaluate_scoped_memory_record_append, ScopedMemoryRecordAppendInput,
+        EXPECTED_METHOD as MEMORY_EXPECTED_METHOD,
+        EXPECTED_RECORD_SCHEMA as MEMORY_EXPECTED_RECORD_SCHEMA,
+        EXPECTED_REGION_MARKER as MEMORY_EXPECTED_REGION_MARKER,
+        EXPECTED_TARGET_ID as MEMORY_EXPECTED_TARGET_ID,
+        EXPECTED_TRUST_TIER as MEMORY_EXPECTED_TRUST_TIER,
+    },
     scoped_promotion_transaction_append::{
         evaluate_scoped_promotion_transaction_append, ScopedPromotionTransactionAppendInput,
         EXPECTED_METHOD as PROMOTION_EXPECTED_METHOD,
@@ -2271,4 +2283,348 @@ fn current_boot_reclog_scan() -> DurableRecordLogScanEvidence {
         reclog_byte_count: read.byte_count,
         scan,
     }
+}
+
+// --- M9A-2b durable memory record append (raios.memory_record.v0) -----------------
+//
+// Appends the ONE system-authored `raios.memory_record.v0` durable memory fact
+// through the SAME shared reclog gauntlet as every other durable writer in this file
+// (scan -> plan -> ahci write_readback -> readback-sha -> reparse ->
+// evaluate_scoped_memory_record_append -> rescan), mirroring `append_recovery_load`
+// EXACTLY, with ONE addition: a per-boot RAM write-quota reserved BEFORE the
+// plan/write and released on any post-reserve denial (never held past a denied
+// attempt, never released after success). `MemoryRecord::new` (raios-core) already
+// fails closed on `secret` classification and unknown `kind`, so this function is
+// never called with an invalid record; `evaluate_scoped_memory_record_append`
+// re-checks those invariants anyway (deny-in-depth) plus the reclog gauntlet, owner
+// trust tier, and the quota gate itself. Quota/secret/bad-kind denials are exercised
+// ONLY by the synthetic `memory.record_log_append_selftest` (which calls the
+// evaluator directly on synthetic input and never reaches this function, never
+// touches the disk), so there is no self-recursive durable write on denial.
+
+/// Per-boot RAM-only durable-memory write quota. A fresh static reset to full every
+/// boot by construction -- never read from or written to disk. Bounds BOTH the
+/// record count and a nominal one-sector (512 B) charge per reservation, since every
+/// frame this driver plans rounds up to at least one reclog sector.
+const MEMORY_WRITE_QUOTA_MAX_RECORDS: u32 = 128;
+const MEMORY_WRITE_QUOTA_MAX_BYTES: u64 = 32 * 1024;
+const MEMORY_RECORD_APPEND_SUCCESS_AUTHORITY: &str = "scoped_memory_record_append_authorized";
+
+/// Informational budget constants surfaced by the selftest response so the VM
+/// profile can assert the quota is honestly per-boot bounded.
+pub(crate) const MEMORY_WRITE_QUOTA_BUDGET_RECORDS: u64 = MEMORY_WRITE_QUOTA_MAX_RECORDS as u64;
+pub(crate) const MEMORY_WRITE_QUOTA_BUDGET_BYTES: u64 = MEMORY_WRITE_QUOTA_MAX_BYTES;
+
+struct MemoryWriteQuota {
+    records_remaining: u32,
+    bytes_remaining: u64,
+}
+
+impl MemoryWriteQuota {
+    const fn new() -> Self {
+        Self {
+            records_remaining: MEMORY_WRITE_QUOTA_MAX_RECORDS,
+            bytes_remaining: MEMORY_WRITE_QUOTA_MAX_BYTES,
+        }
+    }
+}
+
+static MEMORY_WRITE_QUOTA: Mutex<MemoryWriteQuota> = Mutex::new(MemoryWriteQuota::new());
+
+/// Reserves one record + one sector charge against the per-boot quota. Fails closed
+/// (returns `false`, reserves nothing) once either budget is exhausted.
+fn memory_write_quota_try_reserve() -> bool {
+    let mut quota = MEMORY_WRITE_QUOTA.lock();
+    if quota.records_remaining == 0 || quota.bytes_remaining < RECLOG_SECTOR_SIZE as u64 {
+        return false;
+    }
+    quota.records_remaining -= 1;
+    quota.bytes_remaining -= RECLOG_SECTOR_SIZE as u64;
+    true
+}
+
+/// Gives back a reservation after a post-reserve denial, so a transient AHCI/plan
+/// failure never permanently burns quota.
+fn memory_write_quota_release() {
+    let mut quota = MEMORY_WRITE_QUOTA.lock();
+    quota.records_remaining = quota
+        .records_remaining
+        .saturating_add(1)
+        .min(MEMORY_WRITE_QUOTA_MAX_RECORDS);
+    quota.bytes_remaining = quota
+        .bytes_remaining
+        .saturating_add(RECLOG_SECTOR_SIZE as u64)
+        .min(MEMORY_WRITE_QUOTA_MAX_BYTES);
+}
+
+/// TEST-ONLY live probe of the REAL per-boot RAM quota (M9A-2b M1): reserves
+/// against the actual `MEMORY_WRITE_QUOTA` static until `try_reserve` returns false
+/// (counting the successful reservations), then releases exactly that many, and
+/// finally confirms a fresh reservation succeeds again (giving it straight back).
+/// This proves the live gate genuinely exhausts AND refunds — the one primitive
+/// this slice adds over its `append_recovery_load` reference — WITHOUT performing a
+/// single durable write. It is order-independent and non-perturbing: it restores the
+/// quota to exactly its prior level, so a real `append_memory_record` in the same
+/// boot is unaffected. Returns `(reservations_until_exhausted, restored_ok)`.
+pub(crate) fn memory_write_quota_probe_exhaustion() -> (u32, bool) {
+    let mut reserved = 0u32;
+    while memory_write_quota_try_reserve() {
+        reserved = reserved.saturating_add(1);
+        if reserved == u32::MAX {
+            break;
+        }
+    }
+    let mut released = 0u32;
+    while released < reserved {
+        memory_write_quota_release();
+        released = released.saturating_add(1);
+    }
+    let restored = memory_write_quota_try_reserve();
+    if restored {
+        memory_write_quota_release();
+    }
+    (reserved, restored)
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MemoryRecordAppendEvidence {
+    pub(crate) durable_append: &'static str,
+    pub(crate) performed: bool,
+    pub(crate) reason: &'static str,
+    pub(crate) authority: &'static str,
+    pub(crate) seq: Option<u64>,
+    pub(crate) write_offset: Option<u64>,
+    pub(crate) frame_len: Option<u64>,
+    pub(crate) payload_sha256: Option<[u8; 32]>,
+    pub(crate) frame_sha256: Option<[u8; 32]>,
+    pub(crate) readback_sha256: Option<[u8; 32]>,
+    pub(crate) reparse_valid: bool,
+    pub(crate) tail_seq_before: Option<u64>,
+    pub(crate) count_before: Option<u64>,
+    pub(crate) tail_seq_after: Option<u64>,
+    pub(crate) count_after: Option<u64>,
+    pub(crate) record_id: &'static str,
+    pub(crate) record_kind: &'static str,
+    pub(crate) record_classification: &'static str,
+    pub(crate) record_authority: &'static str,
+    pub(crate) record_schema: &'static str,
+    pub(crate) region_marker: &'static str,
+    pub(crate) target_id: &'static str,
+    pub(crate) owner_sealed: bool,
+    pub(crate) persistence_claimed: bool,
+    pub(crate) trust_tier: &'static str,
+}
+
+/// Appends `record` through the shared reclog gauntlet, authorized ONLY by
+/// `evaluate_scoped_memory_record_append`. The record is required `'static` because
+/// this slice's one caller (`memory_store.rs`) always builds it from fully-'static
+/// strings (per the M9A-2b packet), which keeps this evidence struct itself
+/// borrow-free and cheap to render.
+pub(crate) fn append_memory_record(record: &MemoryRecord<'static>) -> MemoryRecordAppendEvidence {
+    if !matches!(
+        super::boot_control::current_boot_posture(),
+        BootPosture::Normal | BootPosture::Probation
+    ) {
+        return memory_record_append_denied(record, "boot_control_safe_mode");
+    }
+
+    if !memory_write_quota_try_reserve() {
+        return memory_record_append_denied(record, "memory_write_quota_exhausted");
+    }
+
+    let before = current_boot_reclog_scan();
+    let payload = memory_record_payload_bytes(record);
+    let planned = match plan_reclog_append(&before.scan, &payload, before.reclog_byte_count) {
+        Ok(planned) => planned,
+        Err(denied) => {
+            memory_write_quota_release();
+            return memory_record_append_evidence(
+                record,
+                "capability_denied",
+                denied.reason(),
+                "evidence_only",
+                Some(&before),
+                None,
+                None,
+                false,
+                None,
+            );
+        }
+    };
+
+    let Some(controller) = before.controller else {
+        memory_write_quota_release();
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            "ahci_controller_not_observed",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            None,
+            false,
+            None,
+        );
+    };
+
+    let write = unsafe {
+        ahci::write_readback_reclog_append(controller, planned.write_offset, &planned.frame)
+    };
+    let readback_sha256 = write.readback.as_deref().map(sha256_bytes);
+    let reparse_valid = write
+        .readback
+        .as_deref()
+        .map(|bytes| parse_reclog_frame(bytes, 0, planned.seq, planned.prev_frame_sha256).is_ok())
+        .unwrap_or(false);
+    let decision = evaluate_scoped_memory_record_append(&ScopedMemoryRecordAppendInput {
+        method: Some(MEMORY_EXPECTED_METHOD),
+        target_id: Some(MEMORY_EXPECTED_TARGET_ID),
+        record_schema: Some(MEMORY_EXPECTED_RECORD_SCHEMA),
+        region_marker: Some(MEMORY_EXPECTED_REGION_MARKER),
+        frame_len: Some(planned.frame_len),
+        write_offset: Some(planned.write_offset),
+        reclog_byte_count: Some(before.reclog_byte_count),
+        absolute_start_lba: Some(before.reclog_absolute_start_lba),
+        reclog_lba_count: Some(before.reclog_lba_count),
+        seq: Some(planned.seq),
+        tail_seq: Some(before.scan.tail_seq),
+        count: Some(before.scan.count),
+        prev_frame_sha256: Some(planned.prev_frame_sha256),
+        tail_frame_sha256: before.scan.tail_frame_sha256,
+        payload_sha256: Some(planned.payload_sha256),
+        planned_payload_sha256: Some(planned.payload_sha256),
+        planned_frame_sha256: Some(planned.frame_sha256),
+        readback_frame_sha256: readback_sha256,
+        write_attempted: write.write_attempted,
+        write_completed: write.write_completed,
+        readback_completed: write.readback_completed,
+        readback_matches_planned: readback_sha256 == Some(planned.frame_sha256),
+        reparse_valid,
+        span_in_bounds: write.span_in_bounds,
+        classification: Some(record.classification.as_str()),
+        kind: Some(record.kind.as_str()),
+        trust_tier: Some(MEMORY_EXPECTED_TRUST_TIER),
+        owner_sealed: false,
+        persistence_claimed: false,
+        quota_ok: true,
+    });
+
+    if !decision.performed {
+        memory_write_quota_release();
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            decision.reason,
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            None,
+        );
+    }
+
+    let after = current_boot_reclog_scan();
+    let rescan_ok = before
+        .scan
+        .count
+        .checked_add(1)
+        .map(|count| after.scan.count == count)
+        .unwrap_or(false)
+        && after.scan.tail_seq == planned.seq
+        && after.scan.tail_frame_sha256 == Some(planned.frame_sha256);
+    if !rescan_ok {
+        memory_write_quota_release();
+        return memory_record_append_evidence(
+            record,
+            "capability_denied",
+            "post_append_rescan_mismatch",
+            "evidence_only",
+            Some(&before),
+            Some(&planned),
+            readback_sha256,
+            reparse_valid,
+            Some(&after),
+        );
+    }
+
+    memory_record_append_evidence(
+        record,
+        "appended",
+        decision.reason,
+        MEMORY_RECORD_APPEND_SUCCESS_AUTHORITY,
+        Some(&before),
+        Some(&planned),
+        readback_sha256,
+        true,
+        Some(&after),
+    )
+}
+
+fn memory_record_append_denied(
+    record: &MemoryRecord<'static>,
+    reason: &'static str,
+) -> MemoryRecordAppendEvidence {
+    memory_record_append_evidence(
+        record,
+        "capability_denied",
+        reason,
+        "evidence_only",
+        None,
+        None,
+        None,
+        false,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn memory_record_append_evidence(
+    record: &MemoryRecord<'static>,
+    durable_append: &'static str,
+    reason: &'static str,
+    authority: &'static str,
+    before: Option<&DurableRecordLogScanEvidence>,
+    planned: Option<&PlannedAppend>,
+    readback_sha256: Option<[u8; 32]>,
+    reparse_valid: bool,
+    after: Option<&DurableRecordLogScanEvidence>,
+) -> MemoryRecordAppendEvidence {
+    MemoryRecordAppendEvidence {
+        durable_append,
+        performed: durable_append == "appended",
+        reason,
+        authority,
+        seq: planned.map(|planned| planned.seq),
+        write_offset: planned.map(|planned| planned.write_offset),
+        frame_len: planned.map(|planned| planned.frame_len),
+        payload_sha256: planned.map(|planned| planned.payload_sha256),
+        frame_sha256: planned.map(|planned| planned.frame_sha256),
+        readback_sha256,
+        reparse_valid,
+        tail_seq_before: before.map(|before| before.scan.tail_seq),
+        count_before: before.map(|before| before.scan.count),
+        tail_seq_after: after.map(|after| after.scan.tail_seq),
+        count_after: after.map(|after| after.scan.count),
+        record_id: record.id,
+        record_kind: record.kind.as_str(),
+        record_classification: record.classification.as_str(),
+        record_authority: record.authority,
+        record_schema: MEMORY_EXPECTED_RECORD_SCHEMA,
+        region_marker: MEMORY_EXPECTED_REGION_MARKER,
+        target_id: MEMORY_EXPECTED_TARGET_ID,
+        owner_sealed: false,
+        persistence_claimed: false,
+        trust_tier: MEMORY_EXPECTED_TRUST_TIER,
+    }
+}
+
+/// Payload bytes are `write_json(record.to_record_value())` -- IDENTICAL to
+/// `recovery_load_payload_bytes`'s pattern -- so the reclog's `payload_sha256` over
+/// these exact bytes equals `record.record_sha256()` (both hash the same
+/// `write_json` rendering of the same `Value`).
+fn memory_record_payload_bytes(record: &MemoryRecord<'static>) -> Vec<u8> {
+    let mut sink = VecSink(Vec::new());
+    write_json(&record.to_record_value(), &mut sink, 0);
+    sink.0
 }

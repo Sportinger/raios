@@ -10,7 +10,7 @@ param(
     [switch]$KeepImage,
     [int]$SerialWriteChunkSize = 256,
     [int]$SerialWriteDelayMilliseconds = 0,
-    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m6d-rollback", "m8-lifeline", "persistence")]
+    [ValidateSet("full", "quick", "recovery", "hello-rollback-dry-run", "module-audit-rollback", "provider-memory", "provider-memory-full", "candidate-delivery", "m6c-promotion", "m6d-rollback", "m8-lifeline", "persistence", "memory-durable")]
     [string]$Profile = "full"
 )
 
@@ -117,7 +117,7 @@ try {
         $auditRollbackTargetStream.Dispose()
     }
 
-    if ($Profile -eq "persistence" -or $PersistDiskPath) {
+    if ($Profile -eq "persistence" -or $Profile -eq "memory-durable" -or $PersistDiskPath) {
         $PersistDiskImage = Resolve-PersistDiskImage -PersistDiskPath $PersistDiskPath -RunDir $RunDir
     }
     elseif ($Profile -eq "m8-lifeline") {
@@ -191,6 +191,11 @@ try {
     :SmokeProfileValidation while ($true) {
         if ($Profile -eq "persistence") {
             . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-persistence.ps1")
+            break SmokeProfileValidation
+        }
+
+        if ($Profile -eq "memory-durable") {
+            . (Join-Path $PSScriptRoot "shadow-vm-smoke-profile-memory-durable.ps1")
             break SmokeProfileValidation
         }
 

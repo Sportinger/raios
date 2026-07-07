@@ -118,7 +118,20 @@ secret plaintext is un-constructable and can never become durable or reach a pro
 Err; unknown classification → local_only; observation needs entity+source; supersede-not-overwrite).
 Host-only, no kernel change, no vocab change. Verified cargo test -p raios-core 133 (8 new), rustfmt
 clean, kernel builds. The read-only agent_context broker + fail-closed provider export already exist.
-Next: **M9A-2** (first durable memory write via own scoped evaluator, single-boot). (M7 map
+**M9A-2 done (2026-07-07, first durable memory write, single-boot):** M9A-2a added
+`raios-core/src/scoped_memory_record_append.rs` — a dedicated OWN-pinned write-boundary evaluator (cloned
+from scoped_recovery_load_append; 41 pairwise-unique denial reasons; grants nothing). M9A-2b then wrote the
+first real durable memory fact: `seed-kernel/src/durable_store.rs::append_memory_record` (structural clone of
+append_recovery_load + a RAM-only per-boot write quota) drives the shared reclog gauntlet authorized ONLY by
+that evaluator, and `seed-kernel/src/memory_store.rs`'s ONE Read0 driver builds a system-authored
+`capability_denial` of the permanently-denied durable module-load gate via the fail-closed `MemoryRecord::new`.
+A new single-boot `memory-durable` VM profile is green (43/43): a real durable append whose `payload_sha256`
+matches the golden `record_sha256` computed in raios-core (the EXACT record landed, not just a frame), the
+live RAM quota driven to exhaustion + refund, RAM-only fail-closed selftests (secret/unknown-kind/quota, no
+disk write), and parsed guard needles (every `memory.*` mutation still denied, provider export still
+fail-closed). Grants nothing new; honestly dev_key_not_owner_sealed / current_boot. Max-effort adversarial
+review: SHIP. Regression green (quick/recovery byte-identical/m6c-promotion/full 8168).
+Next: **M9A-3** (decision/problem via supersede). (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
 SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion
