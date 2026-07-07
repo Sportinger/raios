@@ -115,6 +115,30 @@ Quick often, full rarely, focused when the touched boundary is risky. Never
 skip VM evidence for changes that affect storage, rollback, recovery,
 capability authority, provider trust, descriptor signing, or boot behavior.
 
+### Owner cadence decision (2026-07-07): aggressive-fast
+
+The owner weighed speed/cost over per-sub-slice safety margin and chose the
+aggressive-fast cadence. This is a standing decision that tunes the budget above:
+
+- **Per sub-slice:** run ONLY that slice's own focused VM profile (e.g.
+  `memory-durable`), then commit. That is sufficient evidence to close a
+  sub-slice.
+- **Adversarial (max-effort) review:** only on RISKY steps — a new durable write
+  path or write-boundary, an authority flip, changes to shared/attested code, or
+  anything that could grant more than claimed. Skip it on trivial / grants-nothing
+  slices (a raios-core rules clone, a mechanical field addition, docs).
+- **Full profile (`full`) + `recovery` byte-identical:** only at a BLOCK /
+  sub-milestone close (e.g. when M9A / M9B / M9C finishes), NOT on every
+  sub-slice — plus the pre-existing rule to run them before handing off a release
+  image or claiming a durable security/recovery milestone.
+
+Rationale: the VM tests dominate wall-clock (each profile recompiles the kernel +
+boots QEMU), and `full`/`recovery` have been byte-identical-green on every slice
+because each slice is cleanly isolated behind its own scoped evaluator — so
+full-per-sub-slice is low-yield. The structural fix for test time as the system
+grows is M11 (services out of kernel → a change tests only its own service). The
+Red Gate Rule still holds at every tier actually run.
+
 ## Capability Definition Of Done
 
 Adopted 2026-07-04 after
