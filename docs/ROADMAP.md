@@ -140,8 +140,19 @@ vision), a `problem` (memory.* mutations still denied), and a refined `decision`
 three records' pinned golden hashes matched (exact bytes on disk, including B's `supersedes:[A.id]`). An
 adversarial review caught + fixed a top-level over-claim (the trio response now derives success from the real
 per-record evidence). Grants nothing new; system-authored only (agent write is M9B); dev_key_not_owner_sealed
-/ current_boot. Regression green (quick/recovery byte-identical/m6c-promotion/full). Next: **M9B-1**
-(agent-authored observation, scoped — the first NON-system durable memory write). (M7 map
+/ current_boot. Regression green (quick/recovery byte-identical/m6c-promotion/full).
+**M9B-1 done (2026-07-07 — first AGENT-authored durable write):** M9B-1a added the evaluator
+`agent_authored` confinement (agent → observation-only, no supersede, local_only). M9B-1b added a new
+narrow `memory.observation_log_append` method: the agent supplies entity/predicate/value/source as a
+base64 blob; the kernel FORCES id (per-boot counter), kind=observation, classification=local_only,
+authority=agent, source.method, tags, supersedes=[] and appends through the shared gauntlet. The broad
+`memory.record_observation` (and all memory.* mutations) STAY denied — a new method, not a flip.
+`memory-durable` 105/105 (golden-pinned agent record landed byte-exact + a 5-case fail-closed denial
+matrix + the undercharge guard). Max-effort review SHIP (parser-escape / authority-forge / undercharge
+all closed; a fail-closed frame-exceeds-charge guard added). A host-transport UART-FIFO overflow on the
+long agent command was fixed by pacing the send (like submit_candidate_chunk). Grants nothing new; dev_key
+/ current_boot. Next: **M9C** (the read-only broker — R1 supersede-target rule + the LOW-1/LOW-3 trust
+rules above + typed-fact reads drawing on the durable M9A/M9B records). (M7 map
 `docs/plan-reviews/m7-persistence-map-2026-07-06.md`,
 revalidated M7-0). Sequencing per the M7-0 note: M7A + M7B build GPT + the
 SEED_DATA RECLOG durable store; then M6D-2 records its durable promotion
@@ -897,6 +908,14 @@ needs the target's kind = reparsing the log = building the broker early). **No r
 resolves supersession may ship before R1**, or an audit trail could be silently hidden.
 Dangling-supersede existence is likewise a broker concern (harmless under append-only +
 read-time resolution), NOT a write gate.
+
+**M9C broker-trust rules (from the M9B-1b review, deferred to M9C):** (1) order agent records by
+the RECLOG frame seq / boot_id, NEVER by the payload `sequence` field — for agent observations that
+field is an agent-local attempt counter (advances on gauntlet-denied attempts, may gap/differ from
+the frame seq). (2) Trust the kernel-FORCED `authority="agent"` + `source.method` as the authority
+signal; NEVER trust the agent-supplied `source.record_id` (a spoofable locator that can be made to
+look system-authored). Both are read-side; the M9B-1b write path already forces the authority fields
+and confines agents to non-supersede local_only observations.
 
 ### M10 Provider Trust Hardening & Adapters (pre-planned)
 

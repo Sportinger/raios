@@ -3497,6 +3497,87 @@ W1 audit-supersede closed in both layers, truthful contents, non-vacuous needles
 block** (system-authored durable memory: schema → first write → decision/problem + supersede). Next:
 **M9B-1** (agent-authored observation, scoped) — the first NON-system durable memory write.
 
+**M9B-1b DONE (2026-07-07, first AGENT-authored durable observation, single-boot, grants nothing new).**
+raiOS gains its FIRST agent-controlled durable memory write: `memory.observation_log_append` lets an AGENT
+durably record ONE `observation` `raios.memory_record.v0` by supplying exactly 4 base64-encoded,
+newline-separated fields — `entity`/`predicate`/`value`/`source_record_id` — while the kernel FORCES every
+other authority-bearing field: `id` is kernel-assigned from a fresh per-boot RAM-only counter
+(`mem.observation.agent.current_boot.NNNNNNNN.v0`, also the record's `sequence`), `kind="observation"`,
+`classification="local_only"`, `authority="agent"`, `boot_id="current_boot"`, `supersedes=[]`,
+`tags=["agent","observation"]`. NEW `seed-kernel/src/durable_store.rs::append_memory_record_inner<'a>`
+generalizes the M9A-2b/M9A-3b append body over the record's lifetime
+(`MemoryRecordAppendEvidence<'a>`, with `record_id`/`record_authority: &'a str`; every other field stays
+`&'static str`) so an agent-authored record built from a decoded, non-`'static` RAM buffer can be rendered
+before that buffer drops. The two `'static` system callers (`append_memory_record`, M9A-2b/M9A-3b, UNCHANGED
+behavior) and the ONE new entry point (`append_agent_observation_record<'a>`) both call this shared inner
+body, which forwards `agent_authored` to `evaluate_scoped_memory_record_append` (M9B-1a, already merged:
+confines an agent record to observation-only/no-supersede/local_only — deny-in-depth backstop even if a
+caller bypassed `MemoryRecord::new`). The per-boot RAM write quota is generalized to a sector-count parameter
+(`memory_write_quota_try_reserve_sectors`/`_release_sectors`; the pre-existing zero-arg
+`memory_write_quota_try_reserve`/`_release` — and therefore `memory_write_quota_probe_exhaustion` and the
+system path — are byte-unchanged, defined as `..._sectors(1)`); the agent path conservatively charges
+`AGENT_OBS_QUOTA_SECTORS = 2` sectors (worst case for a 2-sector agent-observation frame) so it can never
+undercharge. NEW `seed-kernel/src/memory_store.rs::emit_memory_observation_log_append` strips the method
+prefix, decodes the base64 argument via the SAME hardened `module_candidate_channel::decode_base64_chunk`
+(visibility widened to `pub(crate)`, no second decoder), splits the decoded bytes on `\n` into exactly 4
+fields, and fail-closed validates each BEFORE ever calling `MemoryRecord::new` or consuming a sequence
+number — so a malformed input never burns the per-boot id counter and never appends: missing payload
+(`agent_observation_missing_payload`), base64 decode failure (the decoder's own distinct reason, e.g.
+`rejected_malformed_base64_chunk`), field count ≠ 4 (`agent_observation_field_count`), a byte cap violation —
+entity≤64/predicate≤32/value≤96/source≤64 (`agent_observation_field_too_long`), a locator-safe charset
+violation `[A-Za-z0-9 ._:/-]` (`agent_observation_field_charset`), and empty entity/source
+(`agent_observation_entity_empty`/`agent_observation_source_empty`, checked ahead of
+`MemoryRecord::new`'s own `observation_missing_entity`/`observation_missing_source` for a clearer reason).
+Registered as ONE new `agent_protocol.rs` Head-matched row
+(`MethodAction::ReadMethod(memory_store::emit_memory_observation_log_append)`); the broad
+`memory.record_observation` method and the entire `MEMORY_MUTATION_METHODS` denial set are UNTOUCHED and stay
+denied — re-asserted by a new VM guard needle AFTER the new method exists, proving the broad boundary did not
+open. EXTENDED `memory-durable` VM profile (`vm-harness/shadow-vm-smoke-profile-memory-durable.ps1`) with
+`memory-agent-observation-authorized` (a fresh child-VM probe, generalized
+`Invoke-MemoryRecordAppendFixtureProbe` via a new `-AppendArg` parameter, sends
+`memory.observation_log_append <FROZEN_BLOB>` against the `valid:2` reclog fixture and asserts
+`durable_append=="appended"`, `authority=="scoped_memory_record_append_authorized"`, `kind=="observation"`,
+`classification=="local_only"`, `record_authority=="agent"`,
+`record_id=="mem.observation.agent.current_boot.00000001.v0"` (the first-boot-write proof),
+`readback_sha256==frame_sha256 && reparse_valid`, honest `owner_sealed=false`/`persistence_claimed=false`,
+`frame_len<=1024` (proves the 2-sector quota charge is not an undercharge), the **pinned golden**
+`payload_sha256 == sha256:75ea5ab92fc9dafe908bae204e5a357947e47ba7e231aaddc0c19854288e198d` (independently
+reproduced during implementation via a throwaway host-side `raios-core` test, reverted before commit — proves
+the EXACT agent record landed, not merely a well-formed frame), a reclog chain advance of exactly `+1`, and a
+follow-up `durable.record_log_scan` agreement) and `memory-agent-observation-denied` (5 distinct RAM-only
+denials sent against the main VM — not-base64, a 3-field blob, an over-cap field, a disallowed-charset field,
+and an empty entity — each asserted `durable_append=="capability_denied"` / `performed==false` with its exact
+reason, bracketed by a single before/after main-VM `durable.record_log_scan` proving nothing was appended
+across all 5 attempts). The **R1 broker rule** (M9A-3a: a future M9C reader must ignore supersede links
+targeting an audit kind) remains explicitly DEFERRED to M9C — this slice's write path can never author a
+supersede link at all, so R1 is unaffected either way. Verified: `cargo build --profile release`
+(seed-kernel) exit 0; `cargo test --locked -p raios-core` 148/148 unchanged (only a lifetime/quota
+generalization of already-merged M9A-2b/M9A-3b/M9B-1a code — no new raios-core rules, no new tests);
+`rustfmt --edition 2021 --check` clean on all four touched seed-kernel files; the PS profile parses via
+`[System.Management.Automation.Language.Parser]::ParseFile`. Deviation: widened
+`module_candidate_channel::decode_base64_chunk` from private to `pub(crate)` (one line, no behavior change) so
+the new driver could reuse it rather than fork a second decoder, per the packet's explicit instruction.
+Orchestrator proof: `memory-durable` **105/105** green (M9A families + the new agent-observation authorized
+family — golden `sha256:75ea5ab9…198d` for the exact agent record — + the 5-case RAM-only denial matrix + the
+guard re-asserting `memory.record_observation` STILL denied after the new method exists). A HOST-TRANSPORT
+finding surfaced and was fixed: the ~213-byte agent command (base64 blob) sent as one fast burst overflowed the
+guest 16550 UART RX FIFO (the guest drains MAX_BYTES_PER_POLL=64 with UI redraw between polls), dropping the
+tail so the line never dispatched; the profile now paces every send (small chunks + short delay), exactly how
+`submit_candidate_chunk` and any real agent sender pace long serial writes. Max-effort adversarial review:
+**SHIP** — parser escape, authority forge, and quota undercharge all CONFIRMED closed (golden + worst-case
+917≤1024-byte frame independently reproduced). Its LOW-2 (undercharge only statically proven) was closed with a
+fail-closed runtime guard: an agent frame that ever exceeds its reserved charge is DENIED
+(`agent_observation_frame_exceeds_quota_charge`), so an undercharge is impossible even if a future field-cap or
+schema change grows the frame. LOW-1/LOW-3 are documented as M9C broker-trust rules (order agent records by the
+reclog frame seq / boot_id, NEVER the payload `sequence`; trust the forced `authority="agent"`/`source.method`,
+NEVER the agent-supplied `source.record_id`). The **R1 broker rule** (M9A-3a: a future M9C reader must ignore
+supersede links targeting an audit kind) remains explicitly DEFERRED to M9C — this slice's write path can never
+author a supersede link at all, so R1 is unaffected either way. Verified: `cargo build --profile release`
+(seed-kernel) exit 0; `cargo test --locked -p raios-core` 148/148 unchanged (only a lifetime/quota
+generalization of already-merged M9A-2b/M9A-3b/M9B-1a code — no new raios-core rules, no new tests). This
+closes **M9B-1** (the first agent-authored durable memory write, scoped and confined). Next: the M9C broker
+(R1 supersede-target rule + LOW-1/LOW-3 trust rules + typed-fact reads) that M9A and M9B leave deferred.
+
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 Latest host-tool verification: after the 2026-07-03 local report-timestamp
 recovery/hello dispatch-bound completion-denial smoke runs on Windows with

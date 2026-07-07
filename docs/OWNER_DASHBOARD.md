@@ -3,9 +3,10 @@
 One page, plain language, updated every session (rule: AGENTS.md,
 "Capability Definition Of Done"). Hard cap: ~30 content lines.
 
-Updated: 2026-07-07 (**M7 + M8 COMPLETE, and M9's first block (M9A, durable memory) is COMPLETE —
-raiOS writes permanent typed facts (denials, decisions, problems) to disk, proven byte-exact, and
-proves "supersede not overwrite".** M8 (the Notfall-Rettungsleine) can,
+Updated: 2026-07-07 (**M7 + M8 COMPLETE; M9A (durable typed memory) + M9B (first AGENT-authored
+observation, strictly fenced) COMPLETE — raiOS writes permanent typed facts (denials, decisions,
+problems, and now agent observations) to disk, proven byte-exact, proves "supersede not overwrite",
+and lets an AI worker record one confined local_only observation while the kernel forces all authority.** M8 (the Notfall-Rettungsleine) can,
 when things break above it: diagnose (live + durable last-good/safe-mode), survive a crashed Wasm
 service, and take four safe restore actions — disable a bad module, restart a disabled/crashed one to
 known-good, and re-instate a saved module by fingerprint from the LOCAL store (proven across a real
@@ -71,8 +72,16 @@ dauerhaft auf — und beweist „ersetzen statt überschreiben": eine erste Ents
 bestätigte Vision) wird von einer verfeinerten sauber **abgelöst** (Teilen = erst prüfen, NIE direkt
 installieren), ohne die alte zu verändern. Alle drei Einträge liegen byte-genau auf der Platte (77/77
 grün). Wichtige Sicherung dabei: ein **Prüf-Eintrag** (z.B. „Fähigkeit verweigert") kann NIE getarnt
-von einem Nachfolger versteckt werden. Nächster Schritt: M9B (der erste Eintrag, den ein KI-Arbeiter
-selbst schreiben darf — streng geprüft). Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
+von einem Nachfolger versteckt werden. **NEU — M9B: der erste Eintrag, den ein KI-Arbeiter SELBST
+schreiben darf, funktioniert (streng eingezäunt).** Ein Arbeiter kann jetzt EINE „Beobachtung" dauerhaft
+notieren — aber der Kern erzwingt ALLES Sicherheitsrelevante selbst: nur Typ „Beobachtung", immer
+„local_only" (kann NIE an einen Anbieter), Autorität ehrlich als „agent" markiert (nicht System/Owner),
+keine Ablösung fremder Einträge, eine vom Kern vergebene Nummer (nicht fälschbar), ein Pro-Boot-Limit.
+Der Arbeiter liefert nur 4 kurze Textfelder — jeder Missbrauch (kaputte Daten, zu lang, verbotene Zeichen,
+leer) wird abgelehnt, nichts wird geschrieben. Bewiesen: 105/105 grün + eine harte Angriffs-Gegenprüfung
+(SHIP — Ausbruch/Fälschung/Speicher-Trick alle dicht). Nächster großer Schritt: M9C (die Einträge sicher
+LESEN und einem KI-Arbeiter als knappen, klassifizierten Kontext geben — Anbieter-Export bleibt gesperrt).
+Und die wichtigste Absicherung von M8 ist bewiesen: selbst wenn ein laufender
 Baustein WIRKLICH abstürzt, antwortet die Rettungsleine weiter — sie überlebt, weil
 KI-Code ein Treibstoff-Limit hat und kooperativ läuft, noch NICHT durch echte
 Hardware-Trennung (die kommt erst mit M11).).

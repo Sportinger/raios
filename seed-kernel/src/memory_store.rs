@@ -14,24 +14,39 @@
 //! SUPERSEDES A -- the write-side proof of supersede-not-overwrite.
 //!
 //! Both drivers GRANT NOTHING: they are passive durable records of already-true
-//! system facts, never a capability grant. There is no agent-authored write path
-//! yet (a later slice); this file's only callers are the `memory.record_log_append*`
-//! and `memory.decision_problem_log_append` Read0 methods wired in
-//! `agent_protocol.rs`.
+//! system facts, never a capability grant. This file's system-authored callers are
+//! the `memory.record_log_append*` and `memory.decision_problem_log_append` Read0
+//! methods wired in `agent_protocol.rs`.
 //!
-//! `boot_id` is the fixed `"current_boot"` marker. `sequence`/`created_at_ticks` fall
-//! back to `0`: there is no RAM-only, side-effect-free way to peek the current
-//! event-log sequence without recording a new event, so `0` is the honest,
-//! deterministic-within-boot fallback (stated in the M9A-2b report).
+//! M9B-1b (near the bottom) adds the FIRST agent-authored write path:
+//! `memory.observation_log_append` lets an AGENT durably record ONE `observation`
+//! -- entity/predicate/value/source_record_id, base64-encoded, newline-separated --
+//! while the kernel FORCES every authority-bearing field (id, kind, classification,
+//! authority, boot_id, supersedes, tags) and appends through the SAME shared
+//! gauntlet via `durable_store::append_agent_observation_record`, authorized ONLY by
+//! `evaluate_scoped_memory_record_append` with `agent_authored=true` (M9B-1a,
+//! already merged). The broad `memory.record_observation` and the entire
+//! `MEMORY_MUTATION_METHODS` set are untouched by this file and stay denied.
+//!
+//! `boot_id` is the fixed `"current_boot"` marker. The system drivers'
+//! `sequence`/`created_at_ticks` fall back to `0`: there is no RAM-only,
+//! side-effect-free way to peek the current event-log sequence without recording a
+//! new event, so `0` is the honest, deterministic-within-boot fallback (stated in
+//! the M9A-2b report). The agent-observation driver instead has its OWN per-boot
+//! RAM-only counter (`next_agent_observation_seq`), since its id must be unique per
+//! write attempt.
 
-use alloc::{vec, vec::Vec};
+use alloc::{format, vec, vec::Vec};
+
+use spin::Mutex;
 
 use crate::{
     agent_protocol::durable_store,
     agent_protocol_support::{
-        begin_response, emit_record_fields, end_response, record_bool as b, record_field as f,
-        record_sha_or_null, record_str as s,
+        begin_response, emit_record_fields, end_response, method_head_eq, record_bool as b,
+        record_field as f, record_sha_or_null, record_str as s,
     },
+    module_candidate_channel,
 };
 use raios_core::{
     memory_record::{MemoryRecord, MemoryRecordError, MemoryRecordInput, MemorySource},
@@ -141,7 +156,7 @@ fn emit_memory_record_append_denied(reason: &'static str) {
     end_response(METHOD);
 }
 
-fn emit_memory_record_append_response(evidence: &durable_store::MemoryRecordAppendEvidence) {
+fn emit_memory_record_append_response(evidence: &durable_store::MemoryRecordAppendEvidence<'_>) {
     let mut fields = vec![
         f("schema", s(RESPONSE_SCHEMA)),
         f("query_method", s(METHOD)),
@@ -157,9 +172,9 @@ fn emit_memory_record_append_response(evidence: &durable_store::MemoryRecordAppe
 /// response array (M9A-3b). Field names/order are IDENTICAL to the original M9A-2b
 /// single-record body (everything after `schema`/`query_method`), so refactoring this
 /// out changes nothing about the existing method's wire shape.
-fn memory_record_evidence_fields(
-    evidence: &durable_store::MemoryRecordAppendEvidence,
-) -> Vec<Field<'static>> {
+fn memory_record_evidence_fields<'a>(
+    evidence: &durable_store::MemoryRecordAppendEvidence<'a>,
+) -> Vec<Field<'a>> {
     vec![
         f("durable_append", s(evidence.durable_append)),
         f("performed", b(evidence.performed)),
@@ -377,7 +392,7 @@ fn emit_memory_decision_problem_append_denied(reason: &'static str) {
 fn emit_memory_decision_problem_append_response(
     entries: &[(
         &MemoryRecord<'static>,
-        &durable_store::MemoryRecordAppendEvidence,
+        &durable_store::MemoryRecordAppendEvidence<'static>,
     ); 3],
 ) {
     let mut records = Vec::with_capacity(entries.len());
@@ -431,7 +446,7 @@ fn emit_memory_decision_problem_append_response(
 /// claim.
 fn record_decision_problem_entry(
     record: &MemoryRecord<'static>,
-    evidence: &durable_store::MemoryRecordAppendEvidence,
+    evidence: &durable_store::MemoryRecordAppendEvidence<'static>,
 ) -> V<'static> {
     let mut fields = memory_record_evidence_fields(evidence);
     fields.push(f("supersedes", record_supersedes_array(record)));
@@ -838,4 +853,238 @@ fn scoped_case(
         actual_reason: decision.reason,
         passed: decision.status == "denied" && decision.reason == expected_reason,
     }
+}
+
+// --- M9B-1b: the ONE agent-authored durable observation write path ---------------
+//
+// `memory.observation_log_append` lets an AGENT durably record ONE `observation`
+// `raios.memory_record.v0`. The agent supplies exactly 4 fields -- entity,
+// predicate, value, source_record_id -- as a SINGLE base64-encoded, newline-
+// separated blob (decoded via the SAME hardened `decode_base64_chunk` the module
+// candidate channel uses; no second decoder). Every other authority-bearing field
+// (id, kind, classification, authority, boot_id, supersedes, tags) is FORCED by the
+// kernel below, never taken from the agent. The record is appended through the
+// SAME shared reclog gauntlet as the system-authored drivers above, via
+// `durable_store::append_agent_observation_record`, authorized ONLY by
+// `evaluate_scoped_memory_record_append` with `agent_authored=true` (M9B-1a,
+// already merged: confines an agent record to `observation`/no-supersede/
+// `local_only`). Every malformed or oversized input is a distinct, RAM-only
+// `capability_denied` -- nothing is ever appended on a denial path.
+
+const OBSERVATION_METHOD: &str = "memory.observation_log_append";
+const OBSERVATION_RESPONSE_SCHEMA: &str = "raios.memory_observation_append.v0";
+
+/// Field byte caps (agent-controlled fields only): entity/predicate/value/
+/// source_record_id, in that order -- matching the 4-field blob layout.
+const OBSERVATION_ENTITY_MAX: usize = 64;
+const OBSERVATION_PREDICATE_MAX: usize = 32;
+const OBSERVATION_VALUE_MAX: usize = 96;
+const OBSERVATION_SOURCE_MAX: usize = 64;
+
+/// Per-boot, RAM-only monotonic counter for agent-authored observation ids AND the
+/// record's `sequence` field (the SAME counter drives both). A fresh static reset to
+/// `0` every boot by construction -- never read from or written to disk. Only advanced
+/// once a write ATTEMPT has passed every pre-append validation (so a MALFORMED input
+/// never burns a number): `next_agent_observation_seq()` returns `1` on the first such
+/// attempt of a boot, `2` next, etc.
+///
+/// IMPORTANT (M9B-1b review LOW-1): this is the AGENT's own within-boot attempt counter
+/// for id uniqueness. It is NOT the RECLOG frame sequence (the durable-log ordering lives
+/// in the frame envelope, not the payload). A well-formed input denied by the durable
+/// gauntlet (quota/safe-mode/rescan) still advances it, so agent ids may have gaps and
+/// `record.sequence` may differ from the frame's reclog seq. A future context broker MUST
+/// order agent records by the reclog frame seq / boot_id, NEVER by this `sequence` field,
+/// and MUST treat the agent-supplied `source.record_id` as an untrusted locator (trust
+/// only the forced `authority="agent"` + `source.method`).
+static AGENT_OBSERVATION_SEQ: Mutex<u64> = Mutex::new(0);
+
+fn next_agent_observation_seq() -> u64 {
+    let mut seq = AGENT_OBSERVATION_SEQ.lock();
+    *seq = seq.saturating_add(1);
+    *seq
+}
+
+/// Strips the `memory.observation_log_append` method token (any alias-free, exact
+/// Head match) from the full dispatch input line, returning the trimmed base64 arg
+/// that follows. Mirrors `agent_protocol_memory.rs::memory_method_arg`'s idiom.
+fn observation_log_append_payload(input: &str) -> &str {
+    let input = input.trim();
+    if method_head_eq(input, OBSERVATION_METHOD) {
+        input[OBSERVATION_METHOD.len()..].trim()
+    } else {
+        input
+    }
+}
+
+/// The locator-safe charset every one of the 4 agent-supplied fields must be
+/// entirely composed of: `[A-Za-z0-9 ._:/-]`. Excludes control bytes, non-ASCII,
+/// quotes, and backslashes -- nothing that could break out of the record's rendered
+/// JSON string or smuggle a control character into a durable fact.
+fn is_observation_locator_safe_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b' ' | b'.' | b'_' | b':' | b'/' | b'-')
+}
+
+pub(crate) fn emit_memory_observation_log_append(input: &str) {
+    let payload = observation_log_append_payload(input);
+    if payload.is_empty() {
+        emit_observation_append_denied("agent_observation_missing_payload");
+        return;
+    }
+
+    let decoded = match module_candidate_channel::decode_base64_chunk(payload) {
+        Ok(decoded) => decoded,
+        // The decoder's OWN reason (rejected_malformed_base64_chunk /
+        // rejected_empty_base64_chunk / rejected_invalid_base64_length /
+        // rejected_invalid_base64_padding) -- distinct and already fail-closed;
+        // reused verbatim rather than re-labelled.
+        Err(reason) => {
+            emit_observation_append_denied(reason);
+            return;
+        }
+    };
+
+    let fields: Vec<&[u8]> = decoded.split(|&byte| byte == b'\n').collect();
+    if fields.len() != 4 {
+        emit_observation_append_denied("agent_observation_field_count");
+        return;
+    }
+
+    let caps = [
+        OBSERVATION_ENTITY_MAX,
+        OBSERVATION_PREDICATE_MAX,
+        OBSERVATION_VALUE_MAX,
+        OBSERVATION_SOURCE_MAX,
+    ];
+    let mut idx = 0usize;
+    while idx < fields.len() {
+        if fields[idx].len() > caps[idx] {
+            emit_observation_append_denied("agent_observation_field_too_long");
+            return;
+        }
+        idx += 1;
+    }
+
+    idx = 0;
+    while idx < fields.len() {
+        if !fields[idx]
+            .iter()
+            .all(|&byte| is_observation_locator_safe_byte(byte))
+        {
+            emit_observation_append_denied("agent_observation_field_charset");
+            return;
+        }
+        idx += 1;
+    }
+
+    // The charset check above guarantees every field is pure ASCII (a strict UTF-8
+    // subset), so `from_utf8` cannot fail here -- handled fail-closed regardless.
+    let entity = match core::str::from_utf8(fields[0]) {
+        Ok(value) => value,
+        Err(_) => {
+            emit_observation_append_denied("agent_observation_field_not_utf8");
+            return;
+        }
+    };
+    let predicate = match core::str::from_utf8(fields[1]) {
+        Ok(value) => value,
+        Err(_) => {
+            emit_observation_append_denied("agent_observation_field_not_utf8");
+            return;
+        }
+    };
+    let value_scalar = match core::str::from_utf8(fields[2]) {
+        Ok(value) => value,
+        Err(_) => {
+            emit_observation_append_denied("agent_observation_field_not_utf8");
+            return;
+        }
+    };
+    let source_record_id = match core::str::from_utf8(fields[3]) {
+        Ok(value) => value,
+        Err(_) => {
+            emit_observation_append_denied("agent_observation_field_not_utf8");
+            return;
+        }
+    };
+
+    // Pre-checked here for a clear, distinct reason; `MemoryRecord::new`'s own
+    // `ObservationMissingEntity`/`ObservationMissingSource` checks would otherwise
+    // catch these (deny-in-depth), but never fire given these pre-checks.
+    if entity.is_empty() {
+        emit_observation_append_denied("agent_observation_entity_empty");
+        return;
+    }
+    if source_record_id.is_empty() {
+        emit_observation_append_denied("agent_observation_source_empty");
+        return;
+    }
+
+    // Only NOW -- after every pre-append validation has passed -- does this attempt
+    // consume a sequence number, so a malformed input never burns one.
+    let seq = next_agent_observation_seq();
+    let id = format!("mem.observation.agent.current_boot.{:08}.v0", seq);
+
+    let record = match MemoryRecord::new(MemoryRecordInput {
+        id: id.as_str(),
+        kind: "observation",
+        entity,
+        predicate,
+        value: V::Str(value_scalar),
+        classification: "local_only",
+        authority: "agent",
+        boot_id: "current_boot",
+        sequence: seq,
+        source: MemorySource::new(OBSERVATION_METHOD, source_record_id),
+        evidence: vec![],
+        tags: vec!["agent", "observation"],
+        supersedes: vec![],
+        created_at_ticks: 0,
+    }) {
+        Ok(record) => record,
+        Err(err) => {
+            emit_observation_append_denied(err.reason());
+            return;
+        }
+    };
+
+    // The record (and everything it borrows: `id`, `entity`/`predicate`/
+    // `value_scalar`/`source_record_id` slices of `decoded`) must stay alive through
+    // rendering -- none of it is `'static`. `append_agent_observation_record` and
+    // `emit_observation_append_response` both run BEFORE `record`/`decoded`/`id`
+    // drop at the end of this function.
+    let evidence = durable_store::append_agent_observation_record(&record);
+    emit_observation_append_response(&evidence);
+}
+
+fn emit_observation_append_denied(reason: &'static str) {
+    begin_response(OBSERVATION_METHOD);
+    emit_record_fields(
+        vec![
+            f("schema", s(OBSERVATION_RESPONSE_SCHEMA)),
+            f("query_method", s(OBSERVATION_METHOD)),
+            f("durable_append", s("capability_denied")),
+            f("performed", b(false)),
+            f("reason", s(reason)),
+            f("authority", s("evidence_only")),
+            f("record_schema", s(EXPECTED_RECORD_SCHEMA)),
+            f("region_marker", s(EXPECTED_REGION_MARKER)),
+            f("target_id", s(EXPECTED_TARGET_ID)),
+            f("trust_tier", s(EXPECTED_TRUST_TIER)),
+            f("owner_sealed", b(false)),
+            f("persistence_claimed", b(false)),
+        ],
+        6,
+    );
+    end_response(OBSERVATION_METHOD);
+}
+
+fn emit_observation_append_response(evidence: &durable_store::MemoryRecordAppendEvidence<'_>) {
+    let mut fields = vec![
+        f("schema", s(OBSERVATION_RESPONSE_SCHEMA)),
+        f("query_method", s(OBSERVATION_METHOD)),
+    ];
+    fields.extend(memory_record_evidence_fields(evidence));
+    begin_response(OBSERVATION_METHOD);
+    emit_record_fields(fields, 6);
+    end_response(OBSERVATION_METHOD);
 }

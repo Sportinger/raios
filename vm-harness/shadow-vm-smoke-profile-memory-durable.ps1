@@ -2,6 +2,16 @@ if (-not $PersistDiskImage) {
     throw "memory-durable profile requires PersistDiskImage"
 }
 
+# M9B-1b: the agent-observation command carries a base64 blob (~213-byte line). Sent
+# as one fast burst it overflows the guest's 16550 UART RX FIFO (the guest drains
+# MAX_BYTES_PER_POLL=64 per poll with UI redraw between polls), dropping the tail so the
+# line never terminates and the kernel never dispatches. Pace EVERY send in this profile
+# (small chunks + a short delay) so the guest drains between chunks -- exactly how a real
+# agent sender, and the existing submit_candidate_chunk path, pace long serial writes.
+# Harmless for the short M9A commands (a few extra ms each).
+$script:SerialWriteChunkSize = 32
+$script:SerialWriteDelayMilliseconds = 10
+
 function Get-ProfileAgentResponseJson {
     param(
         [string]$Path,
@@ -35,7 +45,13 @@ function Invoke-MemoryRecordAppendFixtureProbe {
         # "memory.decision_problem_log_append" to drive the SAME probe pattern
         # (build -> boot -> agent <method> -> agent durable.record_log_scan) against
         # the M9A-3b decision/problem/supersede trio driver instead.
-        [string]$AppendMethod = "memory.record_log_append"
+        [string]$AppendMethod = "memory.record_log_append",
+        # M9B-1b: an optional trailing argument sent after $AppendMethod on the SAME
+        # line (e.g. "agent memory.observation_log_append <base64>") -- the
+        # agent-authored observation method takes a base64 blob arg, unlike the
+        # arg-less system-authored append methods above (default empty preserves the
+        # existing call sites byte-for-byte).
+        [string]$AppendArg = ""
     )
 
     if (-not $script:MemoryRecordFixtureProbeIndex) {
@@ -96,7 +112,8 @@ function Invoke-MemoryRecordAppendFixtureProbe {
         if (-not (Wait-ForLogText -Path $fixtureLog -Needle "SERIAL CONSOLE READY" -TimeoutSeconds $childTimeout)) {
             throw "Memory-record fixture child VM did not reach serial console: $(Get-SerialLogTail -Path $fixtureLog)"
         }
-        Send-SerialText -Port $fixturePort -Text "agent $AppendMethod`r" -TimeoutSeconds $childTimeout
+        $appendCommandLine = if ($AppendArg.Length -gt 0) { "agent $AppendMethod $AppendArg" } else { "agent $AppendMethod" }
+        Send-SerialText -Port $fixturePort -Text "$appendCommandLine`r" -TimeoutSeconds $childTimeout
         if (-not (Wait-ForLogText -Path $fixtureLog -Needle "RAIOS_AGENT_END $AppendMethod" -TimeoutSeconds $childTimeout)) {
             throw "Memory-record fixture child VM did not answer ${AppendMethod}: $(Get-SerialLogTail -Path $fixtureLog)"
         }
@@ -362,6 +379,141 @@ if (-not ($recordAOk -and $recordPOk -and $recordBOk -and $chainAdvanceOk -and $
     throw "memory-durable-supersede family failed"
 }
 
+# --- memory-agent-observation-authorized: the FIRST agent-authored durable write
+#     (M9B-1b) -- a fresh child VM, same valid:2 reclog fixture, driven with
+#     memory.observation_log_append <FROZEN_BLOB>. The frozen blob decodes to
+#     EXACTLY 4 newline-separated fields (entity/predicate/value/source_record_id);
+#     the kernel FORCES every other authority-bearing field (id, kind,
+#     classification, authority, boot_id, supersedes, tags). ----------------------
+
+# FROZEN test blob -- decodes to:
+#   entity           = vm.smoke.observation
+#   predicate        = observed
+#   value            = agent authored durable observation via memory.observation_log_append
+#   source_record_id = vm.smoke.memory-agent-observation
+$agentObservationBlob = "dm0uc21va2Uub2JzZXJ2YXRpb24Kb2JzZXJ2ZWQKYWdlbnQgYXV0aG9yZWQgZHVyYWJsZSBvYnNlcnZhdGlvbiB2aWEgbWVtb3J5Lm9ic2VydmF0aW9uX2xvZ19hcHBlbmQKdm0uc21va2UubWVtb3J5LWFnZW50LW9ic2VydmF0aW9u"
+
+$probeObservation = Invoke-MemoryRecordAppendFixtureProbe -FixtureSpec "valid:2" -Label "agent-observation" -AppendMethod "memory.observation_log_append" -AppendArg $agentObservationBlob
+$agentObservation = $probeObservation.append
+$agentObservationScan = $probeObservation.scan
+
+$agentObservationFieldChecks = @(
+    @{ suffix = "durable-append-status"; expected = 'durable_append == "appended"'; actual = $agentObservation.durable_append; passed = ($agentObservation.durable_append -eq "appended") },
+    @{ suffix = "performed-true"; expected = "performed == true"; actual = $agentObservation.performed; passed = [bool]$agentObservation.performed },
+    @{ suffix = "authority"; expected = 'authority == "scoped_memory_record_append_authorized"'; actual = $agentObservation.authority; passed = ($agentObservation.authority -eq "scoped_memory_record_append_authorized") },
+    @{ suffix = "kind"; expected = 'kind == "observation"'; actual = $agentObservation.kind; passed = ($agentObservation.kind -eq "observation") },
+    @{ suffix = "classification"; expected = 'classification == "local_only"'; actual = $agentObservation.classification; passed = ($agentObservation.classification -eq "local_only") },
+    @{ suffix = "record-authority"; expected = 'record_authority == "agent"'; actual = $agentObservation.record_authority; passed = ($agentObservation.record_authority -eq "agent") },
+    @{ suffix = "record-id"; expected = 'record_id == "mem.observation.agent.current_boot.00000001.v0"'; actual = $agentObservation.record_id; passed = ($agentObservation.record_id -eq "mem.observation.agent.current_boot.00000001.v0") },
+    @{ suffix = "readback-hash"; expected = "readback_sha256 == frame_sha256 and reparse_valid"; actual = "readback_sha256=$($agentObservation.readback_sha256) frame_sha256=$($agentObservation.frame_sha256) reparse_valid=$($agentObservation.reparse_valid)"; passed = ($agentObservation.readback_sha256 -eq $agentObservation.frame_sha256 -and [bool]$agentObservation.reparse_valid) },
+    @{ suffix = "honest-posture"; expected = "owner_sealed == false and persistence_claimed == false"; actual = "owner_sealed=$($agentObservation.owner_sealed) persistence_claimed=$($agentObservation.persistence_claimed)"; passed = (-not [bool]$agentObservation.owner_sealed -and -not [bool]$agentObservation.persistence_claimed) },
+    @{ suffix = "frame-len-bounded"; expected = "frame_len <= 1024 (proves the 2-sector agent quota charge is not an undercharge)"; actual = $agentObservation.frame_len; passed = ([int64]$agentObservation.frame_len -le 1024) },
+    @{ suffix = "payload-sha256-golden"; expected = "payload_sha256 == pinned golden sha256:75ea5ab92fc9dafe908bae204e5a357947e47ba7e231aaddc0c19854288e198d (the EXACT agent record landed)"; actual = $agentObservation.payload_sha256; passed = ($agentObservation.payload_sha256 -eq "sha256:75ea5ab92fc9dafe908bae204e5a357947e47ba7e231aaddc0c19854288e198d") }
+)
+foreach ($check in $agentObservationFieldChecks) {
+    Add-Predicate `
+        -Name "memory-agent-observation-authorized:$($check.suffix)" `
+        -Expected $check.expected `
+        -Passed $check.passed `
+        -Actual $(if ($check.passed) { "matched" } else { [string]$check.actual })
+}
+$agentObservationAuthorized = -not (@($agentObservationFieldChecks | Where-Object { -not $_.passed }).Count -gt 0)
+
+$agentObservationChainAdvance = (
+    [int64]$agentObservation.tail_seq_after -eq ([int64]$agentObservation.tail_seq_before + 1) -and
+    [int64]$agentObservation.count_after -eq ([int64]$agentObservation.count_before + 1)
+)
+Add-Predicate `
+    -Name "memory-agent-observation-authorized:chain-advance" `
+    -Expected "memory.observation_log_append advances tail_seq and count by exactly one over the seeded valid:2 fixture" `
+    -Passed $agentObservationChainAdvance `
+    -Actual $(if ($agentObservationChainAdvance) { "matched" } else { ($agentObservation | ConvertTo-Json -Compress -Depth 10) })
+
+# INSPECT: an independent follow-up durable.record_log_scan (same booted child VM,
+# same disk state) agrees with the append's own self-reported tail/count.
+$agentObservationInspectAgrees = (
+    $agentObservationScan.schema -eq "raios.durable_record_log_scan.v0" -and
+    [int64]$agentObservationScan.tail_seq -eq [int64]$agentObservation.tail_seq_after -and
+    [int64]$agentObservationScan.count -eq [int64]$agentObservation.count_after -and
+    $agentObservationScan.status -eq "valid"
+)
+Add-Predicate `
+    -Name "memory-agent-observation-authorized:inspect-scan-agrees" `
+    -Expected "a follow-up durable.record_log_scan in the same VM shows the new agent-authored observation frame at tail" `
+    -Passed $agentObservationInspectAgrees `
+    -Actual $(if ($agentObservationInspectAgrees) { "matched" } else { ($agentObservationScan | ConvertTo-Json -Compress -Depth 10) })
+
+if (-not ($agentObservationAuthorized -and $agentObservationChainAdvance -and $agentObservationInspectAgrees)) {
+    throw "memory-agent-observation-authorized family failed"
+}
+
+# --- memory-agent-observation-denied: 5 distinct RAM-only denials against the MAIN
+#     VM (M9B-1b) -- each a different malformed `memory.observation_log_append`
+#     argument. Bracketed by a single before/after durable.record_log_scan on the
+#     main VM proving NOTHING was appended across all 5 attempts. ------------------
+
+function ConvertTo-Base64AsciiArg {
+    param([string]$Text)
+    $bytes = [System.Text.Encoding]::ASCII.GetBytes($Text)
+    return [Convert]::ToBase64String($bytes)
+}
+
+# (a) not base64 at all.
+$agentObsBadNotBase64 = "!!!!"
+# (b) valid base64, but only 3 newline-separated fields (wrong count).
+$agentObsBadFieldCount = ConvertTo-Base64AsciiArg "vm.smoke.bad`nobserved`nvalue"
+# (c) valid base64, 4 fields, but entity is 65 bytes (over the 64-byte cap).
+$agentObsBadTooLong = ConvertTo-Base64AsciiArg ("x" * 65 + "`nobserved`nvalue`nvm.smoke.source")
+# (d) valid base64, 4 fields, but entity carries a disallowed charset byte (a quote).
+$agentObsBadCharset = ConvertTo-Base64AsciiArg "vm.smoke.bad`"entity`nobserved`nvalue`nvm.smoke.source"
+# (e) valid base64, 4 fields, but entity is empty.
+$agentObsBadEmptyEntity = ConvertTo-Base64AsciiArg "`nobserved`nvalue`nvm.smoke.source"
+
+Send-AgentCommand -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "memory-agent-observation-denied:scan_before"
+$agentObsScanBefore = (Get-LastAgentResponseJson -Method "durable.record_log_scan").body.result
+
+$agentObservationDeniedCases = @(
+    @{ suffix = "not-base64"; arg = $agentObsBadNotBase64; expectedReason = "rejected_malformed_base64_chunk" },
+    @{ suffix = "field-count"; arg = $agentObsBadFieldCount; expectedReason = "agent_observation_field_count" },
+    @{ suffix = "field-too-long"; arg = $agentObsBadTooLong; expectedReason = "agent_observation_field_too_long" },
+    @{ suffix = "field-charset"; arg = $agentObsBadCharset; expectedReason = "agent_observation_field_charset" },
+    @{ suffix = "entity-empty"; arg = $agentObsBadEmptyEntity; expectedReason = "agent_observation_entity_empty" }
+)
+
+$agentObservationDeniedAllOk = $true
+foreach ($case in $agentObservationDeniedCases) {
+    Send-AgentCommand -Command "agent memory.observation_log_append $($case.arg)" -ExpectedMarker "RAIOS_AGENT_END memory.observation_log_append" -Name "memory-agent-observation-denied:$($case.suffix)_send"
+    $result = (Get-LastAgentResponseJson -Method "memory.observation_log_append").body.result
+    $caseOk = (
+        $result.durable_append -eq "capability_denied" -and
+        [bool]$result.performed -eq $false -and
+        $result.reason -eq $case.expectedReason
+    )
+    if (-not $caseOk) { $agentObservationDeniedAllOk = $false }
+    Add-Predicate `
+        -Name "memory-agent-observation-denied:$($case.suffix)" `
+        -Expected "durable_append == `"capability_denied`" and performed == false and reason == `"$($case.expectedReason)`"" `
+        -Passed $caseOk `
+        -Actual $(if ($caseOk) { "matched" } else { ($result | ConvertTo-Json -Compress -Depth 8) })
+}
+
+Send-AgentCommand -Command "agent durable.record_log_scan" -ExpectedMarker "RAIOS_AGENT_END durable.record_log_scan" -Name "memory-agent-observation-denied:scan_after"
+$agentObsScanAfter = (Get-LastAgentResponseJson -Method "durable.record_log_scan").body.result
+
+$agentObservationDeniedNothingAppended = (
+    [int64]$agentObsScanAfter.count -eq [int64]$agentObsScanBefore.count -and
+    [int64]$agentObsScanAfter.tail_seq -eq [int64]$agentObsScanBefore.tail_seq
+)
+Add-Predicate `
+    -Name "memory-agent-observation-denied:nothing-appended" `
+    -Expected "all 5 malformed memory.observation_log_append attempts are RAM-only: reclog count/tail_seq unchanged across the whole set" `
+    -Passed $agentObservationDeniedNothingAppended `
+    -Actual $(if ($agentObservationDeniedNothingAppended) { "matched" } else { "before=$($agentObsScanBefore | ConvertTo-Json -Compress) after=$($agentObsScanAfter | ConvertTo-Json -Compress)" })
+
+if (-not ($agentObservationDeniedAllOk -and $agentObservationDeniedNothingAppended)) {
+    throw "memory-agent-observation-denied family failed"
+}
+
 # --- memory-durable-secret-denied / memory-durable-quota: synthetic selftest ------
 # One selftest call covers BOTH families: constructor fail-closed cases (secret
 # classification / unknown kind) and the scoped evaluator's own defensive pins
@@ -557,6 +709,11 @@ function Assert-MemoryDurableMutationDenied {
 }
 
 $obsDenied = Assert-MemoryDurableMutationDenied -Command "agent memory.record_observation" -Method "memory.record_observation" -Suffix "memory_record_observation"
+# M9B-1b: the broad memory.record_observation boundary did NOT open just because the
+# NARROW memory.observation_log_append method now exists -- re-asserted here, AFTER
+# every memory-agent-observation-authorized/denied case above already exercised the
+# new method against this same main VM.
+$obsStillDeniedAfterAgentObservationMethod = Assert-MemoryDurableMutationDenied -Command "agent memory.record_observation" -Method "memory.record_observation" -Suffix "memory_record_observation_after_agent_observation_method_exists"
 # L1: memory.redact must be proven capability_denied (was previously only a method echo).
 $redactDenied = Assert-MemoryDurableMutationDenied -Command "agent memory.redact" -Method "memory.redact" -Suffix "memory_redact"
 # L2: parse the provider.context_export response specifically, so an earlier mutation
@@ -572,6 +729,6 @@ Add-Predicate `
     -Passed $contextExportDisabled `
     -Actual $(if ($contextExportDisabled) { "matched" } else { $contextJson })
 
-if (-not ($obsDenied -and $redactDenied -and $exportDenied -and $contextExportDisabled)) {
+if (-not ($obsDenied -and $obsStillDeniedAfterAgentObservationMethod -and $redactDenied -and $exportDenied -and $contextExportDisabled)) {
     throw "memory-durable guard family failed"
 }

@@ -188,7 +188,9 @@ fn candidate_chunk_payload(arg: &str) -> &str {
     }
 }
 
-fn decode_base64_chunk(input: &str) -> Result<Vec<u8>, &'static str> {
+/// M9B-1b: also reused (unforked) by `memory_store::emit_memory_observation_log_append`
+/// to decode the agent-supplied observation blob, hence `pub(crate)`.
+pub(crate) fn decode_base64_chunk(input: &str) -> Result<Vec<u8>, &'static str> {
     let bytes = input.as_bytes();
     if bytes.is_empty() {
         return Err(EMPTY_CHUNK_REASON);
