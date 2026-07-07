@@ -15,7 +15,7 @@ use crate::{
 use raios_core::{
     artifact_blob_frame::{
         build_artifact_blob_frame, parse_artifact_blob_frame, plan_artifact_blob_write,
-        ARTIFACT_BLOB_MAGIC,
+        ARTIFACT_BLOB_FRAME_HEADER_LEN, ARTIFACT_BLOB_MAGIC,
     },
     boot_control::BootPosture,
     durable_record_frame::{
@@ -103,25 +103,33 @@ impl ArtifactPersistEvidence {
 }
 
 #[derive(Clone, Copy)]
-struct ArtifactPersistRecord {
-    seq: u64,
-    reclog_offset: u64,
-    artstor_blob_offset: u64,
-    artstor_blob_len: u64,
-    artstor_blob_frame_sha256: [u8; 32],
-    artifact_sha256: [u8; 32],
-    promotion_transaction_sha256: [u8; 32],
-    authorizes_load: bool,
+pub(crate) struct ArtifactPersistRecord {
+    pub(crate) seq: u64,
+    pub(crate) reclog_offset: u64,
+    pub(crate) artstor_blob_offset: u64,
+    pub(crate) artstor_blob_len: u64,
+    pub(crate) artstor_blob_frame_sha256: [u8; 32],
+    pub(crate) artifact_sha256: [u8; 32],
+    pub(crate) manifest_hash: [u8; 32],
+    pub(crate) vm_report_hash: [u8; 32],
+    pub(crate) grant_hash: [u8; 32],
+    pub(crate) promotion_transaction_sha256: [u8; 32],
+    pub(crate) authorizes_load: bool,
 }
 
-struct ReclogScanEvidence {
-    reason: &'static str,
-    read_completed: bool,
-    reclog_absolute_start_lba: u64,
-    reclog_lba_count: u64,
-    reclog_byte_count: u64,
-    scan: RecordLogScan,
-    bytes: Option<Vec<u8>>,
+pub(crate) struct ReclogScanEvidence {
+    pub(crate) reason: &'static str,
+    pub(crate) read_completed: bool,
+    pub(crate) reclog_absolute_start_lba: u64,
+    pub(crate) reclog_lba_count: u64,
+    pub(crate) reclog_byte_count: u64,
+    pub(crate) scan: RecordLogScan,
+    pub(crate) bytes: Option<Vec<u8>>,
+}
+
+pub(crate) struct VerifiedArtifactPayload {
+    pub(crate) blob_bytes: Vec<u8>,
+    pub(crate) payload: Vec<u8>,
 }
 
 struct VecSink(Vec<u8>);
@@ -501,7 +509,9 @@ pub(crate) fn emit_artifact_store_selftest() {
     end_response(ARTIFACT_STORE_SELFTEST_METHOD);
 }
 
-fn current_boot_reclog_scan(controller: pci::PciMassStorageController) -> ReclogScanEvidence {
+pub(crate) fn current_boot_reclog_scan(
+    controller: pci::PciMassStorageController,
+) -> ReclogScanEvidence {
     let read = ahci::read_persist_reclog_region(controller);
     let scan = match read.bytes.as_deref() {
         Some(bytes) => scan_reclog(bytes),
@@ -640,7 +650,7 @@ fn next_free_artstor_offset(records: &[ArtifactPersistRecord]) -> Result<u64, &'
     Ok(next)
 }
 
-fn artifact_persist_records_from_reclog(bytes: &[u8]) -> Vec<ArtifactPersistRecord> {
+pub(crate) fn artifact_persist_records_from_reclog(bytes: &[u8]) -> Vec<ArtifactPersistRecord> {
     let scan = scan_reclog(bytes);
     let mut records = Vec::new();
     let mut offset = 0usize;
@@ -684,11 +694,46 @@ fn parse_artifact_persist_payload(
         artstor_blob_len: extract_u64(payload, b"\"artstor_blob_len\": ")?,
         artstor_blob_frame_sha256: extract_sha256(payload, b"\"artstor_blob_frame_sha256\": \"")?,
         artifact_sha256: extract_sha256(payload, b"\"artifact_sha256\": \"")?,
+        manifest_hash: extract_sha256(payload, b"\"manifest_hash\": \"")?,
+        vm_report_hash: extract_sha256(payload, b"\"vm_report_hash\": \"")?,
+        grant_hash: extract_sha256(payload, b"\"grant_hash\": \"")?,
         promotion_transaction_sha256: extract_sha256(
             payload,
             b"\"promotion_transaction_sha256\": \"",
         )?,
         authorizes_load: extract_bool(payload, b"\"authorizes_load\": ")?,
+    })
+}
+
+pub(crate) fn read_verified_artstor_payload(
+    controller: pci::PciMassStorageController,
+    record: &ArtifactPersistRecord,
+) -> Result<VerifiedArtifactPayload, &'static str> {
+    let read = ahci::read_persist_artstor_region(
+        controller,
+        record.artstor_blob_offset,
+        record.artstor_blob_len,
+    );
+    let Some(bytes) = read.bytes else {
+        return Err(read.reason);
+    };
+    if sha256_bytes(&bytes) != record.artstor_blob_frame_sha256 {
+        return Err("blob_hash_mismatch");
+    }
+    let parsed = parse_artifact_blob_frame(&bytes, 0).map_err(|_| "artifact_blob_parse_failed")?;
+    if parsed.payload_sha256 != record.artifact_sha256 {
+        return Err("artifact_sha_mismatch");
+    }
+    let payload_start = ARTIFACT_BLOB_FRAME_HEADER_LEN;
+    let payload_end = payload_start
+        .checked_add(parsed.payload_len as usize)
+        .ok_or("artifact_blob_payload_range_overflow")?;
+    if payload_end > bytes.len() {
+        return Err("artifact_blob_payload_range_out_of_bounds");
+    }
+    Ok(VerifiedArtifactPayload {
+        payload: bytes[payload_start..payload_end].to_vec(),
+        blob_bytes: bytes,
     })
 }
 
@@ -1162,7 +1207,7 @@ fn optional_u64(value: Option<u64>) -> V<'static> {
     }
 }
 
-fn extract_u64(payload: &str, needle: &[u8]) -> Option<u64> {
+pub(crate) fn extract_u64(payload: &str, needle: &[u8]) -> Option<u64> {
     let bytes = payload.as_bytes();
     let mut idx = find_bytes(bytes, needle)? + needle.len();
     while idx < bytes.len() && bytes[idx] == b' ' {
@@ -1184,7 +1229,7 @@ fn extract_u64(payload: &str, needle: &[u8]) -> Option<u64> {
     }
 }
 
-fn extract_bool(payload: &str, needle: &[u8]) -> Option<bool> {
+pub(crate) fn extract_bool(payload: &str, needle: &[u8]) -> Option<bool> {
     let bytes = payload.as_bytes();
     let idx = find_bytes(bytes, needle)? + needle.len();
     if starts_with(&bytes[idx..], b"true") {
@@ -1196,7 +1241,7 @@ fn extract_bool(payload: &str, needle: &[u8]) -> Option<bool> {
     }
 }
 
-fn extract_sha256(payload: &str, needle: &[u8]) -> Option<[u8; 32]> {
+pub(crate) fn extract_sha256(payload: &str, needle: &[u8]) -> Option<[u8; 32]> {
     let bytes = payload.as_bytes();
     let idx = find_bytes(bytes, needle)? + needle.len();
     if idx.checked_add(64)? > bytes.len() {

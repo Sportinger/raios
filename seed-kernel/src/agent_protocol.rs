@@ -4,6 +4,8 @@ pub(crate) mod artifact_store;
 mod boot_control;
 #[path = "durable_store.rs"]
 pub(crate) mod durable_store;
+#[path = "repromotion.rs"]
+mod repromotion;
 
 use crate::{
     agent_protocol_memory::{
@@ -342,6 +344,7 @@ const AGENT_METHODS: &[MethodEntry] = &[
     method!("module.artifact_store_selftest", Exact, [], [route!("module.artifact_store_selftest")], MethodAction::Read0(artifact_store::emit_artifact_store_selftest)),
     method!("boot.control_read", Exact, ["persist.boot_control"], [route!("boot.control_read"), route!("persist.boot_control" => "boot.control_read")], MethodAction::Read0(boot_control::emit_boot_control_read)),
     method!("boot.control_mark_success", Exact, ["persist.boot_control_mark_success"], [route!("boot.control_mark_success"), route!("persist.boot_control_mark_success" => "boot.control_mark_success")], MethodAction::ReadRuntime(boot_control::emit_boot_control_success_mark)),
+    method!("repromotion.run", Exact, ["persist.repromotion"], [route!("repromotion.run"), route!("persist.repromotion" => "repromotion.run")], MethodAction::ReadRuntime(repromotion::emit_repromotion_run)),
     envelope_method!("problem.list", Exact, ["problems"], [route!("problems" => "problem.list"), route!("problem.list" => "problem.list")], 17, "problem.list", "cap.problem.list.read", "agent_command_envelope.current_boot.serial.problem_list.v0", "problem.list", MethodAction::ReadRuntime(emit_problem_list)),
     envelope_method!("service.inventory", Exact, ["services"], [route!("services" => "service.inventory"), route!("service.inventory" => "service.inventory")], 5, "service.inventory", "cap.service.inventory.read", "agent_command_envelope.current_boot.serial.service_inventory.v0", "service.inventory", MethodAction::ReadRuntime(emit_service_inventory)),
     pred_method!("service.descriptor_source_trust_selftest", hello_service::is_descriptor_source_trust_selftest_method, [route!("service.descriptor_source_trust_selftest")], MethodAction::Response0Read(hello_service::emit_descriptor_source_trust_selftest)),

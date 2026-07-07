@@ -3036,7 +3036,16 @@ stored" — and, only on success, instantiates it so the service answers live. A
 failing re-verification stays inert + `repromotion_denied`; SAFE => zero re-promotion;
 `cross_reboot_proven=true` ONLY on the boot-2 grant record, still dev-tier
 (owner_sealed/persistence_claimed false, trust_tier dev_key_not_owner_sealed).
-PLAN (4 commits, mirrors the M6B-1 verify→M6B-2 flip cadence): **(1)** a reliable p256
+PLAN (4 commits, mirrors the M6B-1 verify→M6B-2 flip cadence) — **STATUS: (1) DONE
+(c5cdc77, dev signer 4/4); (2) DONE (repromotion.run re-verify chain that GRANTS
+NOTHING — raios-core 106/106 incl. corrupt-blob/tampered-record/bad-signature/
+attestation-mismatch host fixtures, persistence 48/48, module-audit-rollback
+1709/1709, FULL 8168/8168, max adversarial review could_not_refute 0 findings; STEP 4
+re-runs `verify_promotion_authority_signature` over the freshly recomputed
+attestation_reference_hash, never trusting the stored boolean — a host test proves it
+verifies even with `signature_verified:false` stored; 21 distinct denial reasons; a
+forged dev-key signature yields only `reverified`/`would_repromote` EVIDENCE at
+`dev_key_not_owner_sealed`, never a load); (3)+(4) REMAINING**: **(1)** a reliable p256
 Rust host signer (`ota/cli/src/bin/dev-promotion-signer.rs`, scalar-1, RFC6979,
 byte-identical to `promotion_attestation::verify_promotion_authority_signature`) — the
 existing PS 5.1/.NET signer is documented-unreliable so M6C/M6D fall back to a synthetic
